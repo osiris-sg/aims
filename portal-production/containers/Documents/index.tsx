@@ -1,0 +1,41 @@
+"use client";
+
+import MainCard from "@/components/MainCard";
+import PageTable from "@/components/PageTable";
+import React from "react";
+import { useGetDocuments } from "./hooks/useGetDocuments";
+import DeleteItemDialog from "@/components/DeleteItemDialog";
+import useDeleteDocumentHandler from "./hooks/useDeleteDocumentHandler";
+import useDocumentsTableHeader from "./hooks/useDocumentsTableHeader";
+import useCreateDocumentClickHandler from "./hooks/useCreateDocumentClickHandler";
+
+export default function Documents() {
+  const { columns } = useDocumentsTableHeader();
+  const { documentTemplates, loading, page, limit, search, setPage, setLimit, setSearch } = useGetDocuments();
+  const { onAddClick } = useCreateDocumentClickHandler();
+  const { documentToDelete, isDeleteInProgress, onDeleteConfirm, setDocumentToDelete } = useDeleteDocumentHandler();
+
+  return (
+    <MainCard>
+      <PageTable
+        loading={loading}
+        columns={columns}
+        data={documentTemplates.docs}
+        tableName="Documents"
+        subTitle="Document Templates"
+        buttonName="Create Document Template"
+        subRowAccessor="subRows"
+        page={page}
+        limit={limit}
+        search={search}
+        setPage={setPage}
+        setLimit={setLimit}
+        setSearch={setSearch}
+        pageCount={documentTemplates.totalPagesCount}
+        onAddClick={onAddClick}
+        totalDocs={documentTemplates.totalDocuments}
+      />
+      <DeleteItemDialog open={!!documentToDelete} onCancel={() => setDocumentToDelete(null)} onConfirm={onDeleteConfirm} loading={isDeleteInProgress} />
+    </MainCard>
+  );
+}

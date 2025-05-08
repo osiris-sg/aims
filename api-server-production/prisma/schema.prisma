@@ -1,0 +1,92 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Asset {
+  id                String             @id @default(uuid()) @db.Uuid
+  name              String
+  skuKey            String             @unique
+  categoryId        String             @db.Uuid
+  description       String?
+  image             String?
+  organizationId    String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  category          Category           @relation(fields: [categoryId], references: [id])
+  inventories       Inventory[]
+}
+
+model Category {
+  id             String  @id @default(uuid()) @db.Uuid
+  name           String
+  organizationId String?
+  assets         Asset[]
+}
+
+model Inventory {
+  id             String         @id @default(uuid()) @db.Uuid
+  assetId        String         @db.Uuid
+  location       String?
+  status         String
+  category       String
+  quantity       Int?
+  organizationId String
+  sku            String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  asset          Asset          @relation(fields: [assetId], references: [id])
+  timelineItems  TimelineItem[]
+}
+
+model Customer {
+  id                String             @id @default(uuid()) @db.Uuid
+  name              String
+  email             String             @unique
+  phone             String
+  address           String
+  organizationId    String
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+}
+
+model DocumentTemplate {
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String?
+  type           String
+  organizationId String?
+  config         Json?    // <- Stores all the RDO document field settings
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model TimelineItem {
+  id      String  @id @default(uuid()) @db.Uuid
+  message String?
+  pdfUrl  String?
+
+  inventoryId String?    @db.Uuid
+  inventory   Inventory? @relation(fields: [inventoryId], references: [id])
+
+  documentId String?   @db.Uuid
+  document   Document? @relation(fields: [documentId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Document {
+  id                 String    @id @default(uuid()) @db.Uuid
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  organizationId     String
+  documentTemplateId String
+  type               String
+  config             Json    // <- Stores all the RDO document field settings
+  timelineItems      TimelineItem[] 
+}

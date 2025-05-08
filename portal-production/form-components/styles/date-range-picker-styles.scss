@@ -1,0 +1,10 @@
+.--DATERANGEPICKER {
+  padding: 1rem !important;
+  display: flex;
+  flex-direction: column;
+  &-HEADER {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+}
