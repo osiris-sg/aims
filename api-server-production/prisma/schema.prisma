@@ -17,6 +17,7 @@ model Asset {
   organizationId    String?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
+  deletedAt         DateTime?          @db.Timestamptz(6)
   category          Category           @relation(fields: [categoryId], references: [id])
   inventories       Inventory[]
 }

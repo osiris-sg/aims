@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/rules-of-hooks */
 import { call, put, takeLatest } from "redux-saga/effects";
 import { assetsActions } from "./index";
 import { AssetsAction } from "./types";
@@ -112,8 +111,11 @@ export function* deleteAssetGenerator({ payload: data }: AssetsAction) {
     } else {
       yield put(assetsActions.deleteAssetFailure(response.message));
     }
-  } catch {
-    yield put(assetsActions.deleteAssetFailure("client Error"));
+  } catch (error: unknown) {
+    const message =
+      (error as { response?: { data?: { message?: string }; message?: string }; message?: string })?.response?.data?.message || (error as { response?: { message?: string }; message?: string })?.response?.message || (error as { message?: string })?.message || "Someth went wrong in request";
+    console.log("message", message);
+    yield put(assetsActions.deleteAssetFailure(message));
   }
 }
 
@@ -138,7 +140,7 @@ export function* createCategoryGenerator({ payload: data }: AssetsAction) {
     const token = data.token;
     delete data.token;
 
-    const response: Response = yield call(request, API.CREATE_CATEGORY, data, token); 
+    const response: Response = yield call(request, API.CREATE_CATEGORY, data, token);
     if (response.success) {
       yield put(assetsActions.createCategorySuccess(response.data));
     } else {
@@ -181,8 +183,6 @@ export function* checkSkuKeyGenerator({ payload: data }: AssetsAction) {
   }
 }
 
-
-
 export function* assetsSaga() {
   yield takeLatest(assetsActions.getAssets.type, getAssetsGenerator);
   yield takeLatest(assetsActions.getAssetbySKUKEY.type, getAssetbySKUKEYGenerator);
@@ -193,6 +193,6 @@ export function* assetsSaga() {
   yield takeLatest(assetsActions.deleteAsset.type, deleteAssetGenerator);
   yield takeLatest(assetsActions.getCategories.type, getCategoriesGenerator);
   yield takeLatest(assetsActions.createCategory.type, createCategoryGenerator);
-  yield takeLatest(assetsActions.deleteCategory.type, deleteCategoryGenerator); 
-  yield takeLatest(assetsActions.checkSkuKey.type, checkSkuKeyGenerator); 
+  yield takeLatest(assetsActions.deleteCategory.type, deleteCategoryGenerator);
+  yield takeLatest(assetsActions.checkSkuKey.type, checkSkuKeyGenerator);
 }

@@ -16,6 +16,7 @@ export class AssetsService {
       const skip = (page - 1) * limit;
 
       const whereClause: any = { organizationId };
+      whereClause.deletedAt = null;
 
       if (search) {
         whereClause.OR = [{ name: { contains: search, mode: 'insensitive' } }, { skuKey: { contains: search, mode: 'insensitive' } }];
@@ -140,7 +141,10 @@ export class AssetsService {
         throw new HttpException('This asset is associated with an inventory record. Remove the association and try again.', HttpStatus.BAD_REQUEST);
       }
 
-      const asset = await this.prisma.asset.delete({ where: { id: deleteAssetDto.id } });
+      const asset = await this.prisma.asset.update({
+        where: { id: deleteAssetDto.id },
+        data: { deletedAt: new Date() },
+      });
       return asset;
     } catch (error) {
       throw new HttpException(error.message, error.status || HttpStatus.INTERNAL_SERVER_ERROR);

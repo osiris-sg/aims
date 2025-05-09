@@ -34,7 +34,6 @@ export default function DeleteItemDialog({ open, onOpenChange, dialogTitle, dial
     try {
       if (confirmButton.action) {
         await confirmButton.action();
-        console.log("Confirmed action executed successfully.");
       }
     } finally {
       if (onOpenChange) {

@@ -83,8 +83,16 @@ export class RequestService {
 
       return result.data;
     } catch (error: any) {
-      store.dispatch(notificationsActions.setNotification({ type: "error", message: error.message }));
-      return { sucess: false, message: "Something went wrong in request" };
+      store.dispatch(
+        notificationsActions.setNotification({
+          type: "error",
+          message: error?.response?.data?.message || error?.message || "Something went wrong in request",
+        })
+      );
+      return {
+        success: false,
+        message: error?.response?.data?.message || error?.message || "Something went wrong in request",
+      };
     }
   };
 
