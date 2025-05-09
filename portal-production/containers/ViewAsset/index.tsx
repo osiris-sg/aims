@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import Table from "@/components/Table";
@@ -10,7 +9,6 @@ import useStatusCountsHandler from "./hooks/useStatusCountsHandler";
 import ModeEditIcon from "@mui/icons-material/ModeEdit";
 import useEditAssetHandler from "../Assets/hooks/useEditAssetHandler";
 import useGetAsset from "./hooks/useGetAsset";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { useRouter } from "next/navigation";
 import { ROUTES } from "@/routes";
 
