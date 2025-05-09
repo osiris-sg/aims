@@ -99,7 +99,6 @@ export default function Table(props: Props) {
                   color: "tertiary.dark",
                   borderRight: "0.1px solid", // Add vertical divider
                   borderColor: "tertiary.main",
-                  borderBottom: "1px solid",
                   "&:last-child": {
                     borderRight: "none", // Remove border from last column
                   },
