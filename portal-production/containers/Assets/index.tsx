@@ -10,7 +10,7 @@ import useDeleteAssetHandler from "./hooks/useDeleteAssetHandler";
 import useGetCategories from "../AddAsset/hooks/useGetCategories";
 
 export default function Assets() {
-  const { columns } = useAssetsTableHeader();
+  const { columns, deleteDialog } = useAssetsTableHeader();
   const { assets, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters } = useGetAssets();
   const { onAddClick } = useAddAssetClickHandler();
   const { assetToDelete, isDeleteInProgress, onDeleteConfirm, setAssetToDelete } = useDeleteAssetHandler();
@@ -38,7 +38,7 @@ export default function Assets() {
         pageCount={assets.totalPagesCount}
         totalDocs={assets.totalDocuments}
       />
-      <DeleteItemDialog open={!!assetToDelete} onCancel={() => setAssetToDelete(null)} onConfirm={onDeleteConfirm} loading={isDeleteInProgress} />
+      {deleteDialog}
     </MainCard>
   );
 }

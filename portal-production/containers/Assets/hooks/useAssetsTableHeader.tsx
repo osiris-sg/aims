@@ -7,16 +7,23 @@ import VisibilityIcon from "@mui/icons-material/Visibility";
 import ModeEditIcon from "@mui/icons-material/ModeEdit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import useDeleteAssetHandler from "./useDeleteAssetHandler";
+import { useState } from "react";
+import DeleteItemDialog from "@/components/DeleteItemDialog";
 import { useSelector } from "react-redux";
 import { selectCategories } from "../slice/selectors";
 import useViewAssetHandler from "./useViewAssetHandler";
 import useEditAssetHandler from "./useEditAssetHandler";
+import { set } from "date-fns";
+import { on } from "events";
 
 export default function useAssetsTableHeader() {
-  const { setAssetToDelete } = useDeleteAssetHandler();
+  const { setAssetToDelete, onDeleteConfirm } = useDeleteAssetHandler();
   const categories = useSelector(selectCategories);
   const { handleView } = useViewAssetHandler();
   const { handleEdit } = useEditAssetHandler();
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleteName, setDeleteName] = useState<string | null>(null);
 
   const columns: ColumnDef<any>[] = [
     {
@@ -80,7 +87,11 @@ export default function useAssetsTableHeader() {
             <ModeEditIcon />
           </IconButton>
           <IconButton
-            onClick={() => setAssetToDelete(row.original.id)}
+            onClick={() => {
+              setDeleteName(row.original.name);
+              setAssetToDelete(row.original.id);
+              setConfirmOpen(true);
+            }}
             sx={{
               color: "customRed.contrastText",
               bgcolor: "customRed.main",
@@ -97,5 +108,36 @@ export default function useAssetsTableHeader() {
     },
   ];
 
-  return { columns };
+  return {
+    columns,
+    deleteDialog: (
+      <>
+        {deleteName && (
+          <DeleteItemDialog
+            open={confirmOpen}
+            onOpenChange={setConfirmOpen}
+            dialogTitle="Confirm Delete"
+            dialogDescription="Are you sure you want to delete this asset?"
+            confirmButton={{
+              action: async () => {
+                onDeleteConfirm();
+              },
+              children: "Delete",
+              buttonProps: {
+                variant: "contained",
+                color: "error",
+              },
+            }}
+            cancelButton={{
+              children: "Cancel",
+              buttonProps: {
+                variant: "outlined",
+              },
+            }}
+            challengeText={deleteName}
+          />
+        )}
+      </>
+    ),
+  };
 }

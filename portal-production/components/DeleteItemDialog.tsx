@@ -1,21 +1,46 @@
-import { Dialog, DialogActions, DialogTitle, Button, useTheme } from "@mui/material";
-import React from "react";
+import React, { useState } from "react";
+import { Dialog, DialogActions, DialogTitle, Button, DialogContent, DialogContentText, useTheme } from "@mui/material";
 
-interface Props {
-  onCancel: () => void;
-  open: boolean;
-  onConfirm: () => void;
-  loading?: boolean;
+interface DeleteItemDialogProps {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  dialogTitle: string;
+  dialogDescription?: string;
+  confirmButton: {
+    action?: () => Promise<void>;
+    children: string;
+    buttonProps?: React.ComponentProps<typeof Button>;
+  };
+  cancelButton?: {
+    action?: () => Promise<void>;
+    children: React.ReactNode;
+    buttonProps?: React.ComponentProps<typeof Button>;
+  };
+  challengeText?: string;
 }
 
-export default function DeleteItemDialog(props: Props) {
-  const { open, onCancel, onConfirm, loading } = props;
+export default function DeleteItemDialog({ open, onOpenChange, dialogTitle, dialogDescription, confirmButton, cancelButton, challengeText }: DeleteItemDialogProps) {
   const theme = useTheme();
+  const [challengeInput, setChallengeInput] = useState("");
+
+  const handleClose = () => {
+    if (onOpenChange) {
+      onOpenChange(false);
+    }
+    setChallengeInput("");
+  };
+
+  const handleConfirm = async () => {
+    if (confirmButton.action) {
+      await confirmButton.action();
+    }
+    setChallengeInput("");
+  };
 
   return (
     <Dialog
-      open={open}
-      onClose={onCancel}
+      open={!!open}
+      onClose={handleClose}
       maxWidth="md"
       fullWidth
       sx={{
@@ -26,21 +51,36 @@ export default function DeleteItemDialog(props: Props) {
         },
       }}
     >
-      <DialogTitle
-        variant="body1"
-        sx={{
-          borderBottom: `1px solid ${theme.palette.secondary.light}`,
-        }}
-      >
-        Are you sure you want to delete the item?
-      </DialogTitle>
-
-      <DialogActions sx={{ borderTop: `1px solid ${theme.palette.secondary.light}` }}>
-        <Button disabled={loading} variant="outlined" onClick={onCancel}>
-          No
-        </Button>
-        <Button disabled={loading} variant="contained" onClick={onConfirm} color="error" loading={loading}>
-          Yes
+      <DialogTitle>{dialogTitle}</DialogTitle>
+      {dialogDescription && (
+        <DialogContent>
+          <DialogContentText>{dialogDescription}</DialogContentText>
+          {challengeText && (
+            <>
+              <label htmlFor="challengeInput">Please type &apos;{challengeText}&apos; to confirm.</label>
+              <input id="challengeInput" value={challengeInput} onChange={(e) => setChallengeInput(e.target.value)} style={{ width: "100%", padding: "8px", marginTop: "8px" }} />
+            </>
+          )}
+        </DialogContent>
+      )}
+      <DialogActions>
+        {cancelButton ? (
+          <Button
+            {...cancelButton.buttonProps}
+            onClick={async () => {
+              if (cancelButton.action) {
+                await cancelButton.action();
+              }
+              handleClose();
+            }}
+          >
+            {cancelButton.children}
+          </Button>
+        ) : (
+          <Button onClick={handleClose}>Cancel</Button>
+        )}
+        <Button {...confirmButton.buttonProps} onClick={handleConfirm} disabled={!!challengeText && challengeInput !== challengeText}>
+          {confirmButton.children}
         </Button>
       </DialogActions>
     </Dialog>
