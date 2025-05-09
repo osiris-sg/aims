@@ -20,6 +20,18 @@ export default function useDeleteAssetHandler() {
   const isDeleteSucceeded = useSelector(selectIsAssetDeletionSucceeded);
 
   useEffect(() => {
+    if (isDeleteSucceeded) {
+      dispatch(
+        notificationsActions.setNotification({
+          message: "Asset deleted successfully.",
+          type: "success",
+        })
+      );
+      dispatch(assetsActions.resetDeleteError());
+      dispatch(assetsActions.resetDeleteSuccess());
+    }
+  }, [isDeleteSucceeded, dispatch]);
+  useEffect(() => {
     if (deleteError) {
       dispatch(
         notificationsActions.setNotification({

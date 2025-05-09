@@ -1,7 +1,9 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { PayloadAction } from "@reduxjs/toolkit";
 import { createSlice } from "@reduxjs/toolkit";
+import { toast } from "react-toastify";
 import { Asset, AssetsState, CreateAssetPayload, GetAssetsPayload, IpaginatedAssets, UpdateAssetPayload, GetCategoriesPayload, Category, CreateCategoryPayload, DeleteAssetPayload, GetInventoriesByAssetPayload, Inventory, Filters } from "./types";
+import { selectAssetsError } from "../slice/selectors";
 
 export const initialState: AssetsState = {
   assets: {
@@ -34,6 +36,7 @@ export const initialState: AssetsState = {
   },
   isSkuKeyAvailable: true,
   isSkuCheckInProgress: false,
+  isAssetDeletionSucceeded: false,
 };
 
 export const assetsSlice = createSlice({
@@ -132,13 +135,19 @@ export const assetsSlice = createSlice({
       state.deleteingAssetId = null;
       state.isAssetDeletionSucceeded = true;
       state.assets.docs = state.assets.docs.filter((asset) => asset.id !== action.payload.id);
+      toast.success("Asset deleted successfully.");
     },
     deleteAssetFailure(state, action: PayloadAction<string>) {
       state.isDeleteInProgress = false;
-      state.error = action.payload;
+      const deleteError = action.payload;
+      toast.error(deleteError);
+      state.error = deleteError;
     },
     resetDeleteError(state) {
       state.error = null;
+    },
+    resetDeleteSuccess(state) {
+      state.isAssetDeletionSucceeded = false;
     },
 
     getCategories(state, action: PayloadAction<GetCategoriesPayload>) {
