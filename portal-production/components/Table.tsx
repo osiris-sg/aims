@@ -85,7 +85,7 @@ export default function Table(props: Props) {
   }, [rowSelection, onRowSelect, table]);
 
   return (
-    <MuiTable sx={{ width: "100%", tableLayout: "fixed", borderCollapse: "collapse" }}>
+    <MuiTable sx={{ width: "100%", tableLayout: "fixed", borderCollapse: "separate" }}>
       <TableHead sx={{ backgroundColor: "tertiary.light", position: "sticky", top: 0, zIndex: 1000 }}>
         {table.getHeaderGroups().map((headerGroup: any) => (
           <TableRow key={headerGroup.id}>
@@ -99,7 +99,7 @@ export default function Table(props: Props) {
                   color: "tertiary.dark",
                   borderRight: "0.1px solid", // Add vertical divider
                   borderColor: "tertiary.main",
-                  borderBottom: "none",
+                  borderBottom: "1px solid",
                   "&:last-child": {
                     borderRight: "none", // Remove border from last column
                   },
