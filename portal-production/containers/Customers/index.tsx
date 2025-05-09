@@ -7,7 +7,7 @@ import useCustomersTableHeader from "./hooks/useCustomersTableHeader";
 import PageTable from "@/components/PageTable";
 import AddCustomerItem from "./components/AddCustomer";
 import useDeleteCustomerHandler from "./hooks/useDeleteCustomerHandler";
-import DeleteItemDialog from "@/components/DeleteItemDialog";
+import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import useAddCustomerStates from "./hooks/useAddCustomerStates";
 import { useGetCustomers } from "./hooks/useGetCustomers";
 
@@ -40,7 +40,7 @@ export default function Customers() {
         totalDocs={customers.totalDocuments}
       />
       <AddCustomerItem open={openDrawer} onClose={onCloseClick} />
-      <DeleteItemDialog open={!!customerToDelete} onCancel={() => setCustomerToDelete(null)} onConfirm={onDeleteConfirm} loading={isDeleteInProgress} />
+      <DeleteItemDialogNoConfirm open={!!customerToDelete} onCancel={() => setCustomerToDelete(null)} onConfirm={onDeleteConfirm} loading={isDeleteInProgress} />
     </MainCard>
   );
 }

@@ -4,7 +4,7 @@ import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import React from "react";
 import { useGetDocuments } from "./hooks/useGetDocuments";
-import DeleteItemDialog from "@/components/DeleteItemDialog";
+import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import useDeleteDocumentHandler from "./hooks/useDeleteDocumentHandler";
 import useDocumentsTableHeader from "./hooks/useDocumentsTableHeader";
 import useCreateDocumentClickHandler from "./hooks/useCreateDocumentClickHandler";
@@ -35,7 +35,7 @@ export default function Documents() {
         onAddClick={onAddClick}
         totalDocs={documentTemplates.totalDocuments}
       />
-      <DeleteItemDialog open={!!documentToDelete} onCancel={() => setDocumentToDelete(null)} onConfirm={onDeleteConfirm} loading={isDeleteInProgress} />
+      <DeleteItemDialogNoConfirm open={!!documentToDelete} onCancel={() => setDocumentToDelete(null)} onConfirm={onDeleteConfirm} loading={isDeleteInProgress} />
     </MainCard>
   );
 }
