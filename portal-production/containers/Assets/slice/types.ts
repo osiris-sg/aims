@@ -8,6 +8,7 @@ export interface AssetsState {
   loading: boolean;
   deleteingAssetId: null | string;
   isDeleteInProgress: boolean;
+  isAssetDeletionSucceeded: boolean;
   isAssetUpdating: boolean;
   isAssetCreationSucceeded: boolean;
   isAssetUpdateSucceeded: boolean;

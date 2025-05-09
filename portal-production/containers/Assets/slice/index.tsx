@@ -130,11 +130,15 @@ export const assetsSlice = createSlice({
     deleteAssetSuccess(state, action: PayloadAction<Asset>) {
       state.isDeleteInProgress = false;
       state.deleteingAssetId = null;
+      state.isAssetDeletionSucceeded = true;
       state.assets.docs = state.assets.docs.filter((asset) => asset.id !== action.payload.id);
     },
     deleteAssetFailure(state, action: PayloadAction<string>) {
       state.isDeleteInProgress = false;
       state.error = action.payload;
+    },
+    resetDeleteError(state) {
+      state.error = null;
     },
 
     getCategories(state, action: PayloadAction<GetCategoriesPayload>) {

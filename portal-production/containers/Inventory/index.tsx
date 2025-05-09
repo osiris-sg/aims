@@ -8,18 +8,15 @@ import PageTable from "@/components/PageTable";
 import AddInventoryItem from "./components/AddInventoryItem";
 import { useGetInventories } from "./hooks/useGetInventories";
 import useAddInventoryStates from "./hooks/useAddInventoryStates";
-import useDeleteInventoryHandler from "./hooks/useDeleteInventoryHandler";
-import DeleteItemDialog from "@/components/DeleteItemDialog";
 import ViewQRDialog from "./components/ViewQRDialog";
 import useViewQRHandler from "./hooks/useViewQRHandler";
 import { selectOpenQRDialog } from "./slice/selectors";
 import { useSelector } from "react-redux";
 
 export default function Inventory() {
-  const { columns } = useInventoryTableHeader();
+  const { columns, deleteDialog } = useInventoryTableHeader();
   const { inventories, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters } = useGetInventories();
   const { openDrawer, onAddClick, onCloseClick } = useAddInventoryStates();
-  const { inventoryToDelete, setInventoryToDelete, isDeleteInProgress, onDeleteConfirm } = useDeleteInventoryHandler();
   const { closeQRDialog, isQRLoading, qrCode } = useViewQRHandler();
   const qrDialogOpen = useSelector(selectOpenQRDialog);
 
@@ -47,7 +44,7 @@ export default function Inventory() {
       />
       <AddInventoryItem open={openDrawer} onClose={onCloseClick} />
       <ViewQRDialog open={qrDialogOpen} onClose={closeQRDialog} isQRLoading={isQRLoading} qrCode={qrCode} />
-      <DeleteItemDialog open={!!inventoryToDelete} onCancel={() => setInventoryToDelete(null)} onConfirm={onDeleteConfirm} loading={isDeleteInProgress} />
+      {deleteDialog}
     </MainCard>
   );
 }

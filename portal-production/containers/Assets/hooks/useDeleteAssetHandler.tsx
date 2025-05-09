@@ -1,6 +1,6 @@
 import { useDispatch, useSelector } from "react-redux";
 import { assetsActions } from "../slice";
-import { selectDeleteingAssetId, selectIsDeleteInProgress, selectAssetsError } from "../slice/selectors";
+import { selectDeleteingAssetId, selectIsDeleteInProgress, selectAssetsError, selectIsAssetDeletionSucceeded } from "../slice/selectors";
 import { useAuth } from "@clerk/nextjs";
 import { useEffect } from "react";
 import { notificationsActions } from "../../Notifications/slice";
@@ -15,6 +15,19 @@ export default function useDeleteAssetHandler() {
           type: "error",
         })
       );
+    }
+  }, [deleteError, dispatch]);
+  const isDeleteSucceeded = useSelector(selectIsAssetDeletionSucceeded);
+
+  useEffect(() => {
+    if (deleteError) {
+      dispatch(
+        notificationsActions.setNotification({
+          message: deleteError,
+          type: "error",
+        })
+      );
+      dispatch(assetsActions.resetDeleteError()); // ✅ clear error after showing
     }
   }, [deleteError, dispatch]);
   const { getToken } = useAuth();

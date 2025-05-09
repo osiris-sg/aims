@@ -8,20 +8,25 @@ import ModeEditIcon from "@mui/icons-material/ModeEdit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import QrCode2Icon from "@mui/icons-material/QrCode2";
 import { Box, IconButton, Typography } from "@mui/material";
-import React from "react";
+import React, { useState } from "react";
 import moment from "moment";
 import useDeleteInventoryHandler from "./useDeleteInventoryHandler";
+import DeleteItemDialog from "@/components/DeleteItemDialog";
 import useViewInventoryHandler from "./useViewInventoryHandler";
 import { useGetAssets } from "./useGetAssets";
 import { useGetCountries } from "./useGetCountries";
 import useViewQRHandler from "./useViewQRHandler";
+import { on } from "events";
 export default function useInventoryTableHeader() {
   // const categories = useSelector(selectCategories);
-  const { setInventoryToDelete } = useDeleteInventoryHandler();
+  const { setInventoryToDelete, onDeleteConfirm } = useDeleteInventoryHandler();
   const { handleView } = useViewInventoryHandler();
   const { openQRDialog } = useViewQRHandler();
 
   const { assets, categories } = useGetAssets();
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const columns: ColumnDef<any>[] = [
     {
@@ -99,7 +104,11 @@ export default function useInventoryTableHeader() {
             <ModeEditIcon />
           </IconButton> */}
           <IconButton
-            onClick={() => setInventoryToDelete(row.original.id)}
+            onClick={() => {
+              setDeleteId(row.original.sku);
+              setInventoryToDelete(row.original.id);
+              setConfirmOpen(true);
+            }}
             sx={{
               color: "customRed.contrastText",
               bgcolor: "customRed.main",
@@ -116,5 +125,41 @@ export default function useInventoryTableHeader() {
     },
   ];
 
-  return { columns };
+  return {
+    columns,
+    deleteDialog: (
+      <>
+        {deleteId && (
+          <DeleteItemDialog
+            open={confirmOpen}
+            onOpenChange={setConfirmOpen}
+            dialogTitle="Confirm Delete"
+            dialogDescription="Are you sure you want to delete this inventory item?"
+            confirmButton={{
+              action: async () => {
+                // Trigger actual delete logic here
+                onDeleteConfirm();
+                setConfirmOpen(false);
+              },
+              children: "Delete",
+              buttonProps: {
+                variant: "contained",
+                color: "error",
+              },
+            }}
+            cancelButton={{
+              action: async () => {
+                setDeleteId(null);
+              },
+              children: "Cancel",
+              buttonProps: {
+                variant: "outlined",
+              },
+            }}
+            challengeText={deleteId}
+          />
+        )}
+      </>
+    ),
+  };
 }

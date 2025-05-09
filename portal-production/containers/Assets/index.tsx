@@ -5,15 +5,12 @@ import useAssetsTableHeader from "./hooks/useAssetsTableHeader";
 import PageTable from "@/components/PageTable";
 import { useGetAssets } from "./hooks/useGetAssets";
 import useAddAssetClickHandler from "./hooks/useAddAssetClickHandler";
-import DeleteItemDialog from "@/components/DeleteItemDialog";
-import useDeleteAssetHandler from "./hooks/useDeleteAssetHandler";
 import useGetCategories from "../AddAsset/hooks/useGetCategories";
 
 export default function Assets() {
   const { columns, deleteDialog } = useAssetsTableHeader();
   const { assets, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters } = useGetAssets();
   const { onAddClick } = useAddAssetClickHandler();
-  const { assetToDelete, isDeleteInProgress, onDeleteConfirm, setAssetToDelete } = useDeleteAssetHandler();
   useGetCategories();
 
   return (

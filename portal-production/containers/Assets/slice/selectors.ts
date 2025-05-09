@@ -9,6 +9,7 @@ export const selectStatusCounts = createSelector([selectSlice], (state) => state
 export const selectAssetsLoading = createSelector([selectSlice], (state) => state.loading);
 export const selectDeleteingAssetId = createSelector([selectSlice], (state) => state.deleteingAssetId);
 export const selectIsDeleteInProgress = createSelector([selectSlice], (state) => state.isDeleteInProgress);
+export const selectIsAssetDeletionSucceeded = createSelector([selectSlice], (state) => state.isAssetDeletionSucceeded);
 export const selectAssetsError = createSelector([selectSlice], (state) => state.error);
 export const selectAssetsCreateSuccess = createSelector([selectSlice], (state) => state.assets.docs);
 export const selectAssetsCreateLoading = createSelector([selectSlice], (state) => state.loading);
