@@ -11,6 +11,7 @@ export interface InventoryState {
   categories: Category[];
   deleteingInventoryId: null | string;
   isDeleteInProgress: boolean;
+  isDeletionSucceeded: boolean;
   isInventoryUpdating: boolean;
   isInventoryCreationSucceeded: boolean;
   skuRange: string[];
@@ -28,7 +29,7 @@ export interface InventoryState {
 
   timelineItems: TimelineItem[];
   timelineItem: TimelineItem | null;
-  isGetTimelineItemsLoading:boolean;
+  isGetTimelineItemsLoading: boolean;
   filters: Filters;
 }
 
@@ -151,7 +152,7 @@ export interface Doc {
 export interface TimelineItem {
   id: string;
   message: string;
-  pdfUrl:  string;
+  pdfUrl: string;
   inventoryId: string;
   createdAt: string;
   updatedAt: string;

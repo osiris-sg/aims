@@ -25,6 +25,7 @@ export const selectIsInventoryCreationSucceeded = createSelector([selectSlice], 
 export const selectIsInventoryUpdating = createSelector([selectSlice], (state) => state.isInventoryUpdating);
 
 export const selectIsInventoryDeleteInProgress = createSelector([selectSlice], (state) => state.isDeleteInProgress);
+export const selectIsInventoryDeletionSucceeded = createSelector([selectSlice], (state) => state.isDeletionSucceeded);
 
 export const selectDeleteingInventoryId = createSelector([selectSlice], (state) => state.deleteingInventoryId);
 

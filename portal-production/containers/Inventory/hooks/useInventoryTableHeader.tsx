@@ -139,7 +139,6 @@ export default function useInventoryTableHeader() {
               action: async () => {
                 // Trigger actual delete logic here
                 onDeleteConfirm();
-                setConfirmOpen(false);
               },
               children: "Delete",
               buttonProps: {

@@ -47,6 +47,7 @@ export const initialState: InventoryState = {
   },
   deleteingInventoryId: null,
   isDeleteInProgress: false,
+  isDeletionSucceeded: false,
   isInventoryUpdating: false,
   isInventoryCreationSucceeded: false,
   skuRange: [],
@@ -157,7 +158,11 @@ export const inventorySlice = createSlice({
     deleteInventorySuccess(state, action: PayloadAction<Inventory>) {
       state.isDeleteInProgress = false;
       state.deleteingInventoryId = null;
+      state.isDeletionSucceeded = true;
       state.inventories.docs = state.inventories.docs.filter((inventory) => inventory.id !== action.payload.id);
+    },
+    resetDeletionSuccess(state) {
+      state.isDeletionSucceeded = false;
     },
     deleteInventoryFailure(state, action: PayloadAction<string>) {
       state.isDeleteInProgress = false;
