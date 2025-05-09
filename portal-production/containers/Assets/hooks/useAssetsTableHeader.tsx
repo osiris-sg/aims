@@ -129,6 +129,9 @@ export default function useAssetsTableHeader() {
               },
             }}
             cancelButton={{
+              action: async () => {
+                setAssetToDelete(null);
+              },
               children: "Cancel",
               buttonProps: {
                 variant: "outlined",

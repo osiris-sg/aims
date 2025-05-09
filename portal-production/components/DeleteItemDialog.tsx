@@ -31,10 +31,17 @@ export default function DeleteItemDialog({ open, onOpenChange, dialogTitle, dial
   };
 
   const handleConfirm = async () => {
-    if (confirmButton.action) {
-      await confirmButton.action();
+    try {
+      if (confirmButton.action) {
+        await confirmButton.action();
+        console.log("Confirmed action executed successfully.");
+      }
+    } finally {
+      if (onOpenChange) {
+        onOpenChange(false); // ✅ always close, even on error
+      }
+      setChallengeInput("");
     }
-    setChallengeInput("");
   };
 
   return (
