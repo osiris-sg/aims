@@ -6,15 +6,17 @@ import { useDispatch, useSelector } from "react-redux";
 import { useState, useEffect, useCallback } from "react";
 import { useOrganization } from "@clerk/nextjs";
 import { useAuth } from "@clerk/nextjs";
-import { documentTemplateActions } from "@/containers/DocumentsTemplateView/slice";
-import { selectCustomers } from "@/containers/DocumentsTemplateView/slice/selectors";
 
-export const useGetCustomers = () => {
+import { inventoryActions } from "../slice";
+import { selectAssets, selectCategories } from "../slice/selectors";
+
+export const useGetAssets = () => {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
   const organizationId = organization?.id;
   const dispatch = useDispatch();
-  const customers = useSelector(selectCustomers);
+  const assets = useSelector(selectAssets);
+  const categories = useSelector(selectCategories);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(100);
   const [search, setSearch] = useState("");
@@ -23,7 +25,8 @@ export const useGetCustomers = () => {
   const getAssets = useCallback(async () => {
     if (organizationId) {
       const token = await getToken();
-      dispatch(documentTemplateActions.getCustomers({ page, limit, search, filters, organizationId, token }));
+      dispatch(inventoryActions.getAssets({ page, limit, search, filters, organizationId, token }));
+      dispatch(inventoryActions.getCategories({ organizationId, token }));
     }
   }, [organizationId]);
   useEffect(() => {
@@ -31,5 +34,5 @@ export const useGetCustomers = () => {
       getAssets();
     }
   }, [organizationId]);
-  return { customers };
+  return { assets, categories };
 };

@@ -1,41 +1,50 @@
 "use client";
 
-import MainCard from "@/components/MainCard";
-import PageTable from "@/components/PageTable";
 import React from "react";
-import { useGetDocuments } from "./hooks/useGetDocuments";
-import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
-import useDeleteDocumentHandler from "./hooks/useDeleteDocumentHandler";
-import useDocumentsTableHeader from "./hooks/useDocumentsTableHeader";
-import useCreateDocumentClickHandler from "./hooks/useCreateDocumentClickHandler";
+
+import MainCard from "@/components/MainCard";
+import useInventoryTableHeader from "./hooks/useInventoryTableHeader";
+import PageTable from "@/components/PageTable";
+import AddInventoryItem from "./components/AddInventoryItem";
+import { useGetInventories } from "./hooks/useGetInventories";
+import useAddInventoryStates from "./hooks/useAddInventoryStates";
+import ViewQRDialog from "./components/ViewQRDialog";
+import useViewQRHandler from "./hooks/useViewQRHandler";
+import { selectOpenQRDialog } from "./slice/selectors";
+import { useSelector } from "react-redux";
 
 export default function Documents() {
-  const { columns } = useDocumentsTableHeader();
-  const { documentTemplates, loading, page, limit, search, setPage, setLimit, setSearch } = useGetDocuments();
-  const { onAddClick } = useCreateDocumentClickHandler();
-  const { documentToDelete, isDeleteInProgress, onDeleteConfirm, setDocumentToDelete } = useDeleteDocumentHandler();
+  const { columns, deleteDialog } = useInventoryTableHeader();
+  const { inventories, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters } = useGetInventories();
+  const { openDrawer, onAddClick, onCloseClick } = useAddInventoryStates();
+  const { closeQRDialog, isQRLoading, qrCode } = useViewQRHandler();
+  const qrDialogOpen = useSelector(selectOpenQRDialog);
 
   return (
     <MainCard>
       <PageTable
-        loading={loading}
         columns={columns}
-        data={documentTemplates.docs}
-        tableName="Documents"
-        subTitle="Document Templates"
-        buttonName="Create Document Template"
-        subRowAccessor="subRows"
+        data={inventories.docs}
+        tableName="Document List"
+        subTitle="Document Detail Information"
+        buttonName="Create Document"
+        onAddClick={onAddClick}
+        loading={loading}
         page={page}
         limit={limit}
         search={search}
+        filters={filters}
         setPage={setPage}
         setLimit={setLimit}
         setSearch={setSearch}
-        pageCount={documentTemplates.totalPagesCount}
-        onAddClick={onAddClick}
-        totalDocs={documentTemplates.totalDocuments}
+        setFilters={setFilters}
+        availableFilters={["status", "category", "createdOn"]}
+        pageCount={inventories.totalPagesCount}
+        totalDocs={inventories.totalDocuments}
       />
-      <DeleteItemDialogNoConfirm open={!!documentToDelete} onCancel={() => setDocumentToDelete(null)} onConfirm={onDeleteConfirm} loading={isDeleteInProgress} />
+      <AddInventoryItem open={openDrawer} onClose={onCloseClick} />
+      <ViewQRDialog open={qrDialogOpen} onClose={closeQRDialog} isQRLoading={isQRLoading} qrCode={qrCode} />
+      {deleteDialog}
     </MainCard>
   );
 }

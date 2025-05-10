@@ -18,6 +18,9 @@ import { useTheme } from "@mui/material";
 import Link from "next/link";
 import { ROUTES } from "@/routes";
 import { usePathname } from "next/navigation";
+import Collapse from "@mui/material/Collapse";
+import ExpandLess from "@mui/icons-material/ExpandLess";
+import ExpandMore from "@mui/icons-material/ExpandMore";
 
 const mainListItems = [
   { text: "Inventory", path: ROUTES.INVENTORY, icon: <InventoryIcon /> },
@@ -37,6 +40,9 @@ export default function SideBarContent() {
   const theme = useTheme();
   const pathname = usePathname();
 
+  const [openDocuments, setOpenDocuments] = React.useState(false);
+  const handleDocumentsClick = () => setOpenDocuments(!openDocuments);
+
   return (
     <Stack
       sx={{
@@ -53,33 +59,82 @@ export default function SideBarContent() {
           gap: "var(--half-gap)",
         }}
       >
-        {mainListItems.map((item, index) => (
-          <ListItem
-            key={index}
-            disablePadding
-            sx={{
-              display: "block",
-              borderRadius: "var(--default-border-radius)",
-              backgroundColor: pathname.startsWith(item.path) ? theme.palette.primary.contrastText : "transparent",
-              ":hover": { backgroundColor: theme.palette.primary.light },
-            }}
-          >
-            <Link href={item.path} key={item.text} style={{ textDecoration: "none", color: "inherit" }}>
-              <ListItemButton selected={pathname.startsWith(item.path)}>
-                <ListItemIcon
-                  sx={{
-                    color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
-                    minWidth: "fit-content!important",
-                    marginRight: "var(--default-gap)",
-                  }}
-                >
-                  {item.icon}
-                </ListItemIcon>
-                <ListItemText primary={item.text} sx={{ color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText }} />
-              </ListItemButton>
-            </Link>
-          </ListItem>
-        ))}
+        {mainListItems.map((item, index) =>
+          item.text === "Documents" ? (
+            <React.Fragment key={index}>
+              <ListItem
+                disablePadding
+                sx={{
+                  display: "block",
+                  borderRadius: "var(--default-border-radius)",
+                  backgroundColor: pathname.startsWith(item.path) ? theme.palette.primary.contrastText : "transparent",
+                  ":hover": { backgroundColor: theme.palette.primary.light },
+                }}
+                onClick={handleDocumentsClick}
+              >
+                <ListItemButton selected={pathname.startsWith(item.path)}>
+                  <ListItemIcon
+                    sx={{
+                      color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                      minWidth: "fit-content!important",
+                      marginRight: "var(--default-gap)",
+                    }}
+                  >
+                    {item.icon}
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={item.text}
+                    sx={{
+                      color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                    }}
+                  />
+                  {openDocuments ? <ExpandLess /> : <ExpandMore />}
+                </ListItemButton>
+              </ListItem>
+              <Collapse in={openDocuments} timeout="auto" unmountOnExit>
+                <List component="div" disablePadding>
+                  <ListItemButton sx={{ pl: 4 }} component={Link} href={`${mainListItems[3].path}`}>
+                    <ListItemText primary="All Documents" />
+                  </ListItemButton>
+                  <ListItemButton sx={{ pl: 4 }} component={Link} href="/portal/documents/templates">
+                    <ListItemText primary="All Document Templates" />
+                  </ListItemButton>
+                </List>
+              </Collapse>
+            </React.Fragment>
+          ) : (
+            <ListItem
+              key={index}
+              disablePadding
+              sx={{
+                display: "block",
+                borderRadius: "var(--default-border-radius)",
+                backgroundColor: pathname.startsWith(item.path) ? theme.palette.primary.contrastText : "transparent",
+                ":hover": { backgroundColor: theme.palette.primary.light },
+              }}
+            >
+              <Link href={item.path} key={item.text} style={{ textDecoration: "none", color: "inherit" }}>
+                <ListItemButton selected={pathname.startsWith(item.path)}>
+                  <ListItemIcon
+                    sx={{
+                      color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                      minWidth: "fit-content!important",
+                      marginRight: "var(--default-gap)",
+                    }}
+                  >
+                    {item.icon}
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={item.text}
+                    sx={{
+                      color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                    }}
+                  />
+                </ListItemButton>
+              </Link>
+            </ListItem>
+          )
+        )}
       </List>
       <List
         dense

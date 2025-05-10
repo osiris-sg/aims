@@ -1,29 +1,28 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { PayloadAction, createSlice } from "@reduxjs/toolkit";
-import { IpaginatedAssets } from "@/containers/Assets/slice/types";
-import { GetAssetsPayload } from "@/containers/Assets/slice/types";
 import {
-  CreateDocumentTemplatePayload,
-  CreateDocumentWithTimelineSuccessPayload,
-  DeleteDocumentTemplatePayload,
-  Doc,
-  DocumentTemplate,
-  DocumentTemplateState,
-  GetCustomersPayload,
-  GetDocumentTemplatesPayload,
-  GetInventoriesByStatusPayload,
+  InventoryState,
   GetInventoriesPayload,
+  CreateInventoryPayload,
+  UpdateInventoryPayload,
+  DeleteInventoryPayload,
+  IpaginatedInventories,
   Inventory,
-  IpaginatedCustomers,
-  IpaginatedDocumentTemplates,
-  UpdateDocumentSuccessPayload,
-  UpdateDocumentTemplatePayload,
+  GenerateSkuRangePayload,
+  CreateInventoryResponse,
+  GetQRPayload,
+  IpaginatedTimelineItems,
+  GetTimelineItemsPayload,
+  GetDocumentsPayload,
+  IpaginatedDocuments,
+  Filters,
+  TimelineItem,
 } from "./types";
-import { IpaginatedInventories } from "@/containers/Inventory/slice/types";
+import { Category, GetCategoriesPayload, IpaginatedAssets } from "@/containers/Assets/slice/types";
+import { GetAssetsPayload } from "@/containers/Assets/slice/types";
 
-export const initialState: DocumentTemplateState = {
-  documentTemplates: {
+export const initialState: InventoryState = {
+  inventories: {
     docs: [],
     hasNextPage: false,
     hasPrevPage: false,
@@ -32,9 +31,11 @@ export const initialState: DocumentTemplateState = {
     totalDocuments: 0,
     totalPagesCount: 0,
   },
-  documentTemplate: null,
+  inventory: null,
+  openDrawer: false,
   error: null,
   loading: false,
+  categories: [],
   assets: {
     docs: [],
     hasNextPage: false,
@@ -44,23 +45,19 @@ export const initialState: DocumentTemplateState = {
     totalDocuments: 0,
     totalPagesCount: 0,
   },
-  isGetAssetLoading: false,
-  isGetDocumentTemplateLoading: false,
-  isDocumentTemplateCreationSucceeded: false,
-  isDocumentTemplateUpdating: false,
-  customers: {
-    docs: [],
-    hasNextPage: false,
-    hasPrevPage: false,
-    limit: 0,
-    nextPage: 0,
-    totalDocuments: 0,
-    totalPagesCount: 0,
-  },
-  isGetCustomersLoading: false,
-  deleteingDocumentTemplateId: null,
+  deleteingInventoryId: null,
   isDeleteInProgress: false,
-  documentInventories: [],
+  isDeletionSucceeded: false,
+  isInventoryUpdating: false,
+  isInventoryCreationSucceeded: false,
+  skuRange: [],
+  isSkuLoading: false,
+  isGetInventoryLoading: false,
+  isGetAssetLoading: false,
+  isGetCategoriesLoading: false,
+  qrCode: null,
+  isQRLoading: false,
+  openQRDialog: false,
 
   documents: {
     docs: [],
@@ -72,73 +69,102 @@ export const initialState: DocumentTemplateState = {
     totalPagesCount: 0,
   },
   document: null,
-  isDocumentCreationSucceeded: false,
-  isDocumentUpdating: false,
-  isGetDocumentLoading: false,
+  isGetDocumentsLoading: false,
+
+  timelineItems: [],
+  timelineItem: null,
+  isGetTimelineItemsLoading: false,
+  filters: {
+    createdOn: {
+      startDate: null,
+      endDate: null,
+    },
+    status: "",
+    category: "",
+  },
 };
 
-export const documentTemplateSlice = createSlice({
-  name: "documentTemplates",
+export const inventorySlice = createSlice({
+  name: "inventories",
   initialState,
   reducers: {
-    getDocumentTemplates(state, action: PayloadAction<GetDocumentTemplatesPayload>) {
+    setOpenDrawer: (state, action: PayloadAction<boolean>) => {
+      state.openDrawer = action.payload;
+    },
+    setCloseDrawer: (state) => {
+      state.openDrawer = false;
+    },
+    getInventories(state, action: PayloadAction<GetInventoriesPayload>) {
       state.loading = true;
-      state.isDocumentCreationSucceeded = false;
     },
-    getDocumentTemplatesSuccess(state, action: PayloadAction<IpaginatedDocumentTemplates>) {
+    getInventoriesSuccess(state, action: PayloadAction<IpaginatedInventories>) {
       state.loading = false;
-      state.documentTemplates = action.payload;
+      state.inventories = action.payload;
     },
-    getDocumentTemplatesFailure(state, action: PayloadAction<string>) {
+    getInventoriesFailure(state, action: PayloadAction<string>) {
       state.loading = false;
       state.error = action.payload;
     },
-    getDocumentTemplatebyId(state, action: PayloadAction<{ id: string; token: string }>) {
-      state.isGetDocumentTemplateLoading = true;
+    getInventorybySku(state, action: PayloadAction<{ sku: string; token: string }>) {
+      state.isGetInventoryLoading = true;
     },
-    getDocumentTemplatebyIdSuccess(state, action: PayloadAction<DocumentTemplate>) {
-      state.isGetDocumentTemplateLoading = false;
-      state.documentTemplate = action.payload;
+    getInventorybySkuSuccess(state, action: PayloadAction<Inventory>) {
+      state.isGetInventoryLoading = false;
+      state.inventory = action.payload;
     },
-    getDocumentTemplatebyIdFailure(state, action: PayloadAction<string>) {
-      state.isGetDocumentTemplateLoading = false;
+    getInventorybySkuFailure(state, action: PayloadAction<string>) {
+      state.isGetInventoryLoading = false;
       state.error = action.payload;
     },
-    createDocumentTemplate(state, action: PayloadAction<CreateDocumentTemplatePayload>) {
-      state.isDocumentTemplateUpdating = true;
-      state.isDocumentTemplateCreationSucceeded = false;
+    createInventory(state, action: PayloadAction<CreateInventoryPayload>) {
+      state.isInventoryCreationSucceeded = false;
+      state.isInventoryUpdating = true;
     },
-    createDocumentTemplateSuccess(state, action: PayloadAction<DocumentTemplate>) {
-      state.isDocumentTemplateUpdating = false;
-      state.isDocumentTemplateCreationSucceeded = true;
+    createInventorySuccess(state, action: PayloadAction<CreateInventoryResponse>) {
+      state.isInventoryCreationSucceeded = true;
+      state.isInventoryUpdating = false;
+      if (Array.isArray(action.payload.inventoryItems)) {
+        state.inventories.docs.unshift(...action.payload.inventoryItems);
+      } else {
+        state.inventories.docs.unshift(action.payload.inventoryItems); // If it's a single item
+      }
+      state.openDrawer = false;
     },
-    createDocumentTemplateFailure(state, action: PayloadAction<string>) {
-      state.isDocumentTemplateUpdating = false;
+    createInventoryFailure(state, action: PayloadAction<string>) {
+      state.isInventoryCreationSucceeded = false;
+      state.isInventoryUpdating = false;
       state.error = action.payload;
     },
-    updateDocumentTemplate(state, action: PayloadAction<UpdateDocumentTemplatePayload>) {
-      state.isDocumentTemplateUpdating = true;
+    updateInventory(state, action: PayloadAction<UpdateInventoryPayload>) {
+      state.isInventoryUpdating = true;
     },
-    updateDocumentTemplateSuccess(state, action: PayloadAction<DocumentTemplate>) {
-      state.isDocumentTemplateUpdating = false;
-      state.documentTemplate = action.payload;
+    updateInventorySuccess(state, action: PayloadAction<Inventory>) {
+      state.isInventoryUpdating = false;
+      const index = state.inventories.docs.findIndex((inventory) => inventory.id === action.payload.id);
+      if (index !== -1) {
+        state.inventories.docs[index] = action.payload;
+      }
     },
-    updateDocumentTemplateFailure(state, action: PayloadAction<string>) {
-      state.isDocumentTemplateUpdating = false;
+    updateInventoryFailure(state, action: PayloadAction<string>) {
+      state.isInventoryUpdating = false;
       state.error = action.payload;
     },
-    setDocumentTemplateToDelete(state, action: PayloadAction<string | null>) {
-      state.deleteingDocumentTemplateId = action.payload;
+    setInventoryToDelete(state, action: PayloadAction<string | null>) {
+      state.deleteingInventoryId = action.payload;
     },
-    deleteDocumentTemplate: (state, action: PayloadAction<DeleteDocumentTemplatePayload>) => {
+    deleteInventory: (state, action: PayloadAction<DeleteInventoryPayload>) => {
       state.isDeleteInProgress = true;
     },
-    deleteDocumentTemplateSuccess(state, action: PayloadAction<DocumentTemplate>) {
+    deleteInventorySuccess(state, action: PayloadAction<Inventory>) {
       state.isDeleteInProgress = false;
-      state.deleteingDocumentTemplateId = null;
-      state.documentTemplates.docs = state.documentTemplates.docs.filter((documentTemplate) => documentTemplate.id !== action.payload.id);
+      state.deleteingInventoryId = null;
+      state.isDeletionSucceeded = true;
+      state.inventories.docs = state.inventories.docs.filter((inventory) => inventory.id !== action.payload.id);
     },
-    deleteDocumentTemplateFailure(state, action: PayloadAction<string>) {
+    resetDeletionSuccess(state) {
+      state.isDeletionSucceeded = false;
+    },
+    deleteInventoryFailure(state, action: PayloadAction<string>) {
       state.isDeleteInProgress = false;
       state.error = action.payload;
     },
@@ -153,80 +179,86 @@ export const documentTemplateSlice = createSlice({
       state.isGetAssetLoading = false;
       state.error = action.payload;
     },
-    getCustomers(state, action: PayloadAction<GetCustomersPayload>) {
-      state.isGetCustomersLoading = true;
+    getCategories(state, action: PayloadAction<GetCategoriesPayload>) {
+      state.isGetCategoriesLoading = true;
     },
-    getCustomersSuccess(state, action: PayloadAction<IpaginatedCustomers>) {
-      state.isGetCustomersLoading = false;
-      state.customers = action.payload;
+    getCategoriesSuccess(state, action: PayloadAction<Category[]>) {
+      state.isGetCategoriesLoading = false;
+      state.categories = action.payload;
     },
-    getCustomersFailure(state, action: PayloadAction<string>) {
-      state.isGetCustomersLoading = false;
+    getCategoriesFailure(state, action: PayloadAction<string>) {
+      state.isGetCategoriesLoading = false;
+      state.error = action.payload;
+    },
+    // Action to request SKU range generation
+    generateSkuRange(state, action: PayloadAction<GenerateSkuRangePayload>) {
+      state.isSkuLoading = true;
+    },
+
+    // Action on success of SKU generation
+    generateSkuRangeSuccess(state, action: PayloadAction<string[]>) {
+      state.isSkuLoading = false;
+      state.skuRange = action.payload; // No need for an object
+    },
+
+    // Action on failure of SKU generation
+    generateSkuRangeFailure(state, action: PayloadAction<string>) {
+      state.isSkuLoading = false;
+      state.error = action.payload;
+    },
+    getQRCode: (state, action: PayloadAction<GetQRPayload>) => {
+      state.isQRLoading = true;
+    },
+    getQRCodeSuccess: (state, action: PayloadAction<{ qrCode: string }>) => {
+      state.isQRLoading = false;
+      state.qrCode = action.payload.qrCode;
+    },
+    getQRCodeFailure: (state, action: PayloadAction<string>) => {
+      state.isQRLoading = false;
+      state.error = action.payload;
+    },
+    openQRDialog: (state) => {
+      state.openQRDialog = true;
+    },
+    closeQRDialog: (state) => {
+      state.openQRDialog = false;
+      state.qrCode = null;
+    },
+
+    getDocumentsByInventoryId(state, action: PayloadAction<GetDocumentsPayload>) {
+      state.isGetDocumentsLoading = true;
+    },
+    getDocumentsByInventoryIdSuccess(state, action: PayloadAction<IpaginatedDocuments>) {
+      state.isGetDocumentsLoading = false;
+      state.documents = action.payload;
+    },
+    getDocumentsByInventoryIdFailure(state, action: PayloadAction<string>) {
+      state.isGetDocumentsLoading = false;
       state.error = action.payload;
     },
 
-    getDocumentInventories(state, action: PayloadAction<GetInventoriesByStatusPayload>) {
-      state.loading = true;
+    getTimelineItemsByInventoryId(state, action: PayloadAction<GetTimelineItemsPayload>) {
+      state.isGetTimelineItemsLoading = true;
     },
-    getDocumentInventoriesSuccess(state, action: PayloadAction<Inventory[]>) {
-      state.loading = false;
-      state.documentInventories = action.payload;
+    getTimelineItemsByInventoryIdSuccess(state, action: PayloadAction<TimelineItem[]>) {
+      state.isGetTimelineItemsLoading = false;
+      state.timelineItems = action.payload;
     },
-    getDocumentInventoriesFailure(state, action: PayloadAction<string>) {
-      state.loading = false;
+    getTimelineItemsByInventoryIdFailure(state, action: PayloadAction<string>) {
+      state.isGetTimelineItemsLoading = false;
       state.error = action.payload;
     },
 
-    uploadImageStart(state) {
-      state.isDocumentUpdating = true;
-    },
-    uploadImageEnd(state) {
-      state.isDocumentUpdating = false;
-    },
-
-    createDocumentWithTimeline(state, action: PayloadAction<any>) {
-      state.isDocumentCreationSucceeded = false;
-      state.isDocumentUpdating = true;
-    },
-    createDocumentWithTimelineSuccess(state, action: PayloadAction<CreateDocumentWithTimelineSuccessPayload>) {
-      state.isDocumentCreationSucceeded = true;
-      state.isDocumentUpdating = false;
-    },
-    createDocumentWithTimelineFailure(state, action: PayloadAction<string>) {
-      state.isDocumentUpdating = false;
-      state.error = action.payload;
-    },
-    getDocumentbyId(state, action: PayloadAction<{ id: string; token: string }>) {
-      state.isGetDocumentLoading = true;
-    },
-    getDocumentbyIdSuccess(state, action: PayloadAction<Doc>) {
-      state.isGetDocumentLoading = false;
-      state.document = action.payload;
-    },
-    getDocumentbyIdFailure(state, action: PayloadAction<string>) {
-      state.isGetDocumentLoading = false;
-      state.error = action.payload;
-    },
-    updateDocument(state, action: PayloadAction<any>) {
-      state.isDocumentUpdating = true;
-    },
-    updateDocumentSuccess(state, action: PayloadAction<UpdateDocumentSuccessPayload>) {
-      state.isDocumentUpdating = false;
-      state.document = action.payload;
-    },
-    updateDocumentFailure(state, action: PayloadAction<string>) {
-      state.isDocumentUpdating = false;
-      state.error = action.payload;
-    },
-    getInventoriesByIds(state, action: PayloadAction<{ inventoryIds: string[]; token: string }>) {
-      state.loading = true;
+    updateFilters: (state, action: PayloadAction<Filters>) => {
+      const { status, category, createdOn } = action.payload;
+      state.filters = { ...state.filters, status, category, createdOn };
     },
   },
 });
 
-export const { actions: documentTemplateActions } = documentTemplateSlice;
-export default documentTemplateSlice.reducer;
+export const { actions: inventoryActions } = inventorySlice;
+export default inventorySlice.reducer;
 
-export const useDocumentTemplateSlice = () => {
-  return { actions: documentTemplateSlice.actions };
+export const useInventorySlice = () => {
+  return { actions: inventorySlice.actions };
 };

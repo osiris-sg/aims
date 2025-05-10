@@ -5,8 +5,8 @@ import { useDispatch, useSelector } from "react-redux";
 import { useEffect, useCallback, useMemo } from "react";
 import { useOrganization } from "@clerk/nextjs";
 import { useAuth } from "@clerk/nextjs";
-import { documentTemplateActions } from "@/containers/Documents/slice";
-import { selectDocument, selectDocumentTemplatesError, selectDocumentTemplatesLoading, selectInventoriesForDocument } from "@/containers/Documents/slice/selectors";
+import { documentTemplateActions } from "@/containers/DocumentsTemplateView/slice";
+import { selectDocument, selectDocumentTemplatesError, selectDocumentTemplatesLoading, selectInventoriesForDocument } from "@/containers/DocumentsTemplateView/slice/selectors";
 import { useParams } from "next/navigation";
 
 export const useGetInventoriesForItemTable = () => {

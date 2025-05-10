@@ -2,12 +2,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 import { useDispatch, useSelector } from "react-redux";
-import { selectDocumentTemplates, selectDocumentTemplatesLoading, selectDocumentTemplatesError } from "@/containers/Documents/slice/selectors";
+import { selectDocumentTemplates, selectDocumentTemplatesLoading, selectDocumentTemplatesError } from "@/containers/DocumentsTemplateView/slice/selectors";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useOrganization } from "@clerk/nextjs";
 import { useAuth } from "@clerk/nextjs";
-import { documentTemplateActions } from "@/containers/Documents/slice";
-import { DOCUMENT_TYPES } from "@/containers/Documents/slice/constants";
+import { documentTemplateActions } from "@/containers/DocumentsTemplateView/slice";
+import { DOCUMENT_TYPES } from "@/containers/DocumentsTemplateView/slice/constants";
 export const useGetDocuments = () => {
   const { getToken } = useAuth();
   const { organization } = useOrganization();

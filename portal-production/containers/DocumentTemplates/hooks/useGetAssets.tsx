@@ -6,8 +6,8 @@ import { useDispatch, useSelector } from "react-redux";
 import { useState, useEffect, useCallback } from "react";
 import { useOrganization } from "@clerk/nextjs";
 import { useAuth } from "@clerk/nextjs";
-import { selectAssets } from "../../Documents/slice/selectors";
-import { documentTemplateActions } from "@/containers/Documents/slice";
+import { selectAssets } from "../../DocumentsTemplateView/slice/selectors";
+import { documentTemplateActions } from "@/containers/DocumentsTemplateView/slice";
 
 export const useGetAssets = () => {
   const { getToken } = useAuth();

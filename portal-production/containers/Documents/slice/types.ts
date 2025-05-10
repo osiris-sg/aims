@@ -1,46 +1,124 @@
-import { IpaginatedAssets } from "@/containers/Assets/slice/types";
+import { IpaginatedAssets, Asset, Category } from "@/containers/Assets/slice/types";
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export interface DocumentTemplateState {
-  documentTemplates: IpaginatedDocumentTemplates;
-  documentTemplate: DocumentTemplate | null;
+export interface InventoryState {
+  inventories: IpaginatedInventories;
+  inventory: Inventory | null;
+  openDrawer: boolean;
   error: string | null;
   loading: boolean;
   assets: IpaginatedAssets;
-  isGetAssetLoading: boolean;
-  isGetDocumentTemplateLoading:boolean;
-  isDocumentTemplateCreationSucceeded: boolean;
-  isDocumentTemplateUpdating: boolean;
-  customers: IpaginatedCustomers;
-  isGetCustomersLoading: boolean;
-  deleteingDocumentTemplateId: null | string;
+  categories: Category[];
+  deleteingInventoryId: null | string;
   isDeleteInProgress: boolean;
-  documentInventories: Inventory[];
+  isDeletionSucceeded: boolean;
+  isInventoryUpdating: boolean;
+  isInventoryCreationSucceeded: boolean;
+  skuRange: string[];
+  isSkuLoading: boolean;
+  isGetInventoryLoading: boolean;
+  isGetAssetLoading: boolean;
+  isGetCategoriesLoading: boolean;
+  qrCode: string | null;
+  isQRLoading: boolean;
+  openQRDialog: boolean;
+
   documents: IpaginatedDocuments;
   document: Doc | null;
-  isDocumentCreationSucceeded: boolean;
-  isDocumentUpdating: boolean;
-  isGetDocumentLoading: boolean;
+  isGetDocumentsLoading: boolean;
+
+  timelineItems: TimelineItem[];
+  timelineItem: TimelineItem | null;
+  isGetTimelineItemsLoading: boolean;
+  filters: Filters;
 }
 
-export interface DocumentItem {
-  item: string;
-  description: string;
-  quantity: string;
+export interface Filters {
+  createdOn: {
+    startDate: Date | null;
+    endDate: Date | null;
+  };
+  status: string;
+  category: string;
 }
 
-export interface DocumentTemplateAction {
+export interface Inventory {
+  id: string;
+  assetId: string;
+  location: string;
+  status: string;
+  quantity: number;
+  sku: string;
+  category: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InventoryAction {
   type: string;
   payload: any;
 }
 
-export interface IpaginatedDocumentTemplates {
-  docs: DocumentTemplate[];
+export interface IpaginatedInventories {
+  docs: Inventory[];
   hasNextPage: boolean;
   hasPrevPage: boolean;
   limit: number;
   nextPage: number;
   totalDocuments: number;
   totalPagesCount: number;
+}
+
+export interface GetInventoriesPayload {
+  page: number;
+  limit: number;
+  search: string;
+  filters: any;
+  organizationId: string;
+  token: string | null;
+}
+
+export interface CreateInventoryPayload {
+  assetId: string;
+  location: string;
+  status: string;
+  quantity: number;
+  organizationId: string;
+  token: string | null;
+  sku: string;
+  category: string;
+}
+
+export interface CreateInventoryResponse {
+  inventoryItems: Inventory;
+  message: string;
+}
+
+export interface UpdateInventoryPayload {
+  id: string;
+  assetId: Asset | string;
+  location: string;
+  status: string;
+  quantity: number;
+  organizationId: string;
+  token: string | null;
+}
+
+export interface DeleteInventoryPayload {
+  id: string;
+  token: string | null;
+}
+
+export interface GenerateSkuRangePayload {
+  assetId: string;
+  quantity: number;
+  token: string | null;
+  organizationId?: string;
+}
+
+export interface GetQRPayload {
+  sku: string;
+  token: string | null;
 }
 
 export interface IpaginatedDocuments {
@@ -62,47 +140,6 @@ export interface IpaginatedTimelineItems {
   totalDocuments: number;
   totalPagesCount: number;
 }
-export interface GetDocumentTemplatesPayload {
-  page: number;
-  limit: number;
-  search: string;
-  filters: any;
-  organizationId: string;
-  token: string | null;
-}
-
-export interface GetDocumentsPayload {
-  page: number;
-  limit: number;
-  search: string;
-  filters: any;
-  organizationId: string;
-  token: string | null;
-}
-
-export interface GetTimelineItemsPayload {
-  page: number;
-  limit: number;
-  search: string;
-  filters: any;
-  organizationId: string;
-  token: string | null;
-}
-
-export interface VisibilityField {
-  value: string;
-  isVisible: boolean;
-}
-
-export interface DocumentTemplate {
-  id: string;
-  name: string;
-  type: string;
-  organizationId: string;
-  config: object;
-  createdAt: string;
-  updatedAt: string;
-}
 
 export interface Doc {
   id: string;
@@ -110,8 +147,6 @@ export interface Doc {
   inventoryId: string;
   createdAt: string;
   updatedAt: string;
-  config?: any;
-  type: string;
 }
 
 export interface TimelineItem {
@@ -122,84 +157,12 @@ export interface TimelineItem {
   createdAt: string;
   updatedAt: string;
 }
-
-export interface CreateTimelineItemPayload {
-  message: string;
-  pdfUrl: string;
+export interface GetDocumentsPayload {
   inventoryId: string;
+  token: string | null;
 }
-export interface CreateDocumentPayload {
-  templateData: any;
+
+export interface GetTimelineItemsPayload {
   inventoryId: string;
-}
-export interface CreateDocumentTemplatePayload extends Omit<DocumentTemplate, "id" | "createdAt" | "updatedAt"> {
   token: string | null;
 }
-
-export interface UpdateDocumentTemplatePayload extends DocumentTemplate {
-  token: string | null;
-}
-
-export interface DeleteDocumentTemplatePayload {
-  id: string;
-  token: string | null;
-}
-
-export interface IpaginatedCustomers {
-  docs: Customer[];
-  hasNextPage: boolean;
-  hasPrevPage: boolean;
-  limit: number;
-  nextPage: number;
-  totalDocuments: number;
-  totalPagesCount: number;
-}
-
-export interface Customer {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  address: string;
-  createdAt: string;
-  updatedAt: string;
-}
-export interface GetCustomersPayload {
-  page: number;
-  limit: number;
-  search: string;
-  filters: any;
-  organizationId: string;
-  token: string | null;
-}
-
-export interface Inventory {
-  id: string;
-  assetId: string;
-  location: string;
-  status: string;
-  quantity: number;
-  sku: string;
-  category: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface GetInventoriesPayload {
-  organizationId: string;
-  token: string | null;
-}
-
-export interface GetInventoriesByStatusPayload {
-  organizationId: string;
-  token: string | null;
-  status: string;
-}
-export interface CreateDocumentWithTimelineSuccessPayload {
-  document: Doc;
-  timeline: TimelineItem;
-}
-export interface UpdateDocumentSuccessPayload extends Doc {
-  token: string | null;
-}
-

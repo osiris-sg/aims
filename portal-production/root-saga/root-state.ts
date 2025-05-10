@@ -4,7 +4,7 @@ import { AssetsState } from "@/containers/Assets/slice/types";
 import { NotificationsState } from "@/containers/Notifications/slice/types";
 import { InventoryState } from "@/containers/Inventory/slice/types";
 import { CustomerState } from "@/containers/Customers/slice/types";
-import { DocumentTemplateState } from "@/containers/Documents/slice/types";
+import { DocumentTemplateState } from "@/containers/DocumentsTemplateView/slice/types";
 
 /*
   Because the redux-injectors injects your reducers asynchronously somewhere in your code

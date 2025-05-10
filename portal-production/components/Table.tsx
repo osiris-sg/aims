@@ -50,7 +50,9 @@ export default function Table(props: Props) {
         }
         return <Checkbox checked={row.getIsSelected()} onChange={row.getToggleSelectedHandler()} sx={{ p: 0 }} />;
       },
-      size: 50,
+      size: 40,
+      minSize: 40,
+      maxSize: 40,
       enableSorting: false,
     }),
     []
@@ -95,7 +97,13 @@ export default function Table(props: Props) {
                 colSpan={header.colSpan}
                 sx={{
                   padding: "0.5rem 0.5rem",
-                  width: `${header.getSize()}px`,
+                  ...(header.id === "select"
+                    ? {
+                        width: "40px",
+                        minWidth: "40px",
+                        maxWidth: "40px",
+                      }
+                    : {}),
                   color: "tertiary.dark",
                   borderRight: "0.1px solid", // Add vertical divider
                   borderColor: "tertiary.main",
@@ -119,7 +127,19 @@ export default function Table(props: Props) {
           ? [1, 2, 3, 4].map((_item, index) => (
               <TableRow key={`loading-${index}`}>
                 {table.getHeaderGroups()[0].headers.map((header: any) => (
-                  <TableCell key={`loading-${header.id}`} sx={{ width: `${header.getSize()}px`, padding: "0.5rem 0.3rem" }}>
+                  <TableCell
+                    key={`loading-${header.id}`}
+                    sx={{
+                      padding: "0.5rem 0.3rem",
+                      ...(header.id === "select"
+                        ? {
+                            width: "40px",
+                            minWidth: "40px",
+                            maxWidth: "40px",
+                          }
+                        : {}),
+                    }}
+                  >
                     <Skeleton variant="text" />
                   </TableCell>
                 ))}
@@ -141,8 +161,14 @@ export default function Table(props: Props) {
                     <TableCell
                       key={cell.id}
                       sx={{
-                        width: `${cell.column.getSize()}px`,
                         padding: "0.5rem 0.3rem",
+                        ...(cell.column.id === "select"
+                          ? {
+                              width: "40px",
+                              minWidth: "40px",
+                              maxWidth: "40px",
+                            }
+                          : {}),
                       }}
                     >
                       {id === loadingTableRowId ? <Skeleton variant="text" sx={{ m: "0.5rem 0.3rem" }} /> : <span className="truncate">{flexRender(cell.column.columnDef.cell, cell.getContext())}</span>}

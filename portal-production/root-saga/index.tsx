@@ -3,7 +3,7 @@ import { assetsSaga } from "@/containers/Assets/slice/saga";
 import { inventorySaga } from "@/containers/Inventory/slice/saga";
 import { customerSaga } from "@/containers/Customers/slice/saga";
 import { all, fork } from "redux-saga/effects";
-import { documentTemplateSaga } from "@/containers/Documents/slice/saga";
+import { documentTemplateSaga } from "@/containers/DocumentsTemplateView/slice/saga";
 
 // eslint-disable-next-line import/prefer-default-export
 export function* rootSaga() {

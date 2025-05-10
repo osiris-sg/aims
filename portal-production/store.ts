@@ -6,7 +6,7 @@ import { notificationSlice } from "@/containers/Notifications/slice";
 import { assetsSlice } from "@/containers/Assets/slice";
 import { inventorySlice } from "@/containers/Inventory/slice";
 import { customersSlice } from "@/containers/Customers/slice";
-import { documentTemplateSlice } from "./containers/Documents/slice";
+import { documentTemplateSlice } from "./containers/DocumentsTemplateView/slice";
 
 export const sagaMiddleware = createSagaMiddleware();
 

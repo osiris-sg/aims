@@ -1,59 +1,60 @@
 export const API = {
-  GET_DOCUMENT_TEMPLATES: {
-    path: "/documentTemplates",
+  GET_INVENTORY: {
+    path: "/inventories",
     method: "POST",
   },
-  GET_DOCUMENT_TEMPLATE_BY_ID: {
-    path: "/documentTemplates/:id",
+  GET_INVENTORY_BY_SKU: {
+    path: "/inventories/sku/:sku",
     method: "GET",
   },
-  CREATE_DOCUMENT_TEMPLATE: {
-    path: "/documentTemplates/create",
+  CREATE_INVENTORY: {
+    path: "/inventories/create",
     method: "POST",
   },
-  UPDATE_DOCUMENT_TEMPLATE: {
-    path: "/documentTemplates/update",
+  RESET_CREATE_INVENTORY: {
+    path: "/inventories/reset",
     method: "POST",
   },
-  DELETE_DOCUMENT_TEMPLATE: {
-    path: "/documentTemplates/delete",
+  UPDATE_INVENTORY: {
+    path: "/inventories/update",
+    method: "POST",
+  },
+  DELETE_INVENTORY: {
+    path: "/inventories/delete",
     method: "DELETE",
   },
   GET_ASSETS: {
     path: "/assets",
     method: "POST",
   },
-  GET_CUSTOMERS: {
-    path: "/customers",
-    method: "POST",
-  },
-
-  GET_DOCUMENT_INVENTORY: {
-    path: "/inventories/by-status",
-    method: "POST",
-  },
-
-  CREATE_DOCUMENT_WITH_TIMELINE: {
-    path: "/documents/with-timeline",
-    method: "POST",
-  },
-  GET_DOCUMENT_BY_ID: {
-    path: "/documents/:id",
+  GET_CATEGORIES: {
+    path: "/categories",
     method: "GET",
   },
-  UPDATE_DOCUMENT: {
-    path: "/documents/update",
+  GENERATE_SKU: {
+    path: "/inventories/generate-sku",
     method: "POST",
   },
-  GET_INVENTORIES_BY_IDS: {
-    path: "/inventories/by-ids",
-    method: "POST",
+  GET_QR_CODE:{
+    path: "/inventories/qrcode/:sku",
+    method: "GET"
+  },
+
+  GET_DOCUMENTS: {
+    path: "/documents/inventory/:inventoryId",
+    method: "GET",
+  },
+
+  GET_TIMELINE_ITEMS: {
+    path: "/timeline-items/inventory/:inventoryId",
+    method: "GET",
   },
 };
 
-export const DOCUMENT_TYPES = [
-  { label: "Return Delivery Order", value: "RDO" },
-  { label: "Delivery Order", value: "DO" },
-  // { label: "Maintenance Service Report", value: "MSR" },
-  // { label: "Tax Invoice", value: "TI" },
+export const INVENTORY_STATUS = [
+  { label: "Rental", value: "RENTAL" },
+  { label: "Reserved", value: "RESERVED" },
+  { label: "Maintenance", value: "MAINTAINANCE" },
+  { label: "Sold", value: "SOLD" },
+  { label: "Instock", value: "INSTOCK" },
 ];

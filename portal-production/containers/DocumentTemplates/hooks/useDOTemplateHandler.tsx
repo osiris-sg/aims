@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useAuth, useOrganization } from "@clerk/nextjs";
-import { useDocumentTemplateSlice } from "@/containers/Documents/slice";
+import { useDocumentTemplateSlice } from "@/containers/DocumentsTemplateView/slice";
 import { useParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { useDispatch, useSelector } from "react-redux";
-import { selectDocumentTemplate, selectIsDocumentTemplateUpdating } from "@/containers/Documents/slice/selectors";
+import { selectDocumentTemplate, selectIsDocumentTemplateUpdating } from "@/containers/DocumentsTemplateView/slice/selectors";
 import { useEffect } from "react";
 
 export default function useDOTemplateHandler() {

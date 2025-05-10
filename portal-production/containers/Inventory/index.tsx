@@ -19,6 +19,7 @@ export default function Inventory() {
   const { openDrawer, onAddClick, onCloseClick } = useAddInventoryStates();
   const { closeQRDialog, isQRLoading, qrCode } = useViewQRHandler();
   const qrDialogOpen = useSelector(selectOpenQRDialog);
+  console.log("qrDialogOpen", qrDialogOpen);
 
   return (
     <MainCard>
