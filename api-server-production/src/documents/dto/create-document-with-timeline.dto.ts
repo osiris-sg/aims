@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsArray, ValidateNested } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray, ValidateNested, isNotEmpty } from 'class-validator';
 import { Type } from 'class-transformer';
 
 class CompanyDto {
@@ -93,4 +93,8 @@ export class CreateDocumentWithTimelineDto {
   @ValidateNested()
   @Type(() => IConfig)
   config?: IConfig;
+
+  @IsString()
+  @IsNotEmpty()
+  customerId: string;
 }

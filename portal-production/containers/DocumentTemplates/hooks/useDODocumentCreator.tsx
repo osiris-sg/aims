@@ -167,6 +167,7 @@ export default function useDODocumentCreator() {
             config: payload,
             token,
             status: "INSTOCK",
+            customerId: data.customerId,
           })
         );
       }

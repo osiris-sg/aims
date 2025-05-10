@@ -68,6 +68,9 @@ export class DocumentsService {
             documentTemplateId: dto.documentTemplateId,
             type: dto.type || 'Default',
             config: configAsPlainObject,
+            customer: {
+              connect: { id: dto.customerId },
+            },
           },
         });
 
@@ -77,7 +80,7 @@ export class DocumentsService {
             let newStatus = 'INSTOCK';
             let docMessage = 'A RDO document is submitted';
             let statusChangeMessage = 'Item has been changed from Rental to Instock';
-
+            console.log('Document Type:', JSON.stringify(dto.type, null, 2));
             if (dto.type === 'DO') {
               newStatus = 'RENTAL';
               docMessage = 'A DO document is submitted';
@@ -91,7 +94,14 @@ export class DocumentsService {
                 status: newStatus,
               },
             });
-
+            await tx.document.update({
+              where: { id: createdDocument.id },
+              data: {
+                inventory: {
+                  connect: { id: _item.inventoryItemId },
+                },
+              },
+            });
             // Create timeline item for document submission
             await tx.timelineItem.create({
               data: {
