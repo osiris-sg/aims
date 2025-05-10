@@ -1,41 +1,24 @@
 import { useDispatch, useSelector } from "react-redux";
-import { inventoryActions } from "../slice";
-import { selectDeleteingInventoryId, selectIsInventoryDeleteInProgress, selectIsInventoryDeletionSucceeded } from "../slice/selectors";
+import { documentActions } from "../slice";
+import { selectDeletingDocumentId, selectIsDocumentDeleteInProgress } from "../slice/selectors";
 import { useAuth } from "@clerk/nextjs";
-import { useEffect } from "react";
-import { notificationsActions } from "../../Notifications/slice";
-
-export default function useDeleteInventoryHandler() {
+export default function useDeleteDocumentHandler() {
   const dispatch = useDispatch();
   const { getToken } = useAuth();
-  const setInventoryToDelete = (id: string | null) => {
-    dispatch(inventoryActions.setInventoryToDelete(id));
+  const setDocumentToDelete = (id: string | null) => {
+    dispatch(documentActions.setDocumentToDelete(id));
   };
-  const inventoryToDelete = useSelector(selectDeleteingInventoryId);
-  const isDeleteInProgress = useSelector(selectIsInventoryDeleteInProgress);
-  const isDeleteSucceeded = useSelector(selectIsInventoryDeletionSucceeded);
-
-  useEffect(() => {
-    if (isDeleteSucceeded) {
-      dispatch(
-        notificationsActions.setNotification({
-          message: "Inventory item deleted successfully.",
-          type: "success",
-        })
-      );
-      dispatch(inventoryActions.resetDeletionSuccess());
-    }
-  }, [isDeleteSucceeded, dispatch]);
-
+  const documentToDelete = useSelector(selectDeletingDocumentId);
+  const isDeleteInProgress = useSelector(selectIsDocumentDeleteInProgress);
   const onDeleteConfirm = async () => {
     const token = await getToken();
-    if (token && inventoryToDelete) {
-      dispatch(inventoryActions.deleteInventory({ id: inventoryToDelete, token }));
+    if (token && documentToDelete) {
+      dispatch(documentActions.deleteDocument({ id: documentToDelete, token }));
     }
   };
   return {
-    setInventoryToDelete,
-    inventoryToDelete,
+    setDocumentToDelete,
+    documentToDelete,
     isDeleteInProgress,
     onDeleteConfirm,
   };

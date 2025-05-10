@@ -3,22 +3,16 @@
 import React from "react";
 
 import MainCard from "@/components/MainCard";
-import useInventoryTableHeader from "./hooks/useInventoryTableHeader";
+import useDocumentTableHeader from "./hooks/useDocumentTableHeader";
 import PageTable from "@/components/PageTable";
 import AddInventoryItem from "./components/AddInventoryItem";
 import { useGetInventories } from "./hooks/useGetInventories";
 import useAddInventoryStates from "./hooks/useAddInventoryStates";
-import ViewQRDialog from "./components/ViewQRDialog";
-import useViewQRHandler from "./hooks/useViewQRHandler";
-import { selectOpenQRDialog } from "./slice/selectors";
-import { useSelector } from "react-redux";
 
 export default function Documents() {
-  const { columns, deleteDialog } = useInventoryTableHeader();
+  const { columns } = useDocumentTableHeader();
   const { inventories, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters } = useGetInventories();
   const { openDrawer, onAddClick, onCloseClick } = useAddInventoryStates();
-  const { closeQRDialog, isQRLoading, qrCode } = useViewQRHandler();
-  const qrDialogOpen = useSelector(selectOpenQRDialog);
 
   return (
     <MainCard>
@@ -43,8 +37,6 @@ export default function Documents() {
         totalDocs={inventories.totalDocuments}
       />
       <AddInventoryItem open={openDrawer} onClose={onCloseClick} />
-      <ViewQRDialog open={qrDialogOpen} onClose={closeQRDialog} isQRLoading={isQRLoading} qrCode={qrCode} />
-      {deleteDialog}
     </MainCard>
   );
 }
