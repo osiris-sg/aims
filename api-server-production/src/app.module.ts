@@ -16,6 +16,10 @@ import { DocumentTemplatesModule } from './documentTemplates/documentTemplates.m
 import { UploadsModule } from './uploads/uploads.module';
 import { DocumentsModule } from './documents/documents.module';
 import { TimelineItemsModule } from './timeline-items/timeline-items.module';
+import { RolesModule } from './roles/roles.module';
+import { PermissionsModule } from './permissions/permissions.module';
+import { UsersModule } from './users/users.module';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 
 @Module({
   imports: [
@@ -32,6 +36,9 @@ import { TimelineItemsModule } from './timeline-items/timeline-items.module';
     UploadsModule,
     DocumentsModule,
     TimelineItemsModule,
+    RolesModule,
+    PermissionsModule,
+    UsersModule,
   ],
   controllers: [AppController],
   providers: [
@@ -44,4 +51,23 @@ import { TimelineItemsModule } from './timeline-items/timeline-items.module';
     },
   ],
 })
-export class AppModule {}
+export class AppModule {
+  constructor() {}
+
+  static registerSwagger(app) {
+    const config = new DocumentBuilder()
+      .setTitle('Your API Title')
+      .setDescription('Your API Description')
+      .setVersion('1.0')
+      // .addTag('cats') // You can add tags to group your endpoints
+      // .addBearerAuth() // For Bearer token authentication
+      // .addOAuth2()    // For OAuth2 authentication
+      .build();
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api', app, document); // 'api' is the path where Swagger UI will be available
+  }
+
+  async onModuleInit() {
+    // You can call registerSwagger here or in your main.ts
+  }
+}

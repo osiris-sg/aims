@@ -27,6 +27,7 @@ const mainListItems = [
   { text: "Assets", path: ROUTES.ASSETS, icon: <AnalyticsRoundedIcon /> },
   { text: "Customers", path: ROUTES.CUSTOMERS, icon: <PeopleRoundedIcon /> },
   { text: "Documents", path: ROUTES.DOCUMENTS, icon: <DescriptionIcon /> },
+  { text: "Permissions", path: ROUTES.PERMISSIONS, icon: <PeopleRoundedIcon /> },
   // { text: "Invocies", path: ROUTES.INVOICES, icon: <AssignmentRoundedIcon /> },
   // { text: "Projects", path: ROUTES.PROJECTS, icon: <AccountTreeIcon /> },
 ];

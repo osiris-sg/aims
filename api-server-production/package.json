@@ -20,7 +20,9 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "prisma:push": "npx prisma db push",
     "prisma:studio": "npx prisma studio",
-    "db:sync": "npx prisma db push"
+    "db:sync": "npx prisma db push",
+    "seed": "ts-node prisma/seed.ts",
+    "assign-superadmin": "ts-node scripts/assign-superadmin.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.779.0",
@@ -36,13 +38,15 @@
     "@prisma/client": "^6.4.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "lucide-react": "^0.510.0",
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.2",
     "passport-custom": "^1.1.1",
     "pg": "^8.13.3",
     "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.0",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.0.0",

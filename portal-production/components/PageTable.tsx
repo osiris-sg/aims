@@ -35,9 +35,10 @@ interface Props {
   availableFilters?: string[];
   pageCount?: number;
   totalDocs?: number;
+  renderSubComponent?: (props: { row: any }) => React.ReactNode;
 }
 export default function PageTable(props: Props) {
-  const { columns, data, tableName, subTitle, buttonName, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, availableFilters, totalDocs } = props;
+  const { columns, data, tableName, subTitle, buttonName, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, availableFilters, totalDocs, renderSubComponent } = props;
   const { control, handleSubmit, watch } = useForm({ defaultValues: { limit, search } });
   const _limit = watch("limit");
   const _search = watch("search");

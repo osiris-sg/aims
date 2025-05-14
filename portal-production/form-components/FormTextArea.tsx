@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Box, CircularProgress, InputAdornment, InputLabel, TextField, Typography } from "@mui/material";
+import { Box, InputLabel, TextField, Typography } from "@mui/material";
 import React from "react";
 import { Control, Controller, FieldValues } from "react-hook-form";
 
@@ -11,25 +11,37 @@ interface Props {
   bottomText?: string;
   labelArriangment?: "vertical" | "horizontal";
   rules?: any;
-  defaultValue?: string | number;
+  defaultValue?: string;
   description?: string;
   disabled?: boolean;
-  startIcon?: React.ReactNode;
-  type?: string;
-  size?: "small" | "medium";
+  rows?: number;
+  maxRows?: number;
   maxLength?: number;
   required?: boolean;
   fullWidth?: boolean;
-  loading?: boolean;
-  min?: number;
-  integerOnly?: boolean;
   viewMode?: boolean;
-  error?: boolean;
-  helperText?: string;
 }
 
-export default function FormInputBox(props: Props) {
-  const { fullWidth, control, name, label, placeHolder, bottomText, defaultValue, description, disabled, startIcon, type = "text", size, maxLength, required, loading, min, rules = {}, labelArriangment = "vertical", viewMode = false } = props;
+export default function FormTextarea(props: Props) {
+  const { 
+    fullWidth = true, 
+    control, 
+    name, 
+    label, 
+    placeHolder, 
+    bottomText, 
+    defaultValue = "", 
+    description, 
+    disabled, 
+    rows = 4, 
+    maxRows, 
+    maxLength, 
+    required, 
+    rules = {}, 
+    labelArriangment = "vertical",
+    viewMode = false
+  } = props;
+
   return (
     <Controller
       control={control}
@@ -58,25 +70,28 @@ export default function FormInputBox(props: Props) {
           {!viewMode ? (
             <TextField
               disabled={disabled}
-              size={size}
               placeholder={placeHolder}
               fullWidth={fullWidth}
               value={value}
-              onChange={(value) => onChange(value)}
+              onChange={(e) => onChange(e.target.value)}
               ref={ref}
-              type={type}
-              // onBlur={onBlur}
-              inputProps={{ maxLength: maxLength, min: min }}
-              InputProps={{
-                ...((startIcon || loading) && {
-                  startAdornment: <InputAdornment position="start">{loading ? <CircularProgress size={24} /> : startIcon}</InputAdornment>,
-                }),
-              }}
+              multiline
+              rows={rows}
+              maxRows={maxRows}
+              inputProps={{ maxLength: maxLength }}
               error={!!error}
               helperText={error ? error.message : bottomText}
             />
           ) : (
-            <Typography variant="body1"> {value}</Typography>
+            <Typography 
+              variant="body1" 
+              sx={{ 
+                whiteSpace: 'pre-wrap', 
+                wordBreak: 'break-word' 
+              }}
+            >
+              {value}
+            </Typography>
           )}
         </Box>
       )}

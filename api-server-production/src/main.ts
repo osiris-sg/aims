@@ -14,6 +14,7 @@ const corsOptions: CorsOptions = {
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  AppModule.registerSwagger(app);
   app.enableCors(corsOptions);
   app.use(morgan('dev'));
   app.useGlobalPipes(new ValidationPipe());
