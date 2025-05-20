@@ -1,29 +1,39 @@
-import { useNotifications } from "../context/NotificationsContext";
+import { useCallback } from "react";
+import { toast } from "react-toastify";
 
-export function useNotification() {
-  const { setNotification, clearNotification } = useNotifications();
+interface NotificationOptions {
+  message: string;
+  type: "success" | "error" | "info" | "warning";
+}
 
-  const showSuccess = (message: string) => {
-    setNotification({ message, type: "success" });
-  };
+export function useNotifications() {
+  const showNotification = useCallback(({ message, type }: NotificationOptions) => {
+    const options = {
+      position: "top-right",
+      autoClose: 3000,
+      hideProgressBar: false,
+      closeOnClick: true,
+      pauseOnHover: true,
+      draggable: true,
+    };
 
-  const showError = (message: string) => {
-    setNotification({ message, type: "error" });
-  };
+    switch (type) {
+      case "success":
+        toast.success(message, options);
+        break;
+      case "error":
+        toast.error(message, options);
+        break;
+      case "info":
+        toast.info(message, options);
+        break;
+      case "warning":
+        toast.warning(message, options);
+        break;
+      default:
+        toast(message, options);
+    }
+  }, []);
 
-  const showWarning = (message: string) => {
-    setNotification({ message, type: "warning" });
-  };
-
-  const showInfo = (message: string) => {
-    setNotification({ message, type: "info" });
-  };
-
-  return {
-    showSuccess,
-    showError,
-    showWarning,
-    showInfo,
-    clearNotification,
-  };
+  return { showNotification };
 }

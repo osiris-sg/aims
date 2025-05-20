@@ -10,6 +10,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import DeleteItemDialog from "@/components/DeleteItemDialog";
 import { useOrganization, useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
+import { ROUTES } from "@/routes";
 
 export default function AssetsPage() {
   const router = useRouter();
@@ -155,7 +156,7 @@ export default function AssetsPage() {
       cell: ({ row }: any) => (
         <Box sx={{ display: "flex", gap: "var(--default-gap)" }}>
           <IconButton
-            onClick={() => router.push(`/src/assets/${row.original.skuKey}`)}
+            onClick={() => router.push(`${ROUTES.ASSETS}/${row.original.skuKey}`)}
             sx={{
               color: "customYellow.contrastText",
               bgcolor: "customYellow.main",
@@ -168,7 +169,7 @@ export default function AssetsPage() {
             <VisibilityIcon />
           </IconButton>
           <IconButton
-            onClick={() => router.push(`/src/assets/edit/${row.original.id}`)}
+            onClick={() => router.push(`${ROUTES.EDIT_ASSET}/${row.original.id}`)}
             sx={{
               borderRadius: "8px",
               color: "secondary.contrastText",
@@ -219,7 +220,7 @@ export default function AssetsPage() {
         setLimit={setLimit}
         setSearch={setSearch}
         setFilters={setFilters}
-        onAddClick={() => router.push("/src/assets/add")}
+        onAddClick={() => router.push(ROUTES.ADD_ASSET)}
         availableFilters={["status", "category"]}
         pageCount={assets.totalPagesCount}
         totalDocs={assets.totalDocuments}

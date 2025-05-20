@@ -8,6 +8,7 @@ import { Box, Button, TextField, MenuItem, Typography, Avatar } from "@mui/mater
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { ROUTES } from "@/routes";
 
 const assetSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -133,7 +134,7 @@ export default function EditAssetPage({ params }: { params: { id: string } }) {
       );
 
       if (response.success) {
-        router.push("/src/assets");
+        router.push(ROUTES.ASSETS);
       }
     } catch (error) {
       console.error("Error updating asset:", error);

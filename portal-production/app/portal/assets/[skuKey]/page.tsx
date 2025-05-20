@@ -13,6 +13,7 @@ import DialogContent from "@mui/material/DialogContent";
 import DialogContentText from "@mui/material/DialogContentText";
 import DialogTitle from "@mui/material/DialogTitle";
 import Table from "@/components/Table";
+import { ROUTES } from "@/routes";
 
 export default function ViewAssetPage({ params }: { params: { skuKey: string } }) {
   const router = useRouter();
@@ -154,7 +155,7 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
       );
 
       if (response.success) {
-        router.push("/src/assets");
+        router.push(ROUTES.ASSETS);
       }
     } catch (error) {
       console.error("Error deleting asset:", error);
@@ -191,7 +192,7 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
     <MainCard>
       <Box sx={{ p: 3 }}>
         <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-          <Box component="span" sx={{ cursor: "pointer" }} onClick={() => router.push("/src/assets")}>
+          <Box component="span" sx={{ cursor: "pointer" }} onClick={() => router.push(ROUTES.ASSETS)}>
             <strong>Asset</strong>
           </Box>{" "}
           / {params.skuKey}
@@ -223,7 +224,7 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
                   Edit Asset
                 </Typography>
                 <IconButton
-                  onClick={() => router.push(`/src/assets/edit/${params.skuKey}`)}
+                  onClick={() => router.push(`${ROUTES.EDIT_ASSET}/${params.skuKey}`)}
                   sx={{
                     borderRadius: "8px",
                     color: "secondary.contrastText",

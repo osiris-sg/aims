@@ -9,6 +9,7 @@ import Head from "next/head";
 import { ClerkProvider } from "@clerk/nextjs";
 import Portal from "@/containers/portal";
 import ReduxProvider from "./ReduxProvider";
+import Providers from "./providers";
 
 const roboto = Roboto({
   weight: ["300", "400", "500", "700"],
@@ -39,7 +40,9 @@ export default function RootLayout({
             <AppRouterCacheProvider>
               <ThemeProvider theme={theme}>
                 <CssBaseline />
-                <Portal>{children}</Portal>
+                <Providers>
+                  <Portal>{children}</Portal>
+                </Providers>
               </ThemeProvider>
             </AppRouterCacheProvider>
           </ReduxProvider>

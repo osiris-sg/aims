@@ -17,6 +17,7 @@ import Table from "@/components/Table";
 import Image from "next/image";
 import FormSelect from "@/form-components/FormSelect";
 import { useForm } from "react-hook-form";
+import { ROUTES } from "@/routes";
 
 interface Inventory {
   id: string;
@@ -164,7 +165,7 @@ export default function ViewInventoryPage({ params }: { params: { sku: string } 
       );
 
       if (response.success) {
-        router.push("/src/inventory");
+        router.push(ROUTES.INVENTORY);
       }
     } catch (error) {
       console.error("Error deleting inventory:", error);
