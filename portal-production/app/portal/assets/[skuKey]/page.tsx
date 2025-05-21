@@ -14,6 +14,7 @@ import DialogContentText from "@mui/material/DialogContentText";
 import DialogTitle from "@mui/material/DialogTitle";
 import Table from "@/components/Table";
 import { ROUTES } from "@/routes";
+import useViewAssetTableHeader from "../hooks/useViewAssetTableHeader";
 
 export default function ViewAssetPage({ params }: { params: { skuKey: string } }) {
   const router = useRouter();
@@ -25,6 +26,8 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
   const [category, setCategory] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
+  const { columnsDocuments, sampleDataDocuments } = useViewAssetTableHeader();
   const [inventoriesStatusCounts, setInventoriesStatusCounts] = useState<Record<string, number>>({
     INSTOCK: 0,
     RENTAL: 0,
@@ -181,13 +184,6 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
     );
   }
 
-  const documentColumns = [
-    { id: "name", field: "name", headerName: "Name", flex: 1 },
-    { id: "type", field: "type", headerName: "Type", flex: 1 },
-    { id: "createdAt", field: "createdAt", headerName: "Created At", flex: 1 },
-    { id: "status", field: "status", headerName: "Status", flex: 1 },
-  ];
-
   return (
     <MainCard>
       <Box sx={{ p: 3 }}>
@@ -284,7 +280,7 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
           <Typography variant="body1" sx={{ mb: 2 }}>
             Documents
           </Typography>
-          {isLoadingDocuments ? <Skeleton variant="rectangular" width="100%" height={200} /> : <Table columns={documentColumns} data={documents} onRowSelect={() => {}} />}
+          {isLoadingDocuments ? <Skeleton variant="rectangular" width="100%" height={200} /> : <Table columns={columnsDocuments} data={documents} onRowSelect={() => {}} />}
         </Box>
       </Box>
 

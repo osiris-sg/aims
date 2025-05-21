@@ -95,10 +95,10 @@ export default function AssetsPage() {
 
       const response = await request(
         {
-          path: `/assets/${assetToDelete}`,
+          path: `/assets/delete`,
           method: "DELETE",
         },
-        {},
+        {id: assetToDelete},
         token
       );
 
