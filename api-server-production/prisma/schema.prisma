@@ -10,7 +10,7 @@ datasource db {
 model Asset {
   id                String             @id @default(uuid()) @db.Uuid
   name              String
-  skuKey            String             @unique
+  skuKey            String             
   categoryId        String             @db.Uuid
   description       String?
   image             String?
@@ -20,6 +20,8 @@ model Asset {
   deletedAt         DateTime?          @db.Timestamptz(6)
   category          Category           @relation(fields: [categoryId], references: [id])
   inventories       Inventory[]
+
+  @@unique([skuKey, deletedAt])
 }
 
 model Category {
