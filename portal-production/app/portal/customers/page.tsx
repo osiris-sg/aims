@@ -205,10 +205,10 @@ export default function CustomersPage() {
 
       const response = await request(
         {
-          path: `/customers/${customerToDelete}`,
+          path: `/customers/delete`,
           method: "DELETE",
         },
-        {},
+        {id: customerToDelete},
         token
       );
 
