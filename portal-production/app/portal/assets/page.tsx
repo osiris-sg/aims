@@ -169,7 +169,7 @@ export default function AssetsPage() {
             <VisibilityIcon />
           </IconButton>
           <IconButton
-            onClick={() => router.push(`${ROUTES.EDIT_ASSET}/${row.original.id}`)}
+            onClick={() => router.push(`${ROUTES.ADD_ASSET}?id=${row.original.id}`)}
             sx={{
               borderRadius: "8px",
               color: "secondary.contrastText",

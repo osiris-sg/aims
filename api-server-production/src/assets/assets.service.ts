@@ -157,8 +157,10 @@ export class AssetsService {
 
       // If the asset exists, the SKU key is not available
       if (asset) {
+        console.log("Asset found", asset, "SKU KEY SUBMITTED:", skuKey);
         return { isAvailable: false };
       } else {
+        console.log("SKU KEY SUBMITTED:", skuKey);
         return { isAvailable: true };
       }
     } catch {

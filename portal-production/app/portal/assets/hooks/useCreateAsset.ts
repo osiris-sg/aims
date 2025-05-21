@@ -8,8 +8,9 @@ interface CreateAssetData {
   name: string;
   skuKey: string;
   categoryId: string;
-  status: string;
+  organizationId: string;
   image?: File;
+  description?: string;
 }
 
 export const useCreateAsset = () => {
@@ -36,27 +37,27 @@ export const useCreateAsset = () => {
         return false;
       }
 
-      const formData = new FormData();
-      Object.entries(data).forEach(([key, value]) => {
-        if (value !== undefined) {
-          formData.append(key, value);
-        }
-      });
-      formData.append("organizationId", organizationId);
+      // Prepare the request body
+      const requestBody: CreateAssetData = {
+        name: data.name,
+        skuKey: data.skuKey,
+        categoryId: data.categoryId,
+        organizationId,
+        description: data.description || "",
+      };
+
+      console.log("Request Body:", requestBody);
 
       const response = await request(
         {
-          path: "/assets",
+          path: "/assets/create",
           method: "POST",
         },
-        formData,
-        token,
-        true,
-        true
+        requestBody,
+        token
       );
 
       if (response.success) {
-        router.push(ROUTES.ASSETS);
         return true;
       } else {
         setError(response.message || "Failed to create asset");

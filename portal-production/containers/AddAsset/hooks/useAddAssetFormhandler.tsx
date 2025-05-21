@@ -85,6 +85,7 @@ export default function useAddAssetFormhandler() {
   }, [isAssetUpdateSucceeded]);
 
   const isSkuKeyAvailable = useSelector(selectIsSkuKeyAvailable);
+  console.log("isSkuKeyAvailable", isSkuKeyAvailable);
 
   const skuKey = methods.watch("skuKey");
 
