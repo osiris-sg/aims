@@ -9,6 +9,7 @@ import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ROUTES } from "@/routes";
+import { useCreateAsset } from "../hooks/useCreateAsset";
 
 const assetSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -26,7 +27,7 @@ export default function AddAssetPage() {
   const { getToken } = useAuth();
   const organizationId = organization?.id;
   const [categories, setCategories] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const { createAsset, isLoading, error } = useCreateAsset();
 
   const {
     control,
@@ -72,38 +73,7 @@ export default function AddAssetPage() {
   }, [organizationId]);
 
   const onSubmit = async (data: AssetFormData) => {
-    if (!organizationId) return;
-    setIsLoading(true);
-
-    try {
-      const token = await getToken();
-      if (!token) return;
-
-      const formData = new FormData();
-      Object.entries(data).forEach(([key, value]) => {
-        formData.append(key, value);
-      });
-      formData.append("organizationId", organizationId);
-
-      const response = await request(
-        {
-          path: "/assets",
-          method: "POST",
-        },
-        formData,
-        token,
-        true,
-        true
-      );
-
-      if (response.success) {
-        router.push(ROUTES.ASSETS);
-      }
-    } catch (error) {
-      console.error("Error creating asset:", error);
-    } finally {
-      setIsLoading(false);
-    }
+    await createAsset(data);
   };
 
   return (
@@ -112,6 +82,12 @@ export default function AddAssetPage() {
         <Typography variant="h5" sx={{ mb: 3 }}>
           Add New Asset
         </Typography>
+
+        {error && (
+          <Typography color="error" sx={{ mb: 2 }}>
+            {error}
+          </Typography>
+        )}
 
         <Controller name="name" control={control} render={({ field }) => <TextField {...field} label="Asset Name" fullWidth error={!!errors.name} helperText={errors.name?.message} sx={{ mb: 2 }} />} />
 

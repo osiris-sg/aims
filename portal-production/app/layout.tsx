@@ -41,7 +41,7 @@ export default function RootLayout({
               <ThemeProvider theme={theme}>
                 <CssBaseline />
                 <Providers>
-                  <Portal>{children}</Portal>
+                <Portal>{children}</Portal>
                 </Providers>
               </ThemeProvider>
             </AppRouterCacheProvider>
