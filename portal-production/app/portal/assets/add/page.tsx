@@ -18,7 +18,7 @@ export default function AddAssetPage() {
   const router = useRouter();
   const { activeStep, handleNext, handleBack, methods, handleSubmit, onSubmit, isAssetUpdating, isSkuCheckInProgress, isSkuKeyAvailable, error, isEditMode } = useAddAssetFormHandler();
 
-  const steps = isEditMode ? ["Edit Asset", "Additional Details", "Confirm Changes"] : ["Asset Creation", "Additional Details", "Review", "Success"];
+  const steps = isEditMode ? ["Edit Asset", "Additional Details", "Confirm Changes"] : ["Asset Creation", "Additional Details", "Review"];
 
   if (!isEditMode && activeStep === 3) {
     return <AddAssetSuccess />;
