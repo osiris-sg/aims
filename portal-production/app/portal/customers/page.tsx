@@ -6,11 +6,12 @@ import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
-import { Box, IconButton, Typography } from "@mui/material";
+import { Box, IconButton, Typography, Button, Stack, useTheme } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import { useRouter } from "next/navigation";
+import { ROUTES } from "@/routes";
 import AddCustomer from "./components/AddCustomer";
 
 interface Customer {
@@ -55,7 +56,7 @@ export default function CustomersPage() {
   const { organization } = useOrganization();
   const { getToken } = useAuth();
   const organizationId = organization?.id;
-
+  const theme = useTheme();
   const [customers, setCustomers] = useState<PaginatedResponse>({
     docs: [],
     totalDocs: 0,
@@ -80,7 +81,9 @@ export default function CustomersPage() {
   });
   const [customerToDelete, setCustomerToDelete] = useState<string | null>(null);
   const [isDeleteInProgress, setIsDeleteInProgress] = useState(false);
-  const [openDrawer, setOpenDrawer] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | undefined>();
+  const [isEditMode, setIsEditMode] = useState(false);
 
   const columns = [
     {
@@ -124,7 +127,7 @@ export default function CustomersPage() {
         return (
           <Box display="flex" gap={1}>
             <IconButton
-              onClick={() => router.push(`/customers/${customer.id}`)}
+              onClick={() => router.push(`${ROUTES.CUSTOMERS}/${customer.id}`)}
               sx={{
                 borderRadius: "8px",
                 color: "primary.contrastText",
@@ -135,7 +138,7 @@ export default function CustomersPage() {
               <VisibilityIcon />
             </IconButton>
             <IconButton
-              onClick={() => router.push(`/customers/${customer.id}/edit`)}
+              onClick={() => handleEditCustomer(customer.id)}
               sx={{
                 borderRadius: "8px",
                 color: "secondary.contrastText",
@@ -208,7 +211,7 @@ export default function CustomersPage() {
           path: `/customers/delete`,
           method: "DELETE",
         },
-        {id: customerToDelete},
+        { id: customerToDelete },
         token
       );
 
@@ -223,34 +226,59 @@ export default function CustomersPage() {
     }
   };
 
+  const handleAddCustomer = () => {
+    setSelectedCustomerId(undefined);
+    setIsEditMode(false);
+    setIsDrawerOpen(true);
+  };
+
+  const handleEditCustomer = (customerId: string) => {
+    setSelectedCustomerId(customerId);
+    setIsEditMode(true);
+    setIsDrawerOpen(true);
+  };
+
+  const handleCloseDrawer = () => {
+    setIsDrawerOpen(false);
+    setSelectedCustomerId(undefined);
+    setIsEditMode(false);
+  };
+
+  const handleSuccess = () => {
+    // Refresh the customers list or handle success
+    handleCloseDrawer();
+  };
+
   useEffect(() => {
     fetchCustomers();
   }, [organizationId, page, limit, search, filters]);
 
   return (
-    <MainCard>
-      <PageTable
-        columns={columns}
-        data={customers.docs}
-        tableName="Customers List"
-        subTitle="Customers Detail Information"
-        buttonName="Add Customer"
-        onAddClick={() => setOpenDrawer(true)}
-        loading={loading}
-        page={page}
-        limit={limit}
-        search={search}
-        filters={filters}
-        setPage={setPage}
-        setLimit={setLimit}
-        setSearch={setSearch}
-        setFilters={setFilters}
-        availableFilters={["createdOn"]}
-        pageCount={customers.totalPages}
-        totalDocs={customers.totalDocs}
-      />
+      <MainCard>
+        <PageTable
+          columns={columns}
+          data={customers.docs}
+          tableName="Customers List"
+          subTitle="Customers Detail Information"
+          buttonName="Add Customer"
+          onAddClick={handleAddCustomer}
+          loading={loading}
+          page={page}
+          limit={limit}
+          search={search}
+          filters={filters}
+          setPage={setPage}
+          setLimit={setLimit}
+          setSearch={setSearch}
+          setFilters={setFilters}
+          availableFilters={["createdOn"]}
+          pageCount={customers.totalPages}
+          totalDocs={customers.totalDocs}
+        />
+
       <DeleteItemDialogNoConfirm open={!!customerToDelete} onCancel={() => setCustomerToDelete(null)} onConfirm={handleDelete} loading={isDeleteInProgress} />
-      <AddCustomer open={openDrawer} onClose={() => setOpenDrawer(false)} onSuccess={fetchCustomers} />
+
+      <AddCustomer open={isDrawerOpen} onClose={handleCloseDrawer} onSuccess={fetchCustomers} customerId={selectedCustomerId} isEditMode={isEditMode} />
     </MainCard>
   );
 }
