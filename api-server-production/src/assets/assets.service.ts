@@ -74,7 +74,14 @@ export class AssetsService {
 
   async getAssetBySKUKEY(skuKey: string) {
     try {
-      const asset = await this.prisma.asset.findUnique({ where: { skuKey, deletedAt: null } });
+      const asset = await this.prisma.asset.findUnique({
+        where: {
+          skuKey_deletedAt: {
+            skuKey,
+            deletedAt: null,
+          },
+        },
+      });
       if (!asset) throw new HttpException('Asset not found', HttpStatus.NOT_FOUND);
       return asset;
     } catch (error) {
@@ -153,14 +160,21 @@ export class AssetsService {
 
   async checkSkuKey(skuKey: string): Promise<{ isAvailable: boolean }> {
     try {
-      const asset = await this.prisma.asset.findUnique({ where: { skuKey, deletedAt: null } });
+      const asset = await this.prisma.asset.findUnique({
+        where: {
+          skuKey_deletedAt: {
+            skuKey,
+            deletedAt: null,
+          },
+        },
+      });
 
       // If the asset exists, the SKU key is not available
       if (asset) {
-        console.log("Asset found", asset, "SKU KEY SUBMITTED:", skuKey);
+        console.log('Asset found', asset, 'SKU KEY SUBMITTED:', skuKey);
         return { isAvailable: false };
       } else {
-        console.log("SKU KEY SUBMITTED:", skuKey);
+        console.log('SKU KEY SUBMITTED:', skuKey);
         return { isAvailable: true };
       }
     } catch {
