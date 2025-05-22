@@ -9,6 +9,7 @@ import { Box, IconButton, Typography, Alert, Drawer, Stack } from "@mui/material
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import { useRouter } from "next/navigation";
 import moment from "moment";
+import { DOCUMENT_API } from "../documents/constants";
 
 interface Document {
   id: string;
@@ -146,21 +147,25 @@ export default function DocumentsPage() {
 
       const response = await request(
         {
-          path: "/inventories",
-          method: "POST",
+          path: DOCUMENT_API.GET_ALL.path,
+          method: "GET",
         },
-        {
-          page,
-          limit,
-          search,
-          filters,
-          organizationId,
-        },
+        undefined,
         token
       );
-
       if (response.success) {
-        setDocuments(response.data);
+        setDocuments({
+          docs: response.data,
+          totalDocs: response.data.length,
+          limit,
+          totalPages: 1,
+          page: 1,
+          pagingCounter: 1,
+          hasPrevPage: false,
+          hasNextPage: false,
+          prevPage: null,
+          nextPage: null,
+        });
       } else {
         setError(response.message || "Failed to fetch documents");
       }
@@ -170,7 +175,7 @@ export default function DocumentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [organizationId, page, limit, search, filters, getToken]);
+  }, [organizationId, getToken, limit]);
 
   useEffect(() => {
     fetchDocuments();

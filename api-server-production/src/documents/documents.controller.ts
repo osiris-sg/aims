@@ -2,7 +2,7 @@ import { Controller, Get, Post, Body, Param, Delete } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { CreateDocumentWithTimelineDto } from './dto/create-document-with-timeline.dto';
-
+import { GetDocumentDto } from './dto/get-documents';
 @Controller('documents')
 export class DocumentsController {
   constructor(private readonly documentsService: DocumentsService) {}
@@ -10,6 +10,11 @@ export class DocumentsController {
   @Post('with-timeline')
   async createDocumentWithTimeline(@Body() dto: CreateDocumentWithTimelineDto) {
     return await this.documentsService.createDocumentWithTimeline(dto);
+  }
+
+  @Get()
+  async getAllDocuments(): Promise<GetDocumentDto[]> {
+    return await this.documentsService.getAllDocuments();
   }
 
   @Get(':id')
@@ -27,7 +32,7 @@ export class DocumentsController {
     return await this.documentsService.updateDocument(updateDto);
   }
 
-  @Delete('delete')
+  @Delete('delete/:id')
   async deleteDocument(@Param('id') id: string) {
     return await this.documentsService.deleteDocument(id);
   }

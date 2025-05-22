@@ -2,7 +2,6 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { PrismaService } from 'src/common/prisma.service';
 import { CreateDocumentWithTimelineDto } from './dto/create-document-with-timeline.dto';
-
 @Injectable()
 export class DocumentsService {
   constructor(private prisma: PrismaService) {}
@@ -129,5 +128,26 @@ export class DocumentsService {
         throw new HttpException(`Update failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
       }
     });
+  }
+  async getAllDocuments() {
+    try {
+      const documents = await this.prisma.document.findMany({
+        include: {
+          inventory: true,
+          customer: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      return documents.map((doc) => ({
+        id: doc.id,
+        name: doc.type,
+        associated_item: doc.inventory?.sku ?? 'N/A',
+        associated_customer: doc.customer?.name ?? 'N/A',
+        createdAt: doc.createdAt,
+      }));
+    } catch (error) {
+      throw new HttpException(`Fetch all documents failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
   }
 }
