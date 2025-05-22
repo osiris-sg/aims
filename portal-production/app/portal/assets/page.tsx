@@ -29,7 +29,7 @@ export default function AssetsPage() {
   const [categories, setCategories] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  const fetchAssets = async () => {
+  const fetchAssets = React.useCallback(async () => {
     if (!organizationId) return;
 
     setIsLoading(true);
@@ -60,9 +60,9 @@ export default function AssetsPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [organizationId, getToken, page, limit, search, filters]);
 
-  const fetchCategories = async () => {
+  const fetchCategories = React.useCallback(async () => {
     if (!organizationId) return;
 
     try {
@@ -84,7 +84,7 @@ export default function AssetsPage() {
     } catch (error) {
       console.error("Error fetching categories:", error);
     }
-  };
+  }, [organizationId, getToken]);
 
   const deleteAsset = async () => {
     if (!assetToDelete || !organizationId) return;
@@ -98,7 +98,7 @@ export default function AssetsPage() {
           path: `/assets/delete`,
           method: "DELETE",
         },
-        {id: assetToDelete},
+        { id: assetToDelete },
         token
       );
 
@@ -114,11 +114,11 @@ export default function AssetsPage() {
 
   useEffect(() => {
     fetchAssets();
-  }, [page, limit, search, filters, organizationId]);
+  }, [page, limit, search, filters, organizationId, fetchAssets]);
 
   useEffect(() => {
     fetchCategories();
-  }, [organizationId]);
+  }, [organizationId, fetchCategories]);
 
   const columns = [
     {
