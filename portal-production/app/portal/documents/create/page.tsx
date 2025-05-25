@@ -24,7 +24,6 @@ export default function CreateDocument() {
   const {
     control,
     handleSubmit,
-    watch,
     formState: { isDirty },
   } = useForm({
     mode: "onChange",
