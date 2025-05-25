@@ -50,7 +50,7 @@ export default function CreateDocument() {
       const token = await getToken();
       const documentTemplateId = typeToIdMap[data.documentType] || data.documentType;
 
-      await request(
+      const response = await request(
         {
           path: "/documents/basic",
           method: "POST",
@@ -63,7 +63,11 @@ export default function CreateDocument() {
         token ?? undefined
       );
 
-      router.push(ROUTES.DOCUMENTS);
+      console.log("Create document response:", response);
+
+      const createdDocumentId = response?.id;
+      console.log("Created Document ID:", createdDocumentId);
+      router.push(`/portal/documents/edit/${data.documentType}/${createdDocumentId}`);
     } catch (error) {
       console.error("Error submitting form:", error);
     } finally {
