@@ -63,7 +63,6 @@ export class DocumentsService {
 
         const createdDocument = await tx.document.create({
           data: {
-            organizationId: dto.organizationId,
             documentTemplateId: dto.documentTemplateId,
             type: dto.type || 'Default',
             config: configAsPlainObject,
@@ -128,6 +127,21 @@ export class DocumentsService {
         throw new HttpException(`Update failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
       }
     });
+  }
+  async createBasicDocument(documentTemplateId: string, type: string, config: any = {}) {
+    try {
+      const newDocument = await this.prisma.document.create({
+        data: {
+          documentTemplateId,
+          type,
+          config,
+        },
+      });
+
+      return newDocument;
+    } catch (error) {
+      throw new HttpException(`Basic document creation failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
   }
   async getAllDocuments() {
     try {

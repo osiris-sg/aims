@@ -12,6 +12,11 @@ export class DocumentsController {
     return await this.documentsService.createDocumentWithTimeline(dto);
   }
 
+  @Post('basic')
+  async createBasicDocument(@Body() body: { documentTemplateId: string; type: string; config?: any }) {
+    return await this.documentsService.createBasicDocument(body.documentTemplateId, body.type, body.config || {});
+  }
+
   @Get()
   async getAllDocuments(): Promise<GetDocumentDto[]> {
     return await this.documentsService.getAllDocuments();

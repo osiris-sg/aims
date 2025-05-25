@@ -80,10 +80,6 @@ export class IConfig {
 export class CreateDocumentWithTimelineDto {
   @IsString()
   @IsNotEmpty()
-  organizationId: string;
-
-  @IsString()
-  @IsNotEmpty()
   documentTemplateId: string;
 
   @IsString()

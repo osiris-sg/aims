@@ -89,7 +89,7 @@ model Document {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  organizationId     String
+  organizationId     String?
   documentTemplateId String
   type               String
   config             Json    // <- Stores all the RDO document field settings

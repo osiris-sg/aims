@@ -11,12 +11,11 @@ export class DocumentTemplatesService {
 
   async getDocumentTemplates(getDocumentTemplateDto: GetDocumentTemplateDto) {
     try {
-      const { organizationId, page, limit, search } = getDocumentTemplateDto;
+      const { page, limit, search } = getDocumentTemplateDto;
       const skip = (page - 1) * limit;
 
       const documentTemplates = await this.prisma.documentTemplate.findMany({
         where: {
-          organizationId: organizationId,
           type: {
             contains: search,
             mode: 'insensitive',
@@ -31,7 +30,6 @@ export class DocumentTemplatesService {
 
       const totalDocs = await this.prisma.documentTemplate.count({
         where: {
-          organizationId: organizationId,
           type: {
             contains: search,
             mode: 'insensitive',

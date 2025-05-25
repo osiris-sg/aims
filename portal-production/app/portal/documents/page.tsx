@@ -5,11 +5,12 @@ import { useOrganization, useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
-import { Box, IconButton, Typography, Alert, Drawer, Stack } from "@mui/material";
+import { Box, IconButton, Alert } from "@mui/material";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import { useRouter } from "next/navigation";
 import moment from "moment";
 import { DOCUMENT_API } from "../documents/constants";
+import { ROUTES } from "@/routes";
 
 interface Document {
   id: string;
@@ -73,7 +74,6 @@ export default function DocumentsPage() {
     },
   });
   const [error, setError] = useState<string | null>(null);
-  const [openDrawer, setOpenDrawer] = useState(false);
 
   const columns = [
     {
@@ -194,7 +194,7 @@ export default function DocumentsPage() {
         tableName="Document List"
         subTitle="Document Detail Information"
         buttonName="Create Document"
-        onAddClick={() => setOpenDrawer(true)}
+        onAddClick={() => router.push("/portal/documents/create")}
         loading={loading}
         page={page}
         limit={limit}
@@ -208,22 +208,6 @@ export default function DocumentsPage() {
         pageCount={documents.totalPages}
         totalDocs={documents.totalDocs}
       />
-      <Drawer
-        anchor="right"
-        open={openDrawer}
-        onClose={() => setOpenDrawer(false)}
-        sx={{
-          "& .MuiDrawer-paper": {
-            width: "400px",
-            backgroundColor: "background.paper",
-          },
-        }}
-      >
-        <Stack direction="column" gap="var(--double-gap)" padding="var(--default-padding)" height="100%" width="100%">
-          <Typography variant="h6">Create Document</Typography>
-          {/* Add your form components here */}
-        </Stack>
-      </Drawer>
     </MainCard>
   );
 }
