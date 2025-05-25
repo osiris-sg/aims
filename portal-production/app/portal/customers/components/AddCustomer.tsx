@@ -4,19 +4,22 @@ import { useForm } from "react-hook-form";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
+import { useEffect } from "react";
 
 interface AddCustomerProps {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  customerId?: string;
+  isEditMode?: boolean;
 }
 
-export default function AddCustomer({ open, onClose, onSuccess }: AddCustomerProps) {
+export default function AddCustomer({ open, onClose, onSuccess, customerId, isEditMode = false }: AddCustomerProps) {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
   const theme = useTheme();
 
-  const { control, handleSubmit, reset } = useForm({
+  const { control, handleSubmit, reset, setValue } = useForm({
     defaultValues: {
       name: "",
       email: "",
@@ -25,6 +28,38 @@ export default function AddCustomer({ open, onClose, onSuccess }: AddCustomerPro
     },
   });
 
+  useEffect(() => {
+    const fetchCustomer = async () => {
+      if (isEditMode && customerId) {
+        try {
+          const token = await getToken();
+          if (!token || !organization?.id) return;
+
+          const response = await request(
+            {
+              path: `/customers/${customerId}`,
+              method: "GET",
+            },
+            {},
+            token
+          );
+
+          if (response.success) {
+            const customer = response.data;
+            setValue("name", customer.name);
+            setValue("email", customer.email);
+            setValue("phone", customer.phone);
+            setValue("address", customer.address);
+          }
+        } catch (error) {
+          console.error("Error fetching customer:", error);
+        }
+      }
+    };
+
+    fetchCustomer();
+  }, [isEditMode, customerId, getToken, organization?.id, setValue]);
+
   const onSubmit = async (data: any) => {
     try {
       const token = await getToken();
@@ -32,11 +67,12 @@ export default function AddCustomer({ open, onClose, onSuccess }: AddCustomerPro
 
       const response = await request(
         {
-          path: "/customers/create",
-          method: "POST",
+          path: isEditMode ? "/customers/update" : "/customers/create",
+          method: isEditMode ? "PUT" : "POST",
         },
         {
           ...data,
+          ...(isEditMode && { id: customerId }),
           organizationId: organization.id,
         },
         token
@@ -56,7 +92,7 @@ export default function AddCustomer({ open, onClose, onSuccess }: AddCustomerPro
     <Drawer anchor="right" open={open} onClose={onClose} sx={{ "& .MuiDrawer-paper": { width: "400px", backgroundColor: theme.palette.tertiary.contrastText } }}>
       <Stack direction="column" gap="var(--double-gap)" padding="var(--default-padding)" height="100%" width="100%" display="flex" alignItems="center" justifyContent="center">
         <Typography variant="body1" sx={{ width: "100%" }}>
-          Add Customer
+          {isEditMode ? "Edit Customer" : "Add Customer"}
         </Typography>
         <form style={{ width: "100%" }} onSubmit={handleSubmit(onSubmit)}>
           <Stack direction="column" gap="var(--default-gap)" width="100%">
@@ -79,7 +115,7 @@ export default function AddCustomer({ open, onClose, onSuccess }: AddCustomerPro
             </Button>
 
             <Button variant="contained" type="submit">
-              Save
+              {isEditMode ? "Save Changes" : "Save"}
             </Button>
           </Stack>
         </form>
