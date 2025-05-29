@@ -158,6 +158,8 @@ export class DocumentsService {
         name: doc.type,
         associated_item: doc.inventory?.sku ?? 'N/A',
         associated_customer: doc.customer?.name ?? 'N/A',
+        documentType: doc.type,
+        templateId: doc.documentTemplateId,
         createdAt: doc.createdAt,
       }));
     } catch (error) {

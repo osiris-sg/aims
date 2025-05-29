@@ -7,7 +7,7 @@ export interface DocumentTemplateState {
   loading: boolean;
   assets: IpaginatedAssets;
   isGetAssetLoading: boolean;
-  isGetDocumentTemplateLoading:boolean;
+  isGetDocumentTemplateLoading: boolean;
   isDocumentTemplateCreationSucceeded: boolean;
   isDocumentTemplateUpdating: boolean;
   customers: IpaginatedCustomers;
@@ -191,7 +191,6 @@ export interface GetInventoriesPayload {
 }
 
 export interface GetInventoriesByStatusPayload {
-  organizationId: string;
   token: string | null;
   status: string;
 }
@@ -202,4 +201,3 @@ export interface CreateDocumentWithTimelineSuccessPayload {
 export interface UpdateDocumentSuccessPayload extends Doc {
   token: string | null;
 }
-

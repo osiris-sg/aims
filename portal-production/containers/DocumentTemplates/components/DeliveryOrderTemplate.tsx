@@ -16,12 +16,15 @@ import usePrintDocumentHandler from "../hooks/usePrintDocumentHandler";
 import { useParams } from "next/navigation";
 import useDOTemplateHandler from "../hooks/useDOTemplateHandler";
 import useDODocumentCreator from "../hooks/useDODocumentCreator";
+import { usePathname } from "next/navigation";
 
 interface Props {
   viewMode: boolean;
 }
 export default function DeliveryOrderTemplate(props: Props) {
   const { documentId } = useParams();
+  const pathname = usePathname();
+  const isEditPath = pathname.includes("edit");
   const { viewMode = false } = props;
   const [isViewMode, toggleViewMode] = useState(viewMode);
   const [isToolBarOpen, toggleToolbar] = useState(false);
@@ -48,6 +51,7 @@ export default function DeliveryOrderTemplate(props: Props) {
         secondaryActionDisabled={!isDCretorDisabled || isDirty}
         onPrint={handlePrint}
         documentEditMode={!!documentId}
+        isEditPath={isEditPath}
       />
       <Grid2 container spacing={1} height="100%">
         {!documentId && isToolBarOpen && (
@@ -128,9 +132,9 @@ export default function DeliveryOrderTemplate(props: Props) {
                   </Box>
                   {itemsError && <Alert severity="error">{`${itemsError}`}</Alert>}
 
-                  {!isViewMode && (
+                  {!isViewMode && !isEditPath && (
                     <Box sx={{ display: "flex", justifyContent: "flex-start", mt: 1, mb: 5 }}>
-                      <Button variant="contained" color="primary" onClick={() => addNewLine()} size="small" disabled={!!documentId}>
+                      <Button variant="contained" color="primary" onClick={() => addNewLine()} size="small">
                         Add Item
                       </Button>
                     </Box>

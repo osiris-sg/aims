@@ -100,23 +100,26 @@ export default function DocumentsPage() {
     {
       accessorKey: "action",
       header: "Action",
-      cell: ({ row }: any) => (
-        <Box sx={{ display: "flex", gap: "var(--default-gap)" }}>
-          <IconButton
-            onClick={() => router.push(`/documents/${row.original.id}`)}
-            sx={{
-              color: "customYellow.contrastText",
-              bgcolor: "customYellow.main",
-              "&:hover": {
-                bgcolor: "customYellow.dark",
-              },
-              borderRadius: "8px",
-            }}
-          >
-            <VisibilityIcon />
-          </IconButton>
-        </Box>
-      ),
+      cell: ({ row }: any) => {
+        const { documentType, templateId, id } = row.original;
+        return (
+          <Box sx={{ display: "flex", gap: "var(--default-gap)" }}>
+            <IconButton
+              onClick={() => router.push(`/portal/documents/${documentType}/${templateId}/${id}`)}
+              sx={{
+                color: "customYellow.contrastText",
+                bgcolor: "customYellow.main",
+                "&:hover": {
+                  bgcolor: "customYellow.dark",
+                },
+                borderRadius: "8px",
+              }}
+            >
+              <VisibilityIcon />
+            </IconButton>
+          </Box>
+        );
+      },
     },
   ];
 

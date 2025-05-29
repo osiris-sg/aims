@@ -13,7 +13,7 @@ import SignatureDialog from "./SignatureDialog";
 import useGetDocument from "../hooks/useGetDocument";
 import DocumentSkeleton from "./DocumentSkeleton";
 import usePrintDocumentHandler from "../hooks/usePrintDocumentHandler";
-import { useParams } from "next/navigation";
+import { useParams, usePathname } from "next/navigation";
 import useRDOTemplateHandler from "../hooks/useRDOTemplateHandler";
 import useRDODocumentCreator from "../hooks/useRDODocumentCreator";
 
@@ -22,6 +22,8 @@ interface Props {
 }
 export default function ReturnDeliveryOrderTemplate(props: Props) {
   const { documentId } = useParams();
+  const pathname = usePathname();
+  const isEditPath = pathname.includes("edit");
   const { viewMode = false } = props;
   const [isViewMode, toggleViewMode] = useState(viewMode);
   const [isToolBarOpen, toggleToolbar] = useState(false);
@@ -48,6 +50,7 @@ export default function ReturnDeliveryOrderTemplate(props: Props) {
         secondaryActionDisabled={!isDCretorDisabled || isDirty}
         onPrint={handlePrint}
         documentEditMode={!!documentId}
+        isEditPath={isEditPath}
       />
       <Grid2 container spacing={1} height="100%">
         {!documentId && isToolBarOpen && (
@@ -128,27 +131,29 @@ export default function ReturnDeliveryOrderTemplate(props: Props) {
                   </Box>
                   {itemsError && <Alert severity="error">{`${itemsError}`}</Alert>}
 
-                  {!isViewMode && (
+                  {!isViewMode && !isEditPath && (
                     <Box sx={{ display: "flex", justifyContent: "flex-start", mt: 1, mb: 5 }}>
-                      <Button variant="contained" color="primary" onClick={() => addNewLine()} size="small" disabled={!!documentId}>
+                      <Button variant="contained" color="primary" onClick={() => addNewLine()} size="small">
                         Add Item
                       </Button>
                     </Box>
                   )}
-                  <Grid2 container spacing={1} mt={4}>
-                    <Grid2 size={6}>
-                      <Typography variant="body1">For {companyName}</Typography>
-                      <SignatureDialog label="company" name="signature.company" viewMode={isViewMode} control={control} />
-                      <Divider sx={{ borderBottomWidth: 2, borderColor: "black", my: 2, width: "260px", mx: "20px" }} />
+                  {!isEditPath && (
+                    <Grid2 container spacing={1} mt={4}>
+                      <Grid2 size={6}>
+                        <Typography variant="body1">For {companyName}</Typography>
+                        <SignatureDialog label="company" name="signature.company" viewMode={isViewMode} control={control} />
+                        <Divider sx={{ borderBottomWidth: 2, borderColor: "black", my: 2, width: "260px", mx: "20px" }} />
+                      </Grid2>
+                      <Grid2 size={6}>
+                        <Typography variant="body1">Goods Received in Good Order & Condition</Typography>
+                        <SignatureDialog label="customer" name="signature.customer" viewMode={isViewMode} control={control} />
+                        <Divider sx={{ borderBottomWidth: 2, borderColor: "black", my: 2, width: "260px", mx: "20px" }} />
+                        <Typography variant="body1">Customer&apos;s Signature & Company Stamp </Typography>
+                        <Typography variant="body1">Date:</Typography>
+                      </Grid2>
                     </Grid2>
-                    <Grid2 size={6}>
-                      <Typography variant="body1">Goods Received in Good Order & Condition</Typography>
-                      <SignatureDialog label="customer" name="signature.customer" viewMode={isViewMode} control={control} />
-                      <Divider sx={{ borderBottomWidth: 2, borderColor: "black", my: 2, width: "260px", mx: "20px" }} />
-                      <Typography variant="body1">Customer&apos;s Signature & Company Stamp </Typography>
-                      <Typography variant="body1">Date:</Typography>
-                    </Grid2>
-                  </Grid2>
+                  )}
                 </Box>
               </form>
             )}

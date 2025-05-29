@@ -44,7 +44,6 @@ export default function CreateDocument() {
   };
 
   const onSubmit = async (data: any) => {
-    console.log("Form submitted with data:", data);
     try {
       setIsDocumentTemplateUpdating(true);
       const token = await getToken();
@@ -63,11 +62,9 @@ export default function CreateDocument() {
         token ?? undefined
       );
 
-      console.log("Create document response:", response);
-
-      const createdDocumentId = response?.id;
+      const createdDocumentId = response?.data.id;
       console.log("Created Document ID:", createdDocumentId);
-      router.push(`/portal/documents/edit/${data.documentType}/${createdDocumentId}`);
+      router.push(`/portal/documents/${data.documentType}/${documentTemplateId}/${createdDocumentId}`);
     } catch (error) {
       console.error("Error submitting form:", error);
     } finally {

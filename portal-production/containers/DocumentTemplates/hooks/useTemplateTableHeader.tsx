@@ -7,7 +7,6 @@ import FormInputBox from "@/form-components/FormInputBox";
 import { Control, FieldValues } from "react-hook-form";
 import FormSelect from "@/form-components/FormSelect";
 import DescriptionCell from "./useDescriptionCell";
-import { useParams } from "next/navigation";
 import { useGetInventoriesForItemTable } from "./useGetInventoriesForItemTable";
 
 interface Props {
@@ -20,8 +19,6 @@ interface Props {
 export default function useTemplateTableHeader(props: Props) {
   const { viewMode, remove, control, setValue } = props;
   const { inventoriesForDocument } = useGetInventoriesForItemTable();
-  const { documentId } = useParams();
-  const isReadOnly = Boolean(documentId);
 
   const columns = useMemo(
     () => [
@@ -37,7 +34,7 @@ export default function useTemplateTableHeader(props: Props) {
             disabled: selectedIds.includes(inventory.id), // Disable if selected elsewhere
           }));
 
-          return <FormSelect control={control} name={`items.${row.index}.inventoryItemId`} menuTitle="Choose item" size="small" viewMode={viewMode} menuItems={menuItems} disabled={isReadOnly} />;
+          return <FormSelect control={control} name={`items.${row.index}.inventoryItemId`} menuTitle="Choose item" size="small" viewMode={viewMode} menuItems={menuItems} />;
         },
       },
       {
@@ -66,7 +63,6 @@ export default function useTemplateTableHeader(props: Props) {
                     },
                     borderRadius: "8px",
                   }}
-                  disabled={isReadOnly}
                 >
                   <DeleteIcon />
                 </IconButton>

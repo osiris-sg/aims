@@ -142,6 +142,7 @@ export function* getDocumentInventoriesGenerator({ payload: data }: DocumentTemp
 
     const response: Response = yield call(request, API.GET_DOCUMENT_INVENTORY, data, token);
     if (response.success) {
+      console.log("getDocumentInventoriesGenerator response", response);
       yield put(documentTemplateActions.getDocumentInventoriesSuccess(response.data));
     } else {
       yield put(documentTemplateActions.getDocumentInventoriesFailure(response.message));
@@ -202,7 +203,6 @@ export function* getInventoriesByIdsGenerator({ payload: data }: DocumentTemplat
     yield put(documentTemplateActions.getDocumentInventoriesFailure("client Error"));
   }
 }
-
 
 export function* documentTemplateSaga() {
   yield takeLatest(documentTemplateActions.getDocumentTemplates.type, getDocumentTemplatesGenerator);

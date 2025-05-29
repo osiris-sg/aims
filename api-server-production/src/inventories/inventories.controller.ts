@@ -22,7 +22,7 @@ export class InventoriesController {
 
   @Post('by-status')
   async getInventoriesByStatus(@Body('organizationId') organizationId: string, @Body('status') status?: string) {
-    return await this.inventoriesService.getInventoriesByStatus(organizationId, status);
+    return await this.inventoriesService.getInventoriesByStatus(organizationId);
   }
 
   @Get('sku/:sku')

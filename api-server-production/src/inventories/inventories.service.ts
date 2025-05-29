@@ -79,11 +79,10 @@ export class InventoriesService {
     }
   }
 
-  async getInventoriesByStatus(organizationId: string, status?: string) {
+  async getInventoriesByStatus(status?: string) {
     try {
       const inventories = await this.prisma.inventory.findMany({
         where: {
-          organizationId,
           ...(status && {
             status: {
               equals: status,

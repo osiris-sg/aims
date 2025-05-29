@@ -16,10 +16,11 @@ interface Props {
   secondaryActionDisabled?: boolean;
   onPrint?: () => void;
   documentEditMode?: boolean;
+  isEditPath?: boolean;
 }
 export default function DocumentNameHeader(props: Props) {
-  const { onPrint, title, description, viewMode, toggleViewMode, onPrimaryActionSubmit, onSecondaryActionSubmit, primaryActionLoading = false, primaryActionDisabled, secondaryActionDisabled, secondaryActionLoading, documentEditMode = false } = props;
-
+  const { onPrint, title, description, viewMode, toggleViewMode, onPrimaryActionSubmit, onSecondaryActionSubmit, primaryActionLoading = false, primaryActionDisabled, secondaryActionDisabled, secondaryActionLoading, documentEditMode = false, isEditPath } = props;
+  console.log("DocumentNameHeader props", props.isEditPath);
   return (
     <Grid2 container spacing={1}>
       <Grid2 size={{ sm: 12, md: 5 }}>
@@ -49,19 +50,20 @@ export default function DocumentNameHeader(props: Props) {
             </Button>
           </Grid2>
         )}
-        {!documentEditMode ? (
-          <Grid2 size={{ xs: 6, md: 5 }}>
-            <Button variant="contained" color="secondary" startIcon={<UploadIcon />} onClick={onSecondaryActionSubmit} loading={secondaryActionLoading} disabled={secondaryActionDisabled || secondaryActionLoading} className="truncate">
-              Create Document
-            </Button>
-          </Grid2>
-        ) : (
-          <Grid2 size={{ xs: 6, md: 5 }}>
-            <Button variant="contained" color="secondary" startIcon={<UploadIcon />} onClick={onSecondaryActionSubmit} loading={secondaryActionLoading} disabled={secondaryActionDisabled || secondaryActionLoading}>
-              Update Document
-            </Button>
-          </Grid2>
-        )}
+        {!isEditPath &&
+          (!documentEditMode ? (
+            <Grid2 size={{ xs: 6, md: 5 }}>
+              <Button variant="contained" color="secondary" startIcon={<UploadIcon />} onClick={onSecondaryActionSubmit} loading={secondaryActionLoading} disabled={secondaryActionDisabled || secondaryActionLoading} className="truncate">
+                Create Document
+              </Button>
+            </Grid2>
+          ) : (
+            <Grid2 size={{ xs: 6, md: 5 }}>
+              <Button variant="contained" color="secondary" startIcon={<UploadIcon />} onClick={onSecondaryActionSubmit} loading={secondaryActionLoading} disabled={secondaryActionDisabled || secondaryActionLoading}>
+                Update Document
+              </Button>
+            </Grid2>
+          ))}
       </Grid2>
     </Grid2>
   );

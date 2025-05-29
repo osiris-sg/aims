@@ -13,6 +13,12 @@ export class GetDocumentDto {
   @IsString()
   associated_customer: string;
 
+  @IsString()
+  documentType: string;
+
+  @IsString()
+  templateId: string;
+
   @IsDate()
   createdAt: Date;
 }

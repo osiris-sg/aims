@@ -17,15 +17,12 @@ export const useGetInventoriesForItemTable = () => {
   const inventoriesForDocument = useSelector(selectInventoriesForDocument);
   const loading = useSelector(selectDocumentTemplatesLoading);
   const error = useSelector(selectDocumentTemplatesError);
-  const { documentId } = useParams();
-  const isReadOnly = Boolean(documentId);
   const document = useSelector(selectDocument);
   const { type } = useParams() as { type?: string };
 
   const inventoryIds = useMemo(() => {
-    if (!isReadOnly) return undefined;
     return document?.config?.items?.map((item: any) => item.inventoryItemId).filter(Boolean);
-  }, [document, isReadOnly]);
+  }, [document]);
 
   const fetchInventoriesByStatus = useCallback(
     async (status: string) => {
@@ -33,7 +30,7 @@ export const useGetInventoriesForItemTable = () => {
       const token = await getToken();
       if (!token) return;
 
-      dispatch(documentTemplateActions.getDocumentInventories({ organizationId, status, token }));
+      dispatch(documentTemplateActions.getDocumentInventories({ status, token }));
     },
     [organizationId]
   );
@@ -47,16 +44,13 @@ export const useGetInventoriesForItemTable = () => {
 
   useEffect(() => {
     if (!organizationId) return;
-    if (isReadOnly) {
-      fetchInventoriesByIds();
-    } else {
-      if (type === "RDO") {
-        fetchInventoriesByStatus("RENTAL");
-      } else if (type === "DO") {
-        fetchInventoriesByStatus("INSTOCK");
-      }
+
+    if (type === "RDO") {
+      fetchInventoriesByStatus("RENTAL");
+    } else if (type === "DO") {
+      fetchInventoriesByStatus("INSTOCK");
     }
-  }, [organizationId, isReadOnly, type, fetchInventoriesByStatus, fetchInventoriesByIds]);
+  }, [organizationId, type, fetchInventoriesByStatus, fetchInventoriesByIds]);
 
   return { inventoriesForDocument, loading, error };
 };
