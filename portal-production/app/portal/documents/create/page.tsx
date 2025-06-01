@@ -10,13 +10,14 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import * as yup from "yup";
 import { yupResolver } from "@hookform/resolvers/yup";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth, useOrganization } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 
 export default function CreateDocument() {
   const { availableDocumentTypes } = useGetDocumentTemplates();
   const router = useRouter();
-
+  const { organization } = useOrganization();
+  const organizationId = organization?.id;
   const documentTemplateSchema = yup.object().shape({
     documentType: yup.string().required(),
   });
@@ -48,7 +49,7 @@ export default function CreateDocument() {
       setIsDocumentTemplateUpdating(true);
       const token = await getToken();
       const documentTemplateId = typeToIdMap[data.documentType] || data.documentType;
-
+      console.log("Selected Document Type:", organizationId);
       const response = await request(
         {
           path: "/documents/basic",
@@ -58,6 +59,7 @@ export default function CreateDocument() {
           type: data.documentType,
           config: {},
           documentTemplateId: documentTemplateId,
+          organizationId: organizationId,
         },
         token ?? undefined
       );

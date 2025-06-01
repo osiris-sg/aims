@@ -13,13 +13,13 @@ export class DocumentsController {
   }
 
   @Post('basic')
-  async createBasicDocument(@Body() body: { documentTemplateId: string; type: string; config?: any }) {
-    return await this.documentsService.createBasicDocument(body.documentTemplateId, body.type, body.config || {});
+  async createBasicDocument(@Body() body: { documentTemplateId: string; type: string; organizationId: string; config?: any }) {
+    return await this.documentsService.createBasicDocument(body.documentTemplateId, body.type, body.organizationId, body.config || {});
   }
 
-  @Get()
-  async getAllDocuments(): Promise<GetDocumentDto[]> {
-    return await this.documentsService.getAllDocuments();
+  @Post()
+  async getAllDocuments(@Body('organizationId') organizationId: string): Promise<GetDocumentDto[]> {
+    return await this.documentsService.getAllDocuments(organizationId);
   }
 
   @Get(':id')
@@ -28,8 +28,8 @@ export class DocumentsController {
   }
 
   @Get('inventory/:inventoryId')
-  async getByInventory(@Param('inventoryId') inventoryId: string) {
-    return await this.documentsService.getByInventory(inventoryId);
+  async getByInventory(@Param('inventoryId') inventoryId: string, @Body('organizationId') organizationId: string) {
+    return await this.documentsService.getByInventory(inventoryId, organizationId);
   }
 
   @Post('update')

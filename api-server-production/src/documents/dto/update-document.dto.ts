@@ -99,4 +99,16 @@ export class UpdateDocumentDto extends PartialType(CreateDocumentDto) {
   @IsString()
   @IsNotEmpty()
   type: string;
+
+  @IsString()
+  @IsOptional()
+  customerId?: string;
+
+  @IsString()
+  @IsOptional()
+  status?: string;
+
+  @IsString()
+  @IsOptional()
+  token?: string;
 }

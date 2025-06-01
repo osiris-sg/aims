@@ -143,7 +143,7 @@ export default function DocumentsPage() {
     if (!organizationId) return;
     setLoading(true);
     setError(null);
-
+    console.log("organizationId:", organizationId);
     try {
       const token = await getToken();
       if (!token) return;
@@ -151,9 +151,9 @@ export default function DocumentsPage() {
       const response = await request(
         {
           path: DOCUMENT_API.GET_ALL.path,
-          method: "GET",
+          method: "POST",
         },
-        undefined,
+        { organizationId },
         token
       );
       if (response.success) {

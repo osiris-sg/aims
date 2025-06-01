@@ -16,10 +16,15 @@ export class DocumentsService {
     }
   }
 
-  async getByInventory(inventoryId: string) {
+  async getByInventory(inventoryId: string, organizationId: string) {
     try {
       return await this.prisma.document.findMany({
-        where: {},
+        where: {
+          inventory: {
+            id: inventoryId,
+          },
+          organizationId: organizationId,
+        },
         orderBy: { createdAt: 'desc' },
       });
     } catch (error) {
@@ -32,13 +37,63 @@ export class DocumentsService {
       const configAsPlainObject: any = dto.config ? dto.config : null;
       const id: any = dto.id ? dto.id : null;
 
+      // Update the document itself, include customer if provided
       const updatedDocument = await this.prisma.document.update({
         where: { id },
         data: {
           config: configAsPlainObject,
           type: dto.type,
+          // Connect customer if customerId provided
+          customer: dto.customerId ? { connect: { id: dto.customerId } } : undefined,
         },
       });
+
+      // If config.items exists and is an array, handle inventory/timeline logic
+      if (dto.config && Array.isArray(dto.config.items)) {
+        await Promise.all(
+          dto.config.items.map(async (_item) => {
+            // Use dto.status if provided, otherwise default based on type
+            const newStatus = dto.status || (dto.type === 'DO' ? 'RENTAL' : 'INSTOCK');
+            const docMessage = dto.type === 'DO' ? 'A DO document is updated' : 'A RDO document is updated';
+            const statusChangeMessage = dto.type === 'DO' ? 'Item has been changed from Instock to Rental' : 'Item has been changed from Rental to Instock';
+
+            // Update inventory status
+            await this.prisma.inventory.update({
+              where: { id: _item.inventoryItemId },
+              data: {
+                status: newStatus,
+              },
+            });
+            // Connect inventory to the document
+            await this.prisma.document.update({
+              where: { id },
+              data: {
+                inventory: {
+                  connect: { id: _item.inventoryItemId },
+                },
+              },
+            });
+            // Create timeline item for document update
+            await this.prisma.timelineItem.create({
+              data: {
+                message: docMessage,
+                pdfUrl: '',
+                inventoryId: _item.inventoryItemId,
+                documentId: id,
+              },
+            });
+            // Create timeline item for status change
+            await this.prisma.timelineItem.create({
+              data: {
+                message: statusChangeMessage,
+                inventoryId: _item.inventoryItemId,
+                documentId: null,
+                pdfUrl: null,
+              },
+            });
+          }),
+        );
+      }
 
       return updatedDocument;
     } catch (error) {
@@ -128,13 +183,15 @@ export class DocumentsService {
       }
     });
   }
-  async createBasicDocument(documentTemplateId: string, type: string, config: any = {}) {
+  async createBasicDocument(documentTemplateId: string, type: string, organizationId: string, config: any = {}) {
     try {
+      console.log('Creating basic document with template ID:', documentTemplateId, 'Type:', type, 'Organization ID:', organizationId, 'Config:', config);
       const newDocument = await this.prisma.document.create({
         data: {
           documentTemplateId,
           type,
           config,
+          organizationId,
         },
       });
 
@@ -143,9 +200,12 @@ export class DocumentsService {
       throw new HttpException(`Basic document creation failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
-  async getAllDocuments() {
+  async getAllDocuments(organizationId: string) {
     try {
       const documents = await this.prisma.document.findMany({
+        where: {
+          organizationId: organizationId,
+        },
         include: {
           inventory: true,
           customer: true,

@@ -155,6 +155,8 @@ export default function useDODocumentCreator() {
             type: document?.type,
             config: payload,
             token,
+            status: "INSTOCK",
+            customerId: data.customerId,
           })
         );
       } else {
