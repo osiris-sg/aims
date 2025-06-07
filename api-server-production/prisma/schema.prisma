@@ -10,7 +10,7 @@ datasource db {
 model Asset {
   id                String             @id @default(uuid()) @db.Uuid
   name              String
-  skuKey            String             
+  skuKey            String
   categoryId        String             @db.Uuid
   description       String?
   image             String?
@@ -21,8 +21,12 @@ model Asset {
   category          Category           @relation(fields: [categoryId], references: [id])
   inventories       Inventory[]
 
+  // 👇 New relation
+  taggedTemplates   AssetTemplateTag[]
+
   @@unique([skuKey, deletedAt])
 }
+
 
 model Category {
   id             String  @id @default(uuid()) @db.Uuid
@@ -60,13 +64,28 @@ model Customer {
 }
 
 model DocumentTemplate {
-  id             String   @id @default(uuid()) @db.Uuid
+  id             String              @id @default(uuid()) @db.Uuid
   name           String?
   type           String
   organizationId String?
-  config         Json?    // <- Stores all the RDO document field settings
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  config         Json?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  // 👇 New relation
+  taggedAssets   AssetTemplateTag[]
+}
+
+model AssetTemplateTag {
+  id                 String           @id @default(uuid()) @db.Uuid
+  assetId            String           @db.Uuid
+  templateId         String           @db.Uuid
+  createdAt          DateTime         @default(now())
+
+  asset              Asset            @relation(fields: [assetId], references: [id])
+  template           DocumentTemplate @relation(fields: [templateId], references: [id])
+
+  @@unique([assetId, templateId]) // Prevent duplicates
 }
 
 model TimelineItem {

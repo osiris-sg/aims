@@ -41,4 +41,18 @@ export class DocumentsController {
   async deleteDocument(@Param('id') id: string) {
     return await this.documentsService.deleteDocument(id);
   }
+
+  @Get('asset/:assetId')
+  async getDocumentsByAsset(@Param('assetId') assetId: string) {
+    return await this.documentsService.getDocumentsByAsset(assetId);
+  }
+  @Post('asset/tag-template')
+  async tagTemplateToAsset(@Body() body: { assetId: string; templateId: string }) {
+    return await this.documentsService.tagTemplateToAsset(body.assetId, body.templateId);
+  }
+
+  @Delete('asset/untag-template')
+  async untagTemplateFromAsset(@Body() body: { assetId: string; templateId: string }) {
+    return await this.documentsService.untagTemplateFromAsset(body.assetId, body.templateId);
+  }
 }

@@ -4,14 +4,11 @@ import { useRouter } from "next/navigation";
 import { useOrganization, useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
-import { Box, Button, Typography, Avatar, Grid, Paper, Card, Skeleton, Stack, IconButton, useTheme } from "@mui/material";
+import { Box, Button, Typography, Avatar, Grid, Card, Skeleton, Stack, IconButton, useTheme, Checkbox, FormControlLabel, DialogTitle, DialogContent, DialogActions } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
-import DeleteIcon from "@mui/icons-material/Delete";
 import Dialog from "@mui/material/Dialog";
-import DialogActions from "@mui/material/DialogActions";
-import DialogContent from "@mui/material/DialogContent";
+
 import DialogContentText from "@mui/material/DialogContentText";
-import DialogTitle from "@mui/material/DialogTitle";
 import Table from "@/components/Table";
 import { ROUTES } from "@/routes";
 import useViewAssetTableHeader from "../hooks/useViewAssetTableHeader";
@@ -24,10 +21,11 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
   const organizationId = organization?.id;
   const [asset, setAsset] = useState<any>(null);
   const [category, setCategory] = useState<any>(null);
+  const [documentTemplates, setDocumentTemplates] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
-  const { columnsDocuments, sampleDataDocuments } = useViewAssetTableHeader();
+  const { columnsDocuments } = useViewAssetTableHeader(asset?.id);
   const [inventoriesStatusCounts, setInventoriesStatusCounts] = useState<Record<string, number>>({
     INSTOCK: 0,
     RENTAL: 0,
@@ -39,7 +37,15 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
   const [documents, setDocuments] = useState<any[]>([]);
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
 
-  const fetchAsset = async () => {
+  // Add dialog state for document templates
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
+
+  const handleToggleTemplate = (id: string) => {
+    setSelectedTemplateIds((prev) => (prev.includes(id) ? prev.filter((tid) => tid !== id) : [...prev, id]));
+  };
+
+  const fetchAsset = React.useCallback(async () => {
     if (!organizationId) return;
     setIsLoading(true);
 
@@ -64,9 +70,9 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [organizationId, getToken, params.skuKey]);
 
-  const fetchInventories = async () => {
+  const fetchInventories = React.useCallback(async () => {
     if (!organizationId || !asset?.id) return;
 
     try {
@@ -89,56 +95,112 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
     } catch (error) {
       console.error("Error fetching inventories:", error);
     }
-  };
-
-  const fetchDocuments = async () => {
-    if (!organizationId || !inventories.length) return;
+  }, [organizationId, asset?.id, getToken]);
+  const fetchDocuments = React.useCallback(async () => {
+    if (!organizationId || !asset?.id) return;
     setIsLoadingDocuments(true);
 
     try {
       const token = await getToken();
       if (!token) return;
 
-      const allDocuments = [];
-      for (const inventory of inventories) {
-        const response = await request(
-          {
-            path: `/documents/inventory/${inventory.id}`,
-            method: "GET",
-          },
-          {},
-          token
-        );
+      const response = await request(
+        {
+          path: `/documents/asset/${asset.id}`,
+          method: "GET",
+        },
+        {},
+        token
+      );
 
-        if (response.success && Array.isArray(response.data)) {
-          // Filter documents for this inventory
-          const inventoryDocuments = response.data.filter((doc: { inventoryId: string }) => doc.inventoryId === inventory.id);
-          allDocuments.push(...inventoryDocuments);
-        }
+      if (response.success) {
+        console.log("Fetched documents:", response.data);
+        setDocuments(response.data);
       }
-      setDocuments(allDocuments);
     } catch (error) {
       console.error("Error fetching documents:", error);
     } finally {
       setIsLoadingDocuments(false);
     }
+  }, [organizationId, asset?.id, getToken]);
+
+  const addDocumentToAsset = async (documentId: string) => {
+    console.log("Adding document to asset:", { documentId, assetId: asset?.id, organizationId });
+    if (!asset?.id || !organizationId) return;
+
+    try {
+      const token = await getToken();
+      if (!token) return;
+      console.log("Adding document to asset:", { assetId: asset.id, documentId });
+      const response = await request(
+        {
+          path: "/documents/asset/tag-template",
+          method: "POST",
+        },
+        { assetId: asset.id, templateId: documentId },
+        token
+      );
+
+      if (response.success) {
+        console.log("Document added successfully.");
+        // Optionally refetch documents:
+        // await fetchDocuments();
+      }
+    } catch (error) {
+      console.error("Error adding document to asset:", error);
+    }
   };
 
+  // ...existing code...
+  const fetchDocumentTemplates = React.useCallback(async () => {
+    if (!organizationId) return;
+
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await request(
+        {
+          path: "/documentTemplates",
+          method: "POST",
+        },
+        {
+          page: 1,
+          limit: 10,
+          search: "",
+          organizationId: organizationId,
+        },
+        token
+      );
+
+      if (response.success) {
+        setDocumentTemplates(response.data);
+        console.log("Document templates:", response.data);
+      }
+    } catch (error) {
+      console.error("Error fetching document templates:", error);
+    }
+  }, [organizationId, getToken]);
+  // ...existing code...
   useEffect(() => {
     fetchAsset();
-  }, [organizationId, params.skuKey]);
+  }, [organizationId, params.skuKey, fetchAsset]);
 
   useEffect(() => {
     if (asset?.id) {
       fetchInventories();
     }
-  }, [asset?.id]);
+  }, [asset?.id, fetchInventories]);
 
   useEffect(() => {
-    if (inventories.length > 0) {
-      fetchDocuments();
-    }
-  }, [inventories]);
+    fetchDocuments();
+  }, [inventories, fetchDocuments]);
+
+  // ...existing code...
+  useEffect(() => {
+    fetchDocumentTemplates();
+  }, [fetchDocumentTemplates]);
+  // ...existing code...
 
   const handleDelete = async () => {
     if (!organizationId) return;
@@ -280,6 +342,11 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
           <Typography variant="body1" sx={{ mb: 2 }}>
             Documents
           </Typography>
+          <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 2 }}>
+            <Button variant="outlined" onClick={() => setAddDialogOpen(true)}>
+              Add Document Templates
+            </Button>
+          </Box>
           {isLoadingDocuments ? <Skeleton variant="rectangular" width="100%" height={200} /> : <Table columns={columnsDocuments} data={documents} onRowSelect={() => {}} />}
         </Box>
       </Box>
@@ -293,6 +360,33 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
           <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
           <Button onClick={handleDelete} color="error" disabled={isLoading}>
             {isLoading ? "Deleting..." : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={addDialogOpen} onClose={() => setAddDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Select Document Templates</DialogTitle>
+        <DialogContent>
+          {documentTemplates.docs
+            // Filter out any templates whose ID matches already-tagged documents (compare doc.doc_id)
+            .filter((dt) => !documents.some((doc) => doc.doc_id === dt.id))
+            .map((dt) => (
+              <FormControlLabel key={dt.id} control={<Checkbox checked={selectedTemplateIds.includes(dt.id)} onChange={() => handleToggleTemplate(dt.id)} />} label={dt.name || "Untitled Template"} />
+            ))}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={async () => {
+              for (const templateId of selectedTemplateIds) {
+                await addDocumentToAsset(templateId);
+              }
+              setAddDialogOpen(false);
+              setSelectedTemplateIds([]);
+              await fetchDocuments();
+            }}
+          >
+            Add Selected
           </Button>
         </DialogActions>
       </Dialog>

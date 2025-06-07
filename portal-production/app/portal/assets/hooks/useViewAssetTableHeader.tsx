@@ -1,8 +1,32 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
+import { IconButton } from "@mui/material";
+import DeleteIcon from "@mui/icons-material/Delete";
+import { useAuth } from "@clerk/nextjs";
+import { request } from "@/helpers/request";
 
-export default function useViewAssetTableHeader() {
+export default function useViewAssetTableHeader(assetId?: string) {
+  const { getToken } = useAuth();
+  const handleDeleteDocument = async (templateId: string) => {
+    const token = await getToken();
+
+    const response = await request(
+      {
+        path: "/documents/asset/untag-template",
+        method: "DELETE",
+      },
+      { assetId, templateId },
+      token ?? undefined
+    );
+    if (response.success) {
+      // Handle successful deletion, e.g., show a notification or refresh the document list
+      console.log("Document deleted successfully");
+    } else {
+      // Handle error case, e.g., show an error notification
+      console.error("Failed to delete document:", response.error);
+    }
+  };
   const columnsHistory: ColumnDef<any>[] = [
     {
       accessorKey: "log_message",
@@ -54,6 +78,15 @@ export default function useViewAssetTableHeader() {
     {
       accessorKey: "doc_id",
       header: "Document ID",
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      cell: ({ row }) => (
+        <IconButton onClick={() => handleDeleteDocument(row.original.doc_id)}>
+          <DeleteIcon />
+        </IconButton>
+      ),
     },
   ];
   const sampleDataDocuments = [

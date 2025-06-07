@@ -226,4 +226,49 @@ export class DocumentsService {
       throw new HttpException(`Fetch all documents failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
+  async getDocumentsByAsset(assetId: string) {
+    try {
+      const assetTemplateTags = await this.prisma.assetTemplateTag.findMany({
+        where: { assetId },
+        include: {
+          template: true,
+        },
+      });
+
+      return assetTemplateTags.map((tag) => ({
+        doc_id: tag.template.id,
+        doc_name: tag.template.name,
+      }));
+    } catch (error) {
+      throw new HttpException(`Fetch templates by asset failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  async tagTemplateToAsset(assetId: string, templateId: string) {
+    try {
+      return await this.prisma.assetTemplateTag.create({
+        data: {
+          assetId,
+          templateId,
+        },
+      });
+    } catch (error) {
+      throw new HttpException(`Failed to tag template to asset: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  async untagTemplateFromAsset(assetId: string, templateId: string) {
+    try {
+      return await this.prisma.assetTemplateTag.delete({
+        where: {
+          assetId_templateId: {
+            assetId,
+            templateId,
+          },
+        },
+      });
+    } catch (error) {
+      throw new HttpException(`Failed to untag template from asset: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
 }

@@ -11,4 +11,8 @@ export class GetDocumentTemplateDto {
 
   @IsString()
   search: string;
+
+  @IsString()
+  @IsNotEmpty()
+  organizationId: string;
 }
