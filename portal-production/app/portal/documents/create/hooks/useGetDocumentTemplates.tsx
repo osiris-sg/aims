@@ -3,7 +3,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth, useOrganization } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { DOCUMENT_TYPES } from "@/containers/DocumentsTemplateView/slice/constants";
 
@@ -17,9 +17,14 @@ export const useGetDocumentTemplates = () => {
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({});
+  const { organization } = useOrganization();
+  const organizationId = organization?.id;
 
   const getDocumentTemplates = useCallback(async () => {
+    if (!organizationId) return;
+    setLoading(true);
     try {
+      console.log("Fetching document templates for organization:", organizationId);
       setLoading(true);
       const token = await getToken();
       const response = await request(
@@ -32,6 +37,7 @@ export const useGetDocumentTemplates = () => {
           limit,
           search,
           filters,
+          organizationId,
         },
         token ?? undefined
       );
@@ -46,7 +52,7 @@ export const useGetDocumentTemplates = () => {
 
   useEffect(() => {
     getDocumentTemplates();
-  }, [getDocumentTemplates]);
+  }, [getDocumentTemplates, page, limit, search, filters, organizationId]);
 
   const documentTypes = useMemo(() => {
     if (!documentTemplates || documentTemplates.docs.length === 0) return [];

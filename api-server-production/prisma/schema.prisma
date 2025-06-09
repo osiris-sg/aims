@@ -48,7 +48,10 @@ model Inventory {
   updatedAt      DateTime       @updatedAt
   asset          Asset          @relation(fields: [assetId], references: [id])
   timelineItems  TimelineItem[]
-  documents      Document[]    
+  documents      Document[]
+
+  projectId      String?        @db.Uuid
+  project        Project?       @relation(fields: [projectId], references: [id])
 }
 
 model Customer {
@@ -61,6 +64,7 @@ model Customer {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   documents         Document[]
+  projects          Project[]
 }
 
 model DocumentTemplate {
@@ -119,6 +123,9 @@ model Document {
   customerId         String?   @db.Uuid
   customer           Customer? @relation(fields: [customerId], references: [id])
 
+  projectId         String?   @db.Uuid
+  project           Project?  @relation(fields: [projectId], references: [id])
+
   timelineItems      TimelineItem[]
 }
 
@@ -151,4 +158,15 @@ model UserRole {
   createdAt DateTime @default(now())
 
   @@unique([userId, roleId])
+}
+model Project {
+  id             String      @id @default(uuid()) @db.Uuid
+  name           String
+  description    String?
+  customerId     String      @db.Uuid
+  customer       Customer    @relation(fields: [customerId], references: [id])
+  inventories    Inventory[]
+  documents      Document[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
 }
