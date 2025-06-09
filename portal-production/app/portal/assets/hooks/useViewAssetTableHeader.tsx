@@ -5,9 +5,11 @@ import { IconButton } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
+import { toast } from "react-toastify";
 
-export default function useViewAssetTableHeader(assetId?: string) {
+export default function useViewAssetTableHeader(assetId?: string, fetchDocuments?: () => void) {
   const { getToken } = useAuth();
+
   const handleDeleteDocument = async (templateId: string) => {
     const token = await getToken();
 
@@ -19,11 +21,11 @@ export default function useViewAssetTableHeader(assetId?: string) {
       { assetId, templateId },
       token ?? undefined
     );
+
     if (response.success) {
-      // Handle successful deletion, e.g., show a notification or refresh the document list
-      console.log("Document deleted successfully");
+      toast.success("Document untagged successfully");
+      fetchDocuments?.(); // <- safe conditional call
     } else {
-      // Handle error case, e.g., show an error notification
       console.error("Failed to delete document:", response.error);
     }
   };
@@ -103,5 +105,5 @@ export default function useViewAssetTableHeader(assetId?: string) {
       doc_id: "004",
     },
   ];
-  return { columnsHistory, sampleDataHistory, columnsDocuments, sampleDataDocuments };
+  return { columnsHistory, sampleDataHistory, columnsDocuments, sampleDataDocuments, handleDeleteDocument };
 }

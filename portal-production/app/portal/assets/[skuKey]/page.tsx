@@ -12,6 +12,7 @@ import DialogContentText from "@mui/material/DialogContentText";
 import Table from "@/components/Table";
 import { ROUTES } from "@/routes";
 import useViewAssetTableHeader from "../hooks/useViewAssetTableHeader";
+import { toast } from "react-toastify";
 
 export default function ViewAssetPage({ params }: { params: { skuKey: string } }) {
   const router = useRouter();
@@ -25,7 +26,6 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
   const [isLoading, setIsLoading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
-  const { columnsDocuments } = useViewAssetTableHeader(asset?.id);
   const [inventoriesStatusCounts, setInventoriesStatusCounts] = useState<Record<string, number>>({
     INSTOCK: 0,
     RENTAL: 0,
@@ -123,7 +123,7 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
       setIsLoadingDocuments(false);
     }
   }, [organizationId, asset?.id, getToken]);
-
+  const { columnsDocuments, handleDeleteDocument } = useViewAssetTableHeader(asset?.id, fetchDocuments);
   const addDocumentToAsset = async (documentId: string) => {
     console.log("Adding document to asset:", { documentId, assetId: asset?.id, organizationId });
     if (!asset?.id || !organizationId) return;
@@ -381,6 +381,7 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
               for (const templateId of selectedTemplateIds) {
                 await addDocumentToAsset(templateId);
               }
+              toast.success("Document(s) tagged successfully");
               setAddDialogOpen(false);
               setSelectedTemplateIds([]);
               await fetchDocuments();
