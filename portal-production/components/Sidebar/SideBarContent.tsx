@@ -7,7 +7,7 @@ import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
 import Stack from "@mui/material/Stack";
 import AnalyticsRoundedIcon from "@mui/icons-material/AnalyticsRounded";
-// import AccountTreeIcon from "@mui/icons-material/AccountTree";
+import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import PeopleRoundedIcon from "@mui/icons-material/PeopleRounded";
 // import AssignmentRoundedIcon from "@mui/icons-material/AssignmentRounded";
 // import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
@@ -27,9 +27,9 @@ const mainListItems = [
   { text: "Assets", path: ROUTES.ASSETS, icon: <AnalyticsRoundedIcon /> },
   { text: "Customers", path: ROUTES.CUSTOMERS, icon: <PeopleRoundedIcon /> },
   { text: "Documents", path: ROUTES.DOCUMENTS, icon: <DescriptionIcon /> },
+  { text: "Projects", path: ROUTES.PROJECTS, icon: <AccountTreeIcon /> },
   { text: "Permissions", path: ROUTES.PERMISSIONS, icon: <PeopleRoundedIcon /> },
   // { text: "Invocies", path: ROUTES.INVOICES, icon: <AssignmentRoundedIcon /> },
-  // { text: "Projects", path: ROUTES.PROJECTS, icon: <AccountTreeIcon /> },
 ];
 
 const secondaryListItems: any = [

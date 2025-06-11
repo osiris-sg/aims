@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import DocumentNameHeader from "./DocumentNameHeader";
 import { Alert, Box, Button, Divider, Grid2, Typography } from "@mui/material";
 import TemplatePaper from "./TemplatePaper";
@@ -35,6 +35,12 @@ export default function DeliveryOrderTemplate(props: Props) {
   const { columns } = useTemplateTableHeader({ viewMode: isViewMode, remove: remove, control, setValue });
   const customer = customers.docs.find((customer) => customer.id === customerId);
   const { contentRef, handlePrint } = usePrintDocumentHandler();
+
+  const [triggerRender, setTriggerRender] = useState(0);
+  useEffect(() => {
+    console.log("Fields changed, re-rendering component", triggerRender);
+    setTriggerRender((prev) => prev + 1);
+  }, [fields]);
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", gap: "var(--default-gap)", overflow: "hidden" }}>
@@ -128,7 +134,7 @@ export default function DeliveryOrderTemplate(props: Props) {
                     </Grid2>
                   </Grid2>
                   <Box mt={5} mb={1}>
-                    <Table columns={columns} data={fields} isNoSelectionColumn={true} />
+                    <Table key={JSON.stringify(fields)} columns={columns} data={[...fields]} isNoSelectionColumn={true} />
                   </Box>
                   {itemsError && <Alert severity="error">{`${itemsError}`}</Alert>}
 

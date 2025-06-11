@@ -238,6 +238,7 @@ export class DocumentsService {
       return assetTemplateTags.map((tag) => ({
         doc_id: tag.template.id,
         doc_name: tag.template.name,
+        doc_type: tag.template.type,
       }));
     } catch (error) {
       throw new HttpException(`Fetch templates by asset failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);

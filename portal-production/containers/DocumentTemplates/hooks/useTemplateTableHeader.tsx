@@ -8,6 +8,7 @@ import { Control, FieldValues } from "react-hook-form";
 import FormSelect from "@/form-components/FormSelect";
 import DescriptionCell from "./useDescriptionCell";
 import { useGetInventoriesForItemTable } from "./useGetInventoriesForItemTable";
+import { useSearchParams } from "next/navigation";
 
 interface Props {
   viewMode: boolean;
@@ -19,22 +20,27 @@ interface Props {
 export default function useTemplateTableHeader(props: Props) {
   const { viewMode, remove, control, setValue } = props;
   const { inventoriesForDocument } = useGetInventoriesForItemTable();
-
+  const searchParams = useSearchParams();
+  const scannedInventoryId = searchParams.get("scannedInventoryId");
+  console.log("inventoriesForDocument", inventoriesForDocument);
   const columns = useMemo(
     () => [
       {
         accessorKey: "item",
         header: "Item",
         cell: ({ row }: { row: any }) => {
-          const selectedIds = control._formValues.items?.map((item: any) => item.inventoryItemId).filter((id: string | undefined) => !!id && id !== row.original?.inventoryItemId); // Exclude current row
+          const selectedIds = [...(control._formValues.items?.map((item: any) => item.inventoryItemId).filter((id: string | undefined) => !!id && id !== row.original?.inventoryItemId) ?? [])];
 
+          if (scannedInventoryId && !selectedIds.includes(scannedInventoryId)) {
+            selectedIds.push(scannedInventoryId);
+          }
           const menuItems = inventoriesForDocument.map((inventory) => ({
             label: inventory.sku || "Unknown Asset",
             value: inventory.id,
             disabled: selectedIds.includes(inventory.id), // Disable if selected elsewhere
           }));
-
-          return <FormSelect control={control} name={`items.${row.index}.inventoryItemId`} menuTitle="Choose item" size="small" viewMode={viewMode} menuItems={menuItems} />;
+          console.log("Menu Items:", menuItems);
+          return <FormSelect control={control} name={`items.${row.index}.inventoryItemId`} menuTitle="Choose item" size="small" viewMode={viewMode} menuItems={menuItems} key={`item-select-${row.id}-${control._formValues?.items?.[row.index]?.inventoryItemId || ""}`} />;
         },
       },
       {
@@ -45,7 +51,9 @@ export default function useTemplateTableHeader(props: Props) {
       {
         accessorKey: "quantity",
         header: "Quantity",
-        cell: ({ row }: { row: any }) => <FormInputBox disabled control={control} name={`items.${row.index}.quantity`} placeHolder="Choose item" size="small" labelArriangment={viewMode ? "horizontal" : "vertical"} viewMode={viewMode} />,
+        cell: ({ row }: { row: any }) => (
+          <FormInputBox disabled control={control} name={`items.${row.index}.quantity`} placeHolder="Choose item" size="small" labelArriangment={viewMode ? "horizontal" : "vertical"} viewMode={viewMode} key={`quantity-input-${row.id}-${control._formValues?.items?.[row.index]?.quantity ?? ""}`} />
+        ),
       },
       ...(!viewMode
         ? [
@@ -71,7 +79,7 @@ export default function useTemplateTableHeader(props: Props) {
           ]
         : []),
     ],
-    [inventoriesForDocument, viewMode, control, remove]
+    [inventoriesForDocument, viewMode, control, remove, scannedInventoryId]
   );
 
   return { columns };

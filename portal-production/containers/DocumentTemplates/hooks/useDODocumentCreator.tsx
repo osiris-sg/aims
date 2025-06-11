@@ -7,7 +7,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { selectDocumentCeationStatus, selectDocumentTemplate, selectIsDocumentUpdating } from "@/containers/DocumentsTemplateView/slice/selectors";
 import { useDocumentTemplateSlice } from "@/containers/DocumentsTemplateView/slice";
 import { useAuth } from "@clerk/nextjs";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { uploadImage } from "@/helpers/imageUploader";
 import { base64ToFile } from "@/helpers/base64ToFile";
 import { useParams, useSearchParams } from "next/navigation";
@@ -23,18 +23,22 @@ export default function useDODocumentCreator() {
   const searchParams = useSearchParams();
   const scannedInventoryId = searchParams.get("scannedInventoryId");
 
-  const defaultValues = {
-    company: { name: "", address: "", phoneNumber: "" },
-    customerId: "",
-    items: scannedInventoryId ? [{ inventoryItemId: scannedInventoryId, quantity: 1 }] : [],
-    attention: { name: "", phoneNumber: "" },
-    doNo: "",
-    referenceNo: "",
-    poNo: "",
-    deliveryTo: "",
-    gstRegNo: "",
-    date: "",
-  };
+  const defaultValues = useMemo(
+    () => ({
+      company: { name: "", address: "", phoneNumber: "" },
+      customerId: "",
+      items: scannedInventoryId ? [{ inventoryItemId: scannedInventoryId, quantity: 1 }] : [{ inventoryItemId: "", quantity: 1 }],
+      attention: { name: "", phoneNumber: "" },
+      doNo: "",
+      referenceNo: "",
+      poNo: "",
+      deliveryTo: "",
+      gstRegNo: "",
+      date: "",
+    }),
+    [scannedInventoryId]
+  );
+  console.log("Document Template:", defaultValues, documenttemplate);
 
   const schema = useDocumentYupSchemaGenerator(defaultValues, documenttemplate?.config || {});
 
@@ -50,7 +54,35 @@ export default function useDODocumentCreator() {
     resolver: yupResolver(schema),
   });
 
-  const { fields, append, remove } = useFieldArray({ control, name: "items" });
+  const { fields, append, remove } = useFieldArray({
+    control,
+    name: "items",
+  });
+
+  // More reliable scannedInventoryId handler using control._formValues
+  useEffect(() => {
+    if (!scannedInventoryId) return;
+
+    const interval = setInterval(() => {
+      const currentItems = control._formValues?.items || [];
+      const isAlreadyAdded = currentItems.some((item: any) => item.inventoryItemId === scannedInventoryId);
+
+      if (!isAlreadyAdded) {
+        const emptyIndex = currentItems.findIndex((item: any) => !item.inventoryItemId);
+
+        if (emptyIndex !== -1) {
+          setValue(`items.${emptyIndex}.inventoryItemId`, scannedInventoryId, { shouldDirty: true, shouldTouch: true });
+          setValue(`items.${emptyIndex}.quantity`, 1, { shouldDirty: true, shouldTouch: true });
+        } else {
+          append({ inventoryItemId: scannedInventoryId, quantity: 1 }, { shouldFocus: false });
+        }
+      } else {
+        clearInterval(interval);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [scannedInventoryId, control, setValue, append]);
 
   const isLoading = useSelector(selectIsDocumentUpdating);
   const isDocumentCreated = useSelector(selectDocumentCeationStatus);
@@ -177,7 +209,7 @@ export default function useDODocumentCreator() {
       console.error("Error in RDO Document creation:", err);
     }
   };
-
+  console.log("fields", fields);
   return {
     control,
     setValue,
