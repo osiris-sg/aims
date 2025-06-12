@@ -1,37 +1,72 @@
 import FormInputBox from "@/form-components/FormInputBox";
 import FormSelect from "@/form-components/FormSelect";
-import { Stack } from "@mui/material";
-import React from "react";
-import { useFormContext } from "react-hook-form";
-import { useAddCategoryHandler } from "../hooks/useAddCategoryHandler";
+import DateRangePicker from "@/form-components/FormDateRangePicker";
+import { Stack, Typography, Box } from "@mui/material";
+import React, { useState } from "react";
+import { useFormContext, useWatch } from "react-hook-form";
+import AddCustomer from "./AddCustomer";
+import { useGetCustomers } from "../hooks/useGetCustomers";
 
-export default function AssetCreation() {
-  const { control } = useFormContext();
-  const { handleAddCategory, handleDeleteCategory, categories, categoriesLoading, deleteCategoryLoading } = useAddCategoryHandler();
+export default function ProjectCreation() {
+  const {
+    control,
+    setValue,
+    formState: { errors },
+  } = useFormContext();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [selectedCustomerId, setSelectedCustomerId] = useState("");
+  const { customers, refetch } = useGetCustomers();
+  console.log("Customers:", customers);
+
+  const handleOpenDrawer = () => setDrawerOpen(true);
+  const handleCloseDrawer = (newCustomerId?: string) => {
+    setDrawerOpen(false);
+    if (newCustomerId) {
+      setSelectedCustomerId(newCustomerId.id);
+      setValue("customerId", newCustomerId.id); // ✅ force update the form field
+    }
+    refetch();
+  };
+
+  const watchedStartDate = useWatch({ control, name: "startDate" });
+  const watchedEndDate = useWatch({ control, name: "endDate" });
 
   return (
-    <Stack direction="column" spacing="var(--default-gap)">
-      <FormInputBox control={control} name="name" label="Name" placeHolder="Enter Asset Name" required />
+    <>
+      <Stack direction="column" spacing="var(--default-gap)">
+        <FormInputBox control={control} name="name" label="Name" placeHolder="Enter Project Name" required />
 
-      <FormInputBox control={control} name="skuKey" label="SKUKEY" placeHolder="Enter SKUKEY" bottomText="Unique identifier for different assets" required />
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <Typography variant="body1">Customer *</Typography>
+            <Typography variant="body2" color="primary" sx={{ cursor: "pointer", textDecoration: "underline" }} onClick={handleOpenDrawer}>
+              Add New Customer
+            </Typography>
+          </Box>
 
-      <FormSelect
-        control={control}
-        name="categoryId"
-        label="Category"
-        placeHolder="Add a new category..."
-        addItem={true}
-        menuTitle="Choose a category"
-        menuItems={categories.map((item) => ({ label: item.name, value: item.id }))}
-        required
-        handleAddItem={handleAddCategory}
-        handleDeleteItem={(id) => {
-          void handleDeleteCategory(id as string);
-        }}
-        isAdding={categoriesLoading}
-        isDeleting={deleteCategoryLoading}
-      />
-    </Stack>
+          <FormSelect control={control} name="customerId" label="" menuTitle="Choose a customer" menuItems={customers.map((item) => ({ label: item.name, value: String(item.id) }))} defaultValue={selectedCustomerId} required />
+          <Box sx={{ mt: 2 }}>
+            <DateRangePicker
+              label="Project Duration *"
+              value={{
+                startDate: watchedStartDate,
+                endDate: watchedEndDate,
+              }}
+              onConfirm={(range) => {
+                setValue("startDate", range.startDate);
+                setValue("endDate", range.endDate);
+              }}
+            />
+            {(errors.startDate || errors.endDate) && (
+              <Typography variant="caption" color="error">
+                {(errors.startDate?.message as string) || (errors.endDate?.message as string)}
+              </Typography>
+            )}
+          </Box>
+        </Box>
+      </Stack>
+
+      <AddCustomer open={drawerOpen} onClose={() => handleCloseDrawer()} onSuccess={(id) => handleCloseDrawer(id)} />
+    </>
   );
 }
- 

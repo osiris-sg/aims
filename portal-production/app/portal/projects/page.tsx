@@ -151,6 +151,7 @@ export default function ProjectsPage() {
         setLimit={setLimit}
         setSearch={setSearch}
         setFilters={setFilters}
+        onAddClick={() => router.push(ROUTES.CREATE_PROJECT)}
         availableFilters={["status", "startDate"]}
         pageCount={projects.totalPagesCount}
         totalDocs={projects.totalDocuments}

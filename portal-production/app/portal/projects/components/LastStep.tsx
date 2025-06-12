@@ -4,7 +4,7 @@ import { useFormContext } from "react-hook-form";
 import FormInputBox from "@/form-components/FormInputBox";
 import FormSelect from "@/form-components/FormSelect";
 import FormImage from "@/form-components/FormImage";
-import { useGetCategories } from "../hooks/useGetCategories";
+import { useGetCategories } from "../hooks/useGetCustomers";
 
 export default function LastStep() {
   const { control } = useFormContext();

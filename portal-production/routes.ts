@@ -13,6 +13,7 @@ export const ROUTES = {
   INVOICES: "/portal/invoices",
 
   PROJECTS: "/portal/projects",
+  CREATE_PROJECT: "/portal/projects/create",
 
   DOCUMENTS: "/portal/documents",
   VIEW_DOCUMENTS: "/portal/documents/view",

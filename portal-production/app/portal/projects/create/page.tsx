@@ -7,7 +7,7 @@ import { ROUTES } from "@/routes";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { useTheme } from "@mui/material/styles";
 import CustomStepper from "@/components/CustomStepper";
-import { useAddAssetFormHandler } from "../hooks/useAddAssetFormHandler";
+import { useAddProjectFormHandler } from "../hooks/useAddProjectFormHandler";
 import AssetCreation from "../components/AssetCreation";
 import AdditionalDetails from "../components/AdditionalDetails";
 import LastStep from "../components/LastStep";
@@ -16,9 +16,9 @@ import AddAssetSuccess from "../components/AddAssetSuccess";
 export default function AddAssetPage() {
   const theme = useTheme();
   const router = useRouter();
-  const { activeStep, handleNext, handleBack, methods, handleSubmit, onSubmit, isAssetUpdating, isSkuCheckInProgress, isSkuKeyAvailable, error, isEditMode } = useAddAssetFormHandler();
+  const { activeStep, handleNext, handleBack, methods, handleSubmit, onSubmit, isAssetUpdating, isSkuCheckInProgress, isSkuKeyAvailable, error, isEditMode } = useAddProjectFormHandler();
 
-  const steps = isEditMode ? ["Edit Asset", "Additional Details", "Confirm Changes"] : ["Asset Creation", "Additional Details", "Review"];
+  const steps = isEditMode ? ["Edit Asset", "Additional Details", "Confirm Changes"] : ["Project Creation", "Additional Details", "Review"];
 
   if (!isEditMode && activeStep === 3) {
     return <AddAssetSuccess />;

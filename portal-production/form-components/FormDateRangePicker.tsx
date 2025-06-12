@@ -127,11 +127,11 @@ export default function DateRangePicker(props: Props) {
 
           <StyledDateRangePicker onChange={handleDateChange} moveRangeOnFirstSelection={false} months={1} ranges={state} direction="horizontal" locale={enUS} />
 
-          <Box display="flex" justifyContent="space-between" alignItems="center" sx={{ mt: 1 }}>
-            <Button onClick={handleClosePopover} color="info">
+          <Box display="flex" justifyContent="space-between" alignItems="center" sx={{ mt: 2, px: 2, pb: 2 }}>
+            <Button onClick={handleClosePopover} color="info" variant="outlined">
               Close
             </Button>
-            <Button onClick={_onConfirm} color="primary" variant="contained">
+            <Button onClick={_onConfirm} color="primary" variant="contained" sx={{ minWidth: "100px" }}>
               Apply
             </Button>
           </Box>
