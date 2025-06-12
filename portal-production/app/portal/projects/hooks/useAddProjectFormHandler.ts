@@ -37,7 +37,13 @@ export const useAddProjectFormHandler = () => {
   const searchParams = useSearchParams();
   const { organization } = useOrganization();
   const { getToken } = useAuth();
-  const [activeStep, setActiveStep] = useState(0);
+  const [activeStep, setActiveStep] = useState<number>(() => {
+    const storedStep = localStorage.getItem("projectActiveStep");
+    return storedStep ? parseInt(storedStep, 10) : 0;
+  });
+  useEffect(() => {
+    localStorage.setItem("projectActiveStep", activeStep.toString());
+  }, [activeStep]);
   const [isSkuCheckInProgress, setIsSkuCheckInProgress] = useState(false);
   const [isSkuKeyAvailable, setIsSkuKeyAvailable] = useState(true);
   const [asset, setAsset] = useState<any>(null);

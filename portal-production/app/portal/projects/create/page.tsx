@@ -18,6 +18,34 @@ export default function AddAssetPage() {
   const router = useRouter();
   const { activeStep, handleNext, handleBack, methods, handleSubmit, onSubmit, isAssetUpdating, isSkuCheckInProgress, isSkuKeyAvailable, error, isEditMode } = useAddProjectFormHandler();
 
+  // Persist active step and form data across refreshes
+  React.useEffect(() => {
+    const savedStep = localStorage.getItem("addAssetActiveStep");
+    if (savedStep) {
+      methods.setValue("activeStep", parseInt(savedStep, 10));
+    }
+
+    const savedForm = localStorage.getItem("addAssetForm");
+    if (savedForm) {
+      const parsed = JSON.parse(savedForm);
+      Object.entries(parsed).forEach(([key, value]) => {
+        methods.setValue(key, value);
+      });
+    }
+  }, []);
+
+  React.useEffect(() => {
+    localStorage.setItem("addAssetActiveStep", String(activeStep));
+    console.log("Active step saved:", activeStep);
+  }, [activeStep]);
+
+  React.useEffect(() => {
+    const subscription = methods.watch((value) => {
+      localStorage.setItem("addAssetForm", JSON.stringify(value));
+    });
+    return () => subscription.unsubscribe();
+  }, [methods]);
+
   const steps = isEditMode ? ["Edit Asset", "Additional Details", "Confirm Changes"] : ["Project Creation", "Additional Details", "Review"];
 
   if (!isEditMode && activeStep === 3) {
