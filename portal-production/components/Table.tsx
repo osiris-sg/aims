@@ -87,7 +87,7 @@ export default function Table(props: Props) {
   }, [rowSelection, onRowSelect, table]);
 
   return (
-    <MuiTable sx={{ width: "100%", tableLayout: "fixed", borderCollapse: "separate" }}>
+    <MuiTable sx={{ width: "100%", tableLayout: "auto", borderCollapse: "separate" }}>
       <TableHead sx={{ backgroundColor: "tertiary.light", position: "sticky", top: 0, zIndex: 1000 }}>
         {table.getHeaderGroups().map((headerGroup: any) => (
           <TableRow key={headerGroup.id}>
@@ -168,7 +168,11 @@ export default function Table(props: Props) {
                               minWidth: "40px",
                               maxWidth: "40px",
                             }
-                          : {}),
+                          : {
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }),
                       }}
                     >
                       {id === loadingTableRowId ? <Skeleton variant="text" sx={{ m: "0.5rem 0.3rem" }} /> : <span className="truncate">{flexRender(cell.column.columnDef.cell, cell.getContext())}</span>}

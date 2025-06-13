@@ -5,6 +5,8 @@ import { useFormContext } from "react-hook-form";
 import Table from "@/components/Table"; // Adjust import path if needed
 import useGetAssets from "../hooks/useGetAssets"; // Adjust import path if needed
 import useGetInventoryByAsset from "../hooks/useGetInventoryByAsset";
+import DateRangePicker from "@/form-components/FormDateRangePicker";
+import FormDatePicker from "@/form-components/FormDatePicker";
 
 export default function AdditionalDetails() {
   const { control } = useFormContext();
@@ -43,6 +45,8 @@ export default function AdditionalDetails() {
       const newItem = {
         id: item.sku,
         status: "RESERVED",
+        startDate: null,
+        endDate: null,
       };
       console.log("Adding item:", newItem);
       setSelectedItems((prev) => [...prev, newItem]);
@@ -60,6 +64,38 @@ export default function AdditionalDetails() {
       cell: (info: any) => info.getValue(),
     },
     {
+      id: "startDate",
+      accessorKey: "startDate",
+      header: "Start Date",
+      cell: ({ row }: any) => {
+        const handleStartDateChange = (newDate: any) => {
+          setSelectedItems((prevItems) => prevItems.map((item) => (item.id === row.original.id ? { ...item, startDate: newDate } : item)));
+        };
+
+        return (
+          <Box sx={{ minWidth: 150 }}>
+            <FormDatePicker control={control} name={`startDate-${row.original.id}`} defaultValue={row.original.startDate || null} size="small" onChange={handleStartDateChange} />
+          </Box>
+        );
+      },
+    },
+    {
+      id: "endDate",
+      accessorKey: "endDate",
+      header: "End Date",
+      cell: ({ row }: any) => {
+        const handleEndDateChange = (newDate: any) => {
+          setSelectedItems((prevItems) => prevItems.map((item) => (item.id === row.original.id ? { ...item, endDate: newDate } : item)));
+        };
+
+        return (
+          <Box sx={{ minWidth: 150 }}>
+            <FormDatePicker control={control} name={`endDate-${row.original.id}`} defaultValue={row.original.endDate || null} size="small" onChange={handleEndDateChange} />
+          </Box>
+        );
+      },
+    },
+    {
       id: "status",
       accessorKey: "status",
       header: "Status",
@@ -70,13 +106,15 @@ export default function AdditionalDetails() {
         };
 
         return (
-          <Select value={row.original.status} onChange={handleStatusChange} size="small">
-            {STATUS_OPTIONS.map((status) => (
-              <MenuItem key={status} value={status}>
-                {status}
-              </MenuItem>
-            ))}
-          </Select>
+          <Box sx={{ minWidth: 120 }}>
+            <Select value={row.original.status} onChange={handleStatusChange} size="small" fullWidth>
+              {STATUS_OPTIONS.map((status) => (
+                <MenuItem key={status} value={status}>
+                  {status}
+                </MenuItem>
+              ))}
+            </Select>
+          </Box>
         );
       },
     },
