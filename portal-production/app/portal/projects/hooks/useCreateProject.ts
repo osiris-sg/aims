@@ -4,23 +4,29 @@ import { useOrganization, useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { ROUTES } from "@/routes";
 
-interface CreateAssetData {
+interface CreateProjectData {
   name: string;
-  skuKey: string;
-  categoryId: string;
-  organizationId: string;
-  image?: File;
-  description?: string;
+  customerId: string;
+  startDate: Date;
+  endDate: Date;
+  status: string;
+  organizationId?: string;
+  assignments?: {
+    skuKey: string;
+    inventoryId?: string;
+    startDate?: Date;
+    endDate?: Date;
+  }[];
 }
 
-export const useCreateAsset = () => {
+export const useCreateProject = () => {
   const router = useRouter();
   const { organization } = useOrganization();
   const { getToken } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const createAsset = async (data: CreateAssetData) => {
+  const createProject = async (data: CreateProjectData) => {
     const organizationId = organization?.id;
     if (!organizationId) {
       setError("Organization ID is required");
@@ -38,19 +44,20 @@ export const useCreateAsset = () => {
       }
 
       // Prepare the request body
-      const requestBody: CreateAssetData = {
+      const requestBody: CreateProjectData = {
         name: data.name,
-        skuKey: data.skuKey,
-        categoryId: data.categoryId,
-        organizationId,
-        description: data.description || "",
+        customerId: data.customerId,
+        startDate: data.startDate.toISOString(),
+        endDate: data.endDate.toISOString(),
+        status: data.status,
+        assignments: data.assignments,
       };
 
       console.log("Request Body:", requestBody);
 
       const response = await request(
         {
-          path: "/assets/create",
+          path: "/projects/create",
           method: "POST",
         },
         requestBody,
@@ -60,11 +67,11 @@ export const useCreateAsset = () => {
       if (response.success) {
         return true;
       } else {
-        setError(response.message || "Failed to create asset");
+        setError(response.message || "Failed to create project");
         return false;
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "An error occurred while creating the asset";
+      const errorMessage = error instanceof Error ? error.message : "An error occurred while creating the project";
       setError(errorMessage);
       return false;
     } finally {
@@ -73,7 +80,7 @@ export const useCreateAsset = () => {
   };
 
   return {
-    createAsset,
+    createProject,
     isLoading,
     error,
   };

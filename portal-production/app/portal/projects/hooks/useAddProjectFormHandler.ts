@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useCreateAsset } from "./useCreateAsset";
+import { useCreateProject } from "./useCreateProject";
 import { useOrganization, useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -21,18 +21,17 @@ const assetSchema = z.object({
 const assignmentSchema = z.object({
   skuKey: z.string().min(1, "SKU Key is required"),
   inventoryId: z.string().min(1),
-  startDate: z.string().min(1),
-  endDate: z.string().min(1),
+  startDate: z.any(),
+  endDate: z.any(),
   // Add documentId if needed later
 });
 
 const projectSchema = z.object({
   name: z.string().min(1, "Project name is required"),
   customerId: z.string().min(1, "Customer is required"),
-  startDate: z.string().min(1, "Start date is required"),
-  endDate: z.string().min(1, "End date is required"),
+  startDate: z.date({ required_error: "Start date is required" }),
+  endDate: z.date({ required_error: "End date is required" }),
   status: z.string().min(1, "Status is required"),
-  description: z.string().optional(),
   assignments: z.array(assignmentSchema).optional(),
 });
 
@@ -49,7 +48,7 @@ export const useAddProjectFormHandler = () => {
   const [isSkuKeyAvailable, setIsSkuKeyAvailable] = useState(true);
   const [asset, setAsset] = useState<any>(null);
   const [isEditMode, setIsEditMode] = useState(false);
-  const { createAsset, isLoading: isAssetUpdating, error } = useCreateAsset();
+  const { createProject, isLoading: isAssetUpdating, error } = useCreateProject();
 
   // const methods = useForm<AssetFormData>({
   //   resolver: zodResolver(assetSchema),
@@ -72,7 +71,6 @@ export const useAddProjectFormHandler = () => {
       startDate: "",
       endDate: "",
       status: "pending",
-      description: "",
       assignments: [],
     },
   });
@@ -227,50 +225,25 @@ export const useAddProjectFormHandler = () => {
         setActiveStep((prevStep) => prevStep + 1);
         return;
       }
-      // For new assets, validate all fields
-      const isValid = await methods.trigger();
-      if (!isValid) {
-        return;
-      }
     }
     setActiveStep((prevStep) => prevStep + 1);
+    console.log("Next step:", activeStep + 1);
   };
 
   const handleBack = () => {
     setActiveStep((prevStep) => prevStep - 1);
   };
 
-  const onSubmit = async (data: AssetFormData) => {
-    if (isEditMode && asset) {
-      // Update existing asset
-      const token = await getToken();
-      if (!token) return;
+  const onSubmit = async (data: ProjectFormData) => {
+    console.log("Form submitted with data:", data);
 
-      const response = await request(
-        {
-          path: "/assets/update",
-          method: "PUT",
-        },
-        {
-          ...data,
-          id: asset.id,
-          organizationId: organization?.id,
-        },
-        token
-      );
-
-      if (response.success) {
-        router.push(ROUTES.ASSETS);
-      }
-    } else {
-      // Create new asset
-      const success = await createAsset({
-        ...data,
-        organizationId: organization?.id || "",
-      });
-      if (success) {
-        setActiveStep(3); // Move to success step
-      }
+    // Create new asset
+    const success = await createProject({
+      ...data,
+      organizationId: organization?.id || "",
+    });
+    if (success) {
+      setActiveStep(3); // Move to success step
     }
   };
 
@@ -287,8 +260,19 @@ export const useAddProjectFormHandler = () => {
     handleNext,
     handleBack,
     methods,
-    handleSubmit,
-    onSubmit,
+    handleSubmit: () => {
+      console.log("handleSubmit has been invoked");
+      return handleSubmit(
+        async (data) => {
+          console.log(">>> onSubmit called");
+          return onSubmit(data);
+        },
+        (errors) => {
+          console.log(">>> onSubmit not called — form has errors:");
+          console.log(errors);
+        }
+      );
+    },
     isAssetUpdating,
     isSkuCheckInProgress,
     isSkuKeyAvailable,

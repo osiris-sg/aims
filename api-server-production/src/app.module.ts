@@ -20,6 +20,7 @@ import { RolesModule } from './roles/roles.module';
 import { PermissionsModule } from './permissions/permissions.module';
 import { UsersModule } from './users/users.module';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { ProjectsModule } from './projects/projects.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
     RolesModule,
     PermissionsModule,
     UsersModule,
+    ProjectsModule,
   ],
   controllers: [AppController],
   providers: [

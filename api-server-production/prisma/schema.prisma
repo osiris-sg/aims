@@ -164,6 +164,7 @@ model Project {
   customer       Customer       @relation(fields: [customerId], references: [id])
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
+  startDate      DateTime?
   endDate        DateTime?
   status         ProjectStatus  @default(PENDING)
 
@@ -173,15 +174,15 @@ model Project {
 model Assignment {
   id          String     @id @default(uuid()) @db.Uuid
   projectId   String     @db.Uuid
-  inventoryId String     @db.Uuid
-  documentId  String     @db.Uuid
+  inventoryId String?    @db.Uuid
+  documentId  String?    @db.Uuid
   startDate   DateTime?  @db.Timestamptz(6)
   endDate     DateTime?  @db.Timestamptz(6)
   createdAt   DateTime   @default(now())
 
   project     Project    @relation(fields: [projectId], references: [id])
-  inventory   Inventory  @relation(fields: [inventoryId], references: [id])
-  document    Document   @relation(fields: [documentId], references: [id])
+  inventory   Inventory? @relation(fields: [inventoryId], references: [id])
+  document    Document?  @relation(fields: [documentId], references: [id])
 
   @@unique([projectId, inventoryId, documentId])
 }

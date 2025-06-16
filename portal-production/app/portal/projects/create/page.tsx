@@ -39,10 +39,10 @@ export default function AddAssetPage() {
         }}
       >
         <Stack direction="row" spacing="var(--default-gap)" alignItems="center">
-          <IconButton onClick={() => router.push(ROUTES.ASSETS)}>
+          <IconButton onClick={() => router.push(ROUTES.PROJECTS)}>
             <ArrowBackIcon color="action" />
           </IconButton>
-          <Typography variant="body1">All Assets</Typography>
+          <Typography variant="body1">All Projects</Typography>
           <Chip label={isEditMode ? "Editing" : "In progress"} sx={{ color: theme.palette.primary.light }} />
         </Stack>
 
@@ -110,7 +110,7 @@ export default function AddAssetPage() {
             }}
           >
             {activeStep === 0 && (
-              <Button variant="outlined" onClick={() => router.push(ROUTES.ASSETS)}>
+              <Button variant="outlined" onClick={() => router.push(ROUTES.PROJECTS)}>
                 Cancel
               </Button>
             )}
