@@ -18,6 +18,14 @@ const assetSchema = z.object({
   location: z.string().optional(),
   notes: z.string().optional(),
 });
+const assignmentSchema = z.object({
+  skuKey: z.string().min(1, "SKU Key is required"),
+  inventoryId: z.string().min(1),
+  startDate: z.string().min(1),
+  endDate: z.string().min(1),
+  // Add documentId if needed later
+});
+
 const projectSchema = z.object({
   name: z.string().min(1, "Project name is required"),
   customerId: z.string().min(1, "Customer is required"),
@@ -25,11 +33,10 @@ const projectSchema = z.object({
   endDate: z.string().min(1, "End date is required"),
   status: z.string().min(1, "Status is required"),
   description: z.string().optional(),
-  itemsRelated: z.array(z.string()).optional(),
+  assignments: z.array(assignmentSchema).optional(),
 });
 
 export type AssetFormData = z.infer<typeof assetSchema>;
-// Uncomment if you need project form handling
 export type ProjectFormData = z.infer<typeof projectSchema>;
 
 export const useAddProjectFormHandler = () => {
@@ -37,13 +44,7 @@ export const useAddProjectFormHandler = () => {
   const searchParams = useSearchParams();
   const { organization } = useOrganization();
   const { getToken } = useAuth();
-  const [activeStep, setActiveStep] = useState<number>(() => {
-    const storedStep = localStorage.getItem("projectActiveStep");
-    return storedStep ? parseInt(storedStep, 10) : 0;
-  });
-  useEffect(() => {
-    localStorage.setItem("projectActiveStep", activeStep.toString());
-  }, [activeStep]);
+  const [activeStep, setActiveStep] = useState<number>(0);
   const [isSkuCheckInProgress, setIsSkuCheckInProgress] = useState(false);
   const [isSkuKeyAvailable, setIsSkuKeyAvailable] = useState(true);
   const [asset, setAsset] = useState<any>(null);
@@ -72,7 +73,7 @@ export const useAddProjectFormHandler = () => {
       endDate: "",
       status: "pending",
       description: "",
-      itemsRelated: [],
+      assignments: [],
     },
   });
 
@@ -272,6 +273,14 @@ export const useAddProjectFormHandler = () => {
       }
     }
   };
+
+  useEffect(() => {
+    const subscription = methods.watch((value, { name, type }) => {
+      console.log("Form changed:", { name, type, value });
+      console.log("Current full form state:", methods.getValues());
+    });
+    return () => subscription.unsubscribe();
+  }, [methods]);
 
   return {
     activeStep,

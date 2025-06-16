@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Stack, MenuItem, FormControl, InputLabel, Select, Box, IconButton, Skeleton, Typography } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { useFormContext } from "react-hook-form";
@@ -9,7 +9,7 @@ import DateRangePicker from "@/form-components/FormDateRangePicker";
 import FormDatePicker from "@/form-components/FormDatePicker";
 
 export default function AdditionalDetails() {
-  const { control } = useFormContext();
+  const { control, setValue, getValues } = useFormContext();
   const [selectedAsset, setSelectedAsset] = useState("");
   const [selectedItem, setSelectedItem] = useState("");
   const [selectedItems, setSelectedItems] = useState<any[]>([]);
@@ -21,6 +21,19 @@ export default function AdditionalDetails() {
   const inventoryItems = inventoryData.inventories || [];
   console.log("Assets:", assets);
   console.log("Inventory Items:", inventoryItems);
+
+  // Sync selectedItems from form context assignments on mount or update
+  useEffect(() => {
+    const formAssignments = getValues("assignments") || [];
+    console.log("Form Assignments:", formAssignments);
+    const mappedItems = formAssignments.map((assignment: any) => ({
+      id: assignment.skuKey,
+      status: assignment.status,
+      startDate: assignment.startDate,
+      endDate: assignment.endDate,
+    }));
+    setSelectedItems(mappedItems);
+  }, [getValues]);
 
   if (isLoading) {
     return (
@@ -50,6 +63,16 @@ export default function AdditionalDetails() {
       };
       console.log("Adding item:", newItem);
       setSelectedItems((prev) => [...prev, newItem]);
+      setValue("assignments", [
+        ...(getValues("assignments") || []),
+        {
+          inventoryId: item.id,
+          skuKey: item.sku,
+          startDate: null,
+          endDate: null,
+          status: "RESERVED",
+        },
+      ]);
     }
   };
 
@@ -74,7 +97,7 @@ export default function AdditionalDetails() {
 
         return (
           <Box sx={{ minWidth: 150 }}>
-            <FormDatePicker control={control} name={`startDate-${row.original.id}`} defaultValue={row.original.startDate || null} size="small" onChange={handleStartDateChange} />
+            <FormDatePicker control={control} name={`assignments.${selectedItems.findIndex((item) => item.id === row.original.id)}.startDate`} defaultValue={row.original.startDate || null} size="small" />
           </Box>
         );
       },
@@ -90,7 +113,7 @@ export default function AdditionalDetails() {
 
         return (
           <Box sx={{ minWidth: 150 }}>
-            <FormDatePicker control={control} name={`endDate-${row.original.id}`} defaultValue={row.original.endDate || null} size="small" onChange={handleEndDateChange} />
+            <FormDatePicker control={control} name={`assignments.${selectedItems.findIndex((item) => item.id === row.original.id)}.endDate`} defaultValue={row.original.endDate || null} size="small" />
           </Box>
         );
       },
