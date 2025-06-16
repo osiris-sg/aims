@@ -78,6 +78,10 @@ export default function AdditionalDetails() {
 
   const handleDelete = (id: string) => {
     setSelectedItems((prevItems) => prevItems.filter((item) => item.id !== id));
+    const currentAssignments = getValues("assignments") || [];
+    const updatedAssignments = currentAssignments.filter((assignment: any) => assignment.skuKey !== id);
+    setValue("assignments", updatedAssignments);
+    setSelectedItem("");
   };
   const columns = [
     {
