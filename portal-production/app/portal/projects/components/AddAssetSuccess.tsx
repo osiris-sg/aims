@@ -62,19 +62,20 @@ export default function AddAssetSuccess() {
         <Stack direction="column" justifyContent="center" alignItems="center" height="100%">
           <Box fontSize={70}>🎉</Box>
           <Typography variant="body1" sx={{ textAlign: "center" }}>
-            Product Added <br /> Successfully
+            Project Created <br /> Successfully
           </Typography>
           <Typography variant="body2" color="text.secondary" my="var(--default-gap)">
-            Your new product has been added successfully
+            Your new project has been created successfully
           </Typography>
           <Stack direction="row" spacing={2} justifyContent="center">
-            <Button variant="contained" color="secondary" onClick={() => router.push(ROUTES.ASSETS)}>
+            <Button variant="contained" color="secondary" onClick={() => router.push(ROUTES.PROJECTS)}>
               Done
             </Button>
+            {/* change when i do project detials page */}
             <Button variant="contained" color="secondary" onClick={() => router.push(ROUTES.INVENTORY)}>
               <Typography sx={{ lineHeight: "1.2" }}>
-                Add Item <br />
-                To Inventory
+                Assign Items <br />
+                To Project
               </Typography>
             </Button>
           </Stack>

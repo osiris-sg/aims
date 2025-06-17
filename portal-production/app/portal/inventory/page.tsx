@@ -64,7 +64,7 @@ export default function InventoryPage() {
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({
-    status: "instock",
+    status: undefined,
     category: "",
     createdOn: {
       startDate: null as Date | null,

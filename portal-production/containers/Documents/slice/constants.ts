@@ -52,9 +52,9 @@ export const API = {
 };
 
 export const INVENTORY_STATUS = [
-  { label: "rental", value: "rental" },
+  { label: "Rental", value: "rental" },
   { label: "Reserved", value: "reserved" },
   { label: "Maintenance", value: "maintenance" },
   { label: "Sold", value: "sold" },
-  { label: "instock", value: "instock" },
+  { label: "Instock", value: "instock" },
 ];
