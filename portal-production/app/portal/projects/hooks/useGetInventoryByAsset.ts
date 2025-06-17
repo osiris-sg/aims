@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
-
+import { useOrganization } from "@clerk/nextjs";
 export default function useGetInventoryByAsset(assetId: string) {
   const { getToken } = useAuth();
-
+  const { organization } = useOrganization();
+  const organizationId = organization?.id;
   const {
     data: inventoryData = { inventories: [], statusCounts: {} },
     isLoading,
@@ -15,7 +16,7 @@ export default function useGetInventoryByAsset(assetId: string) {
       const token = await getToken();
       if (!token || !assetId) return { inventories: [], statusCounts: {} };
 
-      const response = await request(
+      const assetInventoryResponse = await request(
         {
           path: `/inventories/asset/${assetId}`,
           method: "GET",
@@ -24,12 +25,17 @@ export default function useGetInventoryByAsset(assetId: string) {
         token
       );
 
-      if (!response.success) {
-        console.error("Failed to fetch inventory by asset:", response.message);
+      if (!assetInventoryResponse.success) {
+        console.error("Failed to fetch inventory by asset:", assetInventoryResponse.message);
         return { inventories: [], statusCounts: {} };
       }
 
-      return response.data;
+      const filteredInventories = assetInventoryResponse.data.inventories?.filter((inv) => inv.status?.toLowerCase() === "instock") || [];
+
+      return {
+        inventories: filteredInventories,
+        statusCounts: assetInventoryResponse.data.statusCounts,
+      };
     },
     enabled: !!assetId,
   });

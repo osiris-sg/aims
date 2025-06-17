@@ -12,11 +12,13 @@ export class ProjectsController {
   }
 
   @Post('create')
-  async createProject(@Body() createProjectDto: CreateProjectDto) {
+  async createProject(@Body() body: { organizationId: string; data: CreateProjectDto }) {
+    console.log('Incoming createProject request body:', body);
     try {
-      return await this.projectsService.createProject(createProjectDto);
+      return await this.projectsService.createProject(body.data, body.organizationId);
     } catch (error) {
-      throw new HttpException(error.message, error.status || HttpStatus.INTERNAL_SERVER_ERROR);
+      console.error('Error occurred in createProject:', error);
+      throw new HttpException('An unexpected error occurred while creating the project.', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 }

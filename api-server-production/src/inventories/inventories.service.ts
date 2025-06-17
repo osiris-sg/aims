@@ -6,6 +6,7 @@ import { GetInventoryDto } from './dto/get-inventory.dto';
 import * as QRCode from 'qrcode';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from 'src/common/prisma.service';
+import { CONFIGURABLE_MODULE_ID } from '@nestjs/common/module-utils/constants';
 
 @Injectable()
 export class InventoriesService {
@@ -79,10 +80,11 @@ export class InventoriesService {
     }
   }
 
-  async getInventoriesByStatus(status?: string) {
+  async getInventoriesByStatus(organizationId: string, status?: string) {
     try {
       const inventories = await this.prisma.inventory.findMany({
         where: {
+          organizationId,
           ...(status && {
             status: {
               equals: status,
@@ -130,7 +132,6 @@ export class InventoriesService {
         },
         { INSTOCK: 0, RENTAL: 0, RESERVED: 0, MAINTAINANCE: 0, SOLD: 0 },
       );
-
       return { inventories, statusCounts };
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);

@@ -166,7 +166,7 @@ model Project {
   updatedAt      DateTime       @updatedAt
   startDate      DateTime?
   endDate        DateTime?
-  status         ProjectStatus  @default(PENDING)
+  status         ProjectStatus  @default(pending)
 
   assignments    Assignment[]
 }
@@ -188,7 +188,7 @@ model Assignment {
 }
 
 enum ProjectStatus {
-  PENDING
-  ONGOING
-  COMPLETED
+  pending
+  ongoing
+  completed
 }

@@ -23,6 +23,7 @@ const assignmentSchema = z.object({
   inventoryId: z.string().min(1),
   startDate: z.any(),
   endDate: z.any(),
+  status: z.string().min(1, "Status is required"),
   // Add documentId if needed later
 });
 
@@ -237,10 +238,10 @@ export const useAddProjectFormHandler = () => {
   const onSubmit = async (data: ProjectFormData) => {
     console.log("Form submitted with data:", data);
 
-    // Create new asset
+    // Create new project
     const success = await createProject({
-      ...data,
       organizationId: organization?.id || "",
+      data,
     });
     if (success) {
       setActiveStep(3); // Move to success step
@@ -261,10 +262,8 @@ export const useAddProjectFormHandler = () => {
     handleBack,
     methods,
     handleSubmit: () => {
-      console.log("handleSubmit has been invoked");
       return handleSubmit(
         async (data) => {
-          console.log(">>> onSubmit called");
           return onSubmit(data);
         },
         (errors) => {

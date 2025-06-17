@@ -34,9 +34,6 @@ export class CreateProjectDto {
   customerId: string;
 
   @IsString()
-  organizationId?: string;
-
-  @IsString()
   @IsNotEmpty()
   startDate: string;
 

@@ -10,12 +10,12 @@ interface CreateProjectData {
   startDate: Date;
   endDate: Date;
   status: string;
-  organizationId?: string;
   assignments?: {
     skuKey: string;
     inventoryId?: string;
     startDate?: Date;
     endDate?: Date;
+    status?: string;
   }[];
 }
 
@@ -26,13 +26,7 @@ export const useCreateProject = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const createProject = async (data: CreateProjectData) => {
-    const organizationId = organization?.id;
-    if (!organizationId) {
-      setError("Organization ID is required");
-      return false;
-    }
-
+  const createProject = async ({ organizationId, data }: { organizationId: string; data: CreateProjectData }) => {
     setIsLoading(true);
     setError(null);
 
@@ -44,13 +38,16 @@ export const useCreateProject = () => {
       }
 
       // Prepare the request body
-      const requestBody: CreateProjectData = {
-        name: data.name,
-        customerId: data.customerId,
-        startDate: data.startDate.toISOString(),
-        endDate: data.endDate.toISOString(),
-        status: data.status,
-        assignments: data.assignments,
+      const requestBody = {
+        organizationId,
+        data: {
+          name: data.name,
+          customerId: data.customerId,
+          startDate: data.startDate.toISOString(),
+          endDate: data.endDate.toISOString(),
+          status: data.status,
+          assignments: data.assignments,
+        },
       };
 
       console.log("Request Body:", requestBody);

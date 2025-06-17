@@ -18,7 +18,7 @@ export default function AddAssetPage() {
   const router = useRouter();
   const { activeStep, handleNext, handleBack, methods, handleSubmit, onSubmit, isAssetUpdating, isSkuCheckInProgress, isSkuKeyAvailable, error, isEditMode } = useAddProjectFormHandler();
 
-  const steps = isEditMode ? ["Edit Asset", "Additional Details", "Confirm Changes"] : ["Project Creation", "Additional Details", "Review"];
+  const steps = isEditMode ? ["Edit Project", "Add Items (Optional)", "Confirm Changes"] : ["Project Creation", "Add Items (Optional)", "Review"];
 
   if (!isEditMode && activeStep === 3) {
     return <AddAssetSuccess />;
@@ -74,14 +74,14 @@ export default function AddAssetPage() {
               }}
             >
               <Typography variant="h4" sx={{ color: "text.secondary" }}>
-                {activeStep === 0 ? (isEditMode ? "Edit Asset" : "Asset Creation") : activeStep === 1 ? "Additional Asset Details" : "Confirm Changes"}
+                {activeStep === 0 ? (isEditMode ? "Edit Project" : "Project Creation") : activeStep === 1 ? "Add Items From Your Inventory" : "Confirm Changes"}
               </Typography>
 
               <Typography variant="body2" sx={{ color: "text.secondary" }}>
                 {activeStep === 0
                   ? isEditMode
-                    ? "Edit the details of this asset. Ensure all fields are accurate before saving."
-                    : 'Add a new asset to the inventory by filling the details below. Every asset must have a unique identifier (SKUKEY) to help you identify different assets. If you wish to increase/decrease quantity to an existing asset, please head over to the inventory page and use "Add Item" instead.'
+                    ? "Edit the details of this project. Ensure all fields are accurate before saving."
+                    : "Create a new project by filling in the information below. Each project can include multiple asset assignments. You can manage inventories later from the inventory page."
                   : activeStep === 1
                   ? "Fill up optional details about the asset. You can choose to edit these details later."
                   : "Confirm the details of this asset. Once confirmed, the asset will be updated shortly."}

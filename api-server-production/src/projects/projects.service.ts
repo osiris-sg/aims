@@ -66,8 +66,11 @@ export class ProjectsService {
     }
   }
 
-  async createProject(createProjectDto: CreateProjectDto) {
+  async createProject(createProjectDto: CreateProjectDto, organizationId: string) {
+    console.log('Received DTO:', createProjectDto);
+    console.log('Organization ID:', organizationId);
     try {
+      console.log('Creating project in database...');
       const project = await this.prisma.project.create({
         data: {
           name: createProjectDto.name,
@@ -75,7 +78,7 @@ export class ProjectsService {
           startDate: createProjectDto.startDate,
           endDate: createProjectDto.endDate,
           status: createProjectDto.status,
-          organizationId: createProjectDto.organizationId,
+          organizationId: organizationId,
           assignments: {
             create: createProjectDto.assignments.map((assignment) => ({
               startDate: assignment.startDate ? new Date(assignment.startDate) : undefined,
@@ -83,9 +86,6 @@ export class ProjectsService {
               inventory: assignment.inventoryId
                 ? {
                     connect: { id: assignment.inventoryId },
-                    update: {
-                      status: assignment.status,
-                    },
                   }
                 : undefined,
               document: undefined,
@@ -96,8 +96,20 @@ export class ProjectsService {
           assignments: true,
         },
       });
+      for (const assignment of createProjectDto.assignments) {
+        console.log(`Processing assignment: ${JSON.stringify(assignment)}`);
+        if (assignment.inventoryId && assignment.status) {
+          console.log(`Updating inventory status for assignment: ${assignment.inventoryId} to ${assignment.status}`);
+          await this.prisma.inventory.update({
+            where: { id: assignment.inventoryId },
+            data: { status: assignment.status },
+          });
+        }
+      }
+      console.log('Project created successfully:', project);
       return project;
     } catch (error) {
+      console.error('Error while creating project:', error);
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         const target = (error.meta?.target as string[])?.join(', ') || 'field';
         throw new HttpException(`Project with the same ${target} already exists.`, HttpStatus.BAD_REQUEST);
