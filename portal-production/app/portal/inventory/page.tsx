@@ -64,7 +64,7 @@ export default function InventoryPage() {
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({
-    status: "",
+    status: "instock",
     category: "",
     createdOn: {
       startDate: null as Date | null,
@@ -130,7 +130,7 @@ export default function InventoryPage() {
           >
             <QrCode2Icon />
           </IconButton>
-          <IconButton 
+          <IconButton
             onClick={() => router.push(`${ROUTES.INVENTORY}/${info.row.original.sku}`)}
             sx={{
               color: "customYellow.contrastText",
@@ -140,7 +140,7 @@ export default function InventoryPage() {
               },
               borderRadius: "8px",
             }}
-            >
+          >
             <VisibilityIcon />
           </IconButton>
           <IconButton

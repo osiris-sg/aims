@@ -14,7 +14,7 @@ export default function AdditionalDetails() {
   const [selectedItem, setSelectedItem] = useState("");
   const [selectedItems, setSelectedItems] = useState<any[]>([]);
 
-  const STATUS_OPTIONS = ["rental", "reserved", "maintainance", "sold"];
+  const STATUS_OPTIONS = ["rental", "reserved", "maintenance", "sold"];
 
   const { assets, isLoading } = useGetAssets();
   const { inventoryData, isLoading: isInventoryLoading } = useGetInventoryByAsset(selectedAsset);

@@ -197,6 +197,6 @@ enum InventoryStatus {
   instock
   rental
   reserved
-  maintainance
+  maintenance
   sold
 }

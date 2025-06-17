@@ -30,7 +30,7 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
     instock: 0,
     rental: 0,
     reserved: 0,
-    maintainance: 0,
+    maintenance: 0,
     sold: 0,
   });
   const [inventories, setInventories] = useState<any[]>([]);

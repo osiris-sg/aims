@@ -131,7 +131,7 @@ export class InventoriesService {
           [InventoryStatus.instock]: 0,
           [InventoryStatus.rental]: 0,
           [InventoryStatus.reserved]: 0,
-          [InventoryStatus.maintainance]: 0,
+          [InventoryStatus.maintenance]: 0,
           [InventoryStatus.sold]: 0,
         },
       );

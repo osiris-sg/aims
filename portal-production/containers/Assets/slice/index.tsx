@@ -25,7 +25,7 @@ export const initialState: AssetsState = {
   isAssetCreationSucceeded: false,
   isAssetUpdateSucceeded: false,
   inventoriesByAsset: null,
-  statusCounts: { instock: 0, rental: 0, reserved: 0, maintainance: 0, sold: 0 },
+  statusCounts: { instock: 0, rental: 0, reserved: 0, maintenance: 0, sold: 0 },
   isGetAssetLoading: false,
   isGetInventoriesLoading: false,
   isCategoriesLoading: false,
