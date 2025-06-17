@@ -1,9 +1,9 @@
 export const INVENTORY_STATUS = [
-  { label: "Rental", value: "RENTAL" },
-  { label: "Reserved", value: "RESERVED" },
-  { label: "Maintenance", value: "MAINTAINANCE" },
-  { label: "Sold", value: "SOLD" },
-  { label: "Instock", value: "INSTOCK" },
+  { label: "rental", value: "rental" },
+  { label: "Reserved", value: "reserved" },
+  { label: "Maintenance", value: "maintainance" },
+  { label: "Sold", value: "sold" },
+  { label: "instock", value: "instock" },
 ];
 
 export const API = {
@@ -43,9 +43,9 @@ export const API = {
     path: "/inventories/generate-sku",
     method: "POST",
   },
-  GET_QR_CODE:{
+  GET_QR_CODE: {
     path: "/inventories/qrcode/:sku",
-    method: "GET"
+    method: "GET",
   },
 
   GET_DOCUMENTS: {

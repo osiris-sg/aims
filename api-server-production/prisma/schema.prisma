@@ -39,7 +39,7 @@ model Inventory {
   id             String         @id @default(uuid()) @db.Uuid
   assetId        String         @db.Uuid
   location       String?
-  status         String
+  status         InventoryStatus
   category       String
   quantity       Int?
   organizationId String
@@ -191,4 +191,12 @@ enum ProjectStatus {
   pending
   ongoing
   completed
+}
+
+enum InventoryStatus {
+  instock
+  rental
+  reserved
+  maintainance
+  sold
 }

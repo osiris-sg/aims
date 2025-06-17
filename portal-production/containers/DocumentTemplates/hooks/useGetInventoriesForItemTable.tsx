@@ -46,9 +46,9 @@ export const useGetInventoriesForItemTable = () => {
     if (!organizationId) return;
 
     if (type === "RDO") {
-      fetchInventoriesByStatus("RENTAL");
+      fetchInventoriesByStatus("rental");
     } else if (type === "DO") {
-      fetchInventoriesByStatus("INSTOCK");
+      fetchInventoriesByStatus("instock");
     }
   }, [organizationId, type, fetchInventoriesByStatus, fetchInventoriesByIds]);
 

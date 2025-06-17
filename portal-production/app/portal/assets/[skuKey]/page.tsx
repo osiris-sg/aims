@@ -27,11 +27,11 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const [inventoriesStatusCounts, setInventoriesStatusCounts] = useState<Record<string, number>>({
-    INSTOCK: 0,
-    RENTAL: 0,
-    RESERVED: 0,
-    MAINTAINANCE: 0,
-    SOLD: 0,
+    instock: 0,
+    rental: 0,
+    reserved: 0,
+    maintainance: 0,
+    sold: 0,
   });
   const [inventories, setInventories] = useState<any[]>([]);
   const [documents, setDocuments] = useState<any[]>([]);

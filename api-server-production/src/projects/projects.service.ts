@@ -6,6 +6,7 @@ import { CreateProjectDto } from './dto/create-project.dto';
 // import { GetProjectDto } from './dto/get-project.dto';
 import { Prisma } from '@prisma/client';
 import { ProjectStatus } from '@prisma/client';
+import { InventoryStatus } from '@prisma/client';
 
 @Injectable()
 export class ProjectsService {
@@ -77,7 +78,7 @@ export class ProjectsService {
           customerId: createProjectDto.customerId,
           startDate: createProjectDto.startDate,
           endDate: createProjectDto.endDate,
-          status: createProjectDto.status,
+          status: createProjectDto.status as ProjectStatus,
           organizationId: organizationId,
           assignments: {
             create: createProjectDto.assignments.map((assignment) => ({
@@ -102,7 +103,7 @@ export class ProjectsService {
           console.log(`Updating inventory status for assignment: ${assignment.inventoryId} to ${assignment.status}`);
           await this.prisma.inventory.update({
             where: { id: assignment.inventoryId },
-            data: { status: assignment.status },
+            data: { status: assignment.status as InventoryStatus },
           });
         }
       }

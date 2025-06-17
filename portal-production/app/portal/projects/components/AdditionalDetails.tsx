@@ -14,7 +14,7 @@ export default function AdditionalDetails() {
   const [selectedItem, setSelectedItem] = useState("");
   const [selectedItems, setSelectedItems] = useState<any[]>([]);
 
-  const STATUS_OPTIONS = ["RENTAL", "RESERVED", "MAINTAINANCE", "SOLD"];
+  const STATUS_OPTIONS = ["rental", "reserved", "maintainance", "sold"];
 
   const { assets, isLoading } = useGetAssets();
   const { inventoryData, isLoading: isInventoryLoading } = useGetInventoryByAsset(selectedAsset);
@@ -57,7 +57,7 @@ export default function AdditionalDetails() {
     if (item && !selectedItems.some((i) => i.id === item.id)) {
       const newItem = {
         id: item.sku,
-        status: "RESERVED",
+        status: "reserved",
         startDate: null,
         endDate: null,
       };
@@ -70,7 +70,7 @@ export default function AdditionalDetails() {
           skuKey: item.sku,
           startDate: null,
           endDate: null,
-          status: "RESERVED",
+          status: "reserved",
         },
       ]);
     }

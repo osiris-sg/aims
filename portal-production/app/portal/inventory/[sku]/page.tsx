@@ -41,7 +41,7 @@ interface TimelineItem {
 }
 
 const INVENTORY_STATUS = [
-  { value: "INSTOCK", label: "Instock" },
+  { value: "instock", label: "instock" },
   { value: "AVAILABLE", label: "Available" },
   { value: "IN_USE", label: "In Use" },
   { value: "MAINTENANCE", label: "Maintenance" },

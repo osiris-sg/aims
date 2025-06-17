@@ -2,6 +2,7 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { PrismaService } from 'src/common/prisma.service';
 import { CreateDocumentWithTimelineDto } from './dto/create-document-with-timeline.dto';
+import { InventoryStatus } from '@prisma/client';
 @Injectable()
 export class DocumentsService {
   constructor(private prisma: PrismaService) {}
@@ -53,9 +54,9 @@ export class DocumentsService {
         await Promise.all(
           dto.config.items.map(async (_item) => {
             // Use dto.status if provided, otherwise default based on type
-            const newStatus = dto.status || (dto.type === 'DO' ? 'RENTAL' : 'INSTOCK');
+            const newStatus: InventoryStatus = (dto.status as InventoryStatus) || (dto.type === 'DO' ? InventoryStatus.rental : InventoryStatus.instock);
             const docMessage = dto.type === 'DO' ? 'A DO document is updated' : 'A RDO document is updated';
-            const statusChangeMessage = dto.type === 'DO' ? 'Item has been changed from Instock to Rental' : 'Item has been changed from Rental to Instock';
+            const statusChangeMessage = dto.type === 'DO' ? 'Item has been changed from instock to rental' : 'Item has been changed from rental to instock';
 
             // Update inventory status
             await this.prisma.inventory.update({
@@ -130,14 +131,14 @@ export class DocumentsService {
         await Promise.all(
           dto.config.items.map(async (_item) => {
             // Determine new inventory status and timeline messages based on document type
-            let newStatus = 'INSTOCK';
+            let newStatus: InventoryStatus = InventoryStatus.instock;
             let docMessage = 'A RDO document is submitted';
-            let statusChangeMessage = 'Item has been changed from Rental to Instock';
+            let statusChangeMessage = 'Item has been changed from rental to instock';
             console.log('Document Type:', JSON.stringify(dto.type, null, 2));
             if (dto.type === 'DO') {
-              newStatus = 'RENTAL';
+              newStatus = InventoryStatus.rental;
               docMessage = 'A DO document is submitted';
-              statusChangeMessage = 'Item has been changed from Instock to Rental';
+              statusChangeMessage = 'Item has been changed from instock to rental';
             }
 
             // Update inventory status

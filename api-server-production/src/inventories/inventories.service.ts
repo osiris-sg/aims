@@ -6,7 +6,7 @@ import { GetInventoryDto } from './dto/get-inventory.dto';
 import * as QRCode from 'qrcode';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from 'src/common/prisma.service';
-import { CONFIGURABLE_MODULE_ID } from '@nestjs/common/module-utils/constants';
+import { InventoryStatus } from '@prisma/client';
 
 @Injectable()
 export class InventoriesService {
@@ -48,8 +48,8 @@ export class InventoriesService {
       }
 
       // Status filter
-      if (filters?.status && filters.status !== '') {
-        whereClause.status = filters.status;
+      if (filters?.status !== undefined && filters.status !== null) {
+        whereClause.status = filters.status as InventoryStatus;
       }
 
       // Category filter
@@ -86,10 +86,7 @@ export class InventoriesService {
         where: {
           organizationId,
           ...(status && {
-            status: {
-              equals: status,
-              mode: 'insensitive',
-            },
+            status: status as InventoryStatus,
           }),
         },
         orderBy: { createdAt: 'desc' },
@@ -130,7 +127,13 @@ export class InventoriesService {
           }
           return counts;
         },
-        { INSTOCK: 0, RENTAL: 0, RESERVED: 0, MAINTAINANCE: 0, SOLD: 0 },
+        {
+          [InventoryStatus.instock]: 0,
+          [InventoryStatus.rental]: 0,
+          [InventoryStatus.reserved]: 0,
+          [InventoryStatus.maintainance]: 0,
+          [InventoryStatus.sold]: 0,
+        },
       );
       return { inventories, statusCounts };
     } catch (error) {
@@ -186,7 +189,7 @@ export class InventoriesService {
         ...createInventoryDto,
         assetId,
         sku,
-        status,
+        status: status as InventoryStatus,
       }));
 
       const createdItems = await this.prisma.inventory.createMany({
@@ -203,7 +206,10 @@ export class InventoriesService {
     try {
       return await this.prisma.inventory.update({
         where: { id: updateInventoryDto.id },
-        data: updateInventoryDto,
+        data: {
+          ...updateInventoryDto,
+          status: updateInventoryDto.status as InventoryStatus,
+        },
       });
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);

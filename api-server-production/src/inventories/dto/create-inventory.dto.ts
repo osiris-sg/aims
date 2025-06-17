@@ -1,4 +1,5 @@
-import { IsNotEmpty, IsString, IsNumber, IsOptional } from 'class-validator';
+import { IsNotEmpty, IsString, IsNumber, IsOptional, IsEnum } from 'class-validator';
+import { InventoryStatus } from '@prisma/client';
 
 export class CreateInventoryDto {
   @IsNotEmpty()
@@ -8,9 +9,9 @@ export class CreateInventoryDto {
   @IsOptional()
   location: string;
 
-  @IsString()
+  @IsEnum(InventoryStatus)
   @IsNotEmpty()
-  status: string;
+  status: InventoryStatus;
 
   @IsNumber()
   @IsNotEmpty()

@@ -1,6 +1,7 @@
 import { PartialType } from '@nestjs/swagger';
 import { CreateInventoryDto } from './create-inventory.dto';
-import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsOptional, IsString, IsEnum } from 'class-validator';
+import { InventoryStatus } from '@prisma/client';
 
 export class UpdateInventoryDto extends PartialType(CreateInventoryDto) {
   @IsString()
@@ -23,9 +24,9 @@ export class UpdateInventoryDto extends PartialType(CreateInventoryDto) {
   @IsOptional()
   category: string;
 
-  @IsString()
+  @IsEnum(InventoryStatus)
   @IsOptional()
-  status: string;
+  status: InventoryStatus;
 
   @IsString()
   @IsOptional()

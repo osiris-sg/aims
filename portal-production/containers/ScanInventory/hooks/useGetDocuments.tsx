@@ -36,11 +36,11 @@ export const useGetDocuments = () => {
   const getTemplateOptions = (status: string) => {
     if (!documentTemplates?.docs) return [];
 
-    if (status === "RENTAL") {
+    if (status === "rental") {
       return documentTemplates.docs.filter((template) => template.type === "RDO");
     }
 
-    if (status === "INSTOCK") {
+    if (status === "instock") {
       return documentTemplates.docs.filter((template) => template.type === "DO");
     }
 

@@ -49,7 +49,7 @@ export default function useViewInventoryTableHeader() {
   ];
   // const sampleDataHistory = [
   //   {
-  //     log_message: "Item has been changed from Instock to Rental",
+  //     log_message: "Item has been changed from instock to rental",
   //     created_date: "2024.10.10",
   //   },
   //   {
@@ -57,7 +57,7 @@ export default function useViewInventoryTableHeader() {
   //     created_date: "2024.10.10",
   //   },
   //   {
-  //     log_message: "Item has been changed from Rental to Instock",
+  //     log_message: "Item has been changed from rental to instock",
   //     created_date: "2024-10-10",
   //     subRows: [
   //       {

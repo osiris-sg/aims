@@ -1,5 +1,6 @@
-import { IsNotEmpty, IsNumber, IsString, IsOptional, ValidateNested, IsDateString } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsString, IsOptional, ValidateNested, IsDateString, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
+import { InventoryStatus } from '@prisma/client';
 
 class DateRangeDto {
   @IsDateString()
@@ -17,9 +18,9 @@ class FiltersDto {
   @IsOptional()
   createdOn: DateRangeDto;
 
-  @IsString()
+  @IsEnum(InventoryStatus)
   @IsOptional()
-  status: string;
+  status: InventoryStatus;
 
   @IsString()
   @IsOptional()

@@ -32,7 +32,7 @@ export class AssetsService {
         whereClause.categoryId = filters.category;
       }
 
-      // TODO: Check Instock status here
+      // TODO: Check instock status here
 
       const assets = await this.prisma.asset.findMany({
         where: whereClause,
@@ -42,7 +42,7 @@ export class AssetsService {
         include: {
           inventories: {
             where: {
-              status: 'INSTOCK', // Change this to match your "in stock" logic
+              status: 'instock', // Change this to match your "in stock" logic
             },
             select: {
               id: true, // we only need this to count manually
@@ -51,15 +51,15 @@ export class AssetsService {
         },
       });
 
-      const assetsWithInStockCount = assets.map((asset) => ({
+      const assetsWithinstockCount = assets.map((asset) => ({
         ...asset,
-        inStockInventoryCount: asset.inventories.length,
+        instockInventoryCount: asset.inventories.length,
       }));
 
       const totalDocs = await this.prisma.asset.count({ where: whereClause });
 
       return {
-        docs: assetsWithInStockCount,
+        docs: assetsWithinstockCount,
         hasNextPage: skip + assets.length < totalDocs,
         hasPreviousPage: page > 1,
         page,

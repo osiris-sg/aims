@@ -48,7 +48,7 @@ export default function useAssetsTableHeader() {
       cell: ({ row }) => <Typography variant="body2">{categories.find((item) => item.id === row.original.categoryId)?.name}</Typography>,
     },
     {
-      accessorKey: "inStockInventoryCount",
+      accessorKey: "instockInventoryCount",
       header: "Status-In Stock",
     },
     {

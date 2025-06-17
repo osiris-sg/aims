@@ -166,7 +166,7 @@ export default function useRDODocumentCreator() {
             type: documenttemplate?.type,
             config: payload,
             token,
-            status: "RENTAL",
+            status: "rental",
           })
         );
       }

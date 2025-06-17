@@ -143,7 +143,7 @@ export default function AssetsPage() {
       cell: ({ row }: any) => <Typography variant="body2">{categories?.find((item: any) => item.id === row.original.categoryId)?.name}</Typography>,
     },
     {
-      accessorKey: "inStockInventoryCount",
+      accessorKey: "instockInventoryCount",
       header: "Status-In Stock",
     },
     {

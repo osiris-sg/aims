@@ -187,7 +187,7 @@ export default function useDODocumentCreator() {
             type: document?.type,
             config: payload,
             token,
-            status: "INSTOCK",
+            status: "instock",
             customerId: data.customerId,
           })
         );
@@ -200,7 +200,7 @@ export default function useDODocumentCreator() {
             type: documenttemplate?.type,
             config: payload,
             token,
-            status: "INSTOCK",
+            status: "instock",
             customerId: data.customerId,
           })
         );
