@@ -3,7 +3,7 @@ import { PrismaService } from 'src/common/prisma.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 // import { UpdateProjectDto } from './dto/update-project.dto';
 // import { DeleteProjectDto } from './dto/delete-project.dto';
-// import { GetProjectDto } from './dto/get-project.dto';
+import { GetProjectDto } from './dto/get-project.dto';
 import { Prisma } from '@prisma/client';
 import { ProjectStatus } from '@prisma/client';
 import { InventoryStatus } from '@prisma/client';
@@ -12,44 +12,52 @@ import { InventoryStatus } from '@prisma/client';
 export class ProjectsService {
   constructor(private prisma: PrismaService) {}
 
-  //   async getProjects(getProjectDto: GetProjectDto) {
-  //     try {
-  //       const { organizationId, page, limit, search } = getProjectDto;
-  //       const skip = (page - 1) * limit;
+  async getProjects(getProjectDto: GetProjectDto) {
+    try {
+      const { organizationId, page, limit, search } = getProjectDto;
+      const skip = (page - 1) * limit;
 
-  //       const whereClause: any = { organizationId };
-  //       whereClause.deletedAt = null;
+      const whereClause: any = { organizationId };
+      whereClause.deletedAt = null;
 
-  //       if (search) {
-  //         whereClause.OR = [{ name: { contains: search, mode: 'insensitive' } }];
-  //       }
+      if (search) {
+        whereClause.OR = [{ name: { contains: search, mode: 'insensitive' } }];
+      }
 
-  //       const projects = await this.prisma.project.findMany({
-  //         where: whereClause,
-  //         skip,
-  //         take: limit,
-  //         orderBy: { createdAt: 'desc' },
-  //         include: {
-  //           customer: true,
-  //           assignments: true,
-  //         },
-  //       });
+      const projects = await this.prisma.project.findMany({
+        where: whereClause,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          customer: true,
+          assignments: true,
+        },
+      });
 
-  //       const totalDocs = await this.prisma.project.count({ where: whereClause });
+      const totalDocs = await this.prisma.project.count({ where: whereClause });
 
-  //       return {
-  //         docs: projects,
-  //         hasNextPage: skip + projects.length < totalDocs,
-  //         hasPreviousPage: page > 1,
-  //         page,
-  //         limit,
-  //         totalPagesCount: Math.ceil(totalDocs / limit),
-  //         totalDocuments: totalDocs,
-  //       };
-  //     } catch (error) {
-  //       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
-  //     }
-  //   }
+      return {
+        docs: projects.map((project) => ({
+          id: project.id,
+          name: project.name,
+          customer: project.customer ? { name: project.customer.name } : null,
+          itemsRelated: project.assignments || [],
+          startDate: project.startDate,
+          endDate: project.endDate,
+          status: project.status,
+        })),
+        hasNextPage: skip + projects.length < totalDocs,
+        hasPreviousPage: page > 1,
+        page,
+        limit,
+        totalPagesCount: Math.ceil(totalDocs / limit),
+        totalDocuments: totalDocs,
+      };
+    } catch (error) {
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
 
   async getProjectById(id: string) {
     try {
@@ -68,10 +76,7 @@ export class ProjectsService {
   }
 
   async createProject(createProjectDto: CreateProjectDto, organizationId: string) {
-    console.log('Received DTO:', createProjectDto);
-    console.log('Organization ID:', organizationId);
     try {
-      console.log('Creating project in database...');
       const project = await this.prisma.project.create({
         data: {
           name: createProjectDto.name,
@@ -98,16 +103,13 @@ export class ProjectsService {
         },
       });
       for (const assignment of createProjectDto.assignments) {
-        console.log(`Processing assignment: ${JSON.stringify(assignment)}`);
         if (assignment.inventoryId && assignment.status) {
-          console.log(`Updating inventory status for assignment: ${assignment.inventoryId} to ${assignment.status}`);
           await this.prisma.inventory.update({
             where: { id: assignment.inventoryId },
             data: { status: assignment.status as InventoryStatus },
           });
         }
       }
-      console.log('Project created successfully:', project);
       return project;
     } catch (error) {
       console.error('Error while creating project:', error);
