@@ -187,4 +187,18 @@ export class ProjectsService {
   //       throw new HttpException(error.message, error.status || HttpStatus.INTERNAL_SERVER_ERROR);
   //     }
   //   }
+  async createProjectByName(name: string, organizationId: string) {
+    try {
+      const project = await this.prisma.project.create({
+        data: {
+          name,
+          organizationId,
+          status: ProjectStatus.pending, // default status
+        },
+      });
+      return project;
+    } catch (error) {
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
 }

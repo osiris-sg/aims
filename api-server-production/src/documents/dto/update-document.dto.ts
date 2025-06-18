@@ -78,6 +78,14 @@ export class IConfig {
   @IsString()
   @IsOptional()
   date?: string;
+
+  @IsString()
+  @IsOptional()
+  startDate?: string;
+
+  @IsString()
+  @IsOptional()
+  endDate?: string;
 }
 
 export class UpdateDocumentDto extends PartialType(CreateDocumentDto) {
@@ -111,4 +119,8 @@ export class UpdateDocumentDto extends PartialType(CreateDocumentDto) {
   @IsString()
   @IsOptional()
   token?: string;
+
+  @IsUUID()
+  @IsOptional()
+  projectId?: string;
 }

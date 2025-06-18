@@ -46,8 +46,19 @@ export class DocumentsService {
           type: dto.type,
           // Connect customer if customerId provided
           customer: dto.customerId ? { connect: { id: dto.customerId } } : undefined,
+          project: dto.projectId ? { connect: { id: dto.projectId } } : undefined,
         },
       });
+
+      if (dto.projectId) {
+        await this.prisma.project.update({
+          where: { id: dto.projectId },
+          data: {
+            customerId: dto.customerId || undefined,
+            startDate: dto.config?.startDate || undefined,
+          },
+        });
+      }
 
       // If config.items exists and is an array, handle inventory/timeline logic
       if (dto.config && Array.isArray(dto.config.items)) {
@@ -90,6 +101,21 @@ export class DocumentsService {
                 inventoryId: _item.inventoryItemId,
                 documentId: null,
                 pdfUrl: null,
+              },
+            });
+          }),
+        );
+      }
+
+      if (dto.projectId && dto.config?.items?.length) {
+        await Promise.all(
+          dto.config.items.map(async (_item) => {
+            await this.prisma.assignment.create({
+              data: {
+                projectId: dto.projectId,
+                inventoryId: _item.inventoryItemId,
+                startDate: dto.config.startDate || null,
+                endDate: dto.config.endDate || null,
               },
             });
           }),

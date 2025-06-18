@@ -27,6 +27,7 @@ export default function useDODocumentCreator() {
     () => ({
       company: { name: "", address: "", phoneNumber: "" },
       customerId: "",
+      projectId: "", // added
       items: scannedInventoryId ? [{ inventoryItemId: scannedInventoryId, quantity: 1 }] : [{ inventoryItemId: "", quantity: 1 }],
       attention: { name: "", phoneNumber: "" },
       doNo: "",
@@ -93,6 +94,7 @@ export default function useDODocumentCreator() {
 
   const companyName = watch("company.name");
   const customerId = watch("customerId");
+  const projectId = watch("projectId"); // added
   const itemsError = errors?.items?.message;
 
   // Reset the form if a document is successfully created
@@ -114,6 +116,11 @@ export default function useDODocumentCreator() {
       reset(
         {
           ...document.config,
+          items:
+            document.config.items?.map((item: any) => ({
+              ...item,
+              quantity: item.quantity ?? 1,
+            })) || [],
           logo: logoValue,
         },
         {
@@ -127,6 +134,11 @@ export default function useDODocumentCreator() {
     try {
       const token = await getToken();
       if (!token) return;
+
+      data.items = data.items.map((item: any) => ({
+        ...item,
+        quantity: item.quantity ?? 1,
+      }));
 
       let logoKey = "";
       const logoFile = Array.isArray(data.logo) ? data.logo[0] : data.logo;
@@ -175,6 +187,7 @@ export default function useDODocumentCreator() {
 
       const payload = {
         ...data,
+        projectId, // added
         logo: logoKey || document?.config.logo,
         signature: uploadedSignatures,
       };
@@ -189,6 +202,7 @@ export default function useDODocumentCreator() {
             token,
             status: "instock",
             customerId: data.customerId,
+            projectId: projectId, // added
           })
         );
       } else {
@@ -216,6 +230,7 @@ export default function useDODocumentCreator() {
     addNewLine,
     companyName,
     customerId,
+    projectId, // added to return
     fields,
     remove,
     onDocumentCreate: handleSubmit(onSubmit),

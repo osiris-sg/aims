@@ -3,6 +3,7 @@ import DocumentNameHeader from "./DocumentNameHeader";
 import { Alert, Box, Button, Divider, Grid2, Typography } from "@mui/material";
 import TemplatePaper from "./TemplatePaper";
 import FormImage from "@/form-components/FormImage";
+import { request } from "@/helpers/request";
 import FormInputBox from "@/form-components/FormInputBox";
 import FormSelect from "@/form-components/FormSelect";
 import { useGetCustomers } from "../hooks/useGetCustomers";
@@ -17,7 +18,7 @@ import { useParams } from "next/navigation";
 import useDOTemplateHandler from "../hooks/useDOTemplateHandler";
 import useDODocumentCreator from "../hooks/useDODocumentCreator";
 import { usePathname } from "next/navigation";
-
+import { useAuth, useOrganization } from "@clerk/nextjs";
 interface Props {
   viewMode: boolean;
 }
@@ -31,16 +32,88 @@ export default function DeliveryOrderTemplate(props: Props) {
   const { isDocumentLoading } = useGetDocument();
   const { methods, onSubmit, editableVisibilityFields, watch, isLoading, isDirty } = useDOTemplateHandler();
   const { customers } = useGetCustomers();
-  const { addNewLine, control, companyName, setValue, customerId, fields, remove, onDocumentCreate, itemsError, isLoading: isDocumentCreationloading, isDirty: isDCretorDisabled } = useDODocumentCreator();
+  const { addNewLine, control, companyName, setValue, customerId, projectId, fields, remove, onDocumentCreate, itemsError, isLoading: isDocumentCreationloading, isDirty: isDCretorDisabled } = useDODocumentCreator();
   const { columns } = useTemplateTableHeader({ viewMode: isViewMode, remove: remove, control, setValue });
   const customer = customers.docs.find((customer) => customer.id === customerId);
   const { contentRef, handlePrint } = usePrintDocumentHandler();
-
+  const { getToken } = useAuth();
+  const { organization } = useOrganization();
+  const organizationId = organization?.id;
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState({
+    status: undefined,
+    startDate: {
+      startDate: null as Date | null,
+      endDate: null as Date | null,
+    },
+  });
   const [triggerRender, setTriggerRender] = useState(0);
   useEffect(() => {
     console.log("Fields changed, re-rendering component", triggerRender);
     setTriggerRender((prev) => prev + 1);
   }, [fields]);
+
+  const [projects, setProjects] = useState([]);
+  const [isProjectsLoading, setProjectsLoading] = useState(false);
+
+  const fetchProjects = async () => {
+    if (!organizationId) return;
+    setProjectsLoading(true);
+
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await request({ path: "/projects", method: "POST" }, { page, limit, search, filters, organizationId }, token);
+
+      if (response.success) {
+        console.log("Projects response:", response.data);
+        setProjects(response.data.docs || []);
+      }
+    } catch (error) {
+      console.error("Error fetching projects:", error);
+    } finally {
+      setProjectsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProjects();
+  }, [organizationId]);
+  const handleAddProject = async (projectName: string) => {
+    try {
+      if (!organizationId) return false;
+
+      setProjectsLoading(true);
+      const token = await getToken();
+      if (!token) return false;
+
+      const response = await request(
+        {
+          path: "/projects/create-by-name",
+          method: "POST",
+        },
+        {
+          name: projectName,
+          organizationId,
+        },
+        token
+      );
+
+      if (response.success) {
+        await fetchProjects();
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error("Error creating project:", error);
+      return false;
+    } finally {
+      setProjectsLoading(false);
+    }
+  };
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", gap: "var(--default-gap)", overflow: "hidden" }}>
@@ -116,6 +189,8 @@ export default function DeliveryOrderTemplate(props: Props) {
                         </Grid2>
                         <Grid2 size={12}>
                           <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--half-gap)" }}>
+                            <FormSelect control={control} name="projectId" label="Project" placeHolder="Choose a project..." addItem={true} menuTitle="Choose a project" menuItems={projects.map((project) => ({ label: project.name, value: project.id }))} required handleAddItem={handleAddProject} />
+
                             {watch("attention.name") && <FormInputBox control={control} name="attention.name" label="Attention" placeHolder="Enter Attention" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
                             {watch("attention.phoneNumber") && <FormInputBox control={control} name="attention.phoneNumber" label="Mobile" placeHolder="Enter Mobile Number" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
                           </Box>

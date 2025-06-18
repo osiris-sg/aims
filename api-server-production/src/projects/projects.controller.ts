@@ -26,6 +26,15 @@ export class ProjectsController {
       throw new HttpException('An unexpected error occurred while creating the project.', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
+  @Post('create-by-name')
+  async createProjectByName(@Body() body: { name: string; organizationId: string }) {
+    try {
+      return await this.projectsService.createProjectByName(body.name, body.organizationId);
+    } catch (error) {
+      console.error('Error occurred in createProjectByName:', error);
+      throw new HttpException('An unexpected error occurred while creating the project by name.', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
 
   @Post(':id/assignments')
   async addAssignmentsToProject(@Param('id') projectId: string, @Body() body: { assignments: any[] }) {
