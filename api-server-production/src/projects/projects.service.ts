@@ -18,7 +18,6 @@ export class ProjectsService {
       const skip = (page - 1) * limit;
 
       const whereClause: any = { organizationId };
-      whereClause.deletedAt = null;
 
       if (search) {
         whereClause.OR = [{ name: { contains: search, mode: 'insensitive' } }];
@@ -70,6 +69,43 @@ export class ProjectsService {
       });
       if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
       return project;
+    } catch (error) {
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  async addAssignmentsToProject(projectId: string, assignments: any[]) {
+    console.log('Adding assignments to project:', projectId, assignments);
+    try {
+      const existingProject = await this.prisma.project.findUnique({
+        where: { id: projectId },
+      });
+
+      if (!existingProject) {
+        throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
+      }
+
+      const createdAssignments = await this.prisma.assignment.createMany({
+        data: assignments.map((assignment) => ({
+          projectId,
+          startDate: assignment.startDate ? new Date(assignment.startDate) : undefined,
+          endDate: assignment.endDate ? new Date(assignment.endDate) : undefined,
+          inventoryId: assignment.inventoryId,
+          documentId: assignment.documentId,
+        })),
+        skipDuplicates: true,
+      });
+
+      for (const assignment of assignments) {
+        if (assignment.inventoryId && assignment.status) {
+          await this.prisma.inventory.update({
+            where: { id: assignment.inventoryId },
+            data: { status: assignment.status as InventoryStatus },
+          });
+        }
+      }
+
+      return createdAssignments;
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }

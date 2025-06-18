@@ -27,7 +27,7 @@ class FiltersDto {
   category: string;
 }
 
-export class GetInventoryDto {
+export class GetProjectDto {
   @IsString()
   @IsNotEmpty()
   organizationId: string;

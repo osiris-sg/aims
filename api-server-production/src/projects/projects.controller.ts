@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Post, Body, HttpException, HttpStatus } from '@nestjs/common';
 import { ProjectsService } from './projects.service';
 import { CreateProjectDto } from './dto/create-project.dto';
+import { GetProjectDto } from './dto/get-project.dto';
 
 @Controller('projects')
 export class ProjectsController {
@@ -9,6 +10,10 @@ export class ProjectsController {
   @Get(':id')
   async getProjectById(@Param('id') id: string) {
     return this.projectsService.getProjectById(id);
+  }
+  @Post()
+  async getInventories(@Body() getProjectDto: GetProjectDto) {
+    return await this.projectsService.getProjects(getProjectDto);
   }
 
   @Post('create')
@@ -19,6 +24,16 @@ export class ProjectsController {
     } catch (error) {
       console.error('Error occurred in createProject:', error);
       throw new HttpException('An unexpected error occurred while creating the project.', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  @Post(':id/assignments')
+  async addAssignmentsToProject(@Param('id') projectId: string, @Body() body: { assignments: any[] }) {
+    try {
+      return await this.projectsService.addAssignmentsToProject(projectId, body.assignments);
+    } catch (error) {
+      console.error('Error adding assignments to project:', error);
+      throw new HttpException('Failed to add assignments to project.', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 }

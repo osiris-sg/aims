@@ -53,7 +53,7 @@ export default function ProjectsPage() {
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({
-    status: "",
+    status: undefined,
     startDate: {
       startDate: null as Date | null,
       endDate: null as Date | null,
