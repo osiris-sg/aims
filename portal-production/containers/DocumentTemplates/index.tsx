@@ -6,6 +6,7 @@ import { Typography } from "@mui/material";
 // import TaxInvoiceTemplate from "./components/TaxInvoiceTemplate";
 import { IDocumentTemplates } from "./slice/constants";
 import DeliveryOrderTemplate from "./components/DeliveryOrderTemplate";
+import InvoiceTemplate from "./components/InvoiceTemplate";
 
 export default function DocumentTemplates({ viewMode }: { viewMode: boolean }) {
   const { type }: { type: keyof typeof IDocumentTemplates } = useParams();
@@ -13,7 +14,7 @@ export default function DocumentTemplates({ viewMode }: { viewMode: boolean }) {
   const components = {
     [IDocumentTemplates.RDO]: ReturnDeliveryOrderTemplate,
     [IDocumentTemplates.DO]: DeliveryOrderTemplate,
-    // [IDocumentTemplates.TI]: TaxInvoiceTemplate,
+    [IDocumentTemplates.TI]: InvoiceTemplate,
   };
 
   const ComponentToRender = components[type];
