@@ -64,7 +64,7 @@ export class RequestService {
         withCredentials: true,
         headers: headers,
         isClientSide,
-        ...(["POST", "PUT", "DELETE"].includes(metadata.method) && {
+        ...(["POST", "PUT", "PATCH", "DELETE"].includes(metadata.method) && {
           data: JSON.stringify(data),
         }),
       };

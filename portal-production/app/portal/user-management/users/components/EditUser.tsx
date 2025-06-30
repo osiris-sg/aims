@@ -1,18 +1,18 @@
 import React, { useState, useEffect } from "react";
-import { Box, Button, Drawer, Grid, Typography, FormControl, InputLabel, Select, MenuItem, Chip, Alert, IconButton, InputAdornment, Divider } from "@mui/material";
+import { Box, Button, Drawer, Grid, Typography, FormControl, InputLabel, Select, MenuItem, Chip, Alert, IconButton, InputAdornment } from "@mui/material";
 import { useForm } from "react-hook-form";
 import FormInputBox from "@/form-components/FormInputBox";
-import useAddUserStates from "../hooks/useAddUser";
 import { request } from "@/helpers/request";
 import { useAuth } from "@clerk/nextjs";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
-import PersonAddIcon from "@mui/icons-material/PersonAdd";
+import PersonIcon from "@mui/icons-material/Person";
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  onUserCreated?: () => void;
+  onUserUpdated?: () => void;
+  user: any;
 }
 
 interface Role {
@@ -21,18 +21,19 @@ interface Role {
   description: string;
 }
 
-export default function AddUser({ open, onClose, onUserCreated }: Props) {
-  const { createUser, loading } = useAddUserStates();
+export default function EditUser({ open, onClose, onUserUpdated, user }: Props) {
   const { getToken } = useAuth();
   const [roles, setRoles] = useState<Role[]>([]);
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   const [error, setError] = useState<string>("");
+  const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const {
     control,
     handleSubmit,
     reset,
+    setValue,
     formState: { errors },
   } = useForm({
     defaultValues: {
@@ -74,6 +75,55 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
     }
   }, [open, getToken]);
 
+  // Populate form when user data is available
+  useEffect(() => {
+    if (user && open) {
+      // Parse the name field to extract first and last name
+      const nameParts = user.name?.split(" ") || [];
+      const firstName = nameParts[0] || "";
+      const lastName = nameParts.slice(1).join(" ") || "";
+
+      setValue("firstName", firstName);
+      setValue("lastName", lastName);
+      setValue("email", user.email || "");
+      setValue("password", ""); // Don't pre-fill password for security
+
+      // Set selected roles
+      const roleIds = user.roles?.map((role: any) => role.id) || [];
+      setSelectedRoles(roleIds);
+    }
+  }, [user, open, setValue]);
+
+  const updateUser = async (userData: any) => {
+    setLoading(true);
+    try {
+      const token = await getToken();
+      if (!token) {
+        throw new Error("No authentication token available");
+      }
+
+      const response = await request(
+        {
+          method: "PATCH",
+          path: `/users/${user.id}`,
+        },
+        userData,
+        token
+      );
+
+      if (!response.success) {
+        throw new Error(response.message || "Failed to update user");
+      }
+
+      return response;
+    } catch (error) {
+      console.error("Error updating user:", error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const onSubmit = async (data: any) => {
     if (selectedRoles.length === 0) {
       setError("Please select at least one role");
@@ -82,31 +132,43 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
 
     setError("");
     try {
-      await createUser({
-        firstName: data.firstName,
-        lastName: data.lastName,
-        email: data.email,
-        password: data.password,
+      const updateData: any = {
         roleIds: selectedRoles,
-      });
+      };
 
-      // Reset form and close drawer after successful creation
-      reset({
-        firstName: "",
-        lastName: "",
-        email: "",
-        password: "",
-      });
+      // Only include fields that have values and are not empty
+      if (data.firstName && data.firstName.trim()) {
+        updateData.firstName = data.firstName.trim();
+      }
+
+      if (data.lastName && data.lastName.trim()) {
+        updateData.lastName = data.lastName.trim();
+      }
+
+      if (data.email && data.email.trim()) {
+        updateData.email = data.email.trim();
+      }
+
+      // Only include password if it's provided and not empty
+      if (data.password && data.password.trim()) {
+        updateData.password = data.password.trim();
+      }
+
+      console.log("Sending update data:", updateData);
+      await updateUser(updateData);
+
+      // Reset form and close drawer after successful update
+      reset();
       setSelectedRoles([]);
       setShowPassword(false);
       onClose();
 
       // Call the callback to refresh the users list
-      if (onUserCreated) {
-        onUserCreated();
+      if (onUserUpdated) {
+        onUserUpdated();
       }
     } catch (error: any) {
-      setError(error.message || "Failed to create user");
+      setError(error.message || "Failed to update user");
     }
   };
 
@@ -148,7 +210,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
           }}
         >
           <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 1 }}>
-            <PersonAddIcon sx={{ color: "#1976d2", fontSize: 28 }} />
+            <PersonIcon sx={{ color: "#1976d2", fontSize: 28 }} />
             <Typography
               variant="h5"
               sx={{
@@ -157,11 +219,11 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                 fontSize: "1.5rem",
               }}
             >
-              Create New User
+              Edit User
             </Typography>
           </Box>
           <Typography variant="body2" sx={{ color: "#666666" }}>
-            Add a new user account with email and role assignments
+            Update user information, email, password, and role assignments
           </Typography>
         </Box>
 
@@ -239,13 +301,12 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
 
                 <Grid item xs={12}>
                   <FormInputBox
-                    label="Password"
+                    label="Password (Leave blank to keep current)"
                     control={control}
                     name="password"
                     type={showPassword ? "text" : "password"}
-                    placeHolder="Enter password"
+                    placeHolder="Enter new password"
                     rules={{
-                      required: "Password is required",
                       minLength: {
                         value: 8,
                         message: "Password must be at least 8 characters",
@@ -272,12 +333,12 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
 
                 <Grid item xs={12}>
                   <FormControl fullWidth>
-                    <InputLabel id="select-roles-label" sx={{ color: "#666666" }}>
+                    <InputLabel id="edit-roles-label" sx={{ color: "#666666" }}>
                       Select Roles
                     </InputLabel>
                     <Select
-                      labelId="select-roles-label"
-                      id="select-roles"
+                      labelId="edit-roles-label"
+                      id="edit-roles"
                       label="Select Roles"
                       multiple
                       value={selectedRoles}
@@ -309,8 +370,8 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                       MenuProps={{
                         PaperProps: {
                           sx: {
-                            bgcolor: "#fff", // White background
-                            color: "#222", // Dark text
+                            bgcolor: "#fff",
+                            color: "#222",
                           },
                         },
                       }}
@@ -324,7 +385,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                         "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
                           borderColor: "#1976d2",
                         },
-                        bgcolor: "#fff", // White background for the select input itself
+                        bgcolor: "#fff",
                       }}
                     >
                       {roles.map((role) => (
@@ -361,12 +422,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
             <Button
               variant="outlined"
               onClick={() => {
-                reset({
-                  firstName: "",
-                  lastName: "",
-                  email: "",
-                  password: "",
-                });
+                reset();
                 setSelectedRoles([]);
                 setShowPassword(false);
                 setError("");
@@ -401,7 +457,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                 },
               }}
             >
-              {loading ? "Creating..." : "Create User"}
+              {loading ? "Updating..." : "Update User"}
             </Button>
           </Box>
         </Box>

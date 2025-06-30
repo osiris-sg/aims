@@ -8,7 +8,7 @@ import { CustomResponseInterceptor } from 'helpers/custom-sucess.filter';
 
 const corsOptions: CorsOptions = {
   credentials: true,
-  methods: ['POST', 'PUT', 'DELETE', 'GET'],
+  methods: ['POST', 'PUT', 'PATCH', 'DELETE', 'GET'],
   origin: ['http://localhost:3000', 'https://www.aims.osiris.so', 'https://aims.osiris.so'],
 };
 

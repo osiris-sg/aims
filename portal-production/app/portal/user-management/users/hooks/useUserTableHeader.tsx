@@ -4,12 +4,17 @@ import { Box, Button, Chip, Typography, IconButton, Avatar } from "@mui/material
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import PersonIcon from "@mui/icons-material/Person";
+import { request } from "@/helpers/request";
+import { useAuth } from "@clerk/nextjs";
 
 const columnHelper = createColumnHelper<any>();
 
 export default function useUserTableHeader() {
   const [editUserOpen, setEditUserOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
+  const [userToDelete, setUserToDelete] = useState<string | null>(null);
+  const [isDeleteInProgress, setIsDeleteInProgress] = useState(false);
+  const { getToken } = useAuth();
 
   const handleEditUser = (user: any) => {
     setSelectedUser(user);
@@ -18,18 +23,47 @@ export default function useUserTableHeader() {
 
   const handleCloseEditUser = () => setEditUserOpen(false);
 
-  const handleDeleteUser = async (id: string) => {
-    // Implement delete logic here
-    const confirmed = window.confirm("Are you sure you want to delete this user?");
-    if (confirmed) {
-      try {
-        // API call to delete user
-        console.log(`Deleting user with id: ${id}`);
-        // Refresh the users list after successful deletion
-      } catch (error) {
-        console.error("Error deleting user:", error);
+  const handleDeleteUser = async (userId: string) => {
+    setUserToDelete(userId);
+  };
+
+  const confirmDeleteUser = async () => {
+    if (!userToDelete) return;
+    setIsDeleteInProgress(true);
+
+    try {
+      const token = await getToken();
+      if (!token) {
+        throw new Error("No authentication token available");
       }
+
+      const response = await request(
+        {
+          path: `/users/${userToDelete}`,
+          method: "DELETE",
+        },
+        {},
+        token
+      );
+
+      if (response.success) {
+        console.log(`User ${userToDelete} deleted successfully`);
+        // The parent component should handle refreshing the users list
+        return true;
+      } else {
+        throw new Error(response.message || "Failed to delete user");
+      }
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      throw error;
+    } finally {
+      setIsDeleteInProgress(false);
+      setUserToDelete(null);
     }
+  };
+
+  const cancelDelete = () => {
+    setUserToDelete(null);
   };
 
   const columns = [
@@ -37,7 +71,6 @@ export default function useUserTableHeader() {
       header: "User",
       cell: (info) => {
         const user = info.row.original;
-        console.log("user", user);
         return (
           <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
             <Avatar sx={{ width: 32, height: 32, bgcolor: "primary.main" }}>
@@ -115,10 +148,26 @@ export default function useUserTableHeader() {
         const user = info.row.original;
         return (
           <Box sx={{ display: "flex", gap: 1 }}>
-            <IconButton size="small" color="primary" onClick={() => handleEditUser(user)} title="Edit user">
+            <IconButton
+              size="small"
+              onClick={() => handleEditUser(user)}
+              title="Edit user"
+              sx={{
+                color: "secondary.main",
+                "&:hover": { bgcolor: "secondary.main", color: "secondary.contrastText" },
+              }}
+            >
               <EditIcon fontSize="small" />
             </IconButton>
-            <IconButton size="small" color="error" onClick={() => handleDeleteUser(info.getValue())} title="Delete user">
+            <IconButton
+              size="small"
+              onClick={() => handleDeleteUser(info.getValue())}
+              title="Delete user"
+              sx={{
+                color: "error.main",
+                "&:hover": { bgcolor: "error.main", color: "error.contrastText" },
+              }}
+            >
               <DeleteIcon fontSize="small" />
             </IconButton>
           </Box>
@@ -133,5 +182,9 @@ export default function useUserTableHeader() {
     setEditUserOpen,
     selectedUser,
     handleCloseEditUser,
+    userToDelete,
+    isDeleteInProgress,
+    confirmDeleteUser,
+    cancelDelete,
   };
 }

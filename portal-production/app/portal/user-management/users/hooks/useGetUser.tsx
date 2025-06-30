@@ -56,7 +56,7 @@ export function useGetUsers() {
       const response = await request(
         {
           method: "POST",
-          path: "/users",
+          path: "/users/list",
         },
         {
           page,
