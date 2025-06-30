@@ -1,4 +1,3 @@
-// /containers/Permissions/hooks/useGetRoles.tsx
 import { useState, useEffect, useCallback } from "react";
 
 export function useGetRoles() {
@@ -27,16 +26,16 @@ export function useGetRoles() {
   const [filters, setFilters] = useState({
     createdOn: { startDate: null, endDate: null },
   });
-  
+
   // Define fetchRoles as a useCallback so it can be referenced elsewhere
   const fetchRoles = useCallback(async () => {
     setLoading(true);
     try {
       // Replace with your API call
-      const response = await fetch('/roles', {
-        method: 'POST',
+      const response = await fetch("/roles", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           page,
@@ -45,13 +44,13 @@ export function useGetRoles() {
           filters,
         }),
       });
-      
+
       if (!response.ok) {
-        throw new Error('Failed to fetch roles');
+        throw new Error("Failed to fetch roles");
       }
-      
+
       const data = await response.json();
-      
+
       // Mock data structure while API is being developed
       setRoles({
         docs: data.roles || mockRoles.slice((page - 1) * limit, page * limit),
@@ -75,7 +74,7 @@ export function useGetRoles() {
   useEffect(() => {
     fetchRoles();
   }, [fetchRoles]);
-  
+
   // Add the refreshRoles function that can be called to manually refresh data
   const refreshRoles = () => {
     fetchRoles();
@@ -92,42 +91,42 @@ export function useGetRoles() {
     setLimit,
     setSearch,
     setFilters,
-    refreshRoles  // Add this to the returned object
+    refreshRoles,
   };
 }
 
 // Mock data for development
 const mockRoles = [
   {
-    id: '1',
-    name: 'Superadmin',
-    description: 'Has all permissions',
+    id: "1",
+    name: "Superadmin",
+    description: "Has all permissions",
     permissions: Array(12).fill({}), // 12 permissions
-    createdAt: '2023-01-01T00:00:00.000Z',
-    updatedAt: '2023-01-01T00:00:00.000Z',
+    createdAt: "2023-01-01T00:00:00.000Z",
+    updatedAt: "2023-01-01T00:00:00.000Z",
   },
   {
-    id: '2',
-    name: 'Admin',
-    description: 'Can manage most resources',
+    id: "2",
+    name: "Admin",
+    description: "Can manage most resources",
     permissions: Array(8).fill({}), // 8 permissions
-    createdAt: '2023-01-02T00:00:00.000Z',
-    updatedAt: '2023-01-02T00:00:00.000Z',
+    createdAt: "2023-01-02T00:00:00.000Z",
+    updatedAt: "2023-01-02T00:00:00.000Z",
   },
   {
-    id: '3',
-    name: 'Editor',
-    description: 'Can edit content',
+    id: "3",
+    name: "Editor",
+    description: "Can edit content",
     permissions: Array(5).fill({}), // 5 permissions
-    createdAt: '2023-01-03T00:00:00.000Z',
-    updatedAt: '2023-01-03T00:00:00.000Z',
+    createdAt: "2023-01-03T00:00:00.000Z",
+    updatedAt: "2023-01-03T00:00:00.000Z",
   },
   {
-    id: '4',
-    name: 'User',
-    description: 'Regular user with limited permissions',
+    id: "4",
+    name: "User",
+    description: "Regular user with limited permissions",
     permissions: Array(3).fill({}), // 3 permissions
-    createdAt: '2023-01-04T00:00:00.000Z',
-    updatedAt: '2023-01-04T00:00:00.000Z',
+    createdAt: "2023-01-04T00:00:00.000Z",
+    updatedAt: "2023-01-04T00:00:00.000Z",
   },
 ];

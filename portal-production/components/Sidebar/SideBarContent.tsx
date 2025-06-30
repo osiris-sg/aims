@@ -29,7 +29,7 @@ const mainListItems = [
   { text: "Documents", path: ROUTES.DOCUMENTS, icon: <DescriptionIcon /> },
   { text: "Invoices", path: ROUTES.INVOICES, icon: <AssignmentRoundedIcon /> },
   { text: "Projects", path: ROUTES.PROJECTS, icon: <AccountTreeIcon /> },
-  { text: "Permissions", path: ROUTES.PERMISSIONS, icon: <PeopleRoundedIcon /> },
+  { text: "User Management", path: ROUTES.PERMISSIONS, icon: <PeopleRoundedIcon /> },
 ];
 
 const secondaryListItems: any = [
@@ -42,7 +42,135 @@ export default function SideBarContent() {
   const pathname = usePathname();
 
   const [openDocuments, setOpenDocuments] = React.useState(false);
+  const [openUserManagement, setOpenUserManagement] = React.useState(false);
+
   const handleDocumentsClick = () => setOpenDocuments(!openDocuments);
+  const handleUserManagementClick = () => setOpenUserManagement(!openUserManagement);
+
+  const renderListItem = (item: any, index: number) => {
+    if (item.text === "Documents") {
+      return (
+        <React.Fragment key={index}>
+          <ListItem
+            disablePadding
+            sx={{
+              display: "block",
+              borderRadius: "var(--default-border-radius)",
+              backgroundColor: pathname.startsWith(item.path) ? theme.palette.primary.contrastText : "transparent",
+              ":hover": { backgroundColor: theme.palette.primary.light },
+            }}
+            onClick={handleDocumentsClick}
+          >
+            <ListItemButton selected={pathname.startsWith(item.path)}>
+              <ListItemIcon
+                sx={{
+                  color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                  minWidth: "fit-content!important",
+                  marginRight: "var(--default-gap)",
+                }}
+              >
+                {item.icon}
+              </ListItemIcon>
+              <ListItemText
+                primary={item.text}
+                sx={{
+                  color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                }}
+              />
+              {openDocuments ? <ExpandLess /> : <ExpandMore />}
+            </ListItemButton>
+          </ListItem>
+          <Collapse in={openDocuments} timeout="auto" unmountOnExit>
+            <List component="div" disablePadding>
+              <ListItemButton sx={{ pl: 4 }} component={Link} href={`${mainListItems[3].path}`}>
+                <ListItemText primary="All Documents" />
+              </ListItemButton>
+              <ListItemButton sx={{ pl: 4 }} component={Link} href="/portal/documents/templates">
+                <ListItemText primary="All Document Templates" />
+              </ListItemButton>
+            </List>
+          </Collapse>
+        </React.Fragment>
+      );
+    } else if (item.text === "User Management") {
+      return (
+        <React.Fragment key={index}>
+          <ListItem
+            disablePadding
+            sx={{
+              display: "block",
+              borderRadius: "var(--default-border-radius)",
+              backgroundColor: pathname.startsWith(item.path) ? theme.palette.primary.contrastText : "transparent",
+              ":hover": { backgroundColor: theme.palette.primary.light },
+            }}
+            onClick={handleUserManagementClick}
+          >
+            <ListItemButton selected={pathname.startsWith(item.path)}>
+              <ListItemIcon
+                sx={{
+                  color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                  minWidth: "fit-content!important",
+                  marginRight: "var(--default-gap)",
+                }}
+              >
+                {item.icon}
+              </ListItemIcon>
+              <ListItemText
+                primary={item.text}
+                sx={{
+                  color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                }}
+              />
+              {openUserManagement ? <ExpandLess /> : <ExpandMore />}
+            </ListItemButton>
+          </ListItem>
+          <Collapse in={openUserManagement} timeout="auto" unmountOnExit>
+            <List component="div" disablePadding>
+              <ListItemButton sx={{ pl: 4 }} component={Link} href={ROUTES.PERMISSIONS}>
+                <ListItemText primary="Roles" />
+              </ListItemButton>
+              <ListItemButton sx={{ pl: 4 }} component={Link} href={ROUTES.USERS}>
+                <ListItemText primary="Users" />
+              </ListItemButton>
+            </List>
+          </Collapse>
+        </React.Fragment>
+      );
+    } else {
+      return (
+        <ListItem
+          key={index}
+          disablePadding
+          sx={{
+            display: "block",
+            borderRadius: "var(--default-border-radius)",
+            backgroundColor: pathname.startsWith(item.path) ? theme.palette.primary.contrastText : "transparent",
+            ":hover": { backgroundColor: theme.palette.primary.light },
+          }}
+        >
+          <Link href={item.path} key={item.text} style={{ textDecoration: "none", color: "inherit" }}>
+            <ListItemButton selected={pathname.startsWith(item.path)}>
+              <ListItemIcon
+                sx={{
+                  color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                  minWidth: "fit-content!important",
+                  marginRight: "var(--default-gap)",
+                }}
+              >
+                {item.icon}
+              </ListItemIcon>
+              <ListItemText
+                primary={item.text}
+                sx={{
+                  color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                }}
+              />
+            </ListItemButton>
+          </Link>
+        </ListItem>
+      );
+    }
+  };
 
   return (
     <Stack
@@ -60,82 +188,7 @@ export default function SideBarContent() {
           gap: "var(--half-gap)",
         }}
       >
-        {mainListItems.map((item, index) =>
-          item.text === "Documents" ? (
-            <React.Fragment key={index}>
-              <ListItem
-                disablePadding
-                sx={{
-                  display: "block",
-                  borderRadius: "var(--default-border-radius)",
-                  backgroundColor: pathname.startsWith(item.path) ? theme.palette.primary.contrastText : "transparent",
-                  ":hover": { backgroundColor: theme.palette.primary.light },
-                }}
-                onClick={handleDocumentsClick}
-              >
-                <ListItemButton selected={pathname.startsWith(item.path)}>
-                  <ListItemIcon
-                    sx={{
-                      color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
-                      minWidth: "fit-content!important",
-                      marginRight: "var(--default-gap)",
-                    }}
-                  >
-                    {item.icon}
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={item.text}
-                    sx={{
-                      color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
-                    }}
-                  />
-                  {openDocuments ? <ExpandLess /> : <ExpandMore />}
-                </ListItemButton>
-              </ListItem>
-              <Collapse in={openDocuments} timeout="auto" unmountOnExit>
-                <List component="div" disablePadding>
-                  <ListItemButton sx={{ pl: 4 }} component={Link} href={`${mainListItems[3].path}`}>
-                    <ListItemText primary="All Documents" />
-                  </ListItemButton>
-                  <ListItemButton sx={{ pl: 4 }} component={Link} href="/portal/documents/templates">
-                    <ListItemText primary="All Document Templates" />
-                  </ListItemButton>
-                </List>
-              </Collapse>
-            </React.Fragment>
-          ) : (
-            <ListItem
-              key={index}
-              disablePadding
-              sx={{
-                display: "block",
-                borderRadius: "var(--default-border-radius)",
-                backgroundColor: pathname.startsWith(item.path) ? theme.palette.primary.contrastText : "transparent",
-                ":hover": { backgroundColor: theme.palette.primary.light },
-              }}
-            >
-              <Link href={item.path} key={item.text} style={{ textDecoration: "none", color: "inherit" }}>
-                <ListItemButton selected={pathname.startsWith(item.path)}>
-                  <ListItemIcon
-                    sx={{
-                      color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
-                      minWidth: "fit-content!important",
-                      marginRight: "var(--default-gap)",
-                    }}
-                  >
-                    {item.icon}
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={item.text}
-                    sx={{
-                      color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
-                    }}
-                  />
-                </ListItemButton>
-              </Link>
-            </ListItem>
-          )
-        )}
+        {mainListItems.map((item, index) => renderListItem(item, index))}
       </List>
       <List
         dense

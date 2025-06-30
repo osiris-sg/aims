@@ -17,7 +17,12 @@ async function bootstrap() {
   AppModule.registerSwagger(app);
   app.enableCors(corsOptions);
   app.use(morgan('dev'));
-  app.useGlobalPipes(new ValidationPipe());
+  app.useGlobalPipes(
+    new ValidationPipe({
+      transform: true,
+      transformOptions: { enableImplicitConversion: true },
+    }),
+  );
   app.useGlobalFilters(new CustomExceptionFilter());
   app.useGlobalInterceptors(new CustomResponseInterceptor());
   await app.listen(4040, () => console.info('Api Server started on port 4040'));
