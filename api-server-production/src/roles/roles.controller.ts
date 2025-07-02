@@ -1,5 +1,5 @@
 // src/roles/roles.controller.ts
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Query } from '@nestjs/common';
 import { RolesService } from './roles.service';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
@@ -20,8 +20,8 @@ export class RolesController {
   @Get()
   @UseGuards(ClerkAuthGuard)
   @Permissions('roles:read')
-  findAll() {
-    return this.rolesService.findAll();
+  findAll(@Query() query: any) {
+    return this.rolesService.findAll(query);
   }
 
   @Get(':id')

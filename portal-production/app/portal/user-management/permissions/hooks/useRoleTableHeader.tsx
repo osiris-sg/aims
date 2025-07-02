@@ -3,32 +3,66 @@ import { createColumnHelper } from "@tanstack/react-table";
 import { Box, Button, Chip, Typography, IconButton } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
+import { useAuth } from "@clerk/nextjs";
 
 const columnHelper = createColumnHelper<any>();
 
 export default function useRoleTableHeader() {
-  const [editPermissionsOpen, setEditPermissionsOpen] = useState(false);
+  const { getToken } = useAuth();
+  const [editRoleOpen, setEditRoleOpen] = useState(false);
   const [selectedRole, setSelectedRole] = useState(null);
+  const [roleToDelete, setRoleToDelete] = useState<string | null>(null);
+  const [isDeleteInProgress, setIsDeleteInProgress] = useState(false);
 
-  const handleEditPermissions = (role: any) => {
+  const handleEditRole = (role: any) => {
     setSelectedRole(role);
-    setEditPermissionsOpen(true);
+    setEditRoleOpen(true);
   };
 
-  const handleCloseEditPermissions = () => setEditPermissionsOpen(false);
+  const handleCloseEditRole = () => {
+    setEditRoleOpen(false);
+    setSelectedRole(null);
+  };
 
-  const handleDeleteRole = async (id: string) => {
-    // Implement delete logic here
-    const confirmed = window.confirm("Are you sure you want to delete this role?");
-    if (confirmed) {
-      try {
-        // API call to delete role
-        console.log(`Deleting role with id: ${id}`);
-        // Refresh the roles list after successful deletion
-      } catch (error) {
-        console.error("Error deleting role:", error);
+  const handleDeleteRole = async (roleId: string) => {
+    setRoleToDelete(roleId);
+  };
+
+  const confirmDeleteRole = async () => {
+    if (!roleToDelete) return;
+    setIsDeleteInProgress(true);
+
+    try {
+      const token = await getToken();
+      if (!token) {
+        throw new Error("No authentication token available");
       }
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/roles/${roleToDelete}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to delete role");
+      }
+
+      console.log(`Role ${roleToDelete} deleted successfully`);
+      return true;
+    } catch (error) {
+      console.error("Error deleting role:", error);
+      throw error;
+    } finally {
+      setIsDeleteInProgress(false);
+      setRoleToDelete(null);
     }
+  };
+
+  const cancelDelete = () => {
+    setRoleToDelete(null);
   };
 
   const columns = [
@@ -48,7 +82,8 @@ export default function useRoleTableHeader() {
       header: "Permissions Count",
       cell: (info) => {
         const permissions = info.getValue();
-        return <Chip label={permissions ? permissions.length : 0} size="small" color="primary" sx={{ borderRadius: "4px" }} />;
+        const count = Array.isArray(permissions) ? permissions.length : 0;
+        return <Chip label={`${count} permissions`} size="small" color="secondary" sx={{ borderRadius: "4px" }} />;
       },
     }),
     columnHelper.accessor("createdAt", {
@@ -61,7 +96,7 @@ export default function useRoleTableHeader() {
         const role = info.row.original;
         return (
           <Box sx={{ display: "flex", gap: 1 }}>
-            <IconButton size="small" color="primary" onClick={() => handleEditPermissions(role)}>
+            <IconButton size="small" color="primary" onClick={() => handleEditRole(role)}>
               <EditIcon fontSize="small" />
             </IconButton>
             <IconButton size="small" color="error" onClick={() => handleDeleteRole(info.getValue())}>
@@ -75,9 +110,12 @@ export default function useRoleTableHeader() {
 
   return {
     columns,
-    editPermissionsOpen,
-    setEditPermissionsOpen,
+    editRoleOpen,
     selectedRole,
-    handleCloseEditPermissions,
+    handleCloseEditRole,
+    roleToDelete,
+    isDeleteInProgress,
+    confirmDeleteRole,
+    cancelDelete,
   };
 }

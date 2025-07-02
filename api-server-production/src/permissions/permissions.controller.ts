@@ -4,7 +4,7 @@ import { PermissionsService } from './permissions.service';
 import { CreatePermissionDto } from './dto/create-permission.dto';
 import { UpdatePermissionDto } from './dto/update-permission.dto';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
-import { Permissions } from 'src/auth/decorators/permissions.decorator'
+import { Permissions } from 'src/auth/decorators/permissions.decorator';
 
 @Controller('permissions')
 export class PermissionsController {

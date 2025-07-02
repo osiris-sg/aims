@@ -14,13 +14,14 @@ interface Props {
   permission: Permission;
   checked: boolean;
   onChange: () => void;
+  disabled?: boolean;
 }
 
-export default function PermissionsCheckbox({ permission, checked, onChange }: Props) {
+export default function PermissionsCheckbox({ permission, checked, onChange, disabled = false }: Props) {
   return (
     <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
       <FormControlLabel
-        control={<Checkbox checked={checked} onChange={onChange} />}
+        control={<Checkbox checked={checked} onChange={onChange} disabled={disabled} />}
         label={
           <Box sx={{ display: "flex", alignItems: "center" }}>
             <Typography variant="body2">{permission.name}</Typography>

@@ -7,16 +7,26 @@ import PageTable from "@/components/PageTable";
 import AddRoleItem from "./AddRoleItem";
 import { useGetRoles } from "../hooks/useGetRoles";
 import useAddRoleStates from "../hooks/useAddRoleStates";
-import EditPermissions from "./EditPermissions";
+import EditRole from "./EditRole";
+import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 
 export default function Permissions() {
-  const { columns, editPermissionsOpen, selectedRole, handleCloseEditPermissions } = useRoleTableHeader();
+  const { columns, editRoleOpen, selectedRole, handleCloseEditRole, roleToDelete, isDeleteInProgress, confirmDeleteRole, cancelDelete } = useRoleTableHeader();
   const { roles, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, refreshRoles } = useGetRoles();
   const { openDrawer, onAddClick, onCloseClick } = useAddRoleStates();
 
-  const handlePermissionsUpdated = () => {
+  const handleRoleUpdated = () => {
     refreshRoles();
-    handleCloseEditPermissions();
+    handleCloseEditRole();
+  };
+
+  const handleDeleteConfirm = async () => {
+    try {
+      await confirmDeleteRole();
+      refreshRoles();
+    } catch (error) {
+      console.error("Error deleting role:", error);
+    }
   };
 
   return (
@@ -41,9 +51,11 @@ export default function Permissions() {
         pageCount={roles.totalPagesCount}
         totalDocs={roles.totalDocuments}
       />
-      <AddRoleItem open={openDrawer} onClose={onCloseClick} />
+      <AddRoleItem open={openDrawer} onClose={onCloseClick} onRoleCreated={refreshRoles} />
 
-      {selectedRole && <EditPermissions open={editPermissionsOpen} onClose={handleCloseEditPermissions} role={selectedRole} onPermissionsUpdated={handlePermissionsUpdated} />}
+      {selectedRole && <EditRole open={editRoleOpen} onClose={handleCloseEditRole} role={selectedRole} onRoleUpdated={handleRoleUpdated} />}
+
+      <DeleteItemDialogNoConfirm open={!!roleToDelete} onCancel={cancelDelete} onConfirm={handleDeleteConfirm} loading={isDeleteInProgress} />
     </MainCard>
   );
 }

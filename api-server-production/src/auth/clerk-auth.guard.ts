@@ -16,10 +16,7 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
 
   async canActivate(context: ExecutionContext) {
     // Check if route is public
-    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [context.getHandler(), context.getClass()]);
 
     if (isPublic) {
       return true;
@@ -27,16 +24,13 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
 
     // First check if user is authenticated
     const isAuthenticated = await super.canActivate(context);
-    
+
     if (!isAuthenticated) {
       return false;
     }
 
     // Get required permissions from the route handler
-    const requiredPermissions = this.reflector.get<string[]>(
-      PERMISSIONS_KEY,
-      context.getHandler(),
-    );
+    const requiredPermissions = this.reflector.get<string[]>(PERMISSIONS_KEY, context.getHandler());
 
     // If no permissions are required, user just needs to be authenticated
     if (!requiredPermissions || requiredPermissions.length === 0) {
@@ -57,7 +51,7 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
         },
       },
     });
-    
+
     if (userRoles.length === 0) {
       throw new ForbiddenException('User has no assigned roles');
     }
@@ -66,20 +60,16 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
     for (const userRole of userRoles) {
       const role = userRole.role;
 
-      console.log("user role:" ,userRole);
-      
-      const hasAllPermissions = requiredPermissions.every(requiredPermission => {
+
+      const hasAllPermissions = requiredPermissions.every((requiredPermission) => {
         const [resource, action] = requiredPermission.split(':');
 
-        console.log(" Resource: ", resource);
-        console.log(" Action: ", action);
-        
-        return role.permissions.some(
-          p => (p.resource === resource || p.resource === '*') && 
-               (p.action === action || p.action === '*')
-        );
+        console.log(' Resource: ', resource);
+        console.log(' Action: ', action);
+
+        return role.permissions.some((p) => (p.resource === resource || p.resource === '*') && (p.action === action || p.action === '*'));
       });
-      
+
       if (hasAllPermissions) {
         return true;
       }

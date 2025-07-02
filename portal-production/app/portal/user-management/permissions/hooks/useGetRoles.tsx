@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "@clerk/nextjs";
 
 export function useGetRoles() {
+  const { getToken } = useAuth();
   interface Role {
     id: string;
     name: string;
@@ -31,18 +33,27 @@ export function useGetRoles() {
   const fetchRoles = useCallback(async () => {
     setLoading(true);
     try {
+      const token = await getToken();
+      if (!token) return;
+
       // Replace with your API call
-      const response = await fetch("/roles", {
-        method: "POST",
+      const queryParams = new URLSearchParams();
+      queryParams.append("page", page.toString());
+      queryParams.append("limit", limit.toString());
+      queryParams.append("search", search);
+      if (filters.createdOn.startDate) {
+        queryParams.append("startDate", filters.createdOn.startDate);
+      }
+      if (filters.createdOn.endDate) {
+        queryParams.append("endDate", filters.createdOn.endDate);
+      }
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/roles?${queryParams}`, {
+        method: "GET",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          page,
-          limit,
-          search,
-          filters,
-        }),
       });
 
       if (!response.ok) {
@@ -51,12 +62,18 @@ export function useGetRoles() {
 
       const data = await response.json();
 
-      // Mock data structure while API is being developed
-      setRoles({
-        docs: data.roles || mockRoles.slice((page - 1) * limit, page * limit),
-        totalDocuments: data.totalDocuments || mockRoles.length,
-        totalPagesCount: data.totalPagesCount || Math.ceil(mockRoles.length / limit),
-      });
+      console.log("Get roles data", data);
+
+      // Handle the response from the updated API
+      if (data.success !== false) {
+        setRoles({
+          docs: data.data?.roles || [],
+          totalDocuments: data.data?.totalDocuments || 0,
+          totalPagesCount: data.data?.totalPagesCount || 0,
+        });
+      } else {
+        throw new Error(data.message || "Failed to fetch roles");
+      }
     } catch (error) {
       console.error("Error fetching roles:", error);
       // Use mock data for development
