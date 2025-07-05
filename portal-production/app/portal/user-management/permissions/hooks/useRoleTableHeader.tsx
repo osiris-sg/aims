@@ -52,8 +52,8 @@ export default function useRoleTableHeader() {
 
       console.log(`Role ${roleToDelete} deleted successfully`);
       return true;
-    } catch (error) {
-      console.error("Error deleting role:", error);
+      } catch (error) {
+        console.error("Error deleting role:", error);
       throw error;
     } finally {
       setIsDeleteInProgress(false);

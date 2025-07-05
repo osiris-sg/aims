@@ -9,16 +9,16 @@ import { DeleteDocumentTemplateDto } from './dto/delete-documentTemplate.dto';
 export class DocumentTemplatesService {
   constructor(private prisma: PrismaService) {}
 
-  async getDocumentTemplates(getDocumentTemplateDto: GetDocumentTemplateDto) {
+  async getDocumentTemplates(getDocumentTemplateDto: GetDocumentTemplateDto, organizationId: string) {
     try {
-      const { page, limit, search, organizationId } = getDocumentTemplateDto;
+      const { page, limit, search } = getDocumentTemplateDto;
       const skip = (page - 1) * limit;
 
       const documentTemplates = await this.prisma.documentTemplate.findMany({
         where: {
           organizationId,
           type: {
-            contains: search,
+            contains: search || '',
             mode: 'insensitive',
           },
         },
@@ -33,7 +33,7 @@ export class DocumentTemplatesService {
         where: {
           organizationId,
           type: {
-            contains: search,
+            contains: search || '',
             mode: 'insensitive',
           },
         },
@@ -55,10 +55,13 @@ export class DocumentTemplatesService {
     }
   }
 
-  async getDocumentTemplateById(id: string) {
+  async getDocumentTemplateById(id: string, organizationId: string) {
     try {
-      const documentTemplate = await this.prisma.documentTemplate.findUnique({
-        where: { id },
+      const documentTemplate = await this.prisma.documentTemplate.findFirst({
+        where: {
+          id,
+          organizationId,
+        },
       });
 
       if (!documentTemplate) {
@@ -72,7 +75,7 @@ export class DocumentTemplatesService {
     }
   }
 
-  async createDocumentTemplates(dto: CreateDocumentTemplateDto) {
+  async createDocumentTemplates(dto: CreateDocumentTemplateDto, organizationId: string) {
     try {
       console.log('we have this data at hee ', dto);
 
@@ -80,7 +83,7 @@ export class DocumentTemplatesService {
         data: {
           name: dto.name,
           type: dto.type,
-          organizationId: dto.organizationId,
+          organizationId, // Automatically assign to user's organization
         },
       });
 
@@ -91,12 +94,15 @@ export class DocumentTemplatesService {
     }
   }
 
-  async updateDocumentTemplates(updateDto: UpdateDocumentTemplateDto) {
+  async updateDocumentTemplates(updateDto: UpdateDocumentTemplateDto, organizationId: string) {
     try {
       const { id, name, type } = updateDto;
 
       const updated = await this.prisma.documentTemplate.update({
-        where: { id },
+        where: {
+          id,
+          organizationId, // Ensure user can only update templates in their organization
+        },
         data: {
           ...(name && { name }),
           ...(type && { type }),
@@ -129,7 +135,7 @@ export class DocumentTemplatesService {
     }
   }
 
-  async deleteDocumentTemplates(deleteDocumentTemplateDto: DeleteDocumentTemplateDto) {
+  async deleteDocumentTemplates(deleteDocumentTemplateDto: DeleteDocumentTemplateDto, organizationId: string) {
     try {
       // First, delete all related DocumentItem records
       // await this.prisma.documentItem.deleteMany({
@@ -138,7 +144,10 @@ export class DocumentTemplatesService {
 
       // Then, delete the DocumentTemplate
       const documentTemplate = await this.prisma.documentTemplate.delete({
-        where: { id: deleteDocumentTemplateDto.id },
+        where: {
+          id: deleteDocumentTemplateDto.id,
+          organizationId, // Ensure user can only delete templates in their organization
+        },
       });
 
       return documentTemplate;

@@ -19,6 +19,21 @@ const assetSchema = z.object({
   notes: z.string().optional(),
 });
 
+// Schema for the actual data we send to the backend
+const updateAssetSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  skuKey: z.string().min(1, "SKU Key is required"),
+  image: z.any().optional(),
+  description: z.string().optional(),
+  category: z
+    .object({
+      connect: z.object({
+        id: z.string().min(1, "Category ID is required"),
+      }),
+    })
+    .optional(),
+});
+
 export type AssetFormData = z.infer<typeof assetSchema>;
 
 export const useAddAssetFormHandler = () => {
@@ -75,17 +90,20 @@ export const useAddAssetFormHandler = () => {
       );
 
       if (response.success) {
+        console.log("Fetched asset data:", response.data);
         setAsset(response.data);
-        methods.reset({
+        const formData = {
           name: response.data.name,
           skuKey: response.data.skuKey,
           categoryId: response.data.categoryId,
-          status: response.data.status,
+          status: response.data.status || "active", // Provide default if missing
           description: response.data.description || "",
           location: response.data.location || "",
           notes: response.data.notes || "",
           image: response.data.image,
-        });
+        };
+        console.log("Setting form data:", formData);
+        methods.reset(formData);
       }
     } catch (error) {
       console.error("Error fetching asset:", error);
@@ -171,37 +189,115 @@ export const useAddAssetFormHandler = () => {
   };
 
   const onSubmit = async (data: AssetFormData) => {
+    console.log("=== FORM SUBMISSION STARTED ===");
+    console.log("Form submitted with data:", data);
+    console.log("Is edit mode:", isEditMode);
+    console.log("Asset:", asset);
+    console.log("Active step:", activeStep);
+
+    // Ensure required fields are present and handle image field
+    const formDataWithStatus = {
+      name: data.name,
+      skuKey: data.skuKey,
+      description: data.description,
+      image: data.image || undefined, // Keep image as is, don't send if undefined
+    };
+
+    // Handle category relation properly
+    if (data.categoryId) {
+      formDataWithStatus.category = {
+        connect: {
+          id: data.categoryId,
+        },
+      };
+    }
+
+    // Handle image field properly
+    if (formDataWithStatus.image instanceof File) {
+      console.log("Image is a File object, removing from request");
+      delete formDataWithStatus.image;
+    } else if (Array.isArray(formDataWithStatus.image)) {
+      console.log("Image is an array, removing from request");
+      delete formDataWithStatus.image;
+    } else if (formDataWithStatus.image === null || formDataWithStatus.image === undefined) {
+      console.log("Image is null/undefined, removing from request");
+      delete formDataWithStatus.image;
+    } else if (typeof formDataWithStatus.image === "string" && formDataWithStatus.image.trim() === "") {
+      console.log("Image is empty string, removing from request");
+      delete formDataWithStatus.image;
+    }
+
+    console.log("Form data with status:", formDataWithStatus);
+    console.log("Image field type:", typeof formDataWithStatus.image);
+    console.log("Image field value:", formDataWithStatus.image);
+
+    // Validate the data we're actually sending to the backend
+    const validationResult = updateAssetSchema.safeParse(formDataWithStatus);
+    if (!validationResult.success) {
+      console.error("Form validation failed:", validationResult.error);
+      return;
+    }
+    console.log("Form validation passed");
+
     if (isEditMode && asset) {
       // Update existing asset
       const token = await getToken();
-      if (!token) return;
+      if (!token) {
+        console.error("No token available");
+        return;
+      }
 
-      const response = await request(
-        {
-          path: "/assets/update",
-          method: "PUT",
-        },
-        {
-          ...data,
-          id: asset.id,
-          organizationId: organization?.id,
-        },
-        token
-      );
+      console.log("Sending update request with data:", {
+        ...formDataWithStatus,
+        id: asset.id,
+      });
 
-      if (response.success) {
-        router.push(ROUTES.ASSETS);
+      try {
+        const response = await request(
+          {
+            path: "/assets/update",
+            method: "PUT",
+          },
+          {
+            ...formDataWithStatus,
+            id: asset.id,
+          },
+          token
+        );
+
+        console.log("Update response:", response);
+
+        if (response.success) {
+          console.log("Update successful, redirecting to assets page");
+          router.push(ROUTES.ASSETS);
+        } else {
+          console.error("Update failed:", response.message);
+        }
+      } catch (error) {
+        console.error("Error updating asset:", error);
       }
     } else {
       // Create new asset
       const success = await createAsset({
         ...data,
-        organizationId: organization?.id || "",
       });
       if (success) {
         setActiveStep(3); // Move to success step
       }
     }
+  };
+
+  // Debug function to log form state
+  const logFormState = () => {
+    console.log("=== FORM STATE DEBUG ===");
+    console.log("Active step:", activeStep);
+    console.log("Is edit mode:", isEditMode);
+    console.log("Is asset updating:", isAssetUpdating);
+    console.log("Is SKU check in progress:", isSkuCheckInProgress);
+    console.log("Is SKU key available:", isSkuKeyAvailable);
+    console.log("Form values:", methods.getValues());
+    console.log("Form errors:", methods.formState.errors);
+    console.log("Asset:", asset);
   };
 
   return {
@@ -216,5 +312,6 @@ export const useAddAssetFormHandler = () => {
     isSkuKeyAvailable,
     isEditMode,
     error,
+    logFormState, // Export for debugging
   };
 };

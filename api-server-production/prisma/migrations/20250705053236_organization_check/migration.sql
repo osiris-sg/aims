@@ -1,0 +1,10 @@
+-- AlterTable
+ALTER TABLE "UserOrganization" ADD COLUMN     "joinedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ADD COLUMN     "lastActiveAt" TIMESTAMP(3),
+ADD COLUMN     "settings" JSONB;
+
+-- AlterTable
+ALTER TABLE "UserRole" ADD COLUMN     "assignedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ADD COLUMN     "assignedBy" TEXT,
+ADD COLUMN     "expiresAt" TIMESTAMP(3),
+ADD COLUMN     "isActive" BOOLEAN NOT NULL DEFAULT true;

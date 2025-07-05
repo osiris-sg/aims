@@ -32,9 +32,6 @@ export class CreateDocumentTemplateDto {
   @IsString()
   type: string;
 
-  @IsString()
-  organizationId: string;
-
   @IsBoolean()
   @IsOptional()
   logo: boolean;

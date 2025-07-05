@@ -8,7 +8,6 @@ interface CreateAssetData {
   name: string;
   skuKey: string;
   categoryId: string;
-  organizationId: string;
   image?: File;
   description?: string;
 }
@@ -21,12 +20,6 @@ export const useCreateAsset = () => {
   const [error, setError] = useState<string | null>(null);
 
   const createAsset = async (data: CreateAssetData) => {
-    const organizationId = organization?.id;
-    if (!organizationId) {
-      setError("Organization ID is required");
-      return false;
-    }
-
     setIsLoading(true);
     setError(null);
 
@@ -38,11 +31,10 @@ export const useCreateAsset = () => {
       }
 
       // Prepare the request body
-      const requestBody: CreateAssetData = {
+      const requestBody = {
         name: data.name,
         skuKey: data.skuKey,
         categoryId: data.categoryId,
-        organizationId,
         description: data.description || "",
       };
 

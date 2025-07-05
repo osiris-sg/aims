@@ -26,7 +26,6 @@ export const useAddCustomerHandler = () => {
           method: "POST",
         },
         {
-          organizationId: organizationId,
           name: customerName,
         },
         token
@@ -58,7 +57,7 @@ export const useAddCustomerHandler = () => {
           path: `/customers/${id}`,
           method: "DELETE",
         },
-        { organizationId },
+        {},
         token
       );
 

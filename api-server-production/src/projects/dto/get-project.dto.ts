@@ -28,10 +28,6 @@ class FiltersDto {
 }
 
 export class GetProjectDto {
-  @IsString()
-  @IsNotEmpty()
-  organizationId: string;
-
   @IsNumber()
   @IsNotEmpty()
   page: number;
@@ -42,10 +38,10 @@ export class GetProjectDto {
 
   @IsString()
   @IsOptional()
-  search: string;
+  search?: string;
 
   @ValidateNested()
   @Type(() => FiltersDto)
   @IsOptional()
-  filters: FiltersDto;
+  filters?: FiltersDto;
 }

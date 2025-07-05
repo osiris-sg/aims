@@ -9,10 +9,6 @@ export class CreateAssetDto {
   @IsOptional()
   description: string;
 
-  @IsString()
-  @IsNotEmpty()
-  organizationId: string;
-
   @IsUUID()
   @IsOptional()
   categoryId: string;

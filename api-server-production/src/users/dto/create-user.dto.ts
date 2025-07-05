@@ -1,4 +1,4 @@
-import { IsArray, IsEmail, IsNotEmpty, IsString, IsUUID, MinLength } from 'class-validator';
+import { IsArray, IsEmail, IsNotEmpty, IsString, IsUUID, MinLength, IsOptional } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateUserDto {
@@ -42,5 +42,8 @@ export class CreateUserDto {
   @IsArray()
   @IsUUID('4', { each: true })
   roleIds: string[];
+
+  @IsString()
+  @IsOptional()
+  organizationId?: string;
 }
- 

@@ -10,11 +10,8 @@ class FiltersDto {
   @IsOptional()
   category: string;
 }
-export class GetAssetDto {
-  @IsString()
-  @IsNotEmpty()
-  organizationId: string;
 
+export class GetAssetDto {
   @IsNumber()
   @IsNotEmpty()
   page: number;

@@ -15,9 +15,9 @@ export class InventoriesService {
     private configService: ConfigService,
   ) {}
 
-  async getInventories(getInventoryDto: GetInventoryDto) {
+  async getInventories(getInventoryDto: GetInventoryDto, organizationId: string) {
     try {
-      const { page, limit, search, organizationId, filters } = getInventoryDto;
+      const { page, limit, search, filters } = getInventoryDto;
 
       const skip = (page - 1) * limit;
 
@@ -27,11 +27,7 @@ export class InventoriesService {
 
       // Search filter
       if (search) {
-        whereClause.OR = [
-          { sku: { contains: search, mode: 'insensitive' } },
-          { asset: { name: { contains: search, mode: 'insensitive' } } },
-          // Add more fields as needed
-        ];
+        whereClause.OR = [{ sku: { contains: search, mode: 'insensitive' } }, { asset: { name: { contains: search, mode: 'insensitive' } } }];
       }
 
       // Date range filter
@@ -97,26 +93,39 @@ export class InventoriesService {
     }
   }
 
-  async getInventoryById(id: string) {
+  async getInventoryById(id: string, organizationId: string) {
     try {
-      return await this.prisma.inventory.findUnique({ where: { id } });
+      return await this.prisma.inventory.findFirst({
+        where: {
+          id,
+          organizationId,
+        },
+      });
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
-  async getInventoryBySku(sku: string) {
+  async getInventoryBySku(sku: string, organizationId: string) {
     try {
-      return await this.prisma.inventory.findFirst({ where: { sku } });
+      return await this.prisma.inventory.findFirst({
+        where: {
+          sku,
+          organizationId,
+        },
+      });
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
-  async getInventoriesByAsset(assetId: string) {
+  async getInventoriesByAsset(assetId: string, organizationId: string) {
     try {
       const inventories = await this.prisma.inventory.findMany({
-        where: { assetId },
+        where: {
+          assetId,
+          organizationId,
+        },
         orderBy: { createdAt: 'desc' },
       });
 
@@ -141,10 +150,13 @@ export class InventoriesService {
     }
   }
 
-  async getInventoriesByIds({ inventoryIds }: { inventoryIds: string[] }) {
+  async getInventoriesByIds({ inventoryIds }: { inventoryIds: string[] }, organizationId: string) {
     try {
       return await this.prisma.inventory.findMany({
-        where: { id: { in: inventoryIds } },
+        where: {
+          id: { in: inventoryIds },
+          organizationId,
+        },
         orderBy: { createdAt: 'desc' },
       });
     } catch (error) {
@@ -154,7 +166,12 @@ export class InventoriesService {
 
   async generateSkuRange(assetId: string, quantity: number, organizationId: string) {
     try {
-      const asset = await this.prisma.asset.findUnique({ where: { id: assetId } });
+      const asset = await this.prisma.asset.findFirst({
+        where: {
+          id: assetId,
+          organizationId,
+        },
+      });
       if (!asset) {
         throw new HttpException('Asset not found', HttpStatus.NOT_FOUND);
       }
@@ -180,15 +197,16 @@ export class InventoriesService {
     }
   }
 
-  async createInventories(createInventoryDto: CreateInventoryDto) {
+  async createInventories(createInventoryDto: CreateInventoryDto, organizationId: string) {
     try {
-      const { assetId, quantity, organizationId, status } = createInventoryDto;
+      const { assetId, quantity, status } = createInventoryDto;
       const skuRange = await this.generateSkuRange(assetId, quantity, organizationId);
 
       const inventoryItems = skuRange.map((sku) => ({
         ...createInventoryDto,
         assetId,
         sku,
+        organizationId, // Automatically assign to user's organization
         status: status as InventoryStatus,
       }));
 
@@ -202,10 +220,14 @@ export class InventoriesService {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
-  async updateInventories(updateInventoryDto: UpdateInventoryDto) {
+
+  async updateInventories(updateInventoryDto: UpdateInventoryDto, organizationId: string) {
     try {
       return await this.prisma.inventory.update({
-        where: { id: updateInventoryDto.id },
+        where: {
+          id: updateInventoryDto.id,
+          organizationId, // Ensure user can only update inventories in their organization
+        },
         data: {
           ...updateInventoryDto,
           status: updateInventoryDto.status as InventoryStatus,
@@ -216,18 +238,33 @@ export class InventoriesService {
     }
   }
 
-  async deleteInventories(deleteInventoryDto: DeleteInventoryDto) {
+  async deleteInventories(deleteInventoryDto: DeleteInventoryDto, organizationId: string) {
     try {
       return await this.prisma.inventory.delete({
-        where: { id: deleteInventoryDto.id },
+        where: {
+          id: deleteInventoryDto.id,
+          organizationId, // Ensure user can only delete inventories in their organization
+        },
       });
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
-  async generateQRCode(sku: string) {
+  async generateQRCode(sku: string, organizationId: string) {
     try {
+      // Verify the inventory belongs to the user's organization
+      const inventory = await this.prisma.inventory.findFirst({
+        where: {
+          sku,
+          organizationId,
+        },
+      });
+
+      if (!inventory) {
+        throw new HttpException('Inventory not found', HttpStatus.NOT_FOUND);
+      }
+
       const baseUrl = this.configService.get<string>('APP_URL');
       const itemUrl = `${baseUrl}/scan/${sku}`;
       return { qrCode: await QRCode.toDataURL(itemUrl) };

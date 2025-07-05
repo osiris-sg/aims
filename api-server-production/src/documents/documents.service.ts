@@ -7,10 +7,13 @@ import { InventoryStatus } from '@prisma/client';
 export class DocumentsService {
   constructor(private prisma: PrismaService) {}
 
-  async getById(id: string) {
+  async getById(id: string, organizationId: string) {
     try {
-      return await this.prisma.document.findUnique({
-        where: { id },
+      return await this.prisma.document.findFirst({
+        where: {
+          id,
+          organizationId,
+        },
       });
     } catch (error) {
       throw new HttpException(`Fetch by ID failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -33,14 +36,17 @@ export class DocumentsService {
     }
   }
 
-  async updateDocument(dto: UpdateDocumentDto) {
+  async updateDocument(dto: UpdateDocumentDto, organizationId: string) {
     try {
       const configAsPlainObject: any = dto.config ? dto.config : null;
       const id: any = dto.id ? dto.id : null;
 
       // Update the document itself, include customer if provided
       const updatedDocument = await this.prisma.document.update({
-        where: { id },
+        where: {
+          id,
+          organizationId, // Ensure user can only update documents in their organization
+        },
         data: {
           config: configAsPlainObject,
           type: dto.type,
@@ -52,7 +58,10 @@ export class DocumentsService {
 
       if (dto.projectId) {
         await this.prisma.project.update({
-          where: { id: dto.projectId },
+          where: {
+            id: dto.projectId,
+            organizationId, // Ensure project belongs to the same organization
+          },
           data: {
             customerId: dto.customerId || undefined,
             startDate: dto.config?.startDate || undefined,
@@ -71,14 +80,20 @@ export class DocumentsService {
 
             // Update inventory status
             await this.prisma.inventory.update({
-              where: { id: _item.inventoryItemId },
+              where: {
+                id: _item.inventoryItemId,
+                organizationId, // Ensure inventory belongs to the same organization
+              },
               data: {
                 status: newStatus,
               },
             });
             // Connect inventory to the document
             await this.prisma.document.update({
-              where: { id },
+              where: {
+                id,
+                organizationId,
+              },
               data: {
                 inventory: {
                   connect: { id: _item.inventoryItemId },
@@ -128,17 +143,20 @@ export class DocumentsService {
     }
   }
 
-  async deleteDocument(id: string) {
+  async deleteDocument(id: string, organizationId: string) {
     try {
       return await this.prisma.document.delete({
-        where: { id },
+        where: {
+          id,
+          organizationId, // Ensure user can only delete documents in their organization
+        },
       });
     } catch (error) {
       throw new HttpException(`Delete failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
-  async createDocumentWithTimeline(dto: CreateDocumentWithTimelineDto) {
+  async createDocumentWithTimeline(dto: CreateDocumentWithTimelineDto, organizationId: string) {
     return this.prisma.$transaction(async (tx) => {
       try {
         const configAsPlainObject: any = dto.config ? dto.config : null;
@@ -148,9 +166,8 @@ export class DocumentsService {
             documentTemplateId: dto.documentTemplateId,
             type: dto.type || 'Default',
             config: configAsPlainObject,
-            customer: {
-              connect: { id: dto.customerId },
-            },
+            organizationId, // Automatically assign to user's organization
+            customerId: dto.customerId,
           },
         });
 
@@ -169,7 +186,10 @@ export class DocumentsService {
 
             // Update inventory status
             await tx.inventory.update({
-              where: { id: _item.inventoryItemId },
+              where: {
+                id: _item.inventoryItemId,
+                organizationId, // Ensure inventory belongs to the same organization
+              },
               data: {
                 status: newStatus,
               },
@@ -253,10 +273,15 @@ export class DocumentsService {
       throw new HttpException(`Fetch all documents failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
-  async getDocumentsByAsset(assetId: string) {
+  async getDocumentsByAsset(assetId: string, organizationId: string) {
     try {
       const assetTemplateTags = await this.prisma.assetTemplateTag.findMany({
-        where: { assetId },
+        where: {
+          assetId,
+          asset: {
+            organizationId, // Ensure asset belongs to the same organization
+          },
+        },
         include: {
           template: true,
         },
@@ -272,7 +297,7 @@ export class DocumentsService {
     }
   }
 
-  async tagTemplateToAsset(assetId: string, templateId: string) {
+  async tagTemplateToAsset(assetId: string, templateId: string, organizationId: string) {
     try {
       return await this.prisma.assetTemplateTag.create({
         data: {
@@ -285,7 +310,7 @@ export class DocumentsService {
     }
   }
 
-  async untagTemplateFromAsset(assetId: string, templateId: string) {
+  async untagTemplateFromAsset(assetId: string, templateId: string, organizationId: string) {
     try {
       return await this.prisma.assetTemplateTag.delete({
         where: {

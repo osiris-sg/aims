@@ -17,10 +17,6 @@ export class CreateCustomerDto {
   @IsString()
   address: string;
 
-  @IsNotEmpty()
-  @IsString()
-  organizationId: string;
-
   @IsString()
   @IsOptional()
   createdAt?: Date | null;

@@ -7,171 +7,209 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Asset {
-  id                String             @id @default(uuid()) @db.Uuid
-  name              String
-  skuKey            String
-  categoryId        String             @db.Uuid
-  description       String?
-  image             String?
-  organizationId    String?
+model Organization {
+  id                String             @id @default(uuid())
+  name              String             @unique
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
-  deletedAt         DateTime?          @db.Timestamptz(6)
-  category          Category           @relation(fields: [categoryId], references: [id])
+  assets            Asset[]
+  categories        Category[]
+  customers         Customer[]
+  documents         Document[]
+  documentTemplates DocumentTemplate[]
   inventories       Inventory[]
-
-  // 👇 New relation
-  taggedTemplates   AssetTemplateTag[]
-
-  @@unique([skuKey, deletedAt])
+  projects          Project[]
+  roles             Role[]
+  permissions       Permission[]
+  userOrganizations UserOrganization[]
+  userRoles         UserRole[]
 }
 
+model Asset {
+  id              String             @id @default(uuid()) @db.Uuid
+  name            String
+  skuKey          String
+  categoryId      String             @db.Uuid
+  description     String?
+  image           String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  deletedAt       DateTime?          @db.Timestamptz(6)
+  organizationId  String?
+  category        Category           @relation(fields: [categoryId], references: [id])
+  organization    Organization?      @relation(fields: [organizationId], references: [id])
+  taggedTemplates AssetTemplateTag[]
+  inventories     Inventory[]
+
+  @@unique([skuKey, organizationId, deletedAt])
+}
 
 model Category {
-  id             String  @id @default(uuid()) @db.Uuid
+  id             String        @id @default(uuid()) @db.Uuid
   name           String
   organizationId String?
   assets         Asset[]
+  organization   Organization? @relation(fields: [organizationId], references: [id])
 }
 
 model Inventory {
-  id             String         @id @default(uuid()) @db.Uuid
-  assetId        String         @db.Uuid
+  id             String          @id @default(uuid()) @db.Uuid
+  assetId        String          @db.Uuid
   location       String?
-  status         InventoryStatus
   category       String
   quantity       Int?
-  organizationId String
   sku            String
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  asset          Asset          @relation(fields: [assetId], references: [id])
-  timelineItems  TimelineItem[]
-  documents      Document[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  status         InventoryStatus
+  organizationId String
   assignments    Assignment[]
+  documents      Document[]
+  asset          Asset           @relation(fields: [assetId], references: [id])
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+  timelineItems  TimelineItem[]
 }
 
 model Customer {
-  id                String             @id @default(uuid()) @db.Uuid
-  name              String
-  email             String             @unique
-  phone             String
-  address           String
-  organizationId    String
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  documents         Document[]
-  projects          Project[]
+  id             String       @id @default(uuid()) @db.Uuid
+  name           String
+  email          String
+  phone          String
+  address        String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  documents      Document[]
+  projects       Project[]
+
+  @@unique([email, organizationId])
 }
 
 model DocumentTemplate {
-  id             String              @id @default(uuid()) @db.Uuid
+  id             String             @id @default(uuid()) @db.Uuid
   name           String?
   type           String
-  organizationId String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
   config         Json?
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
-
-  // 👇 New relation
+  organizationId String?
   taggedAssets   AssetTemplateTag[]
+  organization   Organization?      @relation(fields: [organizationId], references: [id])
 }
 
 model AssetTemplateTag {
-  id                 String           @id @default(uuid()) @db.Uuid
-  assetId            String           @db.Uuid
-  templateId         String           @db.Uuid
-  createdAt          DateTime         @default(now())
+  id         String           @id @default(uuid()) @db.Uuid
+  assetId    String           @db.Uuid
+  templateId String           @db.Uuid
+  createdAt  DateTime         @default(now())
+  asset      Asset            @relation(fields: [assetId], references: [id])
+  template   DocumentTemplate @relation(fields: [templateId], references: [id])
 
-  asset              Asset            @relation(fields: [assetId], references: [id])
-  template           DocumentTemplate @relation(fields: [templateId], references: [id])
-
-  @@unique([assetId, templateId]) // Prevent duplicates
+  @@unique([assetId, templateId])
 }
 
 model TimelineItem {
-  id      String  @id @default(uuid()) @db.Uuid
-  message String?
-  pdfUrl  String?
-
+  id          String     @id @default(uuid()) @db.Uuid
+  message     String?
+  pdfUrl      String?
   inventoryId String?    @db.Uuid
+  documentId  String?    @db.Uuid
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  document    Document?  @relation(fields: [documentId], references: [id])
   inventory   Inventory? @relation(fields: [inventoryId], references: [id])
-
-  documentId String?   @db.Uuid
-  document   Document? @relation(fields: [documentId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 }
 
 model Document {
-  id                 String     @id @default(uuid()) @db.Uuid
-  createdAt          DateTime   @default(now())
-  updatedAt          DateTime   @updatedAt
-
-  organizationId     String?
+  id                 String         @id @default(uuid()) @db.Uuid
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  config             Json
   documentTemplateId String
   type               String
-  config             Json       // <- Stores all the RDO document field settings
-
-  inventoryId        String?    @db.Uuid
-  inventory          Inventory? @relation(fields: [inventoryId], references: [id])
-
-  customerId         String?    @db.Uuid
-  customer           Customer?  @relation(fields: [customerId], references: [id])
-
-  projectId          String?    @db.Uuid
-  project            Project?   @relation(fields: [projectId], references: [id])
-
+  customerId         String?        @db.Uuid
+  inventoryId        String?        @db.Uuid
+  projectId          String?        @db.Uuid
+  organizationId     String
+  customer           Customer?      @relation(fields: [customerId], references: [id])
+  inventory          Inventory?     @relation(fields: [inventoryId], references: [id])
+  organization       Organization   @relation(fields: [organizationId], references: [id])
+  project            Project?       @relation(fields: [projectId], references: [id])
   timelineItems      TimelineItem[]
 }
 
 model Role {
   id          String       @id @default(uuid())
-  name        String       @unique
+  name        String       @unique  // Keep global unique for now
   description String?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
-  permissions Permission[]
+  organizationId String?
+  organization Organization? @relation(fields: [organizationId], references: [id])
   userRoles   UserRole[]
+  permissions Permission[] @relation("PermissionToRole")
 }
 
 model Permission {
   id          String   @id @default(uuid())
-  name        String   @unique
+  name        String   @unique  // Keep global unique for now
   description String?
   resource    String
   action      String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  roles       Role[]
+  organizationId String?
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  roles       Role[]   @relation("PermissionToRole")
 }
 
 model UserRole {
-  id        String   @id @default(uuid())
-  userId    String
-  roleId    String
-  role      Role     @relation(fields: [roleId], references: [id])
-  createdAt DateTime @default(now())
+  id             String   @id @default(uuid())
+  userId         String
+  roleId         String
+  organizationId String
+  assignedBy     String?  // Who assigned this role
+  assignedAt     DateTime @default(now())
+  expiresAt      DateTime? // Optional role expiration
+  isActive       Boolean  @default(true)
+  role           Role     @relation(fields: [roleId], references: [id])
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  createdAt      DateTime @default(now())
 
-  @@unique([userId, roleId])
+  @@unique([userId, roleId, organizationId])
 }
+
+model UserOrganization {
+  id             String       @id @default(uuid())
+  userId         String
+  organizationId String
+  isActive       Boolean      @default(true)
+  joinedAt       DateTime     @default(now())
+  lastActiveAt   DateTime?
+  settings       Json?        // Organization-specific user settings
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([userId, organizationId])
+}
+
 model Project {
-  id             String         @id @default(uuid()) @db.Uuid
+  id             String        @id @default(uuid()) @db.Uuid
   name           String
   description    String?
   organizationId String?
-  customerId     String?        @db.Uuid
-  customer       Customer?      @relation(fields: [customerId], references: [id])
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  customerId     String?       @db.Uuid
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
   startDate      DateTime?
   endDate        DateTime?
-  status         ProjectStatus  @default(pending)
-
+  status         ProjectStatus @default(pending)
   assignments    Assignment[]
   documents      Document[]
+  customer       Customer?     @relation(fields: [customerId], references: [id])
+  organization   Organization? @relation(fields: [organizationId], references: [id])
 }
 
 model Assignment {
@@ -181,9 +219,8 @@ model Assignment {
   startDate   DateTime?  @db.Timestamptz(6)
   endDate     DateTime?  @db.Timestamptz(6)
   createdAt   DateTime   @default(now())
-
-  project     Project    @relation(fields: [projectId], references: [id])
   inventory   Inventory? @relation(fields: [inventoryId], references: [id])
+  project     Project    @relation(fields: [projectId], references: [id])
 
   @@unique([projectId, inventoryId])
 }

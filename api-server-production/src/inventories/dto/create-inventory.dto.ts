@@ -22,10 +22,6 @@ export class CreateInventoryDto {
   category: string;
 
   @IsString()
-  @IsNotEmpty()
-  organizationId: string;
-
-  @IsString()
   @IsOptional()
   createdAt?: Date | null;
 }

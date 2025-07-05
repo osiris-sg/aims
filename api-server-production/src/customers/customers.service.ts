@@ -9,11 +9,12 @@ import { PrismaService } from 'src/common/prisma.service';
 export class CustomersService {
   constructor(private prisma: PrismaService) {}
 
-  async getCustomers(getCustomerDto: GetCustomerDto) {
+  async getCustomers(getCustomerDto: GetCustomerDto, organizationId: string) {
     try {
-      const { organizationId, page, limit, search, filters } = getCustomerDto;
+      const { page, limit, search, filters } = getCustomerDto;
       const skip = (page - 1) * limit;
       const whereClause: any = { organizationId };
+
       // Search filter
       if (search) {
         whereClause.OR = [
@@ -21,8 +22,6 @@ export class CustomersService {
           { email: { contains: search, mode: 'insensitive' } },
           { phone: { contains: search, mode: 'insensitive' } },
           { address: { contains: search, mode: 'insensitive' } },
-
-          // Add more fields as needed
         ];
       }
 
@@ -49,13 +48,7 @@ export class CustomersService {
       });
 
       const totalDocs = await this.prisma.customer.count({
-        where: {
-          organizationId: organizationId,
-          name: {
-            contains: search,
-            mode: 'insensitive',
-          },
-        },
+        where: whereClause,
       });
 
       const hasNextPage = skip + customers.length < totalDocs;
@@ -75,18 +68,26 @@ export class CustomersService {
     }
   }
 
-  async getCustomerById(id: string) {
+  async getCustomerById(id: string, organizationId: string) {
     try {
-      return await this.prisma.customer.findUnique({ where: { id } });
+      return await this.prisma.customer.findFirst({
+        where: {
+          id,
+          organizationId,
+        },
+      });
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
-  async createCustomers(createCustomerDto: CreateCustomerDto) {
+  async createCustomers(createCustomerDto: CreateCustomerDto, organizationId: string) {
     try {
       const newCustomer = await this.prisma.customer.create({
-        data: createCustomerDto,
+        data: {
+          ...createCustomerDto,
+          organizationId, // Automatically assign to user's organization
+        },
       });
       return newCustomer;
     } catch (error) {
@@ -94,10 +95,13 @@ export class CustomersService {
     }
   }
 
-  async updateCustomers(updateCustomerDto: UpdateCustomerDto) {
+  async updateCustomers(updateCustomerDto: UpdateCustomerDto, organizationId: string) {
     try {
       const customer = await this.prisma.customer.update({
-        where: { id: updateCustomerDto.id },
+        where: {
+          id: updateCustomerDto.id,
+          organizationId, // Ensure user can only update customers in their organization
+        },
         data: updateCustomerDto,
       });
       return customer;
@@ -106,10 +110,13 @@ export class CustomersService {
     }
   }
 
-  async deleteCustomers(deleteCustomerDto: DeleteCustomerDto) {
+  async deleteCustomers(deleteCustomerDto: DeleteCustomerDto, organizationId: string) {
     try {
       const customer = await this.prisma.customer.delete({
-        where: { id: deleteCustomerDto.id },
+        where: {
+          id: deleteCustomerDto.id,
+          organizationId, // Ensure user can only delete customers in their organization
+        },
       });
       return customer;
     } catch (error) {

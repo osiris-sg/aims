@@ -174,7 +174,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
             backgroundColor: "#ffffff",
           }}
         >
-          <form onSubmit={handleSubmit(onSubmit)}>
+        <form onSubmit={handleSubmit(onSubmit)}>
             <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
               {error && (
                 <Alert
@@ -237,7 +237,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                   />
                 </Grid>
 
-                <Grid item xs={12}>
+              <Grid item xs={12}>
                   <FormInputBox
                     label="Password"
                     control={control}
@@ -268,9 +268,9 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                       {showPassword ? "Hide password" : "Show password"}
                     </Button>
                   </Box>
-                </Grid>
+              </Grid>
 
-                <Grid item xs={12}>
+              <Grid item xs={12}>
                   <FormControl fullWidth>
                     <InputLabel id="select-roles-label" sx={{ color: "#666666" }}>
                       Select Roles
@@ -358,9 +358,9 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
           }}
         >
           <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2 }}>
-            <Button
-              variant="outlined"
-              onClick={() => {
+              <Button
+                variant="outlined"
+                onClick={() => {
                 reset({
                   firstName: "",
                   lastName: "",
@@ -370,8 +370,8 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                 setSelectedRoles([]);
                 setShowPassword(false);
                 setError("");
-                onClose();
-              }}
+                  onClose();
+                }}
               disabled={loading}
               sx={{
                 borderColor: "#666666",
@@ -381,9 +381,9 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                   color: "#1976d2",
                 },
               }}
-            >
-              Cancel
-            </Button>
+              >
+                Cancel
+              </Button>
             <Button
               type="submit"
               variant="contained"
@@ -402,9 +402,9 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
               }}
             >
               {loading ? "Creating..." : "Create User"}
-            </Button>
+              </Button>
+            </Box>
           </Box>
-        </Box>
       </Box>
     </Drawer>
   );

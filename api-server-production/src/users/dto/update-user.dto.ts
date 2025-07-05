@@ -51,5 +51,13 @@ export class UpdateUserDto {
   @IsArray()
   @IsString({ each: true })
   roleIds?: string[];
+
+  @ApiProperty({
+    description: 'Organization ID of the user',
+    example: 'org-uuid-1',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  organizationId?: string;
 }
- 

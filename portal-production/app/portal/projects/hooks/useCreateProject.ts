@@ -26,7 +26,7 @@ export const useCreateProject = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const createProject = async ({ organizationId, data }: { organizationId: string; data: CreateProjectData }) => {
+  const createProject = async ({ data }: { data: CreateProjectData }) => {
     setIsLoading(true);
     setError(null);
 
@@ -39,15 +39,12 @@ export const useCreateProject = () => {
 
       // Prepare the request body
       const requestBody = {
-        organizationId,
-        data: {
-          name: data.name,
-          customerId: data.customerId,
-          startDate: data.startDate.toISOString(),
-          endDate: data.endDate.toISOString(),
-          status: data.status,
-          assignments: data.assignments,
-        },
+        name: data.name,
+        customerId: data.customerId,
+        startDate: data.startDate.toISOString(),
+        endDate: data.endDate.toISOString(),
+        status: data.status,
+        assignments: data.assignments,
       };
 
       console.log("Request Body:", requestBody);

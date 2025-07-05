@@ -1,15 +1,15 @@
 import { type ExecutionContext, Injectable, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
-import { IS_PUBLIC_KEY } from 'src/decorators/public.decorator';
-import { PERMISSIONS_KEY } from 'src/auth/decorators/permissions.decorator';
-import { PrismaService } from 'src/common/prisma.service';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { PERMISSIONS_KEY } from './decorators/permissions.decorator';
+import { PrismaService } from '../common/prisma.service';
 
 @Injectable()
 export class ClerkAuthGuard extends AuthGuard('clerk') {
   constructor(
     private reflector: Reflector,
-    private prisma: PrismaService, // Inject PrismaService to check permissions
+    private prisma: PrismaService,
   ) {
     super();
   }
@@ -29,6 +29,33 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
       return false;
     }
 
+    const request = context.switchToHttp().getRequest();
+    const user = request.user;
+
+    // Get user's organization
+    const userOrg = await this.prisma.userOrganization.findFirst({
+      where: {
+        userId: user.id,
+        isActive: true,
+      },
+      include: {
+        organization: true,
+      },
+    });
+
+    // For now, allow users without organization assignment (for development)
+    // In production, you might want to require organization assignment
+    if (!userOrg) {
+      console.warn(`User ${user.id} is not assigned to any organization`);
+      // You can either:
+      // 1. Throw an error: throw new ForbiddenException('User is not assigned to any organization');
+      // 2. Or allow access without organization context (current approach)
+      request.userOrganization = null;
+    } else {
+      // Attach organization to request for use in controllers
+      request.userOrganization = userOrg.organization;
+    }
+
     // Get required permissions from the route handler
     const requiredPermissions = this.reflector.get<string[]>(PERMISSIONS_KEY, context.getHandler());
 
@@ -37,12 +64,18 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest();
-    const user = request.user;
+    // If user has no organization, they can't have permissions
+    if (!userOrg) {
+      throw new ForbiddenException('User is not assigned to any organization');
+    }
 
-    // Get user roles with permissions from database
+    // Get user roles with permissions from database (scoped to organization)
     const userRoles = await this.prisma.userRole.findMany({
-      where: { userId: user.id },
+      where: {
+        userId: user.id,
+        organizationId: userOrg.organization.id,
+        isActive: true, // Only active roles
+      },
       include: {
         role: {
           include: {
@@ -53,13 +86,12 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
     });
 
     if (userRoles.length === 0) {
-      throw new ForbiddenException('User has no assigned roles');
+      throw new ForbiddenException('User has no assigned roles in this organization');
     }
 
     // Check if any of the user's roles has all the required permissions
     for (const userRole of userRoles) {
       const role = userRole.role;
-
 
       const hasAllPermissions = requiredPermissions.every((requiredPermission) => {
         const [resource, action] = requiredPermission.split(':');

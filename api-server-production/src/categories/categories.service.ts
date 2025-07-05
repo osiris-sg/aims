@@ -8,24 +8,32 @@ import { PrismaService } from 'src/common/prisma.service';
 export class CategoriesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(createCategoryDto: CreateCategoryDto) {
-    console.log("Create Category DTO:", createCategoryDto);
+  async create(createCategoryDto: CreateCategoryDto, organizationId: string) {
+    console.log('Create Category DTO:', createCategoryDto);
     try {
       return await this.prisma.category.create({
-        data: createCategoryDto,
+        data: {
+          ...createCategoryDto,
+          organizationId,
+        },
       });
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
-  async findAll() {
-    return await this.prisma.category.findMany();
+  async findAll(organizationId: string) {
+    return await this.prisma.category.findMany({
+      where: { organizationId },
+    });
   }
 
-  async findOne(id: string) {
-    return await this.prisma.category.findUnique({
-      where: { id },
+  async findOne(id: string, organizationId: string) {
+    return await this.prisma.category.findFirst({
+      where: {
+        id,
+        organizationId,
+      },
     });
   }
 
@@ -35,10 +43,13 @@ export class CategoriesService {
     });
   }
 
-  async update(id: string, updateCategoryDto: UpdateCategoryDto) {
+  async update(id: string, updateCategoryDto: UpdateCategoryDto, organizationId: string) {
     try {
       return await this.prisma.category.update({
-        where: { id },
+        where: {
+          id,
+          organizationId,
+        },
         data: updateCategoryDto,
       });
     } catch (error) {
@@ -46,10 +57,13 @@ export class CategoriesService {
     }
   }
 
-  async deleteCategory(deleteCategoryDto: DeleteCategoryDto) {
+  async deleteCategory(deleteCategoryDto: DeleteCategoryDto, organizationId: string) {
     try {
       const assetCount = await this.prisma.asset.count({
-        where: { categoryId: deleteCategoryDto.id },
+        where: {
+          categoryId: deleteCategoryDto.id,
+          organizationId,
+        },
       });
 
       if (assetCount > 0) {
@@ -57,7 +71,10 @@ export class CategoriesService {
       }
 
       return await this.prisma.category.delete({
-        where: { id: deleteCategoryDto.id },
+        where: {
+          id: deleteCategoryDto.id,
+          organizationId,
+        },
       });
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);

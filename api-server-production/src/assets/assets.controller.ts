@@ -8,6 +8,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/s
 
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
+import { UserOrganization } from '../auth/decorators/user-organization.decorator';
 
 @ApiTags('assets')
 @Controller('assets')
@@ -19,9 +20,9 @@ export class AssetsController {
   @Permissions('assets:read')
   @ApiOperation({ summary: 'Get assets based on provided criteria' })
   @ApiBody({ type: GetAssetDto })
-  @ApiResponse({ status: 200, description: 'List of assets matching the criteria.'})
-  async getAssets(@Body() getAssetDto: GetAssetDto) {
-    return this.assetsService.getAssets(getAssetDto);
+  @ApiResponse({ status: 200, description: 'List of assets matching the criteria.' })
+  async getAssets(@Body() getAssetDto: GetAssetDto, @UserOrganization() userOrganization: any) {
+    return this.assetsService.getAssets(getAssetDto, userOrganization.id);
   }
 
   @Get('skuKey/:skuKey')
@@ -29,10 +30,10 @@ export class AssetsController {
   @Permissions('assets:read-sku')
   @ApiOperation({ summary: 'Get an asset by its SKU Key' })
   @ApiParam({ name: 'skuKey', type: 'string', description: 'The SKU Key of the asset' })
-  @ApiResponse({ status: 200, description: 'The asset with the given SKU Key.'})
+  @ApiResponse({ status: 200, description: 'The asset with the given SKU Key.' })
   @ApiResponse({ status: 404, description: 'Asset not found.' })
-  async getAssetBySKUKEY(@Param('skuKey') skuKey: string) {
-    return this.assetsService.getAssetBySKUKEY(skuKey);
+  async getAssetBySKUKEY(@Param('skuKey') skuKey: string, @UserOrganization() userOrganization: any) {
+    return this.assetsService.getAssetBySKUKEY(skuKey, userOrganization.id);
   }
 
   @Get(':id')
@@ -40,10 +41,10 @@ export class AssetsController {
   @Permissions('assets:read-id')
   @ApiOperation({ summary: 'Get an asset by its ID' })
   @ApiParam({ name: 'id', type: 'string', description: 'The ID of the asset' })
-  @ApiResponse({ status: 200, description: 'The asset with the given ID.'})
+  @ApiResponse({ status: 200, description: 'The asset with the given ID.' })
   @ApiResponse({ status: 404, description: 'Asset not found.' })
-  async getAssetByID(@Param('id') id: string) {
-    return this.assetsService.getAssetById(id);
+  async getAssetByID(@Param('id') id: string, @UserOrganization() userOrganization: any) {
+    return this.assetsService.getAssetById(id, userOrganization.id);
   }
 
   @Post('create')
@@ -53,8 +54,8 @@ export class AssetsController {
   @ApiBody({ type: CreateAssetDto })
   @ApiResponse({ status: 201, description: 'The asset has been successfully created.' })
   @ApiResponse({ status: 400, description: 'Invalid input.' })
-  async createAssets(@Body() createAssetDto: CreateAssetDto) {
-    return this.assetsService.createAssets(createAssetDto);
+  async createAssets(@Body() createAssetDto: CreateAssetDto, @UserOrganization() userOrganization: any) {
+    return this.assetsService.createAssets(createAssetDto, userOrganization.id);
   }
 
   @Put('update')
@@ -65,8 +66,8 @@ export class AssetsController {
   @ApiResponse({ status: 200, description: 'The asset has been successfully updated.' })
   @ApiResponse({ status: 400, description: 'Invalid input.' })
   @ApiResponse({ status: 404, description: 'Asset not found.' })
-  async updateAssets(@Body() updateAssetDto: UpdateAssetDto) {
-    return this.assetsService.updateAssets(updateAssetDto);
+  async updateAssets(@Body() updateAssetDto: UpdateAssetDto, @UserOrganization() userOrganization: any) {
+    return this.assetsService.updateAssets(updateAssetDto, userOrganization.id);
   }
 
   @Delete('delete')
@@ -76,19 +77,17 @@ export class AssetsController {
   @ApiBody({ type: DeleteAssetDto })
   @ApiResponse({ status: 200, description: 'The asset has been successfully deleted.' })
   @ApiResponse({ status: 404, description: 'Asset not found.' })
-  async deleteAssets(@Body() deleteAssetDto: DeleteAssetDto) {
-    return this.assetsService.deleteAssets(deleteAssetDto);
+  async deleteAssets(@Body() deleteAssetDto: DeleteAssetDto, @UserOrganization() userOrganization: any) {
+    return this.assetsService.deleteAssets(deleteAssetDto, userOrganization.id);
   }
 
   @Get('check-skuKey/:skuKey')
   @UseGuards(ClerkAuthGuard)
   @Permissions('assets:check-sku')
-  @UseGuards(ClerkAuthGuard)
-  @Permissions('assets:read')
   @ApiOperation({ summary: 'Check if an SKU Key exists' })
   @ApiParam({ name: 'skuKey', type: 'string', description: 'The SKU Key to check' })
   @ApiResponse({ status: 200, description: 'Indicates if the SKU Key exists (true/false).', type: Boolean })
-  async checkSkuKey(@Param('skuKey') skuKey: string) {
-    return this.assetsService.checkSkuKey(skuKey);
+  async checkSkuKey(@Param('skuKey') skuKey: string, @UserOrganization() userOrganization: any) {
+    return this.assetsService.checkSkuKey(skuKey, userOrganization.id);
   }
 }

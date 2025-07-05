@@ -10,25 +10,21 @@ export class UpdateInventoryDto extends PartialType(CreateInventoryDto) {
 
   @IsString()
   @IsOptional()
-  assetId: string;
-
-  @IsString()
-  @IsOptional()
-  organizationId: string;
+  assetId?: string;
 
   @IsNumber()
   @IsOptional()
-  quantity: number;
+  quantity?: number;
 
   @IsString()
   @IsOptional()
-  category: string;
+  category?: string;
 
   @IsEnum(InventoryStatus)
   @IsOptional()
-  status: InventoryStatus;
+  status?: InventoryStatus;
 
   @IsString()
   @IsOptional()
-  location: string;
+  location?: string;
 }

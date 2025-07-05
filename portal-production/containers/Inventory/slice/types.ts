@@ -113,7 +113,6 @@ export interface GenerateSkuRangePayload {
   assetId: string;
   quantity: number;
   token: string | null;
-  organizationId?: string;
 }
 
 export interface GetQRPayload {

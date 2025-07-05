@@ -25,11 +25,10 @@ export const useAddCategoryHandler = () => {
           path: "/categories/create",
           method: "POST",
         },
-        {   
-          organizationId: organizationId, 
-          name: categoryName
+        {
+          name: categoryName,
         },
-        token,
+        token
       );
 
       if (response.success) {
@@ -58,7 +57,7 @@ export const useAddCategoryHandler = () => {
           path: `/categories/${id}`,
           method: "DELETE",
         },
-        { organizationId },
+        {},
         token
       );
 

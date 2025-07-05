@@ -16,7 +16,7 @@ import AddAssetSuccess from "../components/AddAssetSuccess";
 export default function AddAssetPage() {
   const theme = useTheme();
   const router = useRouter();
-  const { activeStep, handleNext, handleBack, methods, handleSubmit, onSubmit, isAssetUpdating, isSkuCheckInProgress, isSkuKeyAvailable, error, isEditMode } = useAddAssetFormHandler();
+  const { activeStep, handleNext, handleBack, methods, handleSubmit, onSubmit, isAssetUpdating, isSkuCheckInProgress, isSkuKeyAvailable, error, isEditMode, logFormState } = useAddAssetFormHandler();
 
   const steps = isEditMode ? ["Edit Asset", "Additional Details", "Confirm Changes"] : ["Asset Creation", "Additional Details", "Review"];
 
@@ -94,41 +94,63 @@ export default function AddAssetPage() {
               </Typography>
             )}
 
-            <form style={{ height: "100%" }}>
-              {activeStep === 0 && <AssetCreation />}
-              {activeStep === 1 && <AdditionalDetails />}
-              {activeStep === 2 && <LastStep />}
-            </form>
-          </Stack>
+            <form
+              onSubmit={(e) => {
+                console.log("=== FORM SUBMIT EVENT TRIGGERED ===");
+                console.log("Event:", e);
+                console.log("Calling handleSubmit(onSubmit)...");
+                const result = handleSubmit(onSubmit)(e);
+                console.log("handleSubmit result:", result);
+              }}
+              style={{ height: "100%", display: "flex", flexDirection: "column" }}
+            >
+              <div style={{ flex: 1 }}>
+                {activeStep === 0 && <AssetCreation />}
+                {activeStep === 1 && <AdditionalDetails />}
+                {activeStep === 2 && <LastStep />}
+              </div>
 
-          <Stack
-            direction="row"
-            sx={{
-              justifyContent: "space-between",
-              py: "var(--quarter-gap)",
-              mt: "auto",
-            }}
-          >
-            {activeStep === 0 && (
-              <Button variant="outlined" onClick={() => router.push(ROUTES.ASSETS)}>
-                Cancel
-              </Button>
-            )}
-            {(activeStep === 1 || activeStep === 2) && (
-              <Button variant="outlined" onClick={handleBack} disabled={isAssetUpdating}>
-                Back
-              </Button>
-            )}
-            {(activeStep === 0 || activeStep === 1) && (
-              <Button variant="contained" onClick={handleNext} disabled={isSkuCheckInProgress || !isSkuKeyAvailable}>
-                Next
-              </Button>
-            )}
-            {activeStep === 2 && (
-              <Button variant="contained" disabled={isAssetUpdating} onClick={handleSubmit(onSubmit)}>
-                {isAssetUpdating ? (isEditMode ? "Saving..." : "Creating...") : isEditMode ? "Save Changes" : "Submit"}
-              </Button>
-            )}
+              <Stack
+                direction="row"
+                sx={{
+                  justifyContent: "space-between",
+                  py: "var(--quarter-gap)",
+                  mt: "auto",
+                }}
+              >
+                {activeStep === 0 && (
+                  <Button variant="outlined" onClick={() => router.push(ROUTES.ASSETS)}>
+                    Cancel
+                  </Button>
+                )}
+                {(activeStep === 1 || activeStep === 2) && (
+                  <Button variant="outlined" onClick={handleBack} disabled={isAssetUpdating}>
+                    Back
+                  </Button>
+                )}
+                {(activeStep === 0 || activeStep === 1) && (
+                  <Button variant="contained" onClick={handleNext} disabled={isSkuCheckInProgress || !isSkuKeyAvailable}>
+                    Next
+                  </Button>
+                )}
+                {activeStep === 2 && (
+                  <>
+                    <Button
+                      variant="contained"
+                      disabled={isAssetUpdating}
+                      type="submit"
+                      onClick={() => {
+                        console.log("=== SAVE CHANGES BUTTON CLICKED ===");
+                        console.log("Is asset updating:", isAssetUpdating);
+                        console.log("Is edit mode:", isEditMode);
+                      }}
+                    >
+                      {isAssetUpdating ? (isEditMode ? "Saving..." : "Creating...") : isEditMode ? "Save Changes" : "Submit"}
+                    </Button>
+                  </>
+                )}
+              </Stack>
+            </form>
           </Stack>
         </Box>
       </Box>

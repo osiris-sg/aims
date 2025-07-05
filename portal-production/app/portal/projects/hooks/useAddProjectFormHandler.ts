@@ -240,7 +240,6 @@ export const useAddProjectFormHandler = () => {
 
     // Create new project
     const success = await createProject({
-      organizationId: organization?.id || "",
       data,
     });
     if (success) {

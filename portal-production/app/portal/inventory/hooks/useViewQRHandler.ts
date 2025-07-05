@@ -27,9 +27,7 @@ export default function useViewQRHandler() {
           path: API.GET_QR_CODE.path.replace(":sku", selectedSku),
           method: API.GET_QR_CODE.method,
         },
-        {
-          organizationId,
-        },
+        {},
         token
       );
 
@@ -58,4 +56,3 @@ export default function useViewQRHandler() {
     selectedSku,
   };
 }
- 

@@ -16,35 +16,32 @@ interface UserRoleWithDetails extends UserRole {
 @Injectable()
 export class UsersService {
   constructor(
-    private prisma: PrismaService,
     @Inject('ClerkClient')
-    private clerkClient: ClerkClient,
+    private readonly clerkClient: ClerkClient,
+    private readonly prisma: PrismaService,
   ) {}
 
   async getUsers(getUsersDto: GetUsersDto) {
-    const { page = 1, limit = 10, search, filters } = getUsersDto;
+    const { page = 1, limit = 10, search = '', filters = {} } = getUsersDto;
     const skip = (page - 1) * limit;
 
-    // Get all unique userIds first
+    // Build where clause for user roles
+    const whereClause: any = {};
+
+    if (search) {
+      // Note: We can't search by user name/email directly since users are in Clerk
+      // We'll search by userId if it matches the search pattern
+      if (search.match(/^[a-zA-Z0-9_-]+$/)) {
+        whereClause.userId = { contains: search, mode: 'insensitive' };
+      }
+    }
+
+    // Get all user roles with pagination
     const userRoles = await this.prisma.userRole.findMany({
-      select: {
-        userId: true,
-      },
-      distinct: ['userId'],
-    });
-
-    const userIds = userRoles.map((ur) => ur.userId);
-
-    // Get total count for pagination
-    const totalDocuments = userIds.length;
-
-    // Get user roles with their roles and permissions
-    const userRolesWithDetails = await this.prisma.userRole.findMany({
-      where: {
-        userId: {
-          in: userIds.slice(skip, skip + limit),
-        },
-      },
+      where: whereClause,
+      skip,
+      take: limit,
+      orderBy: { createdAt: 'desc' },
       include: {
         role: {
           include: {
@@ -52,19 +49,18 @@ export class UsersService {
           },
         },
       },
-      orderBy: {
-        createdAt: 'desc',
-      },
     });
 
+    const totalDocuments = await this.prisma.userRole.count({ where: whereClause });
+
     // Group user roles by userId
-    const userRolesByUserId = userRolesWithDetails.reduce((acc, ur) => {
-      if (!acc[ur.userId]) {
-        acc[ur.userId] = [];
+    const userRolesByUserId: { [key: string]: UserRoleWithDetails[] } = {};
+    userRoles.forEach((userRole) => {
+      if (!userRolesByUserId[userRole.userId]) {
+        userRolesByUserId[userRole.userId] = [];
       }
-      acc[ur.userId].push(ur);
-      return acc;
-    }, {});
+      userRolesByUserId[userRole.userId].push(userRole as UserRoleWithDetails);
+    });
 
     // Fetch user information from Clerk for each userId
     const transformedUsers = await Promise.all(
@@ -115,42 +111,6 @@ export class UsersService {
     };
   }
 
-  async assignRoleToUser(userId: string, roleId: string) {
-    const role = await this.prisma.role.findUnique({
-      where: { id: roleId },
-    });
-
-    if (!role) {
-      throw new NotFoundException(`Role with ID ${roleId} not found`);
-    }
-
-    // Use upsert to handle both create and update cases
-    return this.prisma.userRole.upsert({
-      where: {
-        userId_roleId: {
-          userId,
-          roleId,
-        },
-      },
-      update: {},
-      create: {
-        userId,
-        roleId,
-      },
-    });
-  }
-
-  async removeRoleFromUser(userId: string, roleId: string) {
-    return this.prisma.userRole.delete({
-      where: {
-        userId_roleId: {
-          userId,
-          roleId,
-        },
-      },
-    });
-  }
-
   async getUserRoles(userId: string) {
     const userRoles = await this.prisma.userRole.findMany({
       where: { userId },
@@ -166,21 +126,61 @@ export class UsersService {
     return userRoles.map((ur) => ur.role);
   }
 
-  async hasRole(userId: string, roleName: string) {
-    const count = await this.prisma.userRole.count({
+  async assignRoleToUser(userId: string, roleId: string, organizationId: string) {
+    // Check if user already has this role in this organization
+    const existingUserRole = await this.prisma.userRole.findFirst({
       where: {
         userId,
+        roleId,
+        organizationId,
+      },
+    });
+
+    if (existingUserRole) {
+      throw new NotFoundException('User already has this role in this organization');
+    }
+
+    // Create the user role assignment
+    const userRole = await this.prisma.userRole.create({
+      data: {
+        userId,
+        roleId,
+        organizationId,
+      },
+      include: {
         role: {
-          name: roleName,
+          include: {
+            permissions: true,
+          },
         },
       },
     });
 
-    return count > 0;
+    return userRole.role;
+  }
+
+  async removeRoleFromUser(userId: string, roleId: string, organizationId: string) {
+    const userRole = await this.prisma.userRole.findFirst({
+      where: {
+        userId,
+        roleId,
+        organizationId,
+      },
+    });
+
+    if (!userRole) {
+      throw new NotFoundException('User does not have this role in this organization');
+    }
+
+    await this.prisma.userRole.delete({
+      where: { id: userRole.id },
+    });
+
+    return { message: 'Role removed successfully' };
   }
 
   async createUser(createUserDto: CreateUserDto) {
-    const { firstName, lastName, email, password, roleIds } = createUserDto;
+    const { firstName, lastName, email, password, roleIds, organizationId } = createUserDto;
 
     // Verify that all roles exist
     const roles = await this.prisma.role.findMany({
@@ -218,13 +218,32 @@ export class UsersService {
 
     const userId = clerkUser.id;
 
-    // Create user roles
+    // Ensure user is assigned to the organization
+    await this.prisma.userOrganization.upsert({
+      where: {
+        userId_organizationId: {
+          userId,
+          organizationId,
+        },
+      },
+      update: {
+        isActive: true,
+      },
+      create: {
+        userId,
+        organizationId,
+        isActive: true,
+      },
+    });
+
+    // Create user roles with organization context
     const userRoles = await Promise.all(
       roleIds.map((roleId) =>
         this.prisma.userRole.create({
           data: {
             userId,
             roleId,
+            organizationId,
           },
           include: {
             role: {
@@ -247,13 +266,13 @@ export class UsersService {
         description: ur.role.description,
         permissions: ur.role.permissions,
       })),
-      createdAt: userRoles[0].createdAt,
-      updatedAt: userRoles[0].createdAt,
+      createdAt: userRoles[0]?.createdAt || new Date(),
+      updatedAt: userRoles[0]?.createdAt || new Date(),
     };
   }
 
   async updateUser(userId: string, updateUserDto: UpdateUserDto) {
-    const { firstName, lastName, email, password, roleIds } = updateUserDto;
+    const { firstName, lastName, email, password, roleIds, organizationId } = updateUserDto;
 
     // Check if user exists by looking for their roles
     const existingUserRoles = await this.prisma.userRole.findMany({
@@ -334,10 +353,31 @@ export class UsersService {
     }
 
     // Update role assignments if provided
-    if (roleIds && roleIds.length > 0) {
-      // Delete existing role assignments
+    if (roleIds && roleIds.length > 0 && organizationId) {
+      // Ensure user is assigned to the organization
+      await this.prisma.userOrganization.upsert({
+        where: {
+          userId_organizationId: {
+            userId,
+            organizationId,
+          },
+        },
+        update: {
+          isActive: true,
+        },
+        create: {
+          userId,
+          organizationId,
+          isActive: true,
+        },
+      });
+
+      // Delete existing role assignments for this organization
       await this.prisma.userRole.deleteMany({
-        where: { userId },
+        where: {
+          userId,
+          organizationId,
+        },
       });
 
       // Create new role assignments
@@ -347,6 +387,7 @@ export class UsersService {
             data: {
               userId,
               roleId,
+              organizationId,
             },
           }),
         ),

@@ -35,7 +35,7 @@ export function useGetRoles() {
     try {
       const token = await getToken();
       if (!token) return;
-
+      
       // Replace with your API call
       const queryParams = new URLSearchParams();
       queryParams.append("page", page.toString());
@@ -66,7 +66,7 @@ export function useGetRoles() {
 
       // Handle the response from the updated API
       if (data.success !== false) {
-        setRoles({
+      setRoles({
           docs: data.data?.roles || [],
           totalDocuments: data.data?.totalDocuments || 0,
           totalPagesCount: data.data?.totalPagesCount || 0,

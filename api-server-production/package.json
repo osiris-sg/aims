@@ -22,7 +22,9 @@
     "db:studio": "npx prisma studio",
     "db:sync": "npx prisma db push",
     "seed": "ts-node prisma/seed.ts",
-    "assign-superadmin": "ts-node scripts/assign-superadmin.ts"
+    "assign-superadmin": "ts-node scripts/assign-superadmin.ts",
+    "setup-database": "ts-node scripts/setup-database.ts",
+    "setup-user": "ts-node scripts/setup-user.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.779.0",

@@ -24,7 +24,6 @@ export default function useGetAssets() {
             limit: 100,
             search: "",
             filters: {},
-            organizationId,
           },
           token
         );

@@ -117,9 +117,9 @@ export function* getCategoriesGenerator({ payload: data }: InventoryAction) {
     yield put(inventoryActions.getCategoriesFailure("client Error"));
   }
 }
-export function* generateSkuRangeGenerator({ payload: { assetId, quantity, token, organizationId } }: InventoryAction) {
+export function* generateSkuRangeGenerator({ payload: { assetId, quantity, token } }: InventoryAction) {
   try {
-    const response: Response = yield call(request, API.GENERATE_SKU, { assetId, quantity, organizationId }, token);
+    const response: Response = yield call(request, API.GENERATE_SKU, { assetId, quantity }, token);
 
     if (response.success) {
       yield put(inventoryActions.generateSkuRangeSuccess(response.data));
@@ -161,7 +161,6 @@ export function* getDocumentsByInventoryIdGenerator({ payload: data }: Inventory
     yield put(inventoryActions.getDocumentsByInventoryIdFailure("client Error"));
   }
 }
-
 
 export function* getTimelineItemsByInventoryIdGenerator({ payload: data }: InventoryAction) {
   try {

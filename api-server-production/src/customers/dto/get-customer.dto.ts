@@ -19,10 +19,6 @@ class FiltersDto {
 }
 
 export class GetCustomerDto {
-  @IsString()
-  @IsNotEmpty()
-  organizationId: string;
-
   @IsNumber()
   @IsNotEmpty()
   page: number;
@@ -32,10 +28,11 @@ export class GetCustomerDto {
   limit: number;
 
   @IsString()
-  search: string;
+  @IsOptional()
+  search?: string;
 
   @ValidateNested()
   @Type(() => FiltersDto)
   @IsOptional()
-  filters: FiltersDto;
+  filters?: FiltersDto;
 }

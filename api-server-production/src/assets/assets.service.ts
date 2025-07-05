@@ -10,13 +10,15 @@ import { Prisma } from '@prisma/client';
 export class AssetsService {
   constructor(private prisma: PrismaService) {}
 
-  async getAssets(getAssetDto: GetAssetDto) {
+  async getAssets(getAssetDto: GetAssetDto, userOrganizationId: string) {
     try {
-      const { organizationId, page, limit, search, filters } = getAssetDto;
+      const { page, limit, search, filters } = getAssetDto;
       const skip = (page - 1) * limit;
 
-      const whereClause: any = { organizationId };
-      whereClause.deletedAt = null;
+      const whereClause: any = {
+        organizationId: userOrganizationId, // Use user's organization
+        deletedAt: null,
+      };
 
       if (search) {
         whereClause.OR = [{ name: { contains: search, mode: 'insensitive' } }, { skuKey: { contains: search, mode: 'insensitive' } }];
@@ -72,11 +74,12 @@ export class AssetsService {
     }
   }
 
-  async getAssetBySKUKEY(skuKey: string) {
+  async getAssetBySKUKEY(skuKey: string, userOrganizationId: string) {
     try {
       const asset = await this.prisma.asset.findFirst({
         where: {
           skuKey,
+          organizationId: userOrganizationId, // Use user's organization
           deletedAt: null,
         },
       });
@@ -87,9 +90,14 @@ export class AssetsService {
     }
   }
 
-  async getAssetById(id: string) {
+  async getAssetById(id: string, userOrganizationId: string) {
     try {
-      const asset = await this.prisma.asset.findUnique({ where: { id } });
+      const asset = await this.prisma.asset.findFirst({
+        where: {
+          id,
+          organizationId: userOrganizationId, // Use user's organization
+        },
+      });
       if (!asset) throw new HttpException('Asset not found', HttpStatus.NOT_FOUND);
       return asset;
     } catch (error) {
@@ -97,10 +105,13 @@ export class AssetsService {
     }
   }
 
-  async createAssets(createAssetDto: CreateAssetDto) {
+  async createAssets(createAssetDto: CreateAssetDto, userOrganizationId: string) {
     try {
       const asset = await this.prisma.asset.create({
-        data: createAssetDto,
+        data: {
+          ...createAssetDto,
+          organizationId: userOrganizationId, // Automatically set user's organization
+        },
       });
       return asset;
     } catch (error) {
@@ -117,7 +128,7 @@ export class AssetsService {
     }
   }
 
-  async updateAssets(updateAssetDto: UpdateAssetDto) {
+  async updateAssets(updateAssetDto: UpdateAssetDto, userOrganizationId: string) {
     try {
       const { id, ...updateData } = updateAssetDto;
 
@@ -126,7 +137,10 @@ export class AssetsService {
       }
 
       const asset = await this.prisma.asset.update({
-        where: { id },
+        where: {
+          id,
+          organizationId: userOrganizationId, // Ensure user can only update their organization's assets
+        },
         data: updateData,
       });
 
@@ -136,7 +150,7 @@ export class AssetsService {
     }
   }
 
-  async deleteAssets(deleteAssetDto: DeleteAssetDto) {
+  async deleteAssets(deleteAssetDto: DeleteAssetDto, userOrganizationId: string) {
     try {
       const assetInInventory = await this.prisma.inventory.count({
         where: { assetId: deleteAssetDto.id },
@@ -147,7 +161,10 @@ export class AssetsService {
       }
 
       const asset = await this.prisma.asset.update({
-        where: { id: deleteAssetDto.id },
+        where: {
+          id: deleteAssetDto.id,
+          organizationId: userOrganizationId, // Ensure user can only delete their organization's assets
+        },
         data: { deletedAt: new Date() },
       });
       return asset;
@@ -156,11 +173,12 @@ export class AssetsService {
     }
   }
 
-  async checkSkuKey(skuKey: string): Promise<{ isAvailable: boolean }> {
+  async checkSkuKey(skuKey: string, userOrganizationId: string): Promise<{ isAvailable: boolean }> {
     try {
       const asset = await this.prisma.asset.findFirst({
         where: {
           skuKey,
+          organizationId: userOrganizationId, // Check within user's organization
           deletedAt: null,
         },
       });

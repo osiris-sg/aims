@@ -4,29 +4,26 @@ import { IsNotEmpty, IsString, IsOptional, IsUUID } from 'class-validator';
 
 export class UpdateAssetDto extends PartialType(CreateAssetDto) {
   @IsUUID()
+  @IsNotEmpty()
   id: string;
 
   @IsString()
-  @IsNotEmpty()
-  name: string;
+  @IsOptional()
+  name?: string;
 
   @IsString()
   @IsOptional()
-  description: string;
-
-  @IsString()
-  @IsNotEmpty()
-  organizationId: string;
+  description?: string;
 
   @IsUUID()
   @IsOptional()
-  categoryId: string;
-
-  @IsString()
-  @IsNotEmpty()
-  skuKey: string;
+  categoryId?: string;
 
   @IsString()
   @IsOptional()
-  image: string;
+  skuKey?: string;
+
+  @IsString()
+  @IsOptional()
+  image?: string;
 }

@@ -12,9 +12,9 @@ import { InventoryStatus } from '@prisma/client';
 export class ProjectsService {
   constructor(private prisma: PrismaService) {}
 
-  async getProjects(getProjectDto: GetProjectDto) {
+  async getProjects(getProjectDto: GetProjectDto, organizationId: string) {
     try {
-      const { organizationId, page, limit, search } = getProjectDto;
+      const { page, limit, search } = getProjectDto;
       const skip = (page - 1) * limit;
 
       const whereClause: any = { organizationId };
@@ -58,10 +58,13 @@ export class ProjectsService {
     }
   }
 
-  async getProjectById(id: string) {
+  async getProjectById(id: string, organizationId: string) {
     try {
-      const project = await this.prisma.project.findUnique({
-        where: { id },
+      const project = await this.prisma.project.findFirst({
+        where: {
+          id,
+          organizationId,
+        },
         include: {
           customer: true,
           assignments: true,
@@ -74,11 +77,14 @@ export class ProjectsService {
     }
   }
 
-  async addAssignmentsToProject(projectId: string, assignments: any[]) {
+  async addAssignmentsToProject(projectId: string, assignments: any[], organizationId: string) {
     console.log('Adding assignments to project:', projectId, assignments);
     try {
-      const existingProject = await this.prisma.project.findUnique({
-        where: { id: projectId },
+      const existingProject = await this.prisma.project.findFirst({
+        where: {
+          id: projectId,
+          organizationId,
+        },
       });
 
       if (!existingProject) {
@@ -99,7 +105,10 @@ export class ProjectsService {
       for (const assignment of assignments) {
         if (assignment.inventoryId && assignment.status) {
           await this.prisma.inventory.update({
-            where: { id: assignment.inventoryId },
+            where: {
+              id: assignment.inventoryId,
+              organizationId, // Ensure inventory belongs to the same organization
+            },
             data: { status: assignment.status as InventoryStatus },
           });
         }
@@ -141,7 +150,10 @@ export class ProjectsService {
       for (const assignment of createProjectDto.assignments) {
         if (assignment.inventoryId && assignment.status) {
           await this.prisma.inventory.update({
-            where: { id: assignment.inventoryId },
+            where: {
+              id: assignment.inventoryId,
+              organizationId, // Ensure inventory belongs to the same organization
+            },
             data: { status: assignment.status as InventoryStatus },
           });
         }
@@ -157,7 +169,7 @@ export class ProjectsService {
     }
   }
 
-  //   async updateProject(updateProjectDto: UpdateProjectDto) {
+  //   async updateProject(updateProjectDto: UpdateProjectDto, organizationId: string) {
   //     try {
   //       const { id, ...updateData } = updateProjectDto;
 
@@ -166,7 +178,10 @@ export class ProjectsService {
   //       }
 
   //       const project = await this.prisma.project.update({
-  //         where: { id },
+  //         where: {
+  //           id,
+  //           organizationId
+  //         },
   //         data: updateData,
   //       });
 
@@ -176,10 +191,13 @@ export class ProjectsService {
   //     }
   //   }
 
-  //   async deleteProject(deleteProjectDto: DeleteProjectDto) {
+  //   async deleteProject(deleteProjectDto: DeleteProjectDto, organizationId: string) {
   //     try {
   //       const project = await this.prisma.project.update({
-  //         where: { id: deleteProjectDto.id },
+  //         where: {
+  //           id: deleteProjectDto.id,
+  //           organizationId
+  //         },
   //         data: { deletedAt: new Date() },
   //       });
   //       return project;
@@ -187,6 +205,7 @@ export class ProjectsService {
   //       throw new HttpException(error.message, error.status || HttpStatus.INTERNAL_SERVER_ERROR);
   //     }
   //   }
+
   async createProjectByName(name: string, organizationId: string) {
     try {
       const project = await this.prisma.project.create({

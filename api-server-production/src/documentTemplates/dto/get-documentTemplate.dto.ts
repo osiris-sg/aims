@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber, IsString } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsString, IsOptional } from 'class-validator';
 
 export class GetDocumentTemplateDto {
   @IsNumber()
@@ -10,9 +10,6 @@ export class GetDocumentTemplateDto {
   limit: number;
 
   @IsString()
-  search: string;
-
-  @IsString()
-  @IsNotEmpty()
-  organizationId: string;
+  @IsOptional()
+  search?: string;
 }
