@@ -220,12 +220,12 @@ export default function InvoiceTemplate(props: Props) {
                       </Button>
                     </Box>
                   )}
-                  <Grid2 size={6}>
+                  {/* <Grid2 size={6}>
                     <FormInputBox control={control} name="dueDate" label="Due Date" type="date" size="small" labelArriangment={isViewMode === true ? "horizontal" : "vertical"} viewMode={isViewMode} />
                   </Grid2>
                   <Grid2 size={6}>
                     <FormInputBox control={control} name="notes" label="Notes" placeHolder="Enter additional notes" multiline rows={4} size="small" labelArriangment={isViewMode === true ? "horizontal" : "vertical"} viewMode={isViewMode} />
-                  </Grid2>
+                  </Grid2> */}
                 </Box>
               </form>
             )}
