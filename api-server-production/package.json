@@ -24,10 +24,7 @@
     "seed": "ts-node prisma/seed.ts",
     "assign-superadmin": "ts-node scripts/assign-superadmin.ts",
     "setup-database": "ts-node scripts/setup-database.ts",
-    "setup-user": "ts-node scripts/setup-user.ts",
-    "diagnose-user": "ts-node scripts/diagnose-user.ts",
-    "fix-user-login": "ts-node scripts/fix-user-login.ts",
-    "sync-clerk-organizations": "ts-node scripts/sync-clerk-organizations.ts"
+    "setup-user": "ts-node scripts/setup-user.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.779.0",
