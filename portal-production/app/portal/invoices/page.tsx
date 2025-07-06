@@ -43,7 +43,7 @@ interface Filters {
   [key: string]: any;
 }
 
-export default function DocumentsPage() {
+export default function InvoicesPage() {
   const router = useRouter();
   const { organization } = useOrganization();
   const { getToken } = useAuth();
@@ -184,6 +184,46 @@ export default function DocumentsPage() {
     fetchDocuments();
   }, [fetchDocuments]);
 
+  // Add useState and onSubmit above return
+  const [isDocumentTemplateUpdating, setIsDocumentTemplateUpdating] = useState(false);
+
+  const typeToIdMap: Record<string, string> = {
+    DO: "36c25729-34a0-419a-8a93-cdda243168ab",
+    RDO: "89e5fd4b-e837-44ad-982e-80559a3274e0",
+    TI: "654da337-fc90-4234-8228-3e0f79b50192",
+    MSR: "maintenance_service_report",
+  };
+
+  const onSubmit = async (data: any) => {
+    try {
+      setIsDocumentTemplateUpdating(true);
+      const token = await getToken();
+      const documentTemplateId = typeToIdMap[data.documentType] || data.documentType;
+      console.log("Selected Document Type:", organizationId);
+      const response = await request(
+        {
+          path: "/documents/basic",
+          method: "POST",
+        },
+        {
+          type: data.documentType,
+          config: {},
+          documentTemplateId: documentTemplateId,
+          organizationId: organizationId,
+        },
+        token ?? undefined
+      );
+
+      const createdDocumentId = response?.data.id;
+      console.log("Created Document ID:", createdDocumentId);
+      router.push(`/portal/documents/${data.documentType}/${documentTemplateId}/${createdDocumentId}`);
+    } catch (error) {
+      console.error("Error submitting form:", error);
+    } finally {
+      setIsDocumentTemplateUpdating(false);
+    }
+  };
+
   return (
     <MainCard>
       {error && (
@@ -197,7 +237,7 @@ export default function DocumentsPage() {
         tableName="Document List"
         subTitle="Document Detail Information"
         buttonName="Create Document"
-        onAddClick={() => router.push("/portal/documents/create")}
+        onAddClick={() => onSubmit({ documentType: "TI" })}
         loading={loading}
         page={page}
         limit={limit}

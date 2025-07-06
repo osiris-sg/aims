@@ -72,7 +72,7 @@ export default function useRDOTemplateHandler() {
       items: [
         { label: "Logo", name: "logo" },
         { label: "Company name", name: "company.name" },
-        { label: "Adress", name: "company.address" },
+        { label: "Address", name: "company.address" },
       ],
     },
     {

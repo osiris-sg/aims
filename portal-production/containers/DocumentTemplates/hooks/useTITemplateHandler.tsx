@@ -72,13 +72,13 @@ export default function useTITemplateHandler() {
       items: [
         { label: "Logo", name: "logo" },
         { label: "Company name", name: "company.name" },
-        { label: "Adress", name: "company.address" },
+        { label: "Address", name: "company.address" },
       ],
     },
     {
       title: "Document Fields",
       items: [
-        { label: "DO No.", name: "doNo" },
+        { label: "Invoice No.", name: "doNo" },
         { label: "Ref No.", name: "referenceNo" },
         { label: "PO No.", name: "poNo" },
         { label: "Customer", name: "customer" },
