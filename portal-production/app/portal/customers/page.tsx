@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useOrganization, useAuth } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
+import { useOrganization } from "../hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
@@ -254,27 +255,27 @@ export default function CustomersPage() {
   }, [organizationId, page, limit, search, filters]);
 
   return (
-      <MainCard>
-        <PageTable
-          columns={columns}
-          data={customers.docs}
-          tableName="Customers List"
-          subTitle="Customers Detail Information"
-          buttonName="Add Customer"
-          onAddClick={handleAddCustomer}
-          loading={loading}
-          page={page}
-          limit={limit}
-          search={search}
-          filters={filters}
-          setPage={setPage}
-          setLimit={setLimit}
-          setSearch={setSearch}
-          setFilters={setFilters}
-          availableFilters={["createdOn"]}
-          pageCount={customers.totalPages}
-          totalDocs={customers.totalDocs}
-        />
+    <MainCard>
+      <PageTable
+        columns={columns}
+        data={customers.docs}
+        tableName="Customers List"
+        subTitle="Customers Detail Information"
+        buttonName="Add Customer"
+        onAddClick={handleAddCustomer}
+        loading={loading}
+        page={page}
+        limit={limit}
+        search={search}
+        filters={filters}
+        setPage={setPage}
+        setLimit={setLimit}
+        setSearch={setSearch}
+        setFilters={setFilters}
+        availableFilters={["createdOn"]}
+        pageCount={customers.totalPages}
+        totalDocs={customers.totalDocs}
+      />
 
       <DeleteItemDialogNoConfirm open={!!customerToDelete} onCancel={() => setCustomerToDelete(null)} onConfirm={handleDelete} loading={isDeleteInProgress} />
 

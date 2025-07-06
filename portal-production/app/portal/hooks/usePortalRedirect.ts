@@ -2,8 +2,9 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useOrganization, useUser } from "@clerk/nextjs";
+import { useUser } from "@clerk/nextjs";
 import { ROUTES } from "../routes";
+import { useOrganization } from "./useOrganization";
 
 export function usePortalRedirect() {
   const { user } = useUser();
