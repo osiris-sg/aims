@@ -1,7 +1,8 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useOrganization, useAuth } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import { Box, Button, Typography, MenuItem, Grid, FormControl, InputLabel, Skeleton, Select, Stack, IconButton, useTheme, DialogTitle, DialogContent, DialogActions } from "@mui/material";

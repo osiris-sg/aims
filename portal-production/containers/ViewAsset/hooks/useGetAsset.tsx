@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { assetsActions } from "@/containers/Assets/slice";
 import { selectAsset, selectCategories, selectIsGetAssetLoading } from "@/containers/Assets/slice/selectors";
-import { useAuth, useOrganization } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";

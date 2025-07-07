@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { useOrganization, useAuth } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 
 export default function useGetAssets() {

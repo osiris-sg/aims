@@ -3,7 +3,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useAuth, useOrganization } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import { DOCUMENT_TYPES } from "@/containers/DocumentsTemplateView/slice/constants";
 

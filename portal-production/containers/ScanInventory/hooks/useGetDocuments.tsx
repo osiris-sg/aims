@@ -5,7 +5,7 @@ import { useDispatch, useSelector } from "react-redux";
 
 import { selectDocumentTemplates, selectDocumentTemplatesLoading, selectDocumentTemplatesError } from "@/containers/DocumentsTemplateView/slice/selectors";
 import { useState, useEffect, useCallback } from "react";
-import { useOrganization } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
 import { useAuth } from "@clerk/nextjs";
 import { documentTemplateActions } from "@/containers/DocumentsTemplateView/slice";
 export const useGetDocuments = () => {

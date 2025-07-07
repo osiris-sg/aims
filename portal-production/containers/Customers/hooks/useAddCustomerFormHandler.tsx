@@ -4,7 +4,7 @@
 import { useForm } from "react-hook-form";
 import { useDispatch } from "react-redux";
 import { useAuth } from "@clerk/nextjs";
-import { useOrganization } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
 import { customerActions } from "../slice";
 
 export default function useAddCustomerFormHandler() {

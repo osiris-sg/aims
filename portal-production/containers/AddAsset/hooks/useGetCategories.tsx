@@ -2,7 +2,7 @@ import { useEffect, useCallback } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { assetsActions } from "@/containers/Assets/slice";
 import { selectCategories, selectCategoriesError, selectCategoriesLoading } from "@/containers/Assets/slice/selectors";
-import { useOrganization } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
 import { useAuth } from "@clerk/nextjs";
 
 export default function useGetCategories() {

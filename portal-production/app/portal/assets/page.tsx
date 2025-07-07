@@ -9,7 +9,7 @@ import ModeEditIcon from "@mui/icons-material/ModeEdit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DeleteItemDialog from "@/components/DeleteItemDialog";
 import { useAuth } from "@clerk/nextjs";
-import { useOrganization } from "../hooks/useOrganization";
+import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import { ROUTES } from "@/routes";
 

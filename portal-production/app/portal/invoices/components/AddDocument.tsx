@@ -2,7 +2,7 @@ import FormInputBox from "@/form-components/FormInputBox";
 import { Drawer, Typography, Stack, Button, useTheme } from "@mui/material";
 import { useForm } from "react-hook-form";
 import { useAuth } from "@clerk/nextjs";
-import { useOrganization } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 
 interface AddDocumentProps {

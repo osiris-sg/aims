@@ -3,7 +3,7 @@
 "use client";
 import { useDispatch, useSelector } from "react-redux";
 import { useEffect, useCallback, useMemo } from "react";
-import { useOrganization } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
 import { useAuth } from "@clerk/nextjs";
 import { documentTemplateActions } from "@/containers/DocumentsTemplateView/slice";
 import { selectDocument, selectDocumentTemplatesError, selectDocumentTemplatesLoading, selectInventoriesForDocument } from "@/containers/DocumentsTemplateView/slice/selectors";

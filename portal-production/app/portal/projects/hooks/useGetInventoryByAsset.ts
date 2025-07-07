@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
-import { useOrganization } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
 export default function useGetInventoryByAsset(assetId: string) {
   const { getToken } = useAuth();
   const { organization } = useOrganization();

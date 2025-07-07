@@ -1,7 +1,7 @@
 import { useDispatch, useSelector } from "react-redux";
 import { assetsActions } from "@/containers/Assets/slice";
 import { useAuth } from "@clerk/nextjs";
-import { useOrganization } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
 import { selectCategoriesLoading, selectIsDeleteCategoryLoading, selectIsSkuCheckInProgress } from "@/containers/Assets/slice/selectors";
 import useGetCategories from "./useGetCategories";
 

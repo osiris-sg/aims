@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useAuth, useOrganization } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
 import { useDocumentTemplateSlice } from "@/containers/DocumentsTemplateView/slice";
 import { useParams } from "next/navigation";
 import { useForm } from "react-hook-form";

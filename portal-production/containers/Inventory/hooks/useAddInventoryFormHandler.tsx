@@ -7,7 +7,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { inventoryActions } from "@/containers/Inventory/slice";
 import { useEffect } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { useOrganization } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
 import { selectAssets, selectCategories, selectIsInventoryUpdating, selectIsSkuloading, selectSkuRange } from "../slice/selectors";
 import { INVENTORY_STATUS } from "../slice/constants";
 import * as yup from "yup";

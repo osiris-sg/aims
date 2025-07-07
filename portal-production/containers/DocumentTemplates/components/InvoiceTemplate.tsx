@@ -18,7 +18,8 @@ import { useParams } from "next/navigation";
 import useTITemplateHandler from "../hooks/useTITemplateHandler";
 import useTIDocumentCreator from "../hooks/useTIDocumentCreator";
 import { usePathname } from "next/navigation";
-import { useAuth, useOrganization } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
 interface Props {
   viewMode: boolean;
 }

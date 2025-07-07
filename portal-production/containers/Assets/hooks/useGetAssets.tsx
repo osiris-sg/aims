@@ -5,7 +5,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { assetsActions } from "../slice";
 import { selectAssets, selectAssetsLoading, selectAssetsError, selectFilters } from "../slice/selectors";
 import { useState, useEffect, useCallback } from "react";
-import { useOrganization } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
 import { useAuth } from "@clerk/nextjs";
 import { Filters } from "../slice/types";
 export const useGetAssets = () => {

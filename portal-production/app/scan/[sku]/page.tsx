@@ -6,7 +6,8 @@ import { useParams } from "next/navigation";
 import React, { useState, useEffect } from "react";
 import ArticleIcon from "@mui/icons-material/Article";
 import { request } from "@/helpers/request";
-import { useOrganization, useAuth } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
 import { useRouter } from "next/navigation";
 
 export default function ScanInventory() {

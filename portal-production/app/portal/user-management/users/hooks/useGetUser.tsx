@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { request } from "@/helpers/request";
-import { useOrganization, useAuth } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
 
 export function useGetUsers() {
   const { getToken } = useAuth();

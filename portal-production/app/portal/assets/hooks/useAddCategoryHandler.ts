@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { useOrganization } from "../../hooks/useOrganization";
+import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import { useGetCategories } from "./useGetCategories";
 

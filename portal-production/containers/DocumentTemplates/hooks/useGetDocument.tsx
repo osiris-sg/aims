@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { documentTemplateActions } from "@/containers/DocumentsTemplateView/slice";
 import { selectDocument, selectDocumentTemplate, selectDocumentTemplatesError, selectDocumentTemplatesLoading, selectIsGetDocumentTemplateLoading } from "@/containers/DocumentsTemplateView/slice/selectors";
-import { useAuth, useOrganization } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";

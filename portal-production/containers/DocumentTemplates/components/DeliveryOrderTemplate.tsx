@@ -18,7 +18,8 @@ import { useParams } from "next/navigation";
 import useDOTemplateHandler from "../hooks/useDOTemplateHandler";
 import useDODocumentCreator from "../hooks/useDODocumentCreator";
 import { usePathname } from "next/navigation";
-import { useAuth, useOrganization } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
 interface Props {
   viewMode: boolean;
 }

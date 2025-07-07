@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { useOrganization } from "../../hooks/useOrganization";
+import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 
 export const useGetCategories = () => {

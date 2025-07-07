@@ -1,6 +1,7 @@
 import { assetsActions } from "@/containers/Assets/slice";
 import { selectAsset, selectAssetsError, selectAssetsLoading } from "@/containers/Assets/slice/selectors";
-import { useAuth, useOrganization } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
