@@ -17,6 +17,20 @@ export class OrganizationsService {
   async findAll() {
     return this.prisma.organization.findMany({
       orderBy: { createdAt: 'desc' },
+      include: {
+        _count: {
+          select: {
+            assets: true,
+            userOrganizations: true,
+            categories: true,
+            customers: true,
+            documents: true,
+            inventories: true,
+            projects: true,
+            documentTemplates: true,
+          },
+        },
+      },
     });
   }
 

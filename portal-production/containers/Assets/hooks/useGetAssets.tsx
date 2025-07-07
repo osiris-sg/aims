@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useOrganization } from "@hooks/useOrganization";
 import { useAuth } from "@clerk/nextjs";
 import { Filters } from "../slice/types";
+
 export const useGetAssets = () => {
   const { getToken } = useAuth();
   const { organization } = useOrganization();

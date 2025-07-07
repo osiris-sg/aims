@@ -1,0 +1,143 @@
+"use client";
+
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
+import { useUser } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
+import { request } from "@/helpers/request";
+
+interface Organization {
+  id: string;
+  name: string;
+}
+
+interface OrganizationContextType {
+  organization: Organization | null;
+  isLoaded: boolean;
+  error: string | null;
+}
+
+const OrganizationContext = createContext<OrganizationContextType | undefined>(undefined);
+
+export function OrganizationProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useUser();
+  const { getToken } = useAuth();
+  const [organization, setOrganization] = useState<Organization | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const hasFetched = useRef(false);
+
+  useEffect(() => {
+    async function fetchUserOrganization() {
+      if (!user || hasFetched.current) {
+        setIsLoaded(true);
+        return;
+      }
+
+      try {
+        setError(null);
+        hasFetched.current = true;
+
+        const token = await getToken();
+        if (!token) {
+          setError("Authentication token is required");
+          setIsLoaded(true);
+          return;
+        }
+
+        const response = await request(
+          {
+            path: "/organizations/user",
+            method: "GET",
+          },
+          {},
+          token
+        );
+
+        console.log("response for user org", response);
+
+        if (response.success && response.data?.success && response.data.data) {
+          setOrganization(response.data.data);
+        } else {
+          setError(response.data?.message || response.message || "Failed to fetch user organization");
+          setOrganization(null);
+        }
+      } catch (error) {
+        console.error("Error fetching user organization:", error);
+        setError("Failed to fetch user organization");
+        setOrganization(null);
+      } finally {
+        setIsLoaded(true);
+      }
+    }
+
+    fetchUserOrganization();
+  }, [user]);
+
+  return <OrganizationContext.Provider value={{ organization, isLoaded, error }}>{children}</OrganizationContext.Provider>;
+}
+
+export function useOrganization() {
+  const context = useContext(OrganizationContext);
+
+  // If context is available, use it (portal pages)
+  if (context !== undefined) {
+    return context;
+  }
+
+  // Fallback for pages outside portal layout (like scan page)
+  const { user } = useUser();
+  const { getToken } = useAuth();
+  const [organization, setOrganization] = useState<Organization | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const hasFetched = useRef(false);
+
+  useEffect(() => {
+    async function fetchUserOrganization() {
+      if (!user || hasFetched.current) {
+        setIsLoaded(true);
+        return;
+      }
+
+      try {
+        setError(null);
+        hasFetched.current = true;
+
+        const token = await getToken();
+        if (!token) {
+          setError("Authentication token is required");
+          setIsLoaded(true);
+          return;
+        }
+
+        const response = await request(
+          {
+            path: "/organizations/user",
+            method: "GET",
+          },
+          {},
+          token
+        );
+
+        console.log("response for user org (fallback)", response);
+
+        if (response.success && response.data?.success && response.data.data) {
+          setOrganization(response.data.data);
+        } else {
+          setError(response.data?.message || response.message || "Failed to fetch user organization");
+          setOrganization(null);
+        }
+      } catch (error) {
+        console.error("Error fetching user organization:", error);
+        setError("Failed to fetch user organization");
+        setOrganization(null);
+      } finally {
+        setIsLoaded(true);
+      }
+    }
+
+    fetchUserOrganization();
+  }, [user]);
+
+  return { organization, isLoaded, error };
+}

@@ -43,30 +43,102 @@ export class OrganizationsController {
   @Post()
   @Permissions('organizations:create')
   async createOrganization(@Body() createOrganizationDto: CreateOrganizationDto) {
-    return this.organizationsService.create(createOrganizationDto);
+    try {
+      const organization = await this.organizationsService.create(createOrganizationDto);
+      return {
+        success: true,
+        message: 'Organization created successfully',
+        data: organization,
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.message || 'Failed to create organization',
+        data: null,
+      };
+    }
   }
 
   @Get()
   @Permissions('organizations:read')
   async getOrganizations() {
-    return this.organizationsService.findAll();
+    try {
+      const organizations = await this.organizationsService.findAll();
+      return {
+        success: true,
+        message: 'Organizations retrieved successfully',
+        data: organizations,
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.message || 'Failed to retrieve organizations',
+        data: null,
+      };
+    }
   }
 
   @Get(':id')
   @Permissions('organizations:read-one')
   async getOrganizationById(@Param('id') id: string) {
-    return this.organizationsService.findOne(id);
+    try {
+      const organization = await this.organizationsService.findOne(id);
+      if (!organization) {
+        return {
+          success: false,
+          message: 'Organization not found',
+          data: null,
+        };
+      }
+      return {
+        success: true,
+        message: 'Organization retrieved successfully',
+        data: organization,
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.message || 'Failed to retrieve organization',
+        data: null,
+      };
+    }
   }
 
   @Patch(':id')
   @Permissions('organizations:update')
   async updateOrganization(@Param('id') id: string, @Body() updateOrganizationDto: UpdateOrganizationDto) {
-    return this.organizationsService.update(id, updateOrganizationDto);
+    try {
+      const organization = await this.organizationsService.update(id, updateOrganizationDto);
+      return {
+        success: true,
+        message: 'Organization updated successfully',
+        data: organization,
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.message || 'Failed to update organization',
+        data: null,
+      };
+    }
   }
 
   @Delete(':id')
   @Permissions('organizations:delete')
   async deleteOrganization(@Param('id') id: string) {
-    return this.organizationsService.remove(id);
+    try {
+      await this.organizationsService.remove(id);
+      return {
+        success: true,
+        message: 'Organization deleted successfully',
+        data: null,
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.message || 'Failed to delete organization',
+        data: null,
+      };
+    }
   }
 }

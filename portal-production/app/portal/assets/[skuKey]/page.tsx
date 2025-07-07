@@ -23,7 +23,7 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
   const organizationId = organization?.id;
   const [asset, setAsset] = useState<any>(null);
   const [category, setCategory] = useState<any>(null);
-  const [documentTemplates, setDocumentTemplates] = useState<any[]>([]);
+  const [documentTemplates, setDocumentTemplates] = useState<any>({ docs: [] });
   const [isLoading, setIsLoading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
@@ -180,6 +180,8 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
       }
     } catch (error) {
       console.error("Error fetching document templates:", error);
+      // Set empty structure on error
+      setDocumentTemplates({ docs: [] });
     }
   }, [organizationId, getToken]);
   // ...existing code...

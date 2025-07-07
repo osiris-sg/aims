@@ -21,6 +21,8 @@ import { usePathname } from "next/navigation";
 import Collapse from "@mui/material/Collapse";
 import ExpandLess from "@mui/icons-material/ExpandLess";
 import ExpandMore from "@mui/icons-material/ExpandMore";
+import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
+import { useOrganization } from "@/app/portal/hooks/useOrganization";
 
 const mainListItems = [
   { text: "Inventory", path: ROUTES.INVENTORY, icon: <InventoryIcon /> },
@@ -40,9 +42,47 @@ const secondaryListItems: any = [
 export default function SideBarContent() {
   const theme = useTheme();
   const pathname = usePathname();
+  const { canManageOrganizations, isLoading: permissionsLoading } = useUserPermissions();
+  const { organization } = useOrganization();
 
   const [openDocuments, setOpenDocuments] = React.useState(false);
   const [openUserManagement, setOpenUserManagement] = React.useState(false);
+
+  // Check if user can manage organizations (either through permissions or being OsirisAdmin)
+  const canViewOrganizations = () => {
+    console.log("Checking organization access:", {
+      permissionsLoading,
+      organizationName: organization?.name,
+      organization: organization,
+    });
+
+    // Temporary: Always show for Osiris Platform users (OsirisAdmin) while debugging permissions
+    if (organization?.name === "Osiris Platform") {
+      console.log("✅ User is in Osiris Platform organization - showing Organizations tab");
+      return true;
+    }
+
+    // If permissions are still loading, don't show the tab yet for others
+    if (permissionsLoading) {
+      console.log("⏳ Permissions still loading...");
+      return false;
+    }
+
+    // Check for explicit organization management permissions
+    try {
+      const hasPermissions = canManageOrganizations();
+      console.log("Permission check result:", hasPermissions);
+      if (hasPermissions) {
+        console.log("✅ User has organization management permissions");
+        return true;
+      }
+    } catch (error) {
+      console.error("Error checking permissions:", error);
+    }
+
+    console.log("❌ User cannot view organizations");
+    return false;
+  };
 
   const handleDocumentsClick = () => setOpenDocuments(!openDocuments);
   const handleUserManagementClick = () => setOpenUserManagement(!openUserManagement);
@@ -132,6 +172,11 @@ export default function SideBarContent() {
               <ListItemButton sx={{ pl: 4 }} component={Link} href={ROUTES.USERS}>
                 <ListItemText primary="Users" />
               </ListItemButton>
+              {canViewOrganizations() && (
+                <ListItemButton sx={{ pl: 4 }} component={Link} href={ROUTES.ORGANIZATIONS}>
+                  <ListItemText primary="Organizations" />
+                </ListItemButton>
+              )}
             </List>
           </Collapse>
         </React.Fragment>

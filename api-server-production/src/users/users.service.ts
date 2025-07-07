@@ -126,6 +126,32 @@ export class UsersService {
     return userRoles.map((ur) => ur.role);
   }
 
+  async getUserPermissions(userId: string) {
+    const userRoles = await this.prisma.userRole.findMany({
+      where: { userId },
+      include: {
+        role: {
+          include: {
+            permissions: true,
+          },
+        },
+      },
+    });
+
+    // Flatten all permissions from all user roles and remove duplicates
+    const permissions = new Map();
+    userRoles.forEach((userRole) => {
+      userRole.role.permissions.forEach((permission) => {
+        permissions.set(permission.id, permission);
+      });
+    });
+
+    return {
+      success: true,
+      data: Array.from(permissions.values()),
+    };
+  }
+
   async assignRoleToUser(userId: string, roleId: string, organizationId: string) {
     // Check if user already has this role in this organization
     const existingUserRole = await this.prisma.userRole.findFirst({
