@@ -11,12 +11,12 @@ import { Permissions } from '../auth/decorators/permissions.decorator';
 import { UserOrganization } from '../auth/decorators/user-organization.decorator';
 
 @ApiTags('assets')
+@UseGuards(ClerkAuthGuard)
 @Controller('assets')
 export class AssetsController {
   constructor(private readonly assetsService: AssetsService) {}
 
   @Post()
-  @UseGuards(ClerkAuthGuard)
   @Permissions('assets:read')
   @ApiOperation({ summary: 'Get assets based on provided criteria' })
   @ApiBody({ type: GetAssetDto })
@@ -26,7 +26,6 @@ export class AssetsController {
   }
 
   @Get('skuKey/:skuKey')
-  @UseGuards(ClerkAuthGuard)
   @Permissions('assets:read-sku')
   @ApiOperation({ summary: 'Get an asset by its SKU Key' })
   @ApiParam({ name: 'skuKey', type: 'string', description: 'The SKU Key of the asset' })
@@ -37,7 +36,6 @@ export class AssetsController {
   }
 
   @Get(':id')
-  @UseGuards(ClerkAuthGuard)
   @Permissions('assets:read-id')
   @ApiOperation({ summary: 'Get an asset by its ID' })
   @ApiParam({ name: 'id', type: 'string', description: 'The ID of the asset' })
@@ -48,7 +46,6 @@ export class AssetsController {
   }
 
   @Post('create')
-  @UseGuards(ClerkAuthGuard)
   @Permissions('assets:create')
   @ApiOperation({ summary: 'Create a new asset' })
   @ApiBody({ type: CreateAssetDto })
@@ -59,7 +56,6 @@ export class AssetsController {
   }
 
   @Put('update')
-  @UseGuards(ClerkAuthGuard)
   @Permissions('assets:update')
   @ApiOperation({ summary: 'Update an existing asset' })
   @ApiBody({ type: UpdateAssetDto })
@@ -71,7 +67,6 @@ export class AssetsController {
   }
 
   @Delete('delete')
-  @UseGuards(ClerkAuthGuard)
   @Permissions('assets:delete')
   @ApiOperation({ summary: 'Delete an asset' })
   @ApiBody({ type: DeleteAssetDto })
@@ -82,7 +77,6 @@ export class AssetsController {
   }
 
   @Get('check-skuKey/:skuKey')
-  @UseGuards(ClerkAuthGuard)
   @Permissions('assets:check-sku')
   @ApiOperation({ summary: 'Check if an SKU Key exists' })
   @ApiParam({ name: 'skuKey', type: 'string', description: 'The SKU Key to check' })

@@ -1,24 +1,35 @@
 import { useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { useOrganization } from "@clerk/nextjs";
+import { useOrganization } from "../../hooks/useOrganization";
 import { request } from "@/helpers/request";
 import { useGetCategories } from "./useGetCategories";
 
 export const useAddCategoryHandler = () => {
   const { getToken } = useAuth();
-  const { organization } = useOrganization();
+  const { organization: organization } = useOrganization();
+
+  // Use Clerk organization first, then fallback to backend organization for OsirisAdmin
   const organizationId = organization?.id;
+
   const { categories, refetch: refetchCategories } = useGetCategories();
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [deleteCategoryLoading, setDeleteCategoryLoading] = useState(false);
 
   const handleAddCategory = async (categoryName: string) => {
     try {
-      if (!organizationId) return false;
+      if (!organizationId) {
+        console.error("No organization context available. Please ensure you're assigned to an organization.");
+        return false;
+      }
 
       setCategoriesLoading(true);
       const token = await getToken();
-      if (!token) return false;
+      if (!token) {
+        console.error("No authentication token available");
+        return false;
+      }
+
+      console.log("Creating category:", categoryName, "for organization:", organizationId);
 
       const response = await request(
         {
@@ -32,10 +43,13 @@ export const useAddCategoryHandler = () => {
       );
 
       if (response.success) {
+        console.log("Category created successfully");
         await refetchCategories();
         return true;
+      } else {
+        console.error("Failed to create category:", response);
+        return false;
       }
-      return false;
     } catch (error) {
       console.error("Error creating category:", error);
       return false;
@@ -46,18 +60,26 @@ export const useAddCategoryHandler = () => {
 
   const handleDeleteCategory = async (id: string) => {
     try {
-      if (!organizationId) return false;
+      if (!organizationId) {
+        console.error("No organization context available");
+        return false;
+      }
 
       setDeleteCategoryLoading(true);
       const token = await getToken();
-      if (!token) return false;
+      if (!token) {
+        console.error("No authentication token available");
+        return false;
+      }
 
       const response = await request(
         {
-          path: `/categories/${id}`,
+          path: "/categories/delete",
           method: "DELETE",
         },
-        {},
+        {
+          id: id,
+        },
         token
       );
 
@@ -80,5 +102,6 @@ export const useAddCategoryHandler = () => {
     categories: categories || [],
     categoriesLoading,
     deleteCategoryLoading,
+    organizationId, // Expose for debugging
   };
 };

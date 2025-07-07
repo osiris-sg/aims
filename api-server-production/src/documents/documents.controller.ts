@@ -5,6 +5,7 @@ import { CreateDocumentWithTimelineDto } from './dto/create-document-with-timeli
 import { GetDocumentDto } from './dto/get-documents';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Request } from 'express';
+import { Permissions } from 'src/auth/decorators/permissions.decorator';
 
 // Extend Request type to include userOrganization
 interface RequestWithOrganization extends Request {
@@ -19,6 +20,7 @@ export class DocumentsController {
   constructor(private readonly documentsService: DocumentsService) {}
 
   @Post('with-timeline')
+  @Permissions('documents:create-with-timeline')
   async createDocumentWithTimeline(@Body() dto: CreateDocumentWithTimelineDto, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -28,6 +30,7 @@ export class DocumentsController {
   }
 
   @Post('basic')
+  @Permissions('documents:create-basic')
   async createBasicDocument(@Body() body: { documentTemplateId: string; type: string; config?: any }, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -37,6 +40,7 @@ export class DocumentsController {
   }
 
   @Post()
+  @Permissions('documents:read')
   async getAllDocuments(@Req() req: RequestWithOrganization): Promise<GetDocumentDto[]> {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -46,6 +50,7 @@ export class DocumentsController {
   }
 
   @Get(':id')
+  @Permissions('documents:read-one')
   async getById(@Param('id') id: string, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -55,6 +60,7 @@ export class DocumentsController {
   }
 
   @Get('inventory/:inventoryId')
+  @Permissions('documents:read-by-inventory')
   async getByInventory(@Param('inventoryId') inventoryId: string, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -64,6 +70,7 @@ export class DocumentsController {
   }
 
   @Post('update')
+  @Permissions('documents:update')
   async updateDocument(@Body() updateDto: UpdateDocumentDto, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -73,6 +80,7 @@ export class DocumentsController {
   }
 
   @Delete('delete/:id')
+  @Permissions('documents:delete')
   async deleteDocument(@Param('id') id: string, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -82,6 +90,7 @@ export class DocumentsController {
   }
 
   @Get('asset/:assetId')
+  @Permissions('documents:read-by-asset')
   async getDocumentsByAsset(@Param('assetId') assetId: string, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -90,6 +99,7 @@ export class DocumentsController {
     return await this.documentsService.getDocumentsByAsset(assetId, organizationId);
   }
   @Post('asset/tag-template')
+  @Permissions('documents:tag-template-to-asset')
   async tagTemplateToAsset(@Body() body: { assetId: string; templateId: string }, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -99,6 +109,7 @@ export class DocumentsController {
   }
 
   @Delete('asset/untag-template')
+  @Permissions('documents:untag-template-from-asset')
   async untagTemplateFromAsset(@Body() body: { assetId: string; templateId: string }, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {

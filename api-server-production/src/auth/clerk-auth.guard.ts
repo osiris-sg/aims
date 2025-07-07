@@ -32,6 +32,19 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
+    // Check if user has OsirisAdmin role (global platform admin)
+    const osirisAdminRoles = await this.prisma.userRole.findMany({
+      where: {
+        userId: user.id,
+        isActive: true,
+      },
+      include: {
+        role: true,
+      },
+    });
+
+    const isOsirisAdmin = osirisAdminRoles.some((userRole) => userRole.role.name === 'osirisadmin');
+
     // Get user's organization
     const userOrg = await this.prisma.userOrganization.findFirst({
       where: {
@@ -43,17 +56,20 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
       },
     });
 
-    // For now, allow users without organization assignment (for development)
-    // In production, you might want to require organization assignment
-    if (!userOrg) {
-      console.warn(`User ${user.id} is not assigned to any organization`);
-      // You can either:
-      // 1. Throw an error: throw new ForbiddenException('User is not assigned to any organization');
-      // 2. Or allow access without organization context (current approach)
-      request.userOrganization = null;
+    // For OsirisAdmin, allow access without organization constraint for platform operations
+    if (isOsirisAdmin) {
+      // Still attach organization if they have one (for mixed operations)
+      request.userOrganization = userOrg?.organization || null;
+      request.isOsirisAdmin = true;
     } else {
-      // Attach organization to request for use in controllers
-      request.userOrganization = userOrg.organization;
+      // For regular users, require organization assignment
+      if (!userOrg) {
+        console.warn(`User ${user.id} is not assigned to any organization`);
+        request.userOrganization = null;
+      } else {
+        request.userOrganization = userOrg.organization;
+      }
+      request.isOsirisAdmin = false;
     }
 
     // Get required permissions from the route handler
@@ -64,29 +80,47 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
       return true;
     }
 
-    // If user has no organization, they can't have permissions
-    if (!userOrg) {
-      throw new ForbiddenException('User is not assigned to any organization');
-    }
+    let userRoles;
 
-    // Get user roles with permissions from database (scoped to organization)
-    const userRoles = await this.prisma.userRole.findMany({
-      where: {
-        userId: user.id,
-        organizationId: userOrg.organization.id,
-        isActive: true, // Only active roles
-      },
-      include: {
-        role: {
-          include: {
-            permissions: true,
+    if (isOsirisAdmin) {
+      // For OsirisAdmin, get all their roles (not organization-scoped)
+      userRoles = await this.prisma.userRole.findMany({
+        where: {
+          userId: user.id,
+          isActive: true,
+        },
+        include: {
+          role: {
+            include: {
+              permissions: true,
+            },
           },
         },
-      },
-    });
+      });
+    } else {
+      // For regular users, check organization-scoped roles
+      if (!userOrg) {
+        throw new ForbiddenException('User is not assigned to any organization');
+      }
+
+      userRoles = await this.prisma.userRole.findMany({
+        where: {
+          userId: user.id,
+          organizationId: userOrg.organization.id,
+          isActive: true,
+        },
+        include: {
+          role: {
+            include: {
+              permissions: true,
+            },
+          },
+        },
+      });
+    }
 
     if (userRoles.length === 0) {
-      throw new ForbiddenException('User has no assigned roles in this organization');
+      throw new ForbiddenException(isOsirisAdmin ? 'OsirisAdmin user has no assigned roles' : 'User has no assigned roles in this organization');
     }
 
     // Check if any of the user's roles has all the required permissions

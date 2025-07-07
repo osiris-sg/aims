@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { useOrganization, useAuth } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
+import { useOrganization } from "../../hooks/useOrganization";
 import { request } from "@/helpers/request";
 
 export const useGetCategories = () => {
@@ -11,7 +12,12 @@ export const useGetCategories = () => {
 
   const fetchCategories = async () => {
     const organizationId = organization?.id;
-    if (!organizationId) return;
+    console.log("Fetching categories for organization:", organizationId);
+
+    if (!organizationId) {
+      console.error("No organization ID available for fetching categories");
+      return;
+    }
 
     setIsLoading(true);
     setError(null);
@@ -19,25 +25,32 @@ export const useGetCategories = () => {
     try {
       const token = await getToken();
       if (!token) {
+        console.error("No authentication token available for categories");
         setError("Authentication token is required");
         return;
       }
 
+      console.log("Making GET request to /categories");
       const response = await request(
         {
           path: `/categories`,
           method: "GET",
         },
-        { organizationId },
+        {},
         token
       );
 
+      console.log("Categories response:", response);
+
       if (response.success) {
+        console.log("Categories loaded successfully:", response.data);
         setCategories(response.data);
       } else {
+        console.error("Failed to fetch categories:", response);
         setError(response.message || "Failed to fetch categories");
       }
     } catch (error) {
+      console.error("Error fetching categories:", error);
       const errorMessage = error instanceof Error ? error.message : "An error occurred while fetching categories";
       setError(errorMessage);
     } finally {

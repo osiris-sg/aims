@@ -18,11 +18,11 @@ interface RequestWithOrganization extends Request {
 }
 
 @Controller('users')
+@UseGuards(ClerkAuthGuard)
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Post(':userId/roles')
-  @UseGuards(ClerkAuthGuard)
   @Permissions('users:assign-role')
   assignRole(@Param('userId') userId: string, @Body() body: { roleId: string }, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
@@ -33,7 +33,6 @@ export class UsersController {
   }
 
   @Delete(':userId/roles/:roleId')
-  @UseGuards(ClerkAuthGuard)
   @Permissions('users:remove-role')
   removeRole(@Param('userId') userId: string, @Param('roleId') roleId: string, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
@@ -44,15 +43,13 @@ export class UsersController {
   }
 
   @Get(':userId/roles')
-  @UseGuards(ClerkAuthGuard)
   @Permissions('users:read-roles')
   getUserRoles(@Param('userId') userId: string) {
     return this.usersService.getUserRoles(userId);
   }
 
   @Post()
-  // @UseGuards(ClerkAuthGuard)
-  // @Permissions('users:create')
+  @Permissions('users:create')
   @ApiOperation({ summary: 'Create a new user with role assignments' })
   @ApiResponse({ status: 201, description: 'User created successfully' })
   @ApiResponse({ status: 400, description: 'Bad request' })
@@ -67,8 +64,7 @@ export class UsersController {
   }
 
   @Patch(':userId')
-  // @UseGuards(ClerkAuthGuard)
-  // @Permissions('users:update')
+  @Permissions('users:update')
   @ApiOperation({ summary: 'Update user information and role assignments' })
   @ApiResponse({ status: 200, description: 'User updated successfully' })
   @ApiResponse({ status: 400, description: 'Bad request' })
@@ -84,16 +80,14 @@ export class UsersController {
   }
 
   @Post('list')
-  // @UseGuards(ClerkAuthGuard)
-  // @Permissions('users:read')
+  @Permissions('users:read')
   @ApiBody({ type: GetUsersDto })
   getUsers(@Body() getUsersDto: GetUsersDto) {
     return this.usersService.getUsers(getUsersDto);
   }
 
   @Delete(':userId')
-  // @UseGuards(ClerkAuthGuard)
-  // @Permissions('users:delete')
+  @Permissions('users:delete')
   @ApiOperation({ summary: 'Delete a user and all their role associations' })
   @ApiResponse({ status: 200, description: 'User deleted successfully' })
   @ApiResponse({ status: 404, description: 'User not found' })

@@ -4,6 +4,7 @@ import { CreateProjectDto } from './dto/create-project.dto';
 import { GetProjectDto } from './dto/get-project.dto';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Request } from 'express';
+import { Permissions } from 'src/auth/decorators/permissions.decorator';
 
 // Extend Request type to include userOrganization
 interface RequestWithOrganization extends Request {
@@ -19,6 +20,7 @@ export class ProjectsController {
   constructor(private readonly projectsService: ProjectsService) {}
 
   @Get(':id')
+  @Permissions('projects:read-one')
   async getProjectById(@Param('id') id: string, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -27,6 +29,7 @@ export class ProjectsController {
     return this.projectsService.getProjectById(id, organizationId);
   }
   @Post()
+  @Permissions('projects:read')
   async getInventories(@Body() getProjectDto: GetProjectDto, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -36,6 +39,7 @@ export class ProjectsController {
   }
 
   @Post('create')
+  @Permissions('projects:create')
   async createProject(@Body() createProjectDto: CreateProjectDto, @Req() req: RequestWithOrganization) {
     console.log('Incoming createProject request body:', createProjectDto);
     try {
@@ -50,6 +54,7 @@ export class ProjectsController {
     }
   }
   @Post('create-by-name')
+  @Permissions('projects:create-by-name')
   async createProjectByName(@Body() body: { name: string }, @Req() req: RequestWithOrganization) {
     try {
       const organizationId = req.userOrganization?.id;
@@ -64,6 +69,7 @@ export class ProjectsController {
   }
 
   @Post(':id/assignments')
+  @Permissions('projects:add-assignments')
   async addAssignmentsToProject(@Param('id') projectId: string, @Body() body: { assignments: any[] }, @Req() req: RequestWithOrganization) {
     try {
       const organizationId = req.userOrganization?.id;
