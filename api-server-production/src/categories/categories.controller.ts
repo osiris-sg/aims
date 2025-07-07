@@ -23,6 +23,7 @@ export class CategoriesController {
   constructor(private readonly categoriesService: CategoriesService) {}
 
   @Post('create')
+  @Permissions('categories:create')
   async create(@Body() createCategoryDto: CreateCategoryDto, @Req() req: RequestWithOrganization) {
     console.log('Body:', createCategoryDto);
     const organizationId = req.userOrganization?.id;
@@ -33,6 +34,7 @@ export class CategoriesController {
   }
 
   @Get()
+  @Permissions('categories:read')
   async findAll(@Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -42,6 +44,7 @@ export class CategoriesController {
   }
 
   @Get(':id')
+  @Permissions('categories:read-one')
   async findOne(@Param('id') id: string, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -51,6 +54,7 @@ export class CategoriesController {
   }
 
   @Patch(':id')
+  @Permissions('categories:update')
   async update(@Param('id') id: string, @Body() updateCategoryDto: UpdateCategoryDto, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -60,6 +64,7 @@ export class CategoriesController {
   }
 
   @Delete('delete')
+  @Permissions('categories:delete')
   async deleteCategory(@Body() deleteCategoryDto: DeleteCategoryDto, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {

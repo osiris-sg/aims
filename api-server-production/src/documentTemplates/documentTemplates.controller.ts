@@ -6,6 +6,7 @@ import { UpdateDocumentTemplateDto } from './dto/update-documentTemplate.dto';
 import { DeleteDocumentTemplateDto } from './dto/delete-documentTemplate.dto';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Request } from 'express';
+import { Permissions } from 'src/auth/decorators/permissions.decorator';
 
 // Extend Request type to include userOrganization
 interface RequestWithOrganization extends Request {
@@ -21,6 +22,7 @@ export class DocumentTemplatesController {
   constructor(private readonly documentTemplatesService: DocumentTemplatesService) {}
 
   @Post()
+  @Permissions('documentTemplates:read')
   async getDocumentTemplates(@Body() getDocumentTemplateDto: GetDocumentTemplateDto, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -30,6 +32,7 @@ export class DocumentTemplatesController {
   }
 
   @Get(':id')
+  @Permissions('documentTemplates:read-one')
   getDocumentTemplateByID(@Param('id') id: string, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -39,6 +42,7 @@ export class DocumentTemplatesController {
   }
 
   @Post('create')
+  @Permissions('documentTemplates:create')
   async createDocumentTemplates(@Body() createDocumentTemplateDto: CreateDocumentTemplateDto, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -48,6 +52,7 @@ export class DocumentTemplatesController {
   }
 
   @Post('update')
+  @Permissions('documentTemplates:update')
   async updateDocumentTemplates(@Body() updateDocumentTemplateDto: UpdateDocumentTemplateDto, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -57,6 +62,7 @@ export class DocumentTemplatesController {
   }
 
   @Delete('delete')
+  @Permissions('documentTemplates:delete')
   async deleteDocumentTemplates(@Body() deleteDocumentTemplateDto: DeleteDocumentTemplateDto, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {

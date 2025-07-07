@@ -7,6 +7,7 @@ import { DeleteInventoryDto } from './dto/delete-inventory.dto';
 import { GenerateSkuDto } from './dto/generate-sku.dto';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Request } from 'express';
+import { Permissions } from 'src/auth/decorators/permissions.decorator';
 
 // Extend Request type to include userOrganization
 interface RequestWithOrganization extends Request {
@@ -22,6 +23,7 @@ export class InventoriesController {
   constructor(private readonly inventoriesService: InventoriesService) {}
 
   @Post()
+  @Permissions('inventories:read')
   async getInventories(@Body() getInventoryDto: GetInventoryDto, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -31,6 +33,7 @@ export class InventoriesController {
   }
 
   @Get(':id')
+  @Permissions('inventories:read-one')
   async getInventoryById(@Param('id') id: string, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -40,6 +43,7 @@ export class InventoriesController {
   }
 
   @Post('by-status')
+  @Permissions('inventories:read-by-status')
   async getInventoriesByStatus(@Req() req: RequestWithOrganization, @Body('status') status?: string) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -49,6 +53,7 @@ export class InventoriesController {
   }
 
   @Get('sku/:sku')
+  @Permissions('inventories:read-by-sku')
   async getInventoryBySku(@Param('sku') sku: string, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -58,6 +63,7 @@ export class InventoriesController {
   }
 
   @Get('/asset/:assetId')
+  @Permissions('inventories:read-by-asset')
   async getInventoriesByAsset(@Param('assetId') assetId: string, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -67,6 +73,7 @@ export class InventoriesController {
   }
 
   @Post('create')
+  @Permissions('inventories:create')
   async createInventories(@Body() createInventoryDto: CreateInventoryDto, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -76,6 +83,7 @@ export class InventoriesController {
   }
 
   @Put('update')
+  @Permissions('inventories:update')
   async updateInventories(@Body() updateInventoryDto: UpdateInventoryDto, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -85,6 +93,7 @@ export class InventoriesController {
   }
 
   @Delete('delete')
+  @Permissions('inventories:delete')
   async deleteInventories(@Body() deleteInventoryDto: DeleteInventoryDto, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -94,6 +103,7 @@ export class InventoriesController {
   }
 
   @Post('generate-sku')
+  @Permissions('inventories:generate-sku')
   async generateSku(@Body() generateSkuDto: GenerateSkuDto, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -103,6 +113,7 @@ export class InventoriesController {
   }
 
   @Get('qrcode/:sku')
+  @Permissions('inventories:generate-qrcode')
   async getQRCode(@Param('sku') sku: string, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -112,6 +123,7 @@ export class InventoriesController {
   }
 
   @Post('by-ids')
+  @Permissions('inventories:read-by-ids')
   async getByIds(@Body() getInventoriesByIdsDto: any, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {

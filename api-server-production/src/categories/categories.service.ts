@@ -10,6 +10,7 @@ export class CategoriesService {
 
   async create(createCategoryDto: CreateCategoryDto, organizationId: string) {
     console.log('Create Category DTO:', createCategoryDto);
+    console.log('Organization ID:', organizationId);
     try {
       return await this.prisma.category.create({
         data: {
