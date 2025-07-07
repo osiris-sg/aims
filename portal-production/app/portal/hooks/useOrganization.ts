@@ -45,10 +45,12 @@ export function useOrganization() {
           token
         );
 
-        if (response.success && response.data) {
-          setOrganization(response.data);
+        console.log("response for user org", response);
+
+        if (response.success && response.data?.success && response.data.data) {
+          setOrganization(response.data.data);
         } else {
-          setError(response.message || "Failed to fetch user organization");
+          setError(response.data?.message || response.message || "Failed to fetch user organization");
           setOrganization(null);
         }
       } catch (error) {
