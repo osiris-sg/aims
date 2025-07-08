@@ -23,7 +23,15 @@ export const ROUTES = {
 
   PERMISSIONS: "/portal/user-management/permissions",
   USERS: "/portal/user-management/users",
-  ORGANIZATIONS: "/portal/user-management/organizations",
+  ORGANIZATIONS: "/portal/admin/organizations",
+
+  // Admin routes
+  ADMIN_ASSETS: "/portal/admin/assets",
+  ADMIN_INVENTORY: "/portal/admin/inventory",
+  ADMIN_CUSTOMERS: "/portal/admin/customers",
+  ADMIN_DOCUMENTS: "/portal/admin/documents",
+  ADMIN_PROJECTS: "/portal/admin/projects",
+
   VIEW_PERMISSIONS: "/portal/permissions/view",
   EDIT_PERMISSIONS: "/portal/permissions/edit",
   CREATE_PERMISSIONS: "/portal/permissions/create",

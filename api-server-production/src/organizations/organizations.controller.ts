@@ -16,12 +16,11 @@ interface RequestWithOrganization extends Request {
 }
 
 @Controller('organizations')
-@UseGuards(ClerkAuthGuard)
+// @UseGuards(ClerkAuthGuard)
 export class OrganizationsController {
   constructor(private readonly organizationsService: OrganizationsService) {}
 
   @Get('user')
-  @Permissions('organizations:read-user')
   async getUserOrganization(@Req() req: RequestWithOrganization) {
     const organization = req.userOrganization;
 
@@ -41,6 +40,7 @@ export class OrganizationsController {
   }
 
   @Post()
+  @UseGuards(ClerkAuthGuard)
   @Permissions('organizations:create')
   async createOrganization(@Body() createOrganizationDto: CreateOrganizationDto) {
     try {
@@ -60,6 +60,7 @@ export class OrganizationsController {
   }
 
   @Get()
+  @UseGuards(ClerkAuthGuard)
   @Permissions('organizations:read')
   async getOrganizations() {
     try {
@@ -79,6 +80,7 @@ export class OrganizationsController {
   }
 
   @Get(':id')
+  @UseGuards(ClerkAuthGuard)
   @Permissions('organizations:read-one')
   async getOrganizationById(@Param('id') id: string) {
     try {
@@ -105,6 +107,7 @@ export class OrganizationsController {
   }
 
   @Patch(':id')
+  @UseGuards(ClerkAuthGuard)
   @Permissions('organizations:update')
   async updateOrganization(@Param('id') id: string, @Body() updateOrganizationDto: UpdateOrganizationDto) {
     try {
@@ -124,6 +127,7 @@ export class OrganizationsController {
   }
 
   @Delete(':id')
+  @UseGuards(ClerkAuthGuard)
   @Permissions('organizations:delete')
   async deleteOrganization(@Param('id') id: string) {
     try {

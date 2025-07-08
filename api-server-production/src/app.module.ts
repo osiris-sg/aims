@@ -22,6 +22,7 @@ import { UsersModule } from './users/users.module';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ProjectsModule } from './projects/projects.module';
 import { OrganizationsModule } from './organizations/organizations.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { OrganizationsModule } from './organizations/organizations.module';
     UsersModule,
     ProjectsModule,
     OrganizationsModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [
