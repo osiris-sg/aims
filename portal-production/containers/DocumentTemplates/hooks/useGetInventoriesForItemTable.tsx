@@ -8,7 +8,7 @@ import { useAuth } from "@clerk/nextjs";
 import { documentTemplateActions } from "@/containers/DocumentsTemplateView/slice";
 import { selectDocument, selectDocumentTemplatesError, selectDocumentTemplatesLoading, selectInventoriesForDocument } from "@/containers/DocumentsTemplateView/slice/selectors";
 import { useParams } from "next/navigation";
-
+import { request } from "@/helpers/request";
 export const useGetInventoriesForItemTable = () => {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
@@ -35,6 +35,24 @@ export const useGetInventoriesForItemTable = () => {
     [organizationId]
   );
 
+  const fetchAllInventories = async () => {
+    const token = await getToken();
+    if (!token || !organizationId) return [];
+
+    const inventoryResponse = await request(
+      {
+        path: "/inventories",
+        method: "POST",
+      },
+      {
+        status: "all",
+      },
+      token
+    );
+
+    return inventoryResponse?.data || [];
+  };
+
   const fetchInventoriesByIds = useCallback(async () => {
     if (!inventoryIds?.length) return;
     const token = await getToken();
@@ -49,6 +67,8 @@ export const useGetInventoriesForItemTable = () => {
       fetchInventoriesByStatus("rental");
     } else if (type === "DO") {
       fetchInventoriesByStatus("instock");
+    } else if (type === "TI") {
+      fetchAllInventories();
     }
   }, [organizationId, type, fetchInventoriesByStatus, fetchInventoriesByIds]);
 

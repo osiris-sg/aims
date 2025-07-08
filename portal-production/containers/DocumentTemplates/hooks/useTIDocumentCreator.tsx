@@ -36,8 +36,6 @@ export default function useTIDocumentCreator() {
       deliveryTo: "",
       gstRegNo: "",
       date: "",
-      // dueDate: "",
-      // notes: "hi",
     }),
     [scannedInventoryId]
   );

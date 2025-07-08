@@ -79,7 +79,7 @@ export default function useTITemplateHandler() {
     {
       title: "Document Fields",
       items: [
-        { label: "Invoice No.", name: "doNo" },
+        { label: "DO No.", name: "doNo" },
         { label: "Ref No.", name: "referenceNo" },
         { label: "PO No.", name: "poNo" },
         { label: "Customer", name: "customer" },
