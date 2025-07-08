@@ -1,10 +1,27 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
 
+interface Document {
+  id: string;
+  type: string;
+  name?: string;
+  createdAt: string;
+  updatedAt: string;
+  organization: {
+    id: string;
+    name: string;
+  };
+  [key: string]: any; // Allow for additional properties
+}
+
 export function useGetDocuments() {
   const { getToken } = useAuth();
 
-  const [documents, setDocuments] = useState({
+  const [documents, setDocuments] = useState<{
+    docs: Document[];
+    totalDocuments: number;
+    totalPagesCount: number;
+  }>({
     docs: [],
     totalDocuments: 0,
     totalPagesCount: 0,
@@ -33,12 +50,12 @@ export function useGetDocuments() {
       if (!response.ok) throw new Error("Failed to fetch documents");
 
       const data = await response.json();
-      let documentsArray = Array.isArray(data) ? data : [];
+      let documentsArray: Document[] = Array.isArray(data) ? data : [];
 
       // Apply filtering and pagination
       let filtered = documentsArray;
       if (search) {
-        filtered = filtered.filter((doc: any) => doc.type?.toLowerCase().includes(search.toLowerCase()) || doc.organization?.name?.toLowerCase().includes(search.toLowerCase()));
+        filtered = filtered.filter((doc: Document) => doc.type?.toLowerCase().includes(search.toLowerCase()) || doc.organization?.name?.toLowerCase().includes(search.toLowerCase()));
       }
 
       const totalDocuments = filtered.length;
