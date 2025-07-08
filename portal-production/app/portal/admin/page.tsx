@@ -48,6 +48,11 @@ export default function AdminDashboard() {
       setLoading(true);
       const token = await getToken();
 
+      if (!token) {
+        console.error("No authentication token available");
+        return;
+      }
+
       const [statsResponse, orgsResponse] = await Promise.all([request({ path: "/admin/dashboard/stats", method: "GET" }, {}, token), request({ path: "/admin/organizations", method: "GET" }, {}, token)]);
 
       if (statsResponse.success) {
