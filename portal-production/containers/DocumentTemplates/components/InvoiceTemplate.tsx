@@ -121,7 +121,7 @@ export default function InvoiceTemplate(props: Props) {
       <DocumentNameHeader
         primaryActionLoading={isLoading}
         secondaryActionLoading={isDocumentCreationloading}
-        title="Invoice"
+        title="Delivery Order"
         description="This document does not support uploading of template"
         viewMode={isViewMode}
         toggleViewMode={(value) => toggleViewMode(value)}
@@ -165,7 +165,7 @@ export default function InvoiceTemplate(props: Props) {
                     <Grid2 size={6} />
                     <Grid2 size={6}>
                       <Typography variant="h4" sx={{ py: "var(--double-gap)" }}>
-                        Invoice
+                        Delivery Order
                       </Typography>
                     </Grid2>
                   </Grid2>
@@ -203,8 +203,8 @@ export default function InvoiceTemplate(props: Props) {
                       <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--half-gap)" }}>
                         <FormInputBox control={control} name="gstRegNo" label="GST REG. No." placeHolder="Enter GST Reg No" size="small" labelArriangment={isViewMode === true ? "horizontal" : "vertical"} viewMode={isViewMode} />
                         <FormInputBox control={control} name="date" label="Date" type="date" size="small" labelArriangment={isViewMode === true ? "horizontal" : "vertical"} viewMode={isViewMode} />
-                        {watch("doNo") && <FormInputBox control={control} name="doNo" label="Invoice No." placeHolder="Enter Invoice No" size="small" labelArriangment={isViewMode === true ? "horizontal" : "vertical"} viewMode={isViewMode} />}
-                        {watch("referenceNo") && <FormInputBox control={control} name="referenceNo" label="Ref. No." placeHolder="Enter Reference No" size="small" labelArriangment={isViewMode === true ? "horizontal" : "vertical"} viewMode={isViewMode} />}
+                        {watch("doNo") && <FormInputBox control={control} name="doNo" label="DO No." placeHolder="Enter Delivery Order No" size="small" labelArriangment={isViewMode === true ? "horizontal" : "vertical"} viewMode={isViewMode} />}
+                        {watch("referenceNo") && <FormInputBox control={control} name="referenceNo" label="Ref. No." placeHolder="Enter Our Reference No" size="small" labelArriangment={isViewMode === true ? "horizontal" : "vertical"} viewMode={isViewMode} />}
                         {watch("poNo") && <FormInputBox control={control} name="poNo" label="Your PO No." placeHolder="Enter PO No" size="small" labelArriangment={isViewMode === true ? "horizontal" : "vertical"} viewMode={isViewMode} />}
                       </Box>
                     </Grid2>
@@ -221,12 +221,20 @@ export default function InvoiceTemplate(props: Props) {
                       </Button>
                     </Box>
                   )}
-                  {/* <Grid2 size={6}>
-                    <FormInputBox control={control} name="dueDate" label="Due Date" type="date" size="small" labelArriangment={isViewMode === true ? "horizontal" : "vertical"} viewMode={isViewMode} />
+                  <Grid2 container spacing={1} mt={4}>
+                    <Grid2 size={6}>
+                      <Typography variant="body1">For {companyName}</Typography>
+                      <SignatureDialog label="company" name="signature.company" viewMode={isViewMode} control={control} />
+                      <Divider sx={{ borderBottomWidth: 2, borderColor: "black", my: 2, width: "260px", mx: "20px" }} />
+                    </Grid2>
+                    <Grid2 size={6}>
+                      <Typography variant="body1">Goods Received in Good Order & Condition</Typography>
+                      <SignatureDialog label="customer" name="signature.customer" viewMode={isViewMode} control={control} />
+                      <Divider sx={{ borderBottomWidth: 2, borderColor: "black", my: 2, width: "260px", mx: "20px" }} />
+                      <Typography variant="body1">Customer&apos;s Signature & Company Stamp </Typography>
+                      <Typography variant="body1">Date:</Typography>
+                    </Grid2>
                   </Grid2>
-                  <Grid2 size={6}>
-                    <FormInputBox control={control} name="notes" label="Notes" placeHolder="Enter additional notes" multiline rows={4} size="small" labelArriangment={isViewMode === true ? "horizontal" : "vertical"} viewMode={isViewMode} />
-                  </Grid2> */}
                 </Box>
               </form>
             )}
