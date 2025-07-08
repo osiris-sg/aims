@@ -104,7 +104,7 @@ export default function SideBarContent() {
           </ListItem>
           <Collapse in={openDocuments} timeout="auto" unmountOnExit>
             <List component="div" disablePadding>
-              <ListItemButton sx={{ pl: 4 }} component={Link} href={`${mainListItems[3].path}`}>
+              <ListItemButton sx={{ pl: 4 }} component={Link} href={ROUTES.DOCUMENTS}>
                 <ListItemText primary="All Documents" />
               </ListItemButton>
               <ListItemButton sx={{ pl: 4 }} component={Link} href="/portal/documents/templates">
