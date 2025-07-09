@@ -7,6 +7,7 @@ import FormInputBox from "@/form-components/FormInputBox";
 import { Control, FieldValues } from "react-hook-form";
 import FormSelect from "@/form-components/FormSelect";
 import DescriptionCell from "./useDescriptionCell";
+import PriceCell from "./usePriceCell";
 import { useGetInventoriesForItemTable } from "./useGetInventoriesForItemTable";
 import { useSearchParams } from "next/navigation";
 
@@ -54,6 +55,25 @@ export default function useTemplateTableHeader(props: Props) {
         header: "Quantity",
         cell: ({ row }: { row: any }) => (
           <FormInputBox disabled control={control} name={`items.${row.index}.quantity`} placeHolder="Choose item" size="small" labelArriangment={viewMode ? "horizontal" : "vertical"} viewMode={viewMode} key={`quantity-input-${row.id}-${control._formValues?.items?.[row.index]?.quantity ?? ""}`} />
+        ),
+      },
+      {
+        accessorKey: "unitPrice",
+        header: "Unit Price",
+        cell: ({ row }: { row: any }) => <PriceCell rowIndex={row.index} control={control} setValue={setValue} viewMode={viewMode} rentedInventories={inventoriesForDocument} />,
+      },
+      {
+        accessorKey: "tax",
+        header: "Tax",
+        cell: ({ row }: { row: any }) => (
+          <FormInputBox disabled control={control} name={`items.${row.index}.tax`} placeHolder="Enter tax" size="small" labelArriangment={viewMode ? "horizontal" : "vertical"} viewMode={viewMode} key={`tax-input-${row.id}-${control._formValues?.items?.[row.index]?.tax ?? ""}`} />
+        ),
+      },
+      {
+        accessorKey: "amount",
+        header: "Amount",
+        cell: ({ row }: { row: any }) => (
+          <FormInputBox disabled control={control} name={`items.${row.index}.amount`} placeHolder="Enter amount" size="small" labelArriangment={viewMode ? "horizontal" : "vertical"} viewMode={viewMode} key={`amount-input-${row.id}-${control._formValues?.items?.[row.index]?.amount ?? ""}`} />
         ),
       },
       ...(!viewMode

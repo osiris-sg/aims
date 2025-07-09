@@ -190,7 +190,18 @@ export default function InvoiceTemplate(props: Props) {
                         </Grid2>
                         <Grid2 size={12}>
                           <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--half-gap)" }}>
-                            <FormSelect control={control} name="projectId" label="Project" placeHolder="Choose a project..." addItem={true} menuTitle="Choose a project" menuItems={projects.map((project) => ({ label: project.name, value: project.id }))} required handleAddItem={handleAddProject} />
+                            <FormSelect
+                              control={control}
+                              name="projectId"
+                              label="Project"
+                              placeHolder="Choose a project..."
+                              addItem={true}
+                              menuTitle="Choose a project"
+                              menuItems={projects.map((project) => ({ label: project.name, value: project.id }))}
+                              handleAddItem={handleAddProject}
+                              labelArriangment={isViewMode ? "horizontal" : "vertical"}
+                              viewMode={isViewMode}
+                            />
 
                             {watch("attention.name") && <FormInputBox control={control} name="attention.name" label="Attention" placeHolder="Enter Attention" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
                             {watch("attention.phoneNumber") && <FormInputBox control={control} name="attention.phoneNumber" label="Mobile" placeHolder="Enter Mobile Number" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
@@ -214,14 +225,25 @@ export default function InvoiceTemplate(props: Props) {
                   </Box>
                   {itemsError && <Alert severity="error">{`${itemsError}`}</Alert>}
 
-                  {!isViewMode && !isEditPath && (
+                  <>
                     <Box sx={{ display: "flex", justifyContent: "flex-start", mt: 1, mb: 5 }}>
                       <Button variant="contained" color="primary" onClick={() => addNewLine()} size="small">
                         Add Item
                       </Button>
                     </Box>
-                  )}
-                  <Grid2 container spacing={1} mt={4}>
+                    <Grid2 container spacing={2}>
+                      <Grid2 size={6}>
+                        <FormInputBox control={control} name="dueDate" label="Due Date" type="date" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />
+                      </Grid2>
+                    </Grid2>
+                    <Grid2 container spacing={2}>
+                      <Grid2 size={6}>
+                        <FormInputBox control={control} name="note" label="Note" placeHolder="Enter note..." size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />
+                      </Grid2>
+                    </Grid2>
+                  </>
+
+                  {/* <Grid2 container spacing={1} mt={4}>
                     <Grid2 size={6}>
                       <Typography variant="body1">For {companyName}</Typography>
                       <SignatureDialog label="company" name="signature.company" viewMode={isViewMode} control={control} />
@@ -234,7 +256,7 @@ export default function InvoiceTemplate(props: Props) {
                       <Typography variant="body1">Customer&apos;s Signature & Company Stamp </Typography>
                       <Typography variant="body1">Date:</Typography>
                     </Grid2>
-                  </Grid2>
+                  </Grid2> */}
                 </Box>
               </form>
             )}

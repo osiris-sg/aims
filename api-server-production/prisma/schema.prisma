@@ -31,6 +31,7 @@ model Asset {
   skuKey          String
   categoryId      String             @db.Uuid
   description     String?
+  price           Float?            // Optional price field
   image           String?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
