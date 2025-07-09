@@ -240,17 +240,16 @@ export default function InvoiceTemplate(props: Props) {
                         <Typography variant="body2">SUBTOTAL</Typography>
                         <Typography fontWeight="bold">SGD 20.00</Typography>
                       </Box>
-                      <Box sx={{ display: "flex", justifyContent: "space-between", color: "gray" }}>
-                        <Typography variant="body2">DISCOUNT</Typography>
-                        <Typography>- SGD 0.00</Typography>
-                      </Box>
+
                       <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                         <Typography variant="body2">TOTAL TAX</Typography>
                         <Typography>SGD 1.80</Typography>
                       </Box>
                       <Divider />
                       <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                        <Typography variant="body2" fontWeight="bold">TOTAL AMOUNT</Typography>
+                        <Typography variant="body2" fontWeight="bold">
+                          TOTAL AMOUNT
+                        </Typography>
                         <Typography fontWeight="bold">SGD 21.80</Typography>
                       </Box>
                     </Box>
