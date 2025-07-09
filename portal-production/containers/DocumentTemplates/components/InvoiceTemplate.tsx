@@ -121,7 +121,7 @@ export default function InvoiceTemplate(props: Props) {
       <DocumentNameHeader
         primaryActionLoading={isLoading}
         secondaryActionLoading={isDocumentCreationloading}
-        title="Delivery Order"
+        title="Invoice"
         description="This document does not support uploading of template"
         viewMode={isViewMode}
         toggleViewMode={(value) => toggleViewMode(value)}
@@ -165,7 +165,7 @@ export default function InvoiceTemplate(props: Props) {
                     <Grid2 size={6} />
                     <Grid2 size={6}>
                       <Typography variant="h4" sx={{ py: "var(--double-gap)" }}>
-                        Delivery Order
+                        Invoice
                       </Typography>
                     </Grid2>
                   </Grid2>

@@ -29,6 +29,7 @@ export default function useTemplateTableHeader(props: Props) {
         accessorKey: "item",
         header: "Item",
         cell: ({ row }: { row: any }) => {
+          console.log("Frfrfrfr", inventoriesForDocument);
           const selectedIds = [...(control._formValues.items?.map((item: any) => item.inventoryItemId).filter((id: string | undefined) => !!id && id !== row.original?.inventoryItemId) ?? [])];
 
           if (scannedInventoryId && !selectedIds.includes(scannedInventoryId)) {
