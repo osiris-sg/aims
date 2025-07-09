@@ -65,9 +65,38 @@ export default function useTemplateTableHeader(props: Props) {
       {
         accessorKey: "tax",
         header: "Tax",
-        cell: ({ row }: { row: any }) => (
-          <FormInputBox disabled control={control} name={`items.${row.index}.tax`} placeHolder="Enter tax" size="small" labelArriangment={viewMode ? "horizontal" : "vertical"} viewMode={viewMode} key={`tax-input-${row.id}-${control._formValues?.items?.[row.index]?.tax ?? ""}`} />
-        ),
+        cell: ({ row }: { row: any }) => {
+          const item = control._formValues?.items?.[row.index];
+          if (!item?.tax) {
+            setValue(`items.${row.index}.tax`, "0");
+          }
+          const taxValue = item?.tax;
+          const isCustom = taxValue === "custom";
+
+          const menuItems = [
+            { label: "No tax", value: "0" },
+            { label: "GST (9%)", value: "9" },
+            { label: "GST (10%)", value: "10" },
+            { label: "Custom", value: "custom" },
+          ];
+
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+              <FormSelect
+                control={control}
+                name={`items.${row.index}.tax`}
+                placeHolder="Select tax"
+                size="small"
+                labelArriangment={viewMode ? "horizontal" : "vertical"}
+                viewMode={viewMode}
+                menuTitle="Choose tax rate"
+                menuItems={menuItems}
+                key={`tax-select-${row.id}-${control._formValues?.items?.[row.index]?.tax ?? ""}`}
+              />
+              {isCustom && <FormInputBox control={control} name={`items.${row.index}.customTax`} placeHolder="Enter custom tax %" size="small" labelArriangment="vertical" viewMode={viewMode} />}
+            </div>
+          );
+        },
       },
       {
         accessorKey: "amount",
