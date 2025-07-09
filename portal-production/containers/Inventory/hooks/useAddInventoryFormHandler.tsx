@@ -67,7 +67,7 @@ export default function useAddInventoryFormHandler() {
       const fetchSkuRange = async () => {
         try {
           const token = await getToken();
-          dispatch(inventoryActions.generateSkuRange({ assetId: selectedAsset, quantity: parseInt(`${quantity}`), token, organizationId: organization?.id }));
+          dispatch(inventoryActions.generateSkuRange({ assetId: selectedAsset, quantity: parseInt(`${quantity}`), token }));
         } catch (error) {
           console.error("Error fetching SKU range:", error);
         }

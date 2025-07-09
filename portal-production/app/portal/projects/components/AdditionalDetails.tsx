@@ -53,8 +53,8 @@ export default function AdditionalDetails() {
   const handleItemChange = (e: any) => {
     const itemId = e.target.value;
     setSelectedItem(itemId);
-    const item = inventoryItems.find((i) => i.id === itemId);
-    if (item && !selectedItems.some((i) => i.id === item.id)) {
+    const item = inventoryItems.find((i: any) => i.id === itemId);
+    if (item && !selectedItems.some((i: any) => i.id === item.id)) {
       const newItem = {
         id: item.sku,
         status: "reserved",
@@ -97,7 +97,7 @@ export default function AdditionalDetails() {
 
         return (
           <Box sx={{ minWidth: 150 }}>
-            <FormDatePicker control={control} name={`assignments.${selectedItems.findIndex((item) => item.id === row.original.id)}.startDate`} defaultValue={row.original.startDate || null} size="small" />
+            <FormDatePicker control={control} name={`assignments.${selectedItems.findIndex((item: any) => item.id === row.original.id)}.startDate`} defaultValue={row.original.startDate || null} size="small" />
           </Box>
         );
       },
@@ -113,7 +113,7 @@ export default function AdditionalDetails() {
 
         return (
           <Box sx={{ minWidth: 150 }}>
-            <FormDatePicker control={control} name={`assignments.${selectedItems.findIndex((item) => item.id === row.original.id)}.endDate`} defaultValue={row.original.endDate || null} size="small" />
+            <FormDatePicker control={control} name={`assignments.${selectedItems.findIndex((item: any) => item.id === row.original.id)}.endDate`} defaultValue={row.original.endDate || null} size="small" />
           </Box>
         );
       },
@@ -171,8 +171,8 @@ export default function AdditionalDetails() {
           <Skeleton variant="rectangular" width="100%" height={56} />
         ) : (
           <Select value={selectedItem} label="Item" onChange={handleItemChange}>
-            {inventoryItems.map((item) => (
-              <MenuItem key={item.id} value={item.id} disabled={selectedItems.some((i) => i.id === item.sku)}>
+            {inventoryItems.map((item: any) => (
+              <MenuItem key={item.id} value={item.id} disabled={selectedItems.some((i: any) => i.id === item.sku)}>
                 {item.sku}
               </MenuItem>
             ))}

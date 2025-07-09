@@ -30,7 +30,7 @@ export default function useGetInventoryByAsset(assetId: string) {
         return { inventories: [], statusCounts: {} };
       }
 
-      const filteredInventories = assetInventoryResponse.data.inventories?.filter((inv) => inv.status?.toLowerCase() === "instock") || [];
+      const filteredInventories = assetInventoryResponse.data.inventories?.filter((inv: any) => inv.status?.toLowerCase() === "instock") || [];
 
       return {
         inventories: filteredInventories,

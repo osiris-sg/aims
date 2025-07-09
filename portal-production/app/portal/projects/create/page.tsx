@@ -16,7 +16,7 @@ import AddAssetSuccess from "../components/AddAssetSuccess";
 export default function AddAssetPage() {
   const theme = useTheme();
   const router = useRouter();
-  const { activeStep, handleNext, handleBack, methods, handleSubmit, onSubmit, isAssetUpdating, isSkuCheckInProgress, isSkuKeyAvailable, error, isEditMode } = useAddProjectFormHandler();
+  const { activeStep, handleNext, handleBack, methods, handleSubmit, isAssetUpdating, isSkuCheckInProgress, isSkuKeyAvailable, error, isEditMode } = useAddProjectFormHandler();
 
   const steps = isEditMode ? ["Edit Project", "Add Items (Optional)", "Confirm Changes"] : ["Project Creation", "Add Items (Optional)", "Review"];
 
@@ -125,7 +125,7 @@ export default function AddAssetPage() {
               </Button>
             )}
             {activeStep === 2 && (
-              <Button variant="contained" disabled={isAssetUpdating} onClick={handleSubmit(onSubmit)}>
+              <Button variant="contained" disabled={isAssetUpdating} onClick={handleSubmit()}>
                 {isAssetUpdating ? (isEditMode ? "Saving..." : "Creating...") : isEditMode ? "Save Changes" : "Submit"}
               </Button>
             )}

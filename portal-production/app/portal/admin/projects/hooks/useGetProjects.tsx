@@ -1,10 +1,27 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
 
+interface Project {
+  id: string;
+  name: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  organization: {
+    id: string;
+    name: string;
+  };
+  [key: string]: any; // Allow for additional properties
+}
+
 export function useGetProjects() {
   const { getToken } = useAuth();
 
-  const [projects, setProjects] = useState({
+  const [projects, setProjects] = useState<{
+    docs: Project[];
+    totalDocuments: number;
+    totalPagesCount: number;
+  }>({
     docs: [],
     totalDocuments: 0,
     totalPagesCount: 0,
@@ -33,12 +50,12 @@ export function useGetProjects() {
       if (!response.ok) throw new Error("Failed to fetch projects");
 
       const data = await response.json();
-      let projectsArray = Array.isArray(data) ? data : [];
+      let projectsArray: Project[] = Array.isArray(data) ? data : [];
 
       // Apply filtering and pagination
       let filtered = projectsArray;
       if (search) {
-        filtered = filtered.filter((project: any) => project.name?.toLowerCase().includes(search.toLowerCase()) || project.organization?.name?.toLowerCase().includes(search.toLowerCase()));
+        filtered = filtered.filter((project: Project) => project.name?.toLowerCase().includes(search.toLowerCase()) || project.organization?.name?.toLowerCase().includes(search.toLowerCase()));
       }
 
       const totalDocuments = filtered.length;

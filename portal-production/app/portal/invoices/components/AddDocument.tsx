@@ -1,4 +1,5 @@
 import FormInputBox from "@/form-components/FormInputBox";
+import FormTextArea from "@/form-components/FormTextArea";
 import { Drawer, Typography, Stack, Button, useTheme } from "@mui/material";
 import { useForm } from "react-hook-form";
 import { useAuth } from "@clerk/nextjs";
@@ -63,7 +64,7 @@ export default function AddDocument({ open, onClose, onSuccess }: AddDocumentPro
             <FormInputBox control={control} name="name" label="Name" placeHolder="Enter document name" />
             <FormInputBox control={control} name="status" label="Status" placeHolder="Enter document status" />
             <FormInputBox control={control} name="category" label="Category" placeHolder="Enter document category" />
-            <FormInputBox control={control} name="content" label="Content" placeHolder="Enter document content" multiline rows={4} />
+            <FormTextArea control={control} name="content" label="Content" placeHolder="Enter document content" rows={4} />
           </Stack>
           <Stack
             direction="row"

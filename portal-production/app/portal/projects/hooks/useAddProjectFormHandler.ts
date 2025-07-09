@@ -70,8 +70,8 @@ export const useAddProjectFormHandler = () => {
     defaultValues: {
       name: "",
       customerId: "",
-      startDate: "",
-      endDate: "",
+      startDate: new Date(),
+      endDate: new Date(),
       status: "pending",
       assignments: [],
     },
@@ -92,7 +92,7 @@ export const useAddProjectFormHandler = () => {
     const projectId = searchParams.get("id");
     if (projectId) {
       setIsEditMode(true);
-      fetchProject(projectId); // Uncomment if you need project fetching
+      // fetchProject(projectId); // TODO: Implement project fetching when needed
     }
   }, [searchParams]);
 
@@ -115,13 +115,11 @@ export const useAddProjectFormHandler = () => {
         setAsset(response.data);
         methods.reset({
           name: response.data.name,
-          skuKey: response.data.skuKey,
-          categoryId: response.data.categoryId,
-          status: response.data.status,
-          description: response.data.description || "",
-          location: response.data.location || "",
-          notes: response.data.notes || "",
-          image: response.data.image,
+          customerId: response.data.customerId || "",
+          startDate: response.data.startDate ? new Date(response.data.startDate) : new Date(),
+          endDate: response.data.endDate ? new Date(response.data.endDate) : new Date(),
+          status: response.data.status || "pending",
+          assignments: response.data.assignments || [],
         });
       }
     } catch (error) {

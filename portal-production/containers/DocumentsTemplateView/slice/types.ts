@@ -193,6 +193,7 @@ export interface GetInventoriesPayload {
 export interface GetInventoriesByStatusPayload {
   token: string | null;
   status: string;
+  organizationId: string;
 }
 export interface CreateDocumentWithTimelineSuccessPayload {
   document: Doc;

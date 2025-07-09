@@ -127,8 +127,8 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
   const handleItemChange = (e: any) => {
     const itemId = e.target.value;
     setSelectedItem(itemId);
-    const item = inventoryItems.find((i) => i.id === itemId);
-    if (item && !selectedItems.some((i) => i.id === item.id)) {
+    const item = inventoryItems.find((i: any) => i.id === itemId);
+    if (item && !selectedItems.some((i: any) => i.id === item.id)) {
       const newItem = {
         id: item.id,
         sku: item.sku,
@@ -139,7 +139,7 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
       console.log("Adding item:", newItem);
       setSelectedItems((prev) => [...prev, newItem]);
       setValue("assignments", [
-        ...selectedItems.map((i) => ({
+        ...selectedItems.map((i: any) => ({
           inventoryId: i.id,
           skuKey: i.id,
           startDate: i.startDate,
@@ -267,8 +267,8 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
                         <Skeleton variant="rectangular" width="100%" height={56} />
                       ) : (
                         <Select value={selectedItem} label="Item" onChange={handleItemChange}>
-                          {inventoryItems.map((item) => (
-                            <MenuItem key={item.id} value={item.id} disabled={selectedItems.some((i) => i.id === item.sku)}>
+                          {inventoryItems.map((item: any) => (
+                            <MenuItem key={item.id} value={item.id} disabled={selectedItems.some((i: any) => i.id === item.sku)}>
                               {item.sku}
                             </MenuItem>
                           ))}

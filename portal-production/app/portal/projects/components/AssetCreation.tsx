@@ -22,8 +22,8 @@ export default function ProjectCreation() {
   const handleCloseDrawer = (newCustomerId?: string) => {
     setDrawerOpen(false);
     if (newCustomerId) {
-      setSelectedCustomerId(newCustomerId.id);
-      setValue("customerId", newCustomerId.id); // ✅ force update the form field
+      setSelectedCustomerId(newCustomerId);
+      setValue("customerId", newCustomerId); // ✅ force update the form field
     }
     refetch();
   };

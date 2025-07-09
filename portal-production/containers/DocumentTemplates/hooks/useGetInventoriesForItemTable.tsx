@@ -30,7 +30,7 @@ export const useGetInventoriesForItemTable = () => {
       const token = await getToken();
       if (!token) return;
 
-      dispatch(documentTemplateActions.getDocumentInventories({ status, token }));
+      dispatch(documentTemplateActions.getDocumentInventories({ status, token, organizationId }));
     },
     [organizationId]
   );
