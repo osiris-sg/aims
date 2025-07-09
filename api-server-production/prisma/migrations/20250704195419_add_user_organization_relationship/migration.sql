@@ -6,10 +6,10 @@
 
 */
 
--- First, create a default organization for existing data
+-- First, create the osiris platform organization for existing data
 INSERT INTO "Organization" ("id", "name", "createdAt", "updatedAt") 
-VALUES ('default-org-id', 'Default Organization', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-ON CONFLICT ("name") DO NOTHING;
+VALUES ('osiris-platform', 'osiris-platform', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT ("id") DO NOTHING;
 
 -- DropIndex
 DROP INDEX "UserRole_userId_roleId_key";
@@ -17,8 +17,8 @@ DROP INDEX "UserRole_userId_roleId_key";
 -- AlterTable - Add organizationId column with default value first
 ALTER TABLE "UserRole" ADD COLUMN "organizationId" TEXT;
 
--- Update existing UserRole records to use the default organization
-UPDATE "UserRole" SET "organizationId" = 'default-org-id' WHERE "organizationId" IS NULL;
+-- Update existing UserRole records to use the osiris platform organization
+UPDATE "UserRole" SET "organizationId" = 'osiris-platform' WHERE "organizationId" IS NULL;
 
 -- Now make the column NOT NULL
 ALTER TABLE "UserRole" ALTER COLUMN "organizationId" SET NOT NULL;
@@ -43,7 +43,7 @@ INSERT INTO "UserOrganization" ("id", "userId", "organizationId", "isActive", "c
 SELECT 
     gen_random_uuid()::text,
     "userId",
-    'default-org-id',
+    'osiris-platform',
     true,
     CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP

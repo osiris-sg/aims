@@ -21,12 +21,14 @@ export class UsersService {
     private readonly prisma: PrismaService,
   ) {}
 
-  async getUsers(getUsersDto: GetUsersDto) {
+  async getUsers(getUsersDto: GetUsersDto, organizationId: string) {
     const { page = 1, limit = 10, search = '', filters = {} } = getUsersDto;
     const skip = (page - 1) * limit;
 
-    // Build where clause for user roles
-    const whereClause: any = {};
+    // Build where clause for user roles - scope to organization
+    const whereClause: any = {
+      organizationId: organizationId, // Only get users from this organization
+    };
 
     if (search) {
       // Note: We can't search by user name/email directly since users are in Clerk
@@ -36,7 +38,7 @@ export class UsersService {
       }
     }
 
-    // Get all user roles with pagination
+    // Get user roles for this organization only
     const userRoles = await this.prisma.userRole.findMany({
       where: whereClause,
       skip,
@@ -111,9 +113,12 @@ export class UsersService {
     };
   }
 
-  async getUserRoles(userId: string) {
+  async getUserRoles(userId: string, organizationId: string) {
     const userRoles = await this.prisma.userRole.findMany({
-      where: { userId },
+      where: {
+        userId,
+        organizationId, // Only get roles for this organization
+      },
       include: {
         role: {
           include: {

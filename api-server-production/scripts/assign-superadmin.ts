@@ -5,60 +5,79 @@ const prisma = new PrismaClient();
 
 async function assignSuperadminRole() {
   try {
-    // Get the superadmin role
-    const superadminRole = await prisma.role.findFirst({
-      where: { name: 'superadmin' },
-    });
-
-    if (!superadminRole) {
-      console.error('Superadmin role not found. Please run the seed script first.');
-      return;
-    }
-
     // Get arguments from command line
     const userId = process.argv[2];
-    const organizationName = process.argv[3];
+    const organizationId = process.argv[3];
 
     if (!userId) {
       console.error('Please provide a user ID as an argument.');
-      console.error('Usage: npm run assign-superadmin <userId> [organizationName]');
+      console.error('Usage: npm run assign-superadmin <userId> [organizationId]');
+      console.error('Note: organizationId is optional for superadmin (organization-scoped role)');
+      console.error('Default: If no organizationId provided, uses "osiris-platform"');
       return;
     }
 
-    // Get or create organization
+    // Get organization by ID
     let organization;
-    if (organizationName) {
-      // Try to find existing organization with the specified name
+    if (organizationId) {
+      // Try to find existing organization with the specified ID
       organization = await prisma.organization.findFirst({
-        where: { name: organizationName },
+        where: { id: organizationId },
       });
 
       if (!organization) {
-        console.log(`Creating organization: ${organizationName}...`);
-        organization = await prisma.organization.create({
-          data: {
-            name: organizationName,
-          },
-        });
-        console.log(`Created organization: ${organization.name} (${organization.id})`);
+        console.error(`Organization with ID "${organizationId}" not found.`);
+        console.error('Please provide a valid organization ID or omit to use default "osiris-platform"');
+        return;
       } else {
         console.log(`Using existing organization: ${organization.name} (${organization.id})`);
       }
     } else {
-      // Get the first organization (or create default if none exists)
-      organization = await prisma.organization.findFirst();
+      // Use the osiris-platform organization by default
+      organization = await prisma.organization.findFirst({
+        where: { id: 'osiris-platform' },
+      });
 
       if (!organization) {
-        console.log('No organization found. Creating a default organization...');
-        organization = await prisma.organization.create({
-          data: {
-            name: 'Default Organization',
-          },
-        });
-        console.log(`Created organization: ${organization.name} (${organization.id})`);
-      } else {
-        console.log(`Using existing organization: ${organization.name} (${organization.id})`);
+        console.warn('No organization found. Please create it first.');
+        return;
       }
+    }
+
+    // Get or create the superadmin role for this organization
+    let superadminRole = await prisma.role.findFirst({
+      where: {
+        name: 'superadmin',
+        organizationId: organization.id,
+      },
+    });
+
+    if (!superadminRole) {
+      console.log(`Creating superadmin role for organization ${organization.name}...`);
+
+      // Get all permissions to assign to superadmin
+      const allPermissions = await prisma.permission.findMany({
+        where: {
+          // Exclude platform-level permissions that should only be for OsirisAdmin
+          NOT: {
+            OR: [{ resource: 'organizations' }, { resource: 'roles', action: 'create' }, { resource: 'roles', action: 'delete' }, { resource: 'permissions' }],
+          },
+        },
+      });
+
+      superadminRole = await prisma.role.create({
+        data: {
+          name: 'superadmin',
+          description: 'Organization Super Administrator with full permissions within their organization',
+          organizationId: organization.id,
+          permissions: {
+            connect: allPermissions.map((p) => ({ id: p.id })),
+          },
+        },
+      });
+      console.log(`✅ Created superadmin role for organization ${organization.name}`);
+    } else {
+      console.log(`Found existing superadmin role for organization ${organization.name}`);
     }
 
     // Step 1: Create UserOrganization relationship

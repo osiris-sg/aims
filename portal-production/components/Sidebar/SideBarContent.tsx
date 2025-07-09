@@ -61,7 +61,7 @@ export default function SideBarContent() {
 
   // Check if user is OsirisAdmin
   const isOsirisAdmin = () => {
-    return organization?.name === "Osiris Platform";
+    return organization?.name === "osiris-platform";
   };
 
   const handleDocumentsClick = () => setOpenDocuments(!openDocuments);

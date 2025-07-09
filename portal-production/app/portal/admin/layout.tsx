@@ -21,7 +21,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   // Check if user is OsirisAdmin
-  const isOsirisAdmin = organization?.name === "Osiris Platform";
+  const isOsirisAdmin = organization?.name === "osiris-platform";
 
   if (!isOsirisAdmin) {
     return (

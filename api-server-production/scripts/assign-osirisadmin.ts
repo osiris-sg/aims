@@ -16,59 +16,72 @@ async function assignOsirisAdminRole() {
 
     // Get arguments from command line
     const userId = process.argv[2];
-    const organizationName = process.argv[3]; // Optional for OsirisAdmin
+    const organizationId = process.argv[3]; // Optional for OsirisAdmin
 
     if (!userId) {
       console.error('Please provide a user ID as an argument.');
-      console.error('Usage: npm run assign-osirisadmin <userId> [organizationName]');
-      console.error('Note: organizationName is optional for OsirisAdmin (platform-level role)');
+      console.error('Usage: npm run assign-osirisadmin <userId> [organizationId]');
+      console.error('Note: organizationId is optional for OsirisAdmin (platform-level role)');
+      console.error('Default: If no organizationId provided, uses "osiris-platform"');
       return;
     }
 
     console.log(`🌟 Assigning OsirisAdmin role to user: ${userId}`);
 
-    // Handle optional organization assignment
-    let organization = null;
-    if (organizationName) {
-      // Try to find existing organization with the specified name
+    // Get target organization (specified or default to osiris-platform)
+    let organization;
+    if (organizationId) {
+      // Try to find existing organization with the specified ID
       organization = await prisma.organization.findFirst({
-        where: { name: organizationName },
+        where: { id: organizationId },
       });
 
       if (!organization) {
-        console.log(`Creating organization: ${organizationName}...`);
-        organization = await prisma.organization.create({
-          data: {
-            name: organizationName,
-          },
-        });
-        console.log(`Created organization: ${organization.name} (${organization.id})`);
+        console.error(`Organization with ID "${organizationId}" not found.`);
+        console.error('Please provide a valid organization ID or omit to use default "osiris-platform"');
+        return;
       } else {
-        console.log(`Using existing organization: ${organization.name} (${organization.id})`);
-      }
-
-      // Create UserOrganization relationship if organization is specified
-      const existingUserOrg = await prisma.userOrganization.findFirst({
-        where: {
-          userId,
-          organizationId: organization.id,
-        },
-      });
-
-      if (existingUserOrg) {
-        console.log(`User ${userId} already has organization relationship`);
-      } else {
-        await prisma.userOrganization.create({
-          data: {
-            userId,
-            organizationId: organization.id,
-            isActive: true,
-          },
-        });
-        console.log(`✅ Created UserOrganization relationship for user ${userId}`);
+        console.log(`Using specified organization: ${organization.name} (${organization.id})`);
       }
     } else {
-      console.log('⚡ No organization specified - OsirisAdmin will have platform-level access only');
+      // Use osiris-platform as default
+      organization = await prisma.organization.findFirst({
+        where: { id: 'osiris-platform' },
+      });
+
+      if (!organization) {
+        console.log('Creating osiris-platform organization...');
+        organization = await prisma.organization.create({
+          data: {
+            id: 'osiris-platform',
+            name: 'osiris-platform',
+          },
+        });
+        console.log(`Created platform organization: ${organization.name} (${organization.id})`);
+      } else {
+        console.log(`Using default organization: ${organization.name} (${organization.id})`);
+      }
+    }
+
+    // Always create UserOrganization relationship for OsirisAdmin
+    const existingUserOrg = await prisma.userOrganization.findFirst({
+      where: {
+        userId,
+        organizationId: organization.id,
+      },
+    });
+
+    if (existingUserOrg) {
+      console.log(`User ${userId} already has organization relationship with ${organization.name}`);
+    } else {
+      await prisma.userOrganization.create({
+        data: {
+          userId,
+          organizationId: organization.id,
+          isActive: true,
+        },
+      });
+      console.log(`✅ Created UserOrganization relationship for user ${userId} with ${organization.name}`);
     }
 
     // Check if user already has osirisadmin role
@@ -84,37 +97,16 @@ async function assignOsirisAdminRole() {
     if (existingUserRole) {
       console.log(`User ${userId} already has OsirisAdmin role`);
     } else {
-      // For OsirisAdmin, we need an organization ID for the UserRole table constraint
-      // We'll use the provided organization or create/use a special "Osiris Platform" organization
-      let platformOrganization = organization;
-
-      if (!platformOrganization) {
-        // Create or get the "Osiris Platform" organization for platform-level role assignments
-        platformOrganization = await prisma.organization.findFirst({
-          where: { name: 'Osiris Platform' },
-        });
-
-        if (!platformOrganization) {
-          console.log('Creating Osiris Platform organization for platform-level roles...');
-          platformOrganization = await prisma.organization.create({
-            data: {
-              name: 'Osiris Platform',
-            },
-          });
-          console.log(`Created platform organization: ${platformOrganization.name} (${platformOrganization.id})`);
-        }
-      }
-
-      // Assign osirisadmin role to user
+      // Assign osirisadmin role to user (organization is already set above)
       await prisma.userRole.create({
         data: {
           userId,
           roleId: osirisAdminRole.id,
-          organizationId: platformOrganization.id,
+          organizationId: organization.id,
           assignedBy: 'system',
         },
       });
-      console.log(`✅ Assigned OsirisAdmin role to user ${userId}`);
+      console.log(`✅ Assigned OsirisAdmin role to user ${userId} in organization ${organization.name}`);
     }
 
     console.log(`\n🎉 OsirisAdmin setup completed successfully!`);

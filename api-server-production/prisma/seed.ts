@@ -4,6 +4,16 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
+  // Get or create osiris platform organization
+  const osirisOrg = await prisma.organization.upsert({
+    where: { id: 'osiris-platform' },
+    update: {},
+    create: {
+      id: 'osiris-platform',
+      name: 'osiris-platform',
+    },
+  });
+
   const createRolePermission = await prisma.permission.upsert({
     where: { name: 'roles:create' },
     update: {},
@@ -889,7 +899,12 @@ async function main() {
 
   // Create OsirisAdmin role with ALL permissions (platform-level + all business operations)
   const osirisAdminRole = await prisma.role.upsert({
-    where: { name: 'osirisadmin' },
+    where: {
+      name_organizationId: {
+        name: 'osirisadmin',
+        organizationId: osirisOrg.id,
+      },
+    },
     update: {
       permissions: {
         set: [
@@ -990,6 +1005,7 @@ async function main() {
     create: {
       name: 'osirisadmin',
       description: 'Osiris Platform Administrator with ALL permissions (platform + business operations)',
+      organizationId: osirisOrg.id,
       permissions: {
         connect: [
           // Platform-level permissions (exclusive to OsirisAdmin)
@@ -1090,7 +1106,12 @@ async function main() {
 
   // Create superadmin role with organization-scoped permissions only
   const superadminRole = await prisma.role.upsert({
-    where: { name: 'superadmin' },
+    where: {
+      name_organizationId: {
+        name: 'superadmin',
+        organizationId: osirisOrg.id,
+      },
+    },
     update: {
       permissions: {
         set: [
@@ -1164,6 +1185,7 @@ async function main() {
     create: {
       name: 'superadmin',
       description: 'Organization Super Administrator with full permissions within their organization',
+      organizationId: osirisOrg.id,
       permissions: {
         connect: [
           // Asset management (organization-scoped)
@@ -1237,7 +1259,12 @@ async function main() {
 
   // Create regular user role with limited permissions
   await prisma.role.upsert({
-    where: { name: 'user' },
+    where: {
+      name_organizationId: {
+        name: 'user',
+        organizationId: osirisOrg.id,
+      },
+    },
     update: {
       permissions: {
         set: [{ id: readRolePermission.id }, { id: readPermissionPermission.id }, { id: readRolesPermission.id }],
@@ -1246,6 +1273,7 @@ async function main() {
     create: {
       name: 'user',
       description: 'Regular user with limited permissions',
+      organizationId: osirisOrg.id,
       permissions: {
         connect: [{ id: readRolePermission.id }, { id: readPermissionPermission.id }, { id: readRolesPermission.id }],
       },

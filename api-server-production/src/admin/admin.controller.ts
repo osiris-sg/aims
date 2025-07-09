@@ -19,7 +19,7 @@ export class AdminController {
   // Check if user is OsirisAdmin
   private async checkOsirisAdmin(req: RequestWithOrganization) {
     const userOrganization = req.userOrganization;
-    if (!userOrganization || userOrganization.name !== 'Osiris Platform') {
+    if (!userOrganization || userOrganization.name !== 'osiris-platform') {
       throw new ForbiddenException('Access denied. Only OsirisAdmin can access these endpoints.');
     }
   }
