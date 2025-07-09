@@ -4,7 +4,7 @@ import React, { useMemo } from "react";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { IconButton } from "@mui/material";
 import FormInputBox from "@/form-components/FormInputBox";
-import { Control, FieldValues } from "react-hook-form";
+import { Control, FieldValues, useWatch } from "react-hook-form";
 import FormSelect from "@/form-components/FormSelect";
 import DescriptionCell from "./useDescriptionCell";
 import PriceCell from "./usePriceCell";
@@ -18,11 +18,24 @@ interface Props {
   setValue: any;
 }
 
+const AmountCell = ({ rowIndex, control }: { rowIndex: number; control: Control<FieldValues, object> }) => {
+  const item = useWatch({ control, name: `items.${rowIndex}` });
+
+  const unitPrice = parseFloat(item?.price ?? "0");
+  const quantity = parseFloat(item?.quantity ?? "0");
+  const tax = item?.tax === "custom" ? parseFloat(item?.customTax ?? "0") : parseFloat(item?.tax ?? "0");
+
+  const amount = (unitPrice * quantity * (1 + tax / 100)).toFixed(2);
+
+  return <div style={{ padding: "10px", fontSize: "14px", minHeight: "40px" }}>${amount}</div>;
+};
+
 export default function useTemplateTableHeader(props: Props) {
   const { viewMode, remove, control, setValue } = props;
   const { inventoriesForDocument } = useGetInventoriesForItemTable();
   const searchParams = useSearchParams();
   const scannedInventoryId = searchParams.get("scannedInventoryId");
+
   console.log("inventoriesForDocument", inventoriesForDocument);
   const columns = useMemo(
     () => [
@@ -101,9 +114,7 @@ export default function useTemplateTableHeader(props: Props) {
       {
         accessorKey: "amount",
         header: "Amount",
-        cell: ({ row }: { row: any }) => (
-          <FormInputBox disabled control={control} name={`items.${row.index}.amount`} placeHolder="Enter amount" size="small" labelArriangment={viewMode ? "horizontal" : "vertical"} viewMode={viewMode} key={`amount-input-${row.id}-${control._formValues?.items?.[row.index]?.amount ?? ""}`} />
-        ),
+        cell: ({ row }: { row: any }) => <AmountCell rowIndex={row.index} control={control} />,
       },
       ...(!viewMode
         ? [
