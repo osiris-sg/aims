@@ -223,6 +223,38 @@ export default function InvoiceTemplate(props: Props) {
                   <Box mt={5} mb={1}>
                     <Table key={JSON.stringify(fields)} columns={columns} data={[...fields]} isNoSelectionColumn={true} />
                   </Box>
+                  <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 2 }}>
+                    <Box
+                      sx={{
+                        width: 300,
+                        borderRadius: 2,
+                        boxShadow: 1,
+                        backgroundColor: "#f7f7f7",
+                        padding: "1rem",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "0.5rem",
+                      }}
+                    >
+                      <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                        <Typography variant="body2">SUBTOTAL</Typography>
+                        <Typography fontWeight="bold">SGD 20.00</Typography>
+                      </Box>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", color: "gray" }}>
+                        <Typography variant="body2">DISCOUNT</Typography>
+                        <Typography>- SGD 0.00</Typography>
+                      </Box>
+                      <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                        <Typography variant="body2">TOTAL TAX</Typography>
+                        <Typography>SGD 1.80</Typography>
+                      </Box>
+                      <Divider />
+                      <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                        <Typography variant="body2" fontWeight="bold">TOTAL AMOUNT</Typography>
+                        <Typography fontWeight="bold">SGD 21.80</Typography>
+                      </Box>
+                    </Box>
+                  </Box>
                   {itemsError && <Alert severity="error">{`${itemsError}`}</Alert>}
 
                   <>
