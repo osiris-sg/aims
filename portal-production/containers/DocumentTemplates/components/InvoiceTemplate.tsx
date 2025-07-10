@@ -121,14 +121,14 @@ export default function InvoiceTemplate(props: Props) {
   const watchedItems = useWatch({ control, name: "items" });
   console.log("Watched items:", watchedItems);
   const subtotal =
-    watchedItems?.reduce((acc, item) => {
+    watchedItems?.reduce((acc: number, item: any) => {
       const price = parseFloat(item?.price || "0");
       const quantity = parseFloat(item?.quantity || "1");
       return acc + price * quantity;
     }, 0) || 0;
 
   const totalTax =
-    watchedItems?.reduce((acc, item) => {
+    watchedItems?.reduce((acc: number, item: any) => {
       const price = parseFloat(item?.price || "0");
       const quantity = parseFloat(item?.quantity || "1");
       let taxRate = 0;
