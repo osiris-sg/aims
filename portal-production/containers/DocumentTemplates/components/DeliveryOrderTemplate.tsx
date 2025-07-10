@@ -219,6 +219,30 @@ export default function DeliveryOrderTemplate(props: Props) {
                       <Button variant="contained" color="primary" onClick={() => addNewLine()} size="small">
                         Add Item
                       </Button>
+                      <Button
+                        variant="outlined"
+                        color="secondary"
+                        onClick={() => {
+                          navigator.mediaDevices
+                            .getUserMedia({ video: true })
+                            .then((stream) => {
+                              const video = document.createElement("video");
+                              video.srcObject = stream;
+                              video.play();
+                              const cameraWindow = window.open("", "_blank", "width=640,height=480");
+                              if (cameraWindow) {
+                                cameraWindow.document.body.appendChild(video);
+                              }
+                            })
+                            .catch((err) => {
+                              alert("Failed to access camera: " + err.message);
+                            });
+                        }}
+                        size="small"
+                        sx={{ ml: 2 }}
+                      >
+                        Open Camera
+                      </Button>
                     </Box>
                   )}
                   <Grid2 container spacing={1} mt={4}>
