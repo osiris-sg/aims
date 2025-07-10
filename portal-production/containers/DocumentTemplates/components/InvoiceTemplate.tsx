@@ -251,11 +251,13 @@ export default function InvoiceTemplate(props: Props) {
                   <Box mt={5} mb={1}>
                     <Table key={JSON.stringify(fields)} columns={columns} data={[...fields]} isNoSelectionColumn={true} />
                   </Box>
-                  <Box sx={{ display: "flex", justifyContent: "flex-start", mt: 1 }}>
-                    <Button variant="contained" color="primary" onClick={() => addNewLine()} size="small">
-                      Add Item
-                    </Button>
-                  </Box>
+                  {!isViewMode && (
+                    <Box sx={{ display: "flex", justifyContent: "flex-start", mt: 1 }}>
+                      <Button variant="contained" color="primary" onClick={() => addNewLine()} size="small">
+                        Add Item
+                      </Button>
+                    </Box>
+                  )}
                   {watchedItems && watchedItems.length > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 2 }}>
                       <Box
