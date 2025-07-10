@@ -36,7 +36,6 @@ model Asset {
   updatedAt       DateTime           @updatedAt
   deletedAt       DateTime?          @db.Timestamptz(6)
   organizationId  String?
-  price           Float?
   category        Category           @relation(fields: [categoryId], references: [id])
   organization    Organization?      @relation(fields: [organizationId], references: [id])
   taggedTemplates AssetTemplateTag[]
