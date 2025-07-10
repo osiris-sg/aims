@@ -292,7 +292,7 @@ export class DocumentsService {
 
       return documents.map((doc) => ({
         id: doc.id,
-        name: doc.type,
+        name: doc.name,
         associated_item: doc.inventory?.sku ?? 'N/A',
         associated_customer: doc.customer?.name ?? 'N/A',
         documentType: doc.type,

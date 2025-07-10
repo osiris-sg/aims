@@ -78,10 +78,6 @@ export default function DocumentsPage() {
 
   const columns = [
     {
-      accessorKey: "id",
-      header: "Document ID",
-    },
-    {
       accessorKey: "name",
       header: "Document Name",
     },
@@ -158,6 +154,7 @@ export default function DocumentsPage() {
         token
       );
       if (response.success) {
+        console.log("Fetched documents:", response.data);
         setDocuments({
           docs: response.data,
           totalDocs: response.data.length,
