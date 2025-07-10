@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useWatch } from "react-hook-form";
 import DocumentNameHeader from "./DocumentNameHeader";
 import { Alert, Box, Button, Divider, Grid2, Typography } from "@mui/material";
 import TemplatePaper from "./TemplatePaper";
@@ -115,6 +116,33 @@ export default function InvoiceTemplate(props: Props) {
       setProjectsLoading(false);
     }
   };
+
+  // Calculate totals using useWatch for real-time updates
+  const watchedItems = useWatch({ control, name: "items" });
+  console.log("Watched items:", watchedItems);
+  const subtotal =
+    watchedItems?.reduce((acc, item) => {
+      const price = parseFloat(item?.price || "0");
+      const quantity = parseFloat(item?.quantity || "1");
+      return acc + price * quantity;
+    }, 0) || 0;
+
+  const totalTax =
+    watchedItems?.reduce((acc, item) => {
+      const price = parseFloat(item?.price || "0");
+      const quantity = parseFloat(item?.quantity || "1");
+      let taxRate = 0;
+
+      if (item.tax === "custom") {
+        taxRate = parseFloat(item?.customTax || "0") / 100;
+      } else {
+        taxRate = parseFloat(item?.tax || "0") / 100;
+      }
+
+      return acc + price * quantity * taxRate;
+    }, 0) || 0;
+
+  const total = subtotal + totalTax;
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", gap: "var(--default-gap)", overflow: "hidden" }}>
@@ -238,19 +266,18 @@ export default function InvoiceTemplate(props: Props) {
                     >
                       <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                         <Typography variant="body2">SUBTOTAL</Typography>
-                        <Typography fontWeight="bold">SGD 20.00</Typography>
+                        <Typography fontWeight="bold">SGD {subtotal.toFixed(2)}</Typography>
                       </Box>
-
                       <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                         <Typography variant="body2">TOTAL TAX</Typography>
-                        <Typography>SGD 1.80</Typography>
+                        <Typography>SGD {totalTax.toFixed(2)}</Typography>
                       </Box>
                       <Divider />
                       <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                         <Typography variant="body2" fontWeight="bold">
                           TOTAL AMOUNT
                         </Typography>
-                        <Typography fontWeight="bold">SGD 21.80</Typography>
+                        <Typography fontWeight="bold">SGD {total.toFixed(2)}</Typography>
                       </Box>
                     </Box>
                   </Box>
