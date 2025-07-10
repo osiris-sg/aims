@@ -58,16 +58,20 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
 
     // For OsirisAdmin, allow access without organization constraint for platform operations
     if (isOsirisAdmin) {
+      console.log('User is osiris-admin');
       // Still attach organization if they have one (for mixed operations)
       request.userOrganization = userOrg?.organization || null;
       request.isOsirisAdmin = true;
     } else {
+      console.log('User is not osiris-admin');
       // For regular users, require organization assignment
       if (!userOrg) {
+        console.log('User is not assigned to any organization');
         console.warn(`User ${user.id} is not assigned to any organization`);
-        request.userOrganization = null;
+        throw new ForbiddenException('User is not assigned to any organization. Please contact your administrator to be assigned to an organization.');
       } else {
         request.userOrganization = userOrg.organization;
+        console.log('User is assigned to an organization:', userOrg.organization.name);
       }
       request.isOsirisAdmin = false;
     }
@@ -99,10 +103,7 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
       });
     } else {
       // For regular users, check organization-scoped roles
-      if (!userOrg) {
-        throw new ForbiddenException('User is not assigned to any organization');
-      }
-
+      // Note: userOrg is guaranteed to exist here due to earlier check
       userRoles = await this.prisma.userRole.findMany({
         where: {
           userId: user.id,

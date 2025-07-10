@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { toast } from "react-toastify";
+import { toast, ToastPosition } from "react-toastify";
 
 interface NotificationOptions {
   message: string;
@@ -9,7 +9,7 @@ interface NotificationOptions {
 export function useNotifications() {
   const showNotification = useCallback(({ message, type }: NotificationOptions) => {
     const options = {
-      position: "top-right",
+      position: "top-right" as ToastPosition,
       autoClose: 3000,
       hideProgressBar: false,
       closeOnClick: true,

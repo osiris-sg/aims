@@ -8,16 +8,21 @@ import { UpdateRoleDto } from './dto/update-role.dto';
 export class RolesService {
   constructor(private prisma: PrismaService) {}
 
-  async create(createRoleDto: CreateRoleDto) {
+  async create(createRoleDto: CreateRoleDto, organizationId: string) {
     const { permissionIds, ...roleData } = createRoleDto;
 
-    // Check if role with same name already exists
+    // Check if role with same name already exists in this organization
     const existingRole = await this.prisma.role.findUnique({
-      where: { name: roleData.name },
+      where: {
+        name_organizationId: {
+          name: roleData.name,
+          organizationId: organizationId,
+        },
+      },
     });
 
     if (existingRole) {
-      throw new ConflictException(`Role with name '${roleData.name}' already exists`);
+      throw new ConflictException(`Role with name '${roleData.name}' already exists in this organization`);
     }
 
     // Validate permission IDs if provided
@@ -35,6 +40,7 @@ export class RolesService {
       return await this.prisma.role.create({
         data: {
           ...roleData,
+          organizationId: organizationId,
           permissions: permissionIds?.length
             ? {
                 connect: permissionIds.map((id) => ({ id })),
@@ -50,12 +56,14 @@ export class RolesService {
     }
   }
 
-  async findAll(query: any) {
+  async findAll(query: any, organizationId: string) {
     const { page = 1, limit = 10, search, startDate, endDate } = query;
     const skip = (page - 1) * limit;
 
     // Build where clause for search and filters
-    const where: any = {};
+    const where: any = {
+      organizationId: organizationId,
+    };
 
     // Search functionality - search in name and description
     if (search && search.trim()) {
@@ -131,9 +139,14 @@ export class RolesService {
     return role;
   }
 
-  async findByName(name: string) {
+  async findByName(name: string, organizationId: string) {
     return this.prisma.role.findUnique({
-      where: { name },
+      where: {
+        name_organizationId: {
+          name: name,
+          organizationId: organizationId,
+        },
+      },
       include: {
         permissions: true,
       },
@@ -152,14 +165,19 @@ export class RolesService {
       throw new NotFoundException(`Role with ID '${id}' not found`);
     }
 
-    // Check if updating name and if new name conflicts with existing role
+    // Check if updating name and if new name conflicts with existing role in the same organization
     if (roleData.name && roleData.name !== existingRole.name) {
       const roleWithSameName = await this.prisma.role.findUnique({
-        where: { name: roleData.name },
+        where: {
+          name_organizationId: {
+            name: roleData.name,
+            organizationId: existingRole.organizationId,
+          },
+        },
       });
 
       if (roleWithSameName) {
-        throw new ConflictException(`Role with name '${roleData.name}' already exists`);
+        throw new ConflictException(`Role with name '${roleData.name}' already exists in this organization`);
       }
     }
 

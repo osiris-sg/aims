@@ -9,7 +9,40 @@ import { CustomResponseInterceptor } from 'helpers/custom-sucess.filter';
 const corsOptions: CorsOptions = {
   credentials: true,
   methods: ['POST', 'PUT', 'PATCH', 'DELETE', 'GET'],
-  origin: ['http://localhost:3000', 'https://www.aims.osiris.so', 'https://aims.osiris.so'],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+
+    const allowedOrigins = ['http://localhost:3000', 'https://www.aims.osiris.so', 'https://aims.osiris.so'];
+
+    // Allow Vercel deployments
+    if (origin.includes('vercel.app')) {
+      return callback(null, true);
+    }
+
+    // Allow Render deployments
+    if (origin.includes('onrender.com')) {
+      return callback(null, true);
+    }
+
+    // Allow osiris.so subdomains
+    if (origin.includes('osiris.so')) {
+      return callback(null, true);
+    }
+
+    // Check if origin is in allowed list
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    // For development, allow all localhost origins
+    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      return callback(null, true);
+    }
+
+    console.log('CORS blocked origin:', origin);
+    return callback(new Error('Not allowed by CORS'));
+  },
 };
 
 async function bootstrap() {

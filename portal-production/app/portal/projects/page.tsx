@@ -120,6 +120,7 @@ export default function ProjectsPage() {
     setIsDeleting(true);
     try {
       const token = await getToken();
+      if (!token) return;
       await request({ path: `/projects/${selectedProject.id}`, method: "DELETE" }, {}, token);
       setDeleteDialogOpen(false);
       setSelectedProject(null);

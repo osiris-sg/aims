@@ -56,7 +56,7 @@ export default function DeliveryOrderTemplate(props: Props) {
     setTriggerRender((prev) => prev + 1);
   }, [fields]);
 
-  const [projects, setProjects] = useState([]);
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [isProjectsLoading, setProjectsLoading] = useState(false);
 
   const fetchProjects = async () => {

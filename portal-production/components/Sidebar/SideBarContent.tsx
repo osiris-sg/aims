@@ -13,6 +13,7 @@ import AssignmentRoundedIcon from "@mui/icons-material/AssignmentRounded";
 // import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import DescriptionIcon from "@mui/icons-material/Description";
+import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 // import InfoRoundedIcon from "@mui/icons-material/InfoRounded";
 import { useTheme } from "@mui/material";
 import Link from "next/link";
@@ -21,18 +22,29 @@ import { usePathname } from "next/navigation";
 import Collapse from "@mui/material/Collapse";
 import ExpandLess from "@mui/icons-material/ExpandLess";
 import ExpandMore from "@mui/icons-material/ExpandMore";
-import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 
-const mainListItems = [
-  { text: "Inventory", path: ROUTES.INVENTORY, icon: <InventoryIcon /> },
-  { text: "Assets", path: ROUTES.ASSETS, icon: <AnalyticsRoundedIcon /> },
-  { text: "Customers", path: ROUTES.CUSTOMERS, icon: <PeopleRoundedIcon /> },
-  { text: "Documents", path: ROUTES.DOCUMENTS, icon: <DescriptionIcon /> },
-  { text: "Invoices", path: ROUTES.INVOICES, icon: <AssignmentRoundedIcon /> },
-  { text: "Projects", path: ROUTES.PROJECTS, icon: <AccountTreeIcon /> },
-  { text: "User Management", path: ROUTES.PERMISSIONS, icon: <PeopleRoundedIcon /> },
-];
+const getMainListItems = (isAdmin: boolean) => {
+  const baseItems = [
+    { text: "Inventory", path: ROUTES.INVENTORY, icon: <InventoryIcon /> },
+    { text: "Assets", path: ROUTES.ASSETS, icon: <AnalyticsRoundedIcon /> },
+    { text: "Customers", path: ROUTES.CUSTOMERS, icon: <PeopleRoundedIcon /> },
+    { text: "Documents", path: ROUTES.DOCUMENTS, icon: <DescriptionIcon /> },
+    { text: "Invoices", path: ROUTES.INVOICES, icon: <AssignmentRoundedIcon /> },
+    { text: "Projects", path: ROUTES.PROJECTS, icon: <AccountTreeIcon /> },
+    { text: "User Management", path: ROUTES.PERMISSIONS, icon: <PeopleRoundedIcon /> },
+  ];
+
+  if (isAdmin) {
+    baseItems.unshift({
+      text: "Admin Panel",
+      path: "/portal/admin",
+      icon: <AdminPanelSettingsIcon />,
+    });
+  }
+
+  return baseItems;
+};
 
 const secondaryListItems: any = [
   // { text: "Settings", icon: <SettingsRoundedIcon /> },
@@ -42,50 +54,20 @@ const secondaryListItems: any = [
 export default function SideBarContent() {
   const theme = useTheme();
   const pathname = usePathname();
-  const { canManageOrganizations, isLoading: permissionsLoading } = useUserPermissions();
   const { organization } = useOrganization();
 
   const [openDocuments, setOpenDocuments] = React.useState(false);
   const [openUserManagement, setOpenUserManagement] = React.useState(false);
 
-  // Check if user can manage organizations (either through permissions or being OsirisAdmin)
-  const canViewOrganizations = () => {
-    console.log("Checking organization access:", {
-      permissionsLoading,
-      organizationName: organization?.name,
-      organization: organization,
-    });
-
-    // Temporary: Always show for Osiris Platform users (OsirisAdmin) while debugging permissions
-    if (organization?.name === "Osiris Platform") {
-      console.log("✅ User is in Osiris Platform organization - showing Organizations tab");
-      return true;
-    }
-
-    // If permissions are still loading, don't show the tab yet for others
-    if (permissionsLoading) {
-      console.log("⏳ Permissions still loading...");
-      return false;
-    }
-
-    // Check for explicit organization management permissions
-    try {
-      const hasPermissions = canManageOrganizations();
-      console.log("Permission check result:", hasPermissions);
-      if (hasPermissions) {
-        console.log("✅ User has organization management permissions");
-        return true;
-      }
-    } catch (error) {
-      console.error("Error checking permissions:", error);
-    }
-
-    console.log("❌ User cannot view organizations");
-    return false;
+  // Check if user is OsirisAdmin
+  const isOsirisAdmin = () => {
+    return organization?.name === "osiris-platform";
   };
 
   const handleDocumentsClick = () => setOpenDocuments(!openDocuments);
   const handleUserManagementClick = () => setOpenUserManagement(!openUserManagement);
+
+  const mainListItems = getMainListItems(isOsirisAdmin());
 
   const renderListItem = (item: any, index: number) => {
     if (item.text === "Documents") {
@@ -122,7 +104,7 @@ export default function SideBarContent() {
           </ListItem>
           <Collapse in={openDocuments} timeout="auto" unmountOnExit>
             <List component="div" disablePadding>
-              <ListItemButton sx={{ pl: 4 }} component={Link} href={`${mainListItems[3].path}`}>
+              <ListItemButton sx={{ pl: 4 }} component={Link} href={ROUTES.DOCUMENTS}>
                 <ListItemText primary="All Documents" />
               </ListItemButton>
               <ListItemButton sx={{ pl: 4 }} component={Link} href="/portal/documents/templates">
@@ -172,11 +154,6 @@ export default function SideBarContent() {
               <ListItemButton sx={{ pl: 4 }} component={Link} href={ROUTES.USERS}>
                 <ListItemText primary="Users" />
               </ListItemButton>
-              {canViewOrganizations() && (
-                <ListItemButton sx={{ pl: 4 }} component={Link} href={ROUTES.ORGANIZATIONS}>
-                  <ListItemText primary="Organizations" />
-                </ListItemButton>
-              )}
             </List>
           </Collapse>
         </React.Fragment>

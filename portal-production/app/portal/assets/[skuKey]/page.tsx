@@ -15,6 +15,24 @@ import { ROUTES } from "@/routes";
 import useViewAssetTableHeader from "../hooks/useViewAssetTableHeader";
 import { toast } from "react-toastify";
 
+interface DocumentTemplate {
+  id: string;
+  name: string;
+  [key: string]: any;
+}
+
+interface Document {
+  id: string;
+  doc_id: string;
+  name?: string;
+  [key: string]: any;
+}
+
+interface DocumentTemplatesResponse {
+  docs: DocumentTemplate[];
+  [key: string]: any;
+}
+
 export default function ViewAssetPage({ params }: { params: { skuKey: string } }) {
   const router = useRouter();
   const theme = useTheme();
@@ -23,7 +41,7 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
   const organizationId = organization?.id;
   const [asset, setAsset] = useState<any>(null);
   const [category, setCategory] = useState<any>(null);
-  const [documentTemplates, setDocumentTemplates] = useState<any>({ docs: [] });
+  const [documentTemplates, setDocumentTemplates] = useState<DocumentTemplatesResponse>({ docs: [] });
   const [isLoading, setIsLoading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
@@ -35,7 +53,7 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
     sold: 0,
   });
   const [inventories, setInventories] = useState<any[]>([]);
-  const [documents, setDocuments] = useState<any[]>([]);
+  const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
 
   // Add dialog state for document templates

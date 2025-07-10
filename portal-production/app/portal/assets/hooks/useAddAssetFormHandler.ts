@@ -197,7 +197,17 @@ export const useAddAssetFormHandler = () => {
     console.log("Active step:", activeStep);
 
     // Ensure required fields are present and handle image field
-    const formDataWithStatus = {
+    const formDataWithStatus: {
+      name: string;
+      skuKey: string;
+      description?: string;
+      image?: any;
+      category?: {
+        connect: {
+          id: string;
+        };
+      };
+    } = {
       name: data.name,
       skuKey: data.skuKey,
       description: data.description,

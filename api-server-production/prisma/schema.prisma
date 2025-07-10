@@ -20,7 +20,6 @@ model Organization {
   inventories       Inventory[]
   projects          Project[]
   roles             Role[]
-  permissions       Permission[]
   userOrganizations UserOrganization[]
   userRoles         UserRole[]
 }
@@ -37,6 +36,7 @@ model Asset {
   updatedAt       DateTime           @updatedAt
   deletedAt       DateTime?          @db.Timestamptz(6)
   organizationId  String?
+  price           Float?
   category        Category           @relation(fields: [categoryId], references: [id])
   organization    Organization?      @relation(fields: [organizationId], references: [id])
   taggedTemplates AssetTemplateTag[]
@@ -141,42 +141,42 @@ model Document {
 }
 
 model Role {
-  id          String       @id @default(uuid())
-  name        String       @unique  // Keep global unique for now
-  description String?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  organizationId String?
-  organization Organization? @relation(fields: [organizationId], references: [id])
-  userRoles   UserRole[]
-  permissions Permission[] @relation("PermissionToRole")
+  id             String       @id @default(uuid())
+  name           String
+  description    String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  userRoles      UserRole[]
+  permissions    Permission[] @relation("PermissionToRole")
+
+  @@unique([name, organizationId])
 }
 
 model Permission {
   id          String   @id @default(uuid())
-  name        String   @unique  // Keep global unique for now
+  name        String   @unique
   description String?
   resource    String
   action      String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  organizationId String?
-  organization Organization? @relation(fields: [organizationId], references: [id])
   roles       Role[]   @relation("PermissionToRole")
 }
 
 model UserRole {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   userId         String
   roleId         String
+  createdAt      DateTime     @default(now())
   organizationId String
-  assignedBy     String?  // Who assigned this role
-  assignedAt     DateTime @default(now())
-  expiresAt      DateTime? // Optional role expiration
-  isActive       Boolean  @default(true)
-  role           Role     @relation(fields: [roleId], references: [id])
+  assignedAt     DateTime     @default(now())
+  assignedBy     String?
+  expiresAt      DateTime?
+  isActive       Boolean      @default(true)
   organization   Organization @relation(fields: [organizationId], references: [id])
-  createdAt      DateTime @default(now())
+  role           Role         @relation(fields: [roleId], references: [id])
 
   @@unique([userId, roleId, organizationId])
 }
@@ -186,12 +186,12 @@ model UserOrganization {
   userId         String
   organizationId String
   isActive       Boolean      @default(true)
-  joinedAt       DateTime     @default(now())
-  lastActiveAt   DateTime?
-  settings       Json?        // Organization-specific user settings
-  organization   Organization @relation(fields: [organizationId], references: [id])
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
+  joinedAt       DateTime     @default(now())
+  lastActiveAt   DateTime?
+  settings       Json?
+  organization   Organization @relation(fields: [organizationId], references: [id])
 
   @@unique([userId, organizationId])
 }

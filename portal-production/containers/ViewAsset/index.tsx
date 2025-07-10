@@ -1,7 +1,7 @@
 "use client";
 
 import Table from "@/components/Table";
-import { Avatar, Box, Button, Card, Grid2, IconButton, Skeleton, Stack, Typography, useTheme } from "@mui/material";
+import { Avatar, Box, Button, Card, Grid, IconButton, Skeleton, Stack, Typography, useTheme } from "@mui/material";
 // import Image from "next/image";
 import { useParams } from "next/navigation";
 import useViewInventoryTableHeader from "./hooks/useViewAssetTableHeader";
@@ -32,16 +32,16 @@ export default function ViewAsset() {
         / {skuKey}
       </Typography>
 
-      <Grid2 container spacing={3}>
-        <Grid2 container spacing={3} justifyContent="space-between" alignItems="flex-start">
-          <Grid2 item xs={12} md={4}>
+      <Grid container spacing={3}>
+        <Grid container spacing={3} justifyContent="space-between" alignItems="flex-start">
+          <Grid item xs={12} md={4}>
             {isGetAssetLoading ? (
               <Skeleton variant="rectangular" width={400} height={300} sx={{ maxWidth: "100%", borderRadius: 2 }} />
             ) : (
               <Avatar src={`${process.env.NEXT_PUBLIC_RESOURCE_URL}${asset?.image}`} alt={asset?.name.toString().slice(0, 2).toUpperCase() || "NA"} sx={{ width: 400, height: 300, fontSize: 32, maxWidth: "100%", maxHeight: "300px" }} variant="rounded" />
             )}
-          </Grid2>
-          <Grid2 item xs={12} md={4} sx={{ display: "flex", justifyContent: "flex-end" }}>
+          </Grid>
+          <Grid item xs={12} md={4} sx={{ display: "flex", justifyContent: "flex-end" }}>
             <Stack direction="column" gap="var(--default-gap)">
               {isGetAssetLoading ? (
                 <Skeleton variant="text" width={200} height={32} />
@@ -67,11 +67,11 @@ export default function ViewAsset() {
                 )}
               </Stack>
             </Stack>
-          </Grid2>
-        </Grid2>
+          </Grid>
+        </Grid>
 
-        <Grid2 item xs={12} md={4} sx={{ display: "flex", justifyContent: "flex-end", pr: 4, ml: "auto" }}>
-          <Grid2
+        <Grid item xs={12} md={4} sx={{ display: "flex", justifyContent: "flex-end", pr: 4, ml: "auto" }}>
+          <Grid
             item
             sx={{
               display: "flex",
@@ -118,9 +118,9 @@ export default function ViewAsset() {
                 {isGetAssetLoading ? <Skeleton variant="rectangular" width={100} height={40} /> : <Button variant="contained">View</Button>}
               </Box>
             </Stack>
-          </Grid2>
-        </Grid2>
-      </Grid2>
+          </Grid>
+        </Grid>
+      </Grid>
 
       <Box sx={{ gap: "var(--half-gap)" }}>
         {isGetInventoriesLoading || isGetAssetLoading ? <Skeleton variant="text" width={100} height={32} /> : <Typography variant="body1">Inventory Status</Typography>}
