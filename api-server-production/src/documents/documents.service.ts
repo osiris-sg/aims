@@ -125,14 +125,23 @@ export class DocumentsService {
       if (dto.projectId && dto.config?.items?.length) {
         await Promise.all(
           dto.config.items.map(async (_item) => {
-            await this.prisma.assignment.create({
-              data: {
+            const existingAssignment = await this.prisma.assignment.findFirst({
+              where: {
                 projectId: dto.projectId,
                 inventoryId: _item.inventoryItemId,
-                startDate: dto.config.startDate || null,
-                endDate: dto.config.endDate || null,
               },
             });
+
+            if (!existingAssignment) {
+              await this.prisma.assignment.create({
+                data: {
+                  projectId: dto.projectId,
+                  inventoryId: _item.inventoryItemId,
+                  startDate: dto.config.startDate || null,
+                  endDate: dto.config.endDate || null,
+                },
+              });
+            }
           }),
         );
       }
