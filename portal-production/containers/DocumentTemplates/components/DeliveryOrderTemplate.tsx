@@ -190,7 +190,18 @@ export default function DeliveryOrderTemplate(props: Props) {
                         </Grid2>
                         <Grid2 size={12}>
                           <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--half-gap)" }}>
-                            <FormSelect control={control} name="projectId" label="Project" placeHolder="Choose a project..." addItem={true} menuTitle="Choose a project" menuItems={projects.map((project) => ({ label: project.name, value: project.id }))} required handleAddItem={handleAddProject} />
+                            <FormSelect
+                              control={control}
+                              name="projectId"
+                              label="Project"
+                              placeHolder="Choose a project..."
+                              addItem={true}
+                              menuTitle="Choose a project"
+                              menuItems={projects.map((project) => ({ label: project.name, value: project.id }))}
+                              handleAddItem={handleAddProject}
+                              labelArriangment={isViewMode ? "horizontal" : "vertical"}
+                              viewMode={isViewMode}
+                            />
 
                             {watch("attention.name") && <FormInputBox control={control} name="attention.name" label="Attention" placeHolder="Enter Attention" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
                             {watch("attention.phoneNumber") && <FormInputBox control={control} name="attention.phoneNumber" label="Mobile" placeHolder="Enter Mobile Number" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
@@ -218,30 +229,6 @@ export default function DeliveryOrderTemplate(props: Props) {
                     <Box sx={{ display: "flex", justifyContent: "flex-start", mt: 1, mb: 5 }}>
                       <Button variant="contained" color="primary" onClick={() => addNewLine()} size="small">
                         Add Item
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        color="secondary"
-                        onClick={() => {
-                          navigator.mediaDevices
-                            .getUserMedia({ video: true })
-                            .then((stream) => {
-                              const video = document.createElement("video");
-                              video.srcObject = stream;
-                              video.play();
-                              const cameraWindow = window.open("", "_blank", "width=640,height=480");
-                              if (cameraWindow) {
-                                cameraWindow.document.body.appendChild(video);
-                              }
-                            })
-                            .catch((err) => {
-                              alert("Failed to access camera: " + err.message);
-                            });
-                        }}
-                        size="small"
-                        sx={{ ml: 2 }}
-                      >
-                        Open Camera
                       </Button>
                     </Box>
                   )}
