@@ -10,7 +10,7 @@ import FormSelect from "@/form-components/FormSelect";
 import { useGetCustomers } from "../hooks/useGetCustomers";
 import Table from "@/components/Table";
 import DocumentCustomizer from "./DocumentCustomizer";
-import useTemplateTableHeader from "../hooks/useTemplateTableHeader";
+import useTemplateTableHeader from "../hooks/useTemplateTableHeaderInvoice";
 import SignatureDialog from "./SignatureDialog";
 import useGetDocument from "../hooks/useGetDocument";
 import DocumentSkeleton from "./DocumentSkeleton";
