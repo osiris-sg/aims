@@ -251,6 +251,11 @@ export default function InvoiceTemplate(props: Props) {
                   <Box mt={5} mb={1}>
                     <Table key={JSON.stringify(fields)} columns={columns} data={[...fields]} isNoSelectionColumn={true} />
                   </Box>
+                  <Box sx={{ display: "flex", justifyContent: "flex-start", mt: 1 }}>
+                    <Button variant="contained" color="primary" onClick={() => addNewLine()} size="small">
+                      Add Item
+                    </Button>
+                  </Box>
                   {watchedItems && watchedItems.length > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 2 }}>
                       <Box
@@ -285,23 +290,16 @@ export default function InvoiceTemplate(props: Props) {
                   )}
                   {itemsError && <Alert severity="error">{`${itemsError}`}</Alert>}
 
-                  <>
-                    <Box sx={{ display: "flex", justifyContent: "flex-start", mt: 1, mb: 5 }}>
-                      <Button variant="contained" color="primary" onClick={() => addNewLine()} size="small">
-                        Add Item
-                      </Button>
-                    </Box>
-                    <Grid2 container spacing={2}>
-                      <Grid2 size={6}>
-                        <FormInputBox control={control} name="dueDate" label="Due Date" type="date" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />
-                      </Grid2>
+                  <Grid2 container spacing={2}>
+                    <Grid2 size={6}>
+                      <FormInputBox control={control} name="dueDate" label="Due Date" type="date" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />
                     </Grid2>
-                    <Grid2 container spacing={2}>
-                      <Grid2 size={6}>
-                        <FormInputBox control={control} name="note" label="Note" placeHolder="Enter note..." size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />
-                      </Grid2>
+                  </Grid2>
+                  <Grid2 container spacing={2}>
+                    <Grid2 size={6}>
+                      <FormInputBox control={control} name="note" label="Note" placeHolder="Enter note..." size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />
                     </Grid2>
-                  </>
+                  </Grid2>
 
                   {/* <Grid2 container spacing={1} mt={4}>
                     <Grid2 size={6}>
