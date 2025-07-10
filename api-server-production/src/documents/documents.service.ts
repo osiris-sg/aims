@@ -14,6 +14,9 @@ export class DocumentsService {
           id,
           organizationId,
         },
+        include: {
+          organization: true,
+        },
       });
     } catch (error) {
       throw new HttpException(`Fetch by ID failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);

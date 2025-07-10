@@ -110,6 +110,7 @@ export default function useDODocumentCreator() {
 
   // Set form values from existing document.config if editing
   useEffect(() => {
+    console.log("Document ID:", documentId, "Document Config:", document);
     if (documentId && document?.config) {
       const logoValue = document.config.logo ? [{ data: document.config.logo }] : null;
 
@@ -127,8 +128,15 @@ export default function useDODocumentCreator() {
           keepDefaultValues: false,
         }
       );
+      // Also populate company and gstRegNo from document.organization
+      if (document?.organization) {
+        setValue("company.name", document.organization.name || "", { shouldDirty: true });
+        setValue("company.address", document.organization.address || "", { shouldDirty: true });
+        setValue("company.phoneNumber", document.organization.phoneNumber || "", { shouldDirty: true });
+        setValue("gstRegNo", document.organization.registrationNumber || "", { shouldDirty: true });
+      }
     }
-  }, [documentId, document?.config, reset]);
+  }, [documentId, document?.config, reset, setValue, document?.organization]);
 
   const onSubmit = async (data: any) => {
     try {

@@ -143,6 +143,7 @@ export interface IpaginatedTimelineItems {
 
 export interface Doc {
   id: string;
+  organization?: any;
   templateData: any;
   inventoryId: string;
   createdAt: string;
