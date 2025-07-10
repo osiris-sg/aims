@@ -242,12 +242,33 @@ export class DocumentsService {
   async createBasicDocument(documentTemplateId: string, type: string, organizationId: string, config: any = {}) {
     try {
       console.log('Creating basic document with template ID:', documentTemplateId, 'Type:', type, 'Organization ID:', organizationId, 'Config:', config);
+
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+
+      // Get count of existing documents with same type and same month/year
+      const count = await this.prisma.document.count({
+        where: {
+          type,
+          organizationId,
+          createdAt: {
+            gte: new Date(`${year}-${month}-01T00:00:00Z`),
+            lt: new Date(`${year}-${month}-31T23:59:59Z`),
+          },
+        },
+      });
+
+      const serial = String(count + 1).padStart(3, '0');
+      const name = `${type}${year}${month}-${serial}`;
+
       const newDocument = await this.prisma.document.create({
         data: {
           documentTemplateId,
           type,
           config,
           organizationId,
+          name,
         },
       });
 
