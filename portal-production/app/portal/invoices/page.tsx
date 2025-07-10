@@ -158,9 +158,10 @@ export default function InvoicesPage() {
         token
       );
       if (response.success) {
+        const tiDocs = response.data.filter((doc: any) => doc.documentType === "TI");
         setDocuments({
-          docs: response.data,
-          totalDocs: response.data.length,
+          docs: tiDocs,
+          totalDocs: tiDocs.length,
           limit,
           totalPages: 1,
           page: 1,
@@ -237,7 +238,7 @@ export default function InvoicesPage() {
         data={documents.docs}
         tableName="Document List"
         subTitle="Document Detail Information"
-        buttonName="Create Document"
+        buttonName="Create Invoice"
         onAddClick={() => onSubmit({ documentType: "TI" })}
         loading={loading}
         page={page}
