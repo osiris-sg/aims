@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from "react";
 import DocumentNameHeader from "./DocumentNameHeader";
 import { Alert, Box, Button, Divider, Grid2, Typography } from "@mui/material";
+import { useWatch } from "react-hook-form";
 import TemplatePaper from "./TemplatePaper";
 import FormImage from "@/form-components/FormImage";
 import { request } from "@/helpers/request";
 import FormInputBox from "@/form-components/FormInputBox";
 import FormSelect from "@/form-components/FormSelect";
 import { useGetCustomers } from "../hooks/useGetCustomers";
+import { useGetSiteOffices } from "../hooks/useGetSiteOffices";
 import Table from "@/components/Table";
 import DocumentCustomizer from "./DocumentCustomizer";
 import useTemplateTableHeader from "../hooks/useTemplateTableHeader";
@@ -40,6 +42,18 @@ export default function DeliveryOrderTemplate(props: Props) {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
   const organizationId = organization?.id;
+
+  // Site Offices fetching logic
+  const { siteOffices, fetchSiteOffices } = useGetSiteOffices();
+  const selectedCustomerId = watch("customerId");
+  // Calculate totals using useWatch for real-time updates
+  const watchedItems = useWatch({ control, name: "customerId" });
+  console.log("Watched items:", watchedItems);
+  useEffect(() => {
+    if (watchedItems) {
+      fetchSiteOffices(watchedItems);
+    }
+  }, [fetchSiteOffices, watchedItems]);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
@@ -207,7 +221,23 @@ export default function DeliveryOrderTemplate(props: Props) {
                             {watch("attention.phoneNumber") && <FormInputBox control={control} name="attention.phoneNumber" label="Mobile" placeHolder="Enter Mobile Number" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
                           </Box>
                         </Grid2>
-                        <Grid2 size={12}>{watch("deliveryTo") && <FormInputBox control={control} name="deliveryTo" label="Delivery To" placeHolder="Enter Delivery Location" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}</Grid2>
+                        <Grid2 size={12}>
+                          {watch("deliveryTo") && (
+                            <FormSelect
+                              control={control}
+                              name="deliveryTo"
+                              label="Delivery To"
+                              menuTitle="Choose delivery location"
+                              menuItems={siteOffices.map((office) => ({
+                                label: office.name,
+                                value: office.name,
+                              }))}
+                              size="small"
+                              labelArriangment={isViewMode ? "horizontal" : "vertical"}
+                              viewMode={isViewMode}
+                            />
+                          )}
+                        </Grid2>
                       </Grid2>
                     </Grid2>
                     <Grid2 size={6}>
