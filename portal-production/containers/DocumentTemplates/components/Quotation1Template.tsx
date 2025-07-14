@@ -66,6 +66,7 @@ export default function Quotation1Template(props: Props) {
   const gstRegNo = useWatch({ control, name: "gstRegNo" });
   const companyNameValue = useWatch({ control, name: "company.name" });
   const companyAddress = useWatch({ control, name: "company.address" });
+  const title = useWatch({ control, name: "title" });
 
   // Calculate totals using useWatch for real-time updates
   const watchedItems = useWatch({ control, name: "customerId" });
@@ -369,6 +370,20 @@ export default function Quotation1Template(props: Props) {
                       )}
                     </Grid2>
                   </Grid2>
+                  <Box>
+                    {isViewMode ? (
+                      <>
+                        <Typography variant="h4" sx={{ fontWeight: "bold", textDecoration: "underline", mt: 4 }}>
+                          {title}
+                        </Typography>
+                        <Typography variant="body1" sx={{ whiteSpace: "pre-line", mt: 2 }}>
+                          We are pleased to submit our quotation with the following terms and conditions for your consideration and acceptance.
+                        </Typography>
+                      </>
+                    ) : (
+                      <FormInputBox control={control} name="title" label="Title" placeHolder="Enter title" size="small" labelArriangment="vertical" viewMode={isViewMode} />
+                    )}
+                  </Box>
                   <Box mt={5} mb={1}>
                     <Table key={JSON.stringify(fields)} columns={columns} data={[...fields]} isNoSelectionColumn={true} />
                   </Box>

@@ -12,6 +12,7 @@ import { uploadImage } from "@/helpers/imageUploader";
 import { base64ToFile } from "@/helpers/base64ToFile";
 import { useParams, useSearchParams } from "next/navigation";
 import useGetDocument from "./useGetDocument";
+import { title } from "process";
 
 export default function useQO1DocumentCreator() {
   const documenttemplate = useSelector(selectDocumentTemplate);
@@ -47,6 +48,7 @@ export default function useQO1DocumentCreator() {
       note: "",
       remarks: "",
       termsAndConditions: "",
+      title: "",
     }),
     [scannedInventoryId]
   );
