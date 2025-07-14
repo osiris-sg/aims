@@ -129,6 +129,13 @@ export default function useTIDocumentCreator() {
           keepDefaultValues: false,
         }
       );
+      // Also populate company and gstRegNo from document.organization
+      if (document?.organization) {
+        setValue("company.name", document.organization.name || "", { shouldDirty: true });
+        setValue("company.address", document.organization.address || "", { shouldDirty: true });
+        setValue("company.phoneNumber", document.organization.phoneNumber || "", { shouldDirty: true });
+        setValue("gstRegNo", document.organization.registrationNumber || "", { shouldDirty: true });
+      }
     }
   }, [documentId, document?.config, reset]);
 
