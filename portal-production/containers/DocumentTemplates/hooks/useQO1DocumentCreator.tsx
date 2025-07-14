@@ -44,6 +44,9 @@ export default function useQO1DocumentCreator() {
       currency: "",
       salePerson: "",
       mobile: "",
+      note: "",
+      remarks: "",
+      termsAndConditions: "",
     }),
     [scannedInventoryId]
   );
