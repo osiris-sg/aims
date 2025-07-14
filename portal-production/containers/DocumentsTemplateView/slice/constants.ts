@@ -57,4 +57,5 @@ export const DOCUMENT_TYPES = [
   // { label: "Maintenance Service Report", value: "MSR" },
   { label: "Quotation 1", value: "QO1" }, // Add your QO1 document type here
   { label: "Invoice", value: "TI" },
+  { label: "Quotation 2", value: "QO2" }, // Add your QO2 document type here
 ];
