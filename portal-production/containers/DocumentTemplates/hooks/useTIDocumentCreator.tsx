@@ -137,7 +137,7 @@ export default function useTIDocumentCreator() {
         setValue("gstRegNo", document.organization.registrationNumber || "", { shouldDirty: true });
       }
     }
-  }, [documentId, document?.config, reset]);
+  }, [documentId, document?.config, document?.organization, reset, setValue]);
 
   const onSubmit = async (data: any) => {
     try {
