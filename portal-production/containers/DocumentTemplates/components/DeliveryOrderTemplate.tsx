@@ -46,6 +46,8 @@ export default function DeliveryOrderTemplate(props: Props) {
   // Site Offices fetching logic
   const { siteOffices, fetchSiteOffices } = useGetSiteOffices();
   const selectedCustomerId = watch("customerId");
+  const selectedDeliveryToId = watch("deliveryTo");
+  const selectedSiteOffice = siteOffices.find((office) => office.id === selectedDeliveryToId);
   // Calculate totals using useWatch for real-time updates
   const watchedItems = useWatch({ control, name: "customerId" });
   console.log("Watched items:", watchedItems);
@@ -53,6 +55,7 @@ export default function DeliveryOrderTemplate(props: Props) {
     if (watchedItems) {
       fetchSiteOffices(watchedItems);
     }
+    console.log("Site offices fetched:", siteOffices);
   }, [fetchSiteOffices, watchedItems]);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
@@ -230,7 +233,7 @@ export default function DeliveryOrderTemplate(props: Props) {
                               menuTitle="Choose delivery location"
                               menuItems={siteOffices.map((office) => ({
                                 label: office.name,
-                                value: office.name,
+                                value: office.id, // unique ID
                               }))}
                               size="small"
                               labelArriangment={isViewMode ? "horizontal" : "vertical"}

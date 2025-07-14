@@ -84,7 +84,6 @@ model Customer {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
   documents      Document[]
-  projects       Project[]
   siteOffices    SiteOffice[]
 
   @@unique([email, organizationId])
@@ -205,7 +204,7 @@ model Project {
   name           String
   description    String?
   organizationId String?
-  customerId     String?       @db.Uuid
+  siteOfficeId   String?       @db.Uuid
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   startDate      DateTime?
@@ -213,7 +212,7 @@ model Project {
   status         ProjectStatus @default(pending)
   assignments    Assignment[]
   documents      Document[]
-  customer       Customer?     @relation(fields: [customerId], references: [id])
+  siteOffice     SiteOffice?   @relation("SiteOfficeProjects", fields: [siteOfficeId], references: [id])
   organization   Organization? @relation(fields: [organizationId], references: [id])
 }
 
@@ -253,6 +252,7 @@ model SiteOffice {
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   contactDetails ContactDetail[]
+  projects       Project[]       @relation("SiteOfficeProjects")
 }
 
 model ContactDetail {
@@ -265,4 +265,3 @@ model ContactDetail {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 }
-

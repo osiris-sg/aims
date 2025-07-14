@@ -31,7 +31,7 @@ export class CreateProjectDto {
 
   @IsString()
   @IsNotEmpty()
-  customerId: string;
+  siteOfficeId: string;
 
   @IsString()
   @IsNotEmpty()

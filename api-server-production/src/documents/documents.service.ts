@@ -66,7 +66,7 @@ export class DocumentsService {
             organizationId, // Ensure project belongs to the same organization
           },
           data: {
-            customerId: dto.customerId || undefined,
+            siteOfficeId: configAsPlainObject.deliveryTo || undefined,
             startDate: dto.config?.startDate || undefined,
           },
         });
