@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import markdownToHtml from "@/helpers/markdownToHtml";
 import { Box, InputLabel, TextField, Typography } from "@mui/material";
 import React from "react";
 import { Control, Controller, FieldValues } from "react-hook-form";
@@ -23,24 +24,7 @@ interface Props {
 }
 
 export default function FormTextarea(props: Props) {
-  const { 
-    fullWidth = true, 
-    control, 
-    name, 
-    label, 
-    placeHolder, 
-    bottomText, 
-    defaultValue = "", 
-    description, 
-    disabled, 
-    rows = 4, 
-    maxRows, 
-    maxLength, 
-    required, 
-    rules = {}, 
-    labelArriangment = "vertical",
-    viewMode = false
-  } = props;
+  const { fullWidth = true, control, name, label, placeHolder, bottomText, defaultValue = "", description, disabled, rows = 4, maxRows, maxLength, required, rules = {}, labelArriangment = "vertical", viewMode = false } = props;
 
   return (
     <Controller
@@ -83,15 +67,14 @@ export default function FormTextarea(props: Props) {
               helperText={error ? error.message : bottomText}
             />
           ) : (
-            <Typography 
-              variant="body1" 
-              sx={{ 
-                whiteSpace: 'pre-wrap', 
-                wordBreak: 'break-word' 
+            <Typography
+              variant="body1"
+              sx={{
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
               }}
-            >
-              {value}
-            </Typography>
+              dangerouslySetInnerHTML={{ __html: markdownToHtml(value || "") }}
+            />
           )}
         </Box>
       )}

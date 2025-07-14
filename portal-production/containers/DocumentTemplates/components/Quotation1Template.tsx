@@ -6,6 +6,7 @@ import TemplatePaper from "./TemplatePaper";
 import FormImage from "@/form-components/FormImage";
 import { request } from "@/helpers/request";
 import FormInputBox from "@/form-components/FormInputBox";
+import FormTextarea from "@/form-components/FormTextArea";
 import FormSelect from "@/form-components/FormSelect";
 import { useGetCustomers } from "../hooks/useGetCustomers";
 import { useGetSiteOffices } from "../hooks/useGetSiteOffices";
@@ -251,6 +252,12 @@ export default function Quotation1Template(props: Props) {
                       </Button>
                     </Box>
                   )}
+
+                  <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--half-gap)", my: 3 }}>
+                    <FormTextarea control={control} name="note" label="Note" placeHolder="Enter notes here" rows={4} labelArriangment="vertical" viewMode={isViewMode} />
+                    <FormTextarea control={control} name="remarks" label="Remarks" placeHolder="Enter remarks here" rows={4} labelArriangment="vertical" viewMode={isViewMode} />
+                    <FormTextarea control={control} name="termsAndConditions" label="Terms and Conditions" placeHolder="Enter terms and conditions here" rows={4} labelArriangment="vertical" viewMode={isViewMode} />
+                  </Box>
                   <Grid2 container spacing={1} mt={4}>
                     <Grid2 size={6}>
                       <Typography variant="body1">For {companyName}</Typography>
