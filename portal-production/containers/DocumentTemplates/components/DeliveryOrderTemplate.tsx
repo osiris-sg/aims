@@ -232,7 +232,7 @@ export default function DeliveryOrderTemplate(props: Props) {
                               label="Delivery To"
                               menuTitle="Choose delivery location"
                               menuItems={siteOffices.map((office) => ({
-                                label: office.name,
+                                label: `${office.name} (${office.address || ""})`,
                                 value: office.id, // unique ID
                               }))}
                               size="small"
