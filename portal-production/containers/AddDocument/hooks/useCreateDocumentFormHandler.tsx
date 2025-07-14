@@ -47,6 +47,7 @@ export default function useCreateDocumentFormHandler() {
     RDO: "Return Delivery Order",
     TI: "Tax Invoice",
     MSR: "Maintenance Service Report",
+    QO1: "Quotation 1", // Add your QO1 template name here
   };
 
   const onSubmit = async (data: any) => {

@@ -29,10 +29,10 @@ class AttentionDto {
 
 class ItemDto {
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   inventoryItemId: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   quantity: number;
 
   @IsString()

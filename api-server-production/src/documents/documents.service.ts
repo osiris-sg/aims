@@ -73,7 +73,7 @@ export class DocumentsService {
       }
 
       // If config.items exists and is an array, handle inventory/timeline logic
-      if (dto.config && Array.isArray(dto.config.items)) {
+      if (dto.type !== 'QO1' && dto.config && Array.isArray(dto.config.items)) {
         await Promise.all(
           dto.config.items.map(async (_item) => {
             // Use dto.status if provided, otherwise default based on type

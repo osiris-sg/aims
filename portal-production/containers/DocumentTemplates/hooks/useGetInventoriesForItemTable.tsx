@@ -86,7 +86,7 @@ export const useGetInventoriesForItemTable = () => {
       inventories = await fetchInventoriesByStatus("rental");
     } else if (type === "DO") {
       inventories = await fetchInventoriesByStatus("instock");
-    } else if (type === "TI") {
+    } else {
       inventories = await fetchAllInventories();
       console.log("Fetched all inventories for TI:", inventories);
     }

@@ -194,6 +194,7 @@ export default function InvoicesPage() {
     RDO: "89e5fd4b-e837-44ad-982e-80559a3274e0",
     TI: "654da337-fc90-4234-8228-3e0f79b50192",
     MSR: "maintenance_service_report",
+    QO1: "033bbb49-7f69-41a7-8b1d-157f587bb781", // Add your QO1 template ID here
   };
 
   const onSubmit = async (data: any) => {
