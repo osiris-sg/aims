@@ -124,4 +124,14 @@ export class CustomersController {
     }
     return await this.customersService.deleteSiteOffice(id, organizationId);
   }
+
+  @Get('site-offices/:id')
+  @Permissions('customers:read')
+  async getSiteOfficeById(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.customersService.getSiteOfficeById(id, organizationId);
+  }
 }

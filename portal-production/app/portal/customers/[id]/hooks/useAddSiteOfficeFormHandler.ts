@@ -5,20 +5,21 @@ import { useOrganization } from "@hooks/useOrganization";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-
+import { useCallback } from "react";
 import * as yup from "yup";
 import { yupResolver } from "@hookform/resolvers/yup";
 import { toast } from "react-toastify";
+import { useGetSiteOffices } from "./useGetSiteOffices";
 
 interface ContactDetail {
-  name: string;
-  email: string;
-  phone: string;
+  name?: string;
+  email?: string;
+  phone?: string;
 }
 interface AddSiteOfficeFormData {
   name: string;
-  address: string;
-  contactDetails: ContactDetail[];
+  address?: string;
+  contactDetails?: ContactDetail[];
 }
 
 interface useAddSiteOfficeFormHandlerProps {
@@ -30,23 +31,20 @@ export default function useAddSiteOfficeFormHandler({ onSuccess }: useAddSiteOff
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
   const organizationId = organization?.id;
-
+  const { siteOffices, isLoading, refetch } = useGetSiteOffices();
   const params = useParams();
   const customerId = params?.id as string;
 
   const siteOfficeSchema = yup.object().shape({
     name: yup.string().required("Site Office name is required"),
-    address: yup.string().required("Address is required"),
-    contactDetails: yup
-      .array()
-      .of(
-        yup.object().shape({
-          name: yup.string().required("Contact name is required"),
-          email: yup.string().email("Invalid email").required("Email is required"),
-          phone: yup.string().required("Phone number is required"),
-        })
-      )
-      .required("At least one contact detail is required"),
+    address: yup.string().notRequired(),
+    contactDetails: yup.array().of(
+      yup.object().shape({
+        name: yup.string().notRequired(),
+        email: yup.string().email("Invalid email").notRequired(),
+        phone: yup.string().notRequired(),
+      })
+    ),
   });
 
   const {
@@ -107,6 +105,29 @@ export default function useAddSiteOfficeFormHandler({ onSuccess }: useAddSiteOff
     addSiteOffice(data);
   };
 
+  const fetchSiteOfficeById = useCallback(
+    async (siteOfficeId: string) => {
+      const token = await getToken();
+      if (!token || !organizationId) throw new Error("No token or organization ID");
+
+      const response = await request(
+        {
+          path: `/customers/site-offices/${siteOfficeId}`,
+          method: "GET",
+        },
+        {},
+        token
+      );
+
+      if (!response.success) {
+        throw new Error(response.message || "Failed to fetch site office");
+      }
+
+      return response.data;
+    },
+    [getToken, organizationId]
+  );
+
   return {
     control,
     handleSubmit,
@@ -117,5 +138,6 @@ export default function useAddSiteOfficeFormHandler({ onSuccess }: useAddSiteOff
     append,
     remove,
     isSubmitting,
+    fetchSiteOfficeById,
   };
 }

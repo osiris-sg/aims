@@ -9,25 +9,48 @@ import RemoveIcon from "@mui/icons-material/Remove";
 interface AddSiteOfficeProps {
   open: boolean;
   onClose: () => void;
+  siteOffice?: any;
 }
 
-export default function AddSiteOffice({ open, onClose }: AddSiteOfficeProps) {
-  const { control, handleSubmit, onSubmit, fields, append, remove, isSubmitting, reset } = useAddSiteOfficeFormHandler({
+export default function AddSiteOffice({ open, onClose, siteOffice }: AddSiteOfficeProps) {
+  const { control, handleSubmit, onSubmit, fields, append, remove, isSubmitting, reset, fetchSiteOfficeById } = useAddSiteOfficeFormHandler({
     onSuccess: onClose,
   });
   const theme = useTheme();
 
-  // Reset form when drawer closes
+  // Reset form when drawer closes or clear for new Site Office
   useEffect(() => {
     if (!open) {
       reset();
+    } else if (!siteOffice?.id) {
+      reset({
+        name: "",
+        address: "",
+        contactDetails: [{ name: "", email: "", phone: "" }],
+      });
     }
-  }, [open, reset]);
+  }, [open, siteOffice, reset]);
 
   const handleClose = () => {
     reset();
     onClose();
   };
+
+  useEffect(() => {
+    const fetchAndPopulate = async () => {
+      if (siteOffice?.id) {
+        const data = await fetchSiteOfficeById(siteOffice.id);
+        if (data) {
+          reset({
+            name: data.name || "",
+            address: data.address || "",
+            contactDetails: data.contactDetails || [{ name: "", email: "", phone: "" }],
+          });
+        }
+      }
+    };
+    fetchAndPopulate();
+  }, [siteOffice, reset, fetchSiteOfficeById]);
 
   return (
     <Drawer anchor="right" open={open} onClose={handleClose} sx={{ "& .MuiDrawer-paper": { width: "400px", backgroundColor: theme.palette.tertiary.contrastText } }}>

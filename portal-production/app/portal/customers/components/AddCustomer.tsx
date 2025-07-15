@@ -1,6 +1,8 @@
 import FormInputBox from "@/form-components/FormInputBox";
 import { Drawer, Typography, Stack, Button, useTheme } from "@mui/material";
 import { useForm } from "react-hook-form";
+import * as yup from "yup";
+import { yupResolver } from "@hookform/resolvers/yup";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
@@ -14,6 +16,13 @@ interface AddCustomerProps {
   isEditMode?: boolean;
 }
 
+const customerSchema = yup.object().shape({
+  name: yup.string().required("Customer name is required"),
+  email: yup.string().email("Invalid email").notRequired(),
+  phone: yup.string().notRequired(),
+  address: yup.string().notRequired(),
+});
+
 export default function AddCustomer({ open, onClose, onSuccess, customerId, isEditMode = false }: AddCustomerProps) {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
@@ -26,6 +35,7 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
       phone: "",
       address: "",
     },
+    resolver: yupResolver(customerSchema),
   });
 
   useEffect(() => {

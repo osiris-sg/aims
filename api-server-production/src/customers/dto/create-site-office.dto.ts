@@ -3,15 +3,15 @@ import { Type } from 'class-transformer';
 
 class ContactDetailDto {
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   name: string;
 
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   email: string;
 
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   phone: string;
 }
 
@@ -24,7 +24,7 @@ export class CreateSiteOfficeDto {
   address?: string;
 
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   customerId: string;
 
   @ValidateNested({ each: true })

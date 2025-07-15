@@ -5,15 +5,15 @@ export class CreateCustomerDto {
   @IsString()
   name: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   email: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   phone: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   address: string;
 
