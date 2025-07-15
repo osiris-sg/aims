@@ -9,9 +9,11 @@ import { Avatar, Box, Skeleton, Stack, Typography } from "@mui/material";
 import Table from "@/components/Table";
 import { Button, IconButton } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/Delete";
 import { ColumnDef } from "@tanstack/react-table";
 import AddSiteOffice from "./components/AddSiteOffice";
 import { useGetSiteOffices } from "./hooks/useGetSiteOffices";
+import { toast } from "react-toastify";
 interface Customer {
   id: string;
   name: string;
@@ -89,6 +91,38 @@ export default function ViewCustomerPage({ params }: { params: { id: string } })
             }}
           >
             <EditIcon />
+          </IconButton>
+          <IconButton
+            onClick={async () => {
+              try {
+                const token = await getToken();
+                if (!token) throw new Error("No token available");
+
+                const response = await request(
+                  {
+                    path: `/customers/site-offices/${row.original.id}`,
+                    method: "DELETE",
+                  },
+                  {},
+                  token
+                );
+
+                if (response.success) {
+                  console.log("Deleted site office:", row.original.id);
+                  toast.success("Site Office deleted successfully!");
+                  refetchSiteOffices();
+                } else {
+                  console.error("Failed to delete site office:", response);
+                  toast.error("Failed to delete Site Office.");
+                }
+              } catch (error) {
+                console.error("Error deleting site office:", error);
+                toast.error("An error occurred while deleting the Site Office.");
+              }
+            }}
+            color="error"
+          >
+            <DeleteIcon />
           </IconButton>
         </Box>
       ),

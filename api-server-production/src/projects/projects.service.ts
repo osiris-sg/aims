@@ -29,7 +29,11 @@ export class ProjectsService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          siteOffice: true,
+          siteOffice: {
+            include: {
+              customer: true,
+            },
+          },
           assignments: true,
         },
       });
@@ -41,6 +45,7 @@ export class ProjectsService {
           id: project.id,
           name: project.name,
           siteOffice: project.siteOffice ? { name: project.siteOffice.name } : null,
+          customer: project.siteOffice?.customer ? { name: project.siteOffice.customer.name, id: project.siteOffice.customer.id } : null,
           itemsRelated: project.assignments || [],
           startDate: project.startDate,
           endDate: project.endDate,
@@ -66,7 +71,11 @@ export class ProjectsService {
           organizationId,
         },
         include: {
-          siteOffice: true,
+          siteOffice: {
+            select: {
+              customer: true,
+            },
+          },
           assignments: true,
         },
       });

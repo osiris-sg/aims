@@ -68,6 +68,7 @@ export default function ProjectsPage() {
     { id: "id", accessorKey: "id", header: "Project ID", cell: (info: any) => info.getValue() },
     { id: "name", accessorKey: "name", header: "Project Name", cell: (info: any) => info.getValue() },
     { id: "customer", accessorKey: "customer", header: "Customer", cell: ({ row }: { row: any }) => <Typography variant="body2">{row.original.customer?.name ?? "N/A"}</Typography> },
+    { id: "siteOffice", accessorKey: "siteOffice", header: "Site Office", cell: ({ row }: { row: any }) => <Typography variant="body2">{row.original.siteOffice?.name ?? "N/A"}</Typography> },
     { id: "itemsRelated", accessorKey: "itemsRelated", header: "Items Related", cell: ({ row }: { row: any }) => <Typography variant="body2">{row.original.itemsRelated?.length ?? 0}</Typography> },
     { id: "startDate", accessorKey: "startDate", header: "Start Date", cell: (info: any) => new Date(info.getValue()).toLocaleDateString() },
     { id: "endDate", accessorKey: "endDate", header: "End Date", cell: (info: any) => new Date(info.getValue()).toLocaleDateString() },

@@ -1,4 +1,4 @@
-import { IsString, IsArray, IsNotEmpty, ValidateNested, isString } from 'class-validator';
+import { IsString, IsArray, IsNotEmpty, ValidateNested, isString, IsOptional } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ProjectStatus } from '@prisma/client';
 
@@ -16,7 +16,7 @@ class AssignmentDto {
   startDate: string;
 
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   endDate: string;
 
   @IsString()
