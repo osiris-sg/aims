@@ -9,7 +9,7 @@ export default function useDocumentYupSchemaGenerator(defaultValues: any, requir
       const fieldValue = values[key];
       const rule = rules?.[key];
 
-      const isRequired = rule !== false;
+      const isRequired = rule === true;
 
       if (key === "items") {
         // Hardcoded validation for the items array

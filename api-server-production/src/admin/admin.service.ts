@@ -106,7 +106,11 @@ export class AdminService {
           select: { id: true, name: true },
         },
         documents: true,
-        projects: true,
+        siteOffices: {
+          include: {
+            projects: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -120,7 +124,11 @@ export class AdminService {
           select: { id: true, name: true },
         },
         documents: true,
-        projects: true,
+        siteOffices: {
+          include: {
+            projects: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -134,7 +142,11 @@ export class AdminService {
           select: { id: true, name: true },
         },
         documents: true,
-        projects: true,
+        siteOffices: {
+          include: {
+            projects: true,
+          },
+        },
       },
     });
   }
@@ -231,7 +243,11 @@ export class AdminService {
         organization: {
           select: { id: true, name: true },
         },
-        customer: true,
+        siteOffice: {
+          include: {
+            customer: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -244,7 +260,11 @@ export class AdminService {
         organization: {
           select: { id: true, name: true },
         },
-        customer: true,
+        siteOffice: {
+          include: {
+            customer: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -257,7 +277,11 @@ export class AdminService {
         organization: {
           select: { id: true, name: true },
         },
-        customer: true,
+        siteOffice: {
+          include: {
+            customer: true,
+          },
+        },
       },
     });
   }

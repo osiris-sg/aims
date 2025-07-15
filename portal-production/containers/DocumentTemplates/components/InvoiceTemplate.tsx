@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useWatch } from "react-hook-form";
 import DocumentNameHeader from "./DocumentNameHeader";
 import { Alert, Box, Button, Divider, Grid2, Typography } from "@mui/material";
 import TemplatePaper from "./TemplatePaper";
@@ -9,7 +10,7 @@ import FormSelect from "@/form-components/FormSelect";
 import { useGetCustomers } from "../hooks/useGetCustomers";
 import Table from "@/components/Table";
 import DocumentCustomizer from "./DocumentCustomizer";
-import useTemplateTableHeader from "../hooks/useTemplateTableHeader";
+import useTemplateTableHeader from "../hooks/useTemplateTableHeaderInvoice";
 import SignatureDialog from "./SignatureDialog";
 import useGetDocument from "../hooks/useGetDocument";
 import DocumentSkeleton from "./DocumentSkeleton";
@@ -116,12 +117,39 @@ export default function InvoiceTemplate(props: Props) {
     }
   };
 
+  // Calculate totals using useWatch for real-time updates
+  const watchedItems = useWatch({ control, name: "items" });
+  console.log("Watched items:", watchedItems);
+  const subtotal =
+    watchedItems?.reduce((acc: number, item: any) => {
+      const price = parseFloat(item?.price || "0");
+      const quantity = parseFloat(item?.quantity || "1");
+      return acc + price * quantity;
+    }, 0) || 0;
+
+  const totalTax =
+    watchedItems?.reduce((acc: number, item: any) => {
+      const price = parseFloat(item?.price || "0");
+      const quantity = parseFloat(item?.quantity || "1");
+      let taxRate = 0;
+
+      if (item.tax === "custom") {
+        taxRate = parseFloat(item?.customTax || "0") / 100;
+      } else {
+        taxRate = parseFloat(item?.tax || "0") / 100;
+      }
+
+      return acc + price * quantity * taxRate;
+    }, 0) || 0;
+
+  const total = subtotal + totalTax;
+
   return (
     <Box sx={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", gap: "var(--default-gap)", overflow: "hidden" }}>
       <DocumentNameHeader
         primaryActionLoading={isLoading}
         secondaryActionLoading={isDocumentCreationloading}
-        title="Delivery Order"
+        title="Invoice"
         description="This document does not support uploading of template"
         viewMode={isViewMode}
         toggleViewMode={(value) => toggleViewMode(value)}
@@ -165,7 +193,7 @@ export default function InvoiceTemplate(props: Props) {
                     <Grid2 size={6} />
                     <Grid2 size={6}>
                       <Typography variant="h4" sx={{ py: "var(--double-gap)" }}>
-                        Delivery Order
+                        Invoice
                       </Typography>
                     </Grid2>
                   </Grid2>
@@ -190,7 +218,18 @@ export default function InvoiceTemplate(props: Props) {
                         </Grid2>
                         <Grid2 size={12}>
                           <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--half-gap)" }}>
-                            <FormSelect control={control} name="projectId" label="Project" placeHolder="Choose a project..." addItem={true} menuTitle="Choose a project" menuItems={projects.map((project) => ({ label: project.name, value: project.id }))} required handleAddItem={handleAddProject} />
+                            <FormSelect
+                              control={control}
+                              name="projectId"
+                              label="Project"
+                              placeHolder="Choose a project..."
+                              addItem={true}
+                              menuTitle="Choose a project"
+                              menuItems={projects.map((project) => ({ label: project.name, value: project.id }))}
+                              handleAddItem={handleAddProject}
+                              labelArriangment={isViewMode ? "horizontal" : "vertical"}
+                              viewMode={isViewMode}
+                            />
 
                             {watch("attention.name") && <FormInputBox control={control} name="attention.name" label="Attention" placeHolder="Enter Attention" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
                             {watch("attention.phoneNumber") && <FormInputBox control={control} name="attention.phoneNumber" label="Mobile" placeHolder="Enter Mobile Number" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
@@ -212,16 +251,59 @@ export default function InvoiceTemplate(props: Props) {
                   <Box mt={5} mb={1}>
                     <Table key={JSON.stringify(fields)} columns={columns} data={[...fields]} isNoSelectionColumn={true} />
                   </Box>
-                  {itemsError && <Alert severity="error">{`${itemsError}`}</Alert>}
-
-                  {!isViewMode && !isEditPath && (
-                    <Box sx={{ display: "flex", justifyContent: "flex-start", mt: 1, mb: 5 }}>
+                  {!isViewMode && (
+                    <Box sx={{ display: "flex", justifyContent: "flex-start", mt: 1 }}>
                       <Button variant="contained" color="primary" onClick={() => addNewLine()} size="small">
                         Add Item
                       </Button>
                     </Box>
                   )}
-                  <Grid2 container spacing={1} mt={4}>
+                  {watchedItems && watchedItems.length > 0 && (
+                    <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 2 }}>
+                      <Box
+                        sx={{
+                          width: 300,
+                          borderRadius: 2,
+                          boxShadow: 1,
+                          backgroundColor: "#f7f7f7",
+                          padding: "1rem",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "0.5rem",
+                        }}
+                      >
+                        <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                          <Typography variant="body2">SUBTOTAL</Typography>
+                          <Typography fontWeight="bold">SGD {subtotal.toFixed(2)}</Typography>
+                        </Box>
+                        <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                          <Typography variant="body2">TOTAL TAX</Typography>
+                          <Typography>SGD {totalTax.toFixed(2)}</Typography>
+                        </Box>
+                        <Divider />
+                        <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                          <Typography variant="body2" fontWeight="bold">
+                            TOTAL AMOUNT
+                          </Typography>
+                          <Typography fontWeight="bold">SGD {total.toFixed(2)}</Typography>
+                        </Box>
+                      </Box>
+                    </Box>
+                  )}
+                  {itemsError && <Alert severity="error">{`${itemsError}`}</Alert>}
+
+                  <Grid2 container spacing={2}>
+                    <Grid2 size={6}>
+                      <FormInputBox control={control} name="dueDate" label="Due Date" type="date" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />
+                    </Grid2>
+                  </Grid2>
+                  <Grid2 container spacing={2}>
+                    <Grid2 size={6}>
+                      <FormInputBox control={control} name="note" label="Note" placeHolder="Enter note..." size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />
+                    </Grid2>
+                  </Grid2>
+
+                  {/* <Grid2 container spacing={1} mt={4}>
                     <Grid2 size={6}>
                       <Typography variant="body1">For {companyName}</Typography>
                       <SignatureDialog label="company" name="signature.company" viewMode={isViewMode} control={control} />
@@ -234,7 +316,7 @@ export default function InvoiceTemplate(props: Props) {
                       <Typography variant="body1">Customer&apos;s Signature & Company Stamp </Typography>
                       <Typography variant="body1">Date:</Typography>
                     </Grid2>
-                  </Grid2>
+                  </Grid2> */}
                 </Box>
               </form>
             )}

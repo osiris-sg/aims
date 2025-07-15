@@ -7,7 +7,7 @@ import { ROUTES } from "@/routes";
 
 interface CreateProjectData {
   name: string;
-  customerId: string;
+  siteOfficeId: string;
   startDate: Date;
   endDate: Date;
   status: string;
@@ -41,7 +41,7 @@ export const useCreateProject = () => {
       // Prepare the request body
       const requestBody = {
         name: data.name,
-        customerId: data.customerId,
+        siteOfficeId: data.siteOfficeId,
         startDate: data.startDate.toISOString(),
         endDate: data.endDate.toISOString(),
         status: data.status,

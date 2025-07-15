@@ -388,8 +388,8 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
         <DialogTitle>Select Document Templates</DialogTitle>
         <DialogContent>
           {documentTemplates.docs
-            // Filter out any templates whose ID matches already-tagged documents (compare doc.doc_id)
-            .filter((dt) => !documents.some((doc) => doc.doc_id === dt.id))
+            // Filter out any templates whose ID matches already-tagged documents (compare doc.doc_id) and whose type is "TI"
+            .filter((dt) => dt.type !== "TI" && !documents.some((doc) => doc.doc_id === dt.id))
             .map((dt) => (
               <FormControlLabel key={dt.id} control={<Checkbox checked={selectedTemplateIds.includes(dt.id)} onChange={() => handleToggleTemplate(dt.id)} />} label={dt.name || "Untitled Template"} />
             ))}

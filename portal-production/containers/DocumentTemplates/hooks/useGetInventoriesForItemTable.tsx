@@ -1,76 +1,106 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-import { useDispatch, useSelector } from "react-redux";
-import { useEffect, useCallback, useMemo } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { useOrganization } from "@hooks/useOrganization";
 import { useAuth } from "@clerk/nextjs";
-import { documentTemplateActions } from "@/containers/DocumentsTemplateView/slice";
-import { selectDocument, selectDocumentTemplatesError, selectDocumentTemplatesLoading, selectInventoriesForDocument } from "@/containers/DocumentsTemplateView/slice/selectors";
 import { useParams } from "next/navigation";
 import { request } from "@/helpers/request";
+
 export const useGetInventoriesForItemTable = () => {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
   const organizationId = organization?.id;
-  const dispatch = useDispatch();
-  const inventoriesForDocument = useSelector(selectInventoriesForDocument);
-  const loading = useSelector(selectDocumentTemplatesLoading);
-  const error = useSelector(selectDocumentTemplatesError);
-  const document = useSelector(selectDocument);
   const { type } = useParams() as { type?: string };
-
-  const inventoryIds = useMemo(() => {
-    return document?.config?.items?.map((item: any) => item.inventoryItemId).filter(Boolean);
-  }, [document]);
-
+  const [inventoriesForDocument, setInventoriesForDocument] = useState<any[]>([]);
   const fetchInventoriesByStatus = useCallback(
     async (status: string) => {
-      if (!organizationId) return;
+      if (!organizationId) return [];
       const token = await getToken();
-      if (!token) return;
+      if (!token) return [];
 
-      dispatch(documentTemplateActions.getDocumentInventories({ status, token, organizationId }));
+      const response = await request(
+        {
+          path: "/inventories/by-status",
+          method: "POST",
+        },
+        {
+          status,
+        },
+        token
+      );
+      console.log("Fetched inventories by status:", status, response?.data);
+      return response?.data || [];
     },
     [organizationId]
   );
 
-  const fetchAllInventories = async () => {
+  const fetchAllInventories = useCallback(async () => {
     const token = await getToken();
     if (!token || !organizationId) return [];
 
-    const inventoryResponse = await request(
+    const response = await request(
       {
         path: "/inventories",
         method: "POST",
       },
       {
         status: "all",
+        page: 1,
+        limit: 100,
       },
       token
     );
 
-    return inventoryResponse?.data || [];
-  };
+    return response?.data?.docs || [];
+  }, [organizationId]);
 
-  const fetchInventoriesByIds = useCallback(async () => {
-    if (!inventoryIds?.length) return;
-    const token = await getToken();
-    if (!token) return;
-    dispatch(documentTemplateActions.getInventoriesByIds({ token, inventoryIds }));
-  }, [inventoryIds]);
+  const fetchInventoriesByIds = useCallback(
+    async (inventoryIds: string[]) => {
+      if (!inventoryIds?.length || !organizationId) return [];
+      const token = await getToken();
+      if (!token) return [];
 
-  useEffect(() => {
-    if (!organizationId) return;
+      const response = await request(
+        {
+          path: "/inventories/by-ids",
+          method: "POST",
+        },
+        {
+          inventoryIds,
+        },
+        token
+      );
+
+      return response?.data || [];
+    },
+    [organizationId]
+  );
+
+  const getInventories = useCallback(async () => {
+    if (!organizationId || !type) return [];
+
+    let inventories: any[] = [];
 
     if (type === "RDO") {
-      fetchInventoriesByStatus("rental");
+      inventories = await fetchInventoriesByStatus("rental");
     } else if (type === "DO") {
-      fetchInventoriesByStatus("instock");
-    } else if (type === "TI") {
-      fetchAllInventories();
+      inventories = await fetchInventoriesByStatus("instock");
+    } else {
+      inventories = await fetchAllInventories();
+      console.log("Fetched all inventories for TI:", inventories);
     }
-  }, [organizationId, type, fetchInventoriesByStatus, fetchInventoriesByIds]);
 
-  return { inventoriesForDocument, loading, error };
+    setInventoriesForDocument(inventories);
+    return inventories;
+  }, [organizationId, type, fetchInventoriesByStatus, fetchAllInventories, fetchInventoriesByIds]);
+
+  // Removed direct call to getInventories; now handled by useEffect.
+
+  // Fetch inventories when dependencies change
+  useEffect(() => {
+    getInventories();
+  }, [getInventories]);
+
+  return { inventoriesForDocument };
 };

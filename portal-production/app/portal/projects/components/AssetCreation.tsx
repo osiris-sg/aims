@@ -2,10 +2,11 @@ import FormInputBox from "@/form-components/FormInputBox";
 import FormSelect from "@/form-components/FormSelect";
 import DateRangePicker from "@/form-components/FormDateRangePicker";
 import { Stack, Typography, Box } from "@mui/material";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 import AddCustomer from "./AddCustomer";
 import { useGetCustomers } from "../hooks/useGetCustomers";
+import { useGetSiteOffices } from "../hooks/useGetSiteOffices";
 
 export default function ProjectCreation() {
   const {
@@ -17,6 +18,15 @@ export default function ProjectCreation() {
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const { customers, refetch } = useGetCustomers();
   console.log("Customers:", customers);
+
+  const { siteOffices, fetchSiteOffices } = useGetSiteOffices();
+  const watchedCustomerId = useWatch({ control, name: "customerId" });
+
+  useEffect(() => {
+    if (watchedCustomerId) {
+      fetchSiteOffices(watchedCustomerId);
+    }
+  }, [watchedCustomerId]);
 
   const handleOpenDrawer = () => setDrawerOpen(true);
   const handleCloseDrawer = (newCustomerId?: string) => {
@@ -45,6 +55,7 @@ export default function ProjectCreation() {
           </Box>
 
           <FormSelect control={control} name="customerId" label="" menuTitle="Choose a customer" menuItems={customers.map((item) => ({ label: item.name, value: String(item.id) }))} defaultValue={selectedCustomerId} required />
+          {watchedCustomerId && <FormSelect control={control} name="siteOfficeId" label="Site Office" menuTitle="Choose a site office" menuItems={siteOffices.map((item) => ({ label: item.name, value: item.id }))} required />}
           <Box sx={{ mt: 2 }}>
             <DateRangePicker
               label="Project Duration *"

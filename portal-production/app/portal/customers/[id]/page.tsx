@@ -6,7 +6,10 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import { Avatar, Box, Skeleton, Stack, Typography } from "@mui/material";
-
+import Table from "@/components/Table";
+import { Button } from "@mui/material";
+import { ColumnDef } from "@tanstack/react-table";
+import AddSiteOffice from "./components/AddSiteOffice";
 interface Customer {
   id: string;
   name: string;
@@ -20,9 +23,12 @@ export default function ViewCustomerPage({ params }: { params: { id: string } })
   const { organization } = useOrganization();
   const { getToken } = useAuth();
   const organizationId = organization?.id;
-
+  // --- Site Offices State and Fetch Logic ---
+  const [siteOffices, setSiteOffices] = useState<any[]>([]);
+  const [isLoadingSiteOffices, setIsLoadingSiteOffices] = useState(false);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isAddDialogOpen, setAddDialogOpen] = useState(false);
 
   const fetchCustomer = async () => {
     if (!organizationId) return;
@@ -50,10 +56,71 @@ export default function ViewCustomerPage({ params }: { params: { id: string } })
       setIsLoading(false);
     }
   };
+  const fetchSiteOffices = async () => {
+    if (!organizationId) return;
+    setIsLoadingSiteOffices(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const response = await request(
+        {
+          path: `/customers/${params.id}/site-offices`,
+          method: "GET",
+        },
+        {},
+        token
+      );
+      if (response.success) {
+        setSiteOffices(response.data);
+      }
+    } catch (error) {
+      console.error("Error fetching site offices:", error);
+    } finally {
+      setIsLoadingSiteOffices(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSiteOffices();
+  }, [organizationId, params.id]);
 
   useEffect(() => {
     fetchCustomer();
   }, [organizationId, params.id]);
+
+  const siteOfficeColumns: ColumnDef<any>[] = [
+    {
+      accessorKey: "name",
+      header: "Name",
+    },
+    {
+      accessorKey: "address",
+      header: "Address",
+    },
+    {
+      accessorKey: "contacts",
+      header: "Contact(s)",
+      cell: ({ row }) => row.original.contactDetails?.map((cd: any) => `${cd.name} (${cd.phone})`).join(", ") || "-",
+    },
+    {
+      accessorKey: "action",
+      header: "Action",
+      cell: ({ row }) => (
+        <Box sx={{ display: "flex", gap: "var(--default-gap)" }}>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => {
+              // Add view/edit logic here
+              console.log("Selected site office:", row.original);
+            }}
+          >
+            View
+          </Button>
+        </Box>
+      ),
+    },
+  ];
 
   return (
     <MainCard>
@@ -104,11 +171,31 @@ export default function ViewCustomerPage({ params }: { params: { id: string } })
                 <Typography variant="h4" color="text.secondary" textAlign="center">
                   <strong>Address:</strong> {customer?.address || "-"}
                 </Typography>
+
+                {/* Site Offices Section */}
+                <Box sx={{ mt: 4, gap: 2 }}>
+                  <Typography variant="body1" sx={{ mb: 2 }}>
+                    Site Offices
+                  </Typography>
+                  <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 2 }}>
+                    <Button variant="outlined" onClick={() => setAddDialogOpen(true)}>
+                      Add Site Office
+                    </Button>
+                  </Box>
+                  {isLoadingSiteOffices ? <Skeleton variant="rectangular" width="100%" height={200} /> : <Table columns={siteOfficeColumns} data={siteOffices} onRowSelect={() => {}} />}
+                </Box>
               </>
             )}
           </Stack>
         </Box>
       </Box>
+      <AddSiteOffice
+        open={isAddDialogOpen}
+        onClose={() => {
+          setAddDialogOpen(false);
+          fetchSiteOffices(); // Refresh site offices after closing
+        }}
+      />
     </MainCard>
   );
 }

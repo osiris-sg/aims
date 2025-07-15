@@ -29,11 +29,23 @@ class AttentionDto {
 
 class ItemDto {
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   inventoryItemId: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   quantity: number;
+
+  @IsString()
+  @IsOptional()
+  tax?: string;
+
+  @IsNotEmpty()
+  @IsOptional()
+  price: number;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
 }
 
 export class IConfig {
@@ -86,6 +98,25 @@ export class IConfig {
   @IsString()
   @IsOptional()
   endDate?: string;
+
+  @IsString()
+  @IsOptional()
+  doNo?: string;
+
+  @IsString()
+  @IsOptional()
+  note?: string;
+
+  @IsString()
+  @IsOptional()
+  dueDate?: string;
+
+  @IsString()
+  @IsOptional()
+  deliveryTo?: string;
+
+  @IsOptional()
+  signature?: any;
 }
 
 export class UpdateDocumentDto extends PartialType(CreateDocumentDto) {

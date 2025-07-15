@@ -25,7 +25,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
   const { createUser, loading } = useAddUserStates();
   const { getToken } = useAuth();
   const [roles, setRoles] = useState<Role[]>([]);
-  const [organizations, setOrganizations] = useState<string[]>([]);
+  const [organizations, setOrganizations] = useState<any[]>([]);
   const [selectedOrganizationId, setSelectedOrganizationId] = useState<string>();
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   const [error, setError] = useState<string>("");
@@ -89,11 +89,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
       }
       const token = await getToken();
       if (!token) return;
-      const rolesResponse = await request(
-        { method: "GET", path: `/admin/roles/${selectedOrganizationId}` },
-        {},
-        token
-      );
+      const rolesResponse = await request({ method: "GET", path: `/admin/roles/${selectedOrganizationId}` }, {}, token);
 
       console.log("Roles:", rolesResponse);
 
@@ -108,8 +104,6 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
     };
     fetchRoles();
   }, [selectedOrganizationId, getToken]);
-
-
 
   const onSubmit = async (data: any) => {
     if (selectedRoles.length === 0) {
@@ -337,7 +331,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                         PaperProps: {
                           sx: {
                             bgcolor: "#fff", // White background
-                            color: "#222",   // Dark text
+                            color: "#222", // Dark text
                           },
                         },
                       }}

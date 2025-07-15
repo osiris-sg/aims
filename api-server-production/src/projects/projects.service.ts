@@ -29,7 +29,7 @@ export class ProjectsService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          customer: true,
+          siteOffice: true,
           assignments: true,
         },
       });
@@ -40,7 +40,7 @@ export class ProjectsService {
         docs: projects.map((project) => ({
           id: project.id,
           name: project.name,
-          customer: project.customer ? { name: project.customer.name } : null,
+          siteOffice: project.siteOffice ? { name: project.siteOffice.name } : null,
           itemsRelated: project.assignments || [],
           startDate: project.startDate,
           endDate: project.endDate,
@@ -66,7 +66,7 @@ export class ProjectsService {
           organizationId,
         },
         include: {
-          customer: true,
+          siteOffice: true,
           assignments: true,
         },
       });
@@ -125,7 +125,7 @@ export class ProjectsService {
       const project = await this.prisma.project.create({
         data: {
           name: createProjectDto.name,
-          customerId: createProjectDto.customerId,
+          siteOfficeId: createProjectDto.siteOfficeId,
           startDate: createProjectDto.startDate,
           endDate: createProjectDto.endDate,
           status: createProjectDto.status as ProjectStatus,
@@ -145,6 +145,7 @@ export class ProjectsService {
         },
         include: {
           assignments: true,
+          siteOffice: true,
         },
       });
       for (const assignment of createProjectDto.assignments) {

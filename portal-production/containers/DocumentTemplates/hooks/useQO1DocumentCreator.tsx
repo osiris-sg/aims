@@ -12,8 +12,9 @@ import { uploadImage } from "@/helpers/imageUploader";
 import { base64ToFile } from "@/helpers/base64ToFile";
 import { useParams, useSearchParams } from "next/navigation";
 import useGetDocument from "./useGetDocument";
+import { title } from "process";
 
-export default function useDODocumentCreator() {
+export default function useQO1DocumentCreator() {
   const documenttemplate = useSelector(selectDocumentTemplate);
   const { documentId } = useParams();
   const dispatch = useDispatch();
@@ -27,15 +28,27 @@ export default function useDODocumentCreator() {
     () => ({
       company: { name: "", address: "", phoneNumber: "" },
       customerId: "",
-      projectId: "", // added
-      items: scannedInventoryId ? [{ inventoryItemId: scannedInventoryId, quantity: 1 }] : [{ inventoryItemId: "", quantity: 1 }],
-      attention: { name: "", phoneNumber: "" },
+      items: [{ itemNo: 1, itemDesc: "", unitRate: "" }],
+      attention: { name: "", phoneNumber: "", email: "" },
       doNo: "",
       referenceNo: "",
       poNo: "",
       deliveryTo: "",
       gstRegNo: "",
       date: "",
+      qoNo: "",
+      salesPerson: "",
+      salesPersonEmail: "",
+      quotationNo: "",
+      quotationDate: "",
+      validityTerm: "",
+      currency: "",
+      salePerson: "",
+      mobile: "",
+      note: "",
+      remarks: "",
+      termsAndConditions: "",
+      title: "",
     }),
     [scannedInventoryId]
   );
@@ -89,7 +102,7 @@ export default function useDODocumentCreator() {
   const isDocumentCreated = useSelector(selectDocumentCeationStatus);
 
   const addNewLine = () => {
-    append({ inventoryItemId: "", quantity: 1 });
+    append({ itemNo: fields.length + 1, itemDesc: "", unitRate: "" });
   };
 
   const companyName = watch("company.name");
@@ -142,11 +155,6 @@ export default function useDODocumentCreator() {
     try {
       const token = await getToken();
       if (!token) return;
-
-      data.items = data.items.map((item: any) => ({
-        ...item,
-        quantity: item.quantity ?? 1,
-      }));
 
       let logoKey = "";
       const logoFile = Array.isArray(data.logo) ? data.logo[0] : data.logo;

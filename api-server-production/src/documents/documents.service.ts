@@ -14,6 +14,9 @@ export class DocumentsService {
           id,
           organizationId,
         },
+        include: {
+          organization: true,
+        },
       });
     } catch (error) {
       throw new HttpException(`Fetch by ID failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -63,14 +66,14 @@ export class DocumentsService {
             organizationId, // Ensure project belongs to the same organization
           },
           data: {
-            customerId: dto.customerId || undefined,
+            siteOfficeId: configAsPlainObject.deliveryTo || undefined,
             startDate: dto.config?.startDate || undefined,
           },
         });
       }
 
       // If config.items exists and is an array, handle inventory/timeline logic
-      if (dto.config && Array.isArray(dto.config.items)) {
+      if (dto.type !== 'QO1' && dto.config && Array.isArray(dto.config.items)) {
         await Promise.all(
           dto.config.items.map(async (_item) => {
             // Use dto.status if provided, otherwise default based on type
@@ -125,14 +128,23 @@ export class DocumentsService {
       if (dto.projectId && dto.config?.items?.length) {
         await Promise.all(
           dto.config.items.map(async (_item) => {
-            await this.prisma.assignment.create({
-              data: {
+            const existingAssignment = await this.prisma.assignment.findFirst({
+              where: {
                 projectId: dto.projectId,
                 inventoryId: _item.inventoryItemId,
-                startDate: dto.config.startDate || null,
-                endDate: dto.config.endDate || null,
               },
             });
+
+            if (!existingAssignment) {
+              await this.prisma.assignment.create({
+                data: {
+                  projectId: dto.projectId,
+                  inventoryId: _item.inventoryItemId,
+                  startDate: dto.config.startDate || null,
+                  endDate: dto.config.endDate || null,
+                },
+              });
+            }
           }),
         );
       }
@@ -233,12 +245,33 @@ export class DocumentsService {
   async createBasicDocument(documentTemplateId: string, type: string, organizationId: string, config: any = {}) {
     try {
       console.log('Creating basic document with template ID:', documentTemplateId, 'Type:', type, 'Organization ID:', organizationId, 'Config:', config);
+
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+
+      // Get count of existing documents with same type and same month/year
+      const count = await this.prisma.document.count({
+        where: {
+          type,
+          organizationId,
+          createdAt: {
+            gte: new Date(`${year}-${month}-01T00:00:00Z`),
+            lt: new Date(`${year}-${month}-31T23:59:59Z`),
+          },
+        },
+      });
+
+      const serial = String(count + 1).padStart(3, '0');
+      const name = `${type}${year}${month}-${serial}`;
+
       const newDocument = await this.prisma.document.create({
         data: {
           documentTemplateId,
           type,
           config,
           organizationId,
+          name,
         },
       });
 
@@ -262,7 +295,7 @@ export class DocumentsService {
 
       return documents.map((doc) => ({
         id: doc.id,
-        name: doc.type,
+        name: doc.name,
         associated_item: doc.inventory?.sku ?? 'N/A',
         associated_customer: doc.customer?.name ?? 'N/A',
         documentType: doc.type,

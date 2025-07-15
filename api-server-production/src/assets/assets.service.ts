@@ -113,6 +113,24 @@ export class AssetsService {
           organizationId: userOrganizationId, // Automatically set user's organization
         },
       });
+
+      // Find DO and RDO templates
+      const templates = await this.prisma.documentTemplate.findMany({
+        where: {
+          type: { in: ['DO', 'RDO'] },
+          organizationId: userOrganizationId,
+        },
+        select: { id: true },
+      });
+
+      // Create AssetTemplateTag entries
+      await this.prisma.assetTemplateTag.createMany({
+        data: templates.map((template) => ({
+          assetId: asset.id,
+          templateId: template.id,
+        })),
+      });
+
       return asset;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
