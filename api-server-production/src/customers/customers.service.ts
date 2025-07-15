@@ -163,6 +163,7 @@ export class CustomersService {
 
   async createSiteOffice(data: CreateSiteOfficeDto, organizationId: string) {
     try {
+      console.log('Creating site office with data:', data, 'and organizationId:', organizationId);
       const customer = await this.prisma.customer.findFirst({
         where: {
           id: data.customerId,
@@ -179,9 +180,14 @@ export class CustomersService {
           name: data.name,
           address: data.address,
           customerId: data.customerId,
-          contactDetails: {
-            create: data.contactDetails,
-          },
+          contactDetails:
+            data.contactDetails && data.contactDetails.length > 0
+              ? {
+                  create: data.contactDetails.filter(
+                    (detail) => (detail.name && detail.name.trim() !== '') || (detail.email && detail.email.trim() !== '') || (detail.phone && detail.phone.trim() !== ''),
+                  ),
+                }
+              : undefined,
         },
         include: {
           contactDetails: true,
