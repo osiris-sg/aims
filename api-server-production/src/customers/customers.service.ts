@@ -85,6 +85,7 @@ export class CustomersService {
 
   async createCustomers(createCustomerDto: CreateCustomerDto, organizationId: string) {
     try {
+      console.log('Creating customer with data:', createCustomerDto, 'and organizationId:', organizationId);
       const newCustomer = await this.prisma.customer.create({
         data: {
           ...createCustomerDto,

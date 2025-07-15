@@ -31,9 +31,9 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
   const { control, handleSubmit, reset, setValue } = useForm({
     defaultValues: {
       name: "",
-      email: "",
-      phone: "",
-      address: "",
+      email: null,
+      phone: null,
+      address: null,
     },
     resolver: yupResolver(customerSchema),
   });

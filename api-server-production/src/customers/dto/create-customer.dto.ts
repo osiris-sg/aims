@@ -7,15 +7,15 @@ export class CreateCustomerDto {
 
   @IsOptional()
   @IsString()
-  email: string;
+  email: string | null;
 
   @IsOptional()
   @IsString()
-  phone: string;
+  phone: string | null;
 
   @IsOptional()
   @IsString()
-  address: string;
+  address: string | null;
 
   @IsString()
   @IsOptional()
