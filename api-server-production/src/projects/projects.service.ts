@@ -73,10 +73,19 @@ export class ProjectsService {
         include: {
           siteOffice: {
             select: {
+              name: true,
               customer: true,
             },
           },
-          assignments: true,
+          assignments: {
+            include: {
+              inventory: {
+                select: {
+                  sku: true,
+                },
+              },
+            },
+          },
         },
       });
       if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);

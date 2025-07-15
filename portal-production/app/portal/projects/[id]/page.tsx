@@ -103,7 +103,7 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
         {},
         token
       );
-
+      console.log("Project response:", response);
       if (response.success) {
         console.log("Project fetched successfully:", response.data);
         setProject(response.data);
@@ -346,7 +346,7 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
                 },
               ]}
               data={project.assignments.map((a: any) => ({
-                id: a.inventoryId,
+                id: a.inventory.sku,
                 startDate: a.startDate,
                 endDate: a.endDate,
                 status: "reserved",
