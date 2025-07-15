@@ -18,7 +18,7 @@ export default function Documents() {
         data={documents.docs}
         tableName="All Documents (Admin)"
         subTitle="View all documents across organizations"
-        buttonName="View Details"
+        // buttonName="View Details"
         page={page}
         limit={limit}
         search={search}

@@ -31,6 +31,8 @@ export const ROUTES = {
   ADMIN_CUSTOMERS: "/portal/admin/customers",
   ADMIN_DOCUMENTS: "/portal/admin/documents",
   ADMIN_PROJECTS: "/portal/admin/projects",
+  ADMIN_USERS: "/portal/admin/users",
+  ADMIN_ROLES: "/portal/admin/roles",
 
   VIEW_PERMISSIONS: "/portal/permissions/view",
   EDIT_PERMISSIONS: "/portal/permissions/edit",

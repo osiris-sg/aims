@@ -2,6 +2,7 @@ import { Controller, Get, Post, Body, Param, UseGuards, Req, ForbiddenException 
 import { AdminService } from './admin.service';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Request } from 'express';
+import { CreateUserDto } from './dto/create-user.dto';
 
 // Extend Request type to include userOrganization
 interface RequestWithOrganization extends Request {
@@ -190,5 +191,43 @@ export class AdminController {
   async getUserOrganizationsByOrganization(@Param('organizationId') organizationId: string, @Req() req: RequestWithOrganization) {
     await this.checkOsirisAdmin(req);
     return this.adminService.getUserOrganizationsByOrganization(organizationId);
+  }
+
+  // ===== USERS ADMIN ENDPOINTS =====
+
+  @Get('users')
+  async getAllUsers(@Req() req: RequestWithOrganization) {
+    await this.checkOsirisAdmin(req);
+    const users = await this.adminService.getAllUsers();
+    console.log('Users', users);
+    return {
+      success: true,
+      data: users,
+    };
+  }
+
+  @Post('users')
+  async createUser(@Body() createUserDto: CreateUserDto, @Req() req: RequestWithOrganization) {
+    await this.checkOsirisAdmin(req);
+    return this.adminService.createUser(createUserDto);
+  }
+
+
+  // ===== USER ROLES ADMIN ENDPOINTS =====
+  @Get('user-permissions')
+  async getAllUserPermissions(@Req() req: RequestWithOrganization) {
+    await this.checkOsirisAdmin(req);
+    return this.adminService.getAllUserPermissions();
+  }
+  @Get("roles/:organizationId")
+  async getUserRolesByOrganization(@Param('organizationId') organizationId: string, @Req() req: RequestWithOrganization) {
+    await this.checkOsirisAdmin(req);
+    return this.adminService.getUserRolesByOrganization(organizationId);
+  }
+
+  @Get('roles')
+  async getAllRoles(@Req() req: RequestWithOrganization) {
+    await this.checkOsirisAdmin(req);
+    return this.adminService.getAllRoles();
   }
 }

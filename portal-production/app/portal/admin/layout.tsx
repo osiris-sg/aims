@@ -40,6 +40,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { label: "Customers", value: "/portal/admin/customers", route: ROUTES.ADMIN_CUSTOMERS },
     { label: "Documents", value: "/portal/admin/documents", route: ROUTES.ADMIN_DOCUMENTS },
     { label: "Projects", value: "/portal/admin/projects", route: ROUTES.ADMIN_PROJECTS },
+    { label: "Users", value: "/portal/admin/users", route: ROUTES.ADMIN_USERS },
+    { label: "Roles", value: "/portal/admin/roles", route: ROUTES.ADMIN_ROLES },
   ];
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: string) => {
@@ -86,7 +88,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           ))}
         </Tabs>
       </Box>
-
       {children}
     </Box>
   );

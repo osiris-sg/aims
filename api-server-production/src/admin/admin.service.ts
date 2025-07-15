@@ -1,9 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { CreateUserDto } from './dto/create-user.dto';
+import { NotFoundException } from '@nestjs/common';
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject('ClerkClient') private readonly clerkClient: any,
+  ) {}
 
   // ===== ASSETS ADMIN SERVICES =====
 
@@ -443,6 +448,216 @@ export class AdminService {
         },
       },
       orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  // ===== USER ROLES ADMIN SERVICES =====
+
+  async getAllUsers() {
+    // Get all user-organization relationships with organization info and user roles
+    const userOrganizations = await this.prisma.userOrganization.findMany({
+      include: {
+        organization: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Get all user roles with role and permission details
+    const userRoles = await this.prisma.userRole.findMany({
+      include: {
+        role: {
+          include: {
+            permissions: true,
+          },
+        },
+        organization: true,
+      },
+    });
+
+    // Combine data: merge user roles into user organizations
+    const usersWithRoles = userOrganizations.map((userOrg) => {
+      // Find all roles for this user in this organization
+      const userRoleData = userRoles.filter((ur) => ur.userId === userOrg.userId && ur.organizationId === userOrg.organizationId);
+
+      return {
+        ...userOrg,
+        roles: userRoleData.map((ur) => ur.role),
+        permissions: userRoleData.flatMap((ur) => ur.role.permissions || []),
+        userRoles: userRoleData,
+      };
+    });
+
+    // Enrich with Clerk user data
+    const enrichedUsers = await Promise.all(
+      usersWithRoles.map(async (user) => {
+        try {
+          const clerkUser = await this.clerkClient.users.getUser(user.userId);
+          return {
+            ...user,
+            clerkUser: {
+              id: clerkUser.id,
+              firstName: clerkUser.firstName,
+              lastName: clerkUser.lastName,
+              emailAddresses: clerkUser.emailAddresses,
+              imageUrl: clerkUser.imageUrl,
+            },
+          };
+        } catch (error) {
+          console.log(`Could not fetch Clerk user data for ${user.userId}:`, error.message);
+          return {
+            ...user,
+            clerkUser: null,
+          };
+        }
+      }),
+    );
+
+    return enrichedUsers;
+  }
+
+  async createUser(createUserDto: CreateUserDto) {
+    const { firstName, lastName, email, password, roleIds, organizationId } = createUserDto;
+
+    console.log('Creating user using osiris Admin', createUserDto);
+
+    const roles = await this.prisma.role.findMany({
+      where: {
+        id: {
+          in: roleIds,
+        },
+      },
+    });
+
+    if (roles.length !== roleIds.length) {
+      const foundRoleIds = roles.map((role) => role.id);
+      const missingRoleIds = roleIds.filter((id) => !foundRoleIds.includes(id));
+      throw new NotFoundException(`Roles with IDs ${missingRoleIds.join(', ')} not found`);
+    }
+
+    let clerkUser;
+    try {
+      clerkUser = await this.clerkClient.users.createUser({
+        firstName,
+        lastName,
+        emailAddress: [email],
+        password,
+        skipPasswordChecks: true,
+        skipPasswordRequirement: true,
+      });
+    } catch (error: any) {
+      console.error('Error creating user in Clerk:', error);
+      if (error.errors?.[0]?.code === 'form_identifier_exists') {
+        throw new NotFoundException('A user with this email address already exists');
+      }
+      throw new NotFoundException('Failed to create user in Clerk: ' + (error.message || 'Unknown error'));
+    }
+
+    const userId = clerkUser.id;
+
+    // Ensure user is assigned to the organization
+    await this.prisma.userOrganization.upsert({
+      where: {
+        userId_organizationId: {
+          userId,
+          organizationId,
+        },
+      },
+      update: {
+        isActive: true,
+      },
+      create: {
+        userId,
+        organizationId,
+        isActive: true,
+      },
+    });
+
+    const userRoles = await Promise.all(
+      roleIds.map((roleId) =>
+        this.prisma.userRole.create({
+          data: {
+            userId,
+            roleId,
+            organizationId,
+          },
+          include: {
+            role: {
+              include: {
+                permissions: true,
+              },
+            },
+          },
+        }),
+      ),
+    );
+
+    return {
+      id: userId,
+      email: clerkUser.emailAddresses[0]?.emailAddress || email,
+      name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || clerkUser.username || `User ${userId}`,
+      roles: userRoles.map((ur) => ({
+        id: ur.role.id,
+        name: ur.role.name,
+        description: ur.role.description,
+        permissions: ur.role.permissions,
+      })),
+      createdAt: userRoles[0]?.createdAt || new Date(),
+      updatedAt: userRoles[0]?.createdAt || new Date(),
+    };
+  }
+
+  async getAllRoles() {
+    return this.prisma.role.findMany({
+      include: {
+        permissions: true,
+        organization: true,
+        userRoles: {
+          include: {
+            organization: true,
+          },
+        },
+      },
+    });
+  }
+
+  async getUserRolesByOrganization(organizationId: string) {
+    return this.prisma.role.findMany({
+      where: {
+        organizationId,
+      },
+      include: {
+        permissions: true,
+        userRoles: {
+          include: {
+            organization: true,
+          },
+        },
+        organization: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getUserRoleById(id: string) {
+    return this.prisma.role.findUnique({
+      where: { id },
+      include: {
+        permissions: true,
+        userRoles: {
+          include: {
+            organization: true,
+          },
+        },
+        organization: true,
+      },
+    });
+  }
+
+  // ===== USER PERMISSIONS ADMIN SERVICES =====
+
+  async getAllUserPermissions() {
+    return this.prisma.permission.findMany({
+      orderBy: { resource: 'asc' },
     });
   }
 }

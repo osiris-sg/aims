@@ -18,7 +18,7 @@ export default function Projects() {
         data={projects.docs}
         tableName="All Projects (Admin)"
         subTitle="View all projects across organizations"
-        buttonName="View Details"
+        // buttonName="View Details"
         page={page}
         limit={limit}
         search={search}

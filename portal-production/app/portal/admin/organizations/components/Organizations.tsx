@@ -9,13 +9,17 @@ import useAddOrganizationStates from "../hooks/useAddOrganizationStates";
 import EditOrganization from "./EditOrganization";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import useOrganizationTableHeader from "../hooks/useOrganizationTableHeader";
+import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
+import { Button } from "@mui/material";
 
 export default function Organizations() {
   const { columns, editOrganizationOpen, selectedOrganization, handleCloseEditOrganization, organizationToDelete, isDeleteInProgress, confirmDeleteOrganization, cancelDelete } = useOrganizationTableHeader();
 
   const { organizations, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, refreshOrganizations } = useGetOrganizations();
 
-  const { openDrawer, onAddClick, onCloseClick } = useAddOrganizationStates();
+  const { openOrganizationDrawer, onAddOrganizationClick, onCloseOrganizationClick } = useAddOrganizationStates();
+
+
 
   const handleOrganizationUpdated = () => {
     refreshOrganizations();
@@ -38,8 +42,6 @@ export default function Organizations() {
         columns={columns}
         tableName="Organizations Management (Admin)"
         subTitle="Manage all organizations across the platform"
-        buttonName="Add Organization"
-        onAddClick={onAddClick}
         loading={loading}
         page={page}
         setPage={setPage}
@@ -52,9 +54,14 @@ export default function Organizations() {
         availableFilters={["createdOn"]}
         pageCount={organizations.totalPagesCount}
         totalDocs={organizations.totalDocuments}
+        actionButtons={[
+          <Button variant="contained" color="secondary" startIcon={<AddCircleOutlineIcon />} onClick={onAddOrganizationClick}>
+            Add Org
+          </Button>, 
+        ]}
       />
 
-      <AddOrganizationItem open={openDrawer} onClose={onCloseClick} onOrganizationCreated={refreshOrganizations} />
+      <AddOrganizationItem open={openOrganizationDrawer} onClose={onCloseOrganizationClick} onOrganizationCreated={refreshOrganizations} />
 
       <EditOrganization open={editOrganizationOpen} onClose={handleCloseEditOrganization} organization={selectedOrganization} onOrganizationUpdated={handleOrganizationUpdated} />
 

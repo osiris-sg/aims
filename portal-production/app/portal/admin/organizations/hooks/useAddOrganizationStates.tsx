@@ -1,19 +1,19 @@
 import { useState } from "react";
 
 export default function useAddOrganizationStates() {
-  const [openDrawer, setOpenDrawer] = useState(false);
+  const [openOrganizationDrawer, setOpenOrganizationDrawer] = useState(false);
 
-  const onAddClick = () => {
-    setOpenDrawer(true);
+  const onAddOrganizationClick = () => {
+    setOpenOrganizationDrawer(true);
   };
 
-  const onCloseClick = () => {
-    setOpenDrawer(false);
+  const onCloseOrganizationClick = () => {
+    setOpenOrganizationDrawer(false);
   };
 
   return {
-    openDrawer,
-    onAddClick,
-    onCloseClick,
+    openOrganizationDrawer,
+    onAddOrganizationClick,
+    onCloseOrganizationClick,
   };
 }

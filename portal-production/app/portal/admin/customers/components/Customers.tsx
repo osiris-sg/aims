@@ -18,7 +18,7 @@ export default function Customers() {
         data={customers.docs}
         tableName="All Customers (Admin)"
         subTitle="View all customers across organizations"
-        buttonName="View Details"
+        // buttonName="View Details"
         page={page}
         limit={limit}
         search={search}

@@ -18,7 +18,7 @@ export default function Inventory() {
         data={inventory.docs}
         tableName="All Inventory (Admin)"
         subTitle="View all inventory items across organizations"
-        buttonName="View Details"
+        // buttonName="View Details"
         page={page}
         limit={limit}
         search={search}

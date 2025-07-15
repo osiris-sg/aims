@@ -20,7 +20,7 @@ interface Props {
   data: any[];
   tableName: string;
   subTitle: string;
-  buttonName: string;
+  buttonName?: string;
   loading: boolean;
   page?: number;
   limit?: number;
@@ -36,9 +36,10 @@ interface Props {
   pageCount?: number;
   totalDocs?: number;
   renderSubComponent?: (props: { row: any }) => React.ReactNode;
+  actionButtons?: React.ReactNode[];
 }
 export default function PageTable(props: Props) {
-  const { columns, data, tableName, subTitle, buttonName, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, availableFilters, totalDocs, renderSubComponent } = props;
+  const { columns, data, tableName, subTitle,loading, buttonName, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, availableFilters, totalDocs, renderSubComponent, actionButtons } = props;
   const { control, handleSubmit, watch } = useForm({ defaultValues: { limit, search } });
   const _limit = watch("limit");
   const _search = watch("search");
@@ -92,9 +93,15 @@ export default function PageTable(props: Props) {
           </Grid2>
           <Grid2 size={{ xs: 12, md: 8 }}>
             <Box sx={{ display: "flex", justifyContent: "flex-end", gap: "var(--half-gap)" }}>
-              <Button variant="contained" color="secondary" startIcon={<AddCircleOutlineIcon />} onClick={onAddClick}>
-                {buttonName}
-              </Button>
+              {buttonName && (
+                <Button variant="contained" color="secondary" startIcon={<AddCircleOutlineIcon />} onClick={onAddClick}>
+                  {buttonName}
+                </Button>
+              )}
+
+              {actionButtons && actionButtons.map((btn, idx) => (
+                <React.Fragment key={idx}>{btn}</React.Fragment>
+              ))}
 
               {filters && (
                 <Button variant="outlined" color="secondary" onClick={() => setOpenFilters(true)} sx={{ display: "flex", p: 0, minWidth: "100px" }}>

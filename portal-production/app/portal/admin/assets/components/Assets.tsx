@@ -18,7 +18,7 @@ export default function Assets() {
         data={assets.docs}
         tableName="All Assets (Admin)"
         subTitle="View all assets across organizations"
-        buttonName="View Asset Details"
+        // buttonName="View Asset Details"
         page={page}
         limit={limit}
         search={search}

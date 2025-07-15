@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Box, Grid, Card, CardContent, Typography, Button, Chip, CircularProgress } from "@mui/material";
-import { Business as OrganizationIcon, Inventory as InventoryIcon, Description as DocumentIcon, People as CustomersIcon, Settings as AssetIcon, Dashboard as ProjectIcon } from "@mui/icons-material";
+import { Business as OrganizationIcon, Inventory as InventoryIcon, Description as DocumentIcon, People as CustomersIcon, Settings as AssetIcon, Dashboard as ProjectIcon, Person as PeopleIcon } from "@mui/icons-material";
 import { useRouter } from "next/navigation";
 import { request } from "@/helpers/request";
 import { useAuth } from "@clerk/nextjs";
@@ -16,6 +16,8 @@ interface DashboardStats {
   totalDocumentTemplates: number;
   totalProjects: number;
   totalUserOrganizations: number;
+  totalUserRoles: number;
+  totalUsers: number;
 }
 
 interface Organization {
@@ -88,6 +90,7 @@ export default function AdminDashboard() {
     { title: "Total Customers", value: stats?.totalCustomers || 0, icon: <CustomersIcon />, color: "#7b1fa2", path: "customers" },
     { title: "Total Documents", value: stats?.totalDocuments || 0, icon: <DocumentIcon />, color: "#d32f2f", path: "documents" },
     { title: "Total Projects", value: stats?.totalProjects || 0, icon: <ProjectIcon />, color: "#455a64", path: "projects" },
+    { title: "Total Users", value: stats?.totalUsers || 0, icon: <PeopleIcon />, color: "#455a64", path: "users" },
   ];
 
   return (
