@@ -25,4 +25,9 @@ export const ROUTES = {
   EDIT_PERMISSIONS: "/portal/permissions/edit",
   CREATE_PERMISSIONS: "/portal/permissions/create",
   PERMISSION_TEMPLATES: "/portal/permissions/templates",
+
+  AUDIT: "/portal/audit",
+
+  USERS: "/portal/user-management/users",
+  CREATE_PROJECT: "/portal/projects/create",
 };

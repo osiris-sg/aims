@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import MainCard from "@/components/MainCard";
+import AdminCard from "@/components/AdminCard";
 import PageTable from "@/components/PageTable";
 import { useGetAssets } from "../hooks/useGetAssets";
 import useAssetsTableHeader from "../hooks/useAssetsTableHeader";
@@ -11,7 +11,7 @@ export default function Assets() {
   const { assets, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters } = useGetAssets();
 
   return (
-    <MainCard>
+    <AdminCard>
       <PageTable
         loading={loading}
         columns={columns}
@@ -32,6 +32,6 @@ export default function Assets() {
         totalDocs={assets.totalDocuments}
       />
       {deleteDialog}
-    </MainCard>
+    </AdminCard>
   );
 }

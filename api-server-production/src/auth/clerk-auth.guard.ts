@@ -1,4 +1,4 @@
-import { type ExecutionContext, Injectable, ForbiddenException } from '@nestjs/common';
+import { type ExecutionContext, Injectable, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
@@ -15,46 +15,69 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
   }
 
   async canActivate(context: ExecutionContext) {
-    // Check if route is public
-    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [context.getHandler(), context.getClass()]);
-
-    if (isPublic) {
-      return true;
-    }
-
-    // First check if user is authenticated
-    const isAuthenticated = await super.canActivate(context);
-
-    if (!isAuthenticated) {
+    const canActivate = await super.canActivate(context);
+    if (!canActivate) {
       return false;
     }
 
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
-    // Check if user has OsirisAdmin role (global platform admin)
-    const osirisAdminRoles = await this.prisma.userRole.findMany({
-      where: {
-        userId: user.id,
-        isActive: true,
-      },
-      include: {
-        role: true,
-      },
-    });
+    if (!user) {
+      throw new UnauthorizedException('User not authenticated');
+    }
 
-    const isOsirisAdmin = osirisAdminRoles.some((userRole) => userRole.role.name === 'osirisadmin');
+    console.log('⚡ Auth guard started for user:', user.id);
+    const authStart = Date.now();
 
-    // Get user's organization
-    const userOrg = await this.prisma.userOrganization.findFirst({
-      where: {
-        userId: user.id,
-        isActive: true,
-      },
-      include: {
-        organization: true,
-      },
-    });
+    // Optimize: Get all user data in parallel with a single optimized query
+    const [userRoles, userOrg] = await Promise.all([
+      // Get all user roles with minimal nested data
+      this.prisma.userRole.findMany({
+        where: {
+          userId: user.id,
+          isActive: true,
+        },
+        select: {
+          id: true,
+          organizationId: true,
+          role: {
+            select: {
+              id: true,
+              name: true,
+              permissions: {
+                select: {
+                  name: true,
+                  resource: true,
+                  action: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      // Get user organization
+      this.prisma.userOrganization.findFirst({
+        where: {
+          userId: user.id,
+          isActive: true,
+        },
+        select: {
+          organization: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const authQueryDuration = Date.now() - authStart;
+    console.log(`📊 Auth queries completed in ${authQueryDuration}ms`);
+
+    // Check if user has OsirisAdmin role
+    const isOsirisAdmin = userRoles.some((userRole) => userRole.role.name === 'osirisadmin');
 
     // For OsirisAdmin, allow access without organization constraint for platform operations
     if (isOsirisAdmin) {
@@ -81,51 +104,27 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
 
     // If no permissions are required, user just needs to be authenticated
     if (!requiredPermissions || requiredPermissions.length === 0) {
+      const totalAuthDuration = Date.now() - authStart;
+      console.log(`✅ Auth completed in ${totalAuthDuration}ms (no permissions required)`);
       return true;
     }
 
-    let userRoles;
-
+    // Filter roles based on context (we already have all the data)
+    let relevantUserRoles;
     if (isOsirisAdmin) {
-      // For OsirisAdmin, get all their roles (not organization-scoped)
-      userRoles = await this.prisma.userRole.findMany({
-        where: {
-          userId: user.id,
-          isActive: true,
-        },
-        include: {
-          role: {
-            include: {
-              permissions: true,
-            },
-          },
-        },
-      });
+      // For OsirisAdmin, use all their roles
+      relevantUserRoles = userRoles;
     } else {
-      // For regular users, check organization-scoped roles
-      // Note: userOrg is guaranteed to exist here due to earlier check
-      userRoles = await this.prisma.userRole.findMany({
-        where: {
-          userId: user.id,
-          organizationId: userOrg.organization.id,
-          isActive: true,
-        },
-        include: {
-          role: {
-            include: {
-              permissions: true,
-            },
-          },
-        },
-      });
+      // For regular users, filter by organization
+      relevantUserRoles = userRoles.filter((userRole) => userRole.organizationId === userOrg.organization.id);
     }
 
-    if (userRoles.length === 0) {
+    if (relevantUserRoles.length === 0) {
       throw new ForbiddenException(isOsirisAdmin ? 'OsirisAdmin user has no assigned roles' : 'User has no assigned roles in this organization');
     }
 
     // Check if any of the user's roles has all the required permissions
-    for (const userRole of userRoles) {
+    for (const userRole of relevantUserRoles) {
       const role = userRole.role;
 
       const hasAllPermissions = requiredPermissions.every((requiredPermission) => {
@@ -138,10 +137,14 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
       });
 
       if (hasAllPermissions) {
+        const totalAuthDuration = Date.now() - authStart;
+        console.log(`✅ Auth completed in ${totalAuthDuration}ms (permissions verified)`);
         return true;
       }
     }
 
-    throw new ForbiddenException('Insufficient permissions');
+    const totalAuthDuration = Date.now() - authStart;
+    console.log(`❌ Auth failed in ${totalAuthDuration}ms (insufficient permissions)`);
+    throw new ForbiddenException('User does not have sufficient permissions');
   }
 }

@@ -33,6 +33,7 @@ const getMainListItems = (isAdmin: boolean) => {
     { text: "Invoices", path: ROUTES.INVOICES, icon: <AssignmentRoundedIcon /> },
     { text: "Projects", path: ROUTES.PROJECTS, icon: <AccountTreeIcon /> },
     { text: "User Management", path: ROUTES.PERMISSIONS, icon: <PeopleRoundedIcon /> },
+    { text: "Audit", path: ROUTES.AUDIT, icon: <AnalyticsRoundedIcon /> },
   ];
 
   if (isAdmin) {

@@ -8,23 +8,23 @@ datasource db {
 }
 
 model Organization {
-  id                String             @id @default(uuid())
-  name              String             @unique
-  address           String?
-  phoneNumber       String?
+  id                 String             @id @default(uuid())
+  name               String             @unique
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  address            String?
+  phoneNumber        String?
   registrationNumber String?
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  assets            Asset[]
-  categories        Category[]
-  customers         Customer[]
-  documents         Document[]
-  documentTemplates DocumentTemplate[]
-  inventories       Inventory[]
-  projects          Project[]
-  roles             Role[]
-  userOrganizations UserOrganization[]
-  userRoles         UserRole[]
+  assets             Asset[]
+  categories         Category[]
+  customers          Customer[]
+  documents          Document[]
+  documentTemplates  DocumentTemplate[]
+  inventories        Inventory[]
+  projects           Project[]
+  roles              Role[]
+  userOrganizations  UserOrganization[]
+  userRoles          UserRole[]
 }
 
 model Asset {
@@ -33,12 +33,12 @@ model Asset {
   skuKey          String
   categoryId      String             @db.Uuid
   description     String?
-  price           Float?            // Optional price field
   image           String?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   deletedAt       DateTime?          @db.Timestamptz(6)
   organizationId  String?
+  price           Float?
   category        Category           @relation(fields: [categoryId], references: [id])
   organization    Organization?      @relation(fields: [organizationId], references: [id])
   taggedTemplates AssetTemplateTag[]
@@ -126,7 +126,6 @@ model TimelineItem {
 
 model Document {
   id                 String         @id @default(uuid()) @db.Uuid
-  name               String?
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
   config             Json
@@ -136,6 +135,7 @@ model Document {
   inventoryId        String?        @db.Uuid
   projectId          String?        @db.Uuid
   organizationId     String
+  name               String?
   customer           Customer?      @relation(fields: [customerId], references: [id])
   inventory          Inventory?     @relation(fields: [inventoryId], references: [id])
   organization       Organization   @relation(fields: [organizationId], references: [id])
@@ -204,16 +204,16 @@ model Project {
   name           String
   description    String?
   organizationId String?
-  siteOfficeId   String?       @db.Uuid
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   startDate      DateTime?
   endDate        DateTime?
   status         ProjectStatus @default(pending)
+  siteOfficeId   String?       @db.Uuid
   assignments    Assignment[]
   documents      Document[]
-  siteOffice     SiteOffice?   @relation("SiteOfficeProjects", fields: [siteOfficeId], references: [id])
   organization   Organization? @relation(fields: [organizationId], references: [id])
+  siteOffice     SiteOffice?   @relation("SiteOfficeProjects", fields: [siteOfficeId], references: [id])
 }
 
 model Assignment {
@@ -227,6 +227,59 @@ model Assignment {
   project     Project    @relation(fields: [projectId], references: [id])
 
   @@unique([projectId, inventoryId])
+}
+
+model SiteOffice {
+  id             String          @id @default(uuid()) @db.Uuid
+  name           String
+  address        String?
+  customerId     String          @db.Uuid
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  contactDetails ContactDetail[]
+  projects       Project[]       @relation("SiteOfficeProjects")
+  customer       Customer        @relation(fields: [customerId], references: [id])
+}
+
+model ContactDetail {
+  id           String     @id @default(uuid()) @db.Uuid
+  name         String
+  email        String
+  phone        String
+  siteOfficeId String     @db.Uuid
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  siteOffice   SiteOffice @relation(fields: [siteOfficeId], references: [id])
+}
+
+model AuditLog {
+  id             String      @id @default(uuid())
+  userId         String
+  userName       String?
+  userEmail      String?
+  action         String
+  resource       String
+  resourceId     String?
+  resourceName   String?
+  organizationId String?
+  details        Json?
+  ipAddress      String?
+  userAgent      String?
+  status         AuditStatus @default(SUCCESS)
+  errorMessage   String?
+  createdAt      DateTime    @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([resource])
+  @@index([organizationId])
+  @@index([createdAt])
+  @@index([organizationId, createdAt])
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@index([resource, createdAt])
+  @@index([organizationId, action, createdAt])
+  @@index([userId, action, createdAt])
 }
 
 enum ProjectStatus {
@@ -243,25 +296,8 @@ enum InventoryStatus {
   sold
 }
 
-model SiteOffice {
-  id             String          @id @default(uuid()) @db.Uuid
-  name           String
-  address        String?
-  customerId     String          @db.Uuid
-  customer       Customer        @relation(fields: [customerId], references: [id])
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  contactDetails ContactDetail[]
-  projects       Project[]       @relation("SiteOfficeProjects")
-}
-
-model ContactDetail {
-  id           String     @id @default(uuid()) @db.Uuid
-  name         String
-  email        String
-  phone        String
-  siteOfficeId String     @db.Uuid
-  siteOffice   SiteOffice @relation(fields: [siteOfficeId], references: [id])
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+enum AuditStatus {
+  SUCCESS
+  FAILURE
+  PENDING
 }

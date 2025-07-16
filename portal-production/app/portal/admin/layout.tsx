@@ -42,6 +42,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { label: "Projects", value: "/portal/admin/projects", route: ROUTES.ADMIN_PROJECTS },
     { label: "Users", value: "/portal/admin/users", route: ROUTES.ADMIN_USERS },
     { label: "Roles", value: "/portal/admin/roles", route: ROUTES.ADMIN_ROLES },
+    { label: "Audit Logs", value: "/portal/admin/audit", route: ROUTES.ADMIN_AUDIT_LOGS },
   ];
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: string) => {
@@ -52,10 +53,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const currentTab = adminTabs.find((tab) => pathname === tab.route)?.value || "/portal/admin";
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: 8, height: "100%", width: "100%", display: "flex", flexDirection: "column" }}>
       <Box sx={{ mb: 3, borderBottom: "2px solid #f0f0f0", pb: 2 }}>
         <Typography variant="h4" sx={{ fontWeight: "bold", color: "#d32f2f" }}>
-          🔧 OsirisAdmin Control Panel
+          OsirisAdmin Control Panel
         </Typography>
         <Typography variant="subtitle1" sx={{ color: "#666", mt: 1 }}>
           Cross-Organization Management Dashboard
@@ -88,7 +89,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           ))}
         </Tabs>
       </Box>
-      {children}
+      <Box sx={{ flex: 1, height: "100%", width: "100%" }}>{children}</Box>
     </Box>
   );
 }

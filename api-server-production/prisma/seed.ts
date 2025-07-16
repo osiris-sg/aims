@@ -852,6 +852,18 @@ async function main() {
     },
   });
 
+  // Create audit permissions
+  const readAuditPermission = await prisma.permission.upsert({
+    where: { name: 'audit:read' },
+    update: {},
+    create: {
+      name: 'audit:read',
+      description: 'Can read audit logs',
+      resource: 'audit',
+      action: 'read',
+    },
+  });
+
   // Create additional user permissions
   const createUserPermission = await prisma.permission.upsert({
     where: { name: 'users:create' },
@@ -933,6 +945,8 @@ async function main() {
           { id: updateUserPermission.id },
           { id: readUserPermission.id },
           { id: deleteUserPermission.id },
+          // Audit management
+          { id: readAuditPermission.id },
 
           // Business operations (same as superadmin + can do across all organizations)
           // Asset management
@@ -1033,6 +1047,8 @@ async function main() {
           { id: updateUserPermission.id },
           { id: readUserPermission.id },
           { id: deleteUserPermission.id },
+          // Audit management
+          { id: readAuditPermission.id },
 
           // Business operations (same as superadmin + can do across all organizations)
           // Asset management
@@ -1179,6 +1195,8 @@ async function main() {
           { id: addProjectAssignmentsPermission.id },
           // File uploads (organization-scoped)
           { id: uploadImagePermission.id },
+          // Audit management (organization-scoped)
+          { id: readAuditPermission.id },
         ],
       },
     },
@@ -1252,6 +1270,8 @@ async function main() {
           { id: addProjectAssignmentsPermission.id },
           // File uploads (organization-scoped)
           { id: uploadImagePermission.id },
+          // Audit management (organization-scoped)
+          { id: readAuditPermission.id },
         ],
       },
     },
@@ -1267,7 +1287,7 @@ async function main() {
     },
     update: {
       permissions: {
-        set: [{ id: readRolePermission.id }, { id: readPermissionPermission.id }, { id: readRolesPermission.id }],
+        set: [{ id: readRolePermission.id }, { id: readPermissionPermission.id }, { id: readRolesPermission.id }, { id: readAuditPermission.id }],
       },
     },
     create: {
@@ -1275,7 +1295,7 @@ async function main() {
       description: 'Regular user with limited permissions',
       organizationId: osirisOrg.id,
       permissions: {
-        connect: [{ id: readRolePermission.id }, { id: readPermissionPermission.id }, { id: readRolesPermission.id }],
+        connect: [{ id: readRolePermission.id }, { id: readPermissionPermission.id }, { id: readRolesPermission.id }, { id: readAuditPermission.id }],
       },
     },
   });

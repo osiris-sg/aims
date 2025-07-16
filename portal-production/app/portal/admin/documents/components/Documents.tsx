@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import MainCard from "@/components/MainCard";
+import AdminCard from "@/components/AdminCard";
 import PageTable from "@/components/PageTable";
 import { useGetDocuments } from "../hooks/useGetDocuments";
 import useDocumentsTableHeader from "../hooks/useDocumentsTableHeader";
@@ -11,7 +11,7 @@ export default function Documents() {
   const { documents, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters } = useGetDocuments();
 
   return (
-    <MainCard>
+    <AdminCard>
       <PageTable
         loading={loading}
         columns={columns}
@@ -32,6 +32,6 @@ export default function Documents() {
         totalDocs={documents.totalDocuments}
       />
       {deleteDialog}
-    </MainCard>
+    </AdminCard>
   );
 }

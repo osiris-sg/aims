@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import MainCard from "@/components/MainCard";
+import AdminCard from "@/components/AdminCard";
 import PageTable from "@/components/PageTable";
 import AddOrganizationItem from "./AddOrganizationItem";
 import { useGetOrganizations } from "../hooks/useGetOrganizations";
@@ -19,8 +19,6 @@ export default function Organizations() {
 
   const { openOrganizationDrawer, onAddOrganizationClick, onCloseOrganizationClick } = useAddOrganizationStates();
 
-
-
   const handleOrganizationUpdated = () => {
     refreshOrganizations();
     handleCloseEditOrganization();
@@ -36,7 +34,7 @@ export default function Organizations() {
   };
 
   return (
-    <MainCard>
+    <AdminCard>
       <PageTable
         data={organizations.docs}
         columns={columns}
@@ -57,7 +55,7 @@ export default function Organizations() {
         actionButtons={[
           <Button variant="contained" color="secondary" startIcon={<AddCircleOutlineIcon />} onClick={onAddOrganizationClick}>
             Add Org
-          </Button>, 
+          </Button>,
         ]}
       />
 
@@ -66,6 +64,6 @@ export default function Organizations() {
       <EditOrganization open={editOrganizationOpen} onClose={handleCloseEditOrganization} organization={selectedOrganization} onOrganizationUpdated={handleOrganizationUpdated} />
 
       <DeleteItemDialogNoConfirm open={!!organizationToDelete} onConfirm={handleDeleteConfirm} onCancel={cancelDelete} loading={isDeleteInProgress} />
-    </MainCard>
+    </AdminCard>
   );
 }
