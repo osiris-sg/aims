@@ -39,7 +39,7 @@ interface Props {
   actionButtons?: React.ReactNode[];
 }
 export default function PageTable(props: Props) {
-  const { columns, data, tableName, subTitle,loading, buttonName, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, availableFilters, totalDocs, renderSubComponent, actionButtons } = props;
+  const { columns, data, tableName, subTitle, loading, buttonName, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, availableFilters, totalDocs, renderSubComponent, actionButtons } = props;
   const { control, handleSubmit, watch } = useForm({ defaultValues: { limit, search } });
   const _limit = watch("limit");
   const _search = watch("search");
@@ -99,9 +99,7 @@ export default function PageTable(props: Props) {
                 </Button>
               )}
 
-              {actionButtons && actionButtons.map((btn, idx) => (
-                <React.Fragment key={idx}>{btn}</React.Fragment>
-              ))}
+              {actionButtons && actionButtons.map((btn, idx) => <React.Fragment key={idx}>{btn}</React.Fragment>)}
 
               {filters && (
                 <Button variant="outlined" color="secondary" onClick={() => setOpenFilters(true)} sx={{ display: "flex", p: 0, minWidth: "100px" }}>
@@ -140,7 +138,7 @@ export default function PageTable(props: Props) {
               {`Showing ${(page - 1) * limit + 1}-${Math.min(page * limit, totalDocs)} out of ${totalDocs} records`}
             </Typography>
           )}
-          <Pagination page={page} count={pageCount} siblingCount={0} boundaryCount={0} onChange={(event, value) => setPage && setPage(value)} />
+          <Pagination page={page ?? 1} count={pageCount ?? 1} siblingCount={0} boundaryCount={0} onChange={(event, value) => setPage && setPage(value)} />
         </Box>
         {filters && setFilters && <FilterDrawer openFilterDrawerStatus={openFilters} onClose={() => setOpenFilters(false)} onSetFilters={(filters) => setFilters(filters)} defaultFilters={filters} availableFilterTypes={availableFilters} />}
       </Box>

@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import MainCard from "@/components/MainCard";
+import AdminCard from "@/components/AdminCard";
 import PageTable from "@/components/PageTable";
 import { useGetProjects } from "../hooks/useGetProjects";
 import useProjectsTableHeader from "../hooks/useProjectsTableHeader";
@@ -11,7 +11,7 @@ export default function Projects() {
   const { projects, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters } = useGetProjects();
 
   return (
-    <MainCard>
+    <AdminCard>
       <PageTable
         loading={loading}
         columns={columns}
@@ -32,6 +32,6 @@ export default function Projects() {
         totalDocs={projects.totalDocuments}
       />
       {deleteDialog}
-    </MainCard>
+    </AdminCard>
   );
 }

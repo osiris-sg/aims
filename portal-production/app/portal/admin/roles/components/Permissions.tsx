@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import MainCard from "@/components/MainCard";
+import AdminCard from "@/components/AdminCard";
 import useRoleTableHeader from "../hooks/useRoleTableHeader";
 import PageTable from "@/components/PageTable";
 import AddRoleItem from "./AddRoleItem";
@@ -30,7 +30,7 @@ export default function Permissions() {
   };
 
   return (
-    <MainCard>
+    <AdminCard>
       <PageTable
         columns={columns}
         data={roles.docs}
@@ -56,6 +56,6 @@ export default function Permissions() {
       {selectedRole && <EditRole open={editRoleOpen} onClose={handleCloseEditRole} role={selectedRole} onRoleUpdated={handleRoleUpdated} />}
 
       <DeleteItemDialogNoConfirm open={!!roleToDelete} onCancel={cancelDelete} onConfirm={handleDeleteConfirm} loading={isDeleteInProgress} />
-    </MainCard>
+    </AdminCard>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import MainCard from "@/components/MainCard";
+import AdminCard from "@/components/AdminCard";
 import PageTable from "@/components/PageTable";
 import { useGetInventory } from "../hooks/useGetInventory";
 import useInventoryTableHeader from "../hooks/useInventoryTableHeader";
@@ -11,7 +11,7 @@ export default function Inventory() {
   const { inventory, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters } = useGetInventory();
 
   return (
-    <MainCard>
+    <AdminCard>
       <PageTable
         loading={loading}
         columns={columns}
@@ -32,6 +32,6 @@ export default function Inventory() {
         totalDocs={inventory.totalDocuments}
       />
       {deleteDialog}
-    </MainCard>
+    </AdminCard>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import MainCard from "@/components/MainCard";
+import AdminCard from "@/components/AdminCard";
 import useUserTableHeader from "../hooks/useUserTableHeader";
 import PageTable from "@/components/PageTable";
 import AddUser from "./AddUser";
@@ -32,7 +32,7 @@ export default function Users() {
   };
 
   return (
-    <MainCard>
+    <AdminCard>
       <PageTable
         columns={columns}
         data={users.docs || []}
@@ -59,6 +59,6 @@ export default function Users() {
       {selectedUser && <EditUser open={editUserOpen} onClose={handleCloseEditUser} user={selectedUser} onUserUpdated={handleUserUpdated} />}
 
       <DeleteItemDialogNoConfirm open={!!userToDelete} onCancel={cancelDelete} onConfirm={handleDeleteConfirm} loading={isDeleteInProgress} />
-    </MainCard>
+    </AdminCard>
   );
 }

@@ -24,6 +24,7 @@ export const ROUTES = {
   PERMISSIONS: "/portal/user-management/permissions",
   USERS: "/portal/user-management/users",
   ORGANIZATIONS: "/portal/admin/organizations",
+  AUDIT: "/portal/audit",
 
   // Admin routes
   ADMIN_ASSETS: "/portal/admin/assets",
@@ -33,6 +34,8 @@ export const ROUTES = {
   ADMIN_PROJECTS: "/portal/admin/projects",
   ADMIN_USERS: "/portal/admin/users",
   ADMIN_ROLES: "/portal/admin/roles",
+  ADMIN_AUDIT_LOGS: "/portal/admin/audit",
+
 
   VIEW_PERMISSIONS: "/portal/permissions/view",
   EDIT_PERMISSIONS: "/portal/permissions/edit",
