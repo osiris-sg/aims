@@ -189,20 +189,36 @@ export default function InvoicesPage() {
   // Add useState and onSubmit above return
   const [isDocumentTemplateUpdating, setIsDocumentTemplateUpdating] = useState(false);
 
-  const typeToIdMap: Record<string, string> = {
-    DO: "36c25729-34a0-419a-8a93-cdda243168ab",
-    RDO: "89e5fd4b-e837-44ad-982e-80559a3274e0",
-    TI: "654da337-fc90-4234-8228-3e0f79b50192",
-    MSR: "maintenance_service_report",
-    QO1: "033bbb49-7f69-41a7-8b1d-157f587bb781", // Add your QO1 template ID here
-    QO2: "3a342fd2-c988-4422-8390-eb64d4354f71",
+  const typeToIdMap: Record<string, string> = {};
+
+  const getTemplateIdByType = async (documentType: string, token: string) => {
+    try {
+      const response = await request(
+        {
+          path: `/documentTemplates/type/${documentType}`,
+          method: "GET",
+        },
+        {},
+        token
+      );
+
+      if (response?.success && response.data?.id) {
+        return response.data.id;
+      } else {
+        console.warn("Template ID not found, using fallback from typeToIdMap");
+        return typeToIdMap[documentType] || documentType;
+      }
+    } catch (error) {
+      console.error("Error fetching template ID by type:", error);
+      return typeToIdMap[documentType] || documentType;
+    }
   };
 
   const onSubmit = async (data: any) => {
     try {
       setIsDocumentTemplateUpdating(true);
       const token = await getToken();
-      const documentTemplateId = typeToIdMap[data.documentType] || data.documentType;
+      const documentTemplateId = await getTemplateIdByType(data.documentType, token ?? "");
       console.log("Selected Document Type:", organizationId);
       const response = await request(
         {

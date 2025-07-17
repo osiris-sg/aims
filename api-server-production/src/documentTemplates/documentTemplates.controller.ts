@@ -70,4 +70,14 @@ export class DocumentTemplatesController {
     }
     return await this.documentTemplatesService.deleteDocumentTemplates(deleteDocumentTemplateDto, organizationId);
   }
+
+  @Get('type/:type')
+  @Permissions('documentTemplates:read')
+  async getDocumentTemplateByType(@Param('type') type: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentTemplatesService.getDocumentTemplateByType(type, organizationId);
+  }
 }

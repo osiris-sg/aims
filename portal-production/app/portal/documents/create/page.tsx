@@ -14,6 +14,27 @@ import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 
+async function getDocumentTemplateIdByType(documentType: string, token: string) {
+  try {
+    const response = await request(
+      {
+        path: `/documentTemplates/type/${documentType}`,
+        method: "GET",
+      },
+      {},
+      token
+    );
+    if (response.success && response.data?.id) {
+      return response.data.id;
+    }
+    console.error("No document template found for type:", documentType);
+    return null;
+  } catch (error) {
+    console.error("Error fetching document template by type:", error);
+    return null;
+  }
+}
+
 export default function CreateDocument() {
   const { availableDocumentTypes } = useGetDocumentTemplates();
   const router = useRouter();
@@ -38,20 +59,19 @@ export default function CreateDocument() {
   const [isDocumentTemplateUpdating, setIsDocumentTemplateUpdating] = useState(false);
   const { getToken } = useAuth();
 
-  const typeToIdMap: Record<string, string> = {
-    DO: "36c25729-34a0-419a-8a93-cdda243168ab",
-    RDO: "89e5fd4b-e837-44ad-982e-80559a3274e0",
-    TI: "tax_invoice",
-    MSR: "maintenance_service_report",
-    QO1: "033bbb49-7f69-41a7-8b1d-157f587bb781",
-    QO2: "3a342fd2-c988-4422-8390-eb64d4354f71",
-  };
+  const typeToIdMap: Record<string, string> = {};
 
   const onSubmit = async (data: any) => {
     try {
       setIsDocumentTemplateUpdating(true);
       const token = await getToken();
-      const documentTemplateId = typeToIdMap[data.documentType] || data.documentType;
+      let documentTemplateId = typeToIdMap[data.documentType] || data.documentType;
+      if (!typeToIdMap[data.documentType]) {
+        const fetchedId = await getDocumentTemplateIdByType(data.documentType, token ?? "");
+        if (fetchedId) {
+          documentTemplateId = fetchedId;
+        }
+      }
       console.log("Selected Document Type:", organizationId);
       const response = await request(
         {

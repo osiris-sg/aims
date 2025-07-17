@@ -155,4 +155,23 @@ export class DocumentTemplatesService {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
+  async getDocumentTemplateByType(type: string, organizationId: string) {
+    try {
+      const documentTemplate = await this.prisma.documentTemplate.findFirst({
+        where: {
+          type,
+          organizationId,
+        },
+      });
+
+      if (!documentTemplate) {
+        throw new HttpException(`Document Template of type "${type}" not found`, HttpStatus.NOT_FOUND);
+      }
+
+      return documentTemplate;
+    } catch (error) {
+      console.error('Error fetching document template by type:', error);
+      throw new HttpException(error.message || 'Internal Server Error', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
 }
