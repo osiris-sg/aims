@@ -249,6 +249,18 @@ async function main() {
     },
   });
 
+  // Create permissions for dashboard
+  const dashboardReadPermission = await prisma.permission.upsert({
+    where: { name: 'dashboard:read' },
+    update: {},
+    create: {
+      name: 'dashboard:read',
+      description: 'Can read dashboard data',
+      resource: 'dashboard',
+      action: 'read',
+    },
+  });
+
   // Create permissions for organizations
   const readUserOrganizationPermission = await prisma.permission.upsert({
     where: { name: 'organizations:read-user' },
@@ -1115,6 +1127,8 @@ async function main() {
           { id: addProjectAssignmentsPermission.id },
           // File uploads
           { id: uploadImagePermission.id },
+          // Dashboard
+          { id: dashboardReadPermission.id },
         ],
       },
     },
@@ -1197,6 +1211,8 @@ async function main() {
           { id: uploadImagePermission.id },
           // Audit management (organization-scoped)
           { id: readAuditPermission.id },
+          // Dashboard (organization-scoped)
+          { id: dashboardReadPermission.id },
         ],
       },
     },
@@ -1272,6 +1288,8 @@ async function main() {
           { id: uploadImagePermission.id },
           // Audit management (organization-scoped)
           { id: readAuditPermission.id },
+          // Dashboard (organization-scoped)
+          { id: dashboardReadPermission.id },
         ],
       },
     },

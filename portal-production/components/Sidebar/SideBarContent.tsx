@@ -7,6 +7,7 @@ import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
 import Stack from "@mui/material/Stack";
 import AnalyticsRoundedIcon from "@mui/icons-material/AnalyticsRounded";
+import DashboardIcon from "@mui/icons-material/Dashboard";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import PeopleRoundedIcon from "@mui/icons-material/PeopleRounded";
 import AssignmentRoundedIcon from "@mui/icons-material/AssignmentRounded";
@@ -26,6 +27,7 @@ import { useOrganization } from "@/app/portal/hooks/useOrganization";
 
 const getMainListItems = (isAdmin: boolean) => {
   const baseItems = [
+    { text: "Dashboard", path: ROUTES.DASHBOARD, icon: <DashboardIcon /> },
     { text: "Inventory", path: ROUTES.INVENTORY, icon: <InventoryIcon /> },
     { text: "Assets", path: ROUTES.ASSETS, icon: <AnalyticsRoundedIcon /> },
     { text: "Customers", path: ROUTES.CUSTOMERS, icon: <PeopleRoundedIcon /> },
@@ -70,6 +72,24 @@ export default function SideBarContent() {
 
   const mainListItems = getMainListItems(isOsirisAdmin());
 
+  // Function to check if a nav item should be active - FIX THE HIGHLIGHTING ISSUE
+  const isItemActive = (item: any) => {
+    // Special case for Dashboard - only active on exact "/portal" path
+    if (item.text === "Dashboard") {
+      return pathname === "/portal";
+    }
+    // For Documents, check if any document path is active
+    if (item.text === "Documents") {
+      return pathname.startsWith("/portal/documents");
+    }
+    // For User Management, check if any user management path is active
+    if (item.text === "User Management") {
+      return pathname.startsWith("/portal/user-management") || pathname.startsWith("/portal/permissions");
+    }
+    // For all other items, use exact path matching to prevent conflicts
+    return pathname.startsWith(item.path) && pathname !== "/portal";
+  };
+
   const renderListItem = (item: any, index: number) => {
     if (item.text === "Documents") {
       return (
@@ -79,15 +99,15 @@ export default function SideBarContent() {
             sx={{
               display: "block",
               borderRadius: "var(--default-border-radius)",
-              backgroundColor: pathname.startsWith(item.path) ? theme.palette.primary.contrastText : "transparent",
+              backgroundColor: isItemActive(item) ? theme.palette.primary.contrastText : "transparent",
               ":hover": { backgroundColor: theme.palette.primary.light },
             }}
             onClick={handleDocumentsClick}
           >
-            <ListItemButton selected={pathname.startsWith(item.path)}>
+            <ListItemButton selected={isItemActive(item)}>
               <ListItemIcon
                 sx={{
-                  color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                  color: isItemActive(item) ? theme.palette.primary.main : theme.palette.primary.contrastText,
                   minWidth: "fit-content!important",
                   marginRight: "var(--default-gap)",
                 }}
@@ -97,7 +117,7 @@ export default function SideBarContent() {
               <ListItemText
                 primary={item.text}
                 sx={{
-                  color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                  color: isItemActive(item) ? theme.palette.primary.main : theme.palette.primary.contrastText,
                 }}
               />
               {openDocuments ? <ExpandLess /> : <ExpandMore />}
@@ -123,15 +143,15 @@ export default function SideBarContent() {
             sx={{
               display: "block",
               borderRadius: "var(--default-border-radius)",
-              backgroundColor: pathname.startsWith(item.path) ? theme.palette.primary.contrastText : "transparent",
+              backgroundColor: isItemActive(item) ? theme.palette.primary.contrastText : "transparent",
               ":hover": { backgroundColor: theme.palette.primary.light },
             }}
             onClick={handleUserManagementClick}
           >
-            <ListItemButton selected={pathname.startsWith(item.path)}>
+            <ListItemButton selected={isItemActive(item)}>
               <ListItemIcon
                 sx={{
-                  color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                  color: isItemActive(item) ? theme.palette.primary.main : theme.palette.primary.contrastText,
                   minWidth: "fit-content!important",
                   marginRight: "var(--default-gap)",
                 }}
@@ -141,7 +161,7 @@ export default function SideBarContent() {
               <ListItemText
                 primary={item.text}
                 sx={{
-                  color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                  color: isItemActive(item) ? theme.palette.primary.main : theme.palette.primary.contrastText,
                 }}
               />
               {openUserManagement ? <ExpandLess /> : <ExpandMore />}
@@ -167,15 +187,15 @@ export default function SideBarContent() {
           sx={{
             display: "block",
             borderRadius: "var(--default-border-radius)",
-            backgroundColor: pathname.startsWith(item.path) ? theme.palette.primary.contrastText : "transparent",
+            backgroundColor: isItemActive(item) ? theme.palette.primary.contrastText : "transparent",
             ":hover": { backgroundColor: theme.palette.primary.light },
           }}
         >
           <Link href={item.path} key={item.text} style={{ textDecoration: "none", color: "inherit" }}>
-            <ListItemButton selected={pathname.startsWith(item.path)}>
+            <ListItemButton selected={isItemActive(item)}>
               <ListItemIcon
                 sx={{
-                  color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                  color: isItemActive(item) ? theme.palette.primary.main : theme.palette.primary.contrastText,
                   minWidth: "fit-content!important",
                   marginRight: "var(--default-gap)",
                 }}
@@ -185,7 +205,7 @@ export default function SideBarContent() {
               <ListItemText
                 primary={item.text}
                 sx={{
-                  color: pathname.startsWith(item.path) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                  color: isItemActive(item) ? theme.palette.primary.main : theme.palette.primary.contrastText,
                 }}
               />
             </ListItemButton>
@@ -222,26 +242,10 @@ export default function SideBarContent() {
         }}
       >
         {secondaryListItems.map((item: any, index: number) => (
-          <ListItem
-            key={index}
-            disablePadding
-            sx={{
-              display: "block",
-              borderRadius: "var(--default-border-radius)",
-              ":hover": { backgroundColor: theme.palette.primary.light },
-            }}
-          >
+          <ListItem key={index} disablePadding sx={{ display: "block" }}>
             <ListItemButton>
-              <ListItemIcon
-                sx={{
-                  color: theme.palette.primary.contrastText,
-                  minWidth: "fit-content!important",
-                  marginRight: "var(--default-gap)",
-                }}
-              >
-                {item.icon}
-              </ListItemIcon>
-              <ListItemText primary={item.text} sx={{ color: theme.palette.primary.contrastText }} />
+              <ListItemIcon sx={{ minWidth: "fit-content!important", marginRight: "var(--default-gap)" }}>{item.icon}</ListItemIcon>
+              <ListItemText primary={item.text} />
             </ListItemButton>
           </ListItem>
         ))}

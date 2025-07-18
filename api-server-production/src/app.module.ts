@@ -23,6 +23,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ProjectsModule } from './projects/projects.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { AdminModule } from './admin/admin.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { AdminModule } from './admin/admin.module';
     ProjectsModule,
     OrganizationsModule,
     AdminModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [

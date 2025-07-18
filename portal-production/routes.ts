@@ -1,5 +1,6 @@
 export const ROUTES = {
   PORTAL: "/portal",
+  DASHBOARD: "/portal",
 
   ASSETS: "/portal/assets",
   ADD_ASSET: "/portal/assets/add",
