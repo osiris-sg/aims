@@ -66,9 +66,7 @@ export default function useTemplateTableHeader(props: Props) {
       {
         accessorKey: "quantity",
         header: "Quantity",
-        cell: ({ row }: { row: any }) => (
-          <FormInputBox disabled control={control} name={`items.${row.index}.quantity`} placeHolder="Choose item" size="small" labelArriangment={viewMode ? "horizontal" : "vertical"} viewMode={viewMode} key={`quantity-input-${row.id}-${control._formValues?.items?.[row.index]?.quantity ?? ""}`} />
-        ),
+        cell: ({ row }: { row: any }) => <FormInputBox control={control} name={`items.${row.index}.quantity`} placeHolder="Enter quantity" size="small" labelArriangment={viewMode ? "horizontal" : "vertical"} viewMode={viewMode} />,
       },
       {
         accessorKey: "unitPrice",
@@ -140,7 +138,7 @@ export default function useTemplateTableHeader(props: Props) {
           ]
         : []),
     ],
-    [inventoriesForDocument, viewMode, control, remove, scannedInventoryId]
+    [inventoriesForDocument, viewMode, remove, scannedInventoryId]
   );
 
   return { columns };
