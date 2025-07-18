@@ -77,6 +77,7 @@ export class ProjectsService {
               customer: true,
             },
           },
+          documents: true,
           assignments: {
             include: {
               inventory: {
