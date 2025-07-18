@@ -77,9 +77,19 @@ export class DocumentsService {
         await Promise.all(
           dto.config.items.map(async (_item) => {
             // Use dto.status if provided, otherwise default based on type
-            const newStatus: InventoryStatus = (dto.status as InventoryStatus) || (dto.type === 'DO' ? InventoryStatus.rental : InventoryStatus.instock);
-            const docMessage = dto.type === 'DO' ? 'A DO document is updated' : 'A RDO document is updated';
-            const statusChangeMessage = dto.type === 'DO' ? 'Item has been changed from instock to rental' : 'Item has been changed from rental to instock';
+            let docMessage = '';
+            let statusChangeMessage = '';
+            const newStatus: InventoryStatus = (dto.status as InventoryStatus) || (dto.type === 'DO' ? InventoryStatus.rental : dto.type === 'RDO' ? InventoryStatus.instock : undefined);
+
+            if (dto.type === 'DO') {
+              docMessage = 'A DO document is updated';
+              statusChangeMessage = 'Item has been changed from instock to rental';
+            } else if (dto.type === 'RDO') {
+              docMessage = 'A RDO document is updated';
+              statusChangeMessage = 'Item has been changed from rental to instock';
+            } else {
+              docMessage = `A ${dto.type} document is updated`;
+            }
 
             // Update inventory status
             await this.prisma.inventory.update({
