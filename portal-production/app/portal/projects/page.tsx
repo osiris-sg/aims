@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { ROUTES } from "@/routes";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import DeleteIcon from "@mui/icons-material/Delete";
+import EditIcon from "@mui/icons-material/Edit";
 
 interface Project {
   id: string;
@@ -80,6 +81,9 @@ export default function ProjectsPage() {
         <Box sx={{ display: "flex", gap: 1 }}>
           <IconButton onClick={() => router.push(`${ROUTES.PROJECTS}/${row.original.id}`)} sx={{ color: "primary.contrastText", bgcolor: "primary.main", "&:hover": { bgcolor: "primary.dark" }, borderRadius: "8px" }}>
             <VisibilityIcon />
+          </IconButton>
+          <IconButton onClick={() => router.push(`${ROUTES.CREATE_PROJECT}?id=${row.original.id}`)} sx={{ color: "secondary.contrastText", bgcolor: "secondary.main", "&:hover": { bgcolor: "secondary.dark" }, borderRadius: "8px" }}>
+            <EditIcon />
           </IconButton>
           <IconButton
             onClick={() => {
