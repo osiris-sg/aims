@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import DocumentNameHeader from "./DocumentNameHeader";
-import { Alert, Box, Button, Divider, Grid2, Typography } from "@mui/material";
+import { Alert, Box, Button, Divider, Grid2, Typography, useTheme, useMediaQuery } from "@mui/material";
 import { useWatch } from "react-hook-form";
 import TemplatePaper from "./TemplatePaper";
 import FormImage from "@/form-components/FormImage";
@@ -24,9 +24,11 @@ import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import WebcamComponent from "./WebCam";
 import Dialog from "@mui/material/Dialog";
+
 interface Props {
   viewMode: boolean;
 }
+
 export default function DeliveryOrderTemplate(props: Props) {
   const { documentId } = useParams();
   const pathname = usePathname();
@@ -37,7 +39,7 @@ export default function DeliveryOrderTemplate(props: Props) {
   const { isDocumentLoading } = useGetDocument();
   const { methods, onSubmit, editableVisibilityFields, watch, isLoading, isDirty } = useDOTemplateHandler();
   const { customers } = useGetCustomers();
-  const { addNewLine, control, companyName, setValue, customerId, projectId, fields, remove, onDocumentCreate, itemsError, isLoading: isDocumentCreationloading, isDirty: isDCretorDisabled } = useDODocumentCreator();
+  const { addNewLine, control, companyName, setValue, customerId, fields, remove, onDocumentCreate, itemsError, isLoading: isDocumentCreationloading, isDirty: isDCretorDisabled } = useDODocumentCreator();
   const { columns } = useTemplateTableHeader({ viewMode: isViewMode, remove: remove, control, setValue });
   const customer = customers.docs.find((customer) => customer.id === customerId);
   const { contentRef, handlePrint } = usePrintDocumentHandler();
@@ -46,14 +48,15 @@ export default function DeliveryOrderTemplate(props: Props) {
   const organizationId = organization?.id;
   const [isWebcamOpen, setWebcamOpen] = useState(false);
 
+  // Mobile responsiveness
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+
   // Watch for captured images in form state (array)
   const capturedImages = useWatch({ control, name: "capturedImages" }) || [];
 
   // Site Offices fetching logic
   const { siteOffices, fetchSiteOffices } = useGetSiteOffices();
-  const selectedCustomerId = watch("customerId");
-  const selectedDeliveryToId = watch("deliveryTo");
-  const selectedSiteOffice = siteOffices.find((office) => office.id === selectedDeliveryToId);
   // Calculate totals using useWatch for real-time updates
   const watchedItems = useWatch({ control, name: "customerId" });
   console.log("Watched items:", watchedItems);
@@ -63,10 +66,10 @@ export default function DeliveryOrderTemplate(props: Props) {
     }
     console.log("Site offices fetched:", siteOffices);
   }, [fetchSiteOffices, watchedItems]);
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
-  const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState({
+  const [page] = useState(1);
+  const [limit] = useState(10);
+  const [search] = useState("");
+  const [filters] = useState({
     status: undefined,
     startDate: {
       startDate: null as Date | null,
@@ -171,16 +174,32 @@ export default function DeliveryOrderTemplate(props: Props) {
             ) : (
               <>
                 <form onSubmit={onSubmit} ref={contentRef}>
-                  <Box sx={{ display: "flex", flexDirection: "column", padding: "var(--double-gap)" }}>
-                    <Grid2 container spacing={1}>
-                      <Grid2 size={4}>{watch("logo") && <FormImage control={control} name="logo" viewMode={isViewMode} />}</Grid2>
-                      <Grid2 size={4}>
-                        <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--half-gap)", textAlign: "center", alignItems: isViewMode ? "center" : "inherit" }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      flexDirection: "column",
+                      padding: isMobile ? "var(--default-gap)" : "var(--double-gap)",
+                      gap: isMobile ? "var(--default-gap)" : "var(--double-gap)",
+                    }}
+                  >
+                    {/* Header Section - Responsive Grid */}
+                    <Grid2 container spacing={isMobile ? 2 : 1}>
+                      <Grid2 size={isMobile ? 12 : 4}>{watch("logo") && <FormImage control={control} name="logo" viewMode={isViewMode} />}</Grid2>
+                      <Grid2 size={isMobile ? 12 : 4}>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "var(--half-gap)",
+                            textAlign: isMobile ? "left" : "center",
+                            alignItems: isViewMode ? "center" : "inherit",
+                          }}
+                        >
                           {watch("company.name") && <FormInputBox control={control} label={isViewMode ? undefined : "Company name"} name="company.name" placeHolder="Enter Company Name" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
                           {watch("company.address") && <FormInputBox control={control} label={isViewMode ? undefined : "Company address"} name="company.address" placeHolder="Enter Company Address" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
                           {/* Show captured images after company address */}
                           {capturedImages.length > 0 &&
-                            capturedImages.map((image, index) => (
+                            capturedImages.map((image: string, index: number) => (
                               <Box key={index} sx={{ display: "flex", justifyContent: isViewMode ? "center" : "inherit" }}>
                                 <Box component="img" src={image} alt={`Captured ${index + 1}`} sx={{ width: "100%", maxWidth: "300px", mt: 2 }} />
                               </Box>
@@ -190,77 +209,81 @@ export default function DeliveryOrderTemplate(props: Props) {
                           )}
                         </Box>
                       </Grid2>
-                      <Grid2 size={4} />
+                      <Grid2 size={isMobile ? 12 : 4} />
                     </Grid2>
-                    <Grid2 container spacing={1}>
-                      <Grid2 size={6} />
-                      <Grid2 size={6}>
-                        <Typography variant="h4" sx={{ py: "var(--double-gap)" }}>
-                          Delivery Order
-                        </Typography>
-                      </Grid2>
-                    </Grid2>
-                    <Grid2 container spacing={4}>
-                      <Grid2 size={6}>
-                        <Grid2 container spacing={4}>
-                          <Grid2 size={12}>
+
+                    {/* Document Title - Centered */}
+                    <Box
+                      sx={{
+                        display: "flex",
+                        justifyContent: isMobile ? "center" : "flex-end",
+                        py: isMobile ? "var(--default-gap)" : "var(--double-gap)",
+                      }}
+                    >
+                      <Typography variant={isMobile ? "h5" : "h4"}>Delivery Order</Typography>
+                    </Box>
+
+                    {/* Main Form Fields - Responsive Grid */}
+                    <Grid2 container spacing={isMobile ? 3 : 4}>
+                      {/* Left Column - Customer & Project Info */}
+                      <Grid2 size={isMobile ? 12 : 6}>
+                        <Box sx={{ display: "flex", flexDirection: "column", gap: isMobile ? "var(--default-gap)" : "var(--double-gap)" }}>
+                          {/* Customer Section */}
+                          <Box>
                             {!isViewMode && <FormSelect control={control} name="customerId" label="Customer" addItem={false} menuTitle="Choose customer" menuItems={customers.docs.map((customer) => ({ label: customer.name, value: customer.id }))} size="small" />}
                             {customer && watch("customer") ? (
-                              <Grid2 container mt={2}>
-                                <Grid2 size={3}>
-                                  <Typography variant="body1">Customer :</Typography>
-                                </Grid2>
-                                <Grid2 size={9}>
-                                  <Box>
-                                    <Typography variant="body1">{customer?.name}</Typography>
-                                    <Typography variant="body1">{customer?.address}</Typography>
-                                    {/* <Button variant="contained" onClick={() => setWebcamOpen(true)}>
-                                      Open Camera
-                                    </Button> */}
-                                  </Box>
-                                </Grid2>
-                              </Grid2>
+                              <Box sx={{ mt: 2, p: 2, backgroundColor: "grey.50", borderRadius: 1 }}>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                                  Customer:
+                                </Typography>
+                                <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                                  {customer?.name}
+                                </Typography>
+                                <Typography variant="body2">{customer?.address}</Typography>
+                              </Box>
                             ) : null}
-                          </Grid2>
-                          <Grid2 size={12}>
-                            <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--half-gap)" }}>
-                              <FormSelect
-                                control={control}
-                                name="projectId"
-                                label="Project"
-                                placeHolder="Choose a project..."
-                                addItem={true}
-                                menuTitle="Choose a project"
-                                menuItems={projects.map((project) => ({ label: project.name, value: project.id }))}
-                                handleAddItem={handleAddProject}
-                                labelArriangment={isViewMode ? "horizontal" : "vertical"}
-                                viewMode={isViewMode}
-                              />
+                          </Box>
 
-                              {watch("attention.name") && <FormInputBox control={control} name="attention.name" label="Attention" placeHolder="Enter Attention" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
-                              {watch("attention.phoneNumber") && <FormInputBox control={control} name="attention.phoneNumber" label="Mobile" placeHolder="Enter Mobile Number" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
-                            </Box>
-                          </Grid2>
-                          <Grid2 size={12}>
-                            {watch("deliveryTo") && (
-                              <FormSelect
-                                control={control}
-                                name="deliveryTo"
-                                label="Delivery To"
-                                menuTitle="Choose delivery location"
-                                menuItems={siteOffices.map((office) => ({
-                                  label: `${office.name} (${office.address || ""})`,
-                                  value: office.id, // unique ID
-                                }))}
-                                size="small"
-                                labelArriangment={isViewMode ? "horizontal" : "vertical"}
-                                viewMode={isViewMode}
-                              />
-                            )}
-                          </Grid2>
-                        </Grid2>
+                          {/* Project & Attention Section */}
+                          <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--half-gap)" }}>
+                            <FormSelect
+                              control={control}
+                              name="projectId"
+                              label="Project"
+                              placeHolder="Choose a project..."
+                              addItem={true}
+                              menuTitle="Choose a project"
+                              menuItems={projects.map((project) => ({ label: project.name, value: project.id }))}
+                              handleAddItem={handleAddProject}
+                              labelArriangment={isViewMode ? "horizontal" : "vertical"}
+                              viewMode={isViewMode}
+                            />
+
+                            {watch("attention.name") && <FormInputBox control={control} name="attention.name" label="Attention" placeHolder="Enter Attention" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
+                            {watch("attention.phoneNumber") && <FormInputBox control={control} name="attention.phoneNumber" label="Mobile" placeHolder="Enter Mobile Number" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
+                          </Box>
+
+                          {/* Delivery To Section */}
+                          {watch("deliveryTo") && (
+                            <FormSelect
+                              control={control}
+                              name="deliveryTo"
+                              label="Delivery To"
+                              menuTitle="Choose delivery location"
+                              menuItems={siteOffices.map((office) => ({
+                                label: `${office.name} (${office.address || ""})`,
+                                value: office.id,
+                              }))}
+                              size="small"
+                              labelArriangment={isViewMode ? "horizontal" : "vertical"}
+                              viewMode={isViewMode}
+                            />
+                          )}
+                        </Box>
                       </Grid2>
-                      <Grid2 size={6}>
+
+                      {/* Right Column - Document Details */}
+                      <Grid2 size={isMobile ? 12 : 6}>
                         <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--half-gap)" }}>
                           <FormInputBox control={control} name="gstRegNo" label="GST REG. No." placeHolder="Enter GST Reg No" size="small" labelArriangment={isViewMode === true ? "horizontal" : "vertical"} viewMode={isViewMode} />
                           <FormInputBox control={control} name="date" label="Date" type="date" size="small" labelArriangment={isViewMode === true ? "horizontal" : "vertical"} viewMode={isViewMode} />
@@ -270,11 +293,21 @@ export default function DeliveryOrderTemplate(props: Props) {
                         </Box>
                       </Grid2>
                     </Grid2>
-                    <Box mt={5} mb={1}>
+
+                    {/* Items Table */}
+                    <Box
+                      sx={{
+                        mt: 5,
+                        mb: 1,
+                        width: "100%",
+                        overflow: "hidden", // Prevent container from expanding beyond viewport
+                      }}
+                    >
                       <Table key={JSON.stringify(fields)} columns={columns} data={[...fields]} isNoSelectionColumn={true} />
                     </Box>
                     {itemsError && <Alert severity="error">{`${itemsError}`}</Alert>}
 
+                    {/* Add Item Button */}
                     {!isViewMode && !isEditPath && (
                       <Box sx={{ display: "flex", justifyContent: "flex-start", mt: 1, mb: 5 }}>
                         <Button variant="contained" color="primary" onClick={() => addNewLine()} size="small">
@@ -282,18 +315,44 @@ export default function DeliveryOrderTemplate(props: Props) {
                         </Button>
                       </Box>
                     )}
-                    <Grid2 container spacing={1} mt={4}>
-                      <Grid2 size={6}>
-                        <Typography variant="body1">For {companyName}</Typography>
-                        <SignatureDialog label="company" name="signature.company" viewMode={isViewMode} control={control} />
-                        <Divider sx={{ borderBottomWidth: 2, borderColor: "black", my: 2, width: "260px", mx: "20px" }} />
+
+                    {/* Signature Section - Responsive */}
+                    <Grid2 container spacing={isMobile ? 3 : 1} mt={4}>
+                      <Grid2 size={isMobile ? 12 : 6}>
+                        <Box sx={{ display: "flex", flexDirection: "column", alignItems: isMobile ? "center" : "flex-start", gap: 2 }}>
+                          <Typography variant="body1">For {companyName}</Typography>
+                          <SignatureDialog label="company" name="signature.company" viewMode={isViewMode} control={control} />
+                          <Divider
+                            sx={{
+                              borderBottomWidth: 2,
+                              borderColor: "black",
+                              my: 2,
+                              width: isMobile ? "200px" : "260px",
+                              mx: isMobile ? "auto" : "20px",
+                            }}
+                          />
+                        </Box>
                       </Grid2>
-                      <Grid2 size={6}>
-                        <Typography variant="body1">Goods Received in Good Order & Condition</Typography>
-                        <SignatureDialog label="customer" name="signature.customer" viewMode={isViewMode} control={control} />
-                        <Divider sx={{ borderBottomWidth: 2, borderColor: "black", my: 2, width: "260px", mx: "20px" }} />
-                        <Typography variant="body1">Customer&apos;s Signature & Company Stamp </Typography>
-                        <Typography variant="body1">Date:</Typography>
+                      <Grid2 size={isMobile ? 12 : 6}>
+                        <Box sx={{ display: "flex", flexDirection: "column", alignItems: isMobile ? "center" : "flex-start", gap: 2 }}>
+                          <Typography variant="body1" sx={{ textAlign: isMobile ? "center" : "left" }}>
+                            Goods Received in Good Order & Condition
+                          </Typography>
+                          <SignatureDialog label="customer" name="signature.customer" viewMode={isViewMode} control={control} />
+                          <Divider
+                            sx={{
+                              borderBottomWidth: 2,
+                              borderColor: "black",
+                              my: 2,
+                              width: isMobile ? "200px" : "260px",
+                              mx: isMobile ? "auto" : "20px",
+                            }}
+                          />
+                          <Typography variant="body1" sx={{ textAlign: isMobile ? "center" : "left" }}>
+                            Customer&apos;s Signature & Company Stamp
+                          </Typography>
+                          <Typography variant="body1">Date:</Typography>
+                        </Box>
                       </Grid2>
                     </Grid2>
                   </Box>
