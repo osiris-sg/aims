@@ -44,6 +44,13 @@ export class DocumentsService {
       const configAsPlainObject: any = dto.config ? dto.config : null;
       const id: any = dto.id ? dto.id : null;
 
+      // Handle captured images - ensure they are stored as URLs
+      if (configAsPlainObject?.capturedImages && Array.isArray(configAsPlainObject.capturedImages)) {
+        // The capturedImages should already be S3 URLs from the frontend
+        // Just ensure they are properly stored in the config
+        console.log('Captured images to be stored:', configAsPlainObject.capturedImages);
+      }
+
       // Update the document itself, include customer if provided
       const updatedDocument = await this.prisma.document.update({
         where: {
@@ -182,6 +189,13 @@ export class DocumentsService {
     return this.prisma.$transaction(async (tx) => {
       try {
         const configAsPlainObject: any = dto.config ? dto.config : null;
+
+        // Handle captured images - ensure they are stored as URLs
+        if (configAsPlainObject?.capturedImages && Array.isArray(configAsPlainObject.capturedImages)) {
+          // The capturedImages should already be S3 URLs from the frontend
+          // Just ensure they are properly stored in the config
+          console.log('Captured images to be stored:', configAsPlainObject.capturedImages);
+        }
 
         const createdDocument = await tx.document.create({
           data: {

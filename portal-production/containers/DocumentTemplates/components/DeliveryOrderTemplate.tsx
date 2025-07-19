@@ -30,6 +30,13 @@ interface Props {
   viewMode: boolean;
 }
 
+// Document type for captured images
+interface DocumentWithCapturedImages {
+  config?: {
+    capturedImages?: string[];
+  };
+}
+
 export default function DeliveryOrderTemplate(props: Props) {
   const { documentId } = useParams();
   const pathname = usePathname();
@@ -37,7 +44,7 @@ export default function DeliveryOrderTemplate(props: Props) {
   const { viewMode = false } = props;
   const [isViewMode, toggleViewMode] = useState(viewMode);
   const [isToolBarOpen, toggleToolbar] = useState(false);
-  const { isDocumentLoading } = useGetDocument();
+  const { isDocumentLoading, document } = useGetDocument();
   const { methods, onSubmit, editableVisibilityFields, watch, isLoading, isDirty } = useDOTemplateHandler();
   const { customers } = useGetCustomers();
   const { addNewLine, control, companyName, setValue, customerId, fields, remove, onDocumentCreate, itemsError, isLoading: isDocumentCreationloading, isDirty: isDCretorDisabled } = useDODocumentCreator();
@@ -55,6 +62,14 @@ export default function DeliveryOrderTemplate(props: Props) {
 
   // Watch for captured images in form state (array)
   const capturedImages = useWatch({ control, name: "capturedImages" }) || [];
+
+  // Handle loading captured images from existing document
+  useEffect(() => {
+    const docWithImages = document as DocumentWithCapturedImages;
+    if (documentId && docWithImages?.config?.capturedImages) {
+      setValue("capturedImages", docWithImages.config.capturedImages, { shouldDirty: false });
+    }
+  }, [documentId, document, setValue]);
 
   // Site Offices fetching logic
   const { siteOffices, fetchSiteOffices } = useGetSiteOffices();
@@ -388,7 +403,7 @@ export default function DeliveryOrderTemplate(props: Props) {
                                 {/* Delete Button */}
                                 <IconButton
                                   onClick={() => {
-                                    const updatedImages = capturedImages.filter((_, i) => i !== index);
+                                    const updatedImages = capturedImages.filter((_: string, i: number) => i !== index);
                                     setValue("capturedImages", updatedImages, { shouldDirty: true });
                                   }}
                                   sx={{
@@ -423,6 +438,10 @@ export default function DeliveryOrderTemplate(props: Props) {
                                     height: "auto",
                                     borderRadius: 1,
                                     boxShadow: 2,
+                                  }}
+                                  onError={(e) => {
+                                    console.error(`Failed to load image ${index + 1}:`, image);
+                                    e.currentTarget.style.display = "none";
                                   }}
                                 />
                               </Box>

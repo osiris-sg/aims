@@ -8,7 +8,7 @@ import { selectDocumentCeationStatus, selectDocumentTemplate, selectIsDocumentUp
 import { useDocumentTemplateSlice } from "@/containers/DocumentsTemplateView/slice";
 import { useAuth } from "@clerk/nextjs";
 import { useEffect, useMemo } from "react";
-import { uploadImage } from "@/helpers/imageUploader";
+import { uploadImageDirectToS3 as uploadImage } from "@/helpers/imageUploader";
 import { base64ToFile } from "@/helpers/base64ToFile";
 import { useParams, useSearchParams } from "next/navigation";
 import useGetDocument from "./useGetDocument";
@@ -36,6 +36,7 @@ export default function useDODocumentCreator() {
       deliveryTo: "",
       gstRegNo: "",
       date: "",
+      capturedImages: [], // Add captured images field
     }),
     [scannedInventoryId]
   );
@@ -193,11 +194,37 @@ export default function useDODocumentCreator() {
         }
       }
 
+      // Upload captured images to S3
+      const uploadedCapturedImages: string[] = [];
+      if (data.capturedImages && Array.isArray(data.capturedImages) && data.capturedImages.length > 0) {
+        try {
+          dispatch(actions.uploadImageStart());
+          for (let i = 0; i < data.capturedImages.length; i++) {
+            const base64Image = data.capturedImages[i];
+            if (base64Image?.startsWith("data:image")) {
+              const file = base64ToFile(base64Image, `captured-image-${i + 1}.png`);
+              const imageKey = await uploadImage({
+                blob: file,
+                folderName: "captured-images",
+                token,
+              });
+              uploadedCapturedImages.push(imageKey);
+            }
+          }
+        } catch (err) {
+          console.error("Error uploading captured images", err);
+          throw err;
+        } finally {
+          dispatch(actions.uploadImageEnd());
+        }
+      }
+
       const payload = {
         ...data,
         projectId, // added
         logo: logoKey || document?.config.logo,
         signature: uploadedSignatures,
+        capturedImages: uploadedCapturedImages, // Add uploaded image URLs
       };
 
       if (documentId) {
