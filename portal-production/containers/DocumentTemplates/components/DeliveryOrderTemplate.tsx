@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import DocumentNameHeader from "./DocumentNameHeader";
-import { Alert, Box, Button, Divider, Grid2, Typography, useTheme, useMediaQuery } from "@mui/material";
+import { Alert, Box, Button, Divider, Grid2, Typography, useTheme, useMediaQuery, IconButton } from "@mui/material";
+import CloseIcon from "@mui/icons-material/Close";
 import { useWatch } from "react-hook-form";
 import TemplatePaper from "./TemplatePaper";
 import FormImage from "@/form-components/FormImage";
@@ -373,6 +374,7 @@ export default function DeliveryOrderTemplate(props: Props) {
                             <Grid2 key={index} size={isMobile ? 12 : 6}>
                               <Box
                                 sx={{
+                                  position: "relative",
                                   display: "flex",
                                   flexDirection: "column",
                                   alignItems: "center",
@@ -383,6 +385,31 @@ export default function DeliveryOrderTemplate(props: Props) {
                                   backgroundColor: "grey.50",
                                 }}
                               >
+                                {/* Delete Button */}
+                                <IconButton
+                                  onClick={() => {
+                                    const updatedImages = capturedImages.filter((_, i) => i !== index);
+                                    setValue("capturedImages", updatedImages, { shouldDirty: true });
+                                  }}
+                                  sx={{
+                                    position: "absolute",
+                                    top: 8,
+                                    right: 8,
+                                    backgroundColor: "rgba(255, 255, 255, 0.9)",
+                                    color: "error.main",
+                                    "&:hover": {
+                                      backgroundColor: "error.main",
+                                      color: "white",
+                                    },
+                                    zIndex: 1,
+                                    width: 32,
+                                    height: 32,
+                                  }}
+                                  size="small"
+                                >
+                                  <CloseIcon fontSize="small" />
+                                </IconButton>
+
                                 <Typography variant="body2" sx={{ mb: 1, color: "text.secondary" }}>
                                   Image {index + 1}
                                 </Typography>
