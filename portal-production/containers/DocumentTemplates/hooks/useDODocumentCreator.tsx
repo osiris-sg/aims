@@ -8,7 +8,7 @@ import { selectDocumentCeationStatus, selectDocumentTemplate, selectIsDocumentUp
 import { useDocumentTemplateSlice } from "@/containers/DocumentsTemplateView/slice";
 import { useAuth } from "@clerk/nextjs";
 import { useEffect, useMemo } from "react";
-import { uploadImageDirectToS3 as uploadImage } from "@/helpers/imageUploader";
+import { uploadImage } from "@/helpers/imageUploader";
 import { base64ToFile } from "@/helpers/base64ToFile";
 import { useParams, useSearchParams } from "next/navigation";
 import useGetDocument from "./useGetDocument";
@@ -54,7 +54,15 @@ export default function useDODocumentCreator() {
   } = useForm<any>({
     defaultValues,
     resolver: yupResolver(schema),
+    mode: "onChange",
   });
+
+  // Debug validation errors
+  useEffect(() => {
+    if (Object.keys(errors).length > 0) {
+      console.log("Form validation errors:", errors);
+    }
+  }, [errors]);
 
   const { fields, append, remove } = useFieldArray({
     control,
@@ -115,6 +123,10 @@ export default function useDODocumentCreator() {
     if (documentId && document?.config) {
       const logoValue = document.config.logo ? [{ data: document.config.logo }] : null;
 
+      // Handle signature data properly
+      const signatureData = document.config.signature || {};
+      console.log("Signature data from document:", signatureData);
+
       reset(
         {
           ...document.config,
@@ -124,6 +136,7 @@ export default function useDODocumentCreator() {
               quantity: item.quantity ?? 1,
             })) || [],
           logo: logoValue,
+          signature: signatureData, // Ensure signature is properly set
         },
         {
           keepDefaultValues: false,
@@ -141,6 +154,7 @@ export default function useDODocumentCreator() {
 
   const onSubmit = async (data: any) => {
     try {
+      console.log("Form submission started with data:", data);
       const token = await getToken();
       if (!token) return;
 
@@ -255,7 +269,12 @@ export default function useDODocumentCreator() {
         );
       }
     } catch (err) {
-      console.error("Error in RDO Document creation:", err);
+      console.error("Error in DO Document creation:", err);
+      // Log more details about the error
+      if (err instanceof Error) {
+        console.error("Error message:", err.message);
+        console.error("Error stack:", err.stack);
+      }
     }
   };
   console.log("fields", fields);

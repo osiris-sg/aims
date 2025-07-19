@@ -38,7 +38,7 @@ export default function useDOTemplateHandler() {
     handleSubmit,
     watch,
     reset,
-    formState: { isDirty },
+    formState: { isDirty, errors },
   } = methods;
 
   useEffect(() => {
@@ -91,5 +91,5 @@ export default function useDOTemplateHandler() {
     },
   ];
 
-  return { methods, onSubmit: handleSubmit(onSubmit), editableVisibilityFields, watch, isLoading, isDirty };
+  return { methods, onSubmit: handleSubmit(onSubmit), editableVisibilityFields, watch, isLoading, isDirty, errors };
 }

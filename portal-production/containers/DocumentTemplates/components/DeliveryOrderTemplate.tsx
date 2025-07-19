@@ -25,6 +25,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import WebcamComponent from "./WebCam";
 import Dialog from "@mui/material/Dialog";
+import Image from "next/image";
 
 interface Props {
   viewMode: boolean;
@@ -45,7 +46,7 @@ export default function DeliveryOrderTemplate(props: Props) {
   const [isViewMode, toggleViewMode] = useState(viewMode);
   const [isToolBarOpen, toggleToolbar] = useState(false);
   const { isDocumentLoading, document } = useGetDocument();
-  const { methods, onSubmit, editableVisibilityFields, watch, isLoading, isDirty } = useDOTemplateHandler();
+  const { methods, onSubmit, editableVisibilityFields, watch, isLoading, isDirty, errors } = useDOTemplateHandler();
   const { customers } = useGetCustomers();
   const { addNewLine, control, companyName, setValue, customerId, fields, remove, onDocumentCreate, itemsError, isLoading: isDocumentCreationloading, isDirty: isDCretorDisabled } = useDODocumentCreator();
   const { columns } = useTemplateTableHeader({ viewMode: isViewMode, remove: remove, control, setValue });
@@ -99,11 +100,9 @@ export default function DeliveryOrderTemplate(props: Props) {
   }, [fields]);
 
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
-  const [isProjectsLoading, setProjectsLoading] = useState(false);
 
   const fetchProjects = async () => {
     if (!organizationId) return;
-    setProjectsLoading(true);
 
     try {
       const token = await getToken();
@@ -117,8 +116,6 @@ export default function DeliveryOrderTemplate(props: Props) {
       }
     } catch (error) {
       console.error("Error fetching projects:", error);
-    } finally {
-      setProjectsLoading(false);
     }
   };
 
@@ -129,7 +126,6 @@ export default function DeliveryOrderTemplate(props: Props) {
     try {
       if (!organizationId) return false;
 
-      setProjectsLoading(true);
       const token = await getToken();
       if (!token) return false;
 
@@ -153,8 +149,6 @@ export default function DeliveryOrderTemplate(props: Props) {
     } catch (error) {
       console.error("Error creating project:", error);
       return false;
-    } finally {
-      setProjectsLoading(false);
     }
   };
 
@@ -338,6 +332,16 @@ export default function DeliveryOrderTemplate(props: Props) {
                       </Box>
                     )}
 
+                    {/* Validation Errors Display */}
+                    {Object.keys(errors || {}).length > 0 && (
+                      <Alert severity="error" sx={{ mb: 2 }}>
+                        <Typography variant="body2" sx={{ fontWeight: "bold", mb: 1 }}>
+                          Form Validation Errors:
+                        </Typography>
+                        <pre style={{ fontSize: "12px", margin: 0, whiteSpace: "pre-wrap" }}>{JSON.stringify(errors, null, 2)}</pre>
+                      </Alert>
+                    )}
+
                     {/* Signature Section - Responsive */}
                     <Grid2 container spacing={isMobile ? 3 : 1} mt={4}>
                       <Grid2 size={isMobile ? 12 : 6}>
@@ -428,16 +432,17 @@ export default function DeliveryOrderTemplate(props: Props) {
                                 <Typography variant="body2" sx={{ mb: 1, color: "text.secondary" }}>
                                   Image {index + 1}
                                 </Typography>
-                                <Box
-                                  component="img"
-                                  src={image}
+                                <Image
+                                  src={image.startsWith("data:image") ? image : `${process.env.NEXT_PUBLIC_RESOURCE_URL || "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/"}${image}`}
                                   alt={`Captured ${index + 1}`}
-                                  sx={{
+                                  width={isMobile ? 300 : 400}
+                                  height={300}
+                                  style={{
                                     width: "100%",
                                     maxWidth: isMobile ? "300px" : "400px",
                                     height: "auto",
-                                    borderRadius: 1,
-                                    boxShadow: 2,
+                                    borderRadius: "4px",
+                                    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
                                   }}
                                   onError={(e) => {
                                     console.error(`Failed to load image ${index + 1}:`, image);
