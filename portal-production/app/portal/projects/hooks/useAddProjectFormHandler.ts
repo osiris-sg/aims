@@ -3,22 +3,23 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useCreateProject } from "./useCreateProject";
+import { useUpdateProject } from "./useUpdateProject";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ROUTES } from "@/routes";
 
-const assetSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  skuKey: z.string().min(1, "SKU Key is required"),
-  categoryId: z.string().min(1, "Category is required"),
-  status: z.string().min(1, "Status is required"),
-  image: z.any(),
-  description: z.string().optional(),
-  location: z.string().optional(),
-  notes: z.string().optional(),
-});
+// const assetSchema = z.object({
+//   name: z.string().min(1, "Name is required"),
+//   skuKey: z.string().min(1, "SKU Key is required"),
+//   categoryId: z.string().min(1, "Category is required"),
+//   status: z.string().min(1, "Status is required"),
+//   image: z.any(),
+//   description: z.string().optional(),
+//   location: z.string().optional(),
+//   notes: z.string().optional(),
+// });
 const assignmentSchema = z.object({
   skuKey: z.string().min(1, "SKU Key is required"),
   inventoryId: z.string().min(1),
@@ -38,7 +39,7 @@ const projectSchema = z.object({
   assignments: z.array(assignmentSchema).optional(),
 });
 
-export type AssetFormData = z.infer<typeof assetSchema>;
+// export type AssetFormData = z.infer<typeof assetSchema>;
 export type ProjectFormData = z.infer<typeof projectSchema>;
 
 export const useAddProjectFormHandler = () => {
@@ -49,9 +50,10 @@ export const useAddProjectFormHandler = () => {
   const [activeStep, setActiveStep] = useState<number>(0);
   const [isSkuCheckInProgress, setIsSkuCheckInProgress] = useState(false);
   const [isSkuKeyAvailable, setIsSkuKeyAvailable] = useState(true);
-  const [asset, setAsset] = useState<any>(null);
+  const [project, setProject] = useState<any>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const { createProject, isLoading: isAssetUpdating, error } = useCreateProject();
+  const { updateProject } = useUpdateProject();
 
   // const methods = useForm<AssetFormData>({
   //   resolver: zodResolver(assetSchema),
@@ -98,35 +100,35 @@ export const useAddProjectFormHandler = () => {
   }, [searchParams]);
 
   // Fetch asset data if in edit mode
-  const fetchAsset = async (assetId: string) => {
-    try {
-      const token = await getToken();
-      if (!token) return;
+  // const fetchAsset = async (assetId: string) => {
+  //   try {
+  //     const token = await getToken();
+  //     if (!token) return;
 
-      const response = await request(
-        {
-          path: `/assets/${assetId}`,
-          method: "GET",
-        },
-        {},
-        token
-      );
+  //     const response = await request(
+  //       {
+  //         path: `/assets/${assetId}`,
+  //         method: "GET",
+  //       },
+  //       {},
+  //       token
+  //     );
 
-      if (response.success) {
-        setAsset(response.data);
-        methods.reset({
-          name: response.data.name,
-          customerId: response.data.customerId || "",
-          startDate: response.data.startDate ? new Date(response.data.startDate) : new Date(),
-          endDate: response.data.endDate ? new Date(response.data.endDate) : new Date(),
-          status: response.data.status || "pending",
-          assignments: response.data.assignments || [],
-        });
-      }
-    } catch (error) {
-      console.error("Error fetching asset:", error);
-    }
-  };
+  //     if (response.success) {
+  //       setProject(response.data);
+  //       methods.reset({
+  //         name: response.data.name,
+  //         customerId: response.data.customerId || "",
+  //         startDate: response.data.startDate ? new Date(response.data.startDate) : new Date(),
+  //         endDate: response.data.endDate ? new Date(response.data.endDate) : new Date(),
+  //         status: response.data.status || "pending",
+  //         assignments: response.data.assignments || [],
+  //       });
+  //     }
+  //   } catch (error) {
+  //     console.error("Error fetching asset:", error);
+  //   }
+  // };
 
   // Uncomment if you need project fetching
   const fetchProject = async (projectId: string) => {
@@ -145,7 +147,7 @@ export const useAddProjectFormHandler = () => {
 
       if (response.success) {
         console.log("Fetched project data:", response.data);
-        setAsset(response.data);
+        setProject(response.data);
         methods.reset({
           name: response.data.name,
           customerId: response.data.siteOffice.customer.id || "",
@@ -246,12 +248,25 @@ export const useAddProjectFormHandler = () => {
   const onSubmit = async (data: ProjectFormData) => {
     console.log("Form submitted with data:", data);
 
-    // Create new project
-    const success = await createProject({
-      data,
-    });
-    if (success) {
-      setActiveStep(3); // Move to success step
+    if (isEditMode) {
+      console.log("Updating existing project");
+      const success = await updateProject({
+        data: {
+          ...data,
+          id: project?.id,
+        },
+      });
+      if (success) {
+        setActiveStep(3);
+      }
+    } else {
+      console.log("Creating new project");
+      const success = await createProject({
+        data,
+      });
+      if (success) {
+        setActiveStep(3);
+      }
     }
   };
 

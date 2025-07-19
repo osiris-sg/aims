@@ -82,4 +82,19 @@ export class ProjectsController {
       throw new HttpException('Failed to add assignments to project.', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
+
+  @Post(':id/update')
+  @Permissions('projects:update')
+  async updateProject(@Param('id') id: string, @Body() updateProjectDto: any, @Req() req: RequestWithOrganization) {
+    try {
+      const organizationId = req.userOrganization?.id;
+      if (!organizationId) {
+        throw new Error('User is not assigned to any organization');
+      }
+      return await this.projectsService.updateProject(id, updateProjectDto, organizationId);
+    } catch (error) {
+      console.error('Error occurred in updateProject:', error);
+      throw new HttpException('An unexpected error occurred while updating the project.', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
 }
