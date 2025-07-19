@@ -93,7 +93,7 @@ export const useAddProjectFormHandler = () => {
     const projectId = searchParams.get("id");
     if (projectId) {
       setIsEditMode(true);
-      // fetchProject(projectId); // TODO: Implement project fetching when needed
+      fetchProject(projectId); // TODO: Implement project fetching when needed
     }
   }, [searchParams]);
 
@@ -129,37 +129,45 @@ export const useAddProjectFormHandler = () => {
   };
 
   // Uncomment if you need project fetching
-  // const fetchProject = async (projectId: string) => {
-  //   try {
-  //     const token = await getToken();
-  //     if (!token) return;
+  const fetchProject = async (projectId: string) => {
+    try {
+      const token = await getToken();
+      if (!token) return;
 
-  //     const response = await request(
-  //       {
-  //         path: `/projects/${projectId}`,
-  //         method: "GET",
-  //       },
-  //       {},
-  //       token
-  //     );
+      const response = await request(
+        {
+          path: `/projects/${projectId}`,
+          method: "GET",
+        },
+        {},
+        token
+      );
 
-  //     if (response.success) {
-  //       setAsset(response.data);
-  //       methods.reset({
-  //         name: response.data.name,
-  //         skuKey: "",
-  //         categoryId: "",
-  //         status: response.data.status || "active",
-  //         description: response.data.description || "",
-  //         location: "",
-  //         notes: "",
-  //         image: undefined,
-  //       });
-  //     }
-  //   } catch (error) {
-  //     console.error("Error fetching project:", error);
-  //   }
-  // };
+      if (response.success) {
+        console.log("Fetched project data:", response.data);
+        setAsset(response.data);
+        methods.reset({
+          name: response.data.name,
+          customerId: response.data.siteOffice.customer.id || "",
+          siteOfficeId: response.data.siteOffice.id || "",
+          startDate: response.data.startDate ? new Date(response.data.startDate) : new Date(),
+          endDate: response.data.endDate ? new Date(response.data.endDate) : new Date(),
+          status: response.data.status || "pending",
+          assignments: response.data.assignments
+            ? response.data.assignments.map((assignment: any) => ({
+                skuKey: assignment.inventory?.sku || "",
+                inventoryId: assignment.inventoryId || "",
+                startDate: assignment.startDate ? new Date(assignment.startDate) : null,
+                endDate: assignment.endDate ? new Date(assignment.endDate) : null,
+                status: assignment.status || "reserved",
+              }))
+            : [],
+        });
+      }
+    } catch (error) {
+      console.error("Error fetching project:", error);
+    }
+  };
 
   // Check SKU key availability
   // useEffect(() => {

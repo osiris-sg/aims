@@ -74,6 +74,7 @@ export class ProjectsService {
           siteOffice: {
             select: {
               name: true,
+              id: true,
               customer: true,
             },
           },
