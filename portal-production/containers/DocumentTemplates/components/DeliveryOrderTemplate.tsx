@@ -197,13 +197,6 @@ export default function DeliveryOrderTemplate(props: Props) {
                         >
                           {watch("company.name") && <FormInputBox control={control} label={isViewMode ? undefined : "Company name"} name="company.name" placeHolder="Enter Company Name" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
                           {watch("company.address") && <FormInputBox control={control} label={isViewMode ? undefined : "Company address"} name="company.address" placeHolder="Enter Company Address" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
-                          {/* Show captured images after company address */}
-                          {capturedImages.length > 0 &&
-                            capturedImages.map((image: string, index: number) => (
-                              <Box key={index} sx={{ display: "flex", justifyContent: isViewMode ? "center" : "inherit" }}>
-                                <Box component="img" src={image} alt={`Captured ${index + 1}`} sx={{ width: "100%", maxWidth: "300px", mt: 2 }} />
-                              </Box>
-                            ))}
                           {watch("company.phoneNumber") && (
                             <FormInputBox control={control} label={isViewMode ? undefined : "Company phone number"} name="company.phoneNumber" placeHolder="Enter Company Phone Number" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />
                           )}
@@ -309,9 +302,22 @@ export default function DeliveryOrderTemplate(props: Props) {
 
                     {/* Add Item Button */}
                     {!isViewMode && !isEditPath && (
-                      <Box sx={{ display: "flex", justifyContent: "flex-start", mt: 1, mb: 5 }}>
+                      <Box sx={{ display: "flex", justifyContent: "flex-start", mt: 1, mb: 5, gap: 2, flexWrap: "wrap" }}>
                         <Button variant="contained" color="primary" onClick={() => addNewLine()} size="small">
                           Add Item
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          color="secondary"
+                          onClick={() => setWebcamOpen(true)}
+                          size="small"
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 1,
+                          }}
+                        >
+                          Capture Images
                         </Button>
                       </Box>
                     )}
@@ -355,6 +361,49 @@ export default function DeliveryOrderTemplate(props: Props) {
                         </Box>
                       </Grid2>
                     </Grid2>
+
+                    {/* Captured Images Section */}
+                    {capturedImages.length > 0 && (
+                      <Box sx={{ mt: 4, width: "100%" }}>
+                        <Typography variant="h6" sx={{ mb: 2, textAlign: isMobile ? "center" : "left" }}>
+                          Captured Images
+                        </Typography>
+                        <Grid2 container spacing={2}>
+                          {capturedImages.map((image: string, index: number) => (
+                            <Grid2 key={index} size={isMobile ? 12 : 6}>
+                              <Box
+                                sx={{
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  alignItems: "center",
+                                  p: 2,
+                                  border: "1px solid",
+                                  borderColor: "grey.300",
+                                  borderRadius: 2,
+                                  backgroundColor: "grey.50",
+                                }}
+                              >
+                                <Typography variant="body2" sx={{ mb: 1, color: "text.secondary" }}>
+                                  Image {index + 1}
+                                </Typography>
+                                <Box
+                                  component="img"
+                                  src={image}
+                                  alt={`Captured ${index + 1}`}
+                                  sx={{
+                                    width: "100%",
+                                    maxWidth: isMobile ? "300px" : "400px",
+                                    height: "auto",
+                                    borderRadius: 1,
+                                    boxShadow: 2,
+                                  }}
+                                />
+                              </Box>
+                            </Grid2>
+                          ))}
+                        </Grid2>
+                      </Box>
+                    )}
                   </Box>
                 </form>
                 <Dialog open={isWebcamOpen} onClose={() => setWebcamOpen(false)} maxWidth="md" fullWidth>
