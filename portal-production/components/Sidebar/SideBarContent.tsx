@@ -107,7 +107,7 @@ export default function SideBarContent() {
             <ListItemButton selected={isItemActive(item)}>
               <ListItemIcon
                 sx={{
-                  color: isItemActive(item) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                  color: isItemActive(item) ? theme.palette.primary.main : "white",
                   minWidth: "fit-content!important",
                   marginRight: "var(--default-gap)",
                 }}
@@ -117,19 +117,19 @@ export default function SideBarContent() {
               <ListItemText
                 primary={item.text}
                 sx={{
-                  color: isItemActive(item) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                  color: isItemActive(item) ? theme.palette.primary.main : "white",
                 }}
               />
-              {openDocuments ? <ExpandLess /> : <ExpandMore />}
+              {openDocuments ? <ExpandLess sx={{ color: "white" }} /> : <ExpandMore sx={{ color: "white" }} />}
             </ListItemButton>
           </ListItem>
           <Collapse in={openDocuments} timeout="auto" unmountOnExit>
             <List component="div" disablePadding>
               <ListItemButton sx={{ pl: 4 }} component={Link} href={ROUTES.DOCUMENTS}>
-                <ListItemText primary="All Documents" />
+                <ListItemText primary="All Documents" sx={{ color: "white" }} />
               </ListItemButton>
               <ListItemButton sx={{ pl: 4 }} component={Link} href="/portal/documents/templates">
-                <ListItemText primary="All Document Templates" />
+                <ListItemText primary="All Document Templates" sx={{ color: "white" }} />
               </ListItemButton>
             </List>
           </Collapse>
@@ -151,7 +151,7 @@ export default function SideBarContent() {
             <ListItemButton selected={isItemActive(item)}>
               <ListItemIcon
                 sx={{
-                  color: isItemActive(item) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                  color: isItemActive(item) ? theme.palette.primary.main : "white",
                   minWidth: "fit-content!important",
                   marginRight: "var(--default-gap)",
                 }}
@@ -161,19 +161,19 @@ export default function SideBarContent() {
               <ListItemText
                 primary={item.text}
                 sx={{
-                  color: isItemActive(item) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                  color: isItemActive(item) ? theme.palette.primary.main : "white",
                 }}
               />
-              {openUserManagement ? <ExpandLess /> : <ExpandMore />}
+              {openUserManagement ? <ExpandLess sx={{ color: "white" }} /> : <ExpandMore sx={{ color: "white" }} />}
             </ListItemButton>
           </ListItem>
           <Collapse in={openUserManagement} timeout="auto" unmountOnExit>
             <List component="div" disablePadding>
               <ListItemButton sx={{ pl: 4 }} component={Link} href={ROUTES.PERMISSIONS}>
-                <ListItemText primary="Roles" />
+                <ListItemText primary="Roles" sx={{ color: "white" }} />
               </ListItemButton>
               <ListItemButton sx={{ pl: 4 }} component={Link} href={ROUTES.USERS}>
-                <ListItemText primary="Users" />
+                <ListItemText primary="Users" sx={{ color: "white" }} />
               </ListItemButton>
             </List>
           </Collapse>
@@ -195,7 +195,7 @@ export default function SideBarContent() {
             <ListItemButton selected={isItemActive(item)}>
               <ListItemIcon
                 sx={{
-                  color: isItemActive(item) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                  color: isItemActive(item) ? theme.palette.primary.main : "white",
                   minWidth: "fit-content!important",
                   marginRight: "var(--default-gap)",
                 }}
@@ -205,7 +205,7 @@ export default function SideBarContent() {
               <ListItemText
                 primary={item.text}
                 sx={{
-                  color: isItemActive(item) ? theme.palette.primary.main : theme.palette.primary.contrastText,
+                  color: isItemActive(item) ? theme.palette.primary.main : "white",
                 }}
               />
             </ListItemButton>
