@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Open Development Terminals",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/open-terminals.js",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ]
+}
