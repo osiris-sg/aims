@@ -1,6 +1,10 @@
 import React, { useState } from "react";
-import { Box, Typography, IconButton, Avatar, Chip, Collapse, Table, TableBody, TableCell, TableHead, TableRow, Button } from "@mui/material";
+import { Box, Typography, IconButton, Avatar, Chip, Collapse, Table, TableBody, TableCell, TableHead, TableRow, Button, Dialog, DialogTitle, DialogContent, DialogActions } from "@mui/material";
 import { ExpandMore, ChevronRight, Add, Visibility, ModeEdit, Delete } from "@mui/icons-material";
+import AddPartDrawer from "./AddPartDrawer";
+import { useAuth } from "@clerk/nextjs";
+import { request } from "@/helpers/request";
+import { toast } from "react-toastify";
 
 interface AssetWithChildren {
   id: string;
@@ -22,9 +26,11 @@ interface AssetRowProps {
   onDelete: (id: string, name: string) => void;
   onAddPart: (parentId: string) => void;
   categories: any[];
+  onOpenAddPartDrawer: (parentId: string, parentName: string) => void;
+  onOpenRemoveDialog: (id: string, name: string, level: number) => void;
 }
 
-const AssetRow: React.FC<AssetRowProps> = ({ asset, level, onView, onEdit, onDelete, onAddPart, categories }) => {
+const AssetRow: React.FC<AssetRowProps> = ({ asset, level, onView, onEdit, onDelete, onAddPart, categories, onOpenAddPartDrawer, onOpenRemoveDialog }) => {
   const [expanded, setExpanded] = useState(false);
   const hasChildren = asset.subAssets && asset.subAssets.length > 0;
 
@@ -105,11 +111,11 @@ const AssetRow: React.FC<AssetRowProps> = ({ asset, level, onView, onEdit, onDel
               <ModeEdit fontSize="small" />
             </IconButton>
 
-            <IconButton size="small" onClick={() => onAddPart(asset.id)} sx={{ color: "success.main" }} title="Add Part">
+            <IconButton size="small" onClick={() => onOpenAddPartDrawer(asset.id, asset.name)} sx={{ color: "success.main" }} title="Add Part">
               <Add fontSize="small" />
             </IconButton>
 
-            <IconButton size="small" onClick={() => onDelete(asset.id, asset.name)} sx={{ color: "error.main" }}>
+            <IconButton size="small" onClick={() => onOpenRemoveDialog(asset.id, asset.name, level)} sx={{ color: "error.main" }}>
               <Delete fontSize="small" />
             </IconButton>
           </Box>
@@ -122,7 +128,7 @@ const AssetRow: React.FC<AssetRowProps> = ({ asset, level, onView, onEdit, onDel
           <TableCell colSpan={6} sx={{ padding: 0, border: "none" }}>
             <Collapse in={expanded}>
               {asset.subAssets?.map((child) => (
-                <AssetRow key={child.id} asset={child} level={level + 1} onView={onView} onEdit={onEdit} onDelete={onDelete} onAddPart={onAddPart} categories={categories} />
+                <AssetRow key={child.id} asset={child} level={level + 1} onView={onView} onEdit={onEdit} onDelete={onDelete} onAddPart={onAddPart} categories={categories} onOpenAddPartDrawer={onOpenAddPartDrawer} onOpenRemoveDialog={onOpenRemoveDialog} />
               ))}
             </Collapse>
           </TableCell>
@@ -141,9 +147,51 @@ interface AssetHierarchyTableProps {
   onDelete: (id: string, name: string) => void;
   onAddPart: (parentId: string) => void;
   onAddRootAsset: () => void;
+  onRefresh: () => void;
 }
 
-const AssetHierarchyTable: React.FC<AssetHierarchyTableProps> = ({ assets, categories, loading = false, onView, onEdit, onDelete, onAddPart, onAddRootAsset }) => {
+const AssetHierarchyTable: React.FC<AssetHierarchyTableProps> = ({ assets, categories, loading = false, onView, onEdit, onDelete, onAddPart, onAddRootAsset, onRefresh }) => {
+  const { getToken } = useAuth();
+  const [addPartDrawerOpen, setAddPartDrawerOpen] = useState(false);
+  const [targetParentAsset, setTargetParentAsset] = useState<{ id: string; name: string } | null>(null);
+  const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
+  const [assetToRemove, setAssetToRemove] = useState<{ id: string; name: string; level: number } | null>(null);
+
+  const handleRemoveAsset = async () => {
+    if (!assetToRemove) return;
+
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      if (assetToRemove.level === 0) {
+        // Root asset - use the original delete function
+        onDelete(assetToRemove.id, assetToRemove.name);
+      } else {
+        // Part asset - remove parent relationship
+        const response = await request(
+          { path: `/assets/parent`, method: "PUT" },
+          {
+            assetId: assetToRemove.id,
+            parentAssetId: null, // This makes it a root asset again
+          },
+          token
+        );
+
+        if (response.success) {
+          toast.success(`${assetToRemove.name} removed from parent successfully!`);
+          onRefresh();
+        }
+      }
+    } catch (error) {
+      console.error("Error removing asset:", error);
+      toast.error("Failed to remove asset");
+    } finally {
+      setRemoveDialogOpen(false);
+      setAssetToRemove(null);
+    }
+  };
+
   return (
     <Box>
       <Box
@@ -155,7 +203,15 @@ const AssetHierarchyTable: React.FC<AssetHierarchyTableProps> = ({ assets, categ
         }}
       >
         <Typography variant="h6">Asset Hierarchy</Typography>
-        <Button variant="contained" startIcon={<Add />} onClick={onAddRootAsset}>
+        <Button
+          variant="contained"
+          startIcon={<Add />}
+          onClick={() => {
+            // For root assets, we'll use a special identifier
+            setTargetParentAsset({ id: "root", name: "Root Level" });
+            setAddPartDrawerOpen(true);
+          }}
+        >
           Add Root Asset
         </Button>
       </Box>
@@ -185,10 +241,60 @@ const AssetHierarchyTable: React.FC<AssetHierarchyTableProps> = ({ assets, categ
               </TableCell>
             </TableRow>
           ) : (
-            assets.map((asset) => <AssetRow key={asset.id} asset={asset} level={0} onView={onView} onEdit={onEdit} onDelete={onDelete} onAddPart={onAddPart} categories={categories} />)
+            assets.map((asset) => (
+              <AssetRow
+                key={asset.id}
+                asset={asset}
+                level={0}
+                onView={onView}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                onAddPart={onAddPart}
+                categories={categories}
+                onOpenAddPartDrawer={(parentId, parentName) => {
+                  setTargetParentAsset({ id: parentId, name: parentName });
+                  setAddPartDrawerOpen(true);
+                }}
+                onOpenRemoveDialog={(id, name, level) => {
+                  setAssetToRemove({ id, name, level });
+                  setRemoveDialogOpen(true);
+                }}
+              />
+            ))
           )}
         </TableBody>
       </Table>
+
+      {/* Add Part Drawer */}
+      {targetParentAsset && (
+        <AddPartDrawer
+          open={addPartDrawerOpen}
+          onClose={() => {
+            setAddPartDrawerOpen(false);
+            setTargetParentAsset(null);
+          }}
+          parentAssetId={targetParentAsset.id}
+          parentAssetName={targetParentAsset.name}
+          onPartAdded={() => {
+            onRefresh();
+            setTargetParentAsset(null);
+          }}
+        />
+      )}
+
+      {/* Remove Asset Dialog */}
+      <Dialog open={removeDialogOpen} onClose={() => setRemoveDialogOpen(false)}>
+        <DialogTitle>{assetToRemove?.level === 0 ? "Delete Root Asset" : "Remove Asset Part"}</DialogTitle>
+        <DialogContent>
+          <Typography>{assetToRemove?.level === 0 ? `Are you sure you want to permanently delete "${assetToRemove?.name}"? This action cannot be undone.` : `Are you sure you want to remove "${assetToRemove?.name}" from its parent? The asset will become a standalone root asset.`}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRemoveDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleRemoveAsset} color={assetToRemove?.level === 0 ? "error" : "warning"} variant="contained">
+            {assetToRemove?.level === 0 ? "Delete" : "Remove"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

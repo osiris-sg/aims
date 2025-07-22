@@ -292,6 +292,11 @@ export default function AssetsPage() {
           }}
           onAddPart={(parentId) => router.push(`${ROUTES.ADD_ASSET}?parentId=${parentId}`)}
           onAddRootAsset={() => router.push(ROUTES.ADD_ASSET)}
+          onRefresh={() => {
+            if (viewMode === "hierarchy") {
+              fetchHierarchyAssets();
+            }
+          }}
         />
       )}
 

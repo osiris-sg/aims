@@ -63,12 +63,22 @@ const AddPartDrawer: React.FC<AddPartDrawerProps> = ({ open, onClose, parentAsse
       );
 
       if (response.success) {
-        // Filter out assets that already have a parent and the current parent asset
-        const availableAssets = response.data.docs.filter(
-          (asset: Asset) =>
-            !asset.parentAssetId && // Only root assets (no parent)
-            asset.id !== parentAssetId // Exclude the current parent asset
-        );
+        let availableAssets;
+
+        if (parentAssetId === "root") {
+          // For root conversion, show only assets that currently have a parent
+          availableAssets = response.data.docs.filter(
+            (asset: Asset) => asset.parentAssetId // Only assets with parents
+          );
+        } else {
+          // For adding parts, show only root assets (no parent) excluding current parent
+          availableAssets = response.data.docs.filter(
+            (asset: Asset) =>
+              !asset.parentAssetId && // Only root assets (no parent)
+              asset.id !== parentAssetId // Exclude the current parent asset
+          );
+        }
+
         setAssets(availableAssets);
       }
     } catch (error) {
@@ -87,6 +97,9 @@ const AddPartDrawer: React.FC<AddPartDrawerProps> = ({ open, onClose, parentAsse
       const token = await getToken();
       if (!token) return;
 
+      // Special case: if parentAssetId is "root", we're making this asset a root asset
+      const finalParentAssetId = parentAssetId === "root" ? null : parentAssetId;
+
       const response = await request(
         {
           path: `/assets/parent`,
@@ -94,13 +107,14 @@ const AddPartDrawer: React.FC<AddPartDrawerProps> = ({ open, onClose, parentAsse
         },
         {
           assetId: selectedAsset.id,
-          parentAssetId: parentAssetId,
+          parentAssetId: finalParentAssetId,
         },
         token
       );
 
       if (response.success) {
-        toast.success(`${selectedAsset.name} added as part successfully!`);
+        const actionText = parentAssetId === "root" ? "converted to root asset" : "added as part";
+        toast.success(`${selectedAsset.name} ${actionText} successfully!`);
         onPartAdded();
         onClose();
         setSelectedAsset(null);
@@ -141,7 +155,7 @@ const AddPartDrawer: React.FC<AddPartDrawerProps> = ({ open, onClose, parentAsse
         {/* Parent Asset Info */}
         <Box sx={{ mb: 3 }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            Adding part to:
+            {parentAssetId === "root" ? "Converting asset to:" : "Adding part to:"}
           </Typography>
           <Typography variant="h6" color="primary">
             {parentAssetName}
@@ -185,7 +199,9 @@ const AddPartDrawer: React.FC<AddPartDrawerProps> = ({ open, onClose, parentAsse
 
           {/* Information Alert */}
           <Alert severity="info" sx={{ mt: 2 }}>
-            Only root assets (assets without parents) are available to be added as parts. Once an asset becomes a part, it will be moved under this parent asset.
+            {parentAssetId === "root"
+              ? "Only assets that are currently parts of other assets can be converted to root assets. Root assets will become independent assets."
+              : "Only root assets (assets without parents) are available to be added as parts. Once an asset becomes a part, it will be moved under this parent asset."}
           </Alert>
 
           {/* Selected Asset Preview */}
