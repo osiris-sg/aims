@@ -17,7 +17,7 @@ export default function useTITemplateHandler() {
   const isLoading = useSelector(selectIsDocumentTemplateUpdating);
   const documentTemplate = useSelector(selectDocumentTemplate);
   const defaultValues = {
-    name: "Delivery Order",
+    name: "Invoice",
     logo: true,
     type: type,
     company: { name: true, address: true, phoneNumber: true },
@@ -27,6 +27,7 @@ export default function useTITemplateHandler() {
     doNo: true,
     referenceNo: true,
     poNo: true,
+    description: true, // Add description field
   };
   const methods = useForm<any>({
     mode: "onChange",
@@ -85,6 +86,7 @@ export default function useTITemplateHandler() {
         { label: "Customer", name: "customer" },
         { label: "Mobile", name: "attention.phoneNumber" },
         { label: "Delivery To", name: "deliveryTo" },
+        { label: "Description", name: "description" },
       ],
     },
   ];

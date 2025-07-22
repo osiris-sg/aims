@@ -6,6 +6,7 @@ import TemplatePaper from "./TemplatePaper";
 import FormImage from "@/form-components/FormImage";
 import { request } from "@/helpers/request";
 import FormInputBox from "@/form-components/FormInputBox";
+import FormTextArea from "@/form-components/FormTextArea";
 import FormSelect from "@/form-components/FormSelect";
 import { useGetCustomers } from "../hooks/useGetCustomers";
 import Table from "@/components/Table";
@@ -71,11 +72,9 @@ export default function InvoiceTemplate(props: Props) {
   }, [fields]);
 
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
-  const [isProjectsLoading, setProjectsLoading] = useState(false);
 
   const fetchProjects = async () => {
     if (!organizationId) return;
-    setProjectsLoading(true);
 
     try {
       const token = await getToken();
@@ -89,8 +88,6 @@ export default function InvoiceTemplate(props: Props) {
       }
     } catch (error) {
       console.error("Error fetching projects:", error);
-    } finally {
-      setProjectsLoading(false);
     }
   };
 
@@ -101,7 +98,6 @@ export default function InvoiceTemplate(props: Props) {
     try {
       if (!organizationId) return false;
 
-      setProjectsLoading(true);
       const token = await getToken();
       if (!token) return false;
 
@@ -125,8 +121,6 @@ export default function InvoiceTemplate(props: Props) {
     } catch (error) {
       console.error("Error creating project:", error);
       return false;
-    } finally {
-      setProjectsLoading(false);
     }
   };
 
@@ -349,13 +343,13 @@ export default function InvoiceTemplate(props: Props) {
                   )}
                   {itemsError && <Alert severity="error">{`${itemsError}`}</Alert>}
 
-                  {/* Additional Fields - Responsive Grid */}
-                  <Grid2 container spacing={isMobile ? 3 : 2}>
+                  {/* Additional Fields - Half Page Width */}
+                  <Grid2 container spacing={isMobile ? 3 : 2} justifyContent="flex-start">
                     <Grid2 size={isMobile ? 12 : 6}>
-                      <FormInputBox control={control} name="dueDate" label="Due Date" type="date" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />
-                    </Grid2>
-                    <Grid2 size={isMobile ? 12 : 6}>
-                      <FormInputBox control={control} name="note" label="Note" placeHolder="Enter note..." size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />
+                      <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--half-gap)" }}>
+                        <FormInputBox control={control} name="dueDate" label="Due Date" type="date" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />
+                        <FormTextArea control={control} name="note" label="Note" placeHolder="Enter note..." rows={3} labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />
+                      </Box>
                     </Grid2>
                   </Grid2>
                 </Box>
