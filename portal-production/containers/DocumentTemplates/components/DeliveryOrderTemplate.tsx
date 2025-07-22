@@ -243,45 +243,45 @@ export default function DeliveryOrderTemplate(props: Props) {
                                   {customer?.name}
                                 </Typography>
                                 <Typography variant="body2">{customer?.address}</Typography>
-                              </Box>
+                                  </Box>
                             ) : null}
                           </Box>
 
                           {/* Project & Attention Section */}
-                          <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--half-gap)" }}>
-                            <FormSelect
-                              control={control}
-                              name="projectId"
-                              label="Project"
-                              placeHolder="Choose a project..."
-                              addItem={true}
-                              menuTitle="Choose a project"
-                              menuItems={projects.map((project) => ({ label: project.name, value: project.id }))}
-                              handleAddItem={handleAddProject}
-                              labelArriangment={isViewMode ? "horizontal" : "vertical"}
-                              viewMode={isViewMode}
-                            />
+                            <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--half-gap)" }}>
+                              <FormSelect
+                                control={control}
+                                name="projectId"
+                                label="Project"
+                                placeHolder="Choose a project..."
+                                addItem={true}
+                                menuTitle="Choose a project"
+                                menuItems={projects.map((project) => ({ label: project.name, value: project.id }))}
+                                handleAddItem={handleAddProject}
+                                labelArriangment={isViewMode ? "horizontal" : "vertical"}
+                                viewMode={isViewMode}
+                              />
 
-                            {watch("attention.name") && <FormInputBox control={control} name="attention.name" label="Attention" placeHolder="Enter Attention" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
-                            {watch("attention.phoneNumber") && <FormInputBox control={control} name="attention.phoneNumber" label="Mobile" placeHolder="Enter Mobile Number" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
-                          </Box>
+                              {watch("attention.name") && <FormInputBox control={control} name="attention.name" label="Attention" placeHolder="Enter Attention" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
+                              {watch("attention.phoneNumber") && <FormInputBox control={control} name="attention.phoneNumber" label="Mobile" placeHolder="Enter Mobile Number" size="small" labelArriangment={isViewMode ? "horizontal" : "vertical"} viewMode={isViewMode} />}
+                            </Box>
 
                           {/* Delivery To Section */}
-                          {watch("deliveryTo") && (
-                            <FormSelect
-                              control={control}
-                              name="deliveryTo"
-                              label="Delivery To"
-                              menuTitle="Choose delivery location"
-                              menuItems={siteOffices.map((office) => ({
-                                label: `${office.name} (${office.address || ""})`,
+                            {watch("deliveryTo") && (
+                              <FormSelect
+                                control={control}
+                                name="deliveryTo"
+                                label="Delivery To"
+                                menuTitle="Choose delivery location"
+                                menuItems={siteOffices.map((office) => ({
+                                  label: `${office.name} (${office.address || ""})`,
                                 value: office.id,
-                              }))}
-                              size="small"
-                              labelArriangment={isViewMode ? "horizontal" : "vertical"}
-                              viewMode={isViewMode}
-                            />
-                          )}
+                                }))}
+                                size="small"
+                                labelArriangment={isViewMode ? "horizontal" : "vertical"}
+                                viewMode={isViewMode}
+                              />
+                            )}
                         </Box>
                       </Grid2>
 
@@ -346,8 +346,8 @@ export default function DeliveryOrderTemplate(props: Props) {
                     <Grid2 container spacing={isMobile ? 3 : 1} mt={4}>
                       <Grid2 size={isMobile ? 12 : 6}>
                         <Box sx={{ display: "flex", flexDirection: "column", alignItems: isMobile ? "center" : "flex-start", gap: 2 }}>
-                          <Typography variant="body1">For {companyName}</Typography>
-                          <SignatureDialog label="company" name="signature.company" viewMode={isViewMode} control={control} />
+                        <Typography variant="body1">For {companyName}</Typography>
+                        <SignatureDialog label="company" name="signature.company" viewMode={isViewMode} control={control} />
                           <Divider
                             sx={{
                               borderBottomWidth: 2,
@@ -364,7 +364,7 @@ export default function DeliveryOrderTemplate(props: Props) {
                           <Typography variant="body1" sx={{ textAlign: isMobile ? "center" : "left" }}>
                             Goods Received in Good Order & Condition
                           </Typography>
-                          <SignatureDialog label="customer" name="signature.customer" viewMode={isViewMode} control={control} />
+                        <SignatureDialog label="customer" name="signature.customer" viewMode={isViewMode} control={control} />
                           <Divider
                             sx={{
                               borderBottomWidth: 2,
@@ -377,7 +377,7 @@ export default function DeliveryOrderTemplate(props: Props) {
                           <Typography variant="body1" sx={{ textAlign: isMobile ? "center" : "left" }}>
                             Customer&apos;s Signature & Company Stamp
                           </Typography>
-                          <Typography variant="body1">Date:</Typography>
+                        <Typography variant="body1">Date:</Typography>
                         </Box>
                       </Grid2>
                     </Grid2>

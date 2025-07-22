@@ -12,6 +12,10 @@ import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import { ROUTES } from "@/routes";
+import AssetHierarchyTable from "./components/AssetHierarchyTable";
+import { ToggleButton, ToggleButtonGroup } from "@mui/material";
+import AccountTreeIcon from "@mui/icons-material/AccountTree";
+import ViewListIcon from "@mui/icons-material/ViewList";
 
 export default function AssetsPage() {
   const router = useRouter();
@@ -27,8 +31,10 @@ export default function AssetsPage() {
   const [deleteName, setDeleteName] = useState<string | null>(null);
   const [assetToDelete, setAssetToDelete] = useState<string | null>(null);
   const [assets, setAssets] = useState<any>({ docs: [], totalDocuments: 0, totalPagesCount: 0 });
+  const [hierarchyAssets, setHierarchyAssets] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [viewMode, setViewMode] = useState<"table" | "hierarchy">("table");
 
   const fetchAssets = React.useCallback(async () => {
     if (!organizationId) return;
@@ -62,6 +68,33 @@ export default function AssetsPage() {
       setIsLoading(false);
     }
   }, [organizationId, getToken, page, limit, search, filters]);
+
+  const fetchHierarchyAssets = React.useCallback(async () => {
+    if (!organizationId) return;
+
+    setIsLoading(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await request(
+        {
+          path: `/assets/hierarchy`,
+          method: "GET",
+        },
+        {},
+        token
+      );
+
+      if (response.success) {
+        setHierarchyAssets(response.data);
+      }
+    } catch (error) {
+      console.error("Error fetching hierarchy assets:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [organizationId, getToken]);
 
   const fetchCategories = React.useCallback(async () => {
     if (!organizationId) return;
@@ -114,8 +147,12 @@ export default function AssetsPage() {
   };
 
   useEffect(() => {
-    fetchAssets();
-  }, [page, limit, search, filters, organizationId, fetchAssets]);
+    if (viewMode === "table") {
+      fetchAssets();
+    } else {
+      fetchHierarchyAssets();
+    }
+  }, [viewMode, page, limit, search, filters, organizationId, fetchAssets, fetchHierarchyAssets]);
 
   useEffect(() => {
     fetchCategories();
@@ -206,26 +243,58 @@ export default function AssetsPage() {
 
   return (
     <MainCard>
-      <PageTable
-        loading={isLoading}
-        columns={columns}
-        data={assets.docs}
-        tableName="All Assets"
-        subTitle="Items Detail Information"
-        buttonName="Add Asset"
-        page={page}
-        limit={limit}
-        search={search}
-        filters={filters}
-        setPage={setPage}
-        setLimit={setLimit}
-        setSearch={setSearch}
-        setFilters={setFilters}
-        onAddClick={() => router.push(ROUTES.ADD_ASSET)}
-        availableFilters={["status", "category"]}
-        pageCount={assets.totalPagesCount}
-        totalDocs={assets.totalDocuments}
-      />
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+        <Typography variant="h5">All Assets</Typography>
+        <ToggleButtonGroup value={viewMode} exclusive onChange={(_, newView) => newView && setViewMode(newView)} aria-label="view mode">
+          <ToggleButton value="table" aria-label="table view">
+            <ViewListIcon sx={{ mr: 1 }} />
+            Table
+          </ToggleButton>
+          <ToggleButton value="hierarchy" aria-label="hierarchy view">
+            <AccountTreeIcon sx={{ mr: 1 }} />
+            Hierarchy
+          </ToggleButton>
+        </ToggleButtonGroup>
+      </Box>
+
+      {viewMode === "table" ? (
+        <PageTable
+          loading={isLoading}
+          columns={columns}
+          data={assets.docs}
+          tableName="All Assets"
+          subTitle="Items Detail Information"
+          buttonName="Add Asset"
+          page={page}
+          limit={limit}
+          search={search}
+          filters={filters}
+          setPage={setPage}
+          setLimit={setLimit}
+          setSearch={setSearch}
+          setFilters={setFilters}
+          onAddClick={() => router.push(ROUTES.ADD_ASSET)}
+          availableFilters={["status", "category"]}
+          pageCount={assets.totalPagesCount}
+          totalDocs={assets.totalDocuments}
+        />
+      ) : (
+        <AssetHierarchyTable
+          assets={hierarchyAssets}
+          categories={categories}
+          loading={isLoading}
+          onView={(skuKey) => router.push(`${ROUTES.ASSETS}/${skuKey}`)}
+          onEdit={(id) => router.push(`${ROUTES.ADD_ASSET}?id=${id}`)}
+          onDelete={(id, name) => {
+            setDeleteName(name);
+            setAssetToDelete(id);
+            setConfirmOpen(true);
+          }}
+          onAddPart={(parentId) => router.push(`${ROUTES.ADD_ASSET}?parentId=${parentId}`)}
+          onAddRootAsset={() => router.push(ROUTES.ADD_ASSET)}
+        />
+      )}
+
       {deleteName && (
         <DeleteItemDialog
           open={confirmOpen}

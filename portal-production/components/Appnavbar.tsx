@@ -1,5 +1,5 @@
 import * as React from "react";
-import { styled, useTheme } from "@mui/material/styles";
+import { styled } from "@mui/material/styles";
 import AppBar from "@mui/material/AppBar";
 import Stack from "@mui/material/Stack";
 import MuiToolbar from "@mui/material/Toolbar";
@@ -27,7 +27,6 @@ const Toolbar = styled(MuiToolbar)({
 
 export default function AppNavbar() {
   const [open, setOpen] = React.useState(false);
-  const theme = useTheme();
   const toggleDrawer = (newOpen: boolean) => {
     setOpen(newOpen);
   };
@@ -38,7 +37,7 @@ export default function AppNavbar() {
       sx={{
         display: { xs: "auto", md: "none" },
         boxShadow: 0,
-        bgcolor: "background.paper",
+        bgcolor: "primary.main", // Use purple background like the sidebar
         backgroundImage: "none",
         borderBottom: "1px solid",
         borderColor: "divider",
@@ -65,12 +64,12 @@ export default function AppNavbar() {
                 height: "2.5rem",
               }}
             />
-            <Typography variant="h4" component="h1" sx={{ color: theme.palette.primary.contrastText }}>
+            <Typography variant="h4" component="h1" sx={{ color: "white" }}>
               AIMS
             </Typography>
           </Stack>
           <IconButton aria-label="menu" onClick={() => toggleDrawer(true)}>
-            <MenuRoundedIcon sx={{ color: theme.palette.primary.contrastText }} />
+            <MenuRoundedIcon sx={{ color: "white" }} />
           </IconButton>
           <MobileSideBar open={open} toggleDrawer={(state) => toggleDrawer(state)} />
         </Stack>

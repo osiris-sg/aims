@@ -35,7 +35,7 @@ export default function DesktopSideBar() {
       sx={{
         display: { xs: "none", md: "block" },
         [`& .${drawerClasses.paper}`]: {
-          backgroundColor: "background.paper",
+          backgroundColor: "primary.main", // Use purple background like the first image
           overflow: "hidden",
         },
       }}

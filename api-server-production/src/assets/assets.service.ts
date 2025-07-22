@@ -213,4 +213,267 @@ export class AssetsService {
       throw new HttpException('An error occurred while checking the SKU key', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
+
+  async getAssetsHierarchy(userOrganizationId: string) {
+    try {
+      // Get all root assets (no parent) with their complete hierarchy
+      const rootAssets = await this.prisma.asset.findMany({
+        where: {
+          organizationId: userOrganizationId,
+          deletedAt: null,
+          parentAssetId: null, // Root assets only
+        },
+        include: {
+          category: {
+            select: { name: true },
+          },
+          inventories: {
+            where: { status: 'instock' },
+            select: { id: true },
+          },
+          subAssets: {
+            where: { deletedAt: null },
+            include: {
+              category: { select: { name: true } },
+              inventories: {
+                where: { status: 'instock' },
+                select: { id: true },
+              },
+              subAssets: {
+                where: { deletedAt: null },
+                include: {
+                  category: { select: { name: true } },
+                  inventories: {
+                    where: { status: 'instock' },
+                    select: { id: true },
+                  },
+                  subAssets: {
+                    where: { deletedAt: null },
+                    include: {
+                      category: { select: { name: true } },
+                      inventories: {
+                        where: { status: 'instock' },
+                        select: { id: true },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      // Transform to include inventory counts
+      const transformAssetWithCounts = (asset: any): any => ({
+        ...asset,
+        instockInventoryCount: asset.inventories?.length || 0,
+        subAssets: asset.subAssets?.map(transformAssetWithCounts) || [],
+      });
+
+      return rootAssets.map(transformAssetWithCounts);
+    } catch (error) {
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  async getAssetParts(assetId: string, userOrganizationId: string) {
+    try {
+      // Verify the asset exists and belongs to the user's organization
+      const parentAsset = await this.prisma.asset.findFirst({
+        where: {
+          id: assetId,
+          organizationId: userOrganizationId,
+          deletedAt: null,
+        },
+      });
+
+      if (!parentAsset) {
+        throw new HttpException('Asset not found', HttpStatus.NOT_FOUND);
+      }
+
+      // Get all direct parts of this asset with their sub-parts
+      const parts = await this.prisma.asset.findMany({
+        where: {
+          parentAssetId: assetId,
+          organizationId: userOrganizationId,
+          deletedAt: null,
+        },
+        include: {
+          category: {
+            select: { name: true },
+          },
+          inventories: {
+            where: { status: 'instock' },
+            select: { id: true },
+          },
+          subAssets: {
+            where: { deletedAt: null },
+            include: {
+              category: { select: { name: true } },
+              inventories: {
+                where: { status: 'instock' },
+                select: { id: true },
+              },
+              subAssets: {
+                where: { deletedAt: null },
+                include: {
+                  category: { select: { name: true } },
+                  inventories: {
+                    where: { status: 'instock' },
+                    select: { id: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      // Transform to include inventory counts
+      const transformAssetWithCounts = (asset: any): any => ({
+        ...asset,
+        instockInventoryCount: asset.inventories?.length || 0,
+        subAssets: asset.subAssets?.map(transformAssetWithCounts) || [],
+      });
+
+      return parts.map(transformAssetWithCounts);
+    } catch (error) {
+      throw new HttpException(error.message, error.status || HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  async updateAssetParent(assetId: string, parentAssetId: string | null, userOrganizationId: string) {
+    try {
+      // Verify the asset exists and belongs to the user's organization
+      const asset = await this.prisma.asset.findFirst({
+        where: {
+          id: assetId,
+          organizationId: userOrganizationId,
+          deletedAt: null,
+        },
+      });
+
+      if (!asset) {
+        throw new HttpException('Asset not found', HttpStatus.NOT_FOUND);
+      }
+
+      // If setting a parent, verify the parent exists and prevent circular references
+      if (parentAssetId) {
+        const parentAsset = await this.prisma.asset.findFirst({
+          where: {
+            id: parentAssetId,
+            organizationId: userOrganizationId,
+            deletedAt: null,
+          },
+        });
+
+        if (!parentAsset) {
+          throw new HttpException('Parent asset not found', HttpStatus.NOT_FOUND);
+        }
+
+        // Check for circular reference by walking up the parent chain
+        await this.checkCircularReference(assetId, parentAssetId, userOrganizationId);
+      }
+
+      // Update the asset's parent
+      const updatedAsset = await this.prisma.asset.update({
+        where: { id: assetId },
+        data: { parentAssetId },
+        include: {
+          parentAsset: {
+            select: { id: true, name: true, skuKey: true },
+          },
+          subAssets: {
+            select: { id: true, name: true, skuKey: true },
+          },
+        },
+      });
+
+      return updatedAsset;
+    } catch (error) {
+      throw new HttpException(error.message, error.status || HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  async getAssetAncestors(assetId: string, userOrganizationId: string) {
+    try {
+      const ancestors = [];
+      let currentAssetId = assetId;
+
+      while (currentAssetId) {
+        const asset = await this.prisma.asset.findFirst({
+          where: {
+            id: currentAssetId,
+            organizationId: userOrganizationId,
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+            name: true,
+            skuKey: true,
+            parentAssetId: true,
+          },
+        });
+
+        if (!asset) break;
+
+        if (asset.id !== assetId) {
+          // Don't include the asset itself
+          ancestors.unshift(asset); // Add to beginning to maintain order
+        }
+
+        currentAssetId = asset.parentAssetId;
+      }
+
+      return ancestors;
+    } catch (error) {
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  async getAssetDescendants(assetId: string, userOrganizationId: string) {
+    try {
+      // Get all descendants recursively
+      const getDescendantsRecursive = async (parentId: string): Promise<any[]> => {
+        const children = await this.prisma.asset.findMany({
+          where: {
+            parentAssetId: parentId,
+            organizationId: userOrganizationId,
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+            name: true,
+            skuKey: true,
+            parentAssetId: true,
+          },
+        });
+
+        const descendants = [];
+        for (const child of children) {
+          descendants.push(child);
+          const childDescendants = await getDescendantsRecursive(child.id);
+          descendants.push(...childDescendants);
+        }
+
+        return descendants;
+      };
+
+      return await getDescendantsRecursive(assetId);
+    } catch (error) {
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  private async checkCircularReference(assetId: string, proposedParentId: string, userOrganizationId: string) {
+    const descendants = await this.getAssetDescendants(assetId, userOrganizationId);
+    const descendantIds = descendants.map((d) => d.id);
+
+    if (descendantIds.includes(proposedParentId)) {
+      throw new HttpException('Cannot set parent: This would create a circular reference', HttpStatus.BAD_REQUEST);
+    }
+  }
 }
