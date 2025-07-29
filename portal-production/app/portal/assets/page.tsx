@@ -244,7 +244,7 @@ export default function AssetsPage() {
   return (
     <MainCard>
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-        <Typography variant="h5">All Assets</Typography>
+        <Typography variant="h5"></Typography>
         <ToggleButtonGroup value={viewMode} exclusive onChange={(_, newView) => newView && setViewMode(newView)} aria-label="view mode">
           <ToggleButton value="table" aria-label="table view">
             <ViewListIcon sx={{ mr: 1 }} />

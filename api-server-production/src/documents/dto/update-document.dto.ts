@@ -1,7 +1,8 @@
 import { PartialType } from '@nestjs/swagger';
 import { CreateDocumentDto } from './create-document.dto';
-import { IsArray, IsNotEmpty, IsOptional, IsString, IsUUID, ValidateNested } from 'class-validator';
+import { IsArray, IsNotEmpty, IsOptional, IsString, IsUUID, ValidateNested, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
+import { DocumentStatus } from '@prisma/client';
 
 class CompanyDto {
   @IsString()
@@ -143,9 +144,9 @@ export class UpdateDocumentDto extends PartialType(CreateDocumentDto) {
   @IsOptional()
   customerId?: string;
 
-  @IsString()
+  @IsEnum(DocumentStatus)
   @IsOptional()
-  status?: string;
+  status?: DocumentStatus;
 
   @IsString()
   @IsOptional()

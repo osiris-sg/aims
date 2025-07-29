@@ -2,7 +2,7 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { PrismaService } from 'src/common/prisma.service';
 import { CreateDocumentWithTimelineDto } from './dto/create-document-with-timeline.dto';
-import { InventoryStatus } from '@prisma/client';
+import { InventoryStatus, DocumentStatus } from '@prisma/client';
 @Injectable()
 export class DocumentsService {
   constructor(private prisma: PrismaService) {}
@@ -60,6 +60,8 @@ export class DocumentsService {
         data: {
           config: configAsPlainObject,
           type: dto.type,
+          // Update document status if provided
+          status: dto.status, // DocumentStatus enum
           // Connect customer if customerId provided
           customer: dto.customerId ? { connect: { id: dto.customerId } } : undefined,
           project: dto.projectId ? { connect: { id: dto.projectId } } : undefined,
@@ -83,13 +85,20 @@ export class DocumentsService {
       if (dto.type !== 'QO1' && dto.config && Array.isArray(dto.config.items)) {
         await Promise.all(
           dto.config.items.map(async (_item) => {
-            // Use dto.status if provided, otherwise default based on type
+            // Determine inventory status based on document type (not document status)
             let docMessage = '';
             let statusChangeMessage = '';
-            const newStatus: InventoryStatus = (dto.status as InventoryStatus) || (dto.type === 'DO' ? InventoryStatus.rental : dto.type === 'RDO' ? InventoryStatus.instock : undefined);
+            const newStatus: InventoryStatus = dto.type === 'DO' ? InventoryStatus.rental : dto.type === 'RDO' ? InventoryStatus.instock : undefined;
 
             if (dto.type === 'DO') {
-              docMessage = 'A DO document is updated';
+              if (dto.status) {
+                // Include status information in the message
+                const statusText =
+                  dto.status === 'delivered_not_installed' ? 'delivered (not installed)' : dto.status === 'delivered_installed' ? 'delivered and installed' : dto.status.replace(/_/g, ' ');
+                docMessage = `A DO document is submitted as ${statusText}`;
+              } else {
+                docMessage = 'A DO document is updated';
+              }
               statusChangeMessage = 'Item has been changed from instock to rental';
             } else if (dto.type === 'RDO') {
               docMessage = 'A RDO document is updated';

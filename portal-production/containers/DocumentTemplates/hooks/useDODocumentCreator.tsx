@@ -107,6 +107,50 @@ export default function useDODocumentCreator() {
   const projectId = watch("projectId"); // added
   const itemsError = errors?.items?.message;
 
+  // Watch form values for validation
+  const watchedValues = watch();
+
+  // Function to check if form is ready for submission
+  const isReadyForSubmission = () => {
+    const values = watchedValues;
+
+    // Check basic requirements only
+
+    // 1. Must have a customer selected
+    if (!values.customerId) {
+      return false;
+    }
+
+    // 2. Must have at least one item with inventory and quantity
+    if (!values.items || values.items.length === 0) {
+      return false;
+    }
+
+    const validItems = values.items.filter((item: any) => item.inventoryItemId && item.quantity && item.quantity > 0);
+
+    if (validItems.length === 0) {
+      return false;
+    }
+
+    // 3. Must have both signatures
+    const signatures = values.signature;
+
+    if (!signatures) {
+      return false;
+    }
+
+    const hasCompanySignature = signatures.company && signatures.company.length > 0;
+    const hasCustomerSignature = signatures.customer && signatures.customer.length > 0;
+
+    if (!hasCompanySignature || !hasCustomerSignature) {
+      return false;
+    }
+
+    return true;
+  };
+
+  const isFormReadyForSubmission = isReadyForSubmission();
+
   // Reset the form if a document is successfully created
   useEffect(() => {
     if (isDocumentCreated) {
@@ -278,6 +322,133 @@ export default function useDODocumentCreator() {
       }
     }
   };
+
+  // New function to handle submission with status
+  const onSubmitWithStatus = async (status: string) => {
+    try {
+      console.log("Form submission with status started:", status);
+      const data = watchedValues; // Get current form values
+      const token = await getToken();
+      if (!token) return;
+
+      data.items = data.items.map((item: any) => ({
+        ...item,
+        quantity: item.quantity ?? 1,
+      }));
+
+      let logoKey = "";
+      const logoFile = Array.isArray(data.logo) ? data.logo[0] : data.logo;
+
+      if (logoFile) {
+        try {
+          dispatch(actions.uploadImageStart());
+          logoKey = await uploadImage({
+            blob: logoFile,
+            folderName: "logos",
+            token,
+          });
+        } catch (err) {
+          console.error("Logo upload failed", err);
+          throw err;
+        } finally {
+          dispatch(actions.uploadImageEnd());
+        }
+      }
+
+      const uploadedSignatures: { company?: string; customer?: string } = {};
+      if (data.signature) {
+        for (const key of ["company", "customer"] as const) {
+          const base64 = data.signature?.[key];
+          if (base64?.startsWith("data:image")) {
+            const file = base64ToFile(base64, `${key}-signature.png`);
+            try {
+              dispatch(actions.uploadImageStart());
+              const signatureKey = await uploadImage({
+                blob: file,
+                folderName: "signatures",
+                token,
+              });
+              uploadedSignatures[key] = signatureKey;
+            } catch (err) {
+              console.error(`Error uploading ${key} signature`, err);
+              throw err;
+            } finally {
+              dispatch(actions.uploadImageEnd());
+            }
+          } else if (base64) {
+            uploadedSignatures[key] = base64;
+          }
+        }
+      }
+
+      // Upload captured images to S3
+      const uploadedCapturedImages: string[] = [];
+      if (data.capturedImages && Array.isArray(data.capturedImages) && data.capturedImages.length > 0) {
+        try {
+          dispatch(actions.uploadImageStart());
+          for (let i = 0; i < data.capturedImages.length; i++) {
+            const base64Image = data.capturedImages[i];
+            if (base64Image?.startsWith("data:image")) {
+              const file = base64ToFile(base64Image, `captured-image-${i + 1}.png`);
+              const imageKey = await uploadImage({
+                blob: file,
+                folderName: "captured-images",
+                token,
+              });
+              uploadedCapturedImages.push(imageKey);
+            }
+          }
+        } catch (err) {
+          console.error("Error uploading captured images", err);
+          throw err;
+        } finally {
+          dispatch(actions.uploadImageEnd());
+        }
+      }
+
+      const payload = {
+        ...data,
+        projectId,
+        logo: logoKey || document?.config.logo,
+        signature: uploadedSignatures,
+        capturedImages: uploadedCapturedImages,
+      };
+
+      if (documentId) {
+        // Update document with the selected status
+        dispatch(
+          actions.updateDocument({
+            id: documentId,
+            type: document?.type,
+            config: payload,
+            token,
+            status: status, // Use the provided status
+            customerId: data.customerId,
+            projectId: projectId,
+          })
+        );
+      } else {
+        // Create new document with status (though this path shouldn't happen with status selection)
+        dispatch(
+          actions.createDocumentWithTimeline({
+            documentTemplateId: documenttemplate?.id,
+            organizationId: documenttemplate?.organizationId,
+            type: documenttemplate?.type,
+            config: payload,
+            token,
+            status: status, // Use the provided status
+            customerId: data.customerId,
+          })
+        );
+      }
+    } catch (err) {
+      console.error("Error in DO Document submission with status:", err);
+      if (err instanceof Error) {
+        console.error("Error message:", err.message);
+        console.error("Error stack:", err.stack);
+      }
+    }
+  };
   console.log("fields", fields);
   return {
     control,
@@ -289,8 +460,10 @@ export default function useDODocumentCreator() {
     fields,
     remove,
     onDocumentCreate: handleSubmit(onSubmit),
+    onSubmitWithStatus, // Add this to return
     itemsError,
     isLoading,
     isDirty,
+    isFormReadyForSubmission, // Add this to return
   };
 }

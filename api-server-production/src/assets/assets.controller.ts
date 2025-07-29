@@ -94,7 +94,7 @@ export class AssetsController {
     return this.assetsService.checkSkuKey(skuKey, userOrganization.id);
   }
 
-  @Get(':id/parts')
+  @Get(':id/parts') 
   @Permissions('assets:read')
   @ApiOperation({ summary: 'Get all parts of a specific asset' })
   @ApiParam({ name: 'id', type: 'string', description: 'The ID of the parent asset' })
