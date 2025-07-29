@@ -11,13 +11,15 @@ import VisibilityIcon from "@mui/icons-material/Visibility";
 import { useRouter } from "next/navigation";
 import moment from "moment";
 import { DOCUMENT_API } from "../documents/constants";
-import { ROUTES } from "@/routes";
 
 interface Document {
   id: string;
   name: string;
   associated_item: string;
   associated_customer: string;
+  status: string;
+  documentType: string;
+  templateId: string;
   createdAt: string;
 }
 
@@ -41,7 +43,6 @@ interface Filters {
     startDate: string | null;
     endDate: string | null;
   };
-  [key: string]: any;
 }
 
 export default function DocumentsPage() {
@@ -92,11 +93,65 @@ export default function DocumentsPage() {
     {
       accessorKey: "createdAt",
       header: "Created Date",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      cell: ({ row }: any) => {
+        const status = row.original.status;
+        // Format status for display
+        const formatStatus = (status: string) => {
+          if (!status) return "Draft";
+          return status
+            .split("_")
+            .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(" ");
+        };
+
+        // Get color based on status
+        const getStatusColor = (status: string) => {
+          switch (status) {
+            case "draft":
+              return "text.secondary";
+            case "pending_delivery":
+              return "warning.main";
+            case "delivered_not_installed":
+              return "info.main";
+            case "delivered_installed":
+              return "success.main";
+            case "pending_payment":
+              return "warning.main";
+            case "paid":
+              return "success.main";
+            case "pending_return":
+              return "warning.main";
+            case "returned":
+              return "text.secondary";
+            default:
+              return "text.primary";
+          }
+        };
+
+        return (
+          <Box
+            sx={{
+              color: getStatusColor(status || "draft"),
+              fontWeight: 500,
+              textTransform: "capitalize",
+            }}
+          >
+            {formatStatus(status || "draft")}
+          </Box>
+        );
+      },
     },
     {
       accessorKey: "action",
       header: "Action",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => {
         const { documentType, templateId, id } = row.original;
         return (

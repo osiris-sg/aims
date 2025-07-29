@@ -333,6 +333,7 @@ export class DocumentsService {
         associated_customer: doc.customer?.name ?? 'N/A',
         documentType: doc.type,
         templateId: doc.documentTemplateId,
+        status: doc.status,
         createdAt: doc.createdAt,
       }));
     } catch (error) {
