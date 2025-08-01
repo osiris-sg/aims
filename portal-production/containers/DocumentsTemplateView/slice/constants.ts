@@ -54,7 +54,7 @@ export const API = {
 export const DOCUMENT_TYPES = [
   { label: "Return Delivery Order", value: "RDO" },
   { label: "Delivery Order", value: "DO" },
-  // { label: "Maintenance Service Report", value: "MSR" },
+  { label: "Maintenance Service Report", value: "MSR" },
   { label: "Quotation 1", value: "QO1" }, // Add your QO1 document type here
   { label: "Invoice", value: "TI" },
   { label: "Quotation 2", value: "QO2" }, // Add your QO2 document type here
