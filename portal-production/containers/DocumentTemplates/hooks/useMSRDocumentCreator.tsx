@@ -46,7 +46,7 @@ export default function useMSRDocumentCreator() {
     handleSubmit,
     reset,
     setValue,
-    formState: { errors, isDirty },
+    formState: { isDirty },
   } = useForm<any>({
     defaultValues,
     resolver: yupResolver(schema),
@@ -121,34 +121,47 @@ export default function useMSRDocumentCreator() {
       const token = await getToken();
       if (!token) return;
 
-      // Upload all photos and their annotations to S3
+      // Upload all photos and their annotations to S3 - preserve existing URLs and upload new base64 images
       const processedPhotos: any[] = [];
       if (data.photos && Array.isArray(data.photos) && data.photos.length > 0) {
+        console.log("Processing MSR photos:", data.photos.length, "photos");
         try {
           dispatch(actions.uploadImageStart());
           for (let i = 0; i < data.photos.length; i++) {
             const photo = data.photos[i];
+            console.log(`Photo ${i + 1}:`, photo.partName, "Image:", photo.imageData?.substring(0, 50) + "...");
+
             let imageKey = photo.imageData;
             let annotationKey = photo.annotations;
 
             // Upload main image if it's base64
             if (photo.imageData?.startsWith("data:image")) {
+              console.log(`Uploading new base64 image for photo ${i + 1}`);
               const file = base64ToFile(photo.imageData, `msr-photo-${i + 1}.png`);
               imageKey = await uploadImage({
                 blob: file,
                 folderName: "msr-photos",
                 token,
               });
+              console.log(`Uploaded image ${i + 1} as:`, imageKey);
+            } else if (photo.imageData && typeof photo.imageData === "string") {
+              // This is an existing S3 URL - preserve it
+              console.log(`Preserving existing S3 URL for image ${i + 1}:`, photo.imageData);
             }
 
             // Upload annotation if it exists and is base64
             if (photo.annotations?.startsWith("data:image")) {
+              console.log(`Uploading new base64 annotation for photo ${i + 1}`);
               const annotationFile = base64ToFile(photo.annotations, `msr-annotation-${i + 1}.png`);
               annotationKey = await uploadImage({
                 blob: annotationFile,
                 folderName: "msr-annotations",
                 token,
               });
+              console.log(`Uploaded annotation ${i + 1} as:`, annotationKey);
+            } else if (photo.annotations && typeof photo.annotations === "string") {
+              // This is an existing S3 URL - preserve it
+              console.log(`Preserving existing S3 URL for annotation ${i + 1}:`, photo.annotations);
             }
 
             processedPhotos.push({
@@ -157,6 +170,7 @@ export default function useMSRDocumentCreator() {
               annotations: annotationKey,
             });
           }
+          console.log("Final processed photos array:", processedPhotos);
         } catch (err) {
           console.error("Error uploading MSR photos", err);
           throw err;
@@ -214,32 +228,45 @@ export default function useMSRDocumentCreator() {
       const token = await getToken();
       if (!token) return;
 
-      // Process photos for status submission (same as regular submit)
+      // Process photos for status submission - preserve existing URLs and upload new base64 images
       const processedPhotos: any[] = [];
       if (data.photos && Array.isArray(data.photos) && data.photos.length > 0) {
+        console.log("Processing MSR photos for status submission:", data.photos.length, "photos");
         try {
           dispatch(actions.uploadImageStart());
           for (let i = 0; i < data.photos.length; i++) {
             const photo = data.photos[i];
+            console.log(`Photo ${i + 1}:`, photo.partName, "Image:", photo.imageData?.substring(0, 50) + "...");
+
             let imageKey = photo.imageData;
             let annotationKey = photo.annotations;
 
             if (photo.imageData?.startsWith("data:image")) {
+              console.log(`Uploading new base64 image for photo ${i + 1}`);
               const file = base64ToFile(photo.imageData, `msr-photo-${i + 1}.png`);
               imageKey = await uploadImage({
                 blob: file,
                 folderName: "msr-photos",
                 token,
               });
+              console.log(`Uploaded image ${i + 1} as:`, imageKey);
+            } else if (photo.imageData && typeof photo.imageData === "string") {
+              // This is an existing S3 URL - preserve it
+              console.log(`Preserving existing S3 URL for image ${i + 1}:`, photo.imageData);
             }
 
             if (photo.annotations?.startsWith("data:image")) {
+              console.log(`Uploading new base64 annotation for photo ${i + 1}`);
               const annotationFile = base64ToFile(photo.annotations, `msr-annotation-${i + 1}.png`);
               annotationKey = await uploadImage({
                 blob: annotationFile,
                 folderName: "msr-annotations",
                 token,
               });
+              console.log(`Uploaded annotation ${i + 1} as:`, annotationKey);
+            } else if (photo.annotations && typeof photo.annotations === "string") {
+              // This is an existing S3 URL - preserve it
+              console.log(`Preserving existing S3 URL for annotation ${i + 1}:`, photo.annotations);
             }
 
             processedPhotos.push({
@@ -248,6 +275,7 @@ export default function useMSRDocumentCreator() {
               annotations: annotationKey,
             });
           }
+          console.log("Final processed photos array for status submission:", processedPhotos);
         } catch (err) {
           console.error("Error uploading MSR photos", err);
           throw err;

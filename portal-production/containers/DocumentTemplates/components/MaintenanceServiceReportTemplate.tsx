@@ -134,6 +134,12 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
         annotations: drawingData,
       };
       setValue("photos", updatedPhotos, { shouldDirty: true });
+
+      console.log("Saved MSR annotation for photo:", {
+        photoIndex: selectedPhotoIndex,
+        partName: updatedPhotos[selectedPhotoIndex]?.partName,
+        annotationLength: drawingData.length,
+      });
     }
   };
 
@@ -168,6 +174,12 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
     };
     const updatedPhotos = [...photos, newPhoto];
     setValue("photos", updatedPhotos, { shouldDirty: true });
+
+    console.log("Added new MSR photo:", {
+      partName: newPhoto.partName,
+      imageDataLength: newPhoto.imageData.length,
+      totalPhotos: updatedPhotos.length,
+    });
 
     // Reset states
     setIsPhotoDetailsDialogOpen(false);
@@ -211,6 +223,22 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
     setIsDrawingMode(false);
     setIsCommentMode(false);
     setTempComment(photos[index]?.comments || "");
+
+    // Load existing annotation if available
+    if (photos[index]?.annotations && canvasRef.current) {
+      const img = new window.Image();
+      img.onload = () => {
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          }
+        }
+      };
+      img.src = photos[index].annotations.startsWith("data:image") ? photos[index].annotations : `${process.env.NEXT_PUBLIC_RESOURCE_URL || "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/"}${photos[index].annotations}`;
+    }
   };
 
   return (
@@ -398,7 +426,7 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
                                           left: 0,
                                           width: "100%",
                                           height: "100%",
-                                          backgroundImage: `url(${photo.annotations})`,
+                                          backgroundImage: `url(${photo.annotations.startsWith("data:image") ? photo.annotations : `${process.env.NEXT_PUBLIC_RESOURCE_URL || "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/"}${photo.annotations}`})`,
                                           backgroundSize: "cover",
                                           pointerEvents: "none",
                                         }}

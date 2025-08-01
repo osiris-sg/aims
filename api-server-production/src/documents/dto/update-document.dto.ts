@@ -49,6 +49,31 @@ class ItemDto {
   description?: string;
 }
 
+class PhotoDto {
+  @IsString()
+  @IsOptional()
+  id?: string;
+
+  @IsString()
+  @IsOptional()
+  imageData?: string;
+
+  @IsString()
+  @IsOptional()
+  annotations?: string;
+
+  @IsString()
+  @IsOptional()
+  partName?: string;
+
+  @IsString()
+  @IsOptional()
+  comments?: string;
+
+  @IsOptional()
+  timestamp?: number;
+}
+
 export class IConfig {
   @ValidateNested()
   @Type(() => CompanyDto)
@@ -61,7 +86,14 @@ export class IConfig {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ItemDto)
-  items: ItemDto[];
+  @IsOptional()
+  items?: ItemDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PhotoDto)
+  @IsOptional()
+  photos?: PhotoDto[];
 
   @ValidateNested()
   @Type(() => AttentionDto)

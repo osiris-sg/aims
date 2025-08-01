@@ -64,7 +64,7 @@ export default function useDODocumentCreator() {
     }
   }, [errors]);
 
-  const { fields, append, remove } = useFieldArray({
+  const { fields, append, remove, replace } = useFieldArray({
     control,
     name: "items",
   });
@@ -172,14 +172,19 @@ export default function useDODocumentCreator() {
       const signatureData = document.config.signature || {};
       console.log("Signature data from document:", signatureData);
 
+      // Debug items loading
+      console.log("Raw items from document.config:", document.config.items);
+      const processedItems =
+        document.config.items?.map((item: any) => ({
+          ...item,
+          quantity: item.quantity ?? 1,
+        })) || [];
+      console.log("Processed items for form:", processedItems);
+
       reset(
         {
           ...document.config,
-          items:
-            document.config.items?.map((item: any) => ({
-              ...item,
-              quantity: item.quantity ?? 1,
-            })) || [],
+          items: processedItems,
           logo: logoValue,
           signature: signatureData, // Ensure signature is properly set
         },
@@ -187,6 +192,13 @@ export default function useDODocumentCreator() {
           keepDefaultValues: false,
         }
       );
+
+      // Force field array to sync with the reset items using replace
+      // This is more reliable than relying on reset to sync useFieldArray
+      if (processedItems.length > 0) {
+        replace(processedItems);
+        console.log("Replaced field array with", processedItems.length, "items");
+      }
       // Also populate company and gstRegNo from document.organization
       if (document?.organization) {
         setValue("company.name", document.organization.name || "", { shouldDirty: true });
@@ -195,7 +207,13 @@ export default function useDODocumentCreator() {
         setValue("gstRegNo", document.organization.registrationNumber || "", { shouldDirty: true });
       }
     }
-  }, [documentId, document?.config, reset, setValue, document?.organization]);
+  }, [documentId, document?.config, document, reset, setValue, document?.organization]);
+
+  // Debug field array after any changes
+  useEffect(() => {
+    console.log("Current fields array:", fields);
+    console.log("Fields length:", fields.length);
+  }, [fields]);
 
   const onSubmit = async (data: any) => {
     try {
@@ -253,23 +271,34 @@ export default function useDODocumentCreator() {
         }
       }
 
-      // Upload captured images to S3
+      // Upload captured images to S3 - preserve existing URLs and upload new base64 images
       const uploadedCapturedImages: string[] = [];
       if (data.capturedImages && Array.isArray(data.capturedImages) && data.capturedImages.length > 0) {
+        console.log("Processing captured images:", data.capturedImages.length, "images");
         try {
           dispatch(actions.uploadImageStart());
           for (let i = 0; i < data.capturedImages.length; i++) {
-            const base64Image = data.capturedImages[i];
-            if (base64Image?.startsWith("data:image")) {
-              const file = base64ToFile(base64Image, `captured-image-${i + 1}.png`);
+            const image = data.capturedImages[i];
+            console.log(`Image ${i + 1}:`, image?.substring(0, 50) + "...");
+
+            if (image?.startsWith("data:image")) {
+              // This is a new base64 image - upload it
+              console.log(`Uploading new base64 image ${i + 1}`);
+              const file = base64ToFile(image, `captured-image-${i + 1}.png`);
               const imageKey = await uploadImage({
                 blob: file,
                 folderName: "captured-images",
                 token,
               });
               uploadedCapturedImages.push(imageKey);
+              console.log(`Uploaded image ${i + 1} as:`, imageKey);
+            } else if (image && typeof image === "string") {
+              // This is an existing S3 URL - preserve it
+              console.log(`Preserving existing S3 URL for image ${i + 1}:`, image);
+              uploadedCapturedImages.push(image);
             }
           }
+          console.log("Final uploaded images array:", uploadedCapturedImages);
         } catch (err) {
           console.error("Error uploading captured images", err);
           throw err;
@@ -288,13 +317,14 @@ export default function useDODocumentCreator() {
 
       if (documentId) {
         // If documentId exists, update the document
+
         dispatch(
           actions.updateDocument({
             id: documentId,
             type: document?.type,
             config: payload,
             token,
-            status: "instock",
+            status: "draft",
             customerId: data.customerId,
             projectId: projectId, // added
           })
@@ -308,7 +338,7 @@ export default function useDODocumentCreator() {
             type: documenttemplate?.type,
             config: payload,
             token,
-            status: "instock",
+            status: "draft",
             customerId: data.customerId,
           })
         );
@@ -327,7 +357,16 @@ export default function useDODocumentCreator() {
   const onSubmitWithStatus = async (status: string) => {
     try {
       console.log("Form submission with status started:", status);
-      const data = watchedValues; // Get current form values
+      const data = watch(); // Get current form values at time of call
+      console.log("Form data for status submission:", data);
+      console.log("Project ID:", data.projectId, "Type:", typeof data.projectId);
+
+      // Validate projectId - ensure it's either empty/null or a valid UUID
+      if (data.projectId && typeof data.projectId === "string" && data.projectId.trim() === "") {
+        console.log("Converting empty projectId string to null");
+        data.projectId = null;
+      }
+
       const token = await getToken();
       if (!token) return;
 
@@ -381,23 +420,34 @@ export default function useDODocumentCreator() {
         }
       }
 
-      // Upload captured images to S3
+      // Upload captured images to S3 - preserve existing URLs and upload new base64 images
       const uploadedCapturedImages: string[] = [];
       if (data.capturedImages && Array.isArray(data.capturedImages) && data.capturedImages.length > 0) {
+        console.log("Processing captured images:", data.capturedImages.length, "images");
         try {
           dispatch(actions.uploadImageStart());
           for (let i = 0; i < data.capturedImages.length; i++) {
-            const base64Image = data.capturedImages[i];
-            if (base64Image?.startsWith("data:image")) {
-              const file = base64ToFile(base64Image, `captured-image-${i + 1}.png`);
+            const image = data.capturedImages[i];
+            console.log(`Image ${i + 1}:`, image?.substring(0, 50) + "...");
+
+            if (image?.startsWith("data:image")) {
+              // This is a new base64 image - upload it
+              console.log(`Uploading new base64 image ${i + 1}`);
+              const file = base64ToFile(image, `captured-image-${i + 1}.png`);
               const imageKey = await uploadImage({
                 blob: file,
                 folderName: "captured-images",
                 token,
               });
               uploadedCapturedImages.push(imageKey);
+              console.log(`Uploaded image ${i + 1} as:`, imageKey);
+            } else if (image && typeof image === "string") {
+              // This is an existing S3 URL - preserve it
+              console.log(`Preserving existing S3 URL for image ${i + 1}:`, image);
+              uploadedCapturedImages.push(image);
             }
           }
+          console.log("Final uploaded images array:", uploadedCapturedImages);
         } catch (err) {
           console.error("Error uploading captured images", err);
           throw err;
@@ -408,7 +458,6 @@ export default function useDODocumentCreator() {
 
       const payload = {
         ...data,
-        projectId,
         logo: logoKey || document?.config.logo,
         signature: uploadedSignatures,
         capturedImages: uploadedCapturedImages,
@@ -424,7 +473,7 @@ export default function useDODocumentCreator() {
             token,
             status: status, // Use the provided status
             customerId: data.customerId,
-            projectId: projectId,
+            ...(data.projectId ? { projectId: data.projectId } : {}),
           })
         );
       } else {
@@ -450,6 +499,18 @@ export default function useDODocumentCreator() {
     }
   };
   console.log("fields", fields);
+
+  // Add debug logging for complete document structure
+  useEffect(() => {
+    if (document) {
+      console.log("=== COMPLETE DOCUMENT DEBUG ===");
+      console.log("Full document object:", JSON.stringify(document, null, 2));
+      console.log("Document config items:", document?.config?.items);
+      console.log("Current form values (watch all):", watch());
+      console.log("=== END DOCUMENT DEBUG ===");
+    }
+  }, [document, watch]);
+
   return {
     control,
     setValue,
@@ -459,6 +520,7 @@ export default function useDODocumentCreator() {
     projectId, // added to return
     fields,
     remove,
+    replace, // Add replace function
     onDocumentCreate: handleSubmit(onSubmit),
     onSubmitWithStatus, // Add this to return
     itemsError,
