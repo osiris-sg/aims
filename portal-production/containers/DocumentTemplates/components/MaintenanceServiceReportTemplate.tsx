@@ -269,12 +269,12 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
                         <Typography variant="h6" sx={{ mb: 2 }}>
                           Report Details
                         </Typography>
-                        <Grid2 container spacing={2}>
+                        <Grid2 container spacing={isMobile ? 3 : 2}>
                           <Grid2 size={isMobile ? 12 : 6}>
-                            <FormInputBox control={control} name="reportDetails.equipmentId" label="Equipment ID" placeHolder="Enter Equipment ID" size="small" viewMode={isViewMode} />
+                            <FormInputBox control={control} name="reportDetails.equipmentId" label="Equipment ID" placeHolder="Enter Equipment ID" size="small" viewMode={isViewMode} labelArriangment={isViewMode ? "horizontal" : "vertical"} />
                           </Grid2>
                           <Grid2 size={isMobile ? 12 : 6}>
-                            <FormInputBox control={control} name="reportDetails.location" label="Location" placeHolder="Enter Location" size="small" viewMode={isViewMode} />
+                            <FormInputBox control={control} name="reportDetails.location" label="Location" placeHolder="Enter Location" size="small" viewMode={isViewMode} labelArriangment={isViewMode ? "horizontal" : "vertical"} />
                           </Grid2>
                           <Grid2 size={isMobile ? 12 : 6}>
                             <FormSelect
@@ -290,16 +290,17 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
                               ]}
                               size="small"
                               viewMode={isViewMode}
+                              labelArriangment={isViewMode ? "horizontal" : "vertical"}
                             />
                           </Grid2>
                           <Grid2 size={isMobile ? 12 : 6}>
-                            <FormInputBox control={control} name="reportDetails.date" label="Service Date" type="date" size="small" viewMode={isViewMode} />
+                            <FormInputBox control={control} name="reportDetails.date" label="Service Date" type="date" size="small" viewMode={isViewMode} labelArriangment={isViewMode ? "horizontal" : "vertical"} />
                           </Grid2>
                           <Grid2 size={12}>
                             <TextField
                               fullWidth
                               multiline
-                              rows={3}
+                              rows={isMobile ? 2 : 3}
                               label="Description"
                               placeholder="Enter detailed description of the maintenance work..."
                               value={reportDetails.description || ""}
@@ -315,10 +316,19 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
                     {/* Photo Documentation Section */}
                     <Card>
                       <CardContent>
-                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: isMobile ? "flex-start" : "center",
+                            mb: 2,
+                            flexDirection: isMobile ? "column" : "row",
+                            gap: isMobile ? 1 : 0,
+                          }}
+                        >
                           <Typography variant="h6">Photo Documentation</Typography>
                           {!isViewMode && (
-                            <Button variant="contained" startIcon={<CameraIcon />} onClick={() => setWebcamOpen(true)} size="small">
+                            <Button variant="contained" startIcon={<CameraIcon />} onClick={() => setWebcamOpen(true)} size="small" fullWidth={isMobile}>
                               Take Photo
                             </Button>
                           )}
@@ -331,7 +341,7 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
                             <Typography variant="body2">Click &quot;Take Photo&quot; to start documenting</Typography>
                           </Box>
                         ) : (
-                          <Grid2 container spacing={2}>
+                          <Grid2 container spacing={isMobile ? 3 : 2}>
                             {photos.map((photo: AnnotatedPhoto, index: number) => (
                               <Grid2 key={photo.id} size={isMobile ? 12 : 6}>
                                 <Card
@@ -370,11 +380,11 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
                                     <Image
                                       src={photo.imageData.startsWith("data:image") ? photo.imageData : `${process.env.NEXT_PUBLIC_RESOURCE_URL || "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/"}${photo.imageData}`}
                                       alt={`Photo ${index + 1}`}
-                                      width={400}
-                                      height={300}
+                                      width={isMobile ? 300 : 400}
+                                      height={isMobile ? 200 : 300}
                                       style={{
                                         width: "100%",
-                                        height: "200px",
+                                        height: isMobile ? "180px" : "200px",
                                         objectFit: "cover",
                                       }}
                                     />
@@ -417,12 +427,20 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
 
                         {/* Photo Editing Panel */}
                         {selectedPhotoIndex !== null && !isViewMode && (
-                          <Box sx={{ mt: 3, p: 2, backgroundColor: "grey.50", borderRadius: 1 }}>
-                            <Typography variant="h6" sx={{ mb: 2 }}>
+                          <Box sx={{ mt: 3, p: isMobile ? 1.5 : 2, backgroundColor: "grey.50", borderRadius: 1 }}>
+                            <Typography variant={isMobile ? "body1" : "h6"} sx={{ mb: 2, fontWeight: 600 }}>
                               Edit: {photos[selectedPhotoIndex]?.partName || `Photo ${selectedPhotoIndex + 1}`}
                             </Typography>
 
-                            <Box sx={{ display: "flex", gap: 1, mb: 2, flexWrap: "wrap" }}>
+                            <Box
+                              sx={{
+                                display: "flex",
+                                gap: 1,
+                                mb: 2,
+                                flexWrap: "wrap",
+                                flexDirection: isMobile ? "column" : "row",
+                              }}
+                            >
                               <Button
                                 variant={isDrawingMode ? "contained" : "outlined"}
                                 startIcon={<EditIcon />}
@@ -431,6 +449,7 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
                                   setIsCommentMode(false);
                                 }}
                                 size="small"
+                                fullWidth={isMobile}
                               >
                                 Draw
                               </Button>
@@ -443,11 +462,12 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
                                   setTempComment(photos[selectedPhotoIndex]?.comments || "");
                                 }}
                                 size="small"
+                                fullWidth={isMobile}
                               >
                                 Edit Comment
                               </Button>
                               {isDrawingMode && (
-                                <Button variant="outlined" startIcon={<ClearIcon />} onClick={clearDrawing} size="small" color="error">
+                                <Button variant="outlined" startIcon={<ClearIcon />} onClick={clearDrawing} size="small" color="error" fullWidth={isMobile}>
                                   Clear Drawing
                                 </Button>
                               )}
@@ -455,11 +475,11 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
 
                             {/* Drawing Canvas */}
                             {isDrawingMode && (
-                              <Box sx={{ position: "relative", mb: 2 }}>
+                              <Box sx={{ position: "relative", mb: 2, width: "100%" }}>
                                 <canvas
                                   ref={canvasRef}
-                                  width={400}
-                                  height={300}
+                                  width={isMobile ? 300 : 400}
+                                  height={isMobile ? 200 : 300}
                                   onMouseDown={startDrawing}
                                   onMouseMove={draw}
                                   onMouseUp={stopDrawing}
@@ -469,7 +489,7 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
                                     borderRadius: "4px",
                                     cursor: "crosshair",
                                     width: "100%",
-                                    maxWidth: "400px",
+                                    maxWidth: isMobile ? "300px" : "400px",
                                   }}
                                 />
                               </Box>
@@ -478,9 +498,16 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
                             {/* Comment Input */}
                             {isCommentMode && (
                               <Box sx={{ mb: 2 }}>
-                                <TextField fullWidth multiline rows={3} label="Update Comment" placeholder="Describe the condition, issue, or observation..." value={tempComment} onChange={(e) => setTempComment(e.target.value)} size="small" />
-                                <Box sx={{ mt: 1, display: "flex", gap: 1 }}>
-                                  <Button variant="contained" startIcon={<SaveIcon />} onClick={handleSaveComment} size="small" disabled={!tempComment.trim()}>
+                                <TextField fullWidth multiline rows={isMobile ? 2 : 3} label="Update Comment" placeholder="Describe the condition, issue, or observation..." value={tempComment} onChange={(e) => setTempComment(e.target.value)} size="small" />
+                                <Box
+                                  sx={{
+                                    mt: 1,
+                                    display: "flex",
+                                    gap: 1,
+                                    flexDirection: isMobile ? "column" : "row",
+                                  }}
+                                >
+                                  <Button variant="contained" startIcon={<SaveIcon />} onClick={handleSaveComment} size="small" disabled={!tempComment.trim()} fullWidth={isMobile}>
                                     Save Comment
                                   </Button>
                                   <Button
@@ -490,6 +517,7 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
                                       setTempComment(photos[selectedPhotoIndex]?.comments || "");
                                     }}
                                     size="small"
+                                    fullWidth={isMobile}
                                   >
                                     Cancel
                                   </Button>
@@ -514,33 +542,50 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
                 </form>
 
                 {/* Webcam Dialog */}
-                <Dialog open={isWebcamOpen} onClose={() => setWebcamOpen(false)} maxWidth="md" fullWidth>
+                <Dialog open={isWebcamOpen} onClose={() => setWebcamOpen(false)} maxWidth="md" fullWidth fullScreen={isMobile}>
                   <DialogTitle>Capture Photo</DialogTitle>
                   <DialogContent>
                     <WebcamComponent onCapture={handlePhotoCapture} />
                   </DialogContent>
                   <DialogActions>
-                    <Button onClick={() => setWebcamOpen(false)}>Cancel</Button>
+                    <Button onClick={() => setWebcamOpen(false)} fullWidth={isMobile}>
+                      Cancel
+                    </Button>
                   </DialogActions>
                 </Dialog>
 
                 {/* Photo Details Dialog */}
-                <Dialog open={isPhotoDetailsDialogOpen} onClose={handleCancelPhotoDetails} maxWidth="sm" fullWidth>
+                <Dialog open={isPhotoDetailsDialogOpen} onClose={handleCancelPhotoDetails} maxWidth="sm" fullWidth fullScreen={isMobile}>
                   <DialogTitle>Add Photo Details</DialogTitle>
                   <DialogContent sx={{ pt: 2 }}>
                     {/* Photo Preview */}
                     {capturedImageData && (
                       <Box sx={{ mb: 3, textAlign: "center" }}>
-                        <img
-                          src={capturedImageData}
-                          alt="Captured"
-                          style={{
+                        <Box
+                          sx={{
+                            position: "relative",
+                            display: "inline-block",
                             maxWidth: "100%",
-                            maxHeight: "200px",
+                            maxHeight: isMobile ? "150px" : "200px",
                             borderRadius: "8px",
                             border: "1px solid #ddd",
+                            overflow: "hidden",
                           }}
-                        />
+                        >
+                          <Image
+                            src={capturedImageData}
+                            alt="Captured"
+                            width={isMobile ? 200 : 300}
+                            height={isMobile ? 150 : 200}
+                            style={{
+                              width: "auto",
+                              height: "auto",
+                              maxWidth: "100%",
+                              maxHeight: isMobile ? "150px" : "200px",
+                              borderRadius: "8px",
+                            }}
+                          />
+                        </Box>
                       </Box>
                     )}
 
@@ -548,13 +593,19 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
                     <TextField fullWidth label="Part Name" placeholder="e.g., Engine Block, Brake Disc, Control Panel..." value={tempPartName} onChange={(e) => setTempPartName(e.target.value)} sx={{ mb: 2 }} size="small" required />
 
                     {/* Comments Input */}
-                    <TextField fullWidth multiline rows={3} label="Comments (Optional)" placeholder="Describe the condition, issue, or observation..." value={tempPhotoComment} onChange={(e) => setTempPhotoComment(e.target.value)} size="small" />
+                    <TextField fullWidth multiline rows={isMobile ? 2 : 3} label="Comments (Optional)" placeholder="Describe the condition, issue, or observation..." value={tempPhotoComment} onChange={(e) => setTempPhotoComment(e.target.value)} size="small" />
                   </DialogContent>
-                  <DialogActions>
-                    <Button onClick={handleCancelPhotoDetails} color="secondary">
+                  <DialogActions
+                    sx={{
+                      flexDirection: isMobile ? "column" : "row",
+                      gap: isMobile ? 1 : 0,
+                      p: isMobile ? 2 : 1,
+                    }}
+                  >
+                    <Button onClick={handleCancelPhotoDetails} color="secondary" fullWidth={isMobile}>
                       Cancel
                     </Button>
-                    <Button onClick={handleSavePhotoDetails} variant="contained" disabled={!tempPartName.trim()}>
+                    <Button onClick={handleSavePhotoDetails} variant="contained" disabled={!tempPartName.trim()} fullWidth={isMobile}>
                       Save Photo
                     </Button>
                   </DialogActions>
