@@ -3,7 +3,6 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
-import moment from "moment";
 
 interface Project {
   data: {
@@ -11,12 +10,14 @@ interface Project {
     name: string;
     endDate: string;
     status?: string;
-    }
+  };
 }
 
 interface ProjectsEndingData {
-  totalEndingSoon: number;
-  endingProjects: Project[];
+  data: {
+    totalEndingSoon: number;
+    endingProjects: Project[];
+  };
 }
 
 const API = {

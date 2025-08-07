@@ -21,10 +21,12 @@ interface Props {
   required?: boolean;
   fullWidth?: boolean;
   viewMode?: boolean;
+  size?: string;
 }
 
-export default function FormTextarea(props: Props) {
-  const { fullWidth = true, control, name, label, placeHolder, bottomText, defaultValue = "", description, disabled, rows = 4, maxRows, maxLength, required, rules = {}, labelArriangment = "vertical", viewMode = false } = props;
+export default function FormTextArea(props: Props) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { fullWidth = true, control, name, label, placeHolder, bottomText, defaultValue = "", description, disabled, rows = 4, maxRows, maxLength, required, rules = {}, labelArriangment = "vertical", viewMode = false, size } = props;
 
   return (
     <Controller

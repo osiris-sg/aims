@@ -1,6 +1,5 @@
 import { useForm, useFieldArray } from "react-hook-form";
 import { useParams } from "next/navigation";
-// import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
@@ -9,14 +8,13 @@ import { useCallback } from "react";
 import * as yup from "yup";
 import { yupResolver } from "@hookform/resolvers/yup";
 import { toast } from "react-toastify";
-import { useGetSiteOffices } from "./useGetSiteOffices";
 
-interface ContactDetail {
+export interface ContactDetail {
   name?: string;
   email?: string;
   phone?: string;
 }
-interface AddSiteOfficeFormData {
+export interface AddSiteOfficeFormData {
   name: string;
   address?: string;
   contactDetails?: ContactDetail[];
@@ -31,20 +29,23 @@ export default function useAddSiteOfficeFormHandler({ onSuccess }: useAddSiteOff
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
   const organizationId = organization?.id;
-  const { siteOffices, isLoading, refetch } = useGetSiteOffices();
+
   const params = useParams();
   const customerId = params?.id as string;
 
   const siteOfficeSchema = yup.object().shape({
     name: yup.string().required("Site Office name is required"),
-    address: yup.string().notRequired(),
-    contactDetails: yup.array().of(
-      yup.object().shape({
-        name: yup.string().notRequired(),
-        email: yup.string().email("Invalid email").notRequired(),
-        phone: yup.string().notRequired(),
-      })
-    ),
+    address: yup.string().optional(),
+    contactDetails: yup
+      .array()
+      .of(
+        yup.object().shape({
+          name: yup.string().optional(),
+          email: yup.string().email("Invalid email").optional(),
+          phone: yup.string().optional(),
+        })
+      )
+      .optional(),
   });
 
   const {
@@ -58,7 +59,8 @@ export default function useAddSiteOfficeFormHandler({ onSuccess }: useAddSiteOff
       address: "",
       contactDetails: [{ name: "", email: "", phone: "" }],
     },
-    resolver: yupResolver(siteOfficeSchema),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    resolver: yupResolver(siteOfficeSchema) as any,
   });
 
   const { fields, append, remove } = useFieldArray({

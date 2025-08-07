@@ -101,7 +101,7 @@ export const useGetInventoriesForItemTable = () => {
 
         // Merge document inventories with status-based inventories (avoid duplicates)
         const existingIds = inventories.map((inv) => inv.id);
-        const uniqueDocumentInventories = documentInventories.filter((inv) => !existingIds.includes(inv.id));
+        const uniqueDocumentInventories = documentInventories.filter((inv: any) => !existingIds.includes(inv.id));
         inventories = [...inventories, ...uniqueDocumentInventories];
       }
     }

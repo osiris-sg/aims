@@ -1,5 +1,5 @@
 "use client";
-import React, {useEffect} from "react";
+import React, { useEffect } from "react";
 import { Box, Card, CardContent, Typography, CircularProgress, Alert, List, ListItem, ListItemText } from "@mui/material";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import useProjectsEnding from "@/hooks/useProjectsEnding";
@@ -7,7 +7,7 @@ import moment from "moment";
 
 export default function ProjectsEndingCard() {
   const { projectsData, loading, error } = useProjectsEnding();
-  
+
   useEffect(() => {
     console.log("🔍 Projects data:", projectsData);
   }, [projectsData]);
@@ -48,10 +48,10 @@ export default function ProjectsEndingCard() {
                   {projectsData.data.endingProjects.slice(0, 3).map((project, index) => (
                     <ListItem key={index} sx={{ py: 0.5, px: 0 }}>
                       <ListItemText
-                        primary={<Typography variant="body2">{project.name}</Typography>}
+                        primary={<Typography variant="body2">{project.data.name}</Typography>}
                         secondary={
                           <Typography variant="caption" color="text.secondary">
-                            End Date: {moment(project.endDate).format("DD/MM/YYYY")}({moment(project.endDate).diff(moment(), "days")} days left)
+                            End Date: {moment(project.data.endDate).format("DD/MM/YYYY")}({moment(project.data.endDate).diff(moment(), "days")} days left)
                           </Typography>
                         }
                       />
