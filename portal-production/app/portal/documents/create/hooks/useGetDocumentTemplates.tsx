@@ -55,11 +55,6 @@ export const useGetDocumentTemplates = () => {
     getDocumentTemplates();
   }, [getDocumentTemplates, page, limit, search, filters, organizationId]);
 
-  const documentTypes = useMemo(() => {
-    if (!documentTemplates || documentTemplates.docs.length === 0) return [];
-    return Array.from(new Set(documentTemplates.docs.map((doc: any) => doc.type)));
-  }, [documentTemplates]);
-
   const availableDocumentTypes = DOCUMENT_TYPES;
 
   return {

@@ -28,7 +28,7 @@ export default function useTIDocumentCreator() {
       company: { name: "", address: "", phoneNumber: "" },
       customerId: "",
       projectId: "", // added
-      items: scannedInventoryId ? [{ inventoryItemId: scannedInventoryId, quantity: 1 }] : [{ inventoryItemId: "", quantity: 1 }],
+      items: scannedInventoryId ? [{ inventoryItemId: scannedInventoryId, quantity: 1, description: "" }] : [{ inventoryItemId: "", quantity: 1, description: "" }],
       attention: { name: "", phoneNumber: "" },
       doNo: "",
       referenceNo: "",
@@ -76,8 +76,9 @@ export default function useTIDocumentCreator() {
         if (emptyIndex !== -1) {
           setValue(`items.${emptyIndex}.inventoryItemId`, scannedInventoryId, { shouldDirty: true, shouldTouch: true });
           setValue(`items.${emptyIndex}.quantity`, 1, { shouldDirty: true, shouldTouch: true });
+          setValue(`items.${emptyIndex}.description`, "", { shouldDirty: true, shouldTouch: true });
         } else {
-          append({ inventoryItemId: scannedInventoryId, quantity: 1 }, { shouldFocus: false });
+          append({ inventoryItemId: scannedInventoryId, quantity: 1, description: "" }, { shouldFocus: false });
         }
       } else {
         clearInterval(interval);
@@ -91,7 +92,7 @@ export default function useTIDocumentCreator() {
   const isDocumentCreated = useSelector(selectDocumentCeationStatus);
 
   const addNewLine = () => {
-    append({ inventoryItemId: "", quantity: 1 });
+    append({ inventoryItemId: "", quantity: 1, description: "" });
   };
 
   const companyName = watch("company.name");

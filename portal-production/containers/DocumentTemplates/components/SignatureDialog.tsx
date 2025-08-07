@@ -40,6 +40,8 @@ export default function SignatureDialog({ label, viewMode, control, name }: Sign
       name={name}
       control={control}
       render={({ field: { onChange, value } }) => {
+        console.log(`Signature value for ${name}:`, value);
+
         const saveSignature = () => {
           if (sigCanvasRef.current) {
             const signedImage = sigCanvasRef.current?.getTrimmedCanvas().toDataURL("image/png");
@@ -63,7 +65,16 @@ export default function SignatureDialog({ label, viewMode, control, name }: Sign
                   <Image src={value} alt={`${label} Signature`} width={300} height={80} style={{ position: "relative", objectFit: "contain" }} />
                 ) : (
                   // Render S3 URL signature
-                  <Image src={`${process.env.NEXT_PUBLIC_RESOURCE_URL}${value}`} alt={`${label} Signature`} width={300} height={80} />
+                  <Image
+                    src={`${process.env.NEXT_PUBLIC_RESOURCE_URL || "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/"}${value}`}
+                    alt={`${label} Signature`}
+                    width={300}
+                    height={80}
+                    onError={(e) => {
+                      console.error(`Failed to load signature image: ${value}`);
+                      e.currentTarget.style.display = "none";
+                    }}
+                  />
                 )
               ) : !viewMode ? (
                 <Typography variant="body1">Click here to sign</Typography>

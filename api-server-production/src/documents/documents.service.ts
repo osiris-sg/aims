@@ -2,7 +2,7 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { PrismaService } from 'src/common/prisma.service';
 import { CreateDocumentWithTimelineDto } from './dto/create-document-with-timeline.dto';
-import { InventoryStatus } from '@prisma/client';
+import { InventoryStatus, DocumentStatus } from '@prisma/client';
 @Injectable()
 export class DocumentsService {
   constructor(private prisma: PrismaService) {}
@@ -43,6 +43,21 @@ export class DocumentsService {
     try {
       const configAsPlainObject: any = dto.config ? dto.config : null;
       const id: any = dto.id ? dto.id : null;
+      console.log('Project ID:', dto.projectId, 'Type:', typeof dto.projectId);
+      console.log('dto', dto);
+      // Handle captured images - ensure they are stored as URLs
+      if (configAsPlainObject?.capturedImages && Array.isArray(configAsPlainObject.capturedImages)) {
+        // The capturedImages should already be S3 URLs from the frontend
+        // Just ensure they are properly stored in the config
+        console.log('Captured images to be stored:', configAsPlainObject.capturedImages);
+      }
+
+      // Handle MSR photos - ensure they are stored as URLs
+      if (configAsPlainObject?.photos && Array.isArray(configAsPlainObject.photos)) {
+        // The photos should already be S3 URLs from the frontend
+        // Just ensure they are properly stored in the config
+        console.log('MSR photos to be stored:', configAsPlainObject.photos.length, 'photos');
+      }
 
       // Update the document itself, include customer if provided
       const updatedDocument = await this.prisma.document.update({
@@ -53,6 +68,8 @@ export class DocumentsService {
         data: {
           config: configAsPlainObject,
           type: dto.type,
+          // Update document status if provided
+          status: dto.status, // DocumentStatus enum
           // Connect customer if customerId provided
           customer: dto.customerId ? { connect: { id: dto.customerId } } : undefined,
           project: dto.projectId ? { connect: { id: dto.projectId } } : undefined,
@@ -72,17 +89,24 @@ export class DocumentsService {
         });
       }
 
-      // If config.items exists and is an array, handle inventory/timeline logic
-      if (dto.type !== 'QO1' && dto.config && Array.isArray(dto.config.items)) {
+      // If config.items exists and is an array, handle inventory/timeline logic (for DO, RDO, etc.)
+      if (dto.type !== 'QO1' && dto.type !== 'MSR' && dto.config && Array.isArray(dto.config.items)) {
         await Promise.all(
           dto.config.items.map(async (_item) => {
-            // Use dto.status if provided, otherwise default based on type
+            // Determine inventory status based on document type (not document status)
             let docMessage = '';
             let statusChangeMessage = '';
-            const newStatus: InventoryStatus = (dto.status as InventoryStatus) || (dto.type === 'DO' ? InventoryStatus.rental : dto.type === 'RDO' ? InventoryStatus.instock : undefined);
+            const newStatus: InventoryStatus = dto.type === 'DO' ? InventoryStatus.rental : dto.type === 'RDO' ? InventoryStatus.instock : undefined;
 
             if (dto.type === 'DO') {
-              docMessage = 'A DO document is updated';
+              if (dto.status) {
+                // Include status information in the message
+                const statusText =
+                  dto.status === 'delivered_not_installed' ? 'delivered (not installed)' : dto.status === 'delivered_installed' ? 'delivered and installed' : dto.status.replace(/_/g, ' ');
+                docMessage = `A DO document is submitted as ${statusText}`;
+              } else {
+                docMessage = 'A DO document is updated';
+              }
               statusChangeMessage = 'Item has been changed from instock to rental';
             } else if (dto.type === 'RDO') {
               docMessage = 'A RDO document is updated';
@@ -183,6 +207,20 @@ export class DocumentsService {
       try {
         const configAsPlainObject: any = dto.config ? dto.config : null;
 
+        // Handle captured images - ensure they are stored as URLs
+        if (configAsPlainObject?.capturedImages && Array.isArray(configAsPlainObject.capturedImages)) {
+          // The capturedImages should already be S3 URLs from the frontend
+          // Just ensure they are properly stored in the config
+          console.log('Captured images to be stored:', configAsPlainObject.capturedImages);
+        }
+
+        // Handle MSR photos - ensure they are stored as URLs
+        if (configAsPlainObject?.photos && Array.isArray(configAsPlainObject.photos)) {
+          // The photos should already be S3 URLs from the frontend
+          // Just ensure they are properly stored in the config
+          console.log('MSR photos to be stored:', configAsPlainObject.photos.length, 'photos');
+        }
+
         const createdDocument = await tx.document.create({
           data: {
             documentTemplateId: dto.documentTemplateId,
@@ -193,58 +231,61 @@ export class DocumentsService {
           },
         });
 
-        await Promise.all(
-          dto.config.items.map(async (_item) => {
-            // Determine new inventory status and timeline messages based on document type
-            let newStatus: InventoryStatus = InventoryStatus.instock;
-            let docMessage = 'A RDO document is submitted';
-            let statusChangeMessage = 'Item has been changed from rental to instock';
-            console.log('Document Type:', JSON.stringify(dto.type, null, 2));
-            if (dto.type === 'DO') {
-              newStatus = InventoryStatus.rental;
-              docMessage = 'A DO document is submitted';
-              statusChangeMessage = 'Item has been changed from instock to rental';
-            }
+        // Only process items for non-MSR documents
+        if (dto.config.items && Array.isArray(dto.config.items) && dto.type !== 'MSR') {
+          await Promise.all(
+            dto.config.items.map(async (_item) => {
+              // Determine new inventory status and timeline messages based on document type
+              let newStatus: InventoryStatus = InventoryStatus.instock;
+              let docMessage = 'A RDO document is submitted';
+              let statusChangeMessage = 'Item has been changed from rental to instock';
+              console.log('Document Type:', JSON.stringify(dto.type, null, 2));
+              if (dto.type === 'DO') {
+                newStatus = InventoryStatus.rental;
+                docMessage = 'A DO document is submitted';
+                statusChangeMessage = 'Item has been changed from instock to rental';
+              }
 
-            // Update inventory status
-            await tx.inventory.update({
-              where: {
-                id: _item.inventoryItemId,
-                organizationId, // Ensure inventory belongs to the same organization
-              },
-              data: {
-                status: newStatus,
-              },
-            });
-            await tx.document.update({
-              where: { id: createdDocument.id },
-              data: {
-                inventory: {
-                  connect: { id: _item.inventoryItemId },
+              // Update inventory status
+              await tx.inventory.update({
+                where: {
+                  id: _item.inventoryItemId,
+                  organizationId, // Ensure inventory belongs to the same organization
                 },
-              },
-            });
-            // Create timeline item for document submission
-            await tx.timelineItem.create({
-              data: {
-                message: docMessage,
-                pdfUrl: '',
-                inventoryId: _item.inventoryItemId,
-                documentId: createdDocument.id,
-              },
-            });
+                data: {
+                  status: newStatus,
+                },
+              });
+              await tx.document.update({
+                where: { id: createdDocument.id },
+                data: {
+                  inventory: {
+                    connect: { id: _item.inventoryItemId },
+                  },
+                },
+              });
+              // Create timeline item for document submission
+              await tx.timelineItem.create({
+                data: {
+                  message: docMessage,
+                  pdfUrl: '',
+                  inventoryId: _item.inventoryItemId,
+                  documentId: createdDocument.id,
+                },
+              });
 
-            // Create timeline item for status change
-            await tx.timelineItem.create({
-              data: {
-                message: statusChangeMessage,
-                inventoryId: _item.inventoryItemId,
-                documentId: null,
-                pdfUrl: null,
-              },
-            });
-          }),
-        );
+              // Create timeline item for status change
+              await tx.timelineItem.create({
+                data: {
+                  message: statusChangeMessage,
+                  inventoryId: _item.inventoryItemId,
+                  documentId: null,
+                  pdfUrl: null,
+                },
+              });
+            }),
+          );
+        }
 
         return createdDocument;
       } catch (error) {
@@ -310,6 +351,7 @@ export class DocumentsService {
         associated_customer: doc.customer?.name ?? 'N/A',
         documentType: doc.type,
         templateId: doc.documentTemplateId,
+        status: doc.status,
         createdAt: doc.createdAt,
       }));
     } catch (error) {

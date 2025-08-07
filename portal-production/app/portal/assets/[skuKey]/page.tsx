@@ -14,6 +14,7 @@ import Table from "@/components/Table";
 import { ROUTES } from "@/routes";
 import useViewAssetTableHeader from "../hooks/useViewAssetTableHeader";
 import { toast } from "react-toastify";
+import AssetPartsManager from "../components/AssetPartsManager";
 
 interface DocumentTemplate {
   id: string;
@@ -357,6 +358,11 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
               </Card>
             ))}
           </Box>
+        </Box>
+
+        {/* Asset Parts Manager */}
+        <Box sx={{ mt: 4, gap: 2 }}>
+          <AssetPartsManager assetId={asset.id} assetName={asset.name} onRefresh={fetchAsset} />
         </Box>
 
         <Box sx={{ mt: 4, gap: 2 }}>

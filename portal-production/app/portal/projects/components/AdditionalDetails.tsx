@@ -125,7 +125,17 @@ export default function AdditionalDetails() {
       cell: ({ row }: any) => {
         const handleStatusChange = (event: any) => {
           const newStatus = event.target.value;
-          setSelectedItems((prevItems) => prevItems.map((item) => (item.id === row.original.id ? { ...item, status: newStatus } : item)));
+          const itemId = row.original.id;
+
+          setSelectedItems((prevItems) => prevItems.map((item) => (item.id === itemId ? { ...item, status: newStatus } : item)));
+
+          // Update form state
+          const assignments = getValues("assignments") || [];
+          const index = assignments.findIndex((item: any) => item.skuKey === itemId);
+          if (index !== -1) {
+            assignments[index].status = newStatus;
+            setValue("assignments", assignments);
+          }
         };
 
         return (

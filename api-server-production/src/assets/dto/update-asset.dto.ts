@@ -26,4 +26,8 @@ export class UpdateAssetDto extends PartialType(CreateAssetDto) {
   @IsString()
   @IsOptional()
   image?: string;
+
+  @IsUUID()
+  @IsOptional()
+  parentAssetId?: string;
 }

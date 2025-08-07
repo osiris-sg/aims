@@ -4,6 +4,7 @@ import { GetAssetDto } from './dto/get-assets.dto';
 import { CreateAssetDto } from './dto/create-asset.dto';
 import { UpdateAssetDto } from './dto/update-asset.dto';
 import { DeleteAssetDto } from './dto/delete-asset.dto';
+import { UpdateAssetParentDto } from './dto/update-asset-parent.dto';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
 
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
@@ -23,6 +24,14 @@ export class AssetsController {
   @ApiResponse({ status: 200, description: 'List of assets matching the criteria.' })
   async getAssets(@Body() getAssetDto: GetAssetDto, @UserOrganization() userOrganization: any) {
     return this.assetsService.getAssets(getAssetDto, userOrganization.id);
+  }
+
+  @Get('hierarchy')
+  @Permissions('assets:read')
+  @ApiOperation({ summary: 'Get assets in hierarchical structure' })
+  @ApiResponse({ status: 200, description: 'List of root assets with their complete hierarchy.' })
+  async getAssetsHierarchy(@UserOrganization() userOrganization: any) {
+    return this.assetsService.getAssetsHierarchy(userOrganization.id);
   }
 
   @Get('skuKey/:skuKey')
@@ -83,5 +92,45 @@ export class AssetsController {
   @ApiResponse({ status: 200, description: 'Indicates if the SKU Key exists (true/false).', type: Boolean })
   async checkSkuKey(@Param('skuKey') skuKey: string, @UserOrganization() userOrganization: any) {
     return this.assetsService.checkSkuKey(skuKey, userOrganization.id);
+  }
+
+  @Get(':id/parts') 
+  @Permissions('assets:read')
+  @ApiOperation({ summary: 'Get all parts of a specific asset' })
+  @ApiParam({ name: 'id', type: 'string', description: 'The ID of the parent asset' })
+  @ApiResponse({ status: 200, description: 'List of parts belonging to the asset.' })
+  @ApiResponse({ status: 404, description: 'Asset not found.' })
+  async getAssetParts(@Param('id') assetId: string, @UserOrganization() userOrganization: any) {
+    return this.assetsService.getAssetParts(assetId, userOrganization.id);
+  }
+
+  @Put('parent')
+  @Permissions('assets:update')
+  @ApiOperation({ summary: 'Update the parent-child relationship of an asset' })
+  @ApiBody({ type: UpdateAssetParentDto })
+  @ApiResponse({ status: 200, description: 'The asset parent relationship has been successfully updated.' })
+  @ApiResponse({ status: 400, description: 'Invalid input or circular reference.' })
+  @ApiResponse({ status: 404, description: 'Asset or parent asset not found.' })
+  async updateAssetParent(@Body() updateAssetParentDto: UpdateAssetParentDto, @UserOrganization() userOrganization: any) {
+    const { assetId, parentAssetId } = updateAssetParentDto;
+    return this.assetsService.updateAssetParent(assetId, parentAssetId, userOrganization.id);
+  }
+
+  @Get(':id/ancestors')
+  @Permissions('assets:read')
+  @ApiOperation({ summary: 'Get all ancestors (parent chain) of an asset' })
+  @ApiParam({ name: 'id', type: 'string', description: 'The ID of the asset' })
+  @ApiResponse({ status: 200, description: 'List of ancestors from root to immediate parent.' })
+  async getAssetAncestors(@Param('id') assetId: string, @UserOrganization() userOrganization: any) {
+    return this.assetsService.getAssetAncestors(assetId, userOrganization.id);
+  }
+
+  @Get(':id/descendants')
+  @Permissions('assets:read')
+  @ApiOperation({ summary: 'Get all descendants (all child assets) of an asset' })
+  @ApiParam({ name: 'id', type: 'string', description: 'The ID of the asset' })
+  @ApiResponse({ status: 200, description: 'List of all descendant assets.' })
+  async getAssetDescendants(@Param('id') assetId: string, @UserOrganization() userOrganization: any) {
+    return this.assetsService.getAssetDescendants(assetId, userOrganization.id);
   }
 }

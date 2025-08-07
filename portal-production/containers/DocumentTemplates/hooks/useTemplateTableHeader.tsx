@@ -46,7 +46,7 @@ export default function useTemplateTableHeader(props: Props) {
       {
         accessorKey: "description",
         header: "Description",
-        cell: ({ row }: { row: any }) => <DescriptionCell rowIndex={row.index} control={control} setValue={setValue} viewMode={viewMode} rentedInventories={inventoriesForDocument} disabled />,
+        cell: ({ row }: { row: any }) => <DescriptionCell rowIndex={row.index} control={control} setValue={setValue} viewMode={viewMode} rentedInventories={inventoriesForDocument} />,
       },
       {
         accessorKey: "quantity",

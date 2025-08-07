@@ -6,9 +6,9 @@ import { useParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { useDispatch, useSelector } from "react-redux";
 import { selectDocumentTemplate, selectIsDocumentTemplateUpdating } from "@/containers/DocumentsTemplateView/slice/selectors";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 
-export default function useTITemplateHandler() {
+export default function useMSRTemplateHandler() {
   const { type } = useParams() as { type?: string };
   const dispatch = useDispatch();
   const { actions } = useDocumentTemplateSlice();
@@ -16,19 +16,21 @@ export default function useTITemplateHandler() {
   const { organization } = useOrganization();
   const isLoading = useSelector(selectIsDocumentTemplateUpdating);
   const documentTemplate = useSelector(selectDocumentTemplate);
-  const defaultValues = {
-    name: "Invoice",
-    logo: true,
-    type: type,
-    company: { name: true, address: true, phoneNumber: true },
-    customer: true,
-    attention: { name: true, phoneNumber: true },
-    deliveryTo: true,
-    doNo: true,
-    referenceNo: true,
-    poNo: true,
-    description: true, // Add description field
-  };
+  const defaultValues = useMemo(
+    () => ({
+      name: "Maintenance Service Report",
+      type: type,
+      reportDetails: {
+        equipmentId: true,
+        location: true,
+        reportType: true,
+        date: true,
+        description: true,
+      },
+      photos: true,
+    }),
+    [type]
+  );
   const methods = useForm<any>({
     mode: "onChange",
     defaultValues: defaultValues,
@@ -38,7 +40,7 @@ export default function useTITemplateHandler() {
     handleSubmit,
     watch,
     reset,
-    formState: { isDirty },
+    formState: { isDirty, errors },
   } = methods;
 
   useEffect(() => {
@@ -55,7 +57,7 @@ export default function useTITemplateHandler() {
         }
       );
     }
-  }, [documentTemplate, reset]);
+  }, [documentTemplate, reset, defaultValues]);
 
   const onSubmit = async (data: any) => {
     try {
@@ -68,28 +70,25 @@ export default function useTITemplateHandler() {
     }
   };
 
-  const editableVisibilityFields = [
-    {
-      title: "Company fields",
-      items: [
-        { label: "Logo", name: "logo" },
-        { label: "Company name", name: "company.name" },
-        { label: "Address", name: "company.address" },
-      ],
-    },
-    {
-      title: "Document Fields",
-      items: [
-        { label: "DO No.", name: "doNo" },
-        { label: "Ref No.", name: "referenceNo" },
-        { label: "PO No.", name: "poNo" },
-        { label: "Customer", name: "customer" },
-        { label: "Mobile", name: "attention.phoneNumber" },
-        { label: "Delivery To", name: "deliveryTo" },
-        { label: "Description", name: "description" },
-      ],
-    },
-  ];
+  const editableVisibilityFields = useMemo(
+    () => [
+      {
+        title: "Report Details",
+        items: [
+          { label: "Equipment ID", name: "reportDetails.equipmentId" },
+          { label: "Location", name: "reportDetails.location" },
+          { label: "Report Type", name: "reportDetails.reportType" },
+          { label: "Service Date", name: "reportDetails.date" },
+          { label: "Description", name: "reportDetails.description" },
+        ],
+      },
+      {
+        title: "Photo Documentation",
+        items: [{ label: "Photos", name: "photos" }],
+      },
+    ],
+    []
+  );
 
-  return { methods, onSubmit: handleSubmit(onSubmit), editableVisibilityFields, watch, isLoading, isDirty };
+  return { methods, onSubmit: handleSubmit(onSubmit), editableVisibilityFields, watch, isLoading, isDirty, errors };
 }

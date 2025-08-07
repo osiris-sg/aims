@@ -59,7 +59,7 @@ const theme = createTheme({
     },
 
     background: {
-      paper: "#7C4AAE",
+      paper: "#ffffff",
     },
   },
   typography: {

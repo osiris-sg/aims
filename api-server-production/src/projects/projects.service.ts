@@ -1,7 +1,7 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/common/prisma.service';
 import { CreateProjectDto } from './dto/create-project.dto';
-// import { UpdateProjectDto } from './dto/update-project.dto';
+import { UpdateProjectDto } from './dto/update-project.dto';
 // import { DeleteProjectDto } from './dto/delete-project.dto';
 import { GetProjectDto } from './dto/get-project.dto';
 import { Prisma } from '@prisma/client';
@@ -74,9 +74,11 @@ export class ProjectsService {
           siteOffice: {
             select: {
               name: true,
+              id: true,
               customer: true,
             },
           },
+          documents: true,
           assignments: {
             include: {
               inventory: {
@@ -188,27 +190,68 @@ export class ProjectsService {
     }
   }
 
-  //   async updateProject(updateProjectDto: UpdateProjectDto, organizationId: string) {
-  //     try {
-  //       const { id, ...updateData } = updateProjectDto;
+  async updateProject(id: string, updateProjectDto: UpdateProjectDto, organizationId: string) {
+    try {
+      const { assignments, ...updateData } = updateProjectDto;
 
-  //       if (!id) {
-  //         throw new HttpException('Project ID is required', HttpStatus.BAD_REQUEST);
-  //       }
+      // Check if project exists
+      const existingProject = await this.prisma.project.findFirst({
+        where: {
+          id,
+          organizationId,
+        },
+      });
 
-  //       const project = await this.prisma.project.update({
-  //         where: {
-  //           id,
-  //           organizationId
-  //         },
-  //         data: updateData,
-  //       });
+      if (!existingProject) {
+        throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
+      }
 
-  //       return project;
-  //     } catch (error) {
-  //       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
-  //     }
-  //   }
+      // Update the project
+      const project = await this.prisma.project.update({
+        where: {
+          id,
+          organizationId,
+        },
+        data: {
+          ...updateData,
+          assignments: assignments
+            ? {
+                deleteMany: {}, // Delete existing assignments
+                create: assignments.map((assignment) => ({
+                  startDate: assignment.startDate ? new Date(assignment.startDate) : undefined,
+                  endDate: assignment.endDate ? new Date(assignment.endDate) : undefined,
+                  inventory: assignment.inventoryId ? { connect: { id: assignment.inventoryId } } : undefined,
+                  document: undefined,
+                })),
+              }
+            : undefined,
+        },
+        include: {
+          assignments: true,
+          siteOffice: true,
+        },
+      });
+
+      // Update inventory statuses if provided
+      if (assignments) {
+        for (const assignment of assignments) {
+          if (assignment.inventoryId && assignment.status) {
+            await this.prisma.inventory.update({
+              where: {
+                id: assignment.inventoryId,
+                organizationId,
+              },
+              data: { status: assignment.status as InventoryStatus },
+            });
+          }
+        }
+      }
+
+      return project;
+    } catch (error) {
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
 
   //   async deleteProject(deleteProjectDto: DeleteProjectDto, organizationId: string) {
   //     try {

@@ -27,6 +27,7 @@ export default function useDOTemplateHandler() {
     doNo: true,
     referenceNo: true,
     poNo: true,
+    capturedImages: true, // Add captured images field
   };
   const methods = useForm<any>({
     mode: "onChange",
@@ -37,7 +38,7 @@ export default function useDOTemplateHandler() {
     handleSubmit,
     watch,
     reset,
-    formState: { isDirty },
+    formState: { isDirty, errors },
   } = methods;
 
   useEffect(() => {
@@ -85,9 +86,10 @@ export default function useDOTemplateHandler() {
         { label: "Customer", name: "customer" },
         { label: "Mobile", name: "attention.phoneNumber" },
         { label: "Delivery To", name: "deliveryTo" },
+        { label: "Captured Images", name: "capturedImages" },
       ],
     },
   ];
 
-  return { methods, onSubmit: handleSubmit(onSubmit), editableVisibilityFields, watch, isLoading, isDirty };
+  return { methods, onSubmit: handleSubmit(onSubmit), editableVisibilityFields, watch, isLoading, isDirty, errors };
 }

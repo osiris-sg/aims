@@ -61,7 +61,7 @@ export default function CreateDocument() {
 
   const typeToIdMap: Record<string, string> = {};
 
-  const onSubmit = async (data: any) => {
+  const onSubmit = async (data: { documentType: string }) => {
     try {
       setIsDocumentTemplateUpdating(true);
       const token = await getToken();

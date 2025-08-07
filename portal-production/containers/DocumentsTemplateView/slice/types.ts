@@ -114,6 +114,7 @@ export interface Doc {
   updatedAt: string;
   config?: any;
   type: string;
+  status?: string;
 }
 
 export interface TimelineItem {

@@ -1,7 +1,8 @@
 import { PartialType } from '@nestjs/swagger';
 import { CreateDocumentDto } from './create-document.dto';
-import { IsArray, IsNotEmpty, IsOptional, IsString, IsUUID, ValidateNested } from 'class-validator';
+import { IsArray, IsNotEmpty, IsOptional, IsString, IsUUID, ValidateNested, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
+import { DocumentStatus } from '@prisma/client';
 
 class CompanyDto {
   @IsString()
@@ -48,6 +49,31 @@ class ItemDto {
   description?: string;
 }
 
+class PhotoDto {
+  @IsString()
+  @IsOptional()
+  id?: string;
+
+  @IsString()
+  @IsOptional()
+  imageData?: string;
+
+  @IsString()
+  @IsOptional()
+  annotations?: string;
+
+  @IsString()
+  @IsOptional()
+  partName?: string;
+
+  @IsString()
+  @IsOptional()
+  comments?: string;
+
+  @IsOptional()
+  timestamp?: number;
+}
+
 export class IConfig {
   @ValidateNested()
   @Type(() => CompanyDto)
@@ -60,7 +86,14 @@ export class IConfig {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ItemDto)
-  items: ItemDto[];
+  @IsOptional()
+  items?: ItemDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PhotoDto)
+  @IsOptional()
+  photos?: PhotoDto[];
 
   @ValidateNested()
   @Type(() => AttentionDto)
@@ -143,9 +176,9 @@ export class UpdateDocumentDto extends PartialType(CreateDocumentDto) {
   @IsOptional()
   customerId?: string;
 
-  @IsString()
+  @IsEnum(DocumentStatus)
   @IsOptional()
-  status?: string;
+  status?: DocumentStatus;
 
   @IsString()
   @IsOptional()

@@ -6,12 +6,14 @@ import { useOrganization } from "@hooks/useOrganization";
 import { useAuth } from "@clerk/nextjs";
 import { useParams } from "next/navigation";
 import { request } from "@/helpers/request";
+import useGetDocument from "./useGetDocument";
 
 export const useGetInventoriesForItemTable = () => {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
   const organizationId = organization?.id;
   const { type } = useParams() as { type?: string };
+  const { document } = useGetDocument();
   const [inventoriesForDocument, setInventoriesForDocument] = useState<any[]>([]);
   const fetchInventoriesByStatus = useCallback(
     async (status: string) => {
@@ -29,7 +31,6 @@ export const useGetInventoriesForItemTable = () => {
         },
         token
       );
-      console.log("Fetched inventories by status:", status, response?.data);
       return response?.data || [];
     },
     [organizationId]
@@ -53,7 +54,7 @@ export const useGetInventoriesForItemTable = () => {
     );
 
     return response?.data?.docs || [];
-  }, [organizationId]);
+  }, [organizationId, getToken]);
 
   const fetchInventoriesByIds = useCallback(
     async (inventoryIds: string[]) => {
@@ -74,7 +75,7 @@ export const useGetInventoriesForItemTable = () => {
 
       return response?.data || [];
     },
-    [organizationId]
+    [organizationId, getToken]
   );
 
   const getInventories = useCallback(async () => {
@@ -88,12 +89,26 @@ export const useGetInventoriesForItemTable = () => {
       inventories = await fetchInventoriesByStatus("instock");
     } else {
       inventories = await fetchAllInventories();
-      console.log("Fetched all inventories for TI:", inventories);
+    }
+
+    // Also fetch inventory items that are used in the current document
+    // This ensures that items show up in dropdown even if their status has changed
+    if (document?.config?.items && Array.isArray(document.config.items)) {
+      const documentInventoryIds = document.config.items.map((item: any) => item.inventoryItemId).filter((id: string) => id && id.trim() !== "");
+
+      if (documentInventoryIds.length > 0) {
+        const documentInventories = await fetchInventoriesByIds(documentInventoryIds);
+
+        // Merge document inventories with status-based inventories (avoid duplicates)
+        const existingIds = inventories.map((inv) => inv.id);
+        const uniqueDocumentInventories = documentInventories.filter((inv) => !existingIds.includes(inv.id));
+        inventories = [...inventories, ...uniqueDocumentInventories];
+      }
     }
 
     setInventoriesForDocument(inventories);
     return inventories;
-  }, [organizationId, type, fetchInventoriesByStatus, fetchAllInventories, fetchInventoriesByIds]);
+  }, [organizationId, type, document?.config?.items, fetchInventoriesByStatus, fetchAllInventories, fetchInventoriesByIds]);
 
   // Removed direct call to getInventories; now handled by useEffect.
 

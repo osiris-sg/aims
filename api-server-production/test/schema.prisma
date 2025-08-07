@@ -39,8 +39,11 @@ model Asset {
   deletedAt       DateTime?          @db.Timestamptz(6)
   organizationId  String?
   price           Float?
+  parentAssetId   String?            @db.Uuid
   category        Category           @relation(fields: [categoryId], references: [id])
   organization    Organization?      @relation(fields: [organizationId], references: [id])
+  parentAsset     Asset?             @relation("AssetHierarchy", fields: [parentAssetId], references: [id])
+  subAssets       Asset[]            @relation("AssetHierarchy")
   taggedTemplates AssetTemplateTag[]
   inventories     Inventory[]
 
@@ -136,6 +139,7 @@ model Document {
   projectId          String?        @db.Uuid
   organizationId     String
   name               String?
+  status             DocumentStatus @default(draft)
   customer           Customer?      @relation(fields: [customerId], references: [id])
   inventory          Inventory?     @relation(fields: [inventoryId], references: [id])
   organization       Organization   @relation(fields: [organizationId], references: [id])
@@ -294,6 +298,17 @@ enum InventoryStatus {
   reserved
   maintenance
   sold
+}
+
+enum DocumentStatus {
+  draft
+  pending_delivery
+  delivered_not_installed
+  delivered_installed
+  pending_payment
+  paid
+  pending_return
+  returned
 }
 
 enum AuditStatus {
