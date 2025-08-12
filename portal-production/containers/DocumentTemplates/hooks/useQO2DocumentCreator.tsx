@@ -216,7 +216,7 @@ export default function useQO2DocumentCreator() {
             type: document?.type,
             config: payload,
             token,
-            status: "instock",
+            status: "draft",
             customerId: data.customerId,
             projectId: projectId, // added
           })
@@ -230,7 +230,7 @@ export default function useQO2DocumentCreator() {
             type: documenttemplate?.type,
             config: payload,
             token,
-            status: "instock",
+            status: "draft",
             customerId: data.customerId,
           })
         );

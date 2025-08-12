@@ -65,8 +65,9 @@ export default function InventoryPage() {
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({
-    status: undefined,
+    status: "", // Change from undefined to empty string for consistency
     category: "",
+    assetId: "", // Add asset filter
     createdOn: {
       startDate: null as Date | null,
       endDate: null as Date | null,
@@ -242,9 +243,10 @@ export default function InventoryPage() {
         setLimit={setLimit}
         setSearch={setSearch}
         setFilters={setFilters}
-        availableFilters={["status", "category", "createdOn"]}
+        availableFilters={["status", "category", "asset", "createdOn"]}
         pageCount={inventories.totalPagesCount}
         totalDocs={inventories.totalDocuments}
+        assetsData={assets.docs} // Pass assets data for filter dropdown
       />
 
       <AddInventoryItem open={openDrawer} onClose={handleCloseDrawer} />

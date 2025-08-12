@@ -44,13 +44,18 @@ export class InventoriesService {
       }
 
       // Status filter
-      if (filters?.status !== undefined && filters.status !== null) {
+      if (filters?.status !== undefined && filters.status !== null && filters.status !== '') {
         whereClause.status = filters.status as InventoryStatus;
       }
 
       // Category filter
       if (filters?.category && filters.category !== '') {
         whereClause.category = filters.category;
+      }
+
+      // Asset filter
+      if (filters?.assetId && filters.assetId !== '') {
+        whereClause.assetId = filters.assetId;
       }
 
       const docs = await this.prisma.inventory.findMany({

@@ -37,9 +37,10 @@ interface Props {
   totalDocs?: number;
   renderSubComponent?: (props: { row: any }) => React.ReactNode;
   actionButtons?: React.ReactNode[];
+  assetsData?: any[]; // Add assets data prop
 }
 export default function PageTable(props: Props) {
-  const { columns, data, tableName, subTitle, loading, buttonName, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, availableFilters, totalDocs, renderSubComponent, actionButtons } = props;
+  const { columns, data, tableName, subTitle, loading, buttonName, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, availableFilters, totalDocs, renderSubComponent, actionButtons, assetsData } = props;
   const { control, handleSubmit, watch } = useForm({ defaultValues: { limit, search } });
   const _limit = watch("limit");
   const _search = watch("search");
@@ -71,6 +72,11 @@ export default function PageTable(props: Props) {
 
     // Check if category is not empty
     if (filterObj.category && filterObj.category !== "") {
+      return true;
+    }
+
+    // Check if assetId is not empty
+    if (filterObj.assetId && filterObj.assetId !== "") {
       return true;
     }
 
@@ -140,7 +146,7 @@ export default function PageTable(props: Props) {
           )}
           <Pagination page={page ?? 1} count={pageCount ?? 1} siblingCount={0} boundaryCount={0} onChange={(event, value) => setPage && setPage(value)} />
         </Box>
-        {filters && setFilters && <FilterDrawer openFilterDrawerStatus={openFilters} onClose={() => setOpenFilters(false)} onSetFilters={(filters) => setFilters(filters)} defaultFilters={filters} availableFilterTypes={availableFilters} />}
+        {filters && setFilters && <FilterDrawer openFilterDrawerStatus={openFilters} onClose={() => setOpenFilters(false)} onSetFilters={(filters) => setFilters(filters)} defaultFilters={filters} availableFilterTypes={availableFilters} assetsData={assetsData} />}
       </Box>
     </form>
   );
