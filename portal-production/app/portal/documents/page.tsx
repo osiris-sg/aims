@@ -8,6 +8,7 @@ import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import { Box, IconButton, Alert } from "@mui/material";
 import VisibilityIcon from "@mui/icons-material/Visibility";
+import DownloadIcon from "@mui/icons-material/Download";
 import { useRouter } from "next/navigation";
 import moment from "moment";
 import { DOCUMENT_API } from "../documents/constants";
@@ -154,6 +155,13 @@ export default function DocumentsPage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => {
         const { documentType, templateId, id } = row.original;
+
+        const handleDownload = () => {
+          // Open document in view mode in a new tab and auto-trigger print
+          const viewUrl = `/portal/documents/view/${documentType}/${templateId}/${id}?autoprint=true`;
+          window.open(viewUrl, "_blank");
+        };
+
         return (
           <Box sx={{ display: "flex", gap: "var(--default-gap)" }}>
             <IconButton
@@ -168,6 +176,19 @@ export default function DocumentsPage() {
               }}
             >
               <VisibilityIcon />
+            </IconButton>
+            <IconButton
+              onClick={handleDownload}
+              sx={{
+                color: "white",
+                bgcolor: "primary.main",
+                "&:hover": {
+                  bgcolor: "primary.dark",
+                },
+                borderRadius: "8px",
+              }}
+            >
+              <DownloadIcon />
             </IconButton>
           </Box>
         );

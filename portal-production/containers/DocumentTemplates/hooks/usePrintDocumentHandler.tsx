@@ -1,8 +1,11 @@
-import { useRef } from "react";
+import { useRef, useEffect } from "react";
 import { useReactToPrint } from "react-to-print";
+import { useSearchParams } from "next/navigation";
 
 export default function usePrintDocumentHandler() {
   const contentRef = useRef(null);
+  const searchParams = useSearchParams();
+  const autoprint = searchParams.get("autoprint") === "true";
 
   const handlePrint = useReactToPrint({
     contentRef,
@@ -29,5 +32,18 @@ export default function usePrintDocumentHandler() {
     }
   `,
   });
+
+  // Auto-trigger print if autoprint parameter is present
+  useEffect(() => {
+    if (autoprint && contentRef.current) {
+      // Add a delay to ensure content is fully rendered
+      const timer = setTimeout(() => {
+        handlePrint();
+      }, 2000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [autoprint, handlePrint]);
+
   return { handlePrint, contentRef };
 }
