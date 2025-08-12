@@ -4,10 +4,6 @@ import { IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNested } from 'clas
 class FiltersDto {
   @IsString()
   @IsOptional()
-  status: string;
-
-  @IsString()
-  @IsOptional()
   category: string;
 }
 

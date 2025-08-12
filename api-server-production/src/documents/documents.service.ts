@@ -353,6 +353,7 @@ export class DocumentsService {
         templateId: doc.documentTemplateId,
         status: doc.status,
         createdAt: doc.createdAt,
+        config: doc.config, // Include config data for due dates and other fields
       }));
     } catch (error) {
       throw new HttpException(`Fetch all documents failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);

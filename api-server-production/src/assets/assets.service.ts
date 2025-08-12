@@ -24,11 +24,6 @@ export class AssetsService {
         whereClause.OR = [{ name: { contains: search, mode: 'insensitive' } }, { skuKey: { contains: search, mode: 'insensitive' } }];
       }
 
-      // Status filter
-      if (filters?.status && filters.status !== '') {
-        whereClause.status = filters.status;
-      }
-
       // Category filter
       if (filters?.category && filters.category !== '') {
         whereClause.categoryId = filters.category;

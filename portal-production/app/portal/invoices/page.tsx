@@ -8,6 +8,7 @@ import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import { Box, IconButton, Alert } from "@mui/material";
 import VisibilityIcon from "@mui/icons-material/Visibility";
+import DownloadIcon from "@mui/icons-material/Download";
 import { useRouter } from "next/navigation";
 import moment from "moment";
 import { DOCUMENT_API } from "../documents/constants";
@@ -18,7 +19,14 @@ interface Document {
   name: string;
   associated_item: string;
   associated_customer: string;
+  status: string;
+  documentType: string;
+  templateId: string;
   createdAt: string;
+  config?: {
+    dueDate?: string;
+    [key: string]: any;
+  };
 }
 
 interface PaginatedResponse {
@@ -78,31 +86,47 @@ export default function InvoicesPage() {
 
   const columns = [
     {
-      accessorKey: "id",
-      header: "Document ID",
-    },
-    {
       accessorKey: "name",
-      header: "Document Name",
-    },
-    {
-      accessorKey: "associated_item",
-      header: "Associated Item",
+      header: "Document SKU",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      cell: ({ row }: any) => row.original.name,
     },
     {
       accessorKey: "associated_customer",
       header: "Associated Customer",
     },
     {
+      accessorKey: "associated_item",
+      header: "Associated Item",
+    },
+    {
+      accessorKey: "dueDate",
+      header: "Due Date",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      cell: ({ row }: any) => {
+        const dueDate = row.original.config?.dueDate;
+        return dueDate ? moment(dueDate).format("DD/MM/YYYY") : "N/A";
+      },
+    },
+    {
       accessorKey: "createdAt",
       header: "Created Date",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
     },
     {
       accessorKey: "action",
       header: "Action",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => {
         const { documentType, templateId, id } = row.original;
+
+        const handleDownload = () => {
+          // Open document in view mode in a new tab and auto-trigger print
+          const viewUrl = `/portal/documents/view/${documentType}/${templateId}/${id}?autoprint=true`;
+          window.open(viewUrl, "_blank");
+        };
+
         return (
           <Box sx={{ display: "flex", gap: "var(--default-gap)" }}>
             <IconButton
@@ -117,6 +141,19 @@ export default function InvoicesPage() {
               }}
             >
               <VisibilityIcon />
+            </IconButton>
+            <IconButton
+              onClick={handleDownload}
+              sx={{
+                color: "white",
+                bgcolor: "primary.main",
+                "&:hover": {
+                  bgcolor: "primary.dark",
+                },
+                borderRadius: "8px",
+              }}
+            >
+              <DownloadIcon />
             </IconButton>
           </Box>
         );
@@ -254,8 +291,8 @@ export default function InvoicesPage() {
       <PageTable
         columns={columns}
         data={documents.docs}
-        tableName="Document List"
-        subTitle="Document Detail Information"
+        tableName="Invoice List"
+        subTitle="Invoice Detail Information"
         buttonName="Create Invoice"
         onAddClick={() => onSubmit({ documentType: "TI" })}
         loading={loading}

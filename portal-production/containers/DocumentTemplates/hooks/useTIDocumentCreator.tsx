@@ -197,7 +197,7 @@ export default function useTIDocumentCreator() {
 
       const payload = {
         ...data,
-        projectId, // added
+        ...(projectId && projectId.trim() ? { projectId } : {}), // Only include if not empty
         logo: logoKey || document?.config.logo,
         signature: uploadedSignatures,
       };
@@ -210,9 +210,9 @@ export default function useTIDocumentCreator() {
             type: document?.type,
             config: payload,
             token,
-            status: "instock",
+            status: "draft", // Use draft status for documents
             customerId: data.customerId,
-            projectId: projectId, // added
+            ...(data.projectId ? { projectId: data.projectId } : {}), // Only include if not empty
           })
         );
       } else {
@@ -224,7 +224,7 @@ export default function useTIDocumentCreator() {
             type: documenttemplate?.type,
             config: payload,
             token,
-            status: "instock",
+            status: "draft", // Use draft status for new documents
             customerId: data.customerId,
           })
         );

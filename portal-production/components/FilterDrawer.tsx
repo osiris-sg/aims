@@ -17,10 +17,11 @@ interface FilterDrawerProps {
   onClose: () => void;
   onSetFilters: (filters: any) => void;
   availableFilterTypes?: string[];
+  assetsData?: any[]; // Add assets data prop
 }
 
 export default function FilterDrawer(props: FilterDrawerProps) {
-  const { openFilterDrawerStatus = false, onClose, onSetFilters, defaultFilters, availableFilterTypes } = props;
+  const { openFilterDrawerStatus = false, onClose, onSetFilters, defaultFilters, availableFilterTypes, assetsData = [] } = props;
   const theme = useTheme();
 
   const inventoryCats = useSelector(inventoryCategories);
@@ -52,13 +53,19 @@ export default function FilterDrawer(props: FilterDrawerProps) {
       initialFilters.category = defaultFilters.category;
       setValue("category", defaultFilters.category);
     }
+    if (defaultFilters.assetId) {
+      initialFilters.assetId = defaultFilters.assetId;
+      setValue("assetId", defaultFilters.assetId);
+    }
 
     return initialFilters;
   });
 
   const categoryList = categories.map((category) => ({ value: category.id, label: category.name }));
+  const assetList = assetsData.map((asset) => ({ value: asset.id, label: asset.name }));
   const selectedCategory = watch("category");
   const selectedStatus = watch("status");
+  const selectedAsset = watch("assetId");
   const handleApplyFilters = () => {
     onSetFilters(filters);
     onClose();
@@ -70,6 +77,7 @@ export default function FilterDrawer(props: FilterDrawerProps) {
     // Reset the form values
     setValue("status", "");
     setValue("category", "");
+    setValue("assetId", "");
 
     // Reset the filters state
     const resetFilters = {
@@ -77,6 +85,7 @@ export default function FilterDrawer(props: FilterDrawerProps) {
       createdOn: { startDate: null, endDate: null },
       status: "",
       category: "",
+      assetId: "",
     };
 
     setFilters(resetFilters);
@@ -87,8 +96,13 @@ export default function FilterDrawer(props: FilterDrawerProps) {
   };
 
   useEffect(() => {
-    setFilters((prev: any) => ({ ...prev, category: selectedCategory, status: selectedStatus }));
-  }, [selectedCategory, selectedStatus]);
+    setFilters((prev: any) => ({
+      ...prev,
+      category: selectedCategory || "",
+      status: selectedStatus || "",
+      assetId: selectedAsset || "",
+    }));
+  }, [selectedCategory, selectedStatus, selectedAsset]);
 
   return (
     <Drawer anchor="right" open={openFilterDrawerStatus} onClose={onClose} sx={{ "& .MuiDrawer-paper": { width: "450px", backgroundColor: theme.palette.tertiary.contrastText } }}>
@@ -125,6 +139,19 @@ export default function FilterDrawer(props: FilterDrawerProps) {
               sx={{ position: "absolute", top: 0, right: 0, p: 0 }}
               onClick={() => {
                 setValue("category", "");
+              }}
+            >
+              Reset filter
+            </Button>
+          </Box>
+        )}
+        {availableFilterTypes?.includes("asset") && (
+          <Box width="100%" sx={{ position: "relative" }}>
+            <FormSelect control={control} menuItems={assetList} label="Asset" name="assetId" menuTitle="Asset" size="small" defaultValue={filters.assetId} />
+            <Button
+              sx={{ position: "absolute", top: 0, right: 0, p: 0 }}
+              onClick={() => {
+                setValue("assetId", "");
               }}
             >
               Reset filter

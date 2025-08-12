@@ -26,7 +26,7 @@ export default function AssetsPage() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState({ status: "", category: "" });
+  const [filters, setFilters] = useState({ category: "" });
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleteName, setDeleteName] = useState<string | null>(null);
   const [assetToDelete, setAssetToDelete] = useState<string | null>(null);
@@ -185,10 +185,6 @@ export default function AssetsPage() {
       header: "Status-In Stock",
     },
     {
-      accessorKey: "status",
-      header: "Status",
-    },
-    {
       accessorKey: "action",
       header: "Action",
       cell: ({ row }: any) => (
@@ -274,7 +270,7 @@ export default function AssetsPage() {
           setSearch={setSearch}
           setFilters={setFilters}
           onAddClick={() => router.push(ROUTES.ADD_ASSET)}
-          availableFilters={["status", "category"]}
+          availableFilters={["category"]}
           pageCount={assets.totalPagesCount}
           totalDocs={assets.totalDocuments}
         />
