@@ -309,7 +309,7 @@ export default function useDODocumentCreator() {
 
       const payload = {
         ...data,
-        projectId, // added
+        ...(projectId && projectId.trim() ? { projectId } : {}), // Only include projectId if it's not empty
         logo: logoKey || document?.config.logo,
         signature: uploadedSignatures,
         capturedImages: uploadedCapturedImages, // Add uploaded image URLs
@@ -326,7 +326,7 @@ export default function useDODocumentCreator() {
             token,
             status: "draft",
             customerId: data.customerId,
-            projectId: projectId, // added
+            ...(projectId && projectId.trim() ? { projectId } : {}), // Only include projectId if it's not empty
           })
         );
       } else {
