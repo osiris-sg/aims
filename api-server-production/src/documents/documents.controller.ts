@@ -49,14 +49,14 @@ export class DocumentsController {
     return await this.documentsService.getAllDocuments(organizationId);
   }
 
-  @Get(':id')
-  @Permissions('documents:read-one')
-  async getById(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+  @Get('delivery-orders/:customerId')
+  @Permissions('documents:read')
+  async getDeliveryOrdersByCustomer(@Param('customerId') customerId: string, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
       throw new Error('User is not assigned to any organization');
     }
-    return await this.documentsService.getById(id, organizationId);
+    return await this.documentsService.getDeliveryOrdersByCustomer(customerId, organizationId);
   }
 
   @Get('inventory/:inventoryId')
@@ -67,6 +67,26 @@ export class DocumentsController {
       throw new Error('User is not assigned to any organization');
     }
     return await this.documentsService.getByInventory(inventoryId, organizationId);
+  }
+
+  @Get('asset/:assetId')
+  @Permissions('documents:read-by-asset')
+  async getDocumentsByAsset(@Param('assetId') assetId: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentsService.getDocumentsByAsset(assetId, organizationId);
+  }
+
+  @Get(':id')
+  @Permissions('documents:read-one')
+  async getById(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentsService.getById(id, organizationId);
   }
 
   @Post('update')
@@ -87,16 +107,6 @@ export class DocumentsController {
       throw new Error('User is not assigned to any organization');
     }
     return await this.documentsService.deleteDocument(id, organizationId);
-  }
-
-  @Get('asset/:assetId')
-  @Permissions('documents:read-by-asset')
-  async getDocumentsByAsset(@Param('assetId') assetId: string, @Req() req: RequestWithOrganization) {
-    const organizationId = req.userOrganization?.id;
-    if (!organizationId) {
-      throw new Error('User is not assigned to any organization');
-    }
-    return await this.documentsService.getDocumentsByAsset(assetId, organizationId);
   }
   @Post('asset/tag-template')
   @Permissions('documents:tag-template-to-asset')

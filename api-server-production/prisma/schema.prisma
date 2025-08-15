@@ -25,6 +25,7 @@ model Organization {
   roles              Role[]
   userOrganizations  UserOrganization[]
   userRoles          UserRole[]
+  xeroConnection     XeroConnection?
 }
 
 model Asset {
@@ -315,4 +316,17 @@ enum AuditStatus {
   SUCCESS
   FAILURE
   PENDING
+}
+
+model XeroConnection {
+  id                     String       @id @default(uuid()) @db.Uuid
+  organizationId         String       @unique
+  tenantId               String       @unique
+  accessToken            String
+  refreshToken           String
+  accessTokenExpiresAt   DateTime
+  refreshTokenExpiresAt  DateTime
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+  organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }

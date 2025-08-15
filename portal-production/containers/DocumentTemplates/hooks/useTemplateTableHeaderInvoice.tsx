@@ -9,6 +9,7 @@ import FormSelect from "@/form-components/FormSelect";
 import DescriptionCell from "./useDescriptionCell";
 import PriceCell from "./usePriceCell";
 import { useGetInventoriesForItemTable } from "./useGetInventoriesForItemTable";
+import useGetXeroAccounts from "./useGetXeroAccounts";
 import { useSearchParams } from "next/navigation";
 
 interface Props {
@@ -33,6 +34,7 @@ const AmountCell = ({ rowIndex, control }: { rowIndex: number; control: Control<
 export default function useTemplateTableHeader(props: Props) {
   const { viewMode, remove, control, setValue } = props;
   const { inventoriesForDocument } = useGetInventoriesForItemTable();
+  const { accounts: xeroAccounts, loading: xeroLoading, error: xeroError, isXeroConnected } = useGetXeroAccounts();
   const searchParams = useSearchParams();
   const scannedInventoryId = searchParams.get("scannedInventoryId");
 
@@ -42,6 +44,8 @@ export default function useTemplateTableHeader(props: Props) {
       {
         accessorKey: "item",
         header: "Item",
+        size: 120,
+        minSize: 100,
         cell: ({ row }: { row: any }) => {
           console.log("Frfrfrfr", inventoriesForDocument);
           const selectedIds = [...(control._formValues.items?.map((item: any) => item.inventoryItemId).filter((id: string | undefined) => !!id && id !== row.original?.inventoryItemId) ?? [])];
@@ -61,21 +65,31 @@ export default function useTemplateTableHeader(props: Props) {
       {
         accessorKey: "description",
         header: "Description",
+        size: 240,
+        minSize: 200,
         cell: ({ row }: { row: any }) => <DescriptionCell rowIndex={row.index} control={control} setValue={setValue} viewMode={viewMode} rentedInventories={inventoriesForDocument} />,
       },
       {
         accessorKey: "quantity",
         header: "Quantity",
+        size: 80,
+        minSize: 60,
+        maxSize: 100,
         cell: ({ row }: { row: any }) => <FormInputBox control={control} name={`items.${row.index}.quantity`} placeHolder="Enter quantity" size="small" labelArriangment={viewMode ? "horizontal" : "vertical"} viewMode={viewMode} />,
       },
       {
         accessorKey: "unitPrice",
         header: "Unit Price",
+        size: 90,
+        minSize: 80,
         cell: ({ row }: { row: any }) => <PriceCell rowIndex={row.index} control={control} setValue={setValue} viewMode={viewMode} rentedInventories={inventoriesForDocument} />,
       },
       {
         accessorKey: "tax",
         header: "Tax",
+        size: 70,
+        minSize: 60,
+        maxSize: 90,
         cell: ({ row }: { row: any }) => {
           const item = control._formValues?.items?.[row.index];
           if (!item?.tax) {
@@ -110,8 +124,50 @@ export default function useTemplateTableHeader(props: Props) {
         },
       },
       {
+        accessorKey: "account",
+        header: "Account",
+        size: 120,
+        minSize: 100,
+        cell: ({ row }: { row: any }) => {
+          if (xeroLoading) {
+            return <div style={{ padding: "10px", fontSize: "12px", color: "#666" }}>Loading accounts...</div>;
+          }
+
+          if (xeroError || !isXeroConnected) {
+            return <div style={{ padding: "10px", fontSize: "12px", color: "#d32f2f" }}>Xero not connected</div>;
+          }
+
+          const accountMenuItems = Array.isArray(xeroAccounts)
+            ? xeroAccounts.map((account) => ({
+                label: account.displayName,
+                value: account.code,
+              }))
+            : [];
+
+          if (accountMenuItems.length === 0) {
+            return <div style={{ padding: "10px", fontSize: "12px", color: "#666" }}>No accounts available</div>;
+          }
+
+          return (
+            <FormSelect
+              control={control}
+              name={`items.${row.index}.accountCode`}
+              placeHolder="Select account"
+              size="small"
+              labelArriangment={viewMode ? "horizontal" : "vertical"}
+              viewMode={viewMode}
+              menuTitle="Choose account"
+              menuItems={accountMenuItems}
+              key={`account-select-${row.id}-${control._formValues?.items?.[row.index]?.accountCode ?? ""}`}
+            />
+          );
+        },
+      },
+      {
         accessorKey: "amount",
         header: "Amount",
+        size: 80,
+        minSize: 70,
         cell: ({ row }: { row: any }) => <AmountCell rowIndex={row.index} control={control} />,
       },
       ...(!viewMode
@@ -119,6 +175,9 @@ export default function useTemplateTableHeader(props: Props) {
             {
               accessorKey: "actions",
               header: "Actions",
+              size: 80,
+              minSize: 60,
+              maxSize: 100,
               cell: ({ row }: { row: any }) => (
                 <IconButton
                   onClick={() => remove(row.index)}
@@ -138,7 +197,7 @@ export default function useTemplateTableHeader(props: Props) {
           ]
         : []),
     ],
-    [inventoriesForDocument, viewMode, remove, scannedInventoryId]
+    [inventoriesForDocument, xeroAccounts, xeroLoading, xeroError, isXeroConnected, viewMode, remove, scannedInventoryId, control, setValue]
   );
 
   return { columns };

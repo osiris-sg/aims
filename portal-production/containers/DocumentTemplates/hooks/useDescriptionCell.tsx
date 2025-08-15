@@ -37,7 +37,20 @@ const DescriptionCell: React.FC<DescriptionCellProps> = ({ rowIndex, control, se
     }
   }, [descriptionValue, hasBeenEdited]);
 
-  return <FormTextArea control={control} name={`items.${rowIndex}.description`} placeHolder="Enter custom description" rows={3} size="small" labelArriangment={viewMode ? "horizontal" : "vertical"} viewMode={viewMode} disabled={disabled} />;
+  return (
+    <div
+      style={{
+        width: "100%",
+        maxWidth: "100%",
+        minWidth: 0,
+        boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <FormTextArea control={control} name={`items.${rowIndex}.description`} placeHolder="Enter custom description" rows={1} size="small" labelArriangment={viewMode ? "horizontal" : "vertical"} viewMode={viewMode} disabled={disabled} />
+    </div>
+  );
 };
 
 export default DescriptionCell;

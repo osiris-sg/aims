@@ -62,9 +62,56 @@ export default function FormTextArea(props: Props) {
               onChange={(e) => onChange(e.target.value)}
               ref={ref}
               multiline
-              rows={rows}
-              maxRows={maxRows}
-              inputProps={{ maxLength: maxLength }}
+              minRows={rows || 1}
+              inputProps={{
+                maxLength: maxLength,
+                style: {
+                  resize: "none",
+                  overflow: "hidden",
+                  fontFamily: "inherit",
+                  fontSize: "inherit",
+                  lineHeight: "1.4375em",
+                },
+              }}
+              sx={{
+                width: "100%",
+                maxWidth: "100%",
+                minWidth: 0,
+                flex: "1 1 auto",
+                "& .MuiInputBase-root": {
+                  alignItems: "flex-start",
+                  padding: "8px 12px",
+                  width: "100%",
+                  maxWidth: "100%",
+                  minWidth: 0,
+                  boxSizing: "border-box",
+                },
+                "& .MuiInputBase-input": {
+                  resize: "none",
+                  lineHeight: "1.4375em",
+                  overflow: "hidden",
+                  padding: "0",
+                  minHeight: "1.4375em",
+                  width: "100%",
+                  maxWidth: "100%",
+                  minWidth: 0,
+                  boxSizing: "border-box",
+                },
+                "& .MuiOutlinedInput-root": {
+                  width: "100%",
+                  maxWidth: "100%",
+                  minWidth: 0,
+                  "& fieldset": {
+                    borderColor: "rgba(0, 0, 0, 0.23)",
+                  },
+                  "&:hover fieldset": {
+                    borderColor: "rgba(0, 0, 0, 0.87)",
+                  },
+                  "&.Mui-focused fieldset": {
+                    borderColor: "#1976d2",
+                  },
+                },
+              }}
               error={!!error}
               helperText={error ? error.message : bottomText}
             />

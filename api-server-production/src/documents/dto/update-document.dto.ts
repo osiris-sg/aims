@@ -47,6 +47,10 @@ class ItemDto {
   @IsString()
   @IsOptional()
   description?: string;
+
+  @IsString()
+  @IsOptional()
+  accountCode?: string;
 }
 
 class PhotoDto {

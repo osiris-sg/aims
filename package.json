@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "xero-node": "^13.0.0"
+  }
+}

@@ -14,13 +14,22 @@ export class ProjectsService {
 
   async getProjects(getProjectDto: GetProjectDto, organizationId: string) {
     try {
-      const { page, limit, search } = getProjectDto;
+      const { page, limit, search, filters } = getProjectDto;
       const skip = (page - 1) * limit;
 
       const whereClause: any = { organizationId };
 
       if (search) {
         whereClause.OR = [{ name: { contains: search, mode: 'insensitive' } }];
+      }
+
+      // Filter by customer if provided
+      if (filters?.customerId) {
+        whereClause.siteOffice = {
+          customer: {
+            id: filters.customerId,
+          },
+        };
       }
 
       const projects = await this.prisma.project.findMany({

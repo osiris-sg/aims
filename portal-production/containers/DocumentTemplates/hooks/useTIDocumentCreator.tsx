@@ -22,11 +22,12 @@ export default function useTIDocumentCreator() {
   const { document } = useGetDocument();
   const searchParams = useSearchParams();
   const scannedInventoryId = searchParams.get("scannedInventoryId");
+  const preSelectedCustomerId = searchParams.get("customerId");
 
   const defaultValues = useMemo(
     () => ({
       company: { name: "", address: "", phoneNumber: "" },
-      customerId: "",
+      customerId: preSelectedCustomerId || "",
       projectId: "", // added
       items: scannedInventoryId ? [{ inventoryItemId: scannedInventoryId, quantity: 1, description: "" }] : [{ inventoryItemId: "", quantity: 1, description: "" }],
       attention: { name: "", phoneNumber: "" },
@@ -39,7 +40,7 @@ export default function useTIDocumentCreator() {
       dueDate: "",
       note: "",
     }),
-    [scannedInventoryId]
+    [scannedInventoryId, preSelectedCustomerId]
   );
   console.log("Document Template:", defaultValues, documenttemplate);
 
@@ -61,6 +62,14 @@ export default function useTIDocumentCreator() {
     control,
     name: "items",
   });
+
+  // Pre-select customer from URL parameter
+  useEffect(() => {
+    if (preSelectedCustomerId && !document) {
+      setValue("customerId", preSelectedCustomerId, { shouldDirty: true, shouldTouch: true });
+      console.log("Pre-selected customer from URL:", preSelectedCustomerId);
+    }
+  }, [preSelectedCustomerId, setValue, document]);
 
   // More reliable scannedInventoryId handler using control._formValues
   useEffect(() => {

@@ -32,6 +32,10 @@ class ItemDto {
 
   @IsNotEmpty()
   quantity: number;
+
+  @IsString()
+  @IsOptional()
+  accountCode?: string;
 }
 
 export class IConfig {
@@ -93,4 +97,8 @@ export class CreateDocumentWithTimelineDto {
   @IsString()
   @IsNotEmpty()
   customerId: string;
+
+  @IsString()
+  @IsOptional()
+  status?: string;
 }

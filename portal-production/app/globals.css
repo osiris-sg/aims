@@ -10,13 +10,13 @@
   --double-gap: 2rem;
   --default-gap: 1rem;
   --half-gap: 0.5rem;
-  --quarter-gap: 0.25rem;
+  --quarter-gap: 0.125rem;
   --half-padding: 0.5rem;
   --default-padding: 1rem;
   --large-padding: 3rem;
   --half-padding: 0.5rem;
   --default-border-radius: 0.4rem;
-  --page-max-width: 1400px;
+  --page-max-width: 1600px;
   --portal-content-padding: 4rem 0rem;
   --mobile-portal-content-padding: 5rem 0rem 1rem 0rem;
 }

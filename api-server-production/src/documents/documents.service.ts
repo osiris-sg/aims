@@ -3,9 +3,14 @@ import { UpdateDocumentDto } from './dto/update-document.dto';
 import { PrismaService } from 'src/common/prisma.service';
 import { CreateDocumentWithTimelineDto } from './dto/create-document-with-timeline.dto';
 import { InventoryStatus, DocumentStatus } from '@prisma/client';
+import { XeroService } from 'src/common/xero.service';
+
 @Injectable()
 export class DocumentsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private xeroService: XeroService,
+  ) {}
 
   async getById(id: string, organizationId: string) {
     try {
@@ -183,6 +188,21 @@ export class DocumentsService {
         );
       }
 
+      // Update Xero invoice if this is a TI (Invoice) document
+      if (dto.type === 'TI') {
+        console.log('🟡 XERO: Attempting to update invoice for TI document:', updatedDocument.id, 'with status:', dto.status);
+        try {
+          const xeroResult = await this.updateXeroInvoice(updatedDocument, configAsPlainObject, organizationId);
+          console.log('🟢 XERO: Invoice updated successfully!', xeroResult ? `Xero Invoice ID: ${xeroResult.invoiceID}` : 'No invoice ID returned');
+        } catch (xeroError) {
+          console.error('🔴 XERO: Invoice update failed, but document was updated:', xeroError);
+          console.error('🔴 XERO: Error details:', xeroError.message);
+          // Don't fail the entire update if Xero fails - just log the error
+        }
+      } else {
+        console.log('⚪ XERO: Skipping invoice update - Document type:', dto.type, 'Status:', dto.status);
+      }
+
       return updatedDocument;
     } catch (error) {
       throw new HttpException(`Update failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -287,6 +307,21 @@ export class DocumentsService {
           );
         }
 
+        // Create Xero invoice if this is a TI (Invoice) document and status is not draft
+        if (dto.type === 'TI' && dto.status !== 'draft') {
+          console.log('🟡 XERO: Attempting to create invoice for TI document:', createdDocument.id, 'with status:', dto.status);
+          try {
+            const xeroResult = await this.createXeroInvoice(createdDocument, configAsPlainObject, organizationId);
+            console.log('🟢 XERO: Invoice created successfully!', xeroResult ? `Xero Invoice ID: ${xeroResult.invoiceID}` : 'No invoice ID returned');
+          } catch (xeroError) {
+            console.error('🔴 XERO: Invoice creation failed, but document was created:', xeroError);
+            console.error('🔴 XERO: Error details:', xeroError.message);
+            // Don't fail the entire transaction if Xero fails - just log the error
+          }
+        } else {
+          console.log('⚪ XERO: Skipping invoice creation - Document type:', dto.type, 'Status:', dto.status);
+        }
+
         return createdDocument;
       } catch (error) {
         throw new HttpException(`Update failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -359,6 +394,43 @@ export class DocumentsService {
       throw new HttpException(`Fetch all documents failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
+
+  async getDeliveryOrdersByCustomer(customerId: string, organizationId: string) {
+    try {
+      console.log('🚚 DELIVERY ORDERS: Fetching for customer:', customerId, 'in organization:', organizationId);
+
+      const deliveryOrders = await this.prisma.document.findMany({
+        where: {
+          organizationId: organizationId,
+          type: 'DO', // Delivery Order document type
+          customerId: customerId,
+          // Include all delivery orders regardless of status (including drafts)
+        },
+        include: {
+          customer: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      console.log('🚚 DELIVERY ORDERS: Found', deliveryOrders.length, 'delivery orders');
+
+      const result = deliveryOrders.map((doc) => ({
+        id: doc.id,
+        name: doc.name,
+        doNo: (doc.config as any)?.doNo || doc.name, // Use doNo from config or fallback to name
+        status: doc.status,
+        customerId: doc.customerId,
+        customerName: doc.customer?.name,
+        createdAt: doc.createdAt,
+      }));
+
+      console.log('🚚 DELIVERY ORDERS: Returning:', result);
+      return result;
+    } catch (error) {
+      console.error('🔴 DELIVERY ORDERS: Error fetching delivery orders:', error);
+      throw new HttpException(`Fetch delivery orders failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
   async getDocumentsByAsset(assetId: string, organizationId: string) {
     try {
       const assetTemplateTags = await this.prisma.assetTemplateTag.findMany({
@@ -408,6 +480,439 @@ export class DocumentsService {
       });
     } catch (error) {
       throw new HttpException(`Failed to untag template from asset: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  /**
+   * Create an invoice in Xero based on the document data
+   * This is called when TI (Invoice) documents are created or updated with non-draft status
+   */
+  private async createXeroInvoice(document: any, config: any, organizationId: string) {
+    try {
+      console.log('🔍 XERO: Starting invoice creation process for document:', document.id);
+      console.log('🔍 XERO: Document details - Name:', document.name, 'Customer ID:', document.customerId);
+
+      // Get customer information
+      const customer = await this.prisma.customer.findUnique({
+        where: { id: document.customerId },
+      });
+
+      if (!customer) {
+        console.error('🔴 XERO: Customer not found for document:', document.id, 'Customer ID:', document.customerId);
+        throw new Error('Customer not found for invoice');
+      }
+
+      console.log('✅ XERO: Customer found - Name:', customer.name, 'Email:', customer.email || 'No email');
+
+      // Extract invoice data from the document config
+      const lineItems = [];
+      console.log('🔍 XERO: Processing document items:', config.items ? config.items.length : 0, 'items found');
+
+      // Process items if they exist
+      if (config.items && Array.isArray(config.items)) {
+        for (const [index, item] of config.items.entries()) {
+          console.log(`🔍 XERO: Processing item ${index + 1} - Inventory ID:`, item.inventoryItemId, 'Quantity:', item.quantity);
+
+          // Get inventory item details
+          const inventoryItem = await this.prisma.inventory.findUnique({
+            where: { id: item.inventoryItemId },
+            include: { asset: true },
+          });
+
+          if (inventoryItem) {
+            const lineItem = {
+              description: item.description || inventoryItem.asset?.name || inventoryItem.sku || 'Item',
+              quantity: item.quantity || 1,
+              unitAmount: item.price || inventoryItem.asset?.price || 0, // Use item price first, then asset price
+              accountCode: item.accountCode || '200', // Use selected account code or default to '200'
+              taxType: 'NONE', // Default to no tax - you may want to make this configurable
+            };
+            lineItems.push(lineItem);
+            console.log(`✅ XERO: Added line item ${index + 1} -`, lineItem.description, 'Qty:', lineItem.quantity, 'Price:', lineItem.unitAmount, 'Account:', lineItem.accountCode);
+          } else {
+            console.warn(`⚠️ XERO: Inventory item not found for ID:`, item.inventoryItemId);
+          }
+        }
+      }
+
+      // Format date to DD/MM/YYYY format like in the image
+      const formatDate = (dateString: string) => {
+        if (!dateString) return new Date().toLocaleDateString('en-GB');
+        const date = new Date(dateString);
+        return date.toLocaleDateString('en-GB');
+      };
+
+      // If no line items from inventory, create a generic line item
+      if (lineItems.length === 0) {
+        console.log('⚠️ XERO: No items found, creating generic line item');
+        lineItems.push({
+          description: `Service/Product - Invoice ${document.name || document.id}`,
+          quantity: 1,
+          unitAmount: 0, // You may want to add amount fields to your document config
+          accountCode: '200',
+          taxType: 'NONE',
+        });
+      }
+
+      // Add reference line items AFTER all the actual items (only for Xero, not in app)
+      const referenceItems = [];
+
+      // Add DO reference if selected
+      if (config.doNo) {
+        console.log('📋 XERO: Adding DO reference line item for DO:', config.doNo);
+        referenceItems.push({
+          description: `Our DO No. ${config.doNo} dated ${formatDate(config.date)}`,
+          quantity: 0, // No quantity for reference lines
+          unitAmount: 0, // No amount for reference lines
+          accountCode: '200',
+          taxType: 'NONE',
+        });
+      }
+
+      // Add quotation reference if available
+      if (config.referenceNo) {
+        console.log('📋 XERO: Adding quotation reference:', config.referenceNo);
+        referenceItems.push({
+          description: `Our Qtn Ref. ${config.referenceNo} dated ${formatDate(config.date)}`,
+          quantity: 0,
+          unitAmount: 0,
+          accountCode: '200',
+          taxType: 'NONE',
+        });
+      }
+
+      // Add work order reference if available
+      if (config.poNo) {
+        console.log('📋 XERO: Adding work order reference:', config.poNo);
+        referenceItems.push({
+          description: `Your WO No. ${config.poNo} dated ${formatDate(config.date)}`,
+          quantity: 0,
+          unitAmount: 0,
+          accountCode: '200',
+          taxType: 'NONE',
+        });
+      }
+
+      // Add location and project info if available
+      if (config.deliveryTo) {
+        console.log('📋 XERO: Adding location reference:', config.deliveryTo);
+        referenceItems.push({
+          description: `Location: ${config.deliveryTo}`,
+          quantity: 0,
+          unitAmount: 0,
+          accountCode: '200',
+          taxType: 'NONE',
+        });
+      }
+
+      // Add project information if available
+      if (config.projectId) {
+        try {
+          const project = await this.prisma.project.findUnique({
+            where: { id: config.projectId },
+            include: {
+              siteOffice: {
+                include: {
+                  customer: true,
+                },
+              },
+            },
+          });
+
+          if (project) {
+            console.log('📋 XERO: Adding project reference:', project.name);
+            referenceItems.push({
+              description: `Project/Dept: ${project.name}`,
+              quantity: 0,
+              unitAmount: 0,
+              accountCode: '200',
+              taxType: 'NONE',
+            });
+          }
+        } catch (error) {
+          console.warn('⚠️ XERO: Could not fetch project information:', error.message);
+        }
+      }
+
+      // Add all reference items to the end of line items
+      lineItems.push(...referenceItems);
+
+      if (referenceItems.length > 0) {
+        console.log('✅ XERO: Added', referenceItems.length, 'reference line items');
+      }
+
+      console.log('📝 XERO: Total line items prepared:', lineItems.length);
+
+      // Prepare invoice data for Xero
+      const invoiceData = {
+        contactName: customer.name,
+        contactEmail: customer.email || '',
+        reference: config.referenceNo || config.poNo || '',
+        invoiceNumber: document.name || undefined, // Let Xero auto-generate if not provided
+        dueDate: config.dueDate || undefined,
+        lineItems: lineItems,
+        status: 'DRAFT' as const, // Start as draft, you can change this based on document status
+      };
+
+      console.log('📤 XERO: Sending invoice data:', {
+        contactName: invoiceData.contactName,
+        reference: invoiceData.reference,
+        invoiceNumber: invoiceData.invoiceNumber,
+        dueDate: invoiceData.dueDate,
+        lineItemsCount: invoiceData.lineItems.length,
+      });
+
+      // Create the invoice in Xero
+      console.log('🚀 XERO: Calling Xero API to create invoice...');
+      const xeroInvoice = await this.xeroService.createInvoice(organizationId, invoiceData);
+
+      console.log('🎉 XERO: Invoice created successfully! Xero Invoice ID:', xeroInvoice?.invoiceID || 'No ID returned');
+
+      // Store the Xero invoice ID in the document config
+      if (xeroInvoice?.invoiceID) {
+        console.log('💾 XERO: Storing Xero invoice ID in document config:', xeroInvoice.invoiceID);
+        await this.prisma.document.update({
+          where: { id: document.id },
+          data: {
+            config: {
+              ...config,
+              xeroInvoiceId: xeroInvoice.invoiceID,
+            },
+          },
+        });
+        console.log('✅ XERO: Xero invoice ID stored successfully');
+      }
+
+      return xeroInvoice;
+    } catch (error) {
+      console.error('💥 XERO: Failed to create invoice - Error type:', error.constructor.name);
+      console.error('💥 XERO: Error message:', error.message);
+      console.error('💥 XERO: Full error:', error);
+      throw error;
+    }
+  }
+
+  private async updateXeroInvoice(document: any, config: any, organizationId: string) {
+    try {
+      console.log('🔄 XERO: Starting invoice update process for document:', document.id);
+
+      // Check if we have a Xero invoice ID stored
+      let xeroInvoiceId = (config as any)?.xeroInvoiceId;
+
+      if (!xeroInvoiceId) {
+        console.log('⚠️ XERO: No Xero invoice ID found in config');
+
+        // Try to find existing invoice by invoice number before creating new one
+        const invoiceNumber = document.name;
+        console.log('🔍 XERO: Searching for existing invoice with number:', invoiceNumber);
+
+        try {
+          const existingInvoice = await this.xeroService.findInvoiceByNumber(organizationId, invoiceNumber);
+          if (existingInvoice) {
+            console.log('✅ XERO: Found existing invoice in Xero with ID:', existingInvoice.invoiceID);
+            xeroInvoiceId = existingInvoice.invoiceID;
+
+            // Store the found invoice ID in the document config for future updates
+            const updatedConfig = { ...config, xeroInvoiceId };
+            await this.prisma.document.update({
+              where: { id: document.id },
+              data: { config: updatedConfig },
+            });
+            console.log('💾 XERO: Stored invoice ID in document config for future updates');
+          } else {
+            console.log('⚠️ XERO: No existing invoice found, creating new invoice');
+            return await this.createXeroInvoice(document, config, organizationId);
+          }
+        } catch (searchError) {
+          console.log('⚠️ XERO: Error searching for existing invoice, creating new invoice:', searchError.message);
+          return await this.createXeroInvoice(document, config, organizationId);
+        }
+      }
+
+      console.log('🔍 XERO: Found Xero invoice ID in config:', xeroInvoiceId);
+
+      // Verify the invoice actually exists in Xero
+      const invoiceExists = await this.xeroService.invoiceExists(organizationId, xeroInvoiceId);
+      if (!invoiceExists) {
+        console.log('⚠️ XERO: Invoice ID exists in config but not found in Xero, creating new invoice');
+        // Clear the invalid xeroInvoiceId from config
+        const updatedConfig = { ...config };
+        delete (updatedConfig as any).xeroInvoiceId;
+
+        // Update the document to remove the invalid xeroInvoiceId
+        await this.prisma.document.update({
+          where: { id: document.id },
+          data: { config: updatedConfig },
+        });
+
+        return await this.createXeroInvoice(document, updatedConfig, organizationId);
+      }
+
+      console.log('✅ XERO: Invoice confirmed to exist in Xero, proceeding with update');
+
+      // Get customer information
+      const customer = await this.prisma.customer.findUnique({
+        where: { id: document.customerId },
+      });
+
+      if (!customer) {
+        console.error('🔴 XERO: Customer not found for document:', document.id, 'Customer ID:', document.customerId);
+        throw new Error('Customer not found for invoice update');
+      }
+
+      console.log('✅ XERO: Customer found - Name:', customer.name, 'Email:', customer.email || 'No email');
+
+      // Extract invoice data from the document config (same logic as create)
+      const lineItems = [];
+      console.log('🔍 XERO: Processing document items for update:', config.items ? config.items.length : 0, 'items found');
+
+      // Process items if they exist (same logic as createXeroInvoice)
+      if (config.items && Array.isArray(config.items)) {
+        for (const [index, item] of config.items.entries()) {
+          console.log(`🔍 XERO: Processing item ${index + 1} - Inventory ID:`, item.inventoryItemId, 'Quantity:', item.quantity);
+
+          const inventoryItem = await this.prisma.inventory.findUnique({
+            where: { id: item.inventoryItemId },
+            include: { asset: true },
+          });
+
+          if (inventoryItem) {
+            const lineItem = {
+              description: item.description || inventoryItem.asset?.name || inventoryItem.sku || 'Item',
+              quantity: item.quantity || 1,
+              unitAmount: item.price || inventoryItem.asset?.price || 0,
+              accountCode: item.accountCode || '200',
+              taxType: 'NONE',
+            };
+            lineItems.push(lineItem);
+            console.log(`✅ XERO: Added line item ${index + 1} -`, lineItem.description, 'Qty:', lineItem.quantity, 'Price:', lineItem.unitAmount);
+          } else {
+            console.warn(`⚠️ XERO: Inventory item not found for ID:`, item.inventoryItemId);
+          }
+        }
+      }
+
+      // Format date to DD/MM/YYYY format like in the image
+      const formatDate = (dateString: string) => {
+        if (!dateString) return new Date().toLocaleDateString('en-GB');
+        const date = new Date(dateString);
+        return date.toLocaleDateString('en-GB');
+      };
+
+      // If no line items from inventory, create a generic line item
+      if (lineItems.length === 0) {
+        console.log('⚠️ XERO: No items found, creating generic line item');
+        lineItems.push({
+          description: `Service/Product - Invoice ${document.name || document.id}`,
+          quantity: 1,
+          unitAmount: 0,
+          accountCode: '200',
+          taxType: 'NONE',
+        });
+      }
+
+      // Add reference line items AFTER all the actual items (same logic as create)
+      const referenceItems = [];
+
+      // Add DO reference if selected
+      if (config.doNo) {
+        referenceItems.push({
+          description: `Our DO No. ${config.doNo} dated ${formatDate(config.date)}`,
+          quantity: 0,
+          unitAmount: 0,
+          accountCode: '200',
+          taxType: 'NONE',
+        });
+      }
+
+      // Add quotation reference if available
+      if (config.referenceNo) {
+        referenceItems.push({
+          description: `Our Qtn Ref. ${config.referenceNo} dated ${formatDate(config.date)}`,
+          quantity: 0,
+          unitAmount: 0,
+          accountCode: '200',
+          taxType: 'NONE',
+        });
+      }
+
+      // Add work order reference if available
+      if (config.poNo) {
+        referenceItems.push({
+          description: `Your WO No. ${config.poNo} dated ${formatDate(config.date)}`,
+          quantity: 0,
+          unitAmount: 0,
+          accountCode: '200',
+          taxType: 'NONE',
+        });
+      }
+
+      // Add location and project info if available
+      if (config.deliveryTo) {
+        referenceItems.push({
+          description: `Location: ${config.deliveryTo}`,
+          quantity: 0,
+          unitAmount: 0,
+          accountCode: '200',
+          taxType: 'NONE',
+        });
+      }
+
+      // Add project information if available
+      if (config.projectId) {
+        try {
+          const project = await this.prisma.project.findUnique({
+            where: { id: config.projectId },
+            include: {
+              siteOffice: {
+                include: {
+                  customer: true,
+                },
+              },
+            },
+          });
+
+          if (project) {
+            referenceItems.push({
+              description: `Project/Dept: ${project.name}`,
+              quantity: 0,
+              unitAmount: 0,
+              accountCode: '200',
+              taxType: 'NONE',
+            });
+          }
+        } catch (error) {
+          console.warn('⚠️ XERO: Could not fetch project information:', error.message);
+        }
+      }
+
+      // Add all reference items to the end of line items
+      lineItems.push(...referenceItems);
+
+      console.log('📝 XERO: Total line items prepared for update:', lineItems.length);
+
+      // Prepare invoice data for Xero update
+      const invoiceData = {
+        contactName: customer.name,
+        contactEmail: customer.email || '',
+        reference: config.referenceNo || config.poNo || '',
+        invoiceNumber: document.name || undefined,
+        dueDate: config.dueDate || undefined,
+        lineItems: lineItems,
+        status: 'DRAFT' as const,
+      };
+
+      console.log('🔄 XERO: Updating invoice in Xero...');
+      const xeroInvoice = await this.xeroService.updateInvoice(organizationId, xeroInvoiceId, invoiceData);
+
+      console.log('🎉 XERO: Invoice updated successfully! Xero Invoice ID:', xeroInvoice?.invoiceID || 'No ID returned');
+
+      return xeroInvoice;
+    } catch (error) {
+      console.error('💥 XERO: Failed to update invoice - Error type:', error.constructor.name);
+      console.error('💥 XERO: Error message:', error.message);
+      console.error('💥 XERO: Full error:', error);
+      throw error;
     }
   }
 }

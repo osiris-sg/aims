@@ -96,11 +96,11 @@ export default function Table(props: Props) {
         width: "100%",
         overflowX: isMobile ? "auto" : "visible",
         "& .MuiTable-root": {
-          minWidth: isMobile ? "600px" : "auto",
+          minWidth: isMobile ? "600px" : "1200px",
         },
       }}
     >
-      <MuiTable sx={{ width: "100%", tableLayout: "auto", borderCollapse: "separate" }}>
+      <MuiTable sx={{ width: "100%", tableLayout: "fixed", borderCollapse: "separate" }}>
         <TableHead sx={{ backgroundColor: "tertiary.light", position: "sticky", top: 0, zIndex: 1000 }}>
           {table.getHeaderGroups().map((headerGroup: any) => (
             <TableRow key={headerGroup.id}>
@@ -115,6 +115,12 @@ export default function Table(props: Props) {
                           width: "40px",
                           minWidth: "40px",
                           maxWidth: "40px",
+                        }
+                      : header.column.columnDef.size
+                      ? {
+                          width: `${header.column.columnDef.size}px`,
+                          minWidth: header.column.columnDef.minSize ? `${header.column.columnDef.minSize}px` : `${header.column.columnDef.size}px`,
+                          maxWidth: header.column.columnDef.maxSize ? `${header.column.columnDef.maxSize}px` : undefined,
                         }
                       : {}),
                     color: "tertiary.dark",
@@ -151,6 +157,12 @@ export default function Table(props: Props) {
                               minWidth: "40px",
                               maxWidth: "40px",
                             }
+                          : header.column.columnDef.size
+                          ? {
+                              width: `${header.column.columnDef.size}px`,
+                              minWidth: header.column.columnDef.minSize ? `${header.column.columnDef.minSize}px` : `${header.column.columnDef.size}px`,
+                              maxWidth: header.column.columnDef.maxSize ? `${header.column.columnDef.maxSize}px` : undefined,
+                            }
                           : {}),
                       }}
                     >
@@ -169,19 +181,42 @@ export default function Table(props: Props) {
                       "& > td:first-of-type": {
                         paddingLeft: row.depth ? `${row.depth * 2}rem` : undefined,
                       },
+                      // Allow rows to expand vertically based on content
+                      height: "auto",
+                      minHeight: "48px",
                     }}
                   >
                     {row.getVisibleCells().map((cell: any) => (
                       <TableCell
                         key={cell.id}
                         sx={{
-                          padding: isMobile ? "0.3rem 0.2rem" : "0.5rem 0.3rem",
+                          padding: cell.column.id === "description" ? (isMobile ? "0.5rem 0.2rem" : "0.75rem 0.3rem") : isMobile ? "0.3rem 0.2rem" : "0.5rem 0.3rem",
                           fontSize: isMobile ? "0.75rem" : "inherit",
                           ...(cell.column.id === "select"
                             ? {
                                 width: "40px",
                                 minWidth: "40px",
                                 maxWidth: "40px",
+                              }
+                            : cell.column.columnDef.size
+                            ? {
+                                width: `${cell.column.columnDef.size}px`,
+                                minWidth: cell.column.columnDef.minSize ? `${cell.column.columnDef.minSize}px` : `${cell.column.columnDef.size}px`,
+                                maxWidth: cell.column.columnDef.maxSize ? `${cell.column.columnDef.maxSize}px` : undefined,
+                                // Allow description column to wrap and expand
+                                ...(cell.column.id === "description"
+                                  ? {
+                                      whiteSpace: "pre-wrap",
+                                      wordWrap: "break-word",
+                                      overflow: "visible",
+                                      verticalAlign: "top",
+                                      height: "auto",
+                                      minHeight: "auto",
+                                      boxSizing: "border-box",
+                                    }
+                                  : {
+                                      overflow: "hidden",
+                                    }),
                               }
                             : {
                                 whiteSpace: "nowrap",
@@ -190,7 +225,29 @@ export default function Table(props: Props) {
                               }),
                         }}
                       >
-                        {id === loadingTableRowId ? <Skeleton variant="text" sx={{ m: "0.5rem 0.3rem" }} /> : <span className="truncate">{flexRender(cell.column.columnDef.cell, cell.getContext())}</span>}
+                        {id === loadingTableRowId ? (
+                          <Skeleton variant="text" sx={{ m: "0.5rem 0.3rem" }} />
+                        ) : (
+                          <div
+                            className={cell.column.id === "description" ? "" : "truncate"}
+                            style={{
+                              ...(cell.column.id === "description"
+                                ? {
+                                    height: "auto",
+                                    minHeight: "auto",
+                                    display: "flex",
+                                    alignItems: "flex-start",
+                                    width: "100%",
+                                    maxWidth: "100%",
+                                    boxSizing: "border-box",
+                                    overflow: "hidden",
+                                  }
+                                : {}),
+                            }}
+                          >
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </div>
+                        )}
                       </TableCell>
                     ))}
                   </TableRow>

@@ -24,6 +24,8 @@ import Collapse from "@mui/material/Collapse";
 import ExpandLess from "@mui/icons-material/ExpandLess";
 import ExpandMore from "@mui/icons-material/ExpandMore";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
+import { useSidebar } from "./SidebarContext";
+import Tooltip from "@mui/material/Tooltip";
 
 const getMainListItems = (isAdmin: boolean) => {
   const baseItems = [
@@ -58,6 +60,7 @@ export default function SideBarContent() {
   const theme = useTheme();
   const pathname = usePathname();
   const { organization } = useOrganization();
+  const { isCollapsed } = useSidebar();
 
   const [openDocuments, setOpenDocuments] = React.useState(false);
   const [openUserManagement, setOpenUserManagement] = React.useState(false);
@@ -92,37 +95,66 @@ export default function SideBarContent() {
 
   const renderListItem = (item: any, index: number) => {
     if (item.text === "Documents") {
+      const documentItem = (
+        <ListItem
+          disablePadding
+          sx={{
+            display: "block",
+            borderRadius: "var(--default-border-radius)",
+            backgroundColor: isItemActive(item) ? theme.palette.primary.contrastText : "transparent",
+            ":hover": { backgroundColor: theme.palette.primary.light },
+            mb: 0.5,
+          }}
+          onClick={isCollapsed ? undefined : handleDocumentsClick}
+        >
+          <ListItemButton
+            selected={isItemActive(item)}
+            component={isCollapsed ? Link : "div"}
+            href={isCollapsed ? ROUTES.DOCUMENTS : undefined}
+            sx={{
+              justifyContent: "center",
+              minHeight: 48,
+              px: isCollapsed ? 1.5 : 2,
+              borderRadius: "var(--default-border-radius)",
+            }}
+          >
+            <ListItemIcon
+              sx={{
+                color: isItemActive(item) ? theme.palette.primary.main : "white",
+                minWidth: "fit-content!important",
+                marginRight: isCollapsed ? "0" : "var(--default-gap)",
+                justifyContent: "center",
+                display: "flex",
+              }}
+            >
+              {item.icon}
+            </ListItemIcon>
+            {!isCollapsed && (
+              <>
+                <ListItemText
+                  primary={item.text}
+                  sx={{
+                    color: isItemActive(item) ? theme.palette.primary.main : "white",
+                  }}
+                />
+                {openDocuments ? <ExpandLess sx={{ color: "white" }} /> : <ExpandMore sx={{ color: "white" }} />}
+              </>
+            )}
+          </ListItemButton>
+        </ListItem>
+      );
+
+      if (isCollapsed) {
+        return (
+          <Tooltip key={index} title={item.text} placement="right">
+            {documentItem}
+          </Tooltip>
+        );
+      }
+
       return (
         <React.Fragment key={index}>
-          <ListItem
-            disablePadding
-            sx={{
-              display: "block",
-              borderRadius: "var(--default-border-radius)",
-              backgroundColor: isItemActive(item) ? theme.palette.primary.contrastText : "transparent",
-              ":hover": { backgroundColor: theme.palette.primary.light },
-            }}
-            onClick={handleDocumentsClick}
-          >
-            <ListItemButton selected={isItemActive(item)}>
-              <ListItemIcon
-                sx={{
-                  color: isItemActive(item) ? theme.palette.primary.main : "white",
-                  minWidth: "fit-content!important",
-                  marginRight: "var(--default-gap)",
-                }}
-              >
-                {item.icon}
-              </ListItemIcon>
-              <ListItemText
-                primary={item.text}
-                sx={{
-                  color: isItemActive(item) ? theme.palette.primary.main : "white",
-                }}
-              />
-              {openDocuments ? <ExpandLess sx={{ color: "white" }} /> : <ExpandMore sx={{ color: "white" }} />}
-            </ListItemButton>
-          </ListItem>
+          {documentItem}
           <Collapse in={openDocuments} timeout="auto" unmountOnExit>
             <List component="div" disablePadding>
               <ListItemButton sx={{ pl: 4 }} component={Link} href={ROUTES.DOCUMENTS}>
@@ -136,37 +168,56 @@ export default function SideBarContent() {
         </React.Fragment>
       );
     } else if (item.text === "User Management") {
+      const userManagementItem = (
+        <ListItem
+          disablePadding
+          sx={{
+            display: "block",
+            borderRadius: "var(--default-border-radius)",
+            backgroundColor: isItemActive(item) ? theme.palette.primary.contrastText : "transparent",
+            ":hover": { backgroundColor: theme.palette.primary.light },
+            mb: 0.5,
+          }}
+          onClick={isCollapsed ? undefined : handleUserManagementClick}
+        >
+          <ListItemButton selected={isItemActive(item)} component={isCollapsed ? Link : "div"} href={isCollapsed ? ROUTES.PERMISSIONS : undefined} sx={{ justifyContent: isCollapsed ? "center" : "flex-start" }}>
+            <ListItemIcon
+              sx={{
+                color: isItemActive(item) ? theme.palette.primary.main : "white",
+                minWidth: "fit-content!important",
+                marginRight: isCollapsed ? "0" : "var(--default-gap)",
+                justifyContent: "center",
+                display: "flex",
+              }}
+            >
+              {item.icon}
+            </ListItemIcon>
+            {!isCollapsed && (
+              <>
+                <ListItemText
+                  primary={item.text}
+                  sx={{
+                    color: isItemActive(item) ? theme.palette.primary.main : "white",
+                  }}
+                />
+                {openUserManagement ? <ExpandLess sx={{ color: "white" }} /> : <ExpandMore sx={{ color: "white" }} />}
+              </>
+            )}
+          </ListItemButton>
+        </ListItem>
+      );
+
+      if (isCollapsed) {
+        return (
+          <Tooltip key={index} title={item.text} placement="right">
+            {userManagementItem}
+          </Tooltip>
+        );
+      }
+
       return (
         <React.Fragment key={index}>
-          <ListItem
-            disablePadding
-            sx={{
-              display: "block",
-              borderRadius: "var(--default-border-radius)",
-              backgroundColor: isItemActive(item) ? theme.palette.primary.contrastText : "transparent",
-              ":hover": { backgroundColor: theme.palette.primary.light },
-            }}
-            onClick={handleUserManagementClick}
-          >
-            <ListItemButton selected={isItemActive(item)}>
-              <ListItemIcon
-                sx={{
-                  color: isItemActive(item) ? theme.palette.primary.main : "white",
-                  minWidth: "fit-content!important",
-                  marginRight: "var(--default-gap)",
-                }}
-              >
-                {item.icon}
-              </ListItemIcon>
-              <ListItemText
-                primary={item.text}
-                sx={{
-                  color: isItemActive(item) ? theme.palette.primary.main : "white",
-                }}
-              />
-              {openUserManagement ? <ExpandLess sx={{ color: "white" }} /> : <ExpandMore sx={{ color: "white" }} />}
-            </ListItemButton>
-          </ListItem>
+          {userManagementItem}
           <Collapse in={openUserManagement} timeout="auto" unmountOnExit>
             <List component="div" disablePadding>
               <ListItemButton sx={{ pl: 4 }} component={Link} href={ROUTES.PERMISSIONS}>
@@ -180,7 +231,7 @@ export default function SideBarContent() {
         </React.Fragment>
       );
     } else {
-      return (
+      const regularItem = (
         <ListItem
           key={index}
           disablePadding
@@ -189,29 +240,50 @@ export default function SideBarContent() {
             borderRadius: "var(--default-border-radius)",
             backgroundColor: isItemActive(item) ? theme.palette.primary.contrastText : "transparent",
             ":hover": { backgroundColor: theme.palette.primary.light },
+            mb: 0.5,
           }}
         >
           <Link href={item.path} key={item.text} style={{ textDecoration: "none", color: "inherit" }}>
-            <ListItemButton selected={isItemActive(item)}>
+            <ListItemButton
+              selected={isItemActive(item)}
+              sx={{
+                justifyContent: "center",
+                minHeight: 48,
+                px: isCollapsed ? 1.5 : 2,
+                borderRadius: "var(--default-border-radius)",
+              }}
+            >
               <ListItemIcon
                 sx={{
                   color: isItemActive(item) ? theme.palette.primary.main : "white",
                   minWidth: "fit-content!important",
-                  marginRight: "var(--default-gap)",
+                  marginRight: isCollapsed ? "0" : "var(--default-gap)",
                 }}
               >
                 {item.icon}
               </ListItemIcon>
-              <ListItemText
-                primary={item.text}
-                sx={{
-                  color: isItemActive(item) ? theme.palette.primary.main : "white",
-                }}
-              />
+              {!isCollapsed && (
+                <ListItemText
+                  primary={item.text}
+                  sx={{
+                    color: isItemActive(item) ? theme.palette.primary.main : "white",
+                  }}
+                />
+              )}
             </ListItemButton>
           </Link>
         </ListItem>
       );
+
+      if (isCollapsed) {
+        return (
+          <Tooltip key={index} title={item.text} placement="right">
+            {regularItem}
+          </Tooltip>
+        );
+      }
+
+      return regularItem;
     }
   };
 
@@ -219,7 +291,7 @@ export default function SideBarContent() {
     <Stack
       sx={{
         flexGrow: 1,
-        p: "var(--default-gap)",
+        p: isCollapsed ? 1 : "var(--default-gap)",
         justifyContent: "space-between",
       }}
     >
@@ -241,14 +313,42 @@ export default function SideBarContent() {
           gap: "var(--half-gap)",
         }}
       >
-        {secondaryListItems.map((item: any, index: number) => (
-          <ListItem key={index} disablePadding sx={{ display: "block" }}>
-            <ListItemButton>
-              <ListItemIcon sx={{ minWidth: "fit-content!important", marginRight: "var(--default-gap)" }}>{item.icon}</ListItemIcon>
-              <ListItemText primary={item.text} />
-            </ListItemButton>
-          </ListItem>
-        ))}
+        {secondaryListItems.map((item: any, index: number) => {
+          const secondaryItem = (
+            <ListItem key={index} disablePadding sx={{ display: "block" }}>
+              <ListItemButton
+                sx={{
+                  justifyContent: "center",
+                  minHeight: 48,
+                  px: isCollapsed ? 1.5 : 2,
+                  borderRadius: "var(--default-border-radius)",
+                }}
+              >
+                <ListItemIcon
+                  sx={{
+                    minWidth: "fit-content!important",
+                    marginRight: isCollapsed ? "0" : "var(--default-gap)",
+                    justifyContent: "center",
+                    display: "flex",
+                  }}
+                >
+                  {item.icon}
+                </ListItemIcon>
+                {!isCollapsed && <ListItemText primary={item.text} />}
+              </ListItemButton>
+            </ListItem>
+          );
+
+          if (isCollapsed) {
+            return (
+              <Tooltip key={index} title={item.text} placement="right">
+                {secondaryItem}
+              </Tooltip>
+            );
+          }
+
+          return secondaryItem;
+        })}
       </List>
     </Stack>
   );

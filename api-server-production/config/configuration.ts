@@ -13,4 +13,10 @@ export default () => ({
   CLERK_PUBLISHABLE_KEY: process.env.CLERK_PUBLISHABLE_KEY,
   CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
   APP_URL: process.env.APP_URL || 'http://localhost:3000',
+  XERO: {
+    CLIENT_ID: process.env.XERO_CLIENT_ID,
+    CLIENT_SECRET: process.env.XERO_CLIENT_SECRET,
+    REDIRECT_URI: process.env.XERO_REDIRECT_URI,
+    SCOPES: process.env.XERO_SCOPES || 'accounting.transactions accounting.contacts accounting.settings offline_access',
+  },
 });

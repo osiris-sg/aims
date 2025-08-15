@@ -6,13 +6,16 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
-import { Box, IconButton, Alert } from "@mui/material";
+import { Box, IconButton, Alert, Button } from "@mui/material";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import DownloadIcon from "@mui/icons-material/Download";
+import LinkIcon from "@mui/icons-material/Link";
 import { useRouter } from "next/navigation";
 import moment from "moment";
 import { DOCUMENT_API } from "../documents/constants";
 import { ROUTES } from "@/routes";
+import CustomerSelectionDrawer from "./components/CustomerSelectionDrawer";
+import { useXeroConnection } from "./hooks/useXeroConnection";
 
 interface Document {
   id: string;
@@ -27,6 +30,13 @@ interface Document {
     dueDate?: string;
     [key: string]: any;
   };
+}
+
+interface Customer {
+  id: string;
+  name: string;
+  email?: string;
+  address?: string;
 }
 
 interface PaginatedResponse {
@@ -83,6 +93,11 @@ export default function InvoicesPage() {
     },
   });
   const [error, setError] = useState<string | null>(null);
+  const [customerDrawerOpen, setCustomerDrawerOpen] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+
+  // Xero connection hook
+  const { connectionStatus, loading: xeroLoading, connectToXero } = useXeroConnection();
 
   const columns = [
     {
@@ -251,12 +266,30 @@ export default function InvoicesPage() {
     }
   };
 
-  const onSubmit = async (data: any) => {
+  const handleCreateInvoiceClick = () => {
+    setCustomerDrawerOpen(true);
+  };
+
+  const handleCustomerSelect = (customer: Customer) => {
+    setSelectedCustomer(customer);
+    setCustomerDrawerOpen(false);
+    // Create invoice with selected customer
+    onSubmit({ documentType: "TI" }, customer);
+  };
+
+  const handleDrawerClose = () => {
+    setCustomerDrawerOpen(false);
+    setSelectedCustomer(null);
+  };
+
+  const onSubmit = async (data: any, customer?: Customer) => {
     try {
       setIsDocumentTemplateUpdating(true);
       const token = await getToken();
       const documentTemplateId = await getTemplateIdByType(data.documentType, token ?? "");
       console.log("Selected Document Type:", organizationId);
+      console.log("Selected Customer:", customer);
+
       const response = await request(
         {
           path: "/documents/basic",
@@ -264,7 +297,7 @@ export default function InvoicesPage() {
         },
         {
           type: data.documentType,
-          config: {},
+          config: customer ? { customerId: customer.id } : {},
           documentTemplateId: documentTemplateId,
           organizationId: organizationId,
         },
@@ -273,13 +306,42 @@ export default function InvoicesPage() {
 
       const createdDocumentId = response?.data.id;
       console.log("Created Document ID:", createdDocumentId);
-      router.push(`/portal/documents/${data.documentType}/${documentTemplateId}/${createdDocumentId}`);
+
+      // Navigate to the document with customer pre-selected
+      const url = `/portal/documents/${data.documentType}/${documentTemplateId}/${createdDocumentId}`;
+      const urlWithCustomer = customer ? `${url}?customerId=${customer.id}` : url;
+      router.push(urlWithCustomer);
     } catch (error) {
       console.error("Error submitting form:", error);
     } finally {
       setIsDocumentTemplateUpdating(false);
     }
   };
+
+  // Create additional action buttons
+  const actionButtons = [];
+
+  // Only show "Connect Xero" button if not connected
+  if (connectionStatus && !connectionStatus.connected && !xeroLoading) {
+    actionButtons.push(
+      <Button
+        key="connect-xero"
+        variant="outlined"
+        startIcon={<LinkIcon />}
+        onClick={connectToXero}
+        sx={{
+          borderColor: "primary.main",
+          color: "primary.main",
+          "&:hover": {
+            borderColor: "primary.dark",
+            backgroundColor: "primary.light",
+          },
+        }}
+      >
+        Connect Xero
+      </Button>
+    );
+  }
 
   return (
     <MainCard>
@@ -288,14 +350,22 @@ export default function InvoicesPage() {
           {error}
         </Alert>
       )}
+
+      {/* Show Xero connection status */}
+      {connectionStatus && connectionStatus.connected && (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          ✅ Xero is connected! Invoices will be automatically synced.
+        </Alert>
+      )}
+
       <PageTable
         columns={columns}
         data={documents.docs}
         tableName="Invoice List"
         subTitle="Invoice Detail Information"
         buttonName="Create Invoice"
-        onAddClick={() => onSubmit({ documentType: "TI" })}
-        loading={loading}
+        onAddClick={handleCreateInvoiceClick}
+        loading={loading || isDocumentTemplateUpdating}
         page={page}
         limit={limit}
         search={search}
@@ -307,7 +377,11 @@ export default function InvoicesPage() {
         availableFilters={["status", "category", "createdOn"]}
         pageCount={documents.totalPages}
         totalDocs={documents.totalDocs}
+        actionButtons={actionButtons}
       />
+
+      {/* Customer Selection Drawer */}
+      <CustomerSelectionDrawer open={customerDrawerOpen} onClose={handleDrawerClose} onSelectCustomer={handleCustomerSelect} />
     </MainCard>
   );
 }

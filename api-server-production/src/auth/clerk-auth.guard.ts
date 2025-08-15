@@ -15,6 +15,13 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
   }
 
   async canActivate(context: ExecutionContext) {
+    // Check if the route is marked as public
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [context.getHandler(), context.getClass()]);
+
+    if (isPublic) {
+      return true;
+    }
+
     const canActivate = await super.canActivate(context);
     if (!canActivate) {
       return false;

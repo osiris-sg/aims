@@ -25,6 +25,10 @@ class FiltersDto {
   @IsString()
   @IsOptional()
   category: string;
+
+  @IsString()
+  @IsOptional()
+  customerId: string;
 }
 
 export class GetProjectDto {
