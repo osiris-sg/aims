@@ -70,7 +70,7 @@ export function useXeroConnection() {
 
   const connectToXero = () => {
     if (organization?.id) {
-      const connectUrl = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4040"}/xero/connect?organizationId=${organization.id}`;
+      const connectUrl = `${process.env.NEXT_PUBLIC_BACKEND_API_URL || "http://localhost:4040"}/xero/connect?organizationId=${organization.id}`;
       window.location.href = connectUrl;
     }
   };
