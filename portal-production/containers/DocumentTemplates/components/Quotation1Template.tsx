@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import DocumentNameHeader from "./DocumentNameHeader";
 import { Alert, Box, Button, Divider, Grid2, Typography } from "@mui/material";
 import { useWatch } from "react-hook-form";
@@ -101,7 +101,7 @@ export default function Quotation1Template(props: Props) {
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [isProjectsLoading, setProjectsLoading] = useState(false);
 
-  const fetchProjects = async () => {
+  const fetchProjects = useCallback(async () => {
     if (!organizationId) return;
     setProjectsLoading(true);
 
@@ -120,11 +120,11 @@ export default function Quotation1Template(props: Props) {
     } finally {
       setProjectsLoading(false);
     }
-  };
+  }, [organizationId, page, limit, search, filters, getToken]);
 
   useEffect(() => {
     fetchProjects();
-  }, [organizationId]);
+  }, [fetchProjects]);
   const handleAddProject = async (projectName: string) => {
     try {
       if (!organizationId) return false;
@@ -199,172 +199,257 @@ export default function Quotation1Template(props: Props) {
               <DocumentSkeleton />
             ) : (
               <form onSubmit={onSubmit} ref={contentRef}>
-                <Box sx={{ display: "flex", flexDirection: "column", padding: "var(--double-gap)" }}>
-                  <Grid2 container spacing={1}>
-                    <Grid2 size={4}>{templateWatch("logo") && <FormImage control={control} name="logo" viewMode={isViewMode} />}</Grid2>
-                    <Grid2 size={4}></Grid2>
+                <Box
+                  sx={{
+                    display: "flex",
+                    flexDirection: "column",
+                    padding: isViewMode ? "var(--default-gap)" : "var(--default-gap)",
+                    ...(isViewMode
+                      ? {
+                          "& .MuiTypography-root": {
+                            fontSize: "0.7rem !important",
+                            lineHeight: 1.2,
+                          },
+                          "& .MuiTypography-h4": {
+                            fontSize: "0.9rem !important",
+                            fontWeight: 700,
+                          },
+                          "& .MuiTypography-h5": {
+                            fontSize: "0.85rem !important",
+                            fontWeight: 700,
+                          },
+                          // Generic text fallbacks for custom components
+                          "& p, & span, & label, & .MuiFormLabel-root": {
+                            fontSize: "0.7rem !important",
+                            lineHeight: 1.2,
+                          },
+                          // Inputs/Textareas if any appear in view mode
+                          "& .MuiInputBase-root, & .MuiInputBase-input, & .MuiOutlinedInput-input, & textarea": {
+                            fontSize: "0.7rem !important",
+                          },
+                          // Table cells
+                          "& td, & th": {
+                            fontSize: "0.68rem !important",
+                            padding: "4px 6px",
+                          },
+                          // Buttons
+                          "& .MuiButton-root": {
+                            fontSize: "0.7rem",
+                            padding: "4px 8px",
+                          },
+                        }
+                      : {}),
+                  }}
+                >
+                  {/* Header Section with Logo and Title */}
+                  <Grid2 container spacing={2} sx={{ mb: isViewMode ? 2 : 2 }}>
+                    <Grid2 size={4}>
+                      {templateWatch("logo") && (
+                        <Box sx={{ minHeight: isViewMode ? "80px" : "auto" }}>
+                          <FormImage control={control} name="logo" viewMode={isViewMode} />
+                        </Box>
+                      )}
+                    </Grid2>
                     <Grid2 size={4} />
-                  </Grid2>
-                  <Grid2 container spacing={1}>
-                    <Grid2 size={6} />
-                    <Grid2 size={6}>
-                      <Typography variant="h4" sx={{ py: "var(--double-gap)" }}>
-                        Quotation
-                      </Typography>
+                    <Grid2 size={4} sx={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
+                      {!isViewMode && (
+                        <Typography
+                          variant="h4"
+                          sx={{
+                            fontWeight: "bold",
+                            textAlign: "center",
+                            fontSize: "1.5rem",
+                          }}
+                        >
+                          QUOTATION
+                        </Typography>
+                      )}
                     </Grid2>
                   </Grid2>
-                  <Grid2 container spacing={4}>
-                    <Grid2 size={6}>
-                      <Grid2 container spacing={4}>
-                        <Grid2 size={12}>
-                          {!isViewMode && (
-                            <FormSelect
-                              control={control}
-                              name="customerId"
-                              label="Customer"
-                              addItem={false}
-                              menuTitle="Choose customer"
-                              menuItems={customers.docs.map((customer) => ({
-                                label: customer.name,
-                                value: customer.id,
-                              }))}
-                              size="small"
-                            />
-                          )}
-                          {isViewMode && customer && (
-                            <Box sx={{ display: "flex", gap: 1 }}>
-                              <Typography variant="body1" sx={{ minWidth: "180px" }}>
-                                Customer :
-                              </Typography>
-                              <Box sx={{ display: "flex", flexDirection: "column" }}>
-                                <Typography variant="body1">{customer.name}</Typography>
-                                <Typography variant="body1">{customer.address}</Typography>
-                              </Box>
-                            </Box>
-                          )}
-                        </Grid2>
-                        <Grid2 size={12}>
-                          {!isViewMode ? (
-                            <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--half-gap)" }}>
-                              <FormInputBox control={control} name="attention.name" label="Attention" placeHolder="Enter Attention" size="small" labelArriangment="vertical" viewMode={isViewMode} />
-                              <FormInputBox control={control} name="attention.phoneNumber" label="Mobile" placeHolder="Enter Mobile Number" size="small" labelArriangment="vertical" viewMode={isViewMode} />
-                              <FormInputBox control={control} name="attention.email" label="Email" placeHolder="Enter Email" size="small" labelArriangment="vertical" viewMode={isViewMode} />
-                            </Box>
-                          ) : (
-                            <>
-                              <Box sx={{ display: "flex", gap: 1 }}>
-                                <Typography variant="body1" sx={{ minWidth: "180px" }}>
-                                  Attention :
-                                </Typography>
-                                <Typography variant="body1">{attentionName}</Typography>
-                              </Box>
-                              <Box sx={{ display: "flex", gap: 1 }}>
-                                <Typography variant="body1" sx={{ minWidth: "180px" }}>
-                                  Mobile :
-                                </Typography>
-                                <Typography variant="body1">{attentionPhoneNumber}</Typography>
-                              </Box>
-                              <Box sx={{ display: "flex", gap: 1 }}>
-                                <Typography variant="body1" sx={{ minWidth: "180px" }}>
-                                  Email :
-                                </Typography>
-                                <Typography variant="body1">{attentionEmail}</Typography>
-                              </Box>
-                            </>
-                          )}
-                        </Grid2>
-                        <Grid2 size={12}>
-                          {templateWatch("deliveryTo") && (
-                            <FormSelect
-                              control={control}
-                              name="deliveryTo"
-                              label="Delivery To"
-                              menuTitle="Choose delivery location"
-                              menuItems={siteOffices.map((office) => ({
-                                label: `${office.name} (${office.address || ""})`,
-                                value: office.id, // unique ID
-                              }))}
-                              size="small"
-                              labelArriangment={isViewMode ? "horizontal" : "vertical"}
-                              viewMode={isViewMode}
-                            />
-                          )}
-                        </Grid2>
-                      </Grid2>
+                  {/* Main Content Section */}
+                  <Grid2 container spacing={isViewMode ? 1 : 4} sx={{ mb: isViewMode ? 2 : 2 }}>
+                    {/* Left Column - Customer Information */}
+                    <Grid2 size={isViewMode ? 4 : 6} sx={{ pl: isViewMode ? 0 : undefined }}>
+                      {!isViewMode && (
+                        <FormSelect
+                          control={control}
+                          name="customerId"
+                          label="Customer"
+                          addItem={false}
+                          menuTitle="Choose customer"
+                          menuItems={customers.docs.map((customer) => ({
+                            label: customer.name,
+                            value: customer.id,
+                          }))}
+                          size="small"
+                        />
+                      )}
+                      {isViewMode && customer && (
+                        <Box sx={{ mb: 2 }}>
+                          <Typography variant="body1" sx={{ fontWeight: "bold", mb: 0.3, mt: 2.5, fontSize: "0.95rem" }}>
+                            {customer.name}
+                          </Typography>
+                          <Typography variant="body2" sx={{ mb: 0.3, fontSize: "0.85rem", lineHeight: 1.3 }}>
+                            {customer.address}
+                          </Typography>
+                        </Box>
+                      )}
+
+                      {!isViewMode ? (
+                        <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--half-gap)" }}>
+                          <FormInputBox control={control} name="attention.name" label="Attention" placeHolder="Enter Attention" size="small" labelArriangment="vertical" viewMode={isViewMode} />
+                          <FormInputBox control={control} name="attention.phoneNumber" label="Mobile" placeHolder="Enter Mobile Number" size="small" labelArriangment="vertical" viewMode={isViewMode} />
+                          <FormInputBox control={control} name="attention.email" label="Email" placeHolder="Enter Email" size="small" labelArriangment="vertical" viewMode={isViewMode} />
+                        </Box>
+                      ) : (
+                        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.3, mt: 1 }}>
+                          <Box sx={{ display: "flex", alignItems: "flex-start" }}>
+                            <Typography variant="body2" sx={{ minWidth: "70px", fontWeight: "400", fontSize: "0.85rem" }}>
+                              Attention
+                            </Typography>
+                            <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
+                              : {attentionName}
+                            </Typography>
+                          </Box>
+                          <Box sx={{ display: "flex", alignItems: "flex-start" }}>
+                            <Typography variant="body2" sx={{ minWidth: "70px", fontWeight: "400", fontSize: "0.85rem" }}>
+                              Tel
+                            </Typography>
+                            <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
+                              : {attentionPhoneNumber}
+                            </Typography>
+                          </Box>
+                          <Box sx={{ display: "flex", alignItems: "flex-start" }}>
+                            <Typography variant="body2" sx={{ minWidth: "70px", fontWeight: "400", fontSize: "0.85rem" }}>
+                              Email
+                            </Typography>
+                            <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
+                              : {attentionEmail}
+                            </Typography>
+                          </Box>
+                        </Box>
+                      )}
+
+                      {templateWatch("deliveryTo") && (
+                        <Box sx={{ mt: isViewMode ? 2 : 1 }}>
+                          <FormSelect
+                            control={control}
+                            name="deliveryTo"
+                            label="Delivery To"
+                            menuTitle="Choose delivery location"
+                            menuItems={siteOffices.map((office) => ({
+                              label: `${office.name} (${office.address || ""})`,
+                              value: office.id, // unique ID
+                            }))}
+                            size="small"
+                            labelArriangment={isViewMode ? "horizontal" : "vertical"}
+                            viewMode={isViewMode}
+                          />
+                        </Box>
+                      )}
                     </Grid2>
-                    <Grid2 size={6}>
+
+                    {/* Right Column - Quotation Details */}
+                    <Grid2 size={isViewMode ? 8 : 6}>
                       {isViewMode ? (
-                        <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                          <Box sx={{ display: "flex", gap: 1 }}>
-                            <Typography variant="body1" sx={{ minWidth: "180px" }}>
-                              Quotation No. :
+                        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.3 }}>
+                          {/* QUOTATION Title - smaller and left-aligned for view mode */}
+                          <Typography
+                            variant="h5"
+                            sx={{
+                              fontWeight: "bold",
+                              textAlign: "left",
+                              fontSize: "1.1rem",
+                              mb: 0.5,
+                              letterSpacing: "0.5px",
+                            }}
+                          >
+                            QUOTATION
+                          </Typography>
+                          <Box sx={{ display: "flex", alignItems: "flex-start" }}>
+                            <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>
+                              Quotation No.
                             </Typography>
-                            <Typography variant="body1">{quotationNo}</Typography>{" "}
+                            <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
+                              : {quotationNo}
+                            </Typography>
                           </Box>
-                          <Box sx={{ display: "flex", gap: 1 }}>
-                            <Typography variant="body1" sx={{ minWidth: "180px" }}>
-                              Quotation Date :
+                          <Box sx={{ display: "flex", alignItems: "flex-start" }}>
+                            <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>
+                              Quotation Date
                             </Typography>
-                            <Typography variant="body1">{quotationDate}</Typography>
+                            <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
+                              : {quotationDate}
+                            </Typography>
                           </Box>
-                          <Box sx={{ display: "flex", gap: 1 }}>
-                            <Typography variant="body1" sx={{ minWidth: "180px" }}>
-                              Validity Term :
+                          <Box sx={{ display: "flex", alignItems: "flex-start", mt: 0.5 }}>
+                            <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>
+                              Validity Term
                             </Typography>
-                            <Typography variant="body1">{validityTerm}</Typography>
+                            <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
+                              : {validityTerm}
+                            </Typography>
                           </Box>
-                          <Box sx={{ display: "flex", gap: 1 }}>
-                            <Typography variant="body1" sx={{ minWidth: "180px" }}>
-                              Currency :
+                          <Box sx={{ display: "flex", alignItems: "flex-start" }}>
+                            <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>
+                              Currency
                             </Typography>
-                            <Typography variant="body1">{currency}</Typography>
+                            <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
+                              : {currency}
+                            </Typography>
                           </Box>
-                          <Box sx={{ display: "flex", gap: 1 }}>
-                            <Typography variant="body1" sx={{ minWidth: "180px" }}>
-                              Sale Person :
+                          <Box sx={{ display: "flex", alignItems: "flex-start" }}>
+                            <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>
+                              Sale person
                             </Typography>
-                            <Typography variant="body1">{salePerson}</Typography>
+                            <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
+                              : {salePerson}
+                            </Typography>
                           </Box>
-                          <Box sx={{ display: "flex", gap: 1 }}>
-                            <Typography variant="body1" sx={{ minWidth: "180px" }}>
-                              Mobile :
+                          <Box sx={{ display: "flex", alignItems: "flex-start" }}>
+                            <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>
+                              Mobile
                             </Typography>
-                            <Typography variant="body1">{mobile}</Typography>
+                            <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
+                              : {mobile}
+                            </Typography>
                           </Box>
-                          <Box sx={{ display: "flex", gap: 1 }}>
-                            <Typography variant="body1" sx={{ minWidth: "180px" }}>
-                              Date :
+                          <Box sx={{ display: "flex", alignItems: "flex-start", mt: 0.5 }}>
+                            <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>
+                              Email
                             </Typography>
-                            <Typography variant="body1">{date}</Typography>
-                          </Box>
-                          <Box sx={{ display: "flex", gap: 1 }}>
-                            <Typography variant="body1" sx={{ minWidth: "180px" }}>
-                              Sales Person Email :
+                            <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
+                              : {salePersonEmail}
                             </Typography>
-                            <Typography variant="body1">{salePersonEmail}</Typography>
                           </Box>
                           {doNo && (
-                            <Box sx={{ display: "flex", gap: 1 }}>
-                              <Typography variant="body1" sx={{ minWidth: "180px" }}>
-                                DO No. :
+                            <Box sx={{ display: "flex", alignItems: "flex-start" }}>
+                              <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>
+                                DO No.
                               </Typography>
-                              <Typography variant="body1">{doNo}</Typography>
+                              <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
+                                : {doNo}
+                              </Typography>
                             </Box>
                           )}
                           {referenceNo && (
-                            <Box sx={{ display: "flex", gap: 1 }}>
-                              <Typography variant="body1" sx={{ minWidth: "180px" }}>
-                                Ref. No. :
+                            <Box sx={{ display: "flex", alignItems: "flex-start" }}>
+                              <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>
+                                Ref. No.
                               </Typography>
-                              <Typography variant="body1">{referenceNo}</Typography>
+                              <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
+                                : {referenceNo}
+                              </Typography>
                             </Box>
                           )}
                           {poNo && (
-                            <Box sx={{ display: "flex", gap: 1 }}>
-                              <Typography variant="body1" sx={{ minWidth: "180px" }}>
-                                Your PO No. :
+                            <Box sx={{ display: "flex", alignItems: "flex-start" }}>
+                              <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>
+                                Your PO No.
                               </Typography>
-                              <Typography variant="body1">{poNo}</Typography>
+                              <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
+                                : {poNo}
+                              </Typography>
                             </Box>
                           )}
                         </Box>
@@ -385,13 +470,14 @@ export default function Quotation1Template(props: Props) {
                       )}
                     </Grid2>
                   </Grid2>
+
                   <Box>
                     {isViewMode ? (
                       <>
-                        <Typography variant="h4" sx={{ fontWeight: "bold", textDecoration: "underline", mt: 4 }}>
+                        <Typography variant="h4" sx={{ fontWeight: "bold", textDecoration: "underline", mt: 2 }}>
                           {title}
                         </Typography>
-                        <Typography variant="body1" sx={{ whiteSpace: "pre-line", mt: 2 }}>
+                        <Typography variant="body1" sx={{ whiteSpace: "pre-line", mt: 1 }}>
                           We are pleased to submit our quotation with the following terms and conditions for your consideration and acceptance.
                         </Typography>
                       </>
@@ -399,7 +485,7 @@ export default function Quotation1Template(props: Props) {
                       <FormInputBox control={control} name="title" label="Title" placeHolder="Enter title" size="small" labelArriangment="vertical" viewMode={isViewMode} />
                     )}
                   </Box>
-                  <Box mt={5} mb={1}>
+                  <Box mt={2} mb={1}>
                     <Box sx={{ width: "100%", maxWidth: "100%", overflow: "hidden" }}>
                       <Table key={`table-${columns.length}-${columnOrder?.join("-") || "default"}-${JSON.stringify(columnLabels)}`} columns={columns} data={[...fields]} isNoSelectionColumn={true} />
                     </Box>
@@ -414,29 +500,32 @@ export default function Quotation1Template(props: Props) {
                     </Box>
                   )}
 
-                  <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--half-gap)", my: 3 }}>
+                  <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--half-gap)", my: isViewMode ? 1.5 : 3 }}>
                     <FormTextarea control={control} name="note" label="Note" placeHolder="Enter notes here" rows={4} labelArriangment="vertical" viewMode={isViewMode} />
                     <FormTextarea control={control} name="remarks" label="Remarks" placeHolder="Enter remarks here" rows={4} labelArriangment="vertical" viewMode={isViewMode} />
                     <FormTextarea control={control} name="termsAndConditions" label="Terms and Conditions" placeHolder="Enter terms and conditions here" rows={4} labelArriangment="vertical" viewMode={isViewMode} />
                   </Box>
                   {isViewMode && (
-                    <Box sx={{ my: 3 }}>
+                    <Box sx={{ my: 1.5 }}>
                       <Typography variant="body1" sx={{ whiteSpace: "pre-line" }}>
                         You understand and agree to this offer. We trust our offer meets your requirements and look forward to receiving{"\n"}
                         your order confirmation soon. Kindly contact us for further information. Thank you.
                       </Typography>
                     </Box>
                   )}
-                  <Grid2 container spacing={1} mt={4}>
-                    <Grid2 size={6}>
+                  <Grid2 container spacing={1} mt={isViewMode ? 2 : 4}>
+                    <Grid2 size={6} sx={{ pl: isViewMode ? 0 : undefined }}>
                       <Typography variant="body1" sx={{ fontWeight: "bold" }}>
                         We offer the above
                       </Typography>
                       <Typography variant="body1" sx={{ fontWeight: "bold" }}>
                         {companyName}
                       </Typography>
-                      <SignatureDialog label="company" name="signature.company" viewMode={isViewMode} control={control} />
-                      <Divider sx={{ borderBottomWidth: 2, borderColor: "black", my: 2, width: "260px", mx: "20px" }} />
+                      <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                        Company Stamp
+                      </Typography>
+                      <FormImage control={control} name="stamp.company" viewMode={isViewMode} />
+                      <Divider sx={{ borderBottomWidth: 0, my: 1 }} />
                       {/* Company info fields below the signing component (moved from right side) */}
                       {isViewMode ? (
                         <Box sx={{ display: "flex", flexDirection: "column", gap: 1, mt: 15 }}>
