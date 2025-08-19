@@ -34,10 +34,15 @@ export default function Quotation1Template(props: Props) {
   const [isViewMode, toggleViewMode] = useState(viewMode);
   const [isToolBarOpen, toggleToolbar] = useState(false);
   const { isDocumentLoading } = useGetDocument();
-  const { methods, onSubmit, editableVisibilityFields, watch, isLoading, isDirty } = useQO1TemplateHandler();
+  const { methods, onSubmit, editableVisibilityFields, watch: templateWatch, isLoading, isDirty, handleColumnReorder, handleToggleColumnVisibility, handleEditLabel, handleAddField } = useQO1TemplateHandler();
   const { customers } = useGetCustomers();
   const { addNewLine, control, companyName, setValue, customerId, projectId, fields, remove, onDocumentCreate, itemsError, isLoading: isDocumentCreationloading, isDirty: isDCretorDisabled } = useQO1DocumentCreator();
-  const { columns } = useQO1TemplateTableHeader({ viewMode: isViewMode, remove: remove, control, setValue });
+  const tableHeadersConfig = templateWatch("tableHeaders");
+  const columnOrder = templateWatch("tableColumnOrder");
+  const columnLabels = templateWatch("columnLabels");
+  // console.log("🔍 TEMPLATE: Table headers config:", tableHeadersConfig);
+  // console.log("🔍 TEMPLATE: Column order:", columnOrder);
+  const { columns } = useQO1TemplateTableHeader({ viewMode: isViewMode, remove: remove, control, setValue, tableHeadersConfig, columnOrder, columnLabels });
   const customer = customers.docs.find((customer) => customer.id === customerId);
   const { contentRef, handlePrint } = usePrintDocumentHandler();
   const { getToken } = useAuth();
@@ -46,8 +51,8 @@ export default function Quotation1Template(props: Props) {
 
   // Site Offices fetching logic
   const { siteOffices, fetchSiteOffices } = useGetSiteOffices();
-  const selectedCustomerId = watch("customerId");
-  const selectedDeliveryToId = watch("deliveryTo");
+  const selectedCustomerId = templateWatch("customerId");
+  const selectedDeliveryToId = templateWatch("deliveryTo");
   const selectedSiteOffice = siteOffices.find((office) => office.id === selectedDeliveryToId);
   const quotationNo = useWatch({ control, name: "quotationNo" });
   const quotationDate = useWatch({ control, name: "quotationDate" });
@@ -154,7 +159,7 @@ export default function Quotation1Template(props: Props) {
   };
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", gap: "var(--default-gap)", overflow: "hidden" }}>
+    <Box sx={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", gap: "var(--default-gap)" }}>
       <DocumentNameHeader
         primaryActionLoading={isLoading}
         secondaryActionLoading={isDocumentCreationloading}
@@ -170,15 +175,25 @@ export default function Quotation1Template(props: Props) {
         documentEditMode={!!documentId}
         isEditPath={isEditPath}
       />
-      <Grid2 container spacing={1} height="100%">
+      <Grid2 container spacing={1} sx={{ flex: 1, minHeight: 0 }}>
         {!documentId && isToolBarOpen && (
-          <Grid2 size={3}>
-            <form onSubmit={onSubmit}>
-              <DocumentCustomizer fields={editableVisibilityFields} control={methods.control} />
+          <Grid2 size={3} sx={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+            <form onSubmit={onSubmit} style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
+              <DocumentCustomizer
+                fields={editableVisibilityFields}
+                control={methods.control}
+                tableHeaders={tableHeadersConfig}
+                columnOrder={columnOrder}
+                columnLabels={columnLabels}
+                onColumnReorder={handleColumnReorder}
+                onToggleColumnVisibility={handleToggleColumnVisibility}
+                onEditLabel={handleEditLabel}
+                onAddField={handleAddField}
+              />
             </form>
           </Grid2>
         )}
-        <Grid2 size={!documentId && isToolBarOpen ? 9 : 12} height="100%">
+        <Grid2 size={!documentId && isToolBarOpen ? 9 : 12} sx={{ height: "100%", overflow: "hidden" }}>
           <TemplatePaper isToolBarOpen={isToolBarOpen} toggleToolbar={() => toggleToolbar(!isToolBarOpen)} documentEditMode={!!documentId}>
             {isDocumentLoading ? (
               <DocumentSkeleton />
@@ -186,7 +201,7 @@ export default function Quotation1Template(props: Props) {
               <form onSubmit={onSubmit} ref={contentRef}>
                 <Box sx={{ display: "flex", flexDirection: "column", padding: "var(--double-gap)" }}>
                   <Grid2 container spacing={1}>
-                    <Grid2 size={4}>{watch("logo") && <FormImage control={control} name="logo" viewMode={isViewMode} />}</Grid2>
+                    <Grid2 size={4}>{templateWatch("logo") && <FormImage control={control} name="logo" viewMode={isViewMode} />}</Grid2>
                     <Grid2 size={4}></Grid2>
                     <Grid2 size={4} />
                   </Grid2>
@@ -259,7 +274,7 @@ export default function Quotation1Template(props: Props) {
                           )}
                         </Grid2>
                         <Grid2 size={12}>
-                          {watch("deliveryTo") && (
+                          {templateWatch("deliveryTo") && (
                             <FormSelect
                               control={control}
                               name="deliveryTo"
@@ -363,9 +378,9 @@ export default function Quotation1Template(props: Props) {
                           <FormInputBox control={control} name="mobile" label="Mobile" placeHolder="Enter Mobile Number" size="small" labelArriangment="vertical" viewMode={isViewMode} />
                           <FormInputBox control={control} name="date" label="Date" type="date" size="small" labelArriangment="vertical" viewMode={isViewMode} />
                           <FormInputBox control={control} name="salePersonEmail" label="Sales Person Email" placeHolder="Enter Sales Person Email" size="small" labelArriangment="vertical" viewMode={isViewMode} />
-                          {watch("doNo") && <FormInputBox control={control} name="doNo" label="DO No." placeHolder="Enter Delivery Order No" size="small" labelArriangment="vertical" viewMode={isViewMode} />}
-                          {watch("referenceNo") && <FormInputBox control={control} name="referenceNo" label="Ref. No." placeHolder="Enter Our Reference No" size="small" labelArriangment="vertical" viewMode={isViewMode} />}
-                          {watch("poNo") && <FormInputBox control={control} name="poNo" label="Your PO No." placeHolder="Enter PO No" size="small" labelArriangment="vertical" viewMode={isViewMode} />}
+                          {templateWatch("doNo") && <FormInputBox control={control} name="doNo" label="DO No." placeHolder="Enter Delivery Order No" size="small" labelArriangment="vertical" viewMode={isViewMode} />}
+                          {templateWatch("referenceNo") && <FormInputBox control={control} name="referenceNo" label="Ref. No." placeHolder="Enter Our Reference No" size="small" labelArriangment="vertical" viewMode={isViewMode} />}
+                          {templateWatch("poNo") && <FormInputBox control={control} name="poNo" label="Your PO No." placeHolder="Enter PO No" size="small" labelArriangment="vertical" viewMode={isViewMode} />}
                         </Box>
                       )}
                     </Grid2>
@@ -385,7 +400,9 @@ export default function Quotation1Template(props: Props) {
                     )}
                   </Box>
                   <Box mt={5} mb={1}>
-                    <Table key={JSON.stringify(fields)} columns={columns} data={[...fields]} isNoSelectionColumn={true} />
+                    <Box sx={{ width: "100%", maxWidth: "100%", overflow: "hidden" }}>
+                      <Table key={`table-${columns.length}-${columnOrder?.join("-") || "default"}-${JSON.stringify(columnLabels)}`} columns={columns} data={[...fields]} isNoSelectionColumn={true} />
+                    </Box>
                   </Box>
                   {itemsError && <Alert severity="error">{`${itemsError}`}</Alert>}
 
@@ -444,8 +461,8 @@ export default function Quotation1Template(props: Props) {
                         </Box>
                       ) : (
                         <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--half-gap)", textAlign: "center", alignItems: "inherit" }}>
-                          {watch("company.name") && <FormInputBox control={control} label="Company name" name="company.name" placeHolder="Enter Company Name" size="small" labelArriangment="vertical" viewMode={isViewMode} />}
-                          {watch("company.address") && <FormInputBox control={control} label="Company address" name="company.address" placeHolder="Enter Company Address" size="small" labelArriangment="vertical" viewMode={isViewMode} />}
+                          {templateWatch("company.name") && <FormInputBox control={control} label="Company name" name="company.name" placeHolder="Enter Company Name" size="small" labelArriangment="vertical" viewMode={isViewMode} />}
+                          {templateWatch("company.address") && <FormInputBox control={control} label="Company address" name="company.address" placeHolder="Enter Company Address" size="small" labelArriangment="vertical" viewMode={isViewMode} />}
                           <FormInputBox control={control} name="gstRegNo" label="GST REG. No." placeHolder="Enter GST Reg No" size="small" labelArriangment="vertical" viewMode={isViewMode} />
                         </Box>
                       )}

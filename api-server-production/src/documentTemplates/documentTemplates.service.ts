@@ -106,25 +106,12 @@ export class DocumentTemplatesService {
         data: {
           ...(name && { name }),
           ...(type && { type }),
-          config: {
-            logo: updateDto.logo,
-            customer: updateDto.customer,
-            collectFrom: updateDto.collectFrom,
-            deliveryTo: updateDto.deliveryTo,
-            returnOrderNo: updateDto.returnOrderNo,
-            doNo: updateDto.doNo,
-            referenceNo: updateDto.referenceNo,
-            poNo: updateDto.poNo,
-            company: {
-              name: updateDto.company?.name,
-              address: updateDto.company?.address,
-              phoneNumber: updateDto.company?.phoneNumber,
-            },
-            attention: {
-              name: updateDto.attention?.name,
-              phoneNumber: updateDto.attention?.phoneNumber,
-            },
-          },
+          config: (() => {
+            // Save all config fields dynamically instead of hardcoding
+            const { id, name, type, ...configFields } = updateDto;
+            // Convert to plain object to ensure JSON compatibility
+            return JSON.parse(JSON.stringify(configFields));
+          })(),
         },
       });
 

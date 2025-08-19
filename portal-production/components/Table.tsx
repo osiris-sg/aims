@@ -94,13 +94,15 @@ export default function Table(props: Props) {
     <Box
       sx={{
         width: "100%",
-        overflowX: isMobile ? "auto" : "visible",
+        maxWidth: "100%",
+        overflowX: "hidden", // Prevent horizontal overflow
         "& .MuiTable-root": {
-          minWidth: isMobile ? "600px" : "1200px",
+          width: "100%",
+          maxWidth: "100%",
         },
       }}
     >
-      <MuiTable sx={{ width: "100%", tableLayout: "fixed", borderCollapse: "separate" }}>
+      <MuiTable sx={{ width: "100%", maxWidth: "100%", tableLayout: "fixed", borderCollapse: "separate" }}>
         <TableHead sx={{ backgroundColor: "tertiary.light", position: "sticky", top: 0, zIndex: 1000 }}>
           {table.getHeaderGroups().map((headerGroup: any) => (
             <TableRow key={headerGroup.id}>
@@ -118,9 +120,9 @@ export default function Table(props: Props) {
                         }
                       : header.column.columnDef.size
                       ? {
-                          width: `${header.column.columnDef.size}px`,
-                          minWidth: header.column.columnDef.minSize ? `${header.column.columnDef.minSize}px` : `${header.column.columnDef.size}px`,
-                          maxWidth: header.column.columnDef.maxSize ? `${header.column.columnDef.maxSize}px` : undefined,
+                          width: `${header.column.columnDef.size}%`,
+                          minWidth: header.column.columnDef.minSize ? `${header.column.columnDef.minSize}%` : `${header.column.columnDef.size}%`,
+                          maxWidth: header.column.columnDef.maxSize ? `${header.column.columnDef.maxSize}%` : undefined,
                         }
                       : {}),
                     color: "tertiary.dark",
@@ -159,9 +161,9 @@ export default function Table(props: Props) {
                             }
                           : header.column.columnDef.size
                           ? {
-                              width: `${header.column.columnDef.size}px`,
-                              minWidth: header.column.columnDef.minSize ? `${header.column.columnDef.minSize}px` : `${header.column.columnDef.size}px`,
-                              maxWidth: header.column.columnDef.maxSize ? `${header.column.columnDef.maxSize}px` : undefined,
+                              width: `${header.column.columnDef.size}%`,
+                              minWidth: header.column.columnDef.minSize ? `${header.column.columnDef.minSize}%` : `${header.column.columnDef.size}%`,
+                              maxWidth: header.column.columnDef.maxSize ? `${header.column.columnDef.maxSize}%` : undefined,
                             }
                           : {}),
                       }}
@@ -200,9 +202,9 @@ export default function Table(props: Props) {
                               }
                             : cell.column.columnDef.size
                             ? {
-                                width: `${cell.column.columnDef.size}px`,
-                                minWidth: cell.column.columnDef.minSize ? `${cell.column.columnDef.minSize}px` : `${cell.column.columnDef.size}px`,
-                                maxWidth: cell.column.columnDef.maxSize ? `${cell.column.columnDef.maxSize}px` : undefined,
+                                width: `${cell.column.columnDef.size}%`,
+                                minWidth: cell.column.columnDef.minSize ? `${cell.column.columnDef.minSize}%` : `${cell.column.columnDef.size}%`,
+                                maxWidth: cell.column.columnDef.maxSize ? `${cell.column.columnDef.maxSize}%` : undefined,
                                 // Allow description column to wrap and expand
                                 ...(cell.column.id === "description"
                                   ? {
