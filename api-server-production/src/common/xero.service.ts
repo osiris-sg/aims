@@ -494,12 +494,15 @@ export class XeroService {
       // Check if refresh token itself has expired (60 days)
       if (tokenInfo.refreshTokenExpiresAt <= now) {
         console.error('💥 XERO SERVICE: Refresh token has expired after 60 days! Re-authentication required.');
+        console.error('💥 XERO SERVICE: Expired at:', tokenInfo.refreshTokenExpiresAt.toISOString());
+        console.error('💥 XERO SERVICE: Current time:', now.toISOString());
         console.error('💥 XERO SERVICE: Please visit /xero/connect to re-authenticate with Xero');
 
         // Delete expired connection from database
         await this.prisma.xeroConnection.delete({
           where: { organizationId },
         });
+        console.log('🗑️ XERO SERVICE: Deleted XeroConnection for organization:', organizationId, 'due to refresh token expiry');
 
         return null;
       }
@@ -529,12 +532,29 @@ export class XeroService {
           } catch (refreshError) {
             console.error('🔴 XERO SERVICE: Token refresh failed:', refreshError);
             console.error('🔴 XERO SERVICE: Refresh error details:', refreshError.message);
-            console.warn('🔴 XERO SERVICE: Deleting invalid tokens - OAuth re-authorization required');
 
-            // Delete invalid connection from database
-            await this.prisma.xeroConnection.delete({
-              where: { organizationId },
-            });
+            // Only delete connection if it's a permanent error (401/403), not temporary network issues
+            const isTemporaryError =
+              refreshError.message?.includes('ENOTFOUND') || refreshError.message?.includes('ECONNRESET') || refreshError.message?.includes('timeout') || refreshError.message?.includes('network');
+
+            if (isTemporaryError) {
+              console.warn('⚠️ XERO SERVICE: Temporary network error - keeping connection for retry later');
+              return null;
+            }
+
+            // Check if it's a 401/403 error (invalid refresh token)
+            const isAuthError =
+              refreshError.message?.includes('401') || refreshError.message?.includes('403') || refreshError.message?.includes('invalid_grant') || refreshError.message?.includes('unauthorized');
+
+            if (isAuthError) {
+              console.warn('🔴 XERO SERVICE: Authentication error - deleting invalid tokens');
+              await this.prisma.xeroConnection.delete({
+                where: { organizationId },
+              });
+              console.log('🗑️ XERO SERVICE: Deleted XeroConnection for organization:', organizationId, 'due to auth error');
+            } else {
+              console.warn('⚠️ XERO SERVICE: Unknown refresh error - keeping connection for manual review');
+            }
 
             return null;
           }
@@ -545,6 +565,7 @@ export class XeroService {
           await this.prisma.xeroConnection.delete({
             where: { organizationId },
           });
+          console.log('🗑️ XERO SERVICE: Deleted XeroConnection for organization:', organizationId, 'due to missing refresh token');
 
           return null;
         }

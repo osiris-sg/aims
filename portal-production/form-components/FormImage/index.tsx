@@ -83,7 +83,8 @@ export default function FormImage(props: Props) {
                   padding: viewMode ? 0 : 2,
                   width: "100%",
                   sm: "30%",
-                  backgroundColor: theme.palette.secondary.light,
+                  backgroundColor: viewMode ? "transparent" : theme.palette.secondary.light,
+                  border: viewMode ? "none" : undefined,
                 }}
               >
                 <Controller
