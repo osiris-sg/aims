@@ -15,6 +15,7 @@ import AssignmentRoundedIcon from "@mui/icons-material/AssignmentRounded";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import DescriptionIcon from "@mui/icons-material/Description";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
+import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 // import InfoRoundedIcon from "@mui/icons-material/InfoRounded";
 import { useTheme } from "@mui/material";
 import Link from "next/link";
@@ -51,10 +52,7 @@ const getMainListItems = (isAdmin: boolean) => {
   return baseItems;
 };
 
-const secondaryListItems: any = [
-  // { text: "Settings", icon: <SettingsRoundedIcon /> },
-  // { text: "Notifications", icon: <InfoRoundedIcon /> },
-];
+const secondaryListItems: any = [{ text: "Organization Settings", path: "/portal/settings/organization", icon: <SettingsRoundedIcon /> }];
 
 export default function SideBarContent() {
   const theme = useTheme();
@@ -323,6 +321,8 @@ export default function SideBarContent() {
                   px: isCollapsed ? 1.5 : 2,
                   borderRadius: "var(--default-border-radius)",
                 }}
+                component={Link}
+                href={item.path}
               >
                 <ListItemIcon
                   sx={{

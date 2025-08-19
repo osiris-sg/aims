@@ -8,6 +8,7 @@ import { selectDocumentCeationStatus, selectDocumentTemplate, selectIsDocumentUp
 import { useDocumentTemplateSlice } from "@/containers/DocumentsTemplateView/slice";
 import { useAuth } from "@clerk/nextjs";
 import { useEffect, useMemo } from "react";
+import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { uploadImage } from "@/helpers/imageUploader";
 import { base64ToFile } from "@/helpers/base64ToFile";
 import { useParams, useSearchParams } from "next/navigation";
@@ -21,6 +22,7 @@ export default function useQO1DocumentCreator() {
   const { actions } = useDocumentTemplateSlice();
   const { getToken } = useAuth();
   const { document } = useGetDocument();
+  const { organization } = useOrganization();
   const searchParams = useSearchParams();
   const scannedInventoryId = searchParams.get("scannedInventoryId");
 
@@ -49,8 +51,11 @@ export default function useQO1DocumentCreator() {
       remarks: "",
       termsAndConditions: "",
       title: "",
+      // Preload containers for images
+      logo: organization?.logo ? [{ data: organization.logo }] : undefined,
+      stamp: { company: organization?.defaultStamp ? [{ data: organization.defaultStamp }] : [] },
     }),
-    [scannedInventoryId]
+    [scannedInventoryId, organization?.logo, organization?.defaultStamp]
   );
   console.log("Document Template:", defaultValues, documenttemplate);
 
@@ -126,6 +131,7 @@ export default function useQO1DocumentCreator() {
     console.log("Document ID:", documentId, "Document Config:", document);
     if (documentId && document?.config) {
       const logoValue = document.config.logo ? [{ data: document.config.logo }] : null;
+      const stampCompanyValue = document.config?.stamp?.company ? [{ data: document.config.stamp.company }] : [];
 
       reset(
         {
@@ -136,6 +142,7 @@ export default function useQO1DocumentCreator() {
               quantity: item.quantity ?? 1,
             })) || [],
           logo: logoValue,
+          stamp: { company: stampCompanyValue },
         },
         {
           keepDefaultValues: false,
@@ -148,8 +155,16 @@ export default function useQO1DocumentCreator() {
         setValue("company.phoneNumber", document.organization.phoneNumber || "", { shouldDirty: true });
         setValue("gstRegNo", document.organization.registrationNumber || "", { shouldDirty: true });
       }
+    } else if (!documentId && organization) {
+      // New document → preload org logo and default stamp if available
+      if (organization.logo) {
+        setValue("logo", [{ data: organization.logo }], { shouldDirty: true });
+      }
+      if (organization.defaultStamp) {
+        setValue("stamp.company", [{ data: organization.defaultStamp }], { shouldDirty: true });
+      }
     }
-  }, [documentId, document?.config, reset, setValue, document?.organization]);
+  }, [documentId, document?.config, reset, setValue, document?.organization, organization]);
 
   const onSubmit = async (data: any) => {
     try {
@@ -176,6 +191,24 @@ export default function useQO1DocumentCreator() {
       }
 
       const uploadedSignatures: { company?: string; customer?: string } = {};
+
+      // Company stamp upload/retain
+      let companyStampKey = "";
+      const stampCompanyArr = data?.stamp?.company;
+      const stampCompanyEntry = Array.isArray(stampCompanyArr) ? stampCompanyArr[0] : undefined;
+      const stampCompanyVal = stampCompanyEntry?.data ?? stampCompanyEntry;
+      if (stampCompanyVal) {
+        if (typeof stampCompanyVal === "string") {
+          companyStampKey = stampCompanyVal;
+        } else {
+          try {
+            dispatch(actions.uploadImageStart());
+            companyStampKey = await uploadImage({ blob: stampCompanyVal, folderName: "stamps", token });
+          } finally {
+            dispatch(actions.uploadImageEnd());
+          }
+        }
+      }
       if (data.signature) {
         for (const key of ["company", "customer"] as const) {
           const base64 = data.signature?.[key];
@@ -205,6 +238,7 @@ export default function useQO1DocumentCreator() {
         ...data,
         projectId, // added
         logo: logoKey || document?.config.logo,
+        stamp: { company: companyStampKey || document?.config?.stamp?.company },
         signature: uploadedSignatures,
       };
 

@@ -18,4 +18,29 @@ export class CreateOrganizationDto {
   @IsString()
   @IsOptional()
   id?: string;
+
+  @ApiProperty({ required: false })
+  @IsString()
+  @IsOptional()
+  address?: string;
+
+  @ApiProperty({ required: false })
+  @IsString()
+  @IsOptional()
+  phoneNumber?: string;
+
+  @ApiProperty({ required: false })
+  @IsString()
+  @IsOptional()
+  registrationNumber?: string;
+
+  @ApiProperty({ required: false, description: 'Key/URL for organization logo' })
+  @IsString()
+  @IsOptional()
+  logo?: string;
+
+  @ApiProperty({ required: false, description: 'Key/URL for default company stamp' })
+  @IsString()
+  @IsOptional()
+  defaultStamp?: string;
 }

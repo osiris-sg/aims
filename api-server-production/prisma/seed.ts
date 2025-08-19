@@ -1145,6 +1145,8 @@ async function main() {
     update: {
       permissions: {
         set: [
+          // Organization management (org-scoped)
+          { id: updateOrganizationPermission.id },
           // Asset management (organization-scoped)
           { id: readAssetsPermission.id },
           { id: readAssetsSkuPermission.id },
@@ -1222,6 +1224,8 @@ async function main() {
       organizationId: osirisOrg.id,
       permissions: {
         connect: [
+          // Organization management (org-scoped)
+          { id: updateOrganizationPermission.id },
           // Asset management (organization-scoped)
           { id: readAssetsPermission.id },
           { id: readAssetsSkuPermission.id },

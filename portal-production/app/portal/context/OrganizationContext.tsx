@@ -8,6 +8,11 @@ import { request } from "@/helpers/request";
 interface Organization {
   id: string;
   name: string;
+  address?: string | null;
+  phoneNumber?: string | null;
+  registrationNumber?: string | null;
+  logo?: string | null;
+  defaultStamp?: string | null;
 }
 
 interface OrganizationContextType {

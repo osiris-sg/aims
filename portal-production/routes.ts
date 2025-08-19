@@ -14,6 +14,7 @@ export const ROUTES = {
   INVOICES: "/portal/invoices",
 
   PROJECTS: "/portal/projects",
+  ORG_SETTINGS: "/portal/settings/organization",
   CREATE_PROJECT: "/portal/projects/create",
 
   DOCUMENTS: "/portal/documents",
@@ -36,7 +37,6 @@ export const ROUTES = {
   ADMIN_USERS: "/portal/admin/users",
   ADMIN_ROLES: "/portal/admin/roles",
   ADMIN_AUDIT_LOGS: "/portal/admin/audit",
-
 
   VIEW_PERMISSIONS: "/portal/permissions/view",
   EDIT_PERMISSIONS: "/portal/permissions/edit",

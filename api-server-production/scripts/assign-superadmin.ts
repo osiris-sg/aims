@@ -60,10 +60,17 @@ async function assignSuperadminRole() {
         where: {
           // Exclude platform-level permissions that should only be for OsirisAdmin
           NOT: {
-            OR: [{ resource: 'organizations' }, { resource: 'roles', action: 'create' }, { resource: 'roles', action: 'delete' }, { resource: 'permissions' }],
+            OR: [
+              { AND: [{ resource: 'organizations' }, { action: { not: 'update' } }] },
+              { resource: 'roles', action: 'create' },
+              { resource: 'roles', action: 'delete' },
+              { resource: 'permissions' },
+            ],
           },
         },
       });
+
+      const orgUpdatePermission = await prisma.permission.findUnique({ where: { name: 'organizations:update' } });
 
       superadminRole = await prisma.role.create({
         data: {
@@ -71,13 +78,26 @@ async function assignSuperadminRole() {
           description: 'Organization Super Administrator with full permissions within their organization',
           organizationId: organization.id,
           permissions: {
-            connect: allPermissions.map((p) => ({ id: p.id })),
+            connect: [...allPermissions.map((p) => ({ id: p.id })), ...(orgUpdatePermission ? [{ id: orgUpdatePermission.id }] : [])],
           },
         },
       });
       console.log(`✅ Created superadmin role for organization ${organization.name}`);
     } else {
       console.log(`Found existing superadmin role for organization ${organization.name}`);
+      // Ensure organizations:update is connected for existing role
+      const orgUpdatePermission = await prisma.permission.findUnique({ where: { name: 'organizations:update' } });
+      if (orgUpdatePermission) {
+        await prisma.role.update({
+          where: { id: superadminRole.id },
+          data: {
+            permissions: {
+              connect: [{ id: orgUpdatePermission.id }],
+            },
+          },
+        });
+        console.log('🔧 Ensured permission organizations:update is assigned to superadmin');
+      }
     }
 
     // Step 1: Create UserOrganization relationship

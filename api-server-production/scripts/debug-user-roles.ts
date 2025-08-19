@@ -52,6 +52,9 @@ async function debugUserRoles() {
         if (userRole.role.name === 'osirisadmin') {
           console.log('   🌟 OsirisAdmin role detected!');
         }
+
+        const hasOrgUpdate = userRole.role.permissions.some((p) => p.name === 'organizations:update');
+        console.log(`   • Has 'organizations:update': ${hasOrgUpdate ? '✅' : '❌'}`);
       });
     }
 
@@ -72,6 +75,13 @@ async function debugUserRoles() {
       console.log(`   • Active: ${userOrg.isActive}`);
       console.log(`   • Joined: ${userOrg.joinedAt}`);
     });
+
+    // Final capability check: does user have organizations:update in their current org?
+    const currentOrgId = userOrgs[0]?.organization.id;
+    if (currentOrgId) {
+      const hasUpdateInCurrentOrg = userRoles.some((ur) => ur.organization.id === currentOrgId && ur.role.permissions.some((p) => p.name === 'organizations:update'));
+      console.log(`\n✅ Can update current org (${currentOrgId}): ${hasUpdateInCurrentOrg ? 'YES' : 'NO'}`);
+    }
 
     // Check if osirisadmin role exists
     const osirisAdminRole = await prisma.role.findFirst({

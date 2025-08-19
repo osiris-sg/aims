@@ -74,6 +74,11 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
             select: {
               id: true,
               name: true,
+              address: true,
+              phoneNumber: true,
+              registrationNumber: true,
+              logo: true,
+              defaultStamp: true,
             },
           },
         },

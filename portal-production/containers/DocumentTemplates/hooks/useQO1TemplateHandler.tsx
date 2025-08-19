@@ -8,6 +8,13 @@ import { useDispatch, useSelector } from "react-redux";
 import { selectDocumentTemplate, selectIsDocumentTemplateUpdating } from "@/containers/DocumentsTemplateView/slice/selectors";
 import { useEffect, useMemo } from "react";
 
+type TemplateConfig = {
+  tableHeaders?: Record<string, boolean>;
+  tableColumnOrder?: string[];
+  columnLabels?: Record<string, string>;
+  [key: string]: any;
+};
+
 export default function useQO1TemplateHandler() {
   const { type } = useParams() as { type?: string };
   const dispatch = useDispatch();
@@ -60,23 +67,24 @@ export default function useQO1TemplateHandler() {
   useEffect(() => {
     if (documentTemplate) {
       console.log("🔄 TEMPLATE HANDLER: Loading document template:", documentTemplate);
-      console.log("🔄 TEMPLATE HANDLER: Document config:", documentTemplate?.config);
-      console.log("🔄 TEMPLATE HANDLER: Existing columnLabels:", documentTemplate?.config?.columnLabels);
+      const config = (documentTemplate?.config || {}) as TemplateConfig;
+      console.log("🔄 TEMPLATE HANDLER: Document config:", config);
+      console.log("🔄 TEMPLATE HANDLER: Existing columnLabels:", config?.columnLabels);
 
       // Merge with default values to ensure new fields are included
       const mergedConfig = {
         ...defaultValues,
         ...documentTemplate,
-        ...(documentTemplate?.config ? documentTemplate.config : {}),
+        ...(config || {}),
         // Ensure table configuration exists
         tableHeaders: {
           ...defaultValues.tableHeaders,
-          ...(documentTemplate?.config?.tableHeaders || {}),
+          ...(config?.tableHeaders || {}),
         },
-        tableColumnOrder: documentTemplate?.config?.tableColumnOrder || defaultValues.tableColumnOrder,
+        tableColumnOrder: config?.tableColumnOrder || defaultValues.tableColumnOrder,
         columnLabels: {
           ...defaultValues.columnLabels,
-          ...(documentTemplate?.config?.columnLabels || {}),
+          ...(config?.columnLabels || {}),
         },
       };
 
