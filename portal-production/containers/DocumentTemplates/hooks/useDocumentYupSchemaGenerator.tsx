@@ -12,11 +12,8 @@ export default function useDocumentYupSchemaGenerator(defaultValues: any, requir
       const isRequired = rule === true;
 
       if (key === "items") {
-        // Hardcoded validation for the items array
-        shape[key] = yup
-          .array()
-
-          .min(1, "At least one item is required");
+        const requireItems = rules?.__requireItems !== false; // default required unless explicitly disabled
+        shape[key] = requireItems ? yup.array().min(1, "At least one item is required") : yup.array().notRequired();
         continue;
       }
 

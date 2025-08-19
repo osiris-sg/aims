@@ -59,7 +59,8 @@ export default function useQO1DocumentCreator() {
   );
   console.log("Document Template:", defaultValues, documenttemplate);
 
-  const schema = useDocumentYupSchemaGenerator(defaultValues, documenttemplate?.config || {});
+  // For Quotation 1, make all fields optional and do not require items
+  const schema = useDocumentYupSchemaGenerator(defaultValues, { __requireItems: false });
 
   const {
     control,
