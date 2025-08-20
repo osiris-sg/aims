@@ -8,6 +8,7 @@ import { selectDocumentCeationStatus, selectDocumentTemplate, selectIsDocumentUp
 import { useDocumentTemplateSlice } from "@/containers/DocumentsTemplateView/slice";
 import { useAuth } from "@clerk/nextjs";
 import { useEffect, useMemo } from "react";
+import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { uploadImage } from "@/helpers/imageUploader";
 import { base64ToFile } from "@/helpers/base64ToFile";
 import { useParams, useSearchParams } from "next/navigation";
@@ -21,6 +22,7 @@ export default function useQO2DocumentCreator() {
   const { actions } = useDocumentTemplateSlice();
   const { getToken } = useAuth();
   const { document } = useGetDocument();
+  const { organization } = useOrganization();
   const searchParams = useSearchParams();
   const scannedInventoryId = searchParams.get("scannedInventoryId");
 
@@ -148,8 +150,11 @@ export default function useQO2DocumentCreator() {
         setValue("company.phoneNumber", document.organization.phoneNumber || "", { shouldDirty: true });
         setValue("gstRegNo", document.organization.registrationNumber || "", { shouldDirty: true });
       }
+    } else if (!documentId && organization?.logo) {
+      // Preload org logo for new documents
+      setValue("logo", [{ data: organization.logo }], { shouldDirty: true });
     }
-  }, [documentId, document?.config, reset, setValue, document?.organization]);
+  }, [documentId, document?.config, reset, setValue, document?.organization, organization?.logo]);
 
   const onSubmit = async (data: any) => {
     try {
@@ -160,18 +165,18 @@ export default function useQO2DocumentCreator() {
       const logoFile = Array.isArray(data.logo) ? data.logo[0] : data.logo;
 
       if (logoFile) {
-        try {
-          dispatch(actions.uploadImageStart());
-          logoKey = await uploadImage({
-            blob: logoFile,
-            folderName: "logos",
-            token,
-          });
-        } catch (err) {
-          console.error("Logo upload failed", err);
-          throw err;
-        } finally {
-          dispatch(actions.uploadImageEnd());
+        if (typeof logoFile === "string") {
+          logoKey = logoFile;
+        } else {
+          try {
+            dispatch(actions.uploadImageStart());
+            logoKey = await uploadImage({ blob: logoFile, folderName: "logos", token });
+          } catch (err) {
+            console.error("Logo upload failed", err);
+            throw err;
+          } finally {
+            dispatch(actions.uploadImageEnd());
+          }
         }
       }
 

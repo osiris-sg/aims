@@ -8,6 +8,7 @@ import { selectDocumentCeationStatus, selectDocumentTemplate, selectIsDocumentUp
 import { useDocumentTemplateSlice } from "@/containers/DocumentsTemplateView/slice";
 import { useAuth } from "@clerk/nextjs";
 import { useEffect } from "react";
+import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { uploadImage } from "@/helpers/imageUploader";
 import { base64ToFile } from "@/helpers/base64ToFile";
 import { useParams, useSearchParams } from "next/navigation";
@@ -20,6 +21,7 @@ export default function useRDODocumentCreator() {
   const { actions } = useDocumentTemplateSlice();
   const { getToken } = useAuth();
   const { document } = useGetDocument();
+  const { organization } = useOrganization();
   const searchParams = useSearchParams();
   const scannedInventoryId = searchParams.get("scannedInventoryId");
 
@@ -88,8 +90,10 @@ export default function useRDODocumentCreator() {
           keepDefaultValues: false,
         }
       );
+    } else if (!documentId && organization?.logo) {
+      setValue("logo", [{ data: organization.logo }], { shouldDirty: true });
     }
-  }, [documentId, document?.config, reset]);
+  }, [documentId, document?.config, reset, organization?.logo, setValue]);
 
   const onSubmit = async (data: any) => {
     try {
@@ -100,18 +104,18 @@ export default function useRDODocumentCreator() {
       const logoFile = Array.isArray(data.logo) ? data.logo[0] : data.logo;
 
       if (logoFile) {
-        try {
-          dispatch(actions.uploadImageStart());
-          logoKey = await uploadImage({
-            blob: logoFile,
-            folderName: "logos",
-            token,
-          });
-        } catch (err) {
-          console.error("Logo upload failed", err);
-          throw err;
-        } finally {
-          dispatch(actions.uploadImageEnd());
+        if (typeof logoFile === "string") {
+          logoKey = logoFile;
+        } else {
+          try {
+            dispatch(actions.uploadImageStart());
+            logoKey = await uploadImage({ blob: logoFile, folderName: "logos", token });
+          } catch (err) {
+            console.error("Logo upload failed", err);
+            throw err;
+          } finally {
+            dispatch(actions.uploadImageEnd());
+          }
         }
       }
 

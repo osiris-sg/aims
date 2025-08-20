@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { Courgette } from "next/font/google";
 import DocumentNameHeader from "./DocumentNameHeader";
 import { Alert, Box, Button, Divider, Grid2, Typography } from "@mui/material";
 import { useWatch } from "react-hook-form";
@@ -23,6 +24,9 @@ import useQO1TemplateHandler from "../hooks/useQO1TemplateHandler";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
+
+// Handwritten-style font for typed signatures
+const courgette = Courgette({ subsets: ["latin"], weight: "400" });
 interface Props {
   viewMode: boolean;
 }
@@ -72,6 +76,7 @@ export default function Quotation1Template(props: Props) {
   const companyNameValue = useWatch({ control, name: "company.name" });
   const companyAddress = useWatch({ control, name: "company.address" });
   const title = useWatch({ control, name: "title" });
+  const signatureTextCompany = useWatch({ control, name: "signatureText.company" });
 
   // Calculate totals using useWatch for real-time updates
   const watchedItems = useWatch({ control, name: "customerId" });
@@ -521,10 +526,29 @@ export default function Quotation1Template(props: Props) {
                       <Typography variant="body1" sx={{ fontWeight: "bold" }}>
                         {companyName}
                       </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                        Company Stamp
-                      </Typography>
-                      <FormImage control={control} name="stamp.company" viewMode={isViewMode} />
+                      {/* Company Signature + Stamp side by side */}
+                      <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "flex-start" }}>
+                        <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                            Company Signature
+                          </Typography>
+                          {isViewMode ? (
+                            <Box className={courgette.className} sx={{ fontSize: "2.2rem", color: "#3b4a5d", lineHeight: 1, minHeight: 48 }}>
+                              {signatureTextCompany}
+                            </Box>
+                          ) : (
+                            <FormInputBox control={control} name="signatureText.company" label="Signature Text" placeHolder="Type signature" size="small" labelArriangment="vertical" />
+                          )}
+                        </Box>
+                        <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                            Company Stamp
+                          </Typography>
+                          <Box sx={{ transform: "scale(0.4)", transformOrigin: "top left", width: 0, height: 0 }}>
+                            <FormImage control={control} name="stamp.company" viewMode={isViewMode} />
+                          </Box>
+                        </Box>
+                      </Box>
                       <Divider sx={{ borderBottomWidth: 0, my: 1 }} />
                       {/* Company info fields below the signing component (moved from right side) */}
                       {isViewMode ? (

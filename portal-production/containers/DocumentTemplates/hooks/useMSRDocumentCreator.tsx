@@ -8,6 +8,7 @@ import { selectDocumentCeationStatus, selectDocumentTemplate, selectIsDocumentUp
 import { useDocumentTemplateSlice } from "@/containers/DocumentsTemplateView/slice";
 import { useAuth } from "@clerk/nextjs";
 import { useEffect, useMemo } from "react";
+import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { uploadImage } from "@/helpers/imageUploader";
 import { base64ToFile } from "@/helpers/base64ToFile";
 import { useParams } from "next/navigation";
@@ -20,6 +21,7 @@ export default function useMSRDocumentCreator() {
   const { actions } = useDocumentTemplateSlice();
   const { getToken } = useAuth();
   const { document } = useGetDocument();
+  const { organization } = useOrganization();
 
   const defaultValues = useMemo(
     () => ({
@@ -112,8 +114,11 @@ export default function useMSRDocumentCreator() {
           keepDefaultValues: false,
         }
       );
+    } else if (!documentId && organization?.logo) {
+      // Optional: if MSR uses a logo later, preload
+      setValue("logo", [{ data: organization.logo }], { shouldDirty: true });
     }
-  }, [documentId, document?.config, document, reset, defaultValues]);
+  }, [documentId, document?.config, document, reset, defaultValues, organization?.logo, setValue]);
 
   const onSubmit = async (data: any) => {
     try {
