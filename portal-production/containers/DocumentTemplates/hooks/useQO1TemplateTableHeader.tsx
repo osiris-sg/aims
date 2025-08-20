@@ -4,6 +4,7 @@ import React, { useMemo } from "react";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { IconButton } from "@mui/material";
 import FormInputBox from "@/form-components/FormInputBox";
+import FormTextArea from "@/form-components/FormTextArea";
 import { Control, FieldValues } from "react-hook-form";
 
 interface Props {
@@ -19,7 +20,7 @@ interface Props {
 }
 
 export default function useQO1TemplateTableHeader(props: Props) {
-  const { viewMode, remove, control, setValue, tableHeadersConfig, columnOrder, columnLabels } = props;
+  const { viewMode, remove, control, tableHeadersConfig, columnOrder, columnLabels } = props;
 
   const columns = useMemo(() => {
     // console.log("🔄 TABLE HEADERS: Regenerating columns with config:", tableHeadersConfig);
@@ -31,7 +32,7 @@ export default function useQO1TemplateTableHeader(props: Props) {
 
     // Calculate dynamic column widths using percentages for better responsiveness
     const visibleColumns = order.filter((key) => tableHeadersConfig?.[key] !== false);
-    const totalColumns = visibleColumns.length;
+    // const totalColumns = visibleColumns.length; // reserved for future use
     const hasActions = !viewMode;
 
     // Define relative weights for different column types (not fixed pixels)
@@ -83,7 +84,16 @@ export default function useQO1TemplateTableHeader(props: Props) {
           header: label,
           size: getColumnWidth("item"),
           cell: ({ row }: { row: any }) => (
-            <FormInputBox control={control} name={`items.${row.index}.item`} placeHolder="Enter item description" size="small" labelArriangment={viewMode ? "horizontal" : "vertical"} viewMode={viewMode} key={`item-input-${row.id}-${control._formValues?.items?.[row.index]?.item || ""}`} />
+            <FormTextArea
+              control={control}
+              name={`items.${row.index}.item`}
+              placeHolder="Enter item description"
+              rows={1}
+              size="small"
+              labelArriangment={viewMode ? "horizontal" : "vertical"}
+              viewMode={viewMode}
+              key={`item-textarea-${row.id}-${control._formValues?.items?.[row.index]?.item || ""}`}
+            />
           ),
         },
         unitRate: {
@@ -151,7 +161,7 @@ export default function useQO1TemplateTableHeader(props: Props) {
 
     // console.log("📋 TABLE HEADERS: Final columns count:", baseColumns.length);
     return baseColumns;
-  }, [viewMode, remove, tableHeadersConfig, columnOrder?.join("-"), columnLabels, JSON.stringify(columnLabels)]);
+  }, [viewMode, remove, tableHeadersConfig, columnOrder, columnLabels, control]);
 
   return { columns };
 }

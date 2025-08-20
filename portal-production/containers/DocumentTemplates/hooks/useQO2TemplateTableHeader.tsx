@@ -4,6 +4,7 @@ import React, { useMemo } from "react";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { IconButton } from "@mui/material";
 import FormInputBox from "@/form-components/FormInputBox";
+import FormTextArea from "@/form-components/FormTextArea";
 import { Control, FieldValues } from "react-hook-form";
 
 interface Props {
@@ -27,7 +28,7 @@ export default function useQO2TemplateTableHeader(props: Props) {
         accessorKey: "item",
         header: "Item",
         cell: ({ row }: { row: any }) => (
-          <FormInputBox control={control} name={`items.${row.index}.item`} placeHolder="Enter item description" size="small" labelArriangment={viewMode ? "horizontal" : "vertical"} viewMode={viewMode} key={`item-input-${row.id}-${control._formValues?.items?.[row.index]?.item || ""}`} />
+          <FormTextArea control={control} name={`items.${row.index}.item`} placeHolder="Enter item description" rows={1} size="small" labelArriangment={viewMode ? "horizontal" : "vertical"} viewMode={viewMode} key={`item-textarea-${row.id}-${control._formValues?.items?.[row.index]?.item || ""}`} />
         ),
       },
       {
