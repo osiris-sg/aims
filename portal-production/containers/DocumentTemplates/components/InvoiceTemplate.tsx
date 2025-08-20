@@ -178,7 +178,7 @@ export default function InvoiceTemplate(props: Props) {
       <DocumentNameHeader
         primaryActionLoading={isLoading}
         secondaryActionLoading={isDocumentCreationloading}
-        title={document?.name || getDocumentTypeDisplayNameWithDefaults("TI", organization)}
+        title={(document as any)?.name || getDocumentTypeDisplayNameWithDefaults("TI", organization)}
         description="This document does not support uploading of template"
         viewMode={isViewMode}
         toggleViewMode={(value) => toggleViewMode(value)}
