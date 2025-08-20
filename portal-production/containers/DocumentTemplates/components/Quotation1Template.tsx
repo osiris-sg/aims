@@ -378,7 +378,7 @@ export default function Quotation1Template(props: Props) {
                               letterSpacing: "0.5px",
                             }}
                           >
-                            {getDocumentTypeDisplayNameWithDefaults("QO1", organization).toUpperCase()}
+                            {"QUOTATION"}
                           </Typography>
                           <Box sx={{ display: "flex", alignItems: "flex-start" }}>
                             <Typography variant="body2" sx={{ minWidth: "100px", fontWeight: 600 }}>
@@ -545,7 +545,7 @@ export default function Quotation1Template(props: Props) {
                       <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "flex-start" }}>
                         <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
                           {isViewMode ? (
-                            <Box className={courgette.className} sx={{ fontSize: "2.2rem", color: "#3b4a5d", lineHeight: 1, minHeight: 48 }}>
+                            <Box className={courgette.className} sx={{ fontSize: "1.5rem", color: "#3b4a5d", lineHeight: 1, minHeight: 36, mt: 3 }}>
                               {signatureTextCompany}
                             </Box>
                           ) : (
@@ -553,7 +553,7 @@ export default function Quotation1Template(props: Props) {
                           )}
                         </Box>
                         <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                          <Box sx={{ transform: "scale(0.25)", transformOrigin: "top left", width: 0, height: 0 }}>
+                          <Box sx={{ transform: "scale(0.25)", transformOrigin: "top left", width: 0, height: 0, mt: 3 }}>
                             <FormImage control={control} name="stamp.company" viewMode={isViewMode} width={120} height={120} />
                           </Box>
                         </Box>
