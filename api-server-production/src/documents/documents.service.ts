@@ -332,10 +332,10 @@ export class DocumentsService {
     try {
       console.log('Creating basic document with template ID:', documentTemplateId, 'Type:', type, 'Organization ID:', organizationId, 'Config:', config);
 
-      // Get organization to check for custom document types
+      // Get organization to check for custom document types and defaults (logo, stamp)
       const organization = await this.prisma.organization.findUnique({
         where: { id: organizationId },
-        select: { customDocumentTypes: true },
+        select: { customDocumentTypes: true, logo: true, defaultStamp: true },
       });
 
       const now = new Date();
@@ -361,11 +361,24 @@ export class DocumentsService {
       const documentPrefix = customTypes?.[type] || type;
       const name = `${documentPrefix}${year}${month}-${serial}`;
 
+      // Seed initial config with organization defaults so they persist even if user doesn't save the form
+      const initialConfig: any = config && typeof config === 'object' ? { ...config } : {};
+      if (!initialConfig.logo && organization?.logo) {
+        initialConfig.logo = organization.logo;
+      }
+      // support stamp.company convention across templates
+      if (!initialConfig.stamp) {
+        initialConfig.stamp = {};
+      }
+      if (!initialConfig.stamp.company && organization?.defaultStamp) {
+        initialConfig.stamp.company = organization.defaultStamp;
+      }
+
       const newDocument = await this.prisma.document.create({
         data: {
           documentTemplateId,
           type,
-          config,
+          config: initialConfig,
           organizationId,
           name,
         },
