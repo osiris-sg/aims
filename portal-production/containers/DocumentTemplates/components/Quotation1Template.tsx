@@ -544,7 +544,6 @@ export default function Quotation1Template(props: Props) {
                       {/* Company Signature + Stamp side by side */}
                       <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "flex-start" }}>
                         <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                        
                           {isViewMode ? (
                             <Box className={courgette.className} sx={{ fontSize: "2.2rem", color: "#3b4a5d", lineHeight: 1, minHeight: 48 }}>
                               {signatureTextCompany}
@@ -554,9 +553,8 @@ export default function Quotation1Template(props: Props) {
                           )}
                         </Box>
                         <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                     
-                          <Box sx={{ transform: "scale(0.4)", transformOrigin: "top left", width: 0, height: 0 }}>
-                            <FormImage control={control} name="stamp.company" viewMode={isViewMode} />
+                          <Box sx={{ transform: "scale(0.25)", transformOrigin: "top left", width: 0, height: 0 }}>
+                            <FormImage control={control} name="stamp.company" viewMode={isViewMode} width={120} height={120} />
                           </Box>
                         </Box>
                       </Box>

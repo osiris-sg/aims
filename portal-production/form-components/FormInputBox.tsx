@@ -49,6 +49,7 @@ export default function FormInputBox(props: Props) {
               required={required}
               sx={{
                 color: viewMode ? "text.primary" : "text.secondary",
+                ...(label === "Signature Text" && { fontSize: 12 }),
               }}
             >
               {label}
@@ -76,7 +77,7 @@ export default function FormInputBox(props: Props) {
               helperText={error ? error.message : bottomText}
             />
           ) : (
-            <Typography variant="body1"> {value}</Typography>
+            <Typography variant="body2"> {value}</Typography>
           )}
         </Box>
       )}
