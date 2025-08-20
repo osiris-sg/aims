@@ -18,10 +18,12 @@ interface Props {
   aspectRatio?: number;
   disabled?: boolean;
   viewMode?: boolean;
+  width?: number; // optional: control preview box width (px)
+  height?: number; // optional: control preview box height (px)
 }
 
 export default function FormImage(props: Props) {
-  const { label, control, name, numberOfUploaders = 1, aspectRatio = 1, disabled, viewMode = false } = props;
+  const { label, control, name, numberOfUploaders = 1, aspectRatio = 1, disabled, viewMode = false, width, height } = props;
   const { fields, replace, update } = useFieldArray<FieldValues, string>({
     control,
     name,
@@ -93,7 +95,7 @@ export default function FormImage(props: Props) {
                   defaultValue={field.data}
                   render={() =>
                     srcUrls[index] ? (
-                      <ImageRenderer src={srcUrls[index]} deleteImage={() => handleDeleteImage(index)} viewMode={viewMode} />
+                      <ImageRenderer src={srcUrls[index]} deleteImage={() => handleDeleteImage(index)} viewMode={viewMode} width={width} height={height} />
                     ) : (
                       <Box
                         sx={{

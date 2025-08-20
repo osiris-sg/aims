@@ -169,7 +169,7 @@ export default function Quotation1Template(props: Props) {
       <DocumentNameHeader
         primaryActionLoading={isLoading}
         secondaryActionLoading={isDocumentCreationloading}
-        title={document?.name || getDocumentTypeDisplayNameWithDefaults("QO1", organization)}
+        title={(document as any)?.name || getDocumentTypeDisplayNameWithDefaults("QO1", organization)}
         description="This document does not support uploading of template"
         viewMode={isViewMode}
         toggleViewMode={(value) => toggleViewMode(value)}
@@ -209,40 +209,38 @@ export default function Quotation1Template(props: Props) {
                   sx={{
                     display: "flex",
                     flexDirection: "column",
-                    padding: isViewMode ? "var(--default-gap)" : "var(--default-gap)",
+                    // Keep original left/right spacing; only tighten top in view mode
+                    px: isViewMode ? "var(--double-gap)" : "var(--default-gap)",
+                    pt: isViewMode ? "8px" : undefined,
+                    pb: isViewMode ? "var(--default-gap)" : "var(--default-gap)",
                     ...(isViewMode
                       ? {
-                          "& .MuiTypography-root": {
-                            fontSize: "0.7rem !important",
-                            lineHeight: 1.2,
-                          },
+                          // Typography scale similar to Invoice
+                          "& .MuiTypography-root": { fontSize: "11px !important", lineHeight: 1.35 },
                           "& .MuiTypography-h4": {
-                            fontSize: "0.9rem !important",
+                            fontSize: "18px !important",
                             fontWeight: 700,
                           },
                           "& .MuiTypography-h5": {
-                            fontSize: "0.85rem !important",
+                            fontSize: "16px !important",
                             fontWeight: 700,
                           },
                           // Generic text fallbacks for custom components
                           "& p, & span, & label, & .MuiFormLabel-root": {
-                            fontSize: "0.7rem !important",
-                            lineHeight: 1.2,
+                            fontSize: "11px !important",
+                            lineHeight: 1.35,
                           },
                           // Inputs/Textareas if any appear in view mode
                           "& .MuiInputBase-root, & .MuiInputBase-input, & .MuiOutlinedInput-input, & textarea": {
-                            fontSize: "0.7rem !important",
+                            fontSize: "11px !important",
                           },
-                          // Table cells
-                          "& td, & th": {
-                            fontSize: "0.68rem !important",
-                            padding: "4px 6px",
-                          },
-                          // Buttons
-                          "& .MuiButton-root": {
-                            fontSize: "0.7rem",
-                            padding: "4px 8px",
-                          },
+                          // Table polish (applies to our Table component output)
+                          "& table": { width: "100%", borderCollapse: "collapse" },
+                          "& th, & td": { fontSize: "11px !important", padding: "8px 10px", border: "1px solid", borderColor: "divider" },
+                          "& thead th": { backgroundColor: "#f6f7fb", color: "#1f2937", fontWeight: 700 },
+                          "& tbody tr:nth-of-type(even)": { backgroundColor: "#fafafa" },
+                          // Buttons (rare in view mode)
+                          "& .MuiButton-root": { fontSize: "11px", padding: "4px 8px" },
                         }
                       : {}),
                   }}
@@ -251,8 +249,8 @@ export default function Quotation1Template(props: Props) {
                   <Grid2 container spacing={2} sx={{ mb: isViewMode ? 2 : 2 }}>
                     <Grid2 size={4}>
                       {templateWatch("logo") && (
-                        <Box sx={{ minHeight: isViewMode ? "80px" : "auto" }}>
-                          <FormImage control={control} name="logo" viewMode={isViewMode} />
+                        <Box sx={{ minHeight: isViewMode ? "40px" : "auto" }}>
+                          <FormImage control={control} name="logo" viewMode={isViewMode} width={180} height={60} />
                         </Box>
                       )}
                     </Grid2>
@@ -272,6 +270,7 @@ export default function Quotation1Template(props: Props) {
                       )}
                     </Grid2>
                   </Grid2>
+                  {isViewMode && <Divider sx={{ my: 2 }} />}
                   {/* Main Content Section */}
                   <Grid2 container spacing={isViewMode ? 1 : 4} sx={{ mb: isViewMode ? 2 : 2 }}>
                     {/* Left Column - Customer Information */}
@@ -310,27 +309,36 @@ export default function Quotation1Template(props: Props) {
                       ) : (
                         <Box sx={{ display: "flex", flexDirection: "column", gap: 0.3, mt: 1 }}>
                           <Box sx={{ display: "flex", alignItems: "flex-start" }}>
-                            <Typography variant="body2" sx={{ minWidth: "70px", fontWeight: "400", fontSize: "0.85rem" }}>
+                            <Typography variant="body2" sx={{ minWidth: "60px", fontWeight: "400", fontSize: "0.85rem" }}>
                               Attention
                             </Typography>
-                            <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
-                              : {attentionName}
+                            <Typography variant="body2" sx={{ mx: 0.3, fontSize: "0.85rem" }}>
+                              :
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontSize: "0.85rem" }}>
+                              {attentionName}
                             </Typography>
                           </Box>
                           <Box sx={{ display: "flex", alignItems: "flex-start" }}>
-                            <Typography variant="body2" sx={{ minWidth: "70px", fontWeight: "400", fontSize: "0.85rem" }}>
+                            <Typography variant="body2" sx={{ minWidth: "60px", fontWeight: "400", fontSize: "0.85rem" }}>
                               Tel
                             </Typography>
-                            <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
-                              : {attentionPhoneNumber}
+                            <Typography variant="body2" sx={{ mx: 0.3, fontSize: "0.85rem" }}>
+                              :
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontSize: "0.85rem" }}>
+                              {attentionPhoneNumber}
                             </Typography>
                           </Box>
                           <Box sx={{ display: "flex", alignItems: "flex-start" }}>
-                            <Typography variant="body2" sx={{ minWidth: "70px", fontWeight: "400", fontSize: "0.85rem" }}>
+                            <Typography variant="body2" sx={{ minWidth: "60px", fontWeight: "400", fontSize: "0.85rem" }}>
                               Email
                             </Typography>
-                            <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
-                              : {attentionEmail}
+                            <Typography variant="body2" sx={{ mx: 0.3, fontSize: "0.85rem" }}>
+                              :
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontSize: "0.85rem" }}>
+                              {attentionEmail}
                             </Typography>
                           </Box>
                         </Box>
@@ -365,7 +373,7 @@ export default function Quotation1Template(props: Props) {
                             sx={{
                               fontWeight: "bold",
                               textAlign: "left",
-                              fontSize: "1.1rem",
+                              fontSize: "16px",
                               mb: 0.5,
                               letterSpacing: "0.5px",
                             }}
@@ -373,67 +381,74 @@ export default function Quotation1Template(props: Props) {
                             {getDocumentTypeDisplayNameWithDefaults("QO1", organization).toUpperCase()}
                           </Typography>
                           <Box sx={{ display: "flex", alignItems: "flex-start" }}>
-                            <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>
+                            <Typography variant="body2" sx={{ minWidth: "100px", fontWeight: 600 }}>
                               Quotation No.
                             </Typography>
-                            <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
-                              : {quotationNo}
+                            <Typography variant="body2" sx={{ mx: 0.3 }}>
+                              :
                             </Typography>
+                            <Typography variant="body2">{quotationNo}</Typography>
                           </Box>
                           <Box sx={{ display: "flex", alignItems: "flex-start" }}>
-                            <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>
+                            <Typography variant="body2" sx={{ minWidth: "100px", fontWeight: 600 }}>
                               Quotation Date
                             </Typography>
-                            <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
-                              : {quotationDate}
+                            <Typography variant="body2" sx={{ mx: 0.3 }}>
+                              :
                             </Typography>
+                            <Typography variant="body2">{quotationDate}</Typography>
                           </Box>
                           <Box sx={{ display: "flex", alignItems: "flex-start", mt: 0.5 }}>
-                            <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>
+                            <Typography variant="body2" sx={{ minWidth: "100px", fontWeight: 600 }}>
                               Validity Term
                             </Typography>
-                            <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
-                              : {validityTerm}
+                            <Typography variant="body2" sx={{ mx: 0.3 }}>
+                              :
                             </Typography>
+                            <Typography variant="body2">{validityTerm}</Typography>
                           </Box>
                           <Box sx={{ display: "flex", alignItems: "flex-start" }}>
-                            <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>
+                            <Typography variant="body2" sx={{ minWidth: "100px", fontWeight: 600 }}>
                               Currency
                             </Typography>
-                            <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
-                              : {currency}
+                            <Typography variant="body2" sx={{ mx: 0.3 }}>
+                              :
                             </Typography>
+                            <Typography variant="body2">{currency}</Typography>
                           </Box>
                           <Box sx={{ display: "flex", alignItems: "flex-start" }}>
-                            <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>
+                            <Typography variant="body2" sx={{ minWidth: "100px", fontWeight: 600 }}>
                               Sale person
                             </Typography>
-                            <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
-                              : {salePerson}
+                            <Typography variant="body2" sx={{ mx: 0.3 }}>
+                              :
                             </Typography>
+                            <Typography variant="body2">{salePerson}</Typography>
                           </Box>
                           <Box sx={{ display: "flex", alignItems: "flex-start" }}>
-                            <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>
+                            <Typography variant="body2" sx={{ minWidth: "100px", fontWeight: 600 }}>
                               Mobile
                             </Typography>
-                            <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
-                              : {mobile}
+                            <Typography variant="body2" sx={{ mx: 0.3 }}>
+                              :
                             </Typography>
+                            <Typography variant="body2">{mobile}</Typography>
                           </Box>
                           <Box sx={{ display: "flex", alignItems: "flex-start", mt: 0.5 }}>
-                            <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>
+                            <Typography variant="body2" sx={{ minWidth: "100px", fontWeight: 600 }}>
                               Email
                             </Typography>
-                            <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
-                              : {salePersonEmail}
+                            <Typography variant="body2" sx={{ mx: 0.3 }}>
+                              :
                             </Typography>
+                            <Typography variant="body2">{salePersonEmail}</Typography>
                           </Box>
                           {doNo && (
                             <Box sx={{ display: "flex", alignItems: "flex-start" }}>
                               <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>
                                 DO No.
                               </Typography>
-                              <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
+                              <Typography variant="body2" sx={{ ml: 0.5, fontSize: "0.85rem" }}>
                                 : {doNo}
                               </Typography>
                             </Box>
@@ -443,7 +458,7 @@ export default function Quotation1Template(props: Props) {
                               <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>
                                 Ref. No.
                               </Typography>
-                              <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
+                              <Typography variant="body2" sx={{ ml: 0.5, fontSize: "0.85rem" }}>
                                 : {referenceNo}
                               </Typography>
                             </Box>
@@ -453,7 +468,7 @@ export default function Quotation1Template(props: Props) {
                               <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>
                                 Your PO No.
                               </Typography>
-                              <Typography variant="body2" sx={{ ml: 1, fontSize: "0.85rem" }}>
+                              <Typography variant="body2" sx={{ ml: 0.5, fontSize: "0.85rem" }}>
                                 : {poNo}
                               </Typography>
                             </Box>
@@ -491,7 +506,7 @@ export default function Quotation1Template(props: Props) {
                       <FormInputBox control={control} name="title" label="Title" placeHolder="Enter title" size="small" labelArriangment="vertical" viewMode={isViewMode} />
                     )}
                   </Box>
-                  <Box mt={2} mb={1}>
+                  <Box mt={isViewMode ? 3 : 2} mb={1}>
                     <Box sx={{ width: "100%", maxWidth: "100%", overflow: "hidden" }}>
                       <Table key={`table-${columns.length}-${columnOrder?.join("-") || "default"}-${JSON.stringify(columnLabels)}`} columns={columns} data={[...fields]} isNoSelectionColumn={true} />
                     </Box>
@@ -506,20 +521,19 @@ export default function Quotation1Template(props: Props) {
                     </Box>
                   )}
 
-                  <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--half-gap)", my: isViewMode ? 1.5 : 3 }}>
+                  <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, my: isViewMode ? 3 : 3 }}>
                     <FormTextarea control={control} name="note" label="Note" placeHolder="Enter notes here" rows={4} labelArriangment="vertical" viewMode={isViewMode} />
                     <FormTextarea control={control} name="remarks" label="Remarks" placeHolder="Enter remarks here" rows={4} labelArriangment="vertical" viewMode={isViewMode} />
                     <FormTextarea control={control} name="termsAndConditions" label="Terms and Conditions" placeHolder="Enter terms and conditions here" rows={4} labelArriangment="vertical" viewMode={isViewMode} />
                   </Box>
                   {isViewMode && (
-                    <Box sx={{ my: 1.5 }}>
-                      <Typography variant="body1" sx={{ whiteSpace: "pre-line" }}>
-                        You understand and agree to this offer. We trust our offer meets your requirements and look forward to receiving{"\n"}
-                        your order confirmation soon. Kindly contact us for further information. Thank you.
+                    <Box sx={{ my: 3 }}>
+                      <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "pre-line" }}>
+                        You understand and agree to this offer. We trust our offer meets your requirements and look forward to receiving your order confirmation soon. Kindly contact us for further information. Thank you.
                       </Typography>
                     </Box>
                   )}
-                  <Grid2 container spacing={1} mt={isViewMode ? 2 : 4}>
+                  <Grid2 container spacing={1} mt={isViewMode ? 3 : 4}>
                     <Grid2 size={6} sx={{ pl: isViewMode ? 0 : undefined }}>
                       <Typography variant="body1" sx={{ fontWeight: "bold" }}>
                         We offer the above
@@ -530,9 +544,7 @@ export default function Quotation1Template(props: Props) {
                       {/* Company Signature + Stamp side by side */}
                       <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "flex-start" }}>
                         <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                            Company Signature
-                          </Typography>
+                        
                           {isViewMode ? (
                             <Box className={courgette.className} sx={{ fontSize: "2.2rem", color: "#3b4a5d", lineHeight: 1, minHeight: 48 }}>
                               {signatureTextCompany}
@@ -542,9 +554,7 @@ export default function Quotation1Template(props: Props) {
                           )}
                         </Box>
                         <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                            Company Stamp
-                          </Typography>
+                     
                           <Box sx={{ transform: "scale(0.4)", transformOrigin: "top left", width: 0, height: 0 }}>
                             <FormImage control={control} name="stamp.company" viewMode={isViewMode} />
                           </Box>
@@ -554,21 +564,30 @@ export default function Quotation1Template(props: Props) {
                       {/* Company info fields below the signing component (moved from right side) */}
                       {isViewMode ? (
                         <Box sx={{ display: "flex", flexDirection: "column", gap: 1, mt: 15 }}>
-                          <Box sx={{ display: "flex", gap: 1 }}>
-                            <Typography variant="body1" sx={{ minWidth: "180px" }}>
-                              Company Name :
+                          <Box sx={{ display: "flex", alignItems: "baseline" }}>
+                            <Typography variant="body1" sx={{ minWidth: "100px", fontWeight: 500 }}>
+                              Company Name
+                            </Typography>
+                            <Typography variant="body1" sx={{ width: "10px", textAlign: "center" }}>
+                              :
                             </Typography>
                             <Typography variant="body1">{companyName}</Typography>
                           </Box>
-                          <Box sx={{ display: "flex", gap: 1 }}>
-                            <Typography variant="body1" sx={{ minWidth: "180px" }}>
-                              Company Address :
+                          <Box sx={{ display: "flex", alignItems: "baseline" }}>
+                            <Typography variant="body1" sx={{ minWidth: "100px", fontWeight: 500 }}>
+                              Company Address
+                            </Typography>
+                            <Typography variant="body1" sx={{ width: "10px", textAlign: "center" }}>
+                              :
                             </Typography>
                             <Typography variant="body1">{companyAddress}</Typography>
                           </Box>
-                          <Box sx={{ display: "flex", gap: 1 }}>
-                            <Typography variant="body1" sx={{ minWidth: "180px" }}>
-                              GST REG. No. :
+                          <Box sx={{ display: "flex", alignItems: "baseline" }}>
+                            <Typography variant="body1" sx={{ minWidth: "100px", fontWeight: 500 }}>
+                              GST REG. No.
+                            </Typography>
+                            <Typography variant="body1" sx={{ width: "10px", textAlign: "center" }}>
+                              :
                             </Typography>
                             <Typography variant="body1">{gstRegNo}</Typography>
                           </Box>
