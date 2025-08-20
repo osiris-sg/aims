@@ -22,6 +22,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { useGetDeliveryOrders } from "../hooks/useGetDeliveryOrders";
+import { getDocumentTypeDisplayNameWithDefaults } from "@/helpers/documentTypeHelper";
 
 interface Props {
   viewMode: boolean;
@@ -41,7 +42,7 @@ export default function InvoiceTemplate(props: Props) {
   const { viewMode = false } = props;
   const [isViewMode, toggleViewMode] = useState(viewMode);
   const [isToolBarOpen, toggleToolbar] = useState(false);
-  const { isDocumentLoading } = useGetDocument();
+  const { isDocumentLoading, document } = useGetDocument();
   const { methods, onSubmit, editableVisibilityFields, watch, isLoading, isDirty } = useTITemplateHandler();
   const { customers } = useGetCustomers();
   const { addNewLine, control, setValue, customerId, fields, remove, onDocumentCreate, itemsError, isLoading: isDocumentCreationloading, isDirty: isDCretorDisabled } = useTIDocumentCreator();
@@ -177,7 +178,7 @@ export default function InvoiceTemplate(props: Props) {
       <DocumentNameHeader
         primaryActionLoading={isLoading}
         secondaryActionLoading={isDocumentCreationloading}
-        title="Invoice"
+        title={document?.name || getDocumentTypeDisplayNameWithDefaults("TI", organization)}
         description="This document does not support uploading of template"
         viewMode={isViewMode}
         toggleViewMode={(value) => toggleViewMode(value)}
@@ -299,7 +300,7 @@ export default function InvoiceTemplate(props: Props) {
                   {isViewMode ? (
                     <Box sx={{ textAlign: "center", my: 3 }}>
                       <Typography variant="h4" sx={{ fontWeight: "bold", fontSize: "24px" }}>
-                        Tax Invoice
+                        {getDocumentTypeDisplayNameWithDefaults("TI", organization)}
                       </Typography>
                     </Box>
                   ) : (
@@ -351,7 +352,7 @@ export default function InvoiceTemplate(props: Props) {
                               <strong>Invoice Number</strong>
                             </Typography>
                             <Typography variant="body2" sx={{ fontSize: "11px", mb: 0.8 }}>
-                              {watch("invoiceNumber") || `BI${new Date().getFullYear()}${(new Date().getMonth() + 1).toString().padStart(2, "0")}1034`}
+                              {watch("invoiceNumber") || `${getDocumentTypeDisplayNameWithDefaults("TI", organization)}${new Date().getFullYear()}${(new Date().getMonth() + 1).toString().padStart(2, "0")}1034`}
                             </Typography>
 
                             {watch("referenceNo") && (

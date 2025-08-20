@@ -5,7 +5,16 @@ import { PrismaService } from '../common/prisma.service';
 export class OrganizationsService {
   constructor(private prisma: PrismaService) {}
 
-  async create(data: { name: string; id?: string; address?: string; phoneNumber?: string; registrationNumber?: string; logo?: string; defaultStamp?: string }) {
+  async create(data: {
+    name: string;
+    id?: string;
+    address?: string;
+    phoneNumber?: string;
+    registrationNumber?: string;
+    logo?: string;
+    defaultStamp?: string;
+    customDocumentTypes?: Record<string, string>;
+  }) {
     return this.prisma.organization.create({
       data: {
         id: data.id || undefined, // Let Prisma generate UUID if not provided
@@ -15,6 +24,7 @@ export class OrganizationsService {
         registrationNumber: data.registrationNumber,
         logo: data.logo,
         defaultStamp: data.defaultStamp,
+        customDocumentTypes: data.customDocumentTypes,
       },
     });
   }
@@ -54,7 +64,10 @@ export class OrganizationsService {
     });
   }
 
-  async update(id: string, data: { name?: string; address?: string; phoneNumber?: string; registrationNumber?: string; logo?: string; defaultStamp?: string }) {
+  async update(
+    id: string,
+    data: { name?: string; address?: string; phoneNumber?: string; registrationNumber?: string; logo?: string; defaultStamp?: string; customDocumentTypes?: Record<string, string> },
+  ) {
     return this.prisma.organization.update({
       where: { id },
       data,

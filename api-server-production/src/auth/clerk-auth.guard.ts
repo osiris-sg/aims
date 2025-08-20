@@ -79,6 +79,7 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
               registrationNumber: true,
               logo: true,
               defaultStamp: true,
+              customDocumentTypes: true,
             },
           },
         },

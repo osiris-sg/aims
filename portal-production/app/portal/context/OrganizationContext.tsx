@@ -13,6 +13,7 @@ interface Organization {
   registrationNumber?: string | null;
   logo?: string | null;
   defaultStamp?: string | null;
+  customDocumentTypes?: Record<string, string> | null;
 }
 
 interface OrganizationContextType {

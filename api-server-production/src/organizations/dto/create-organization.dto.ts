@@ -43,4 +43,12 @@ export class CreateOrganizationDto {
   @IsString()
   @IsOptional()
   defaultStamp?: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'Custom display names for document types (e.g., {"TI": "BI2025", "QO1": "Quote"})',
+    example: { TI: 'BI2025', QO1: 'Custom Quote' },
+  })
+  @IsOptional()
+  customDocumentTypes?: Record<string, string>;
 }

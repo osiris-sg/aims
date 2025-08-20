@@ -1,6 +1,7 @@
 import { createColumnHelper } from "@tanstack/react-table";
 import { Typography, Chip, IconButton, Box } from "@mui/material";
 import VisibilityIcon from "@mui/icons-material/Visibility";
+import { getDocumentTypeDisplayNameWithDefaults } from "@/helpers/documentTypeHelper";
 
 const columnHelper = createColumnHelper<any>();
 
@@ -8,7 +9,12 @@ export default function useDocumentsTableHeader() {
   const columns = [
     columnHelper.accessor("type", {
       header: "Document Type",
-      cell: (info) => <Typography variant="body2">{info.getValue()}</Typography>,
+      cell: (info) => {
+        const documentType = info.getValue();
+        const organization = info.row.original.organization;
+        const displayName = getDocumentTypeDisplayNameWithDefaults(documentType, organization);
+        return <Typography variant="body2">{displayName}</Typography>;
+      },
     }),
     columnHelper.accessor("organization.name", {
       header: "Organization",

@@ -24,6 +24,7 @@ import useQO1TemplateHandler from "../hooks/useQO1TemplateHandler";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
+import { getDocumentTypeDisplayNameWithDefaults } from "@/helpers/documentTypeHelper";
 
 // Handwritten-style font for typed signatures
 const courgette = Courgette({ subsets: ["latin"], weight: "400" });
@@ -37,7 +38,7 @@ export default function Quotation1Template(props: Props) {
   const { viewMode = false } = props;
   const [isViewMode, toggleViewMode] = useState(viewMode);
   const [isToolBarOpen, toggleToolbar] = useState(false);
-  const { isDocumentLoading } = useGetDocument();
+  const { isDocumentLoading, document } = useGetDocument();
   const { methods, onSubmit, editableVisibilityFields, watch: templateWatch, isLoading, isDirty, handleColumnReorder, handleToggleColumnVisibility, handleEditLabel, handleAddField } = useQO1TemplateHandler();
   const { customers } = useGetCustomers();
   const { addNewLine, control, companyName, setValue, customerId, projectId, fields, remove, onDocumentCreate, itemsError, isLoading: isDocumentCreationloading, isDirty: isDCretorDisabled } = useQO1DocumentCreator();
@@ -168,7 +169,7 @@ export default function Quotation1Template(props: Props) {
       <DocumentNameHeader
         primaryActionLoading={isLoading}
         secondaryActionLoading={isDocumentCreationloading}
-        title="Quotation 1"
+        title={document?.name || getDocumentTypeDisplayNameWithDefaults("QO1", organization)}
         description="This document does not support uploading of template"
         viewMode={isViewMode}
         toggleViewMode={(value) => toggleViewMode(value)}
@@ -266,7 +267,7 @@ export default function Quotation1Template(props: Props) {
                             fontSize: "1.5rem",
                           }}
                         >
-                          QUOTATION
+                          {getDocumentTypeDisplayNameWithDefaults("QO1", organization).toUpperCase()}
                         </Typography>
                       )}
                     </Grid2>
@@ -369,7 +370,7 @@ export default function Quotation1Template(props: Props) {
                               letterSpacing: "0.5px",
                             }}
                           >
-                            QUOTATION
+                            {getDocumentTypeDisplayNameWithDefaults("QO1", organization).toUpperCase()}
                           </Typography>
                           <Box sx={{ display: "flex", alignItems: "flex-start" }}>
                             <Typography variant="body2" sx={{ minWidth: "110px", fontWeight: "400", fontSize: "0.85rem" }}>

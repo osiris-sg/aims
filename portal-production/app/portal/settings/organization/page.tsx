@@ -1,14 +1,15 @@
 "use client";
 
 import React, { useEffect, useMemo } from "react";
-import { Box, Button, Divider, Typography } from "@mui/material";
+import { Box, Button, Divider, Typography, Grid2, IconButton, Chip } from "@mui/material";
 import { useAuth } from "@clerk/nextjs";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import FormInputBox from "@/form-components/FormInputBox";
 import FormImage from "@/form-components/FormImage";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { uploadImage } from "@/helpers/imageUploader";
 import { toast } from "react-toastify";
+import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
 
 export default function OrganizationSettingsPage() {
   const { organization } = useOrganization();
@@ -22,16 +23,44 @@ export default function OrganizationSettingsPage() {
       registrationNumber: organization?.registrationNumber || "",
       logo: organization?.logo ? [{ data: organization.logo }] : undefined,
       defaultStamp: organization?.defaultStamp ? [{ data: organization.defaultStamp }] : undefined,
+      customDocumentTypes: organization?.customDocumentTypes || {},
     }),
     [organization]
   );
 
-  const { control, handleSubmit, reset } = useForm<any>({ defaultValues });
+  const { control, handleSubmit, reset, setValue } = useForm<any>({ defaultValues });
+  const customDocumentTypes = useWatch({ control, name: "customDocumentTypes" }) || {};
 
   // When organization data becomes available, re-populate the form
   useEffect(() => {
     reset(defaultValues);
   }, [defaultValues, reset]);
+
+  // Available document types that can be customized
+  const availableDocumentTypes = [
+    { code: "TI", label: "Tax Invoice" },
+    { code: "QO1", label: "Quotation 1" },
+    { code: "QO2", label: "Quotation 2" },
+    { code: "DO", label: "Delivery Order" },
+    { code: "RDO", label: "Return Delivery Order" },
+    { code: "MSR", label: "Maintenance Service Report" },
+  ];
+
+  const addCustomDocumentType = (docType: string) => {
+    const newCustomTypes = { ...customDocumentTypes, [docType]: "" };
+    setValue("customDocumentTypes", newCustomTypes);
+  };
+
+  const removeCustomDocumentType = (docType: string) => {
+    const newCustomTypes = { ...customDocumentTypes };
+    delete newCustomTypes[docType];
+    setValue("customDocumentTypes", newCustomTypes);
+  };
+
+  const updateCustomDocumentType = (docType: string, displayName: string) => {
+    const newCustomTypes = { ...customDocumentTypes, [docType]: displayName };
+    setValue("customDocumentTypes", newCustomTypes);
+  };
 
   const onSubmit = async (data: any) => {
     const token = await getToken();
@@ -48,6 +77,7 @@ export default function OrganizationSettingsPage() {
       address: data.address,
       phoneNumber: data.phoneNumber,
       registrationNumber: data.registrationNumber,
+      customDocumentTypes: data.customDocumentTypes,
     };
 
     const getFirstItem = (val: any) => (Array.isArray(val) && val[0]?.data ? val[0].data : undefined);
@@ -139,6 +169,51 @@ export default function OrganizationSettingsPage() {
             Default Company Stamp
           </Typography>
           <FormImage control={control} name="defaultStamp" numberOfUploaders={1} />
+        </Box>
+
+        <Box>
+          <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>
+            Custom Document Type Names
+          </Typography>
+          <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
+            Customize how document types appear to your users. For example, change "Invoice" to "BI2025" for your organization.
+          </Typography>
+
+          {/* Current custom document types */}
+          {Object.entries(customDocumentTypes).map(([docType, displayName]) => {
+            const docInfo = availableDocumentTypes.find((d) => d.code === docType);
+            return (
+              <Box key={docType} sx={{ mb: 2, p: 2, border: 1, borderColor: "divider", borderRadius: 1 }}>
+                <Grid2 container spacing={2} alignItems="center">
+                  <Grid2 size={3}>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      {docInfo?.label || docType}
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                      Code: {docType}
+                    </Typography>
+                  </Grid2>
+                  <Grid2 size={7}>
+                    <FormInputBox control={control} name={`customDocumentTypes.${docType}`} label="Custom Display Name" placeHolder={`e.g., BI2025, Custom ${docInfo?.label || docType}`} size="small" onChange={(e) => updateCustomDocumentType(docType, e.target.value)} />
+                  </Grid2>
+                  <Grid2 size={2}>
+                    <IconButton onClick={() => removeCustomDocumentType(docType)} color="error" size="small">
+                      <DeleteIcon />
+                    </IconButton>
+                  </Grid2>
+                </Grid2>
+              </Box>
+            );
+          })}
+
+          {/* Add new document type */}
+          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+            {availableDocumentTypes
+              .filter((docType) => !customDocumentTypes[docType.code])
+              .map((docType) => (
+                <Chip key={docType.code} label={`Add ${docType.label}`} onClick={() => addCustomDocumentType(docType.code)} icon={<AddIcon />} variant="outlined" clickable sx={{ mb: 1 }} />
+              ))}
+          </Box>
         </Box>
 
         <Button type="submit" variant="contained" color="primary" sx={{ alignSelf: "flex-start" }}>

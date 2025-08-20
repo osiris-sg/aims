@@ -17,6 +17,7 @@ model Organization {
   registrationNumber String?
   logo               String?
   defaultStamp       String?
+  customDocumentTypes Json?
   assets             Asset[]
   categories         Category[]
   customers          Customer[]

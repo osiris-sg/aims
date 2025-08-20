@@ -332,6 +332,12 @@ export class DocumentsService {
     try {
       console.log('Creating basic document with template ID:', documentTemplateId, 'Type:', type, 'Organization ID:', organizationId, 'Config:', config);
 
+      // Get organization to check for custom document types
+      const organization = await this.prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: { customDocumentTypes: true },
+      });
+
       const now = new Date();
       const year = now.getFullYear();
       const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -349,7 +355,11 @@ export class DocumentsService {
       });
 
       const serial = String(count + 1).padStart(3, '0');
-      const name = `${type}${year}${month}-${serial}`;
+
+      // Use custom document type prefix if available, otherwise use the original type
+      const customTypes = organization?.customDocumentTypes as Record<string, string> | null;
+      const documentPrefix = customTypes?.[type] || type;
+      const name = `${documentPrefix}${year}${month}-${serial}`;
 
       const newDocument = await this.prisma.document.create({
         data: {
