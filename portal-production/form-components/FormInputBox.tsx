@@ -26,10 +26,11 @@ interface Props {
   viewMode?: boolean;
   error?: boolean;
   helperText?: string;
+  onChange?: (e: any) => void;
 }
 
 export default function FormInputBox(props: Props) {
-  const { fullWidth, control, name, label, placeHolder, bottomText, defaultValue, description, disabled, startIcon, type = "text", size, maxLength, required, loading, min, rules = {}, labelArriangment = "vertical", viewMode = false } = props;
+  const { fullWidth, control, name, label, placeHolder, bottomText, defaultValue, description, disabled, startIcon, type = "text", size, maxLength, required, loading, min, rules = {}, labelArriangment = "vertical", viewMode = false, onChange: externalOnChange } = props;
   return (
     <Controller
       control={control}
@@ -63,7 +64,10 @@ export default function FormInputBox(props: Props) {
               placeholder={placeHolder}
               fullWidth={fullWidth}
               value={value}
-              onChange={(value) => onChange(value)}
+              onChange={(e) => {
+                onChange(e);
+                externalOnChange?.(e);
+              }}
               ref={ref}
               type={type}
               // onBlur={onBlur}
