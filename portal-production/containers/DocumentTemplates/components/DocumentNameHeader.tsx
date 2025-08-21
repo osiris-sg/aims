@@ -198,7 +198,11 @@ export default function DocumentNameHeader(props: Props) {
 
     const oldMap = byId(Array.isArray(oldItems) ? oldItems : []);
     const newMap = byId(Array.isArray(newItems) ? newItems : []);
-    const keys = Array.from(new Set([...oldMap.keys(), ...newMap.keys()]));
+    // Avoid iterating Map iterators directly to support older TS targets
+    const keySet = new Set<string>();
+    oldMap.forEach((_, k) => keySet.add(k));
+    newMap.forEach((_, k) => keySet.add(k));
+    const keys = Array.from(keySet);
 
     const added: Array<{ key: string; item: any; idx: number }> = [];
     const removed: Array<{ key: string; item: any; idx: number }> = [];
