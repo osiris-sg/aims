@@ -108,6 +108,26 @@ export class DocumentsController {
     }
     return await this.documentsService.deleteDocument(id, organizationId);
   }
+
+  @Post(':id/revisions')
+  @Permissions('documents:create-revision')
+  async createRevision(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentsService.createRevision(id, organizationId);
+  }
+
+  @Get(':id/revisions')
+  @Permissions('documents:read')
+  async listRevisions(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentsService.listRevisions(id, organizationId);
+  }
   @Post('asset/tag-template')
   @Permissions('documents:tag-template-to-asset')
   async tagTemplateToAsset(@Body() body: { assetId: string; templateId: string }, @Req() req: RequestWithOrganization) {

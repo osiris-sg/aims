@@ -33,7 +33,7 @@ export default function Quotation2Template(props: Props) {
   const { viewMode = false } = props;
   const [isViewMode, toggleViewMode] = useState(viewMode);
   const [isToolBarOpen, toggleToolbar] = useState(false);
-  const { isDocumentLoading } = useGetDocument();
+  const { isDocumentLoading, document } = useGetDocument();
   const { methods, onSubmit, editableVisibilityFields, watch, isLoading, isDirty } = useQO2TemplateHandler();
   const { customers } = useGetCustomers();
   const { addNewLine, control, companyName, setValue, customerId, projectId, fields, remove, onDocumentCreate, itemsError, isLoading: isDocumentCreationloading, isDirty: isDCretorDisabled } = useQO2DocumentCreator();
@@ -158,8 +158,9 @@ export default function Quotation2Template(props: Props) {
       <DocumentNameHeader
         primaryActionLoading={isLoading}
         secondaryActionLoading={isDocumentCreationloading}
-        title="Quotation 2"
+        title={(document as any)?.name || "Quotation 2"}
         description="This document does not support uploading of template"
+        headerLoading={isDocumentLoading || (!!documentId && !(document as any)?.name)}
         viewMode={isViewMode}
         toggleViewMode={(value) => toggleViewMode(value)}
         onPrimaryActionSubmit={onSubmit}
@@ -169,6 +170,7 @@ export default function Quotation2Template(props: Props) {
         onPrint={handlePrint}
         documentEditMode={!!documentId}
         isEditPath={isEditPath}
+        currentDocumentId={(document as any)?.id}
       />
       <Grid2 container spacing={1} height="100%">
         {!documentId && isToolBarOpen && (

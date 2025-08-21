@@ -260,6 +260,7 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
         isFormReadyForSubmission={isFormReadyForSubmission}
         onSubmitWithStatus={handleSubmitWithStatus}
         documentStatus={document?.status}
+        currentDocumentId={(document as any)?.id}
       />
       <Grid2 container spacing={1} height="100%">
         {!documentId && isToolBarOpen && (

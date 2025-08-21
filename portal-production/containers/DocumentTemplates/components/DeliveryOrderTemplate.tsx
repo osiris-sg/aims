@@ -166,6 +166,7 @@ export default function DeliveryOrderTemplate(props: Props) {
         secondaryActionLoading={isDocumentCreationloading}
         title="Delivery Order"
         description="This document does not support uploading of template"
+        headerLoading={isDocumentLoading || (!!documentId && !(document as any)?.name)}
         viewMode={isViewMode}
         toggleViewMode={(value) => toggleViewMode(value)}
         onPrimaryActionSubmit={onSubmit}
@@ -178,6 +179,7 @@ export default function DeliveryOrderTemplate(props: Props) {
         isFormReadyForSubmission={isFormReadyForSubmission}
         onSubmitWithStatus={handleSubmitWithStatus}
         documentStatus={document?.status}
+        currentDocumentId={(document as any)?.id}
       />
       <Grid2 container spacing={1} height="100%">
         {!documentId && isToolBarOpen && (

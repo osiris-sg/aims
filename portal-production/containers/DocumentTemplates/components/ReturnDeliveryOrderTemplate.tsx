@@ -28,7 +28,7 @@ export default function ReturnDeliveryOrderTemplate(props: Props) {
   const { viewMode = false } = props;
   const [isViewMode, toggleViewMode] = useState(viewMode);
   const [isToolBarOpen, toggleToolbar] = useState(false);
-  const { isDocumentLoading } = useGetDocument();
+  const { isDocumentLoading, document } = useGetDocument();
   const { methods, onSubmit, editableVisibilityFields, watch, isLoading, isDirty } = useRDOTemplateHandler();
   const { customers } = useGetCustomers();
   const { addNewLine, control, companyName, setValue, customerId, fields, remove, onDocumentCreate, itemsError, isLoading: isDocumentCreationloading, isDirty: isDCretorDisabled } = useRDODocumentCreator();
@@ -56,6 +56,7 @@ export default function ReturnDeliveryOrderTemplate(props: Props) {
         onPrint={handlePrint}
         documentEditMode={!!documentId}
         isEditPath={isEditPath}
+        currentDocumentId={(document as any)?.id}
       />
       <Grid2 container spacing={1} height="100%">
         {!documentId && isToolBarOpen && (

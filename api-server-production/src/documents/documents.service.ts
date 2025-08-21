@@ -21,6 +21,8 @@ export class DocumentsService {
         },
         include: {
           organization: true,
+          baseDocument: true,
+          revisions: true,
         },
       });
     } catch (error) {
@@ -381,12 +383,80 @@ export class DocumentsService {
           config: initialConfig,
           organizationId,
           name,
+          revisionNumber: 0,
         },
       });
 
       return newDocument;
     } catch (error) {
       throw new HttpException(`Basic document creation failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  async createRevision(documentId: string, organizationId: string) {
+    try {
+      // Load the original document with its revisions
+      const original = await this.prisma.document.findFirst({
+        where: { id: documentId, organizationId },
+      });
+      if (!original) {
+        throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+      }
+
+      // Determine baseDocumentId and next revision number
+      const baseDocumentId = original.baseDocumentId || original.id;
+      // If there is a base document, fetch it to use its clean name (without any appended Rev-x)
+      const baseDocument = original.baseDocumentId ? await this.prisma.document.findUnique({ where: { id: baseDocumentId } }) : null;
+      const lastRevision = await this.prisma.document.findFirst({
+        where: { organizationId, baseDocumentId },
+        orderBy: { revisionNumber: 'desc' },
+        select: { revisionNumber: true },
+      });
+      const nextRevisionNumber = (lastRevision?.revisionNumber ?? 0) + 1;
+
+      // Name formatting: ensure we only ever have a single (Rev-X)
+      // Prefer the base document's original name when available; otherwise strip any existing Rev-x suffixes
+      const rawBaseName = (baseDocument?.name || original.name || `${original.type}-${original.id.slice(0, 6)}`).trim();
+      const cleanedBaseName = rawBaseName.replace(/\s*\(Rev-\d+\)/g, '').trim();
+      const nameWithRevision = `${cleanedBaseName} (Rev-${nextRevisionNumber})`;
+
+      const created = await this.prisma.document.create({
+        data: {
+          documentTemplateId: original.documentTemplateId,
+          type: original.type,
+          config: original.config,
+          organizationId: original.organizationId,
+          customerId: original.customerId,
+          inventoryId: original.inventoryId,
+          projectId: original.projectId,
+          status: original.status,
+          name: nameWithRevision,
+          baseDocumentId,
+          revisionNumber: nextRevisionNumber,
+        },
+      });
+
+      return created;
+    } catch (error) {
+      throw new HttpException(`Create revision failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  async listRevisions(documentId: string, organizationId: string) {
+    try {
+      const original = await this.prisma.document.findFirst({ where: { id: documentId, organizationId } });
+      if (!original) {
+        throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+      }
+      const baseDocumentId = original.baseDocumentId || original.id;
+      const documents = await this.prisma.document.findMany({
+        where: { organizationId, baseDocumentId },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, name: true, createdAt: true, revisionNumber: true },
+      });
+      return documents;
+    } catch (error) {
+      throw new HttpException(`List revisions failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
   async getAllDocuments(organizationId: string) {

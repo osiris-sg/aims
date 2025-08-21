@@ -144,11 +144,21 @@ model Document {
   organizationId     String
   name               String?
   status             DocumentStatus @default(draft)
+  // Revision fields
+  baseDocumentId     String?        @db.Uuid
+  revisionNumber     Int?           @default(0)
+
   customer           Customer?      @relation(fields: [customerId], references: [id])
   inventory          Inventory?     @relation(fields: [inventoryId], references: [id])
   organization       Organization   @relation(fields: [organizationId], references: [id])
   project            Project?       @relation(fields: [projectId], references: [id])
   timelineItems      TimelineItem[]
+
+  // Self-relation for revisions: base document -> many revisions
+  baseDocument       Document?      @relation("DocumentRevisions", fields: [baseDocumentId], references: [id])
+  revisions          Document[]     @relation("DocumentRevisions")
+
+  @@index([baseDocumentId])
 }
 
 model Role {

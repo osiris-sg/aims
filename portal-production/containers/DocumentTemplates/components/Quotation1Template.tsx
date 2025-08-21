@@ -171,6 +171,7 @@ export default function Quotation1Template(props: Props) {
         secondaryActionLoading={isDocumentCreationloading}
         title={(document as any)?.name || getDocumentTypeDisplayNameWithDefaults("QO1", organization)}
         description="This document does not support uploading of template"
+        headerLoading={isDocumentLoading || (!!documentId && !(document as any)?.name)}
         viewMode={isViewMode}
         toggleViewMode={(value) => toggleViewMode(value)}
         onPrimaryActionSubmit={onSubmit}
@@ -180,6 +181,7 @@ export default function Quotation1Template(props: Props) {
         onPrint={handlePrint}
         documentEditMode={!!documentId}
         isEditPath={isEditPath}
+        currentDocumentId={(document as any)?.id}
       />
       <Grid2 container spacing={1} sx={{ flex: 1, minHeight: 0 }}>
         {!documentId && isToolBarOpen && (

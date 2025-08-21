@@ -52,26 +52,18 @@ async function assignSuperadminRole() {
       },
     });
 
+    // Get all assignable permissions for superadmin (org-scoped; exclude platform-only)
+    const allPermissions = await prisma.permission.findMany({
+      where: {
+        NOT: {
+          OR: [{ AND: [{ resource: 'organizations' }, { action: { not: 'update' } }] }, { resource: 'roles', action: 'create' }, { resource: 'roles', action: 'delete' }, { resource: 'permissions' }],
+        },
+      },
+    });
+    const orgUpdatePermission = await prisma.permission.findUnique({ where: { name: 'organizations:update' } });
+
     if (!superadminRole) {
       console.log(`Creating superadmin role for organization ${organization.name}...`);
-
-      // Get all permissions to assign to superadmin
-      const allPermissions = await prisma.permission.findMany({
-        where: {
-          // Exclude platform-level permissions that should only be for OsirisAdmin
-          NOT: {
-            OR: [
-              { AND: [{ resource: 'organizations' }, { action: { not: 'update' } }] },
-              { resource: 'roles', action: 'create' },
-              { resource: 'roles', action: 'delete' },
-              { resource: 'permissions' },
-            ],
-          },
-        },
-      });
-
-      const orgUpdatePermission = await prisma.permission.findUnique({ where: { name: 'organizations:update' } });
-
       superadminRole = await prisma.role.create({
         data: {
           name: 'superadmin',
@@ -85,18 +77,21 @@ async function assignSuperadminRole() {
       console.log(`✅ Created superadmin role for organization ${organization.name}`);
     } else {
       console.log(`Found existing superadmin role for organization ${organization.name}`);
-      // Ensure organizations:update is connected for existing role
-      const orgUpdatePermission = await prisma.permission.findUnique({ where: { name: 'organizations:update' } });
-      if (orgUpdatePermission) {
+      // Ensure role has ALL allowed permissions (new permissions added later will be synced)
+      const roleWithPerms = await prisma.role.findUnique({ where: { id: superadminRole.id }, include: { permissions: true } });
+      const currentPermissionIds = new Set((roleWithPerms?.permissions || []).map((p) => p.id));
+      const toConnect = allPermissions.filter((p) => !currentPermissionIds.has(p.id)).map((p) => ({ id: p.id }));
+      if (orgUpdatePermission && !currentPermissionIds.has(orgUpdatePermission.id)) {
+        toConnect.push({ id: orgUpdatePermission.id });
+      }
+      if (toConnect.length > 0) {
         await prisma.role.update({
           where: { id: superadminRole.id },
-          data: {
-            permissions: {
-              connect: [{ id: orgUpdatePermission.id }],
-            },
-          },
+          data: { permissions: { connect: toConnect } },
         });
-        console.log('🔧 Ensured permission organizations:update is assigned to superadmin');
+        console.log(`🔧 Synced ${toConnect.length} new permission(s) to superadmin role`);
+      } else {
+        console.log('✅ Superadmin role already has all required permissions');
       }
     }
 

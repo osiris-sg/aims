@@ -180,6 +180,7 @@ export default function InvoiceTemplate(props: Props) {
         secondaryActionLoading={isDocumentCreationloading}
         title={(document as any)?.name || getDocumentTypeDisplayNameWithDefaults("TI", organization)}
         description="This document does not support uploading of template"
+        headerLoading={isDocumentLoading || (!!documentId && !(document as any)?.name)}
         viewMode={isViewMode}
         toggleViewMode={(value) => toggleViewMode(value)}
         onPrimaryActionSubmit={onSubmit}
@@ -189,6 +190,7 @@ export default function InvoiceTemplate(props: Props) {
         onPrint={handlePrint}
         documentEditMode={!!documentId}
         isEditPath={isEditPath}
+        currentDocumentId={(document as any)?.id}
       />
       <Grid2 container spacing={1} height="100%">
         {!documentId && isToolBarOpen && (

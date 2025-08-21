@@ -463,6 +463,17 @@ async function main() {
     },
   });
 
+  const createDocumentRevisionPermission = await prisma.permission.upsert({
+    where: { name: 'documents:create-revision' },
+    update: {},
+    create: {
+      name: 'documents:create-revision',
+      description: 'Can create document revisions',
+      resource: 'documents',
+      action: 'create-revision',
+    },
+  });
+
   const readDocumentPermission = await prisma.permission.upsert({
     where: { name: 'documents:read' },
     update: {},
@@ -984,6 +995,7 @@ async function main() {
           // Document management
           { id: createDocumentWithTimelinePermission.id },
           { id: createBasicDocumentPermission.id },
+          { id: createDocumentRevisionPermission.id },
           { id: readDocumentPermission.id },
           { id: readOneDocumentPermission.id },
           { id: readDocumentByInventoryPermission.id },
@@ -1086,6 +1098,7 @@ async function main() {
           // Document management
           { id: createDocumentWithTimelinePermission.id },
           { id: createBasicDocumentPermission.id },
+          { id: createDocumentRevisionPermission.id },
           { id: readDocumentPermission.id },
           { id: readOneDocumentPermission.id },
           { id: readDocumentByInventoryPermission.id },
@@ -1170,6 +1183,7 @@ async function main() {
           // Document management (organization-scoped)
           { id: createDocumentWithTimelinePermission.id },
           { id: createBasicDocumentPermission.id },
+          { id: createDocumentRevisionPermission.id },
           { id: readDocumentPermission.id },
           { id: readOneDocumentPermission.id },
           { id: readDocumentByInventoryPermission.id },
@@ -1249,6 +1263,7 @@ async function main() {
           // Document management (organization-scoped)
           { id: createDocumentWithTimelinePermission.id },
           { id: createBasicDocumentPermission.id },
+          { id: createDocumentRevisionPermission.id },
           { id: readDocumentPermission.id },
           { id: readOneDocumentPermission.id },
           { id: readDocumentByInventoryPermission.id },
