@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import DocumentNameHeader from "./DocumentNameHeader";
-import { Alert, Box, Button, Card, CardContent, Grid2, Typography, useTheme, useMediaQuery, IconButton, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Checkbox, FormControlLabel, Chip } from "@mui/material";
+import { Alert, Box, Button, Card, CardContent, Grid2, Typography, useTheme, useMediaQuery, IconButton, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Checkbox, FormControlLabel, Chip, Divider } from "@mui/material";
 import { Close as CloseIcon, CameraAlt as CameraIcon, Edit as EditIcon, Comment as CommentIcon, Save as SaveIcon, Clear as ClearIcon, Receipt as InvoiceIcon, AttachMoney as MoneyIcon } from "@mui/icons-material";
 import { useWatch } from "react-hook-form";
 import TemplatePaper from "./TemplatePaper";
@@ -10,11 +10,15 @@ import DocumentCustomizer from "./DocumentCustomizer";
 import useGetDocument from "../hooks/useGetDocument";
 import DocumentSkeleton from "./DocumentSkeleton";
 import usePrintDocumentHandler from "../hooks/usePrintDocumentHandler";
-import { useParams, usePathname } from "next/navigation";
+import { useParams, usePathname, useRouter } from "next/navigation";
 import useMSRTemplateHandler from "../hooks/useMSRTemplateHandler";
 import useMSRDocumentCreator from "../hooks/useMSRDocumentCreator";
 import WebcamComponent from "./WebCam";
 import Image from "next/image";
+import { useAuth } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
+import { request } from "@/helpers/request";
+import { toast } from "react-toastify";
 
 interface Props {
   viewMode: boolean;
@@ -52,6 +56,7 @@ interface MSRDocument {
 export default function MaintenanceServiceReportTemplate(props: Props) {
   const { documentId } = useParams();
   const pathname = usePathname();
+  const router = useRouter();
   const isEditPath = pathname.includes("edit");
   const { viewMode = false } = props;
   const [isViewMode, toggleViewMode] = useState(viewMode);
@@ -60,6 +65,8 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
   const { methods, onSubmit, editableVisibilityFields, isLoading, isDirty, errors } = useMSRTemplateHandler();
   const { control, setValue, onDocumentCreate, onSubmitWithStatus, isLoading: isDocumentCreationloading, isDirty: isDCretorDisabled, isFormReadyForSubmission } = useMSRDocumentCreator();
   const { contentRef, handlePrint } = usePrintDocumentHandler();
+  const { getToken } = useAuth();
+  const { organization } = useOrganization();
 
   // MSR-specific state
   const [isWebcamOpen, setWebcamOpen] = useState(false);
@@ -83,6 +90,16 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
   const [tempLaborHours, setTempLaborHours] = useState<number>(0);
   const [tempLaborRate, setTempLaborRate] = useState<number>(0);
 
+  // Invoice creation state
+  const [isCreatingInvoice, setIsCreatingInvoice] = useState(false);
+  const [invoiceConfirmDialogOpen, setInvoiceConfirmDialogOpen] = useState(false);
+  const [invoicePreviewData, setInvoicePreviewData] = useState<{
+    chargeablePhotos: AnnotatedPhoto[];
+    totalParts: number;
+    totalLabor: number;
+    grandTotal: number;
+  } | null>(null);
+
   // Mobile responsiveness
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -98,12 +115,28 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
   };
 
   // Handle create invoice from chargeable parts
-  const handleCreateInvoice = () => {
+  const handleCreateInvoice = async () => {
     const chargeablePhotos = photos.filter((photo: AnnotatedPhoto) => photo.isChargeable);
 
     if (chargeablePhotos.length === 0) {
-      alert("No chargeable parts found. Please mark some parts as chargeable first.");
+      toast.error("No chargeable parts found. Please mark some parts as chargeable first.");
       return;
+    }
+
+    // Auto-save MSR document first to ensure all changes are persisted
+    if (documentId && isDCretorDisabled) {
+      // isDCretorDisabled is actually isDirty from MSR document creator
+      toast.info("Saving MSR changes before creating invoice...");
+      try {
+        await onDocumentCreate(); // Save the current MSR document
+        toast.success("MSR saved successfully!");
+        // Wait a moment for the save to complete
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      } catch (error) {
+        console.error("Error saving MSR:", error);
+        toast.error("Failed to save MSR. Please save manually before creating invoice.");
+        return;
+      }
     }
 
     // Calculate totals for confirmation
@@ -117,26 +150,146 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
 
     const grandTotal = totalParts + totalLabor;
 
-    const confirmed = confirm(`Create invoice for ${chargeablePhotos.length} chargeable items?\n\n` + `Parts Total: $${totalParts.toFixed(2)}\n` + `Labor Total: $${totalLabor.toFixed(2)}\n` + `Grand Total: $${grandTotal.toFixed(2)}`);
+    // Set preview data and open dialog
+    setInvoicePreviewData({
+      chargeablePhotos,
+      totalParts,
+      totalLabor,
+      grandTotal,
+    });
+    setInvoiceConfirmDialogOpen(true);
+  };
 
-    if (confirmed) {
-      // Navigate to invoice creation with MSR data
-      const invoiceData = {
-        sourceType: "MSR",
-        sourceId: (document as any)?.id,
-        items: chargeablePhotos.map((photo: AnnotatedPhoto) => ({
-          description: `${photo.partName} - ${photo.comments || "Maintenance service"}`,
-          quantity: photo.quantity || 1,
-          unitPrice: photo.unitPrice || 0,
-          laborHours: photo.laborHours || 0,
-          laborRate: photo.laborRate || 0,
-        })),
-        reportDetails: reportDetails,
+  // Handle confirmed invoice creation
+  const handleConfirmInvoiceCreation = async () => {
+    if (!invoicePreviewData) return;
+
+    const { chargeablePhotos } = invoicePreviewData;
+
+    setIsCreatingInvoice(true);
+    setInvoiceConfirmDialogOpen(false);
+    toast.info("Creating invoice from MSR...");
+
+    try {
+      const token = await getToken();
+      if (!token) {
+        toast.error("Authentication required");
+        return;
+      }
+
+      // First, get the invoice document template ID
+      const templateResponse = await request(
+        {
+          path: "/documentTemplates/type/TI",
+          method: "GET",
+        },
+        {},
+        token
+      );
+
+      if (!templateResponse?.data?.id) {
+        toast.error("Invoice template not found");
+        return;
+      }
+
+      const documentTemplateId = templateResponse.data.id;
+
+      // Convert MSR items to invoice items format - match exact structure expected by invoice
+      const invoiceItems = chargeablePhotos.map((photo: AnnotatedPhoto) => ({
+        inventoryItemId: "", // Empty string instead of null
+        description: `${photo.partName} - ${photo.comments || "Maintenance service"}`,
+        quantity: String(photo.quantity || 1),
+        price: String(photo.unitPrice || 0),
+        tax: "0",
+        customTax: "", // Add customTax field
+      }));
+
+      // Add labor as separate items
+      const laborItems = chargeablePhotos
+        .filter((photo: AnnotatedPhoto) => photo.laborHours && photo.laborRate)
+        .map((photo: AnnotatedPhoto) => ({
+          inventoryItemId: "", // Empty string instead of null
+          description: `Labor: ${photo.partName}`,
+          quantity: String(photo.laborHours || 0),
+          price: String(photo.laborRate || 0),
+          tax: "0",
+          customTax: "", // Add customTax field
+        }));
+
+      const config = {
+        items: [...invoiceItems, ...laborItems],
+        msrSource: {
+          sourceId: (document as any)?.id,
+          reportDetails: reportDetails,
+        },
       };
 
-      // Store in sessionStorage and navigate
-      sessionStorage.setItem("invoiceFromMSR", JSON.stringify(invoiceData));
-      window.open("/portal/invoices/create", "_blank");
+      console.log("MSR Invoice Config being sent:", JSON.stringify(config, null, 2));
+      console.log("Invoice items structure:", invoiceItems);
+      console.log("Labor items structure:", laborItems);
+
+      // Create the invoice document
+      const createResponse = await request(
+        {
+          path: "/documents/basic",
+          method: "POST",
+        },
+        {
+          type: "TI",
+          config: config,
+          documentTemplateId: documentTemplateId,
+          organizationId: organization?.id,
+        },
+        token
+      );
+
+      console.log("Invoice creation response:", createResponse);
+
+      if (createResponse?.data?.id) {
+        const createdDocumentId = createResponse.data.id;
+
+        // Update MSR document to mark it as invoiced
+        if (documentId) {
+          try {
+            await request(
+              {
+                path: "/documents/update",
+                method: "POST",
+              },
+              {
+                id: documentId,
+                type: (document as any)?.type,
+                config: {
+                  ...reportDetails,
+                  photos: photos,
+                  invoiceCreated: true,
+                  invoiceId: createdDocumentId,
+                  invoiceCreatedAt: new Date().toISOString(),
+                },
+                status: "invoiced", // Update status to invoiced
+              },
+              token
+            );
+            console.log("MSR document updated with invoice information");
+          } catch (updateError) {
+            console.error("Error updating MSR document:", updateError);
+            // Don't fail the whole process if MSR update fails
+          }
+        }
+
+        toast.success("Invoice created successfully! MSR updated.");
+
+        // Navigate to the created invoice
+        const invoiceUrl = `/portal/documents/TI/${documentTemplateId}/${createdDocumentId}`;
+        window.open(invoiceUrl, "_blank");
+      } else {
+        toast.error("Failed to create invoice");
+      }
+    } catch (error) {
+      console.error("Error creating invoice:", error);
+      toast.error("An error occurred while creating the invoice");
+    } finally {
+      setIsCreatingInvoice(false);
     }
   };
 
@@ -435,8 +588,8 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
                               </Button>
                             )}
                             {photos.some((photo: AnnotatedPhoto) => photo.isChargeable) && (
-                              <Button variant="outlined" startIcon={<InvoiceIcon />} onClick={handleCreateInvoice} size="small" fullWidth={isMobile} color="success">
-                                Create Invoice
+                              <Button variant="outlined" startIcon={<InvoiceIcon />} onClick={handleCreateInvoice} size="small" fullWidth={isMobile} color="success" disabled={isCreatingInvoice} loading={isCreatingInvoice}>
+                                {isCreatingInvoice ? "Creating..." : "Create Invoice"}
                               </Button>
                             )}
                           </Box>
@@ -758,6 +911,88 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
                     </Button>
                     <Button onClick={handleSavePhotoDetails} variant="contained" disabled={!tempPartName.trim()} fullWidth={isMobile}>
                       Save Photo
+                    </Button>
+                  </DialogActions>
+                </Dialog>
+
+                {/* Invoice Confirmation Dialog */}
+                <Dialog open={invoiceConfirmDialogOpen} onClose={() => setInvoiceConfirmDialogOpen(false)} maxWidth="sm" fullWidth fullScreen={isMobile}>
+                  <DialogTitle>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                      <InvoiceIcon color="success" />
+                      Create Invoice from MSR
+                    </Box>
+                  </DialogTitle>
+                  <DialogContent sx={{ pt: 2 }}>
+                    {invoicePreviewData && (
+                      <>
+                        <Typography variant="body1" sx={{ mb: 2 }}>
+                          Create invoice for <strong>{invoicePreviewData.chargeablePhotos.length}</strong> chargeable items?
+                        </Typography>
+
+                        {/* Items Summary */}
+                        <Box sx={{ mb: 3 }}>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+                            Chargeable Items:
+                          </Typography>
+                          {invoicePreviewData.chargeablePhotos.map((photo, index) => (
+                            <Box key={photo.id} sx={{ mb: 1, p: 1, backgroundColor: "grey.50", borderRadius: 1 }}>
+                              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                {photo.partName}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Qty: {photo.quantity} × ${photo.unitPrice?.toFixed(2)} = ${((photo.unitPrice || 0) * (photo.quantity || 1)).toFixed(2)}
+                              </Typography>
+                              {photo.laborHours && photo.laborRate && (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                                  Labor: {photo.laborHours}hrs × ${photo.laborRate?.toFixed(2)}/hr = ${((photo.laborHours || 0) * (photo.laborRate || 0)).toFixed(2)}
+                                </Typography>
+                              )}
+                            </Box>
+                          ))}
+                        </Box>
+
+                        <Divider sx={{ my: 2 }} />
+
+                        {/* Totals */}
+                        <Box sx={{ mb: 2 }}>
+                          <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
+                            <Typography variant="body2">Parts Total:</Typography>
+                            <Typography variant="body2">${invoicePreviewData.totalParts.toFixed(2)}</Typography>
+                          </Box>
+                          <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
+                            <Typography variant="body2">Labor Total:</Typography>
+                            <Typography variant="body2">${invoicePreviewData.totalLabor.toFixed(2)}</Typography>
+                          </Box>
+                          <Divider sx={{ my: 1 }} />
+                          <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                              Grand Total:
+                            </Typography>
+                            <Typography variant="h6" sx={{ fontWeight: 600, color: "success.main" }}>
+                              ${invoicePreviewData.grandTotal.toFixed(2)}
+                            </Typography>
+                          </Box>
+                        </Box>
+
+                        <Alert severity="info" sx={{ mt: 2 }}>
+                          <Typography variant="body2">This will create an invoice and automatically update this MSR document status to "invoiced".</Typography>
+                        </Alert>
+                      </>
+                    )}
+                  </DialogContent>
+                  <DialogActions
+                    sx={{
+                      flexDirection: isMobile ? "column" : "row",
+                      gap: isMobile ? 1 : 0,
+                      p: isMobile ? 2 : 1,
+                    }}
+                  >
+                    <Button onClick={() => setInvoiceConfirmDialogOpen(false)} color="secondary" fullWidth={isMobile} disabled={isCreatingInvoice}>
+                      Cancel
+                    </Button>
+                    <Button onClick={handleConfirmInvoiceCreation} variant="contained" color="success" fullWidth={isMobile} disabled={isCreatingInvoice} startIcon={<InvoiceIcon />}>
+                      {isCreatingInvoice ? "Creating..." : "Create Invoice"}
                     </Button>
                   </DialogActions>
                 </Dialog>
