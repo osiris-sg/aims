@@ -80,12 +80,12 @@ export default function useMSRDocumentCreator() {
       return false;
     }
 
-    // 2. Must have at least one photo with part name and comment
+    // 2. Must have at least one photo with part name
     if (!photos || photos.length === 0) {
       return false;
     }
 
-    const validPhotos = photos.filter((photo: any) => photo.imageData && photo.partName && photo.partName.trim() && photo.comments && photo.comments.trim());
+    const validPhotos = photos.filter((photo: any) => photo.imageData && photo.partName && photo.partName.trim());
 
     return validPhotos.length > 0;
   }, [reportDetails?.equipmentId, reportDetails?.location, reportDetails?.reportType, reportDetails?.date, photos]);

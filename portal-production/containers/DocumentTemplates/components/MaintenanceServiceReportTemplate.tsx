@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import DocumentNameHeader from "./DocumentNameHeader";
-import { Alert, Box, Button, Card, CardContent, Grid2, Typography, useTheme, useMediaQuery, IconButton, TextField, Dialog, DialogTitle, DialogContent, DialogActions } from "@mui/material";
-import { Close as CloseIcon, CameraAlt as CameraIcon, Edit as EditIcon, Comment as CommentIcon, Save as SaveIcon, Clear as ClearIcon } from "@mui/icons-material";
+import { Alert, Box, Button, Card, CardContent, Grid2, Typography, useTheme, useMediaQuery, IconButton, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Checkbox, FormControlLabel, Chip } from "@mui/material";
+import { Close as CloseIcon, CameraAlt as CameraIcon, Edit as EditIcon, Comment as CommentIcon, Save as SaveIcon, Clear as ClearIcon, Receipt as InvoiceIcon, AttachMoney as MoneyIcon } from "@mui/icons-material";
 import { useWatch } from "react-hook-form";
 import TemplatePaper from "./TemplatePaper";
 import FormInputBox from "@/form-components/FormInputBox";
@@ -28,6 +28,12 @@ interface AnnotatedPhoto {
   partName: string; // Name/title of the part being photographed
   comments: string;
   timestamp: number;
+  // Chargeable part fields
+  isChargeable?: boolean;
+  unitPrice?: number;
+  quantity?: number;
+  laborHours?: number;
+  laborRate?: number;
 }
 
 // Document type for MSR
@@ -70,6 +76,13 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
   const [tempPartName, setTempPartName] = useState("");
   const [tempPhotoComment, setTempPhotoComment] = useState("");
 
+  // Chargeable part states
+  const [tempIsChargeable, setTempIsChargeable] = useState(false);
+  const [tempUnitPrice, setTempUnitPrice] = useState<number>(0);
+  const [tempQuantity, setTempQuantity] = useState<number>(1);
+  const [tempLaborHours, setTempLaborHours] = useState<number>(0);
+  const [tempLaborRate, setTempLaborRate] = useState<number>(0);
+
   // Mobile responsiveness
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -82,6 +95,49 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
   const handleSubmitWithStatus = (status: string) => {
     console.log("Submitting MSR with status:", status);
     onSubmitWithStatus(status);
+  };
+
+  // Handle create invoice from chargeable parts
+  const handleCreateInvoice = () => {
+    const chargeablePhotos = photos.filter((photo: AnnotatedPhoto) => photo.isChargeable);
+
+    if (chargeablePhotos.length === 0) {
+      alert("No chargeable parts found. Please mark some parts as chargeable first.");
+      return;
+    }
+
+    // Calculate totals for confirmation
+    const totalParts = chargeablePhotos.reduce((sum: number, photo: AnnotatedPhoto) => {
+      return sum + (photo.unitPrice || 0) * (photo.quantity || 1);
+    }, 0);
+
+    const totalLabor = chargeablePhotos.reduce((sum: number, photo: AnnotatedPhoto) => {
+      return sum + (photo.laborHours || 0) * (photo.laborRate || 0);
+    }, 0);
+
+    const grandTotal = totalParts + totalLabor;
+
+    const confirmed = confirm(`Create invoice for ${chargeablePhotos.length} chargeable items?\n\n` + `Parts Total: $${totalParts.toFixed(2)}\n` + `Labor Total: $${totalLabor.toFixed(2)}\n` + `Grand Total: $${grandTotal.toFixed(2)}`);
+
+    if (confirmed) {
+      // Navigate to invoice creation with MSR data
+      const invoiceData = {
+        sourceType: "MSR",
+        sourceId: (document as any)?.id,
+        items: chargeablePhotos.map((photo: AnnotatedPhoto) => ({
+          description: `${photo.partName} - ${photo.comments || "Maintenance service"}`,
+          quantity: photo.quantity || 1,
+          unitPrice: photo.unitPrice || 0,
+          laborHours: photo.laborHours || 0,
+          laborRate: photo.laborRate || 0,
+        })),
+        reportDetails: reportDetails,
+      };
+
+      // Store in sessionStorage and navigate
+      sessionStorage.setItem("invoiceFromMSR", JSON.stringify(invoiceData));
+      window.open("/portal/invoices/create", "_blank");
+    }
   };
 
   // Handle loading photos from existing document
@@ -171,6 +227,11 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
       partName: tempPartName.trim(),
       comments: tempPhotoComment.trim(),
       timestamp: Date.now(),
+      isChargeable: tempIsChargeable,
+      unitPrice: tempIsChargeable ? tempUnitPrice : undefined,
+      quantity: tempIsChargeable ? tempQuantity : undefined,
+      laborHours: tempIsChargeable ? tempLaborHours : undefined,
+      laborRate: tempIsChargeable ? tempLaborRate : undefined,
     };
     const updatedPhotos = [...photos, newPhoto];
     setValue("photos", updatedPhotos, { shouldDirty: true });
@@ -178,6 +239,7 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
     console.log("Added new MSR photo:", {
       partName: newPhoto.partName,
       imageDataLength: newPhoto.imageData.length,
+      isChargeable: newPhoto.isChargeable,
       totalPhotos: updatedPhotos.length,
     });
 
@@ -186,6 +248,11 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
     setCapturedImageData("");
     setTempPartName("");
     setTempPhotoComment("");
+    setTempIsChargeable(false);
+    setTempUnitPrice(0);
+    setTempQuantity(1);
+    setTempLaborHours(0);
+    setTempLaborRate(0);
   };
 
   const handleCancelPhotoDetails = () => {
@@ -193,6 +260,11 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
     setCapturedImageData("");
     setTempPartName("");
     setTempPhotoComment("");
+    setTempIsChargeable(false);
+    setTempUnitPrice(0);
+    setTempQuantity(1);
+    setTempLaborHours(0);
+    setTempLaborRate(0);
   };
 
   const handleDeletePhoto = (index: number) => {
@@ -356,11 +428,18 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
                           }}
                         >
                           <Typography variant="h6">Photo Documentation</Typography>
-                          {!isViewMode && (
-                            <Button variant="contained" startIcon={<CameraIcon />} onClick={() => setWebcamOpen(true)} size="small" fullWidth={isMobile}>
-                              Take Photo
-                            </Button>
-                          )}
+                          <Box sx={{ display: "flex", gap: 1, flexDirection: isMobile ? "column" : "row" }}>
+                            {!isViewMode && (
+                              <Button variant="contained" startIcon={<CameraIcon />} onClick={() => setWebcamOpen(true)} size="small" fullWidth={isMobile}>
+                                Take Photo
+                              </Button>
+                            )}
+                            {photos.some((photo: AnnotatedPhoto) => photo.isChargeable) && (
+                              <Button variant="outlined" startIcon={<InvoiceIcon />} onClick={handleCreateInvoice} size="small" fullWidth={isMobile} color="success">
+                                Create Invoice
+                              </Button>
+                            )}
+                          </Box>
                         </Box>
 
                         {photos.length === 0 ? (
@@ -436,15 +515,26 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
                                   </Box>
 
                                   <CardContent sx={{ pt: 1 }}>
-                                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 1, color: "primary.main" }}>
-                                      {photo.partName || `Photo ${index + 1}`}
-                                    </Typography>
+                                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1 }}>
+                                      <Typography variant="body2" sx={{ fontWeight: 600, color: "primary.main" }}>
+                                        {photo.partName || `Photo ${index + 1}`}
+                                      </Typography>
+                                      {photo.isChargeable && <Chip icon={<MoneyIcon />} label="Chargeable" size="small" color="success" variant="outlined" />}
+                                    </Box>
                                     {photo.comments && (
-                                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: "0.875rem", fontStyle: "italic" }}>
+                                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: "0.875rem", fontStyle: "italic", mb: 1 }}>
                                         &quot;{photo.comments}&quot;
                                       </Typography>
                                     )}
-                                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                                    {photo.isChargeable && (
+                                      <Box sx={{ mb: 1 }}>
+                                        <Typography variant="caption" color="success.main" sx={{ display: "block" }}>
+                                          Parts: ${((photo.unitPrice || 0) * (photo.quantity || 1)).toFixed(2)}
+                                          {photo.laborHours && photo.laborRate && <> | Labor: ${((photo.laborHours || 0) * (photo.laborRate || 0)).toFixed(2)}</>}
+                                        </Typography>
+                                      </Box>
+                                    )}
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
                                       {new Date(photo.timestamp).toLocaleString()}
                                     </Typography>
                                   </CardContent>
@@ -623,6 +713,38 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
 
                     {/* Comments Input */}
                     <TextField fullWidth multiline rows={isMobile ? 2 : 3} label="Comments (Optional)" placeholder="Describe the condition, issue, or observation..." value={tempPhotoComment} onChange={(e) => setTempPhotoComment(e.target.value)} size="small" />
+
+                    {/* Chargeable Part Section */}
+                    <Box sx={{ mt: 3, p: 2, backgroundColor: "grey.50", borderRadius: 1 }}>
+                      <FormControlLabel control={<Checkbox checked={tempIsChargeable} onChange={(e) => setTempIsChargeable(e.target.checked)} color="success" />} label="This is a chargeable part/service" />
+
+                      {tempIsChargeable && (
+                        <Box sx={{ mt: 2, display: "flex", flexDirection: "column", gap: 2 }}>
+                          <Typography variant="subtitle2" color="success.main" sx={{ fontWeight: 600 }}>
+                            Pricing Details
+                          </Typography>
+
+                          <Box sx={{ display: "flex", gap: 2, flexDirection: isMobile ? "column" : "row" }}>
+                            <TextField label="Unit Price ($)" type="number" value={tempUnitPrice} onChange={(e) => setTempUnitPrice(Number(e.target.value))} size="small" fullWidth={isMobile} inputProps={{ min: 0, step: 0.01 }} />
+                            <TextField label="Quantity" type="number" value={tempQuantity} onChange={(e) => setTempQuantity(Number(e.target.value))} size="small" fullWidth={isMobile} inputProps={{ min: 1, step: 1 }} />
+                          </Box>
+
+                          <Box sx={{ display: "flex", gap: 2, flexDirection: isMobile ? "column" : "row" }}>
+                            <TextField label="Labor Hours" type="number" value={tempLaborHours} onChange={(e) => setTempLaborHours(Number(e.target.value))} size="small" fullWidth={isMobile} inputProps={{ min: 0, step: 0.5 }} />
+                            <TextField label="Labor Rate ($/hr)" type="number" value={tempLaborRate} onChange={(e) => setTempLaborRate(Number(e.target.value))} size="small" fullWidth={isMobile} inputProps={{ min: 0, step: 0.01 }} />
+                          </Box>
+
+                          <Box sx={{ p: 1, backgroundColor: "success.50", borderRadius: 1, border: "1px solid", borderColor: "success.200" }}>
+                            <Typography variant="body2" color="success.main" sx={{ fontWeight: 600 }}>
+                              Total: ${(tempUnitPrice * tempQuantity + tempLaborHours * tempLaborRate).toFixed(2)}
+                              <Typography component="span" variant="caption" sx={{ ml: 1, fontWeight: 400 }}>
+                                (Parts: ${(tempUnitPrice * tempQuantity).toFixed(2)} + Labor: ${(tempLaborHours * tempLaborRate).toFixed(2)})
+                              </Typography>
+                            </Typography>
+                          </Box>
+                        </Box>
+                      )}
+                    </Box>
                   </DialogContent>
                   <DialogActions
                     sx={{
