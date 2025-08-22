@@ -6,11 +6,13 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
-import { Box, IconButton, Alert } from "@mui/material";
+import { Box, IconButton, Alert, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button } from "@mui/material";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import DownloadIcon from "@mui/icons-material/Download";
+import DeleteIcon from "@mui/icons-material/Delete";
 import { useRouter } from "next/navigation";
 import moment from "moment";
+import { toast } from "react-toastify";
 import { DOCUMENT_API } from "../documents/constants";
 
 interface Document {
@@ -77,6 +79,9 @@ export default function DocumentsPage() {
     },
   });
   const [error, setError] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [documentToDelete, setDocumentToDelete] = useState<Document | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const columns = [
     {
@@ -190,6 +195,19 @@ export default function DocumentsPage() {
             >
               <DownloadIcon />
             </IconButton>
+            <IconButton
+              onClick={() => handleDeleteClick(row.original)}
+              sx={{
+                color: "customRed.contrastText",
+                bgcolor: "customRed.main",
+                "&:hover": {
+                  bgcolor: "customRed.dark",
+                },
+                borderRadius: "8px",
+              }}
+            >
+              <DeleteIcon />
+            </IconButton>
           </Box>
         );
       },
@@ -210,6 +228,50 @@ export default function DocumentsPage() {
       },
     };
     setFilters(updatedFilters);
+  };
+
+  const handleDeleteClick = (document: Document) => {
+    setDocumentToDelete(document);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!documentToDelete || !organizationId) return;
+    
+    setDeleting(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await request(
+        {
+          path: `${DOCUMENT_API.DELETE.path}/${documentToDelete.id}`,
+          method: DOCUMENT_API.DELETE.method,
+        },
+        {},
+        token
+      );
+
+      if (response.success) {
+        toast.success("Document deleted successfully");
+        setDeleteDialogOpen(false);
+        setDocumentToDelete(null);
+        // Refresh the documents list
+        fetchDocuments();
+      } else {
+        toast.error(response.message || "Failed to delete document");
+      }
+    } catch (error) {
+      console.error("Error deleting document:", error);
+      toast.error("An error occurred while deleting the document");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteDialogOpen(false);
+    setDocumentToDelete(null);
   };
 
   const fetchDocuments = useCallback(async () => {
@@ -285,6 +347,36 @@ export default function DocumentsPage() {
         pageCount={documents.totalPages}
         totalDocs={documents.totalDocs}
       />
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={handleDeleteCancel}
+        aria-labelledby="delete-dialog-title"
+        aria-describedby="delete-dialog-description"
+      >
+        <DialogTitle id="delete-dialog-title">
+          Delete Document
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText id="delete-dialog-description">
+            Are you sure you want to delete "{documentToDelete?.name}"? This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleDeleteCancel} disabled={deleting}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleDeleteConfirm} 
+            color="error" 
+            variant="contained"
+            disabled={deleting}
+          >
+            {deleting ? "Deleting..." : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </MainCard>
   );
 }
