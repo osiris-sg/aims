@@ -1,6 +1,9 @@
-import { Button, Grid2, IconButton, ToggleButton, Typography, Dialog, DialogTitle, DialogContent, DialogActions, FormControl, InputLabel, Select, MenuItem, Stack, List, ListItem, ListItemText, Divider, CircularProgress, Box, Chip, Skeleton } from "@mui/material";
+import { Button, Grid2, IconButton, ToggleButton, Typography, Dialog, DialogTitle, DialogContent, DialogActions, FormControl, InputLabel, Select, MenuItem, Stack, List, ListItem, ListItemText, Divider, CircularProgress, Box, Chip, Skeleton, TextField } from "@mui/material";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import UploadIcon from "@mui/icons-material/Upload";
+import EditIcon from "@mui/icons-material/Edit";
+import CheckIcon from "@mui/icons-material/Check";
+import CloseIcon from "@mui/icons-material/Close";
 import React, { useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useParams, useRouter } from "next/navigation";
@@ -26,9 +29,13 @@ interface Props {
   documentStatus?: string; // New prop for document status
   currentDocumentId?: string;
   headerLoading?: boolean;
+  // Template editing props
+  templateName?: string;
+  onTemplateNameChange?: (name: string) => void;
+  isTemplateEditMode?: boolean;
 }
 
-export default function DocumentNameHeader(props: Props) {
+function DocumentNameHeaderComponent(props: Props) {
   const {
     onPrint,
     title,
@@ -46,11 +53,18 @@ export default function DocumentNameHeader(props: Props) {
     isFormReadyForSubmission = false,
     onSubmitWithStatus,
     documentStatus,
+    templateName,
+    onTemplateNameChange,
+    isTemplateEditMode = false,
   } = props;
 
   // State for status selection dialog
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState("");
+
+  // State for template name editing
+  const [isEditingTemplateName, setIsEditingTemplateName] = useState(false);
+  const [editedTemplateName, setEditedTemplateName] = useState(templateName || title);
 
   // Check if document is submitted (not in draft status)
   const isDocumentSubmitted = Boolean(documentStatus && documentStatus !== "draft");
@@ -88,7 +102,43 @@ export default function DocumentNameHeader(props: Props) {
     setSelectedStatus("");
   };
 
-  console.log("DocumentNameHeader props", props.isEditPath);
+  // Handle template name editing
+  const handleStartEditTemplateName = () => {
+    setIsEditingTemplateName(true);
+    setEditedTemplateName(templateName || title);
+  };
+
+  const handleSaveTemplateName = async () => {
+    if (onTemplateNameChange && editedTemplateName.trim()) {
+      onTemplateNameChange(editedTemplateName.trim());
+
+      // Auto-save the template after name change
+      if (isTemplateEditMode && onPrimaryActionSubmit) {
+        try {
+          await onPrimaryActionSubmit();
+          console.log("✅ Template name auto-saved successfully");
+        } catch (error) {
+          console.error("❌ Failed to auto-save template name:", error);
+        }
+      }
+    }
+    setIsEditingTemplateName(false);
+  };
+
+  const handleCancelEditTemplateName = () => {
+    setEditedTemplateName(templateName || title);
+    setIsEditingTemplateName(false);
+  };
+
+  const handleTemplateNameKeyPress = (event: React.KeyboardEvent) => {
+    if (event.key === "Enter") {
+      handleSaveTemplateName();
+    } else if (event.key === "Escape") {
+      handleCancelEditTemplateName();
+    }
+  };
+
+  // console.debug("DocumentNameHeader props", props.isEditPath);
 
   // Revisions integration
   const router = useRouter();
@@ -352,7 +402,43 @@ export default function DocumentNameHeader(props: Props) {
             </>
           ) : (
             <>
-              <Typography variant="h4">{title}</Typography>
+              {/* Title with optional edit functionality */}
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                {isTemplateEditMode && isEditingTemplateName ? (
+                  <>
+                    <TextField
+                      value={editedTemplateName}
+                      onChange={(e) => setEditedTemplateName(e.target.value)}
+                      onKeyDown={handleTemplateNameKeyPress}
+                      variant="outlined"
+                      size="small"
+                      autoFocus
+                      sx={{
+                        "& .MuiOutlinedInput-root": {
+                          fontSize: "2.125rem",
+                          fontWeight: 400,
+                          lineHeight: 1.235,
+                        },
+                      }}
+                    />
+                    <IconButton size="small" onClick={handleSaveTemplateName} color="primary">
+                      <CheckIcon />
+                    </IconButton>
+                    <IconButton size="small" onClick={handleCancelEditTemplateName} color="secondary">
+                      <CloseIcon />
+                    </IconButton>
+                  </>
+                ) : (
+                  <>
+                    <Typography variant="h4">{templateName || title}</Typography>
+                    {isTemplateEditMode && (
+                      <IconButton size="small" onClick={handleStartEditTemplateName} sx={{ ml: 1 }}>
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                    )}
+                  </>
+                )}
+              </Box>
               <Typography variant="body2" sx={{ color: "text.secondary" }}>
                 {description}
               </Typography>
@@ -524,3 +610,5 @@ export default function DocumentNameHeader(props: Props) {
     </>
   );
 }
+
+export default React.memo(DocumentNameHeaderComponent);

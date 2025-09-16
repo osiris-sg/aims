@@ -17,7 +17,7 @@ interface SignatureProps {
   control: Control<FieldValues, object> | undefined | any;
 }
 
-export default function SignatureDialog({ label, viewMode, control, name }: SignatureProps) {
+function SignatureDialogComponent({ label, viewMode, control, name }: SignatureProps) {
   const [open, setOpen] = useState(false);
   const sigCanvasRef = useRef<SignatureCanvas>(null);
   const theme = useTheme();
@@ -40,8 +40,6 @@ export default function SignatureDialog({ label, viewMode, control, name }: Sign
       name={name}
       control={control}
       render={({ field: { onChange, value } }) => {
-        console.log(`Signature value for ${name}:`, value);
-
         const saveSignature = () => {
           if (sigCanvasRef.current) {
             const signedImage = sigCanvasRef.current?.getTrimmedCanvas().toDataURL("image/png");
@@ -162,3 +160,5 @@ export default function SignatureDialog({ label, viewMode, control, name }: Sign
     />
   );
 }
+
+export default React.memo(SignatureDialogComponent);

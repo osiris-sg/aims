@@ -13,7 +13,7 @@ import { uploadImage } from "@/helpers/imageUploader";
 import { base64ToFile } from "@/helpers/base64ToFile";
 import { useParams, useSearchParams } from "next/navigation";
 import useGetDocument from "./useGetDocument";
-import { title } from "process";
+// removed unused import
 
 export default function useQO1DocumentCreator() {
   const documenttemplate = useSelector(selectDocumentTemplate);
@@ -42,20 +42,20 @@ export default function useQO1DocumentCreator() {
       salesPerson: "",
       salesPersonEmail: "",
       quotationNo: "",
-      quotationDate: "",
       validityTerm: "",
       currency: "",
       salePerson: "",
       mobile: "",
-      note: "",
-      remarks: "",
-      termsAndConditions: "",
+      // Inherit default values from template if available
+      note: (documenttemplate as any)?.config?.defaultValues?.note || "",
+      remarks: (documenttemplate as any)?.config?.defaultValues?.remarks || "",
+      termsAndConditions: (documenttemplate as any)?.config?.defaultValues?.termsAndConditions || "",
       title: "",
       // Preload containers for images
       logo: organization?.logo ? [{ data: organization.logo }] : undefined,
       stamp: { company: organization?.defaultStamp ? [{ data: organization.defaultStamp }] : [] },
     }),
-    [scannedInventoryId, organization?.logo, organization?.defaultStamp]
+    [organization?.logo, organization?.defaultStamp, (documenttemplate as any)?.config?.defaultValues]
   );
   console.log("Document Template:", defaultValues, documenttemplate);
 
@@ -125,7 +125,7 @@ export default function useQO1DocumentCreator() {
         keepValues: false,
       });
     }
-  }, [isDocumentCreated]);
+  }, [isDocumentCreated, defaultValues]);
 
   // Set form values from existing document.config if editing
   useEffect(() => {
@@ -165,7 +165,26 @@ export default function useQO1DocumentCreator() {
         setValue("stamp.company", [{ data: organization.defaultStamp }], { shouldDirty: true });
       }
     }
-  }, [documentId, document?.config, reset, setValue, document?.organization, organization]);
+  }, [documentId, document?.config, reset, setValue, document?.organization, organization, document]);
+
+  // Set template default values for new documents when template loads
+  useEffect(() => {
+    // Only apply if document doesn't have existing config data (new document)
+    const templateDefaults = (documenttemplate as any)?.config?.defaultValues as { note?: string; remarks?: string; termsAndConditions?: string } | undefined;
+    if (templateDefaults && (!document?.config || Object.keys(document?.config || {}).length === 0)) {
+      const { note, remarks, termsAndConditions } = templateDefaults;
+
+      if (note) {
+        setValue("note", note, { shouldDirty: false });
+      }
+      if (remarks) {
+        setValue("remarks", remarks, { shouldDirty: false });
+      }
+      if (termsAndConditions) {
+        setValue("termsAndConditions", termsAndConditions, { shouldDirty: false });
+      }
+    }
+  }, [documentId, documenttemplate, document?.config, setValue]);
 
   const onSubmit = async (data: any) => {
     try {
@@ -288,5 +307,6 @@ export default function useQO1DocumentCreator() {
     itemsError,
     isLoading,
     isDirty,
+    watch,
   };
 }

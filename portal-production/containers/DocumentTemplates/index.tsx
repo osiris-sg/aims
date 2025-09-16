@@ -7,7 +7,6 @@ import { IDocumentTemplates } from "./slice/constants";
 import DeliveryOrderTemplate from "./components/DeliveryOrderTemplate";
 import InvoiceTemplate from "./components/InvoiceTemplate";
 import Quotation1Template from "./components/Quotation1Template";
-import Quotation2Template from "./components/Quotation2Template";
 import MaintenanceServiceReportTemplate from "./components/MaintenanceServiceReportTemplate";
 
 export default function DocumentTemplates({ viewMode }: { viewMode: boolean }) {
@@ -18,7 +17,7 @@ export default function DocumentTemplates({ viewMode }: { viewMode: boolean }) {
     [IDocumentTemplates.DO]: DeliveryOrderTemplate,
     [IDocumentTemplates.TI]: InvoiceTemplate,
     [IDocumentTemplates.QO1]: Quotation1Template,
-    [IDocumentTemplates.QO2]: Quotation2Template,
+    // QO2 removed
     [IDocumentTemplates.MSR]: MaintenanceServiceReportTemplate,
   };
 

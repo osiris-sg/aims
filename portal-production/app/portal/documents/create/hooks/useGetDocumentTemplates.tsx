@@ -22,11 +22,11 @@ export const useGetDocumentTemplates = () => {
   const organizationId = organization?.id;
 
   const getDocumentTemplates = useCallback(async () => {
-    if (!organizationId) return;
+    if (!organizationId) {
+      return;
+    }
     setLoading(true);
     try {
-      console.log("Fetching document templates for organization:", organizationId);
-      setLoading(true);
       const token = await getToken();
       const response = await request(
         {
@@ -49,13 +49,26 @@ export const useGetDocumentTemplates = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, search, filters]);
+  }, [page, limit, search, filters, organizationId, getToken]);
 
   useEffect(() => {
     getDocumentTemplates();
   }, [getDocumentTemplates, page, limit, search, filters, organizationId]);
 
-  const availableDocumentTypes = DOCUMENT_TYPES;
+  // Use actual template names from the database
+  const availableDocumentTypes = useMemo(() => {
+    if (!documentTemplates.docs || documentTemplates.docs.length === 0) {
+      // Fallback to default types while templates are loading
+      return DOCUMENT_TYPES;
+    }
+
+    // Map document templates to the format expected by the dropdown
+    return documentTemplates.docs.map((template) => ({
+      label: template.name || template.type, // Use template name or fallback to type
+      value: template.type, // Keep the type as value for API calls
+      templateId: template.id, // Store template ID for reference
+    }));
+  }, [documentTemplates.docs]);
 
   return {
     documentTemplates,

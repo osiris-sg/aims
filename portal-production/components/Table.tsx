@@ -63,6 +63,9 @@ export default function Table(props: Props) {
   );
   const _columns = useMemo(() => (isNoSelectionColumn ? [...columns] : [selectionColumn, ...columns]), [columns, isNoSelectionColumn, selectionColumn]);
 
+  // Control pagination locally to avoid infinite resets from react-table
+  const [pagination, setPagination] = React.useState({ pageIndex: 0, pageSize: 30 });
+
   const table = useReactTable({
     columns: _columns,
     data: _data,
@@ -70,9 +73,10 @@ export default function Table(props: Props) {
       expanded,
       sorting,
       rowSelection,
-      pagination: { pageIndex: 0, pageSize: 30 },
+      pagination,
     },
     onRowSelectionChange: setRowSelection,
+    onPaginationChange: setPagination,
     enableRowSelection: onRowSelect ? true : false,
     onExpandedChange: setExpanded,
     onSortingChange: setSorting,
@@ -81,6 +85,12 @@ export default function Table(props: Props) {
     getSortedRowModel: getSortedRowModel(),
     getExpandedRowModel: getExpandedRowModel(),
     getSubRows: subRowAccessor ? (row: any) => row[subRowAccessor] : undefined,
+    // Prevent automatic resets that can cause cascading setState loops when data/columns identities change
+    autoResetPageIndex: false,
+    autoResetExpanded: false,
+    // @ts-expect-error - available in our tanstack version; ignore type gap
+    autoResetRowSelection: false,
+    autoResetSorting: false,
   });
 
   React.useEffect(() => {

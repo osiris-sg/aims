@@ -17,17 +17,18 @@ interface Props {
   };
   columnOrder?: string[];
   columnLabels?: { [key: string]: string };
+  columnGroups?: Array<{ id: string; label: string; columns: string[] }>;
 }
 
 export default function useQO1TemplateTableHeader(props: Props) {
-  const { viewMode, remove, control, tableHeadersConfig, columnOrder, columnLabels } = props;
+  const { viewMode, remove, control, tableHeadersConfig, columnOrder, columnLabels, columnGroups } = props;
 
   const columns = useMemo(() => {
     // console.log("🔄 TABLE HEADERS: Regenerating columns with config:", tableHeadersConfig);
     // console.log("🔄 TABLE HEADERS: Column order:", columnOrder);
     // console.log("🔄 TABLE HEADERS: Column labels:", columnLabels);
 
-    const baseColumns = [];
+    const baseColumns: any[] = [];
     const order = columnOrder || ["no", "item", "unitRate"];
 
     // Calculate dynamic column widths using percentages for better responsiveness
@@ -127,11 +128,45 @@ export default function useQO1TemplateTableHeader(props: Props) {
       );
     };
 
-    // Add columns in the specified order, only if they're visible
+    // Build a map of individual column defs for grouping
+    const columnDefByKey: Record<string, any> = {};
     order.forEach((columnKey) => {
       if (tableHeadersConfig?.[columnKey] !== false) {
-        // console.log(`✅ TABLE HEADERS: Adding ${columnKey} column`);
-        baseColumns.push(getColumnDefinition(columnKey));
+        columnDefByKey[columnKey] = getColumnDefinition(columnKey);
+      }
+    });
+
+    // Create grouped headers if configured
+    const visibleOrder = order.filter((key) => tableHeadersConfig?.[key] !== false);
+    const groups = (columnGroups || []).filter((g) => Array.isArray(g.columns) && g.columns.length > 0);
+    const childToGroup: Record<string, { id: string; label: string; columns: string[] }> = {};
+    const groupFirstChild: Record<string, string> = {};
+    groups.forEach((g) => {
+      const children = g.columns.filter((k) => visibleOrder.includes(k));
+      if (children.length === 0) return;
+      const first = children.reduce((best, key) => {
+        const idx = visibleOrder.indexOf(key);
+        const bestIdx = best ? visibleOrder.indexOf(best) : Infinity;
+        return idx < bestIdx ? key : best;
+      }, "" as string);
+      groupFirstChild[g.id] = first;
+      children.forEach((k) => (childToGroup[k] = { id: g.id, label: g.label, columns: children }));
+    });
+
+    // Assemble final columns with groups inserted at the first child position
+    const addedGroupIds = new Set<string>();
+    visibleOrder.forEach((columnKey) => {
+      const group = childToGroup[columnKey];
+      if (group && groupFirstChild[group.id] === columnKey) {
+        if (!addedGroupIds.has(group.id)) {
+          baseColumns.push({
+            header: group.label,
+            columns: group.columns.map((k) => columnDefByKey[k]).filter(Boolean),
+          });
+          addedGroupIds.add(group.id);
+        }
+      } else if (!group) {
+        baseColumns.push(columnDefByKey[columnKey]);
       }
     });
 
@@ -161,7 +196,7 @@ export default function useQO1TemplateTableHeader(props: Props) {
 
     // console.log("📋 TABLE HEADERS: Final columns count:", baseColumns.length);
     return baseColumns;
-  }, [viewMode, remove, tableHeadersConfig, columnOrder, columnLabels, control]);
+  }, [viewMode, remove, tableHeadersConfig, columnOrder, columnLabels, columnGroups, control]);
 
   return { columns };
 }
