@@ -28,11 +28,15 @@ export default function DocumentCustomizer(props: Props) {
   return (
     <Stack
       sx={{
-        gap: "var(--half-gap)",
-        minHeight: 0, // Allow shrinking
-        flex: 1, // Take up full height
+        gap: "var(--default-gap)",
+        height: "100%", // Fixed height
         overflow: "auto", // Make scrollable
         pr: 1, // Add padding to prevent scrollbar overlap
+        py: 1, // Add vertical padding
+        // Prevent flex compression of children
+        "& > *": {
+          flexShrink: 0, // Don't allow children to shrink
+        },
         "&::-webkit-scrollbar": {
           width: "6px",
         },
@@ -52,8 +56,19 @@ export default function DocumentCustomizer(props: Props) {
         // Replace "Table Headers" section with draggable component
         if (fieldItem.title === "Table Headers" && tableHeaders && columnOrder && columnLabels && onColumnReorder && onToggleColumnVisibility && onEditLabel && onAddField) {
           return (
-            <Stack key={`fields=item-${index}`}>
-              <DraggableTableHeaders control={control} tableHeaders={tableHeaders} columnOrder={columnOrder} columnLabels={columnLabels} onReorder={onColumnReorder} onToggleVisibility={onToggleColumnVisibility} onEditLabel={onEditLabel} onAddField={onAddField} />
+            <Stack key={`fields=item-${index}`} sx={{ minHeight: 0, mb: 2 }}>
+              <Typography
+                variant="body1"
+                sx={{
+                  p: "var(--half-padding)",
+                  mb: 1,
+                  backgroundColor: "tertiary.main",
+                  borderRadius: "var(--default-border-radius)",
+                }}
+              >
+                {fieldItem.title}
+              </Typography>
+              <DraggableTableHeaders tableHeaders={tableHeaders} columnOrder={columnOrder} columnLabels={columnLabels} onReorder={onColumnReorder} onToggleVisibility={onToggleColumnVisibility} onEditLabel={onEditLabel} onAddField={onAddField} />
               {onAddGroup && onRemoveGroup && (
                 <Stack sx={{ mt: 1, gap: 1 }}>
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
@@ -78,13 +93,21 @@ export default function DocumentCustomizer(props: Props) {
 
         // Render normal fields for other sections
         return (
-          <Stack key={`fields=item-${index}`} sx={{ minHeight: 0 }}>
-            <Typography variant="body1" sx={{ p: "var(--half-padding)", backgroundColor: "tertiary.main", borderRadius: "var(--default-border-radius)" }}>
+          <Stack key={`fields=item-${index}`} sx={{ minHeight: 0, mb: 2 }}>
+            <Typography
+              variant="body1"
+              sx={{
+                p: "var(--half-padding)",
+                mb: 1,
+                backgroundColor: "tertiary.main",
+                borderRadius: "var(--default-border-radius)",
+              }}
+            >
               {fieldItem.title}
             </Typography>
-            <List dense sx={{ py: 0 }}>
+            <List dense sx={{ py: 0, mt: 1.25 }}>
               {fieldItem.items.map((_item, _index) => (
-                <ListItem key={_index} sx={{ py: 0.5, flexDirection: _item.type === "textarea" ? "column" : "row", alignItems: _item.type === "textarea" ? "stretch" : "center" }}>
+                <ListItem key={_index} sx={{ py: 1, flexDirection: _item.type === "textarea" ? "column" : "row", alignItems: _item.type === "textarea" ? "stretch" : "center" }}>
                   <ListItemText
                     primary={_item.label}
                     sx={{

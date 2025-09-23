@@ -50,7 +50,11 @@ export default function useQO1DocumentCreator() {
       note: (documenttemplate as any)?.config?.defaultValues?.note || "",
       remarks: (documenttemplate as any)?.config?.defaultValues?.remarks || "",
       termsAndConditions: (documenttemplate as any)?.config?.defaultValues?.termsAndConditions || "",
-      title: "",
+      agreementText: (documenttemplate as any)?.config?.defaultValues?.agreementText || "",
+      signatureText: {
+        company: (documenttemplate as any)?.config?.defaultValues?.signatureText?.company || "",
+      },
+      title: (documenttemplate as any)?.config?.defaultValues?.title || "",
       // Preload containers for images
       logo: organization?.logo ? [{ data: organization.logo }] : undefined,
       stamp: { company: organization?.defaultStamp ? [{ data: organization.defaultStamp }] : [] },
@@ -170,9 +174,9 @@ export default function useQO1DocumentCreator() {
   // Set template default values for new documents when template loads
   useEffect(() => {
     // Only apply if document doesn't have existing config data (new document)
-    const templateDefaults = (documenttemplate as any)?.config?.defaultValues as { note?: string; remarks?: string; termsAndConditions?: string } | undefined;
+    const templateDefaults = (documenttemplate as any)?.config?.defaultValues as { note?: string; remarks?: string; termsAndConditions?: string; signatureText?: { company?: string } } | undefined;
     if (templateDefaults && (!document?.config || Object.keys(document?.config || {}).length === 0)) {
-      const { note, remarks, termsAndConditions } = templateDefaults;
+      const { note, remarks, termsAndConditions, signatureText } = templateDefaults;
 
       if (note) {
         setValue("note", note, { shouldDirty: false });
@@ -182,6 +186,9 @@ export default function useQO1DocumentCreator() {
       }
       if (termsAndConditions) {
         setValue("termsAndConditions", termsAndConditions, { shouldDirty: false });
+      }
+      if (signatureText?.company) {
+        setValue("signatureText.company", signatureText.company, { shouldDirty: false });
       }
     }
   }, [documentId, documenttemplate, document?.config, setValue]);

@@ -14,9 +14,14 @@ type TemplateConfig = {
   columnLabels?: Record<string, string>;
   columnGroups?: Array<{ id: string; label: string; columns: string[] }>;
   defaultValues?: {
+    title?: string;
     note?: string;
     remarks?: string;
     termsAndConditions?: string;
+    agreementText?: string;
+    signatureText?: {
+      company?: string;
+    };
   };
   [key: string]: any;
 };
@@ -59,14 +64,22 @@ export default function useQO1TemplateHandler() {
       columnGroups: [],
       // Default field values that will be inherited by new documents
       defaultValues: {
+        title: "",
         note: "",
         remarks: "",
         termsAndConditions: "",
+        agreementText: "",
+        signatureText: {
+          company: "",
+        },
       },
       // Show/hide toggles for default fields
+      showDefaultTitle: true,
       showDefaultNote: true,
       showDefaultRemarks: true,
       showDefaultTermsAndConditions: true,
+      showDefaultAgreementText: true,
+      showDefaultSignatureText: true,
     }),
     [type]
   );
@@ -171,9 +184,12 @@ export default function useQO1TemplateHandler() {
     {
       title: "Default Field Values",
       items: [
+        { label: "Show Default Title", name: "showDefaultTitle" },
         { label: "Show Default Note", name: "showDefaultNote" },
         { label: "Show Default Remarks", name: "showDefaultRemarks" },
         { label: "Show Default Terms & Conditions", name: "showDefaultTermsAndConditions" },
+        { label: "Show Default Closing Text", name: "showDefaultAgreementText" },
+        { label: "Show Default Signature Text", name: "showDefaultSignatureText" },
       ],
     },
   ];

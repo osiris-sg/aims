@@ -5,7 +5,6 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Box, Typography, IconButton, TextField, Button } from "@mui/material";
 import { Visibility, VisibilityOff, DragIndicator, Edit, Check, Close, Add } from "@mui/icons-material";
-import { Control, FieldValues } from "react-hook-form";
 
 interface TableHeaderItem {
   id: string;
@@ -14,7 +13,6 @@ interface TableHeaderItem {
 }
 
 interface Props {
-  control: Control<FieldValues, object> | undefined | any;
   tableHeaders: { [key: string]: boolean };
   columnOrder: string[];
   columnLabels: { [key: string]: string };
@@ -66,7 +64,7 @@ function SortableItem({ id, label, visible, onToggleVisibility, onEditLabel }: {
         border: "1px solid",
         borderColor: "divider",
         borderRadius: "6px", // Smaller border radius
-        marginBottom: "6px", // Reduced margin
+        marginBottom: "12px", // Increased margin to prevent overlap
         cursor: isDragging ? "grabbing" : "grab",
         minHeight: "36px", // Set minimum height
         width: "100%", // Ensure full width
@@ -166,7 +164,7 @@ function SortableItem({ id, label, visible, onToggleVisibility, onEditLabel }: {
   );
 }
 
-export default function DraggableTableHeaders({ control, tableHeaders, columnOrder, columnLabels, onReorder, onToggleVisibility, onEditLabel, onAddField }: Props) {
+export default function DraggableTableHeaders({ tableHeaders, columnOrder, columnLabels, onReorder, onToggleVisibility, onEditLabel, onAddField }: Props) {
   const [isAddingField, setIsAddingField] = useState(false);
   const [newFieldLabel, setNewFieldLabel] = useState("");
 
@@ -212,23 +210,16 @@ export default function DraggableTableHeaders({ control, tableHeaders, columnOrd
   }
 
   return (
-    <Box
-      sx={{
-        width: "100%",
-        maxWidth: "100%",
-      }}
-    >
-      <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600, fontSize: "0.875rem" }}>
-        Table Headers
-      </Typography>
-
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={columnOrder} strategy={verticalListSortingStrategy}>
-          {items.map((item) => (
-            <SortableItem key={item.id} id={item.id} label={item.label} visible={item.visible} onToggleVisibility={onToggleVisibility} onEditLabel={onEditLabel} />
-          ))}
-        </SortableContext>
-      </DndContext>
+    <Box sx={{ width: "100%", maxWidth: "100%" }}>
+      <Box sx={{ position: "relative", zIndex: 0 }}>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={columnOrder} strategy={verticalListSortingStrategy}>
+            {items.map((item) => (
+              <SortableItem key={item.id} id={item.id} label={item.label} visible={item.visible} onToggleVisibility={onToggleVisibility} onEditLabel={onEditLabel} />
+            ))}
+          </SortableContext>
+        </DndContext>
+      </Box>
 
       {/* Add New Field Section */}
       <Box sx={{ mt: 1.5, pt: 1.5, borderTop: "1px solid", borderColor: "divider" }}>

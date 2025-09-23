@@ -85,6 +85,7 @@ export default function Quotation1Template(props: Props) {
   const companyAddress = useWatch({ control, name: "company.address" });
   const title = useWatch({ control, name: "title" });
   const signatureTextCompany = useWatch({ control, name: "signatureText.company" });
+  const agreementText = useWatch({ control, name: "agreementText" });
 
   // Calculate totals using useWatch for real-time updates
   const watchedItems = useWatch({ control, name: "customerId" });
@@ -190,7 +191,7 @@ export default function Quotation1Template(props: Props) {
         )}
         <Grid2 container spacing={1} sx={{ flex: 1, minHeight: 0 }}>
           {!documentId && isToolBarOpen && (
-            <Grid2 size={3} sx={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+            <Grid2 size={3} sx={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
               <form onSubmit={onSubmit} style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
                 <DocumentCustomizer
                   fields={editableVisibilityFields}
@@ -265,20 +266,7 @@ export default function Quotation1Template(props: Props) {
                         )}
                       </Grid2>
                       <Grid2 size={4} />
-                      <Grid2 size={4} sx={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
-                        {!isViewMode && (
-                          <Typography
-                            variant="h4"
-                            sx={{
-                              fontWeight: "bold",
-                              textAlign: "center",
-                              fontSize: "1.5rem",
-                            }}
-                          >
-                            {getDocumentTypeDisplayNameWithDefaults("QO1", organization).toUpperCase()}
-                          </Typography>
-                        )}
-                      </Grid2>
+                      <Grid2 size={4} sx={{ display: "flex", justifyContent: "center", alignItems: "center" }} />
                     </Grid2>
                     {isViewMode && <Divider sx={{ my: 2 }} />}
                     {/* Main Content Section */}
@@ -503,6 +491,8 @@ export default function Quotation1Template(props: Props) {
                             We are pleased to submit our quotation with the following terms and conditions for your consideration and acceptance.
                           </Typography>
                         </>
+                      ) : isEditPath && !documentId ? (
+                        templateWatch("showDefaultTitle") && <FormInputBox control={methods.control} name="defaultValues.title" label="Title" placeHolder="Enter title" size="small" labelArriangment="vertical" viewMode={isViewMode} />
                       ) : (
                         <FormInputBox control={control} name="title" label="Title" placeHolder="Enter title" size="small" labelArriangment="vertical" viewMode={isViewMode} />
                       )}
@@ -540,11 +530,22 @@ export default function Quotation1Template(props: Props) {
                           viewMode={isViewMode}
                         />
                       )}
+                      {(isEditPath && !documentId ? templateWatch("showDefaultAgreementText") : true) && (
+                        <FormTextarea
+                          control={isEditPath && !documentId ? methods.control : control}
+                          name={isEditPath && !documentId ? "defaultValues.agreementText" : "agreementText"}
+                          label="Closing Text"
+                          placeHolder="Enter closing text (e.g., You understand and agree...)"
+                          rows={3}
+                          labelArriangment="vertical"
+                          viewMode={isViewMode}
+                        />
+                      )}
                     </Box>
                     {isViewMode && (
                       <Box sx={{ my: 3 }}>
                         <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "pre-line" }}>
-                          You understand and agree to this offer. We trust our offer meets your requirements and look forward to receiving your order confirmation soon. Kindly contact us for further information. Thank you.
+                          {agreementText}
                         </Typography>
                       </Box>
                     )}
@@ -563,6 +564,8 @@ export default function Quotation1Template(props: Props) {
                               <Box className={courgette.className} sx={{ fontSize: "1.5rem", color: "#3b4a5d", lineHeight: 1, minHeight: 36, mt: 3 }}>
                                 {signatureTextCompany}
                               </Box>
+                            ) : isEditPath && !documentId ? (
+                              templateWatch("showDefaultSignatureText") && <FormInputBox control={methods.control} name="defaultValues.signatureText.company" label="Signature Text" placeHolder="Type signature" size="small" labelArriangment="vertical" />
                             ) : (
                               <FormInputBox control={control} name="signatureText.company" label="Signature Text" placeHolder="Type signature" size="small" labelArriangment="vertical" />
                             )}
