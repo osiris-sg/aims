@@ -166,9 +166,12 @@ export function* createDocumentWithTimelineGenerator({ payload: data }: Document
       yield put(documentTemplateActions.getDocumentInventories({ organizationId, token, status }));
     } else {
       yield put(documentTemplateActions.createDocumentWithTimelineFailure(response.message));
+      yield put(notificationsActions.setNotification({ message: response.message || "Document creation failed", type: "error" }));
     }
-  } catch {
-    yield put(documentTemplateActions.createDocumentWithTimelineFailure("client Error"));
+  } catch (error: any) {
+    const errorMessage = error?.message || "client Error";
+    yield put(documentTemplateActions.createDocumentWithTimelineFailure(errorMessage));
+    yield put(notificationsActions.setNotification({ message: errorMessage, type: "error" }));
   }
 }
 
@@ -183,9 +186,12 @@ export function* updateDocumentGenerator({ payload: data }: DocumentTemplateActi
       yield put(notificationsActions.setNotification({ message: "Updated", type: "success" }));
     } else {
       yield put(documentTemplateActions.updateDocumentFailure(response.message));
+      yield put(notificationsActions.setNotification({ message: response.message || "Update failed", type: "error" }));
     }
-  } catch {
-    yield put(documentTemplateActions.updateDocumentFailure("client Error"));
+  } catch (error: any) {
+    const errorMessage = error?.message || "client Error";
+    yield put(documentTemplateActions.updateDocumentFailure(errorMessage));
+    yield put(notificationsActions.setNotification({ message: errorMessage, type: "error" }));
   }
 }
 export function* getInventoriesByIdsGenerator({ payload: data }: DocumentTemplateAction) {

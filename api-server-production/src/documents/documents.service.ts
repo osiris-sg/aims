@@ -98,8 +98,21 @@ export class DocumentsService {
 
       // If config.items exists and is an array, handle inventory/timeline logic (for DO, RDO, etc.)
       if (dto.type !== 'QO1' && dto.type !== 'MSR' && dto.config && Array.isArray(dto.config.items)) {
+        // Validate that all items have inventoryItemId
+        const itemsWithoutInventory = dto.config.items.filter(
+          (_item) => !_item.inventoryItemId || _item.inventoryItemId.trim() === ''
+        );
+
+        if (itemsWithoutInventory.length > 0) {
+          throw new HttpException(
+            'Please select inventory items for all rows before saving the document',
+            HttpStatus.BAD_REQUEST
+          );
+        }
+
         await Promise.all(
           dto.config.items.map(async (_item) => {
+
             // Determine inventory status based on document type (not document status)
             let docMessage = '';
             let statusChangeMessage = '';
@@ -167,8 +180,21 @@ export class DocumentsService {
       }
 
       if (dto.projectId && dto.config?.items?.length) {
+        // Validate that all items have inventoryItemId for project assignments
+        const itemsWithoutInventory = dto.config.items.filter(
+          (_item) => !_item.inventoryItemId || _item.inventoryItemId.trim() === ''
+        );
+
+        if (itemsWithoutInventory.length > 0) {
+          throw new HttpException(
+            'Please select inventory items for all rows before saving the document',
+            HttpStatus.BAD_REQUEST
+          );
+        }
+
         await Promise.all(
           dto.config.items.map(async (_item) => {
+
             const existingAssignment = await this.prisma.assignment.findFirst({
               where: {
                 projectId: dto.projectId,
@@ -255,6 +281,20 @@ export class DocumentsService {
 
         // Only process items for non-MSR documents
         if (dto.config.items && Array.isArray(dto.config.items) && dto.type !== 'MSR') {
+          // Validate that all items have inventoryItemId (except for QO1)
+          if (dto.type !== 'QO1') {
+            const itemsWithoutInventory = dto.config.items.filter(
+              (_item: any) => !_item.inventoryItemId || _item.inventoryItemId.trim() === ''
+            );
+
+            if (itemsWithoutInventory.length > 0) {
+              throw new HttpException(
+                'Please select inventory items for all rows before saving the document',
+                HttpStatus.BAD_REQUEST
+              );
+            }
+          }
+
           await Promise.all(
             dto.config.items.map(async (_item) => {
               // Determine new inventory status and timeline messages based on document type
@@ -548,7 +588,7 @@ export class DocumentsService {
     }
   }
 
-  async tagTemplateToAsset(assetId: string, templateId: string, organizationId: string) {
+  async tagTemplateToAsset(assetId: string, templateId: string, _organizationId: string) {
     try {
       return await this.prisma.assetTemplateTag.create({
         data: {
@@ -561,7 +601,7 @@ export class DocumentsService {
     }
   }
 
-  async untagTemplateFromAsset(assetId: string, templateId: string, organizationId: string) {
+  async untagTemplateFromAsset(assetId: string, templateId: string, _organizationId: string) {
     try {
       return await this.prisma.assetTemplateTag.delete({
         where: {
@@ -1006,6 +1046,50 @@ export class DocumentsService {
       console.error('💥 XERO: Error message:', error.message);
       console.error('💥 XERO: Full error:', error);
       throw error;
+    }
+  }
+
+  async getPastDescriptions(organizationId: string) {
+    try {
+      // Fetch all documents for the organization
+      const documents = await this.prisma.document.findMany({
+        where: {
+          organizationId,
+        },
+        select: {
+          config: true,
+        },
+      });
+
+      // Extract unique descriptions from all document items
+      const descriptions = new Set<string>();
+
+      documents.forEach(document => {
+        const config = document.config as any;
+        if (config?.items && Array.isArray(config.items)) {
+          config.items.forEach((item: any) => {
+            if (item.description && typeof item.description === 'string' && item.description.trim()) {
+              descriptions.add(item.description.trim());
+            }
+          });
+        }
+      });
+
+      // Convert set to array and sort alphabetically
+      const sortedDescriptions = Array.from(descriptions).sort((a, b) =>
+        a.toLowerCase().localeCompare(b.toLowerCase())
+      );
+
+      return {
+        success: true,
+        descriptions: sortedDescriptions,
+      };
+    } catch (error) {
+      console.error('Failed to fetch past descriptions:', error);
+      throw new HttpException(
+        `Failed to fetch past descriptions: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 }

@@ -79,6 +79,16 @@ export class DocumentsController {
     return await this.documentsService.getDocumentsByAsset(assetId, organizationId);
   }
 
+  @Get('past-descriptions')
+  @Permissions('documents:read')
+  async getPastDescriptions(@Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentsService.getPastDescriptions(organizationId);
+  }
+
   @Get(':id')
   @Permissions('documents:read-one')
   async getById(@Param('id') id: string, @Req() req: RequestWithOrganization) {

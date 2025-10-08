@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useState } from "react";
-import FormTextArea from "@/form-components/FormTextArea";
+import FormAutocomplete from "@/form-components/FormAutocomplete";
 import { Control, useWatch, UseFormSetValue } from "react-hook-form";
 import { useGetAssets } from "./useGetAssets";
+import { usePastDescriptions } from "./usePastDescriptions";
 
 interface DescriptionCellProps {
   rowIndex: number;
@@ -17,6 +18,7 @@ const DescriptionCell: React.FC<DescriptionCellProps> = ({ rowIndex, control, se
   const { assets } = useGetAssets();
   const inventoryItemId = useWatch({ control, name: `items.${rowIndex}.inventoryItemId` });
   const [hasBeenEdited, setHasBeenEdited] = useState(false);
+  const { pastDescriptions, isLoading: isLoadingDescriptions } = usePastDescriptions();
 
   useEffect(() => {
     const selectedInventory = rentedInventories.find((inv) => inv.id === inventoryItemId);
@@ -48,7 +50,18 @@ const DescriptionCell: React.FC<DescriptionCellProps> = ({ rowIndex, control, se
         flexDirection: "column",
       }}
     >
-      <FormTextArea control={control} name={`items.${rowIndex}.description`} placeHolder="Enter custom description" rows={1} size="small" labelArriangment={viewMode ? "horizontal" : "vertical"} viewMode={viewMode} disabled={disabled} />
+      <FormAutocomplete
+        control={control}
+        name={`items.${rowIndex}.description`}
+        placeHolder="Enter or select description"
+        rows={1}
+        size="small"
+        labelArriangment={viewMode ? "horizontal" : "vertical"}
+        viewMode={viewMode}
+        disabled={disabled}
+        options={pastDescriptions}
+        loading={isLoadingDescriptions}
+      />
     </div>
   );
 };

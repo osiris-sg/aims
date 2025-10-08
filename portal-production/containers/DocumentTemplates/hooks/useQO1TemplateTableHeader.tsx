@@ -4,8 +4,9 @@ import React, { useMemo } from "react";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { IconButton } from "@mui/material";
 import FormInputBox from "@/form-components/FormInputBox";
-import FormTextArea from "@/form-components/FormTextArea";
+import FormAutocomplete from "@/form-components/FormAutocomplete";
 import { Control, FieldValues } from "react-hook-form";
+import { usePastDescriptions } from "./usePastDescriptions";
 
 interface Props {
   viewMode: boolean;
@@ -22,6 +23,7 @@ interface Props {
 
 export default function useQO1TemplateTableHeader(props: Props) {
   const { viewMode, remove, control, tableHeadersConfig, columnOrder, columnLabels, columnGroups } = props;
+  const { pastDescriptions, isLoading: isLoadingDescriptions } = usePastDescriptions();
 
   const columns = useMemo(() => {
     // console.log("🔄 TABLE HEADERS: Regenerating columns with config:", tableHeadersConfig);
@@ -85,15 +87,17 @@ export default function useQO1TemplateTableHeader(props: Props) {
           header: label,
           size: getColumnWidth("item"),
           cell: ({ row }: { row: any }) => (
-            <FormTextArea
+            <FormAutocomplete
               control={control}
               name={`items.${row.index}.item`}
-              placeHolder="Enter item description"
+              placeHolder="Enter or select item description"
               rows={1}
               size="small"
               labelArriangment={viewMode ? "horizontal" : "vertical"}
               viewMode={viewMode}
-              key={`item-textarea-${row.id}-${control._formValues?.items?.[row.index]?.item || ""}`}
+              options={pastDescriptions}
+              loading={isLoadingDescriptions}
+              key={`item-autocomplete-${row.id}-${control._formValues?.items?.[row.index]?.item || ""}`}
             />
           ),
         },
@@ -196,7 +200,7 @@ export default function useQO1TemplateTableHeader(props: Props) {
 
     // console.log("📋 TABLE HEADERS: Final columns count:", baseColumns.length);
     return baseColumns;
-  }, [viewMode, remove, tableHeadersConfig, columnOrder, columnLabels, columnGroups, control]);
+  }, [viewMode, remove, tableHeadersConfig, columnOrder, columnLabels, columnGroups, control, pastDescriptions, isLoadingDescriptions]);
 
   return { columns };
 }
