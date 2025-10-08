@@ -1,6 +1,7 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { OpenAI } from 'openai';
 import { ConfigService } from '@nestjs/config';
+const pdfParse = require('pdf-parse');
 
 export enum DocumentType {
   INVOICE = 'invoice',
@@ -345,10 +346,163 @@ export class DocumentExtractionService {
     file: Express.Multer.File,
     documentType: DocumentType = DocumentType.INVOICE
   ): Promise<ExtractedDocumentData> {
-    // Convert file buffer to base64
-    const base64Image = file.buffer.toString('base64');
+    // Check if file is a PDF
+    if (file.mimetype === 'application/pdf') {
+      return this.processPdfDocument(file, documentType);
+    }
 
-    // Extract data using OpenAI
+    // For image files, convert to base64 and extract
+    const base64Image = file.buffer.toString('base64');
     return this.extractDocumentData(base64Image, documentType);
+  }
+
+  private async processPdfDocument(
+    file: Express.Multer.File,
+    documentType: DocumentType
+  ): Promise<ExtractedDocumentData> {
+    if (!this.openai) {
+      throw new HttpException(
+        'OpenAI API key not configured. Please add your API key to the .env file.',
+        HttpStatus.SERVICE_UNAVAILABLE
+      );
+    }
+
+    try {
+      console.log('📄 Processing PDF document');
+
+      // Extract text from PDF
+      const pdfData = await pdfParse(file.buffer);
+      const pdfText = pdfData.text;
+
+      console.log(`📄 Extracted ${pdfText.length} characters from PDF`);
+
+      // Check if PDF has meaningful text content
+      // If text is too short or empty, it's likely an image-based PDF
+      if (!pdfText || pdfText.trim().length < 50) {
+        console.log('📄 PDF appears to be image-based or has minimal text. Using image extraction...');
+
+        // For image-based PDFs, we need to convert PDF pages to images
+        const { pdfToPng } = require('pdf-to-png-converter');
+
+        // Try to get the first page as an image
+        try {
+          // Convert PDF to PNG images
+          console.log('🔄 Converting PDF pages to images...');
+          const pngPages = await pdfToPng(file.buffer, {
+            disableFontFace: true,
+            useSystemFonts: false,
+            viewportScale: 2.0, // Higher resolution for better OCR
+            pagesToProcess: [1], // Process only first page for invoices
+            strictPagesToProcess: false
+          });
+
+          if (!pngPages || pngPages.length === 0) {
+            throw new Error('Failed to convert PDF to images');
+          }
+
+          // Get the first page as base64
+          const firstPage = pngPages[0];
+          const base64Image = firstPage.content.toString('base64');
+
+          console.log('📸 Successfully converted PDF to image, sending to Vision API...');
+
+          // Use vision API with the converted PNG image
+          const response = await this.openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+              {
+                role: "system",
+                content: this.getSystemPrompt(documentType)
+              },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: this.getUserPrompt(documentType)
+                  },
+                  {
+                    type: "image_url",
+                    image_url: {
+                      url: `data:image/png;base64,${base64Image}`,
+                      detail: "high"
+                    }
+                  }
+                ]
+              }
+            ],
+            max_tokens: 2000,
+            temperature: 0.1,
+            response_format: { type: "json_object" }
+          });
+
+          const extractedData = JSON.parse(response.choices[0].message.content);
+          console.log('✅ PDF data extracted successfully using vision API');
+
+          return this.validateAndCleanData({
+            ...extractedData,
+            documentType
+          });
+        } catch (visionError) {
+          console.error('❌ Vision API failed for PDF:', visionError);
+          // If vision API doesn't work, return a more helpful error
+          throw new HttpException(
+            'Failed to process the PDF document. Error: ' + visionError.message,
+            HttpStatus.BAD_REQUEST
+          );
+        }
+      }
+
+      // For text-based PDFs, proceed with text extraction
+      // Limit text length to avoid token limits
+      const maxTextLength = 10000;
+      const truncatedText = pdfText.length > maxTextLength
+        ? pdfText.substring(0, maxTextLength) + '...'
+        : pdfText;
+
+      // Use OpenAI to extract structured data from the text
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: this.getSystemPrompt(documentType),
+          },
+          {
+            role: 'user',
+            content: `${this.getUserPrompt(documentType)}
+
+            Document text:
+            ${truncatedText}`,
+          },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.1,
+        max_tokens: 2000,
+      });
+
+      const extractedData = JSON.parse(response.choices[0].message.content);
+      console.log('✅ PDF text data extracted successfully');
+
+      // Clean the extracted data
+      const cleaned = this.validateAndCleanData({
+        ...extractedData,
+        documentType
+      });
+
+      return cleaned;
+    } catch (error) {
+      console.error('❌ Error processing PDF:', error);
+
+      // If it's our custom error, re-throw it
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new HttpException(
+        `Failed to extract data from PDF: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
   }
 }

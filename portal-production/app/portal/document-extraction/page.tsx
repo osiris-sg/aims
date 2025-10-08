@@ -23,6 +23,7 @@ import { CloudUpload, Description, CheckCircle, Error } from "@mui/icons-materia
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { useOrganization } from "@hooks/useOrganization";
+import DocumentExtractionForm from "./DocumentExtractionForm";
 
 enum DocumentType {
   INVOICE = 'invoice',
@@ -56,9 +57,9 @@ export default function DocumentExtractionPage() {
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      // Validate file type
-      if (!file.type.match(/^image\//)) {
-        setError("Please select an image file");
+      // Validate file type (images and PDFs)
+      if (!file.type.match(/^image\//) && file.type !== 'application/pdf') {
+        setError("Please select an image or PDF file");
         return;
       }
 
@@ -73,9 +74,14 @@ export default function DocumentExtractionPage() {
       setExtractedData(null);
       setSuccess(false);
 
-      // Create preview URL
-      const url = URL.createObjectURL(file);
-      setPreviewUrl(url);
+      // Create preview URL (only for images)
+      if (file.type.match(/^image\//)) {
+        const url = URL.createObjectURL(file);
+        setPreviewUrl(url);
+      } else {
+        // For PDFs, clear preview
+        setPreviewUrl(null);
+      }
     }
   };
 
@@ -132,7 +138,25 @@ export default function DocumentExtractionPage() {
         throw new Error(result.message || "Failed to extract document");
       }
 
-      setExtractedData(result.data);
+      console.log('Extraction API response FULL:', JSON.stringify(result, null, 2));
+      console.log('result keys:', Object.keys(result));
+      console.log('result.data:', result.data);
+      console.log('result.data type:', typeof result.data);
+
+      // The actual extracted data is nested inside result.data.data
+      if (result.data && result.data.data) {
+        console.log('result.data.data keys:', Object.keys(result.data.data));
+        console.log('result.data.data.customer:', result.data.data.customer);
+        console.log('result.data.data.items:', result.data.data.items);
+        console.log('About to setExtractedData with:', result.data.data);
+        setExtractedData(result.data.data);
+        console.log('setExtractedData called successfully');
+      } else {
+        console.error('❌ result.data.data is undefined or null!');
+        console.error('Full result:', result);
+        setError('Failed to extract data from the response');
+      }
+
       setSuccess(true);
     } catch (err: any) {
       console.error("Error extracting document:", err);
@@ -153,198 +177,27 @@ export default function DocumentExtractionPage() {
     }
   };
 
-  const renderExtractedData = () => {
-    if (!extractedData) return null;
+  const handleSaveExtractedData = async (data: any) => {
+    // TODO: Implement logic to create customer, project, items, and document records
+    console.log('Saving extracted data:', data);
 
-    return (
-      <Box sx={{ mt: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Extracted Data
-        </Typography>
+    // For now, just show a success message
+    setSuccess(true);
+    setError(null);
 
-        <Grid container spacing={2}>
-          {/* Customer Information */}
-          {extractedData.customer && (
-            <Grid item xs={12} md={6}>
-              <Paper elevation={1} sx={{ p: 2 }}>
-                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  Customer Information
-                </Typography>
-                {extractedData.customer.name && (
-                  <Typography variant="body2">
-                    <strong>Name:</strong> {extractedData.customer.name}
-                  </Typography>
-                )}
-                {extractedData.customer.address && (
-                  <Typography variant="body2">
-                    <strong>Address:</strong> {extractedData.customer.address}
-                  </Typography>
-                )}
-                {extractedData.customer.attention && (
-                  <Typography variant="body2">
-                    <strong>Attention:</strong> {extractedData.customer.attention}
-                  </Typography>
-                )}
-              </Paper>
-            </Grid>
-          )}
+    // TODO: Add API calls to create:
+    // 1. Customer (if not exists)
+    // 2. Project (if not exists)
+    // 3. Inventory items (if not exist)
+    // 4. Document (Invoice/DO/etc)
 
-          {/* Document Details */}
-          {extractedData.document && (
-            <Grid item xs={12} md={6}>
-              <Paper elevation={1} sx={{ p: 2 }}>
-                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  Document Details
-                </Typography>
-                {extractedData.document.number && (
-                  <Typography variant="body2">
-                    <strong>Number:</strong> {extractedData.document.number}
-                  </Typography>
-                )}
-                {extractedData.document.date && (
-                  <Typography variant="body2">
-                    <strong>Date:</strong> {extractedData.document.date}
-                  </Typography>
-                )}
-                {extractedData.document.dueDate && (
-                  <Typography variant="body2">
-                    <strong>Due Date:</strong> {extractedData.document.dueDate}
-                  </Typography>
-                )}
-              </Paper>
-            </Grid>
-          )}
+    alert('Data saved successfully! (Not yet implemented - will create customer, project, items, and document records)');
+  };
 
-          {/* References */}
-          {extractedData.references && Object.keys(extractedData.references).some(key => extractedData.references[key]) && (
-            <Grid item xs={12} md={6}>
-              <Paper elevation={1} sx={{ p: 2 }}>
-                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  References
-                </Typography>
-                {extractedData.references.doNumber && (
-                  <Typography variant="body2">
-                    <strong>DO Number:</strong> {extractedData.references.doNumber}
-                  </Typography>
-                )}
-                {extractedData.references.quotationRef && (
-                  <Typography variant="body2">
-                    <strong>Quotation:</strong> {extractedData.references.quotationRef}
-                  </Typography>
-                )}
-                {extractedData.references.workOrderNo && (
-                  <Typography variant="body2">
-                    <strong>Work Order:</strong> {extractedData.references.workOrderNo}
-                  </Typography>
-                )}
-              </Paper>
-            </Grid>
-          )}
-
-          {/* Project */}
-          {extractedData.project && (extractedData.project.location || extractedData.project.projectDept) && (
-            <Grid item xs={12} md={6}>
-              <Paper elevation={1} sx={{ p: 2 }}>
-                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  Project Information
-                </Typography>
-                {extractedData.project.location && (
-                  <Typography variant="body2">
-                    <strong>Location:</strong> {extractedData.project.location}
-                  </Typography>
-                )}
-                {extractedData.project.projectDept && (
-                  <Typography variant="body2">
-                    <strong>Department:</strong> {extractedData.project.projectDept}
-                  </Typography>
-                )}
-              </Paper>
-            </Grid>
-          )}
-
-          {/* Items */}
-          {extractedData.items && extractedData.items.length > 0 && (
-            <Grid item xs={12}>
-              <Paper elevation={1} sx={{ p: 2 }}>
-                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  Items
-                </Typography>
-                <Box sx={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '2px solid #ddd' }}>
-                        <th style={{ padding: '8px', textAlign: 'left' }}>Description</th>
-                        <th style={{ padding: '8px', textAlign: 'right' }}>Qty</th>
-                        <th style={{ padding: '8px', textAlign: 'right' }}>Unit Price</th>
-                        <th style={{ padding: '8px', textAlign: 'right' }}>Tax</th>
-                        <th style={{ padding: '8px', textAlign: 'right' }}>Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {extractedData.items.map((item: any, index: number) => (
-                        <tr key={index} style={{ borderBottom: '1px solid #eee' }}>
-                          <td style={{ padding: '8px' }}>{item.description}</td>
-                          <td style={{ padding: '8px', textAlign: 'right' }}>{item.quantity}</td>
-                          <td style={{ padding: '8px', textAlign: 'right' }}>
-                            {item.unitPrice?.toFixed(2)}
-                          </td>
-                          <td style={{ padding: '8px', textAlign: 'right' }}>{item.tax}%</td>
-                          <td style={{ padding: '8px', textAlign: 'right' }}>
-                            {item.amount?.toFixed(2)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </Box>
-              </Paper>
-            </Grid>
-          )}
-
-          {/* Totals */}
-          {extractedData.totals && (
-            <Grid item xs={12} md={4}>
-              <Paper elevation={2} sx={{ p: 2, backgroundColor: 'primary.50' }}>
-                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  Totals
-                </Typography>
-                {extractedData.totals.subtotal !== undefined && (
-                  <Typography variant="body2">
-                    <strong>Subtotal:</strong> ${extractedData.totals.subtotal.toFixed(2)}
-                  </Typography>
-                )}
-                {extractedData.totals.tax !== undefined && (
-                  <Typography variant="body2">
-                    <strong>Tax:</strong> ${extractedData.totals.tax.toFixed(2)}
-                  </Typography>
-                )}
-                {extractedData.totals.total !== undefined && (
-                  <Typography variant="h6" color="primary" sx={{ mt: 1 }}>
-                    <strong>Total:</strong> ${extractedData.totals.total.toFixed(2)}
-                  </Typography>
-                )}
-              </Paper>
-            </Grid>
-          )}
-        </Grid>
-
-        {/* Raw JSON (collapsible) */}
-        <Box sx={{ mt: 3 }}>
-          <details>
-            <summary style={{ cursor: 'pointer', padding: '8px' }}>
-              <Typography variant="subtitle2" component="span">
-                View Raw JSON Data
-              </Typography>
-            </summary>
-            <Paper sx={{ p: 2, mt: 1, backgroundColor: '#f5f5f5' }}>
-              <pre style={{ overflow: 'auto', fontSize: '12px' }}>
-                {JSON.stringify(extractedData, null, 2)}
-              </pre>
-            </Paper>
-          </details>
-        </Box>
-      </Box>
-    );
+  const handleCancelEdit = () => {
+    if (confirm('Are you sure you want to cancel? Any changes will be lost.')) {
+      resetForm();
+    }
   };
 
   return (
@@ -397,7 +250,7 @@ export default function DocumentExtractionPage() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/*"
+                    accept="image/*,.pdf,application/pdf"
                     style={{ display: 'none' }}
                     onChange={handleFileSelect}
                   />
@@ -417,7 +270,7 @@ export default function DocumentExtractionPage() {
                         Drop your document here or click to browse
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        Supports: JPG, PNG, GIF, WebP, BMP (Max 10MB)
+                        Supports: JPG, PNG, GIF, WebP, BMP, PDF (Max 10MB)
                       </Typography>
                     </Stack>
                   )}
@@ -461,7 +314,7 @@ export default function DocumentExtractionPage() {
         </Grid>
 
         {/* Preview Section */}
-        {previewUrl && (
+        {(previewUrl || (selectedFile && selectedFile.type === 'application/pdf')) && (
           <Grid item xs={12} md={6}>
             <Card>
               <CardContent>
@@ -478,15 +331,27 @@ export default function DocumentExtractionPage() {
                     p: 1,
                   }}
                 >
-                  <img
-                    src={previewUrl}
-                    alt="Document preview"
-                    style={{
-                      width: '100%',
-                      height: 'auto',
-                      display: 'block',
-                    }}
-                  />
+                  {previewUrl ? (
+                    <img
+                      src={previewUrl}
+                      alt="Document preview"
+                      style={{
+                        width: '100%',
+                        height: 'auto',
+                        display: 'block',
+                      }}
+                    />
+                  ) : (
+                    <Stack alignItems="center" justifyContent="center" sx={{ minHeight: '300px' }}>
+                      <Description sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
+                      <Typography variant="h6" color="text.secondary">
+                        PDF Document Selected
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {selectedFile?.name}
+                      </Typography>
+                    </Stack>
+                  )}
                 </Box>
               </CardContent>
             </Card>
@@ -494,8 +359,14 @@ export default function DocumentExtractionPage() {
         )}
       </Grid>
 
-      {/* Extracted Data Display */}
-      {extractedData && renderExtractedData()}
+      {/* Extracted Data Form */}
+      {extractedData && (
+        <DocumentExtractionForm
+          data={extractedData}
+          onSave={handleSaveExtractedData}
+          onCancel={handleCancelEdit}
+        />
+      )}
     </Box>
   );
 }

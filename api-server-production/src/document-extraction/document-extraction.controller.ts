@@ -45,11 +45,11 @@ export class DocumentExtractionController {
         fileSize: 10 * 1024 * 1024, // 10MB limit
       },
       fileFilter: (req, file, callback) => {
-        // Accept only image files
-        if (!file.mimetype.match(/\/(jpg|jpeg|png|gif|webp|bmp)$/)) {
+        // Accept image files and PDFs
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|gif|webp|bmp|pdf)$/) && file.mimetype !== 'application/pdf') {
           return callback(
             new HttpException(
-              'Only image files are allowed (jpg, jpeg, png, gif, webp, bmp)',
+              'Only image files and PDFs are allowed (jpg, jpeg, png, gif, webp, bmp, pdf)',
               HttpStatus.BAD_REQUEST
             ),
             false
