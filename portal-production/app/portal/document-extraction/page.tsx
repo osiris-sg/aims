@@ -89,11 +89,32 @@ export default function DocumentExtractionPage() {
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
     if (file) {
-      // Create a synthetic event to reuse handleFileSelect logic
-      const syntheticEvent = {
-        target: { files: [file] }
-      } as React.ChangeEvent<HTMLInputElement>;
-      handleFileSelect(syntheticEvent);
+      // Directly handle the file instead of creating a synthetic event
+      // Validate file type (images and PDFs)
+      if (!file.type.match(/^image\//) && file.type !== 'application/pdf') {
+        setError("Please select an image or PDF file");
+        return;
+      }
+
+      // Validate file size (max 10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        setError("File size must be less than 10MB");
+        return;
+      }
+
+      setSelectedFile(file);
+      setError(null);
+      setExtractedData(null);
+      setSuccess(false);
+
+      // Create preview URL (only for images)
+      if (file.type.match(/^image\//)) {
+        const url = URL.createObjectURL(file);
+        setPreviewUrl(url);
+      } else {
+        // For PDFs, clear preview
+        setPreviewUrl(null);
+      }
     }
   }, []);
 
@@ -114,7 +135,9 @@ export default function DocumentExtractionPage() {
     try {
       const token = await getToken();
       if (!token) {
-        throw new Error("Authentication token not available");
+        setError("Authentication token not available");
+        setIsExtracting(false);
+        return;
       }
 
       const formData = new FormData();
@@ -135,7 +158,9 @@ export default function DocumentExtractionPage() {
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.message || "Failed to extract document");
+        setError(result.message || "Failed to extract document");
+        setIsExtracting(false);
+        return;
       }
 
       console.log('Extraction API response FULL:', JSON.stringify(result, null, 2));
@@ -151,17 +176,17 @@ export default function DocumentExtractionPage() {
         console.log('About to setExtractedData with:', result.data.data);
         setExtractedData(result.data.data);
         console.log('setExtractedData called successfully');
+        setSuccess(true);
       } else {
         console.error('❌ result.data.data is undefined or null!');
         console.error('Full result:', result);
         setError('Failed to extract data from the response');
       }
 
-      setSuccess(true);
+      setIsExtracting(false);
     } catch (err: any) {
       console.error("Error extracting document:", err);
-      setError(err.message || "Failed to extract document data");
-    } finally {
+      setError(err?.message || "Failed to extract document data");
       setIsExtracting(false);
     }
   };
