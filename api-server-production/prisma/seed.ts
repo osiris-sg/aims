@@ -562,6 +562,40 @@ async function main() {
     },
   });
 
+  // Create permissions for document extraction
+  const extractDocumentPermission = await prisma.permission.upsert({
+    where: { name: 'document-extraction:extract' },
+    update: {},
+    create: {
+      name: 'document-extraction:extract',
+      description: 'Can extract data from document images',
+      resource: 'document-extraction',
+      action: 'extract',
+    },
+  });
+
+  const extractDocumentFromUrlPermission = await prisma.permission.upsert({
+    where: { name: 'document-extraction:extract-url' },
+    update: {},
+    create: {
+      name: 'document-extraction:extract-url',
+      description: 'Can extract data from document images via URL',
+      resource: 'document-extraction',
+      action: 'extract-url',
+    },
+  });
+
+  const readDocumentTypesPermission = await prisma.permission.upsert({
+    where: { name: 'document-extraction:read-types' },
+    update: {},
+    create: {
+      name: 'document-extraction:read-types',
+      description: 'Can read available document types for extraction',
+      resource: 'document-extraction',
+      action: 'read-types',
+    },
+  });
+
   // Create permissions for documentTemplates
   const readDocumentTemplatePermission = await prisma.permission.upsert({
     where: { name: 'documentTemplates:read' },
@@ -1004,6 +1038,10 @@ async function main() {
           { id: readDocumentByAssetPermission.id },
           { id: tagTemplateToAssetPermission.id },
           { id: untagTemplateFromAssetPermission.id },
+          // Document extraction
+          { id: extractDocumentPermission.id },
+          { id: extractDocumentFromUrlPermission.id },
+          { id: readDocumentTypesPermission.id },
           // Document template management
           { id: readDocumentTemplatePermission.id },
           { id: readOneDocumentTemplatePermission.id },
@@ -1107,6 +1145,10 @@ async function main() {
           { id: readDocumentByAssetPermission.id },
           { id: tagTemplateToAssetPermission.id },
           { id: untagTemplateFromAssetPermission.id },
+          // Document extraction
+          { id: extractDocumentPermission.id },
+          { id: extractDocumentFromUrlPermission.id },
+          { id: readDocumentTypesPermission.id },
           // Document template management
           { id: readDocumentTemplatePermission.id },
           { id: readOneDocumentTemplatePermission.id },

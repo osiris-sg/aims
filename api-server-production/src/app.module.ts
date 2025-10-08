@@ -24,6 +24,7 @@ import { ProjectsModule } from './projects/projects.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { AdminModule } from './admin/admin.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { DocumentExtractionModule } from './document-extraction/document-extraction.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     OrganizationsModule,
     AdminModule,
     DashboardModule,
+    DocumentExtractionModule,
   ],
   controllers: [AppController],
   providers: [

@@ -20,6 +20,7 @@ export const ROUTES = {
   EDIT_DOCUMENTS: "/portal/documents/edit",
   CREATE_DOCUMENT: "/portal/documents/create",
   DOCUMENT_TEMPLATES: "/portal/documents/templates",
+  DOCUMENT_EXTRACTION: "/portal/document-extraction",
 
   PERMISSIONS: "/portal/permissions",
   VIEW_PERMISSIONS: "/portal/permissions/view",

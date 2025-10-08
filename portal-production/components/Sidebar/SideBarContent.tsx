@@ -19,7 +19,7 @@ import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 // import InfoRoundedIcon from "@mui/icons-material/InfoRounded";
 import { useTheme } from "@mui/material";
 import Link from "next/link";
-import { ROUTES } from "@/routes";
+import { ROUTES } from "@/app/portal/routes";
 import { usePathname } from "next/navigation";
 import Collapse from "@mui/material/Collapse";
 import ExpandLess from "@mui/icons-material/ExpandLess";
@@ -160,6 +160,9 @@ export default function SideBarContent() {
               </ListItemButton>
               <ListItemButton sx={{ pl: 4 }} component={Link} href="/portal/documents/templates">
                 <ListItemText primary="All Document Templates" sx={{ color: "white" }} />
+              </ListItemButton>
+              <ListItemButton sx={{ pl: 4 }} component={Link} href={ROUTES.DOCUMENT_EXTRACTION}>
+                <ListItemText primary="Document Extraction (AI)" sx={{ color: "white" }} />
               </ListItemButton>
             </List>
           </Collapse>

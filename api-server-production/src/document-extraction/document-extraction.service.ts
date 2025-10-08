@@ -1,0 +1,354 @@
+import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import { OpenAI } from 'openai';
+import { ConfigService } from '@nestjs/config';
+
+export enum DocumentType {
+  INVOICE = 'invoice',
+  DELIVERY_ORDER = 'delivery_order',
+  QUOTATION = 'quotation',
+  PURCHASE_ORDER = 'purchase_order',
+  RECEIPT = 'receipt',
+}
+
+export interface ExtractedDocumentData {
+  documentType: DocumentType;
+
+  // Customer Information
+  customer: {
+    name?: string;
+    address?: string;
+    attention?: string;
+    accountsDepartment?: string;
+  };
+
+  // Document Details (generic for all document types)
+  document: {
+    number?: string;
+    date?: string;
+    dueDate?: string;
+    reference?: string;
+    type?: string; // Invoice, DO, Quotation, etc.
+  };
+
+  // References (can be DO, PO, Quotation, etc.)
+  references: {
+    doNumber?: string;
+    doDate?: string;
+    quotationRef?: string;
+    quotationDate?: string;
+    workOrderNo?: string;
+    workOrderDate?: string;
+    poNumber?: string;
+    poDate?: string;
+  };
+
+  // Project/Location
+  project: {
+    location?: string;
+    projectDept?: string;
+  };
+
+  // Items/Line Items
+  items: Array<{
+    description?: string;
+    quantity?: number;
+    unitPrice?: number;
+    tax?: number;
+    amount?: number;
+    serialNumbers?: string[];
+    unit?: string; // unit of measurement
+  }>;
+
+  // Totals
+  totals: {
+    subtotal?: number;
+    tax?: number;
+    total?: number;
+  };
+
+  // Company Information (From Document)
+  company: {
+    name?: string;
+    address?: string;
+    gstRegNo?: string;
+    registrationNo?: string;
+  };
+
+  // Additional fields for specific document types
+  additionalFields?: {
+    deliveryDate?: string;
+    deliveryAddress?: string;
+    terms?: string;
+    paymentTerms?: string;
+    validity?: string;
+    shippingMethod?: string;
+    [key: string]: any;
+  };
+}
+
+@Injectable()
+export class DocumentExtractionService {
+  private openai: OpenAI;
+
+  constructor(private configService: ConfigService) {
+    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
+
+    if (!apiKey || apiKey === 'your_openai_api_key_here') {
+      console.warn('⚠️ OpenAI API key not configured. Document extraction will not work.');
+      this.openai = null;
+    } else {
+      this.openai = new OpenAI({
+        apiKey: apiKey,
+      });
+    }
+  }
+
+  async extractDocumentData(
+    imageBase64: string,
+    documentType: DocumentType = DocumentType.INVOICE
+  ): Promise<ExtractedDocumentData> {
+    if (!this.openai) {
+      throw new HttpException(
+        'OpenAI API key not configured. Please add your API key to the .env file.',
+        HttpStatus.SERVICE_UNAVAILABLE
+      );
+    }
+
+    try {
+      console.log(`📄 Starting ${documentType} extraction with OpenAI Vision API`);
+
+      const systemPrompt = this.getSystemPrompt(documentType);
+      const userPrompt = this.getUserPrompt(documentType);
+
+      const response = await this.openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: userPrompt
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:image/jpeg;base64,${imageBase64}`,
+                  detail: "high"
+                }
+              }
+            ]
+          }
+        ],
+        max_tokens: 2000,
+        temperature: 0.1, // Low temperature for more consistent extraction
+        response_format: { type: "json_object" }
+      });
+
+      const extractedData = JSON.parse(response.choices[0].message.content);
+      console.log(`✅ ${documentType} data extracted successfully`);
+
+      return this.validateAndCleanData({
+        ...extractedData,
+        documentType
+      });
+
+    } catch (error) {
+      console.error(`❌ Error extracting ${documentType} data:`, error);
+
+      if (error.response?.status === 401) {
+        throw new HttpException(
+          'Invalid OpenAI API key. Please check your configuration.',
+          HttpStatus.UNAUTHORIZED
+        );
+      }
+
+      throw new HttpException(
+        `Failed to extract ${documentType} data: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
+  private getSystemPrompt(documentType: DocumentType): string {
+    const basePrompt = `You are an expert at extracting structured data from ${documentType.replace('_', ' ')} images.
+    Extract all relevant information and return it in the exact JSON format specified.
+    Be precise with dates (use YYYY-MM-DD format), numbers, and references.
+    If a field is not found, leave it as undefined or empty array for arrays.`;
+
+    const typeSpecificPrompts = {
+      [DocumentType.INVOICE]: `Pay special attention to invoice numbers, payment terms, due dates, and tax calculations.`,
+      [DocumentType.DELIVERY_ORDER]: `Focus on delivery details, recipient information, delivery dates, and item quantities.`,
+      [DocumentType.QUOTATION]: `Extract quotation validity, terms and conditions, and pricing details carefully.`,
+      [DocumentType.PURCHASE_ORDER]: `Identify PO numbers, delivery requirements, and approval signatures.`,
+      [DocumentType.RECEIPT]: `Extract transaction details, payment method, and receipt numbers.`,
+    };
+
+    return `${basePrompt} ${typeSpecificPrompts[documentType] || ''}`;
+  }
+
+  private getUserPrompt(documentType: DocumentType): string {
+    return `Extract all information from this ${documentType.replace('_', ' ')} image and return it in this exact JSON structure:
+    {
+      "customer": {
+        "name": "customer company name",
+        "address": "full customer address",
+        "attention": "attention/contact person",
+        "accountsDepartment": "accounts department if mentioned"
+      },
+      "document": {
+        "number": "document number",
+        "date": "document date in YYYY-MM-DD format",
+        "dueDate": "due date in YYYY-MM-DD format (if applicable)",
+        "reference": "document reference if any",
+        "type": "type of document (Invoice/DO/Quotation/PO/Receipt)"
+      },
+      "references": {
+        "doNumber": "delivery order number if referenced",
+        "doDate": "DO date in YYYY-MM-DD format",
+        "quotationRef": "quotation reference if mentioned",
+        "quotationDate": "quotation date in YYYY-MM-DD format",
+        "workOrderNo": "work order number if mentioned",
+        "workOrderDate": "work order date in YYYY-MM-DD format",
+        "poNumber": "purchase order number if referenced",
+        "poDate": "PO date in YYYY-MM-DD format"
+      },
+      "project": {
+        "location": "project location or delivery site",
+        "projectDept": "project name or department"
+      },
+      "items": [
+        {
+          "description": "item description",
+          "quantity": numeric quantity,
+          "unitPrice": numeric unit price,
+          "unit": "unit of measurement (pcs, kg, etc.)",
+          "tax": tax percentage as number (e.g., 9 for 9%),
+          "amount": numeric total amount,
+          "serialNumbers": ["serial numbers if any"]
+        }
+      ],
+      "totals": {
+        "subtotal": numeric subtotal,
+        "tax": numeric tax amount,
+        "total": numeric total amount
+      },
+      "company": {
+        "name": "issuing company name",
+        "address": "issuing company address",
+        "gstRegNo": "GST registration number",
+        "registrationNo": "company registration number"
+      },
+      "additionalFields": {
+        "deliveryDate": "delivery date if mentioned",
+        "deliveryAddress": "delivery address if different",
+        "terms": "terms and conditions",
+        "paymentTerms": "payment terms",
+        "validity": "quotation validity period",
+        "shippingMethod": "shipping or delivery method"
+      }
+    }`;
+  }
+
+  private validateAndCleanData(data: any): ExtractedDocumentData {
+    // Clean and validate the extracted data
+    return {
+      documentType: data.documentType || DocumentType.INVOICE,
+      customer: {
+        name: data.customer?.name || undefined,
+        address: data.customer?.address || undefined,
+        attention: data.customer?.attention || undefined,
+        accountsDepartment: data.customer?.accountsDepartment || undefined,
+      },
+      document: {
+        number: data.document?.number || undefined,
+        date: this.parseDate(data.document?.date),
+        dueDate: this.parseDate(data.document?.dueDate),
+        reference: data.document?.reference || undefined,
+        type: data.document?.type || undefined,
+      },
+      references: {
+        doNumber: data.references?.doNumber || undefined,
+        doDate: this.parseDate(data.references?.doDate),
+        quotationRef: data.references?.quotationRef || undefined,
+        quotationDate: this.parseDate(data.references?.quotationDate),
+        workOrderNo: data.references?.workOrderNo || undefined,
+        workOrderDate: this.parseDate(data.references?.workOrderDate),
+        poNumber: data.references?.poNumber || undefined,
+        poDate: this.parseDate(data.references?.poDate),
+      },
+      project: {
+        location: data.project?.location || undefined,
+        projectDept: data.project?.projectDept || undefined,
+      },
+      items: this.cleanItems(data.items),
+      totals: {
+        subtotal: this.parseNumber(data.totals?.subtotal),
+        tax: this.parseNumber(data.totals?.tax),
+        total: this.parseNumber(data.totals?.total),
+      },
+      company: {
+        name: data.company?.name || undefined,
+        address: data.company?.address || undefined,
+        gstRegNo: data.company?.gstRegNo || undefined,
+        registrationNo: data.company?.registrationNo || undefined,
+      },
+      additionalFields: data.additionalFields || {},
+    };
+  }
+
+  private cleanItems(items: any[]): ExtractedDocumentData['items'] {
+    if (!Array.isArray(items)) return [];
+
+    return items.map(item => ({
+      description: item.description || undefined,
+      quantity: this.parseNumber(item.quantity),
+      unitPrice: this.parseNumber(item.unitPrice),
+      tax: this.parseNumber(item.tax),
+      amount: this.parseNumber(item.amount),
+      serialNumbers: Array.isArray(item.serialNumbers) ? item.serialNumbers : [],
+      unit: item.unit || undefined,
+    }));
+  }
+
+  private parseDate(dateStr: any): string | undefined {
+    if (!dateStr || typeof dateStr !== 'string') return undefined;
+
+    // Try to parse the date and ensure it's in YYYY-MM-DD format
+    try {
+      const date = new Date(dateStr);
+      if (!isNaN(date.getTime())) {
+        return date.toISOString().split('T')[0];
+      }
+    } catch {
+      // If parsing fails, return undefined
+    }
+
+    return undefined;
+  }
+
+  private parseNumber(value: any): number | undefined {
+    if (value === null || value === undefined || value === '') return undefined;
+
+    const num = typeof value === 'string'
+      ? parseFloat(value.replace(/[^0-9.-]/g, ''))
+      : parseFloat(value);
+
+    return isNaN(num) ? undefined : num;
+  }
+
+  async processDocumentFile(
+    file: Express.Multer.File,
+    documentType: DocumentType = DocumentType.INVOICE
+  ): Promise<ExtractedDocumentData> {
+    // Convert file buffer to base64
+    const base64Image = file.buffer.toString('base64');
+
+    // Extract data using OpenAI
+    return this.extractDocumentData(base64Image, documentType);
+  }
+}
