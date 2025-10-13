@@ -29,6 +29,9 @@ model Organization {
   userOrganizations  UserOrganization[]
   userRoles          UserRole[]
   xeroConnection     XeroConnection?
+  modules            OrganizationModule[]
+  customFields       CustomField[]
+  uiConfig           OrganizationUIConfig?
 }
 
 model Asset {
@@ -342,4 +345,82 @@ model XeroConnection {
   createdAt              DateTime     @default(now())
   updatedAt              DateTime     @updatedAt
   organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// Module configuration per organization
+model OrganizationModule {
+  id             String       @id @default(uuid())
+  organizationId String
+  moduleCode     String       // 'ASSETS', 'INVENTORY', 'DOCUMENTS', 'PROJECTS', 'CUSTOMERS', 'INVOICES'
+  enabled        Boolean      @default(true)
+  displayName    String?      // Custom label for this module
+  icon           String?      // Custom icon (Material UI icon name)
+  sortOrder      Int?         // Navigation order
+  config         Json?        // Module-specific configuration (routes, permissions, etc.)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, moduleCode])
+  @@index([organizationId])
+}
+
+// Custom fields per organization per entity
+model CustomField {
+  id             String       @id @default(uuid())
+  organizationId String
+  entityType     String       // 'Asset', 'Customer', 'Document', 'Inventory', 'Project'
+  fieldName      String       // Technical name (e.g., 'warranty_date')
+  displayLabel   String       // User-facing label (e.g., 'Warranty Expiry Date')
+  fieldType      String       // 'text', 'number', 'date', 'select', 'multiselect', 'boolean', 'file', 'richtext'
+  required       Boolean      @default(false)
+  options        Json?        // For select/multiselect fields: [{value: 'val1', label: 'Label 1'}]
+  defaultValue   String?
+  validation     Json?        // Validation rules: {min: 0, max: 100, pattern: '^[A-Z]'}
+  sortOrder      Int?         @default(0)
+  isActive       Boolean      @default(true)
+  showInList     Boolean      @default(false)   // Show in list/table views
+  showInForm     Boolean      @default(true)    // Show in forms
+  groupName      String?      // Group fields together in forms
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  fieldValues    CustomFieldValue[]
+
+  @@unique([organizationId, entityType, fieldName])
+  @@index([organizationId, entityType])
+}
+
+// Store custom field values
+model CustomFieldValue {
+  id            String      @id @default(uuid())
+  customFieldId String
+  entityId      String      // ID of the Asset/Customer/etc.
+  entityType    String      // 'Asset', 'Customer', etc.
+  value         Json        // Flexible storage for any type of value
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  customField   CustomField @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
+
+  @@unique([customFieldId, entityId])
+  @@index([entityId, entityType])
+}
+
+// UI Configuration per organization
+model OrganizationUIConfig {
+  id                String       @id @default(uuid())
+  organizationId    String       @unique
+  theme             Json?        // Colors, fonts, spacing: {primaryColor: '#..', secondaryColor: '#..'}
+  navigationConfig  Json?        // Custom navigation structure
+  dashboardLayout   Json?        // Dashboard widget configuration
+  terminology       Json?        // Custom labels: {asset: 'Equipment', customer: 'Client'}
+  dateFormat        String?      @default("MM/dd/yyyy")
+  timeFormat        String?      @default("12h")
+  currency          String?      @default("USD")
+  language          String?      @default("en")
+  features          Json?        // Feature flags: {enableProjects: true, enableDocumentAI: false}
+  branding          Json?        // Additional branding config
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  organization      Organization @relation(fields: [organizationId], references: [id])
 }

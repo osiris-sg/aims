@@ -25,6 +25,7 @@ import { OrganizationsModule } from './organizations/organizations.module';
 import { AdminModule } from './admin/admin.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { DocumentExtractionModule } from './document-extraction/document-extraction.module';
+import { ConfigurationModule } from './configuration/configuration.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { DocumentExtractionModule } from './document-extraction/document-extract
     AdminModule,
     DashboardModule,
     DocumentExtractionModule,
+    ConfigurationModule,
   ],
   controllers: [AppController],
   providers: [

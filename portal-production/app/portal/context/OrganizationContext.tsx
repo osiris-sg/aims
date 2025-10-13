@@ -60,10 +60,16 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
         );
 
         console.log("response for user org", response);
+        console.log("response.success:", response.success);
+        console.log("response.data:", response.data);
+        console.log("response.data?.success:", response.data?.success);
+        console.log("response.data?.data:", response.data?.data);
 
         if (response.success && response.data?.success && response.data.data) {
+          console.log("Setting organization to:", response.data.data);
           setOrganization(response.data.data);
         } else {
+          console.log("Failed to set organization. Error:", response.data?.message || response.message);
           setError(response.data?.message || response.message || "Failed to fetch user organization");
           setOrganization(null);
         }
@@ -126,10 +132,16 @@ export function useOrganization() {
         );
 
         console.log("response for user org (fallback)", response);
+        console.log("fallback - response.success:", response.success);
+        console.log("fallback - response.data:", response.data);
+        console.log("fallback - response.data?.success:", response.data?.success);
+        console.log("fallback - response.data?.data:", response.data?.data);
 
         if (response.success && response.data?.success && response.data.data) {
+          console.log("fallback - Setting organization to:", response.data.data);
           setOrganization(response.data.data);
         } else {
+          console.log("fallback - Failed to set organization. Error:", response.data?.message || response.message);
           setError(response.data?.message || response.message || "Failed to fetch user organization");
           setOrganization(null);
         }

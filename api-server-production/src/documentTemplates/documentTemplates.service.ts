@@ -14,14 +14,47 @@ export class DocumentTemplatesService {
       const { page, limit, search } = getDocumentTemplateDto;
       const skip = (page - 1) * limit;
 
-      const documentTemplates = await this.prisma.documentTemplate.findMany({
-        where: {
-          organizationId,
-          type: {
-            contains: search || '',
-            mode: 'insensitive',
+      // Fetch organization's enabled document types
+      const organization = await this.prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: { customDocumentTypes: true },
+      });
+
+      // Build the where clause
+      const whereClause: any = {
+        organizationId,
+      };
+
+      // Filter by enabled document types if customDocumentTypes is set
+      if (organization?.customDocumentTypes && Array.isArray(organization.customDocumentTypes) && organization.customDocumentTypes.length > 0) {
+        // Filter by enabled types AND search if provided
+        whereClause.AND = [
+          {
+            type: {
+              in: organization.customDocumentTypes,
+            },
           },
-        },
+          ...(search
+            ? [
+                {
+                  type: {
+                    contains: search,
+                    mode: 'insensitive' as const,
+                  },
+                },
+              ]
+            : []),
+        ];
+      } else if (search) {
+        // No customDocumentTypes set, just filter by search
+        whereClause.type = {
+          contains: search,
+          mode: 'insensitive' as const,
+        };
+      }
+
+      const documentTemplates = await this.prisma.documentTemplate.findMany({
+        where: whereClause,
         skip,
         take: limit,
         orderBy: {
@@ -30,13 +63,7 @@ export class DocumentTemplatesService {
       });
 
       const totalDocs = await this.prisma.documentTemplate.count({
-        where: {
-          organizationId,
-          type: {
-            contains: search || '',
-            mode: 'insensitive',
-          },
-        },
+        where: whereClause,
       });
 
       const hasNextPage = skip + documentTemplates.length < totalDocs;

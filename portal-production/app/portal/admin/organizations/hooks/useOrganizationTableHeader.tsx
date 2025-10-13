@@ -3,16 +3,23 @@ import { createColumnHelper } from "@tanstack/react-table";
 import { Box, Button, Chip, Typography, IconButton } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
+import VisibilityIcon from "@mui/icons-material/Visibility";
 import { useAuth } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 
 const columnHelper = createColumnHelper<any>();
 
 export default function useOrganizationTableHeader() {
   const { getToken } = useAuth();
+  const router = useRouter();
   const [editOrganizationOpen, setEditOrganizationOpen] = useState(false);
   const [selectedOrganization, setSelectedOrganization] = useState(null);
   const [organizationToDelete, setOrganizationToDelete] = useState<string | null>(null);
   const [isDeleteInProgress, setIsDeleteInProgress] = useState(false);
+
+  const handleViewOrganization = (organizationId: string) => {
+    router.push(`/portal/admin/organizations/${organizationId}`);
+  };
 
   const handleEditOrganization = (organization: any) => {
     setSelectedOrganization(organization);
@@ -113,6 +120,9 @@ export default function useOrganizationTableHeader() {
       header: "Actions",
       cell: (info) => (
         <Box sx={{ display: "flex", gap: 1 }}>
+          <IconButton size="small" onClick={() => handleViewOrganization(info.getValue())} sx={{ color: "info.main" }}>
+            <VisibilityIcon fontSize="small" />
+          </IconButton>
           <IconButton size="small" onClick={() => handleEditOrganization(info.row.original)} sx={{ color: "primary.main" }}>
             <EditIcon fontSize="small" />
           </IconButton>

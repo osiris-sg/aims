@@ -13,8 +13,14 @@ export default function useGetAssets() {
     queryKey: ["assets", organizationId],
     queryFn: async () => {
       try {
+        console.log("=== useGetAssets fetching ===");
+        console.log("organizationId:", organizationId);
+
         const token = await getToken();
-        if (!token || !organizationId) return { docs: [] };
+        if (!token || !organizationId) {
+          console.log("Missing token or organizationId");
+          return { docs: [] };
+        }
 
         const response = await request(
           {
@@ -26,9 +32,13 @@ export default function useGetAssets() {
             limit: 100,
             search: "",
             filters: {},
+            organizationId,
           },
           token
         );
+
+        console.log("Assets response:", response);
+        console.log("Assets response.data:", response.data);
 
         if (!response.success) {
           console.error("Failed to fetch assets:", response.message);

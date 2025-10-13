@@ -39,7 +39,7 @@ export default function AddInventoryItem({ open, onClose }: AddInventoryItemProp
         </Typography>
         <form style={{ width: "100%" }} onSubmit={handleSubmit(onSubmit)}>
           <Stack direction="column" gap="var(--default-gap)" width="100%">
-            <FormSelect control={control} name="assetId" label="Asset" addItem={false} menuTitle="Choose an asset" menuItems={assets.docs.map((asset: any) => ({ label: asset.name, value: asset.id }))} />
+            <FormSelect control={control} name="assetId" label="Asset" addItem={false} menuTitle="Choose an asset" menuItems={assets?.docs?.map((asset: any) => ({ label: asset.name, value: asset.id })) || []} />
             <FormInputBox loading={isSkuLoading} control={control} name="sku" label="SKU" placeHolder="Enter SKU" disabled={true} />
             <FormInputBox control={control} name="quantity" label="Quantity" placeHolder="Enter quantity" type="number" min={1} integerOnly={true} />
             <FormInputBox control={control} name="category" label="Category" placeHolder="Enter a category" disabled={true} />

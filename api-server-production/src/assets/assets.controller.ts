@@ -10,9 +10,11 @@ import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/s
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { UserOrganization } from '../auth/decorators/user-organization.decorator';
+import { WithCustomFields } from '../common/decorators/with-custom-fields.decorator';
 
 @ApiTags('assets')
 @UseGuards(ClerkAuthGuard)
+@WithCustomFields() // Apply custom fields handling to all endpoints
 @Controller('assets')
 export class AssetsController {
   constructor(private readonly assetsService: AssetsService) {}

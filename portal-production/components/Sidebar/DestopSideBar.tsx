@@ -8,7 +8,9 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
-import SideBarContent from "./SideBarContent";
+import DynamicSidebarContent from "./DynamicSidebarContent";
+// Fallback to static sidebar if needed
+// import SideBarContent from "./SideBarContent";
 import { UserButton, useUser } from "@clerk/nextjs";
 import { useSidebar } from "./SidebarContext";
 import MenuIcon from "@mui/icons-material/Menu";
@@ -126,7 +128,7 @@ export default function DesktopSideBar() {
           flexDirection: "column",
         }}
       >
-        <SideBarContent />
+        <DynamicSidebarContent />
       </Box>
       <Stack
         direction="row"

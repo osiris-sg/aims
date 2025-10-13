@@ -7,6 +7,7 @@ import AppNavbar from "@/components/Appnavbar";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { OrganizationProvider } from "./context/OrganizationContext";
+import { ConfigurationProvider } from "./context/ConfigurationContext";
 import { SidebarProvider } from "@/components/Sidebar/SidebarContext";
 
 interface Props {
@@ -16,14 +17,16 @@ export default function Layout(props: Props) {
   const { children } = props;
   return (
     <OrganizationProvider>
-      <SidebarProvider>
-        <Box className={styles.PORTAL_LAYOUT}>
-          <DesktopSideBar />
-          <AppNavbar />
-          <Box sx={{ flexGrow: 1, height: "100%", width: "100%", display: "flex", flexDirection: "column" }}>{children}</Box>
-          <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick rtl={false} pauseOnFocusLoss draggable pauseOnHover theme="light" />
-        </Box>
-      </SidebarProvider>
+      <ConfigurationProvider>
+        <SidebarProvider>
+          <Box className={styles.PORTAL_LAYOUT}>
+            <DesktopSideBar />
+            <AppNavbar />
+            <Box sx={{ flexGrow: 1, height: "100%", width: "100%", display: "flex", flexDirection: "column" }}>{children}</Box>
+            <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick rtl={false} pauseOnFocusLoss draggable pauseOnHover theme="light" />
+          </Box>
+        </SidebarProvider>
+      </ConfigurationProvider>
     </OrganizationProvider>
   );
 }

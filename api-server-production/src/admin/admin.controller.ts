@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, UseGuards, Req, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, UseGuards, Req, ForbiddenException } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Request } from 'express';
@@ -163,6 +163,56 @@ export class AdminController {
   async getOrganizationStats(@Param('id') id: string, @Req() req: RequestWithOrganization) {
     await this.checkOsirisAdmin(req);
     return this.adminService.getOrganizationStats(id);
+  }
+
+  // ===== ORGANIZATION MODULE MANAGEMENT ENDPOINTS =====
+
+  @Get('organizations/:organizationId/modules')
+  async getOrganizationModules(@Param('organizationId') organizationId: string, @Req() req: RequestWithOrganization) {
+    await this.checkOsirisAdmin(req);
+    return this.adminService.getOrganizationModules(organizationId);
+  }
+
+  @Post('organizations/:organizationId/modules')
+  async createOrganizationModule(
+    @Param('organizationId') organizationId: string,
+    @Body() moduleData: any,
+    @Req() req: RequestWithOrganization
+  ) {
+    await this.checkOsirisAdmin(req);
+    return this.adminService.createOrganizationModule(organizationId, moduleData);
+  }
+
+  @Put('organizations/:organizationId/modules/:moduleId')
+  async updateOrganizationModule(
+    @Param('organizationId') organizationId: string,
+    @Param('moduleId') moduleId: string,
+    @Body() moduleData: any,
+    @Req() req: RequestWithOrganization
+  ) {
+    await this.checkOsirisAdmin(req);
+    return this.adminService.updateOrganizationModule(organizationId, moduleId, moduleData);
+  }
+
+  @Post('organizations/:organizationId/modules/initialize')
+  async initializeDefaultModules(
+    @Param('organizationId') organizationId: string,
+    @Req() req: RequestWithOrganization
+  ) {
+    await this.checkOsirisAdmin(req);
+    return this.adminService.initializeDefaultModules(organizationId);
+  }
+
+  // ===== ORGANIZATION DOCUMENT TYPES MANAGEMENT ENDPOINTS =====
+
+  @Put('organizations/:organizationId/document-types')
+  async updateOrganizationDocumentTypes(
+    @Param('organizationId') organizationId: string,
+    @Body() data: { customDocumentTypes: string[] },
+    @Req() req: RequestWithOrganization
+  ) {
+    await this.checkOsirisAdmin(req);
+    return this.adminService.updateOrganizationDocumentTypes(organizationId, data.customDocumentTypes);
   }
 
   // ===== DASHBOARD/STATS ADMIN ENDPOINTS =====

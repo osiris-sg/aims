@@ -88,7 +88,7 @@ export default function InventoryPage() {
       accessorKey: "assetId",
       header: "Asset Name",
       cell: ({ row }: { row: any }) => {
-        const asset = assets.docs.find((item: any) => item.id === row.original.assetId);
+        const asset = assets?.docs?.find((item: any) => item.id === row.original.assetId);
         return <Typography variant="body2">{asset ? asset.name : "N/A"}</Typography>;
       },
     },
@@ -246,7 +246,7 @@ export default function InventoryPage() {
         availableFilters={["status", "category", "asset", "createdOn"]}
         pageCount={inventories.totalPagesCount}
         totalDocs={inventories.totalDocuments}
-        assetsData={assets.docs} // Pass assets data for filter dropdown
+        assetsData={assets?.docs || []} // Pass assets data for filter dropdown
       />
 
       <AddInventoryItem open={openDrawer} onClose={handleCloseDrawer} />

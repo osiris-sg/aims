@@ -16,7 +16,7 @@ interface RequestWithOrganization extends Request {
 }
 
 @Controller('organizations')
-// @UseGuards(ClerkAuthGuard)
+@UseGuards(ClerkAuthGuard)
 export class OrganizationsController {
   constructor(private readonly organizationsService: OrganizationsService) {}
 

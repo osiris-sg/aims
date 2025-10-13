@@ -72,14 +72,14 @@ export default function useAddInventoryFormHandler({ onSuccess }: UseAddInventor
 
   // Watch assetId to update category
   useEffect(() => {
-    if (assetId) {
+    if (assetId && assets?.docs) {
       const selectedAsset = assets.docs.find((asset: any) => asset.id === assetId);
       if (selectedAsset) {
         const category = categories.find((cat: any) => cat.id === selectedAsset.categoryId);
         setValue("category", category?.name || "");
       }
     }
-  }, [assetId, assets.docs, categories, setValue]);
+  }, [assetId, assets?.docs, categories, setValue]);
 
   // Add inventory mutation
   const { mutate: addInventory, isPending: isInvetoryUpdating } = useMutation({

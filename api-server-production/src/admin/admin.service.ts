@@ -311,6 +311,9 @@ export class AdminService {
     return this.prisma.organization.findUnique({
       where: { id },
       include: {
+        modules: {
+          orderBy: { sortOrder: 'asc' },
+        },
         assets: true,
         inventories: true,
         customers: true,
@@ -683,5 +686,115 @@ export class AdminService {
     return this.prisma.permission.findMany({
       orderBy: { resource: 'asc' },
     });
+  }
+
+  // ===== ORGANIZATION MODULE MANAGEMENT SERVICES =====
+
+  async getOrganizationModules(organizationId: string) {
+    return this.prisma.organizationModule.findMany({
+      where: { organizationId },
+      orderBy: { sortOrder: 'asc' },
+    });
+  }
+
+  async createOrganizationModule(organizationId: string, moduleData: any) {
+    const { moduleCode, displayName, icon, sortOrder, enabled, config } = moduleData;
+
+    // Check if module already exists
+    const existing = await this.prisma.organizationModule.findFirst({
+      where: { organizationId, moduleCode },
+    });
+
+    if (existing) {
+      throw new Error(`Module ${moduleCode} already exists for this organization`);
+    }
+
+    return this.prisma.organizationModule.create({
+      data: {
+        organizationId,
+        moduleCode,
+        displayName,
+        icon,
+        sortOrder: sortOrder ?? 0,
+        enabled: enabled ?? true,
+        config: config || {},
+      },
+    });
+  }
+
+  async updateOrganizationModule(organizationId: string, moduleId: string, moduleData: any) {
+    const { displayName, icon, sortOrder, enabled, config } = moduleData;
+
+    return this.prisma.organizationModule.update({
+      where: { id: moduleId },
+      data: {
+        displayName,
+        icon,
+        sortOrder,
+        enabled,
+        config,
+      },
+    });
+  }
+
+  async initializeDefaultModules(organizationId: string) {
+    const defaultModules = [
+      { moduleCode: 'DASHBOARD', displayName: 'Dashboard', icon: 'Dashboard', sortOrder: 0, config: { route: '/portal' } },
+      { moduleCode: 'ASSETS', displayName: 'Assets', icon: 'Settings', sortOrder: 10, config: { route: '/portal/assets' } },
+      { moduleCode: 'INVENTORY', displayName: 'Inventory', icon: 'Inventory', sortOrder: 20, config: { route: '/portal/inventory' } },
+      { moduleCode: 'CUSTOMERS', displayName: 'Customers', icon: 'PeopleRounded', sortOrder: 30, config: { route: '/portal/customers' } },
+      { moduleCode: 'DOCUMENTS', displayName: 'Documents', icon: 'Description', sortOrder: 40, config: { route: '/portal/documents' } },
+      { moduleCode: 'INVOICES', displayName: 'Invoices', icon: 'Receipt', sortOrder: 50, config: { route: '/portal/invoices' } },
+      { moduleCode: 'PROJECTS', displayName: 'Projects', icon: 'AccountTree', sortOrder: 60, config: { route: '/portal/projects' } },
+      { moduleCode: 'USER_MANAGEMENT', displayName: 'User Management', icon: 'ManageAccounts', sortOrder: 70, config: { route: '/portal/user-management' } },
+      { moduleCode: 'AUDIT', displayName: 'Audit', icon: 'Security', sortOrder: 80, config: { route: '/portal/audit' } },
+      { moduleCode: 'ADMIN', displayName: 'Admin Panel', icon: 'AdminPanelSettings', sortOrder: 100, config: { route: '/portal/admin' } },
+    ];
+
+    const createdModules = await Promise.all(
+      defaultModules.map(async (module) => {
+        // Check if module already exists
+        const existing = await this.prisma.organizationModule.findFirst({
+          where: { organizationId, moduleCode: module.moduleCode },
+        });
+
+        if (existing) {
+          return existing;
+        }
+
+        return this.prisma.organizationModule.create({
+          data: {
+            organizationId,
+            ...module,
+            enabled: true,
+          },
+        });
+      }),
+    );
+
+    return {
+      message: `Initialized ${createdModules.length} modules for organization ${organizationId}`,
+      modules: createdModules,
+    };
+  }
+
+  // ===== ORGANIZATION DOCUMENT TYPES MANAGEMENT SERVICES =====
+
+  async updateOrganizationDocumentTypes(organizationId: string, documentTypes: string[]) {
+    const organization = await this.prisma.organization.update({
+      where: { id: organizationId },
+      data: {
+        customDocumentTypes: documentTypes,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Document types updated successfully',
+      data: {
+        organizationId: organization.id,
+        customDocumentTypes: organization.customDocumentTypes,
+      },
+    };
   }
 }
