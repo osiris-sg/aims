@@ -7,12 +7,10 @@ import { useGetDocuments } from "./hooks/useGetDocuments";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import useDeleteDocumentHandler from "./hooks/useDeleteDocumentHandler";
 import useDocumentsTableHeader from "./hooks/useDocumentsTableHeader";
-import useCreateDocumentClickHandler from "./hooks/useCreateDocumentClickHandler";
 
 export default function DocumentsTemplateView() {
   const { columns } = useDocumentsTableHeader();
   const { documentTemplates, loading, page, limit, search, setPage, setLimit, setSearch } = useGetDocuments();
-  const { onAddClick } = useCreateDocumentClickHandler();
   const { documentToDelete, isDeleteInProgress, onDeleteConfirm, setDocumentToDelete } = useDeleteDocumentHandler();
 
   return (
@@ -23,7 +21,6 @@ export default function DocumentsTemplateView() {
         data={documentTemplates.docs}
         tableName="Documents"
         subTitle="Document Templates"
-        buttonName="Create Document Template"
         subRowAccessor="subRows"
         page={page}
         limit={limit}
@@ -32,7 +29,6 @@ export default function DocumentsTemplateView() {
         setLimit={setLimit}
         setSearch={setSearch}
         pageCount={documentTemplates.totalPagesCount}
-        onAddClick={onAddClick}
         totalDocs={documentTemplates.totalDocuments}
       />
       <DeleteItemDialogNoConfirm open={!!documentToDelete} onCancel={() => setDocumentToDelete(null)} onConfirm={onDeleteConfirm} loading={isDeleteInProgress} />
