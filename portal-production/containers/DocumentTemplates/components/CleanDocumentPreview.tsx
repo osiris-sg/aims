@@ -58,55 +58,49 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           },
         }}
       >
-        {/* Header with Logo and Company Info */}
-        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 4 }}>
-          {/* Left Side - Logo and Title */}
-          <Box sx={{ flex: 1 }}>
+        {/* Header with three columns */}
+        <Box sx={{ display: "flex", mb: 4 }}>
+          {/* Left Column - Logo, Title and Customer */}
+          <Box sx={{ width: "35%" }}>
             {data.logo && (
-              <Box sx={{ mb: 2, maxWidth: 150, height: 60 }}>
+              <Box sx={{ mb: 2, maxWidth: 120, height: 50 }}>
                 <img src={data.logo} alt="Company Logo" style={{ maxWidth: "100%", maxHeight: "100%" }} />
               </Box>
             )}
 
             <Typography
-              variant="h4"
               sx={{
-                fontSize: "24px",
-                fontWeight: 500,
-                mt: 2,
-                mb: 3
+                fontSize: "20px",
+                fontWeight: 600,
+                mb: 2
               }}
             >
-              {getDocumentTitle()}
+              Tax Invoice
             </Typography>
 
             {/* Customer Info */}
-            <Box sx={{ mb: 2 }}>
+            <Box>
               <Typography sx={{ fontSize: "13px", fontWeight: 600, mb: 0.5 }}>
                 {data.customer?.name || ""}
               </Typography>
-              <Typography sx={{ fontSize: "12px", mb: 0.3 }}>
-                {data.customer?.address && typeof data.customer.address === 'string'
-                  ? data.customer.address.split("\n").map((line: string, index: number) => (
-                      <React.Fragment key={index}>
-                        {line}
-                        {index < data.customer.address.split("\n").length - 1 && <br />}
-                      </React.Fragment>
-                    ))
-                  : data.customer?.address || ''}
+              <Typography sx={{ fontSize: "11px", mb: 0.3, whiteSpace: "pre-line" }}>
+                {data.customer?.address || ""}
               </Typography>
-              {data.customer?.attention && (
-                <Typography sx={{ fontSize: "12px", mb: 0.3 }}>
-                  Attn: {data.customer.attention}
+              {data.deliveryAddress?.attention && (
+                <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
+                  Attn: {data.deliveryAddress.attention}
                 </Typography>
               )}
             </Box>
           </Box>
 
-          {/* Right Side - Invoice Details */}
-          <Box sx={{ textAlign: "left", minWidth: 280 }}>
-            <Box sx={{ mb: 0.5 }}>
-              <Typography sx={{ fontSize: "11px", color: "#666", mb: 0.2 }}>
+          {/* Spacer */}
+          <Box sx={{ width: "15%" }} />
+
+          {/* Center Column - Invoice Details */}
+          <Box sx={{ width: "20%" }}>
+            <Box sx={{ mb: 1.5 }}>
+              <Typography sx={{ fontSize: "10px", color: "#666", mb: 0.3 }}>
                 Invoice Date
               </Typography>
               <Typography sx={{ fontSize: "12px", fontWeight: 500 }}>
@@ -114,8 +108,8 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               </Typography>
             </Box>
 
-            <Box sx={{ mb: 0.5 }}>
-              <Typography sx={{ fontSize: "11px", color: "#666", mb: 0.2 }}>
+            <Box sx={{ mb: 1.5 }}>
+              <Typography sx={{ fontSize: "10px", color: "#666", mb: 0.3 }}>
                 Invoice Number
               </Typography>
               <Typography sx={{ fontSize: "12px", fontWeight: 500 }}>
@@ -123,40 +117,36 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               </Typography>
             </Box>
 
-            {data.documentInfo?.referenceNo && (
-              <Box sx={{ mb: 0.5 }}>
-                <Typography sx={{ fontSize: "11px", color: "#666", mb: 0.2 }}>
-                  Reference
-                </Typography>
-                <Typography sx={{ fontSize: "12px", fontWeight: 500 }}>
-                  {data.documentInfo.referenceNo}
-                  {data.documentInfo?.referenceDate && (
-                    <span style={{ fontSize: "11px", fontWeight: "normal" }}>
-                      {" "}({formatDate(data.documentInfo.referenceDate)})
-                    </span>
-                  )}
-                </Typography>
-              </Box>
-            )}
-
-            {/* Company Details on the right */}
-            <Box sx={{ mt: 2, pt: 2, borderTop: "1px solid #eee" }}>
-              <Typography sx={{ fontSize: "13px", fontWeight: 600, mb: 0.5 }}>
-                {data.company?.name || organization?.name || ""}
+            <Box sx={{ mb: 1.5 }}>
+              <Typography sx={{ fontSize: "10px", color: "#666", mb: 0.3 }}>
+                Reference
               </Typography>
-              <Typography sx={{ fontSize: "11px", mb: 0.2 }}>
-                {data.company?.address || ""}
-              </Typography>
-              <Typography sx={{ fontSize: "11px", mb: 0.2 }}>
-                Tel: {data.company?.phoneNumber || ""}
-              </Typography>
-              <Typography sx={{ fontSize: "11px", mb: 0.2 }}>
-                Company & GST Reg No:
-              </Typography>
-              <Typography sx={{ fontSize: "11px" }}>
-                {data.company?.gstRegNo || ""}
+              <Typography sx={{ fontSize: "12px", fontWeight: 500, whiteSpace: "pre-line" }}>
+                {data.documentInfo?.referenceNo || ""}
+                {data.documentInfo?.doNo && (
+                  <>{'\n'}({data.documentInfo.doNo})</>
+                )}
               </Typography>
             </Box>
+          </Box>
+
+          {/* Right Column - Company Details */}
+          <Box sx={{ textAlign: "left", width: "30%" }}>
+            <Typography sx={{ fontSize: "13px", fontWeight: 600, mb: 0.5 }}>
+              {data.company?.name || organization?.name || ""}
+            </Typography>
+            <Typography sx={{ fontSize: "11px", mb: 0.3, whiteSpace: "pre-line" }}>
+              {data.company?.address || ""}
+            </Typography>
+            <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
+              Tel: {data.company?.phoneNumber || ""}
+            </Typography>
+            <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
+              Company & GST Reg No:
+            </Typography>
+            <Typography sx={{ fontSize: "11px", fontWeight: 500 }}>
+              {data.company?.gstRegNo || ""}
+            </Typography>
           </Box>
         </Box>
 
@@ -371,158 +361,164 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         },
       }}
     >
-      {/* Header Section */}
-      <Box
-        sx={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          mb: 4,
-        }}
-      >
-        {/* Company Logo/Info Left */}
-        <Box sx={{ flex: 1 }}>
+      {/* Header with three columns */}
+      <Box sx={{ display: "flex", mb: 4 }}>
+        {/* Left Column - Logo, Title and Customer */}
+        <Box sx={{ width: "35%" }}>
           {data.logo && (
-            <Box sx={{ mb: 2, maxWidth: 180, height: 80 }}>
+            <Box sx={{ mb: 2, maxWidth: 120, height: 50 }}>
               <img src={data.logo} alt="Company Logo" style={{ maxWidth: "100%", maxHeight: "100%" }} />
             </Box>
           )}
-        </Box>
 
-        {/* Company Details Right */}
-        <Box sx={{ textAlign: "right" }}>
-          <Typography variant="h6" sx={{ fontWeight: "bold", fontSize: "16px", mb: 0.5 }}>
-            {data.company?.name || organization?.name || ""}
+          <Typography
+            sx={{
+              fontSize: "20px",
+              fontWeight: 600,
+              mb: 2
+            }}
+          >
+            {getDocumentTitle()}
           </Typography>
-          <Typography variant="body2" sx={{ fontSize: "11px", mb: 0.3 }}>
-            {data.company?.address || ""}
-          </Typography>
-          {data.company?.phoneNumber && (
-            <Typography variant="body2" sx={{ fontSize: "11px", mb: 0.3 }}>
-              Tel: {data.company.phoneNumber}
-            </Typography>
-          )}
-          {data.company?.gstRegNo && (
-            <Typography variant="body2" sx={{ fontSize: "11px" }}>
-              GST Reg No: {data.company.gstRegNo}
-            </Typography>
-          )}
-        </Box>
-      </Box>
 
-      {/* Document Title */}
-      <Box sx={{ textAlign: "center", mb: 3 }}>
-        <Typography variant="h5" sx={{ fontWeight: "bold", fontSize: "20px" }}>
-          {getDocumentTitle()}
-        </Typography>
-      </Box>
-
-      {/* Two Column Layout for Customer and Document Info */}
-      <Box sx={{ display: "flex", gap: 4, mb: 3 }}>
-        {/* Left Column - Customer Info */}
-        <Box sx={{ flex: 1 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: "bold", mb: 1, fontSize: "12px" }}>
-            Bill To:
-          </Typography>
-          <Box sx={{ pl: 1 }}>
-            <Typography variant="body1" sx={{ fontWeight: 600, fontSize: "12px", mb: 0.5 }}>
+          {/* Customer Info */}
+          <Box>
+            <Typography sx={{ fontSize: "13px", fontWeight: 600, mb: 0.5 }}>
               {data.customer?.name || ""}
             </Typography>
-            <Typography variant="body2" sx={{ fontSize: "11px", mb: 0.5 }}>
+            <Typography sx={{ fontSize: "11px", mb: 0.3, whiteSpace: "pre-line" }}>
               {data.customer?.address || ""}
             </Typography>
             {data.deliveryAddress?.attention && (
-              <Typography variant="body2" sx={{ fontSize: "11px", mb: 0.3 }}>
+              <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
                 Attn: {data.deliveryAddress.attention}
               </Typography>
             )}
             {data.deliveryAddress?.phone && (
-              <Typography variant="body2" sx={{ fontSize: "11px" }}>
+              <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
                 Tel: {data.deliveryAddress.phone}
               </Typography>
             )}
           </Box>
-
-          {/* Delivery Address if different */}
-          {data.deliveryAddress?.address && (
-            <>
-              <Typography variant="subtitle2" sx={{ fontWeight: "bold", mt: 2, mb: 1, fontSize: "12px" }}>
-                Ship To:
-              </Typography>
-              <Box sx={{ pl: 1 }}>
-                <Typography variant="body2" sx={{ fontSize: "11px" }}>
-                  {data.deliveryAddress.address}
-                </Typography>
-              </Box>
-            </>
-          )}
         </Box>
 
-        {/* Right Column - Document Details */}
-        <Box sx={{ minWidth: 250 }}>
-          <Box sx={{ display: "flex", mb: 0.8 }}>
-            <Typography variant="body2" sx={{ fontSize: "11px", fontWeight: 600, width: 120 }}>
-              {getDocumentTitle()} NO:
+        {/* Spacer */}
+        <Box sx={{ width: "15%" }} />
+
+        {/* Center Column - Document Details */}
+        <Box sx={{ width: "20%" }}>
+          <Box sx={{ mb: 1.5 }}>
+            <Typography sx={{ fontSize: "10px", color: "#666", mb: 0.3 }}>
+              {getDocumentTitle()} Date
             </Typography>
-            <Typography variant="body2" sx={{ fontSize: "11px" }}>
+            <Typography sx={{ fontSize: "12px", fontWeight: 500 }}>
+              {formatDate(data.documentInfo?.date)}
+            </Typography>
+          </Box>
+
+          <Box sx={{ mb: 1.5 }}>
+            <Typography sx={{ fontSize: "10px", color: "#666", mb: 0.3 }}>
+              {getDocumentTitle()} Number
+            </Typography>
+            <Typography sx={{ fontSize: "12px", fontWeight: 500 }}>
               {data.documentInfo?.documentNumber || ""}
             </Typography>
           </Box>
 
-          <Box sx={{ display: "flex", mb: 0.8 }}>
-            <Typography variant="body2" sx={{ fontSize: "11px", fontWeight: 600, width: 120 }}>
-              DATE:
-            </Typography>
-            <Typography variant="body2" sx={{ fontSize: "11px" }}>
-              {data.documentInfo?.date ? new Date(data.documentInfo.date).toLocaleDateString("en-GB") : ""}
-            </Typography>
-          </Box>
-
           {data.documentInfo?.referenceNo && (
-            <Box sx={{ display: "flex", mb: 0.8 }}>
-              <Typography variant="body2" sx={{ fontSize: "11px", fontWeight: 600, width: 120 }}>
-                REF NO:
+            <Box sx={{ mb: 1.5 }}>
+              <Typography sx={{ fontSize: "10px", color: "#666", mb: 0.3 }}>
+                Reference
               </Typography>
-              <Typography variant="body2" sx={{ fontSize: "11px" }}>
+              <Typography sx={{ fontSize: "12px", fontWeight: 500 }}>
                 {data.documentInfo.referenceNo}
               </Typography>
             </Box>
           )}
 
           {data.documentInfo?.poNo && (
-            <Box sx={{ display: "flex", mb: 0.8 }}>
-              <Typography variant="body2" sx={{ fontSize: "11px", fontWeight: 600, width: 120 }}>
-                P.O. NO:
+            <Box sx={{ mb: 1.5 }}>
+              <Typography sx={{ fontSize: "10px", color: "#666", mb: 0.3 }}>
+                P.O. Number
               </Typography>
-              <Typography variant="body2" sx={{ fontSize: "11px" }}>
+              <Typography sx={{ fontSize: "12px", fontWeight: 500 }}>
                 {data.documentInfo.poNo}
               </Typography>
             </Box>
           )}
 
-          {data.paymentTerms && (
-            <Box sx={{ display: "flex", mb: 0.8 }}>
-              <Typography variant="body2" sx={{ fontSize: "11px", fontWeight: 600, width: 120 }}>
-                TERMS:
+          {data.documentInfo?.doNo && documentType === "RDO" && (
+            <Box sx={{ mb: 1.5 }}>
+              <Typography sx={{ fontSize: "10px", color: "#666", mb: 0.3 }}>
+                D.O. Number
               </Typography>
-              <Typography variant="body2" sx={{ fontSize: "11px" }}>
-                {data.paymentTerms}
+              <Typography sx={{ fontSize: "12px", fontWeight: 500 }}>
+                {data.documentInfo.doNo}
               </Typography>
             </Box>
           )}
 
-          {data.dueDate && (
-            <Box sx={{ display: "flex", mb: 0.8 }}>
-              <Typography variant="body2" sx={{ fontSize: "11px", fontWeight: 600, width: 120 }}>
-                DUE DATE:
+          {data.documentInfo?.returnOrderNo && documentType === "RDO" && (
+            <Box sx={{ mb: 1.5 }}>
+              <Typography sx={{ fontSize: "10px", color: "#666", mb: 0.3 }}>
+                Return Order Number
               </Typography>
-              <Typography variant="body2" sx={{ fontSize: "11px" }}>
-                {new Date(data.dueDate).toLocaleDateString("en-GB")}
+              <Typography sx={{ fontSize: "12px", fontWeight: 500 }}>
+                {data.documentInfo.returnOrderNo}
               </Typography>
             </Box>
           )}
         </Box>
+
+        {/* Right Column - Company Details */}
+        <Box sx={{ textAlign: "left", width: "30%" }}>
+          <Typography sx={{ fontSize: "13px", fontWeight: 600, mb: 0.5 }}>
+            {data.company?.name || organization?.name || ""}
+          </Typography>
+          <Typography sx={{ fontSize: "11px", mb: 0.3, whiteSpace: "pre-line" }}>
+            {data.company?.address || ""}
+          </Typography>
+          {data.company?.phoneNumber && (
+            <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
+              Tel: {data.company?.phoneNumber || ""}
+            </Typography>
+          )}
+          {data.company?.gstRegNo && (
+            <>
+              <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
+                Company & GST Reg No:
+              </Typography>
+              <Typography sx={{ fontSize: "11px", fontWeight: 500 }}>
+                {data.company?.gstRegNo || ""}
+              </Typography>
+            </>
+          )}
+        </Box>
       </Box>
+
+      {/* Delivery Address if different and specified for DO/RDO */}
+      {(documentType === "DO" || documentType === "RDO") && data.deliveryAddress?.address && (
+        <Box sx={{ mb: 3 }}>
+          <Typography sx={{ fontSize: "12px", fontWeight: 600, mb: 0.5 }}>
+            Delivery To:
+          </Typography>
+          <Typography sx={{ fontSize: "12px" }}>
+            {data.deliveryAddress.address}
+          </Typography>
+        </Box>
+      )}
+
+      {/* Collect From for RDO */}
+      {documentType === "RDO" && data.collectFrom && (
+        <Box sx={{ mb: 3 }}>
+          <Typography sx={{ fontSize: "12px", fontWeight: 600, mb: 0.5 }}>
+            Collect From:
+          </Typography>
+          <Typography sx={{ fontSize: "12px" }}>
+            {data.collectFrom}
+          </Typography>
+        </Box>
+      )}
 
       {/* Items Table */}
       <TableContainer sx={{ mb: 3 }}>

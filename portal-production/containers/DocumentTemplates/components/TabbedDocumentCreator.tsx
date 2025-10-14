@@ -100,9 +100,10 @@ export default function TabbedDocumentCreator({
   const pathSegments = pathname.split("/").filter(Boolean);
   const isTemplateEditMode = pathname.includes("/documents/edit/") && pathSegments.length === 5;
 
-  console.log("TabbedDocumentCreator - Path:", pathname);
-  console.log("TabbedDocumentCreator - Path segments:", pathSegments);
-  console.log("TabbedDocumentCreator - Template Edit Mode:", isTemplateEditMode);
+  // Debug logging
+  console.log("TabbedDocumentCreator - existingData:", existingData);
+  console.log("TabbedDocumentCreator - existingData.name:", existingData?.name);
+  console.log("TabbedDocumentCreator - isTemplateEditMode:", isTemplateEditMode);
 
   // Main tabs
   const [mainTabValue, setMainTabValue] = useState(0);
@@ -168,12 +169,14 @@ export default function TabbedDocumentCreator({
 
   // Form data state
   const [formData, setFormData] = useState({
+    // Document name/number from database
+    name: existingData?.name || "",
     // General tab data
     company: {
-      name: existingData?.company?.name || "",
-      address: existingData?.company?.address || "",
+      name: existingData?.company?.name || existingData?.config?.defaultValues?.companyName || "",
+      address: existingData?.company?.address || existingData?.config?.defaultValues?.companyAddress || "",
       phoneNumber: existingData?.company?.phoneNumber || "",
-      gstRegNo: existingData?.gstRegNo || "",
+      gstRegNo: existingData?.gstRegNo || existingData?.config?.defaultValues?.gstRegNo || "",
     },
     customer: {
       id: existingData?.customerId || "",
@@ -182,7 +185,7 @@ export default function TabbedDocumentCreator({
     },
     documentInfo: {
       date: existingData?.date || new Date().toISOString().split("T")[0],
-      documentNumber: existingData?.documentNumber || "",
+      documentNumber: existingData?.documentNumber || existingData?.name || "",
       referenceNo: existingData?.referenceNo || "",
       poNo: existingData?.poNo || "",
       doNo: existingData?.doNo || "",
@@ -438,7 +441,9 @@ export default function TabbedDocumentCreator({
         }}
       >
         <Typography variant="h5" fontWeight="bold">
-          {getDocumentTitle()} - {formData.documentInfo.documentNumber || "New"}
+          {isTemplateEditMode
+            ? existingData?.name || `${getDocumentTitle()} Template`
+            : formData.name || formData.documentInfo.documentNumber || `${getDocumentTitle()} - New`}
         </Typography>
         <Box sx={{ display: "flex", gap: 1 }}>
           <Button
@@ -460,12 +465,12 @@ export default function TabbedDocumentCreator({
                 const templateConfig = templateMethods.getValues();
                 onSave?.({ ...formData, config: templateConfig });
               } else {
-                // Save document data
-                onSave?.(formData);
+                // Save document data with name field
+                onSave?.({ ...formData, name: formData.name || formData.documentInfo.documentNumber });
               }
             }}
           >
-            {isTemplateEditMode ? "Save Template" : "Save Document"}
+            {isTemplateEditMode ? "Save Template" : "Save as Draft"}
           </Button>
         </Box>
       </Box>
@@ -681,6 +686,7 @@ export default function TabbedDocumentCreator({
                           onChange={(e) =>
                             setFormData({
                               ...formData,
+                              name: e.target.value, // Update the name field as well
                               documentInfo: {
                                 ...formData.documentInfo,
                                 documentNumber: e.target.value,

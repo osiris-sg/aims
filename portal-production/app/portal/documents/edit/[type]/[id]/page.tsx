@@ -32,6 +32,7 @@ export default function EditDocumentPage() {
         const token = await getToken();
         if (!token) return;
 
+        console.log("Fetching template from:", `/documentTemplates/${id}`);
         const response = await request(`/documentTemplates/${id}`, {
           method: "GET",
           headers: {
@@ -39,8 +40,14 @@ export default function EditDocumentPage() {
           },
         });
 
+        console.log("Template API Response:", response);
+        console.log("Template Data:", response.data);
+        console.log("Template name:", response.data?.name);
+
         if (response.success) {
           setTemplateData(response.data);
+        } else {
+          console.error("Failed to fetch template:", response);
         }
       } catch (error) {
         console.error("Error fetching template:", error);
