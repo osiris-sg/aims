@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { Box, CircularProgress } from "@mui/material";
 import TabbedDocumentCreator from "@/containers/DocumentTemplates/components/TabbedDocumentCreator";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
@@ -21,6 +22,38 @@ export default function EditDocumentPage() {
 
   // Track selected customer for filtering
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
+  const [templateData, setTemplateData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Fetch existing template data
+  useEffect(() => {
+    const fetchTemplate = async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+
+        const response = await request(`/documentTemplates/${id}`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (response.success) {
+          setTemplateData(response.data);
+        }
+      } catch (error) {
+        console.error("Error fetching template:", error);
+        toast.error("Failed to load template");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (id) {
+      fetchTemplate();
+    }
+  }, [id, getToken]);
 
   // Fetch data
   const { customers } = useGetCustomers();
@@ -89,10 +122,19 @@ export default function EditDocumentPage() {
     }
   };
 
+  if (isLoading) {
+    return (
+      <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
   return (
     <TabbedDocumentCreator
       documentType={type as any}
       documentId={id as string}
+      existingData={templateData}
       onSave={handleSave}
       onPrint={handlePrint}
       customers={customersList}

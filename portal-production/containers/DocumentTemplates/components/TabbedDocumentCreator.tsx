@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Box,
   Tabs,
@@ -43,11 +43,15 @@ import {
   Edit as EditIcon,
   Download as DownloadIcon,
   PictureAsPdf as PdfIcon,
+  Settings as SettingsIcon,
 } from "@mui/icons-material";
 import CleanDocumentPreview from "./CleanDocumentPreview";
+import DocumentCustomizer from "./DocumentCustomizer";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
+import { useForm, Controller } from "react-hook-form";
+import { usePathname } from "next/navigation";
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -89,11 +93,23 @@ export default function TabbedDocumentCreator({
   documentId,
   onCustomerChange,
 }: DocumentCreatorProps) {
+  // Check if we're in template edit mode
+  const pathname = usePathname();
+  // Template edit path: /portal/documents/edit/[type]/[id] (5 segments)
+  // Document edit path: /portal/documents/[type]/[id]/[documentId] (6 segments)
+  const pathSegments = pathname.split("/").filter(Boolean);
+  const isTemplateEditMode = pathname.includes("/documents/edit/") && pathSegments.length === 5;
+
+  console.log("TabbedDocumentCreator - Path:", pathname);
+  console.log("TabbedDocumentCreator - Path segments:", pathSegments);
+  console.log("TabbedDocumentCreator - Template Edit Mode:", isTemplateEditMode);
+
   // Main tabs
   const [mainTabValue, setMainTabValue] = useState(0);
   // Items section tabs
   const [itemsTabValue, setItemsTabValue] = useState(0);
   const [previewMode, setPreviewMode] = useState(false);
+  const [isToolBarOpen, setToolBarOpen] = useState(false);
 
   // PDF generation states
   const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
@@ -101,6 +117,54 @@ export default function TabbedDocumentCreator({
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   const { getToken } = useAuth();
+
+  // Template configuration form for field visibility
+  const templateMethods = useForm({
+    mode: "onChange",
+    defaultValues: {
+      // Field visibility configuration
+      logo: existingData?.config?.logo ?? true,
+      company: {
+        name: existingData?.config?.company?.name ?? true,
+        address: existingData?.config?.company?.address ?? true,
+        phoneNumber: existingData?.config?.company?.phoneNumber ?? true,
+      },
+      deliveryTo: existingData?.config?.deliveryTo ?? true,
+      referenceNo: existingData?.config?.referenceNo ?? true,
+      poNo: existingData?.config?.poNo ?? true,
+      doNo: existingData?.config?.doNo ?? true,
+      returnOrderNo: existingData?.config?.returnOrderNo ?? true,
+      // Table configuration
+      tableHeaders: existingData?.config?.tableHeaders ?? {
+        item: true,
+        description: true,
+        quantity: true,
+        unitPrice: true,
+        tax: true,
+        amount: true,
+      },
+      tableColumnOrder: existingData?.config?.tableColumnOrder ?? ["item", "description", "quantity", "unitPrice", "tax", "amount"],
+      columnLabels: existingData?.config?.columnLabels ?? {
+        item: "Item",
+        description: "Description",
+        quantity: "Quantity",
+        unitPrice: "Unit Price",
+        tax: "Tax %",
+        amount: "Amount",
+      },
+      // Default values for template
+      defaultValues: existingData?.config?.defaultValues ?? {
+        companyName: "",
+        companyAddress: "",
+        gstRegNo: "",
+        note: "",
+        termsAndConditions: "",
+        bankDetails: "",
+      },
+    }
+  });
+
+  const { watch: templateWatch } = templateMethods;
 
   // Form data state
   const [formData, setFormData] = useState({
@@ -291,6 +355,75 @@ export default function TabbedDocumentCreator({
     generatePdf();
   };
 
+  // Get editable visibility fields based on document type
+  const getEditableVisibilityFields = () => {
+    const baseFields = [
+      {
+        title: "Company Fields",
+        items: [
+          { label: "Logo", name: "logo" },
+          { label: "Company Name", name: "company.name" },
+          { label: "Company Address", name: "company.address" },
+          { label: "Phone Number", name: "company.phoneNumber" },
+        ],
+      },
+      {
+        title: "Document Fields",
+        items: [
+          ...(documentType === "TI" || documentType === "DO" || documentType === "QO1" ? [{ label: "Reference No", name: "referenceNo" }] : []),
+          ...(documentType === "DO" || documentType === "QO1" || documentType === "RDO" ? [{ label: "PO No", name: "poNo" }] : []),
+          ...(documentType === "DO" ? [{ label: "DO No", name: "doNo" }] : []),
+          ...(documentType === "RDO" ? [{ label: "Return Order No", name: "returnOrderNo" }] : []),
+          ...(documentType === "DO" || documentType === "QO1" ? [{ label: "Delivery To", name: "deliveryTo" }] : []),
+        ],
+      },
+      {
+        title: "Table Headers",
+        items: [], // Will be handled by DraggableTableHeaders component
+      },
+    ];
+
+    // Add document-specific sections
+    if (isTemplateEditMode) {
+      baseFields.push({
+        title: "Default Values",
+        items: [
+          { label: "Company Name", name: "defaultValues.companyName", type: "textarea" },
+          { label: "Company Address", name: "defaultValues.companyAddress", type: "textarea" },
+          { label: "GST Reg No", name: "defaultValues.gstRegNo", type: "textarea" },
+          { label: "Note", name: "defaultValues.note", type: "textarea" },
+          ...(documentType === "TI" || documentType === "QO1" ? [{ label: "Terms & Conditions", name: "defaultValues.termsAndConditions", type: "textarea" }] : []),
+          ...(documentType === "TI" ? [{ label: "Bank Details", name: "defaultValues.bankDetails", type: "textarea" }] : []),
+        ],
+      });
+    }
+
+    return baseFields;
+  };
+
+  const editableVisibilityFields = getEditableVisibilityFields();
+
+  // Column management handlers
+  const handleColumnReorder = (newOrder: string[]) => {
+    templateMethods.setValue("tableColumnOrder", newOrder, { shouldDirty: true });
+  };
+
+  const handleToggleColumnVisibility = (columnId: string, visible: boolean) => {
+    const current = templateMethods.getValues("tableHeaders") || {};
+    templateMethods.setValue(`tableHeaders.${columnId}`, visible, { shouldDirty: true });
+  };
+
+  const handleEditLabel = (columnId: string, newLabel: string) => {
+    templateMethods.setValue(`columnLabels.${columnId}`, newLabel, { shouldDirty: true });
+  };
+
+  const handleAddField = (fieldId: string, label: string) => {
+    const currentOrder = templateMethods.getValues("tableColumnOrder") || [];
+    templateMethods.setValue("tableColumnOrder", [...currentOrder, fieldId], { shouldDirty: true });
+    templateMethods.setValue(`tableHeaders.${fieldId}`, true, { shouldDirty: true });
+    templateMethods.setValue(`columnLabels.${fieldId}`, label, { shouldDirty: true });
+  };
+
   return (
     <Box sx={{ width: "100%", height: "100vh", display: "flex", flexDirection: "column" }}>
       {/* Header Actions */}
@@ -318,25 +451,75 @@ export default function TabbedDocumentCreator({
           <Button variant="outlined" startIcon={<PrintIcon />} onClick={handlePrint}>
             Print / PDF
           </Button>
-          <Button variant="contained" startIcon={<SaveIcon />} onClick={() => onSave?.(formData)}>
-            Save Document
+          <Button
+            variant="contained"
+            startIcon={<SaveIcon />}
+            onClick={() => {
+              if (isTemplateEditMode) {
+                // Save template configuration
+                const templateConfig = templateMethods.getValues();
+                onSave?.({ ...formData, config: templateConfig });
+              } else {
+                // Save document data
+                onSave?.(formData);
+              }
+            }}
+          >
+            {isTemplateEditMode ? "Save Template" : "Save Document"}
           </Button>
         </Box>
       </Box>
 
-      {/* Main Content */}
-      {!previewMode ? (
-        <Box sx={{ flex: 1, overflow: "auto" }}>
-          {/* Main Tabs */}
-          <Box sx={{ borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-            <Tabs value={mainTabValue} onChange={handleMainTabChange}>
-              <Tab label="General" />
-              <Tab label="Details" />
-              {(documentType === "DO" || documentType === "RDO" || documentType === "QO1") && (
-                <Tab label={documentType === "RDO" ? "Return Info" : "Delivery Address"} />
-              )}
-            </Tabs>
+      {/* Main Content with Sidebar */}
+      <Box sx={{ flex: 1, display: "flex", overflow: "hidden" }}>
+        {/* DocumentCustomizer Sidebar - Only in template edit mode */}
+        {isTemplateEditMode && isToolBarOpen && (
+          <Box sx={{ width: 320, borderRight: 1, borderColor: "divider", p: 2, overflow: "auto", bgcolor: "background.paper" }}>
+            <Typography variant="h6" sx={{ mb: 2 }}>Template Configuration</Typography>
+            <DocumentCustomizer
+              fields={editableVisibilityFields}
+              control={templateMethods.control}
+              tableHeaders={templateWatch("tableHeaders")}
+              columnOrder={templateWatch("tableColumnOrder")}
+              columnLabels={templateWatch("columnLabels")}
+              onColumnReorder={handleColumnReorder}
+              onToggleColumnVisibility={handleToggleColumnVisibility}
+              onEditLabel={handleEditLabel}
+              onAddField={handleAddField}
+            />
           </Box>
+        )}
+
+        {/* Main Content Area */}
+        {!previewMode ? (
+          <Box sx={{ flex: 1, overflow: "auto", position: "relative" }}>
+            {/* Template Settings Toggle Button */}
+            {isTemplateEditMode && (
+              <IconButton
+                onClick={() => setToolBarOpen(!isToolBarOpen)}
+                sx={{
+                  position: "absolute",
+                  top: 8,
+                  left: 8,
+                  zIndex: 1,
+                  bgcolor: "background.paper",
+                  boxShadow: 1,
+                }}
+              >
+                <SettingsIcon />
+              </IconButton>
+            )}
+
+            {/* Main Tabs */}
+            <Box sx={{ borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+              <Tabs value={mainTabValue} onChange={handleMainTabChange}>
+                <Tab label="General" />
+                <Tab label="Details" />
+                {(documentType === "DO" || documentType === "RDO" || documentType === "QO1") && (
+                  <Tab label={documentType === "RDO" ? "Return Info" : "Delivery Address"} />
+                )}
+              </Tabs>
+            </Box>
 
           {/* GENERAL TAB */}
           <TabPanel value={mainTabValue} index={0}>
@@ -507,12 +690,12 @@ export default function TabbedDocumentCreator({
                           size="small"
                         />
                       </Grid>
-                      {(documentType === "TI" || documentType === "DO" || documentType === "QO1") && (
+                      {(documentType === "TI" || documentType === "DO" || documentType === "QO1") && (!isTemplateEditMode || templateWatch("referenceNo")) && (
                         <Grid item xs={12} md={3}>
                           <TextField
                             fullWidth
                             label="Reference No"
-                            value={formData.documentInfo.referenceNo}
+                            value={isTemplateEditMode && templateWatch("defaultValues.referenceNo") ? templateWatch("defaultValues.referenceNo") : formData.documentInfo.referenceNo}
                             onChange={(e) =>
                               setFormData({
                                 ...formData,
@@ -523,6 +706,7 @@ export default function TabbedDocumentCreator({
                               })
                             }
                             size="small"
+                            disabled={isTemplateEditMode}
                           />
                         </Grid>
                       )}
@@ -1023,64 +1207,110 @@ export default function TabbedDocumentCreator({
                       <Table>
                         <TableHead>
                           <TableRow>
-                            <TableCell>Item</TableCell>
-                            <TableCell>Description</TableCell>
-                            <TableCell align="center">Quantity</TableCell>
-                            <TableCell align="center">Unit Price</TableCell>
-                            <TableCell align="center">Tax %</TableCell>
-                            <TableCell align="right">Amount</TableCell>
+                            {/* Render columns based on configuration */}
+                            {(isTemplateEditMode ? templateWatch("tableColumnOrder") : ["item", "description", "quantity", "unitPrice", "tax", "amount"]).map((columnId) => {
+                              const isVisible = isTemplateEditMode ? templateWatch(`tableHeaders.${columnId}`) : true;
+                              const label = isTemplateEditMode ? templateWatch(`columnLabels.${columnId}`) || columnId :
+                                columnId === "item" ? "Item" :
+                                columnId === "description" ? "Description" :
+                                columnId === "quantity" ? "Quantity" :
+                                columnId === "unitPrice" ? "Unit Price" :
+                                columnId === "tax" ? "Tax %" :
+                                columnId === "amount" ? "Amount" : columnId;
+
+                              if (!isVisible) return null;
+
+                              return (
+                                <TableCell key={columnId} align={
+                                  columnId === "quantity" || columnId === "unitPrice" || columnId === "tax" ? "center" :
+                                  columnId === "amount" ? "right" : "left"
+                                }>
+                                  {label}
+                                </TableCell>
+                              );
+                            })}
                             <TableCell align="center">Actions</TableCell>
                           </TableRow>
                         </TableHead>
                         <TableBody>
                           {items.map((item: any, index: number) => (
                             <TableRow key={item.id}>
-                              <TableCell>{index + 1}</TableCell>
-                              <TableCell>
-                                <TextField
-                                  fullWidth
-                                  value={item.description}
-                                  onChange={(e) => updateItem(item.id, "description", e.target.value)}
-                                  size="small"
-                                  placeholder="Enter description"
-                                />
-                              </TableCell>
-                              <TableCell align="center">
-                                <TextField
-                                  type="number"
-                                  value={item.quantity}
-                                  onChange={(e) =>
-                                    updateItem(item.id, "quantity", parseFloat(e.target.value))
-                                  }
-                                  size="small"
-                                  sx={{ width: 80 }}
-                                />
-                              </TableCell>
-                              <TableCell align="center">
-                                <TextField
-                                  type="number"
-                                  value={item.unitPrice}
-                                  onChange={(e) =>
-                                    updateItem(item.id, "unitPrice", parseFloat(e.target.value))
-                                  }
-                                  size="small"
-                                  sx={{ width: 100 }}
-                                />
-                              </TableCell>
-                              <TableCell align="center">
-                                <TextField
-                                  type="number"
-                                  value={item.tax}
-                                  onChange={(e) =>
-                                    updateItem(item.id, "tax", parseFloat(e.target.value))
-                                  }
-                                  size="small"
-                                  sx={{ width: 60 }}
-                                />
-                              </TableCell>
-                              <TableCell align="right">
-                                {(item.amount || 0).toFixed(2)}
-                              </TableCell>
+                              {/* Render cells based on configuration */}
+                              {(isTemplateEditMode ? templateWatch("tableColumnOrder") : ["item", "description", "quantity", "unitPrice", "tax", "amount"]).map((columnId) => {
+                                const isVisible = isTemplateEditMode ? templateWatch(`tableHeaders.${columnId}`) : true;
+                                if (!isVisible) return null;
+
+                                if (columnId === "item") {
+                                  return <TableCell key={columnId}>{index + 1}</TableCell>;
+                                } else if (columnId === "description") {
+                                  return (
+                                    <TableCell key={columnId}>
+                                      <TextField
+                                        fullWidth
+                                        value={item.description}
+                                        onChange={(e) => updateItem(item.id, "description", e.target.value)}
+                                        size="small"
+                                        placeholder="Enter description"
+                                      />
+                                    </TableCell>
+                                  );
+                                } else if (columnId === "quantity") {
+                                  return (
+                                    <TableCell key={columnId} align="center">
+                                      <TextField
+                                        type="number"
+                                        value={item.quantity}
+                                        onChange={(e) => updateItem(item.id, "quantity", parseFloat(e.target.value))}
+                                        size="small"
+                                        sx={{ width: 80 }}
+                                      />
+                                    </TableCell>
+                                  );
+                                } else if (columnId === "unitPrice") {
+                                  return (
+                                    <TableCell key={columnId} align="center">
+                                      <TextField
+                                        type="number"
+                                        value={item.unitPrice}
+                                        onChange={(e) => updateItem(item.id, "unitPrice", parseFloat(e.target.value))}
+                                        size="small"
+                                        sx={{ width: 100 }}
+                                      />
+                                    </TableCell>
+                                  );
+                                } else if (columnId === "tax") {
+                                  return (
+                                    <TableCell key={columnId} align="center">
+                                      <TextField
+                                        type="number"
+                                        value={item.tax}
+                                        onChange={(e) => updateItem(item.id, "tax", parseFloat(e.target.value))}
+                                        size="small"
+                                        sx={{ width: 60 }}
+                                      />
+                                    </TableCell>
+                                  );
+                                } else if (columnId === "amount") {
+                                  return (
+                                    <TableCell key={columnId} align="right">
+                                      {(item.amount || 0).toFixed(2)}
+                                    </TableCell>
+                                  );
+                                } else {
+                                  // Custom column - render as text field
+                                  return (
+                                    <TableCell key={columnId}>
+                                      <TextField
+                                        fullWidth
+                                        value={item[columnId] || ""}
+                                        onChange={(e) => updateItem(item.id, columnId, e.target.value)}
+                                        size="small"
+                                        placeholder={`Enter ${columnId}`}
+                                      />
+                                    </TableCell>
+                                  );
+                                }
+                              })}
                               <TableCell align="center">
                                 <IconButton
                                   size="small"
@@ -1228,19 +1458,20 @@ export default function TabbedDocumentCreator({
               </CardContent>
             </Card>
           </Box>
-        </Box>
-      ) : (
-        // PREVIEW MODE - Show clean document layout
-        <Box sx={{ flex: 1, overflow: "auto", p: 2, bgcolor: "grey.100" }}>
-          <CleanDocumentPreview
-            documentType={documentType}
-            data={{
-              ...formData,
-              items: items,
-            }}
-          />
-        </Box>
-      )}
+          </Box>
+        ) : (
+          // PREVIEW MODE - Show clean document layout
+          <Box sx={{ flex: 1, overflow: "auto", p: 2, bgcolor: "grey.100" }}>
+            <CleanDocumentPreview
+              documentType={documentType}
+              data={{
+                ...formData,
+                items: items,
+              }}
+            />
+          </Box>
+        )}
+      </Box>
 
       {/* PDF Generation Dialog */}
       <Dialog
