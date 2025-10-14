@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import TabbedDocumentCreator from "@/containers/DocumentTemplates/components/TabbedDocumentCreator";
 import { useAuth } from "@clerk/nextjs";
@@ -10,6 +10,7 @@ import { toast } from "react-toastify";
 import { useGetCustomers } from "@/containers/DocumentTemplates/hooks/useGetCustomers";
 import { useGetProjects } from "@/containers/DocumentTemplates/hooks/useGetProjects";
 import { useGetDeliveryOrders } from "@/containers/DocumentTemplates/hooks/useGetDeliveryOrders";
+import { useGetSiteOffices } from "@/containers/DocumentTemplates/hooks/useGetSiteOffices";
 
 export default function page() {
   const params = useParams();
@@ -18,10 +19,14 @@ export default function page() {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
 
+  // Track selected customer for filtering
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
+
   // Fetch data
   const { customers } = useGetCustomers();
-  const { projects } = useGetProjects();
-  const { deliveryOrders } = useGetDeliveryOrders();
+  const { projects } = useGetProjects(selectedCustomerId); // Filter by customer
+  const { deliveryOrders } = useGetDeliveryOrders(selectedCustomerId); // Filter by customer
+  const { siteOffices, fetchSiteOffices } = useGetSiteOffices();
 
   const handleSave = async (data: any) => {
     try {
@@ -69,6 +74,20 @@ export default function page() {
     customerId: order.customerId,
   })) || [];
 
+  const siteOfficesList = siteOffices?.map((office: any) => ({
+    id: office.id,
+    name: office.name,
+    address: office.address || "",
+  })) || [];
+
+  // Handle customer change to fetch related data
+  const handleCustomerChange = (customerId: string) => {
+    setSelectedCustomerId(customerId);
+    if (customerId) {
+      fetchSiteOffices(customerId);
+    }
+  };
+
   return (
     <TabbedDocumentCreator
       documentType={type as any}
@@ -78,6 +97,8 @@ export default function page() {
       customers={customersList}
       projects={projectsList}
       deliveryOrders={deliveryOrdersList}
+      siteOffices={siteOfficesList}
+      onCustomerChange={handleCustomerChange}
     />
   );
 }

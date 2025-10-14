@@ -66,12 +66,15 @@ function TabPanel(props: TabPanelProps) {
 
 interface DocumentCreatorProps {
   documentType: "QO1" | "DO" | "RDO" | "TI" | "MSR";
+  documentId?: string;
   onSave?: (data: any) => void;
   onPrint?: () => void;
   existingData?: any;
   customers?: any[];
   projects?: any[];
   deliveryOrders?: any[];
+  siteOffices?: any[];
+  onCustomerChange?: (customerId: string) => void;
 }
 
 export default function TabbedDocumentCreator({
@@ -82,7 +85,9 @@ export default function TabbedDocumentCreator({
   customers = [],
   projects = [],
   deliveryOrders = [],
+  siteOffices = [],
   documentId,
+  onCustomerChange,
 }: DocumentCreatorProps) {
   // Main tabs
   const [mainTabValue, setMainTabValue] = useState(0);
@@ -117,13 +122,27 @@ export default function TabbedDocumentCreator({
       referenceNo: existingData?.referenceNo || "",
       poNo: existingData?.poNo || "",
       doNo: existingData?.doNo || "",
+      returnOrderNo: existingData?.returnOrderNo || "",
     },
     // Details tab data
     projectId: existingData?.projectId || "",
     salesPerson: existingData?.salesPerson || "",
     salesContact: existingData?.salesContact || "",
+    salesEmail: existingData?.salesEmail || "",
     paymentTerms: existingData?.paymentTerms || "30 days",
     dueDate: existingData?.dueDate || "",
+    // Quotation-specific fields
+    quotationNo: existingData?.quotationNo || "",
+    validityTerm: existingData?.validityTerm || "",
+    currency: existingData?.currency || "SGD",
+    // MSR-specific fields
+    equipmentId: existingData?.equipmentId || "",
+    location: existingData?.location || "",
+    reportType: existingData?.reportType || "",
+    serviceDate: existingData?.serviceDate || "",
+    description: existingData?.description || "",
+    // RDO-specific fields
+    collectFrom: existingData?.collectFrom || "",
     // Delivery Address tab data
     deliveryAddress: {
       attention: existingData?.attention?.name || "",
@@ -131,12 +150,16 @@ export default function TabbedDocumentCreator({
       address: existingData?.deliveryTo || "",
       instructions: existingData?.deliveryInstructions || "",
     },
+    deliveryTo: existingData?.deliveryTo || "",
     // Items data
     items: existingData?.items || [],
     // Footer data
     note: existingData?.note || "",
     termsAndConditions: existingData?.termsAndConditions || "",
     bankDetails: existingData?.bankDetails || "",
+    remarks: existingData?.remarks || "",
+    agreementText: existingData?.agreementText || "",
+    title: existingData?.title || "",
   });
 
   // Items management
@@ -309,7 +332,9 @@ export default function TabbedDocumentCreator({
             <Tabs value={mainTabValue} onChange={handleMainTabChange}>
               <Tab label="General" />
               <Tab label="Details" />
-              <Tab label="Delivery Address" />
+              {(documentType === "DO" || documentType === "RDO" || documentType === "QO1") && (
+                <Tab label={documentType === "RDO" ? "Return Info" : "Delivery Address"} />
+              )}
             </Tabs>
           </Box>
 
@@ -402,7 +427,7 @@ export default function TabbedDocumentCreator({
                           options={customers}
                           getOptionLabel={(option) => option.name}
                           value={customers.find((c) => c.id === formData.customer.id) || null}
-                          onChange={(_, newValue) =>
+                          onChange={(_, newValue) => {
                             setFormData({
                               ...formData,
                               customer: {
@@ -410,8 +435,12 @@ export default function TabbedDocumentCreator({
                                 name: newValue?.name || "",
                                 address: newValue?.address || "",
                               },
-                            })
-                          }
+                            });
+                            // Call the customer change handler to fetch related data
+                            if (onCustomerChange && newValue?.id) {
+                              onCustomerChange(newValue.id);
+                            }
+                          }}
                           renderInput={(params) => (
                             <TextField {...params} label="Select Customer" size="small" />
                           )}
@@ -478,23 +507,25 @@ export default function TabbedDocumentCreator({
                           size="small"
                         />
                       </Grid>
-                      <Grid item xs={12} md={3}>
-                        <TextField
-                          fullWidth
-                          label="Reference No"
-                          value={formData.documentInfo.referenceNo}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              documentInfo: {
-                                ...formData.documentInfo,
-                                referenceNo: e.target.value,
-                              },
-                            })
-                          }
-                          size="small"
-                        />
-                      </Grid>
+                      {(documentType === "TI" || documentType === "DO" || documentType === "QO1") && (
+                        <Grid item xs={12} md={3}>
+                          <TextField
+                            fullWidth
+                            label="Reference No"
+                            value={formData.documentInfo.referenceNo}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                documentInfo: {
+                                  ...formData.documentInfo,
+                                  referenceNo: e.target.value,
+                                },
+                              })
+                            }
+                            size="small"
+                          />
+                        </Grid>
+                      )}
                       {documentType === "TI" && (
                         <Grid item xs={12} md={3}>
                           <FormControl fullWidth size="small">
@@ -511,14 +542,78 @@ export default function TabbedDocumentCreator({
                                 })
                               }
                               label="DO No"
+                              disabled={!formData.customer.id || deliveryOrders.length === 0}
                             >
-                              {deliveryOrders.map((order) => (
-                                <MenuItem key={order.id} value={order.doNo}>
-                                  {order.doNo} - {order.name}
+                              {deliveryOrders.length === 0 ? (
+                                <MenuItem value="" disabled>
+                                  {formData.customer.id ? "No delivery orders available" : "Select customer first"}
                                 </MenuItem>
-                              ))}
+                              ) : (
+                                deliveryOrders.map((order) => (
+                                  <MenuItem key={order.id} value={order.doNo}>
+                                    {order.doNo}
+                                  </MenuItem>
+                                ))
+                              )}
                             </Select>
                           </FormControl>
+                        </Grid>
+                      )}
+                      {documentType === "RDO" && (
+                        <Grid item xs={12} md={3}>
+                          <TextField
+                            fullWidth
+                            label="Return Order No"
+                            value={formData.documentInfo.returnOrderNo}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                documentInfo: {
+                                  ...formData.documentInfo,
+                                  returnOrderNo: e.target.value,
+                                },
+                              })
+                            }
+                            size="small"
+                          />
+                        </Grid>
+                      )}
+                      {documentType === "DO" && (
+                        <Grid item xs={12} md={3}>
+                          <TextField
+                            fullWidth
+                            label="DO No"
+                            value={formData.documentInfo.doNo}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                documentInfo: {
+                                  ...formData.documentInfo,
+                                  doNo: e.target.value,
+                                },
+                              })
+                            }
+                            size="small"
+                          />
+                        </Grid>
+                      )}
+                      {(documentType === "DO" || documentType === "QO1" || documentType === "RDO") && (
+                        <Grid item xs={12} md={3}>
+                          <TextField
+                            fullWidth
+                            label="PO No"
+                            value={formData.documentInfo.poNo}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                documentInfo: {
+                                  ...formData.documentInfo,
+                                  poNo: e.target.value,
+                                },
+                              })
+                            }
+                            size="small"
+                          />
                         </Grid>
                       )}
                     </Grid>
@@ -539,74 +634,210 @@ export default function TabbedDocumentCreator({
                     </Typography>
                     <Divider sx={{ mb: 2 }} />
                     <Grid container spacing={2}>
-                      <Grid item xs={12} md={6}>
-                        <Autocomplete
-                          options={projects}
-                          getOptionLabel={(option) => option.name}
-                          value={projects.find((p) => p.id === formData.projectId) || null}
-                          onChange={(_, newValue) =>
-                            setFormData({
-                              ...formData,
-                              projectId: newValue?.id || "",
-                            })
-                          }
-                          renderInput={(params) => (
-                            <TextField {...params} label="Project" size="small" />
-                          )}
-                        />
-                      </Grid>
-                      <Grid item xs={12} md={6}>
-                        <TextField
-                          fullWidth
-                          label="Sales Person"
-                          value={formData.salesPerson}
-                          onChange={(e) =>
-                            setFormData({ ...formData, salesPerson: e.target.value })
-                          }
-                          size="small"
-                        />
-                      </Grid>
-                      <Grid item xs={12} md={6}>
-                        <TextField
-                          fullWidth
-                          label="Sales Contact"
-                          value={formData.salesContact}
-                          onChange={(e) =>
-                            setFormData({ ...formData, salesContact: e.target.value })
-                          }
-                          size="small"
-                        />
-                      </Grid>
-                      <Grid item xs={12} md={6}>
-                        <FormControl fullWidth size="small">
-                          <InputLabel>Payment Terms</InputLabel>
-                          <Select
-                            value={formData.paymentTerms}
-                            onChange={(e) =>
-                              setFormData({ ...formData, paymentTerms: e.target.value })
+                      {/* Project - for DO and TI */}
+                      {(documentType === "DO" || documentType === "TI") && (
+                        <Grid item xs={12} md={6}>
+                          <Autocomplete
+                            options={projects.filter((p) => !formData.customer.id || p.customerId === formData.customer.id)}
+                            getOptionLabel={(option) => option.name}
+                            value={projects.find((p) => p.id === formData.projectId) || null}
+                            onChange={(_, newValue) =>
+                              setFormData({
+                                ...formData,
+                                projectId: newValue?.id || "",
+                              })
                             }
-                            label="Payment Terms"
-                          >
-                            <MenuItem value="Immediate">Immediate</MenuItem>
-                            <MenuItem value="7 days">7 days</MenuItem>
-                            <MenuItem value="14 days">14 days</MenuItem>
-                            <MenuItem value="30 days">30 days</MenuItem>
-                            <MenuItem value="60 days">60 days</MenuItem>
-                            <MenuItem value="90 days">90 days</MenuItem>
-                          </Select>
-                        </FormControl>
-                      </Grid>
-                      <Grid item xs={12} md={6}>
-                        <TextField
-                          fullWidth
-                          label="Due Date"
-                          type="date"
-                          value={formData.dueDate}
-                          onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
-                          size="small"
-                          InputLabelProps={{ shrink: true }}
-                        />
-                      </Grid>
+                            renderInput={(params) => (
+                              <TextField {...params} label="Project" size="small" />
+                            )}
+                            disabled={!formData.customer.id}
+                          />
+                        </Grid>
+                      )}
+
+                      {/* Quotation-specific fields */}
+                      {documentType === "QO1" && (
+                        <>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              label="Quotation No"
+                              value={formData.quotationNo}
+                              onChange={(e) =>
+                                setFormData({ ...formData, quotationNo: e.target.value })
+                              }
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              label="Validity Term"
+                              value={formData.validityTerm}
+                              onChange={(e) =>
+                                setFormData({ ...formData, validityTerm: e.target.value })
+                              }
+                              size="small"
+                              placeholder="e.g., 30 days"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              label="Currency"
+                              value={formData.currency || "SGD"}
+                              onChange={(e) =>
+                                setFormData({ ...formData, currency: e.target.value })
+                              }
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              label="Sales Person"
+                              value={formData.salesPerson}
+                              onChange={(e) =>
+                                setFormData({ ...formData, salesPerson: e.target.value })
+                              }
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              label="Sales Contact"
+                              value={formData.salesContact}
+                              onChange={(e) =>
+                                setFormData({ ...formData, salesContact: e.target.value })
+                              }
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              label="Sales Email"
+                              value={formData.salesEmail}
+                              onChange={(e) =>
+                                setFormData({ ...formData, salesEmail: e.target.value })
+                              }
+                              size="small"
+                              type="email"
+                            />
+                          </Grid>
+                        </>
+                      )}
+
+                      {/* Payment Terms - for TI and QO1 */}
+                      {(documentType === "TI" || documentType === "QO1") && (
+                        <Grid item xs={12} md={6}>
+                          <FormControl fullWidth size="small">
+                            <InputLabel>Payment Terms</InputLabel>
+                            <Select
+                              value={formData.paymentTerms}
+                              onChange={(e) =>
+                                setFormData({ ...formData, paymentTerms: e.target.value })
+                              }
+                              label="Payment Terms"
+                            >
+                              <MenuItem value="Immediate">Immediate</MenuItem>
+                              <MenuItem value="7 days">7 days</MenuItem>
+                              <MenuItem value="14 days">14 days</MenuItem>
+                              <MenuItem value="30 days">30 days</MenuItem>
+                              <MenuItem value="60 days">60 days</MenuItem>
+                              <MenuItem value="90 days">90 days</MenuItem>
+                            </Select>
+                          </FormControl>
+                        </Grid>
+                      )}
+
+                      {/* Due Date - for TI only */}
+                      {documentType === "TI" && (
+                        <Grid item xs={12} md={6}>
+                          <TextField
+                            fullWidth
+                            label="Due Date"
+                            type="date"
+                            value={formData.dueDate}
+                            onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
+                            size="small"
+                            InputLabelProps={{ shrink: true }}
+                          />
+                        </Grid>
+                      )}
+
+                      {/* MSR-specific fields */}
+                      {documentType === "MSR" && (
+                        <>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              label="Equipment ID"
+                              value={formData.equipmentId}
+                              onChange={(e) =>
+                                setFormData({ ...formData, equipmentId: e.target.value })
+                              }
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              label="Location"
+                              value={formData.location}
+                              onChange={(e) =>
+                                setFormData({ ...formData, location: e.target.value })
+                              }
+                              size="small"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <FormControl fullWidth size="small">
+                              <InputLabel>Report Type</InputLabel>
+                              <Select
+                                value={formData.reportType || ""}
+                                onChange={(e) =>
+                                  setFormData({ ...formData, reportType: e.target.value })
+                                }
+                                label="Report Type"
+                              >
+                                <MenuItem value="preventive">Preventive Maintenance</MenuItem>
+                                <MenuItem value="corrective">Corrective Maintenance</MenuItem>
+                                <MenuItem value="emergency">Emergency Repair</MenuItem>
+                                <MenuItem value="inspection">Inspection</MenuItem>
+                              </Select>
+                            </FormControl>
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              label="Service Date"
+                              type="date"
+                              value={formData.serviceDate}
+                              onChange={(e) =>
+                                setFormData({ ...formData, serviceDate: e.target.value })
+                              }
+                              size="small"
+                              InputLabelProps={{ shrink: true }}
+                            />
+                          </Grid>
+                          <Grid item xs={12}>
+                            <TextField
+                              fullWidth
+                              multiline
+                              rows={3}
+                              label="Description"
+                              placeholder="Enter detailed description of the maintenance work..."
+                              value={formData.description}
+                              onChange={(e) =>
+                                setFormData({ ...formData, description: e.target.value })
+                              }
+                              size="small"
+                            />
+                          </Grid>
+                        </>
+                      )}
                     </Grid>
                   </CardContent>
                 </Card>
@@ -614,95 +845,159 @@ export default function TabbedDocumentCreator({
             </Grid>
           </TabPanel>
 
-          {/* DELIVERY ADDRESS TAB */}
-          <TabPanel value={mainTabValue} index={2}>
-            <Grid container spacing={3}>
-              <Grid item xs={12}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom>
-                      Delivery Information
-                    </Typography>
-                    <Divider sx={{ mb: 2 }} />
-                    <Grid container spacing={2}>
-                      <Grid item xs={12} md={6}>
-                        <TextField
-                          fullWidth
-                          label="Attention To"
-                          value={formData.deliveryAddress.attention}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              deliveryAddress: {
-                                ...formData.deliveryAddress,
-                                attention: e.target.value,
-                              },
-                            })
-                          }
-                          size="small"
-                        />
+          {/* DELIVERY ADDRESS TAB - Only for DO, RDO, and QO1 */}
+          {(documentType === "DO" || documentType === "RDO" || documentType === "QO1") && (
+            <TabPanel value={mainTabValue} index={2}>
+              <Grid container spacing={3}>
+                <Grid item xs={12}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" gutterBottom>
+                        {documentType === "RDO" ? "Return Information" : "Delivery Information"}
+                      </Typography>
+                      <Divider sx={{ mb: 2 }} />
+                      <Grid container spacing={2}>
+                        <Grid item xs={12} md={6}>
+                          <TextField
+                            fullWidth
+                            label="Attention To"
+                            value={formData.deliveryAddress.attention}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                deliveryAddress: {
+                                  ...formData.deliveryAddress,
+                                  attention: e.target.value,
+                                },
+                              })
+                            }
+                            size="small"
+                          />
+                        </Grid>
+                        <Grid item xs={12} md={6}>
+                          <TextField
+                            fullWidth
+                            label="Contact Phone"
+                            value={formData.deliveryAddress.phone}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                deliveryAddress: {
+                                  ...formData.deliveryAddress,
+                                  phone: e.target.value,
+                                },
+                              })
+                            }
+                            size="small"
+                          />
+                        </Grid>
+
+                        {/* Delivery To for DO and QO1 with site offices */}
+                        {(documentType === "DO" || documentType === "QO1") && (
+                          <Grid item xs={12}>
+                            {siteOffices && siteOffices.length > 0 ? (
+                              <Autocomplete
+                                options={siteOffices}
+                                getOptionLabel={(option) => `${option.name} - ${option.address || ""}`}
+                                value={siteOffices.find((s) => s.id === formData.deliveryTo) || null}
+                                onChange={(_, newValue) =>
+                                  setFormData({
+                                    ...formData,
+                                    deliveryTo: newValue?.id || "",
+                                    deliveryAddress: {
+                                      ...formData.deliveryAddress,
+                                      address: newValue?.address || formData.deliveryAddress.address,
+                                    },
+                                  })
+                                }
+                                renderInput={(params) => (
+                                  <TextField {...params} label="Delivery To (Site Office)" size="small" />
+                                )}
+                                disabled={!formData.customer.id}
+                              />
+                            ) : (
+                              <TextField
+                                fullWidth
+                                label="Delivery To"
+                                value={formData.deliveryTo}
+                                onChange={(e) =>
+                                  setFormData({
+                                    ...formData,
+                                    deliveryTo: e.target.value,
+                                  })
+                                }
+                                size="small"
+                                placeholder={formData.customer.id ? "No site offices available" : "Select customer first"}
+                                disabled={!formData.customer.id}
+                              />
+                            )}
+                          </Grid>
+                        )}
+
+                        {/* Collect From for RDO */}
+                        {documentType === "RDO" && (
+                          <Grid item xs={12}>
+                            <TextField
+                              fullWidth
+                              label="Collect From"
+                              value={formData.collectFrom}
+                              onChange={(e) =>
+                                setFormData({
+                                  ...formData,
+                                  collectFrom: e.target.value,
+                                })
+                              }
+                              size="small"
+                              placeholder="Enter collection location"
+                            />
+                          </Grid>
+                        )}
+
+                        <Grid item xs={12}>
+                          <TextField
+                            fullWidth
+                            label={documentType === "RDO" ? "Collection Address" : "Delivery Address"}
+                            value={formData.deliveryAddress.address}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                deliveryAddress: {
+                                  ...formData.deliveryAddress,
+                                  address: e.target.value,
+                                },
+                              })
+                            }
+                            size="small"
+                            multiline
+                            rows={3}
+                          />
+                        </Grid>
+                        <Grid item xs={12}>
+                          <TextField
+                            fullWidth
+                            label={documentType === "RDO" ? "Return Instructions" : "Delivery Instructions"}
+                            value={formData.deliveryAddress.instructions}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                deliveryAddress: {
+                                  ...formData.deliveryAddress,
+                                  instructions: e.target.value,
+                                },
+                              })
+                            }
+                            size="small"
+                            multiline
+                            rows={2}
+                          />
+                        </Grid>
                       </Grid>
-                      <Grid item xs={12} md={6}>
-                        <TextField
-                          fullWidth
-                          label="Contact Phone"
-                          value={formData.deliveryAddress.phone}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              deliveryAddress: {
-                                ...formData.deliveryAddress,
-                                phone: e.target.value,
-                              },
-                            })
-                          }
-                          size="small"
-                        />
-                      </Grid>
-                      <Grid item xs={12}>
-                        <TextField
-                          fullWidth
-                          label="Delivery Address"
-                          value={formData.deliveryAddress.address}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              deliveryAddress: {
-                                ...formData.deliveryAddress,
-                                address: e.target.value,
-                              },
-                            })
-                          }
-                          size="small"
-                          multiline
-                          rows={3}
-                        />
-                      </Grid>
-                      <Grid item xs={12}>
-                        <TextField
-                          fullWidth
-                          label="Delivery Instructions"
-                          value={formData.deliveryAddress.instructions}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              deliveryAddress: {
-                                ...formData.deliveryAddress,
-                                instructions: e.target.value,
-                              },
-                            })
-                          }
-                          size="small"
-                          multiline
-                          rows={2}
-                        />
-                      </Grid>
-                    </Grid>
-                  </CardContent>
-                </Card>
+                    </CardContent>
+                  </Card>
+                </Grid>
               </Grid>
-            </Grid>
-          </TabPanel>
+            </TabPanel>
+          )}
 
           {/* ITEMS SECTION WITH TABS */}
           <Box sx={{ mt: 3, mx: 3 }}>
@@ -839,41 +1134,95 @@ export default function TabbedDocumentCreator({
                 {/* ITEMS FOOTER TAB */}
                 <TabPanel value={itemsTabValue} index={1}>
                   <Grid container spacing={2}>
-                    <Grid item xs={12} md={6}>
+                    {/* Notes - for all types */}
+                    <Grid item xs={12} md={documentType === "QO1" ? 12 : 6}>
                       <TextField
                         fullWidth
                         label="Notes"
                         value={formData.note}
                         onChange={(e) => setFormData({ ...formData, note: e.target.value })}
                         multiline
-                        rows={4}
+                        rows={documentType === "QO1" ? 3 : 4}
                         size="small"
                       />
                     </Grid>
-                    <Grid item xs={12} md={6}>
-                      <TextField
-                        fullWidth
-                        label="Terms & Conditions"
-                        value={formData.termsAndConditions}
-                        onChange={(e) =>
-                          setFormData({ ...formData, termsAndConditions: e.target.value })
-                        }
-                        multiline
-                        rows={4}
-                        size="small"
-                      />
-                    </Grid>
-                    <Grid item xs={12}>
-                      <TextField
-                        fullWidth
-                        label="Bank Details"
-                        value={formData.bankDetails}
-                        onChange={(e) => setFormData({ ...formData, bankDetails: e.target.value })}
-                        multiline
-                        rows={3}
-                        size="small"
-                      />
-                    </Grid>
+
+                    {/* Terms & Conditions - for TI and QO1 */}
+                    {(documentType === "TI" || documentType === "QO1") && (
+                      <Grid item xs={12} md={documentType === "QO1" ? 12 : 6}>
+                        <TextField
+                          fullWidth
+                          label="Terms & Conditions"
+                          value={formData.termsAndConditions}
+                          onChange={(e) =>
+                            setFormData({ ...formData, termsAndConditions: e.target.value })
+                          }
+                          multiline
+                          rows={documentType === "QO1" ? 3 : 4}
+                          size="small"
+                        />
+                      </Grid>
+                    )}
+
+                    {/* Quotation-specific fields */}
+                    {documentType === "QO1" && (
+                      <>
+                        <Grid item xs={12}>
+                          <TextField
+                            fullWidth
+                            label="Remarks"
+                            value={formData.remarks}
+                            onChange={(e) =>
+                              setFormData({ ...formData, remarks: e.target.value })
+                            }
+                            multiline
+                            rows={3}
+                            size="small"
+                          />
+                        </Grid>
+                        <Grid item xs={12}>
+                          <TextField
+                            fullWidth
+                            label="Agreement Text"
+                            value={formData.agreementText || "You understand and agree to the above quotation and terms."}
+                            onChange={(e) =>
+                              setFormData({ ...formData, agreementText: e.target.value })
+                            }
+                            multiline
+                            rows={2}
+                            size="small"
+                            placeholder="e.g., You understand and agree to the above quotation and terms."
+                          />
+                        </Grid>
+                        <Grid item xs={12}>
+                          <TextField
+                            fullWidth
+                            label="Title"
+                            value={formData.title}
+                            onChange={(e) =>
+                              setFormData({ ...formData, title: e.target.value })
+                            }
+                            size="small"
+                            placeholder="Enter quotation title"
+                          />
+                        </Grid>
+                      </>
+                    )}
+
+                    {/* Bank Details - for TI only */}
+                    {documentType === "TI" && (
+                      <Grid item xs={12}>
+                        <TextField
+                          fullWidth
+                          label="Bank Details"
+                          value={formData.bankDetails}
+                          onChange={(e) => setFormData({ ...formData, bankDetails: e.target.value })}
+                          multiline
+                          rows={3}
+                          size="small"
+                        />
+                      </Grid>
+                    )}
                   </Grid>
                 </TabPanel>
               </CardContent>

@@ -38,23 +38,21 @@ export const useGetProjects = (customerId?: string) => {
         return;
       }
 
-      // Build query params
-      const params = new URLSearchParams({
-        page: "1",
-        limit: "100",
+      // Build request body
+      const requestBody = {
+        page: 1,
+        limit: 100,
         organizationId: organization.id,
-      });
-
-      if (customerId) {
-        params.append("customerId", customerId);
-      }
+        search: "",
+        filters: customerId ? { customerId } : {},
+      };
 
       const response = await request(
         {
-          path: `/projects?${params.toString()}`,
-          method: "GET",
+          path: "/projects",
+          method: "POST",
         },
-        {},
+        requestBody,
         token
       );
 
