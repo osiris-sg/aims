@@ -100,6 +100,7 @@ export default function page() {
       deliveryOrders={deliveryOrdersList}
       siteOffices={siteOfficesList}
       onCustomerChange={handleCustomerChange}
+      organization={organization}
     />
   );
 }

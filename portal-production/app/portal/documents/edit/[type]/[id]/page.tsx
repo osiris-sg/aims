@@ -149,6 +149,7 @@ export default function EditDocumentPage() {
       deliveryOrders={deliveryOrdersList}
       siteOffices={siteOfficesList}
       onCustomerChange={handleCustomerChange}
+      organization={organization}
     />
   );
 }

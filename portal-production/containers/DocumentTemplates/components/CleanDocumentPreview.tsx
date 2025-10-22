@@ -62,9 +62,9 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         <Box sx={{ display: "flex", mb: 4 }}>
           {/* Left Column - Logo, Title and Customer */}
           <Box sx={{ width: "35%" }}>
-            {data.logo && (
+            {(data.logo || organization?.logo) && (
               <Box sx={{ mb: 2, maxWidth: 120, height: 50 }}>
-                <img src={data.logo} alt="Company Logo" style={{ maxWidth: "100%", maxHeight: "100%" }} />
+                <img src={data.logo || organization?.logo} alt="Company Logo" style={{ maxWidth: "100%", maxHeight: "100%" }} />
               </Box>
             )}
 
@@ -136,16 +136,16 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               {data.company?.name || organization?.name || ""}
             </Typography>
             <Typography sx={{ fontSize: "11px", mb: 0.3, whiteSpace: "pre-line" }}>
-              {data.company?.address || ""}
+              {data.company?.address || organization?.address || ""}
             </Typography>
             <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
-              Tel: {data.company?.phoneNumber || ""}
+              Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
             </Typography>
             <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
               Company & GST Reg No:
             </Typography>
             <Typography sx={{ fontSize: "11px", fontWeight: 500 }}>
-              {data.company?.gstRegNo || ""}
+              {data.company?.gstRegNo || organization?.registrationNumber || ""}
             </Typography>
           </Box>
         </Box>
@@ -365,9 +365,9 @@ export default function CleanDocumentPreview({ documentType, data, organization 
       <Box sx={{ display: "flex", mb: 4 }}>
         {/* Left Column - Logo, Title and Customer */}
         <Box sx={{ width: "35%" }}>
-          {data.logo && (
+          {(data.logo || organization?.logo) && (
             <Box sx={{ mb: 2, maxWidth: 120, height: 50 }}>
-              <img src={data.logo} alt="Company Logo" style={{ maxWidth: "100%", maxHeight: "100%" }} />
+              <img src={data.logo || organization?.logo} alt="Company Logo" style={{ maxWidth: "100%", maxHeight: "100%" }} />
             </Box>
           )}
 
@@ -476,20 +476,20 @@ export default function CleanDocumentPreview({ documentType, data, organization 
             {data.company?.name || organization?.name || ""}
           </Typography>
           <Typography sx={{ fontSize: "11px", mb: 0.3, whiteSpace: "pre-line" }}>
-            {data.company?.address || ""}
+            {data.company?.address || organization?.address || ""}
           </Typography>
-          {data.company?.phoneNumber && (
+          {(data.company?.phoneNumber || organization?.phoneNumber) && (
             <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
-              Tel: {data.company?.phoneNumber || ""}
+              Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
             </Typography>
           )}
-          {data.company?.gstRegNo && (
+          {(data.company?.gstRegNo || organization?.registrationNumber) && (
             <>
               <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
                 Company & GST Reg No:
               </Typography>
               <Typography sx={{ fontSize: "11px", fontWeight: 500 }}>
-                {data.company?.gstRegNo || ""}
+                {data.company?.gstRegNo || organization?.registrationNumber || ""}
               </Typography>
             </>
           )}

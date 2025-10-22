@@ -79,6 +79,7 @@ interface DocumentCreatorProps {
   deliveryOrders?: any[];
   siteOffices?: any[];
   onCustomerChange?: (customerId: string) => void;
+  organization?: any;
 }
 
 export default function TabbedDocumentCreator({
@@ -92,6 +93,7 @@ export default function TabbedDocumentCreator({
   siteOffices = [],
   documentId,
   onCustomerChange,
+  organization,
 }: DocumentCreatorProps) {
   // Check if we're in template edit mode
   const pathname = usePathname();
@@ -171,12 +173,12 @@ export default function TabbedDocumentCreator({
   const [formData, setFormData] = useState({
     // Document name/number from database
     name: existingData?.name || "",
-    // General tab data
+    // General tab data - use organization data as defaults
     company: {
-      name: existingData?.company?.name || existingData?.config?.defaultValues?.companyName || "",
-      address: existingData?.company?.address || existingData?.config?.defaultValues?.companyAddress || "",
-      phoneNumber: existingData?.company?.phoneNumber || "",
-      gstRegNo: existingData?.gstRegNo || existingData?.config?.defaultValues?.gstRegNo || "",
+      name: existingData?.company?.name || organization?.name || existingData?.config?.defaultValues?.companyName || "",
+      address: existingData?.company?.address || organization?.address || existingData?.config?.defaultValues?.companyAddress || "",
+      phoneNumber: existingData?.company?.phoneNumber || organization?.phoneNumber || "",
+      gstRegNo: existingData?.gstRegNo || organization?.registrationNumber || existingData?.config?.defaultValues?.gstRegNo || "",
     },
     customer: {
       id: existingData?.customerId || "",
@@ -428,7 +430,7 @@ export default function TabbedDocumentCreator({
   };
 
   return (
-    <Box sx={{ width: "100%", height: "100vh", display: "flex", flexDirection: "column" }}>
+    <Box sx={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}>
       {/* Header Actions */}
       <Box
         sx={{
@@ -438,6 +440,7 @@ export default function TabbedDocumentCreator({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
+          bgcolor: "white",
         }}
       >
         <Typography variant="h5" fontWeight="bold">
@@ -1473,7 +1476,9 @@ export default function TabbedDocumentCreator({
               data={{
                 ...formData,
                 items: items,
+                logo: organization?.logo, // Pass the logo from organization
               }}
+              organization={organization}
             />
           </Box>
         )}
