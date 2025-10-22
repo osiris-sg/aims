@@ -44,6 +44,7 @@ import {
   Download as DownloadIcon,
   PictureAsPdf as PdfIcon,
   Settings as SettingsIcon,
+  ArrowBack as ArrowBackIcon,
 } from "@mui/icons-material";
 import CleanDocumentPreview from "./CleanDocumentPreview";
 import DocumentCustomizer from "./DocumentCustomizer";
@@ -51,7 +52,7 @@ import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
 import { useForm, Controller } from "react-hook-form";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -63,7 +64,7 @@ function TabPanel(props: TabPanelProps) {
   const { children, value, index, ...other } = props;
   return (
     <div role="tabpanel" hidden={value !== index} {...other}>
-      {value === index && <Box sx={{ p: 3 }}>{children}</Box>}
+      {value === index && <Box sx={{ p: 1 }}>{children}</Box>}
     </div>
   );
 }
@@ -97,6 +98,7 @@ export default function TabbedDocumentCreator({
 }: DocumentCreatorProps) {
   // Check if we're in template edit mode
   const pathname = usePathname();
+  const router = useRouter();
   // Template edit path: /portal/documents/edit/[type]/[id] (5 segments)
   // Document edit path: /portal/documents/[type]/[id]/[documentId] (6 segments)
   const pathSegments = pathname.split("/").filter(Boolean);
@@ -434,7 +436,8 @@ export default function TabbedDocumentCreator({
       {/* Header Actions */}
       <Box
         sx={{
-          p: 2,
+          py: 0.5,
+          px: 2,
           borderBottom: 1,
           borderColor: "divider",
           display: "flex",
@@ -443,23 +446,39 @@ export default function TabbedDocumentCreator({
           bgcolor: "white",
         }}
       >
-        <Typography variant="h5" fontWeight="bold">
-          {isTemplateEditMode
-            ? existingData?.name || `${getDocumentTitle()} Template`
-            : formData.name || formData.documentInfo.documentNumber || `${getDocumentTitle()} - New`}
-        </Typography>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <IconButton
+            onClick={() => {
+              if (documentType === "TI") {
+                router.push("/portal/invoices");
+              } else {
+                router.push("/portal/documents");
+              }
+            }}
+            size="small"
+          >
+            <ArrowBackIcon />
+          </IconButton>
+          <Typography variant="h6" fontWeight="500">
+            {isTemplateEditMode
+              ? existingData?.name || `${getDocumentTitle()} Template`
+              : formData.name || formData.documentInfo.documentNumber || `${getDocumentTitle()} - New`}
+          </Typography>
+        </Box>
         <Box sx={{ display: "flex", gap: 1 }}>
           <Button
+            size="small"
             variant="outlined"
             startIcon={previewMode ? <EditIcon /> : <PreviewIcon />}
             onClick={() => setPreviewMode(!previewMode)}
           >
             {previewMode ? "Edit" : "Preview"}
           </Button>
-          <Button variant="outlined" startIcon={<PrintIcon />} onClick={handlePrint}>
+          <Button size="small" variant="outlined" startIcon={<PrintIcon />} onClick={handlePrint}>
             Print / PDF
           </Button>
           <Button
+            size="small"
             variant="contained"
             startIcon={<SaveIcon />}
             onClick={() => {
@@ -500,7 +519,7 @@ export default function TabbedDocumentCreator({
 
         {/* Main Content Area */}
         {!previewMode ? (
-          <Box sx={{ flex: 1, overflow: "auto", position: "relative" }}>
+          <Box sx={{ flex: 1, overflow: "auto", position: "relative", display: "flex", flexDirection: "column" }}>
             {/* Template Settings Toggle Button */}
             {isTemplateEditMode && (
               <IconButton
@@ -520,7 +539,7 @@ export default function TabbedDocumentCreator({
 
             {/* Main Tabs */}
             <Box sx={{ borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-              <Tabs value={mainTabValue} onChange={handleMainTabChange}>
+              <Tabs value={mainTabValue} onChange={handleMainTabChange} sx={{ minHeight: 36, "& .MuiTab-root": { minHeight: 36, py: 0 } }}>
                 <Tab label="General" />
                 <Tab label="Details" />
                 {(documentType === "DO" || documentType === "RDO" || documentType === "QO1") && (
@@ -531,16 +550,16 @@ export default function TabbedDocumentCreator({
 
           {/* GENERAL TAB */}
           <TabPanel value={mainTabValue} index={0}>
-            <Grid container spacing={3}>
+            <Grid container spacing={1}>
               {/* Company Information */}
               <Grid item xs={12} md={6}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom>
+                <Card sx={{ height: "100%" }}>
+                  <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
+                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
                       Company Information
                     </Typography>
-                    <Divider sx={{ mb: 2 }} />
-                    <Grid container spacing={2}>
+                    <Divider sx={{ mb: 1 }} />
+                    <Grid container spacing={1}>
                       <Grid item xs={12}>
                         <TextField
                           fullWidth
@@ -568,7 +587,7 @@ export default function TabbedDocumentCreator({
                           }
                           size="small"
                           multiline
-                          rows={2}
+                          rows={1}
                         />
                       </Grid>
                       <Grid item xs={6}>
@@ -606,13 +625,13 @@ export default function TabbedDocumentCreator({
 
               {/* Customer Information */}
               <Grid item xs={12} md={6}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom>
+                <Card sx={{ height: "100%" }}>
+                  <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
+                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
                       Customer Information
                     </Typography>
-                    <Divider sx={{ mb: 2 }} />
-                    <Grid container spacing={2}>
+                    <Divider sx={{ mb: 1 }} />
+                    <Grid container spacing={1}>
                       <Grid item xs={12}>
                         <Autocomplete
                           options={customers}
@@ -640,11 +659,11 @@ export default function TabbedDocumentCreator({
                       {formData.customer.name && (
                         <>
                           <Grid item xs={12}>
-                            <Paper sx={{ p: 2, bgcolor: "grey.50" }}>
-                              <Typography variant="body1" fontWeight={500}>
+                            <Paper sx={{ p: 1, bgcolor: "grey.50" }}>
+                              <Typography variant="caption" fontWeight={500}>
                                 {formData.customer.name}
                               </Typography>
-                              <Typography variant="body2" color="text.secondary">
+                              <Typography variant="caption" display="block" color="text.secondary" sx={{ fontSize: "10px" }}>
                                 {formData.customer.address}
                               </Typography>
                             </Paper>
@@ -659,12 +678,12 @@ export default function TabbedDocumentCreator({
               {/* Document Information */}
               <Grid item xs={12}>
                 <Card>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom>
+                  <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
+                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
                       Document Information
                     </Typography>
-                    <Divider sx={{ mb: 2 }} />
-                    <Grid container spacing={2}>
+                    <Divider sx={{ mb: 1 }} />
+                    <Grid container spacing={1}>
                       <Grid item xs={12} md={3}>
                         <TextField
                           fullWidth
@@ -818,15 +837,15 @@ export default function TabbedDocumentCreator({
 
           {/* DETAILS TAB */}
           <TabPanel value={mainTabValue} index={1}>
-            <Grid container spacing={3}>
+            <Grid container spacing={1}>
               <Grid item xs={12}>
                 <Card>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom>
+                  <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
+                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
                       Additional Details
                     </Typography>
-                    <Divider sx={{ mb: 2 }} />
-                    <Grid container spacing={2}>
+                    <Divider sx={{ mb: 1 }} />
+                    <Grid container spacing={1}>
                       {/* Project - for DO and TI */}
                       {(documentType === "DO" || documentType === "TI") && (
                         <Grid item xs={12} md={6}>
@@ -1019,7 +1038,7 @@ export default function TabbedDocumentCreator({
                             <TextField
                               fullWidth
                               multiline
-                              rows={3}
+                              rows={2}
                               label="Description"
                               placeholder="Enter detailed description of the maintenance work..."
                               value={formData.description}
@@ -1041,15 +1060,15 @@ export default function TabbedDocumentCreator({
           {/* DELIVERY ADDRESS TAB - Only for DO, RDO, and QO1 */}
           {(documentType === "DO" || documentType === "RDO" || documentType === "QO1") && (
             <TabPanel value={mainTabValue} index={2}>
-              <Grid container spacing={3}>
+              <Grid container spacing={1}>
                 <Grid item xs={12}>
                   <Card>
-                    <CardContent>
-                      <Typography variant="h6" gutterBottom>
+                    <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
+                      <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
                         {documentType === "RDO" ? "Return Information" : "Delivery Information"}
                       </Typography>
-                      <Divider sx={{ mb: 2 }} />
-                      <Grid container spacing={2}>
+                      <Divider sx={{ mb: 1 }} />
+                      <Grid container spacing={1}>
                         <Grid item xs={12} md={6}>
                           <TextField
                             fullWidth
@@ -1162,7 +1181,7 @@ export default function TabbedDocumentCreator({
                             }
                             size="small"
                             multiline
-                            rows={3}
+                            rows={2}
                           />
                         </Grid>
                         <Grid item xs={12}>
@@ -1181,7 +1200,7 @@ export default function TabbedDocumentCreator({
                             }
                             size="small"
                             multiline
-                            rows={2}
+                            rows={1}
                           />
                         </Grid>
                       </Grid>
@@ -1193,17 +1212,17 @@ export default function TabbedDocumentCreator({
           )}
 
           {/* ITEMS SECTION WITH TABS */}
-          <Box sx={{ mt: 3, mx: 3 }}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
+          <Box sx={{ mt: 1, mx: 1, flex: 1, display: "flex", flexDirection: "column" }}>
+            <Card sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
+              <CardContent sx={{ p: 1.5, flex: 1, display: "flex", flexDirection: "column", "&:last-child": { pb: 1.5 } }}>
+                <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
                   Items
                 </Typography>
                 <Divider />
 
                 {/* Items Sub-tabs */}
                 <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
-                  <Tabs value={itemsTabValue} onChange={handleItemsTabChange}>
+                  <Tabs value={itemsTabValue} onChange={handleItemsTabChange} sx={{ minHeight: 32, "& .MuiTab-root": { minHeight: 32, py: 0, fontSize: "0.875rem" } }}>
                     <Tab label="Details" />
                     <Tab label="Footer" />
                   </Tabs>
@@ -1346,21 +1365,21 @@ export default function TabbedDocumentCreator({
                     </Button>
 
                     {/* Totals */}
-                    <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 3 }}>
-                      <Card sx={{ minWidth: 300, bgcolor: "grey.50" }}>
-                        <CardContent>
-                          <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
-                            <Typography>Subtotal:</Typography>
-                            <Typography fontWeight="bold">SGD {subtotal.toFixed(2)}</Typography>
+                    <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 2 }}>
+                      <Card sx={{ minWidth: 250, bgcolor: "grey.50" }}>
+                        <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
+                          <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                            <Typography variant="body2">Subtotal:</Typography>
+                            <Typography variant="body2" fontWeight="bold">SGD {subtotal.toFixed(2)}</Typography>
                           </Box>
-                          <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
-                            <Typography>Tax:</Typography>
-                            <Typography>SGD {totalTax.toFixed(2)}</Typography>
+                          <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                            <Typography variant="body2">Tax:</Typography>
+                            <Typography variant="body2">SGD {totalTax.toFixed(2)}</Typography>
                           </Box>
-                          <Divider sx={{ my: 1 }} />
+                          <Divider sx={{ my: 0.5 }} />
                           <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                            <Typography fontWeight="bold">Total:</Typography>
-                            <Typography fontWeight="bold" color="primary">
+                            <Typography variant="body2" fontWeight="bold">Total:</Typography>
+                            <Typography variant="body2" fontWeight="bold" color="primary">
                               SGD {total.toFixed(2)}
                             </Typography>
                           </Box>
