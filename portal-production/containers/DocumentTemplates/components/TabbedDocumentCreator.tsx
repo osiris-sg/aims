@@ -121,6 +121,9 @@ export default function TabbedDocumentCreator({
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
+  // Back button confirmation dialog
+  const [backConfirmDialogOpen, setBackConfirmDialogOpen] = useState(false);
+
   const { getToken } = useAuth();
 
   // Template configuration form for field visibility
@@ -431,6 +434,37 @@ export default function TabbedDocumentCreator({
     templateMethods.setValue(`columnLabels.${fieldId}`, label, { shouldDirty: true });
   };
 
+  // Handle back button click
+  const handleBackClick = () => {
+    setBackConfirmDialogOpen(true);
+  };
+
+  // Handle save as draft from dialog
+  const handleSaveAsDraft = async () => {
+    if (isTemplateEditMode) {
+      const templateConfig = templateMethods.getValues();
+      await onSave?.({ ...formData, config: templateConfig });
+    } else {
+      await onSave?.({ ...formData, name: formData.name || formData.documentInfo.documentNumber });
+    }
+    // Navigate back after saving
+    if (documentType === "TI") {
+      router.push("/portal/invoices");
+    } else {
+      router.push("/portal/documents");
+    }
+  };
+
+  // Handle delete from dialog
+  const handleDelete = () => {
+    // Navigate back without saving
+    if (documentType === "TI") {
+      router.push("/portal/invoices");
+    } else {
+      router.push("/portal/documents");
+    }
+  };
+
   return (
     <Box sx={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}>
       {/* Header Actions */}
@@ -448,13 +482,7 @@ export default function TabbedDocumentCreator({
       >
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <IconButton
-            onClick={() => {
-              if (documentType === "TI") {
-                router.push("/portal/invoices");
-              } else {
-                router.push("/portal/documents");
-              }
-            }}
+            onClick={handleBackClick}
             size="small"
           >
             <ArrowBackIcon />
@@ -1564,6 +1592,62 @@ export default function TabbedDocumentCreator({
             )}
           </DialogActions>
         )}
+      </Dialog>
+
+      {/* Back Button Confirmation Dialog */}
+      <Dialog
+        open={backConfirmDialogOpen}
+        onClose={() => setBackConfirmDialogOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            p: 1,
+          }
+        }}
+      >
+        <DialogContent>
+          <Typography variant="body1" sx={{ textAlign: 'center', fontWeight: 500 }}>
+            Do you want to <strong>save this {getDocumentTitle().toLowerCase()} as draft</strong> or <strong>delete</strong> it?
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ justifyContent: 'center', gap: 1, pb: 2 }}>
+          <Button
+            onClick={() => setBackConfirmDialogOpen(false)}
+            variant="text"
+            color="inherit"
+            sx={{
+              color: 'text.secondary',
+              textTransform: 'uppercase',
+              fontWeight: 500,
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSaveAsDraft}
+            variant="text"
+            sx={{
+              color: '#4CAF50',
+              textTransform: 'uppercase',
+              fontWeight: 500,
+            }}
+          >
+            Save as Draft
+          </Button>
+          <Button
+            onClick={handleDelete}
+            variant="text"
+            sx={{
+              color: '#f44336',
+              textTransform: 'uppercase',
+              fontWeight: 500,
+            }}
+          >
+            Delete
+          </Button>
+        </DialogActions>
       </Dialog>
     </Box>
   );
