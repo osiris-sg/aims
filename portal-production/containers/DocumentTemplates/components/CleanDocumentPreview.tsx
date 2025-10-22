@@ -155,12 +155,13 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           <Table
             sx={{
               "& .MuiTableCell-root": {
-                borderBottom: "1px solid #ddd",
+                border: "none",
+                borderBottom: "none",
                 padding: "10px 8px",
                 fontSize: "11px",
               },
               "& .MuiTableHead-root .MuiTableCell-root": {
-                borderTop: "1px solid #000",
+                border: "none",
                 borderBottom: "2px solid #000",
                 fontWeight: 600,
                 fontSize: "11px",
@@ -525,13 +526,15 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         <Table
           sx={{
             "& .MuiTableCell-root": {
-              border: "1px solid #000",
-              padding: "6px 8px",
+              border: "none",
+              borderBottom: "none",
+              padding: "8px",
               fontSize: "11px",
             },
             "& .MuiTableHead-root .MuiTableCell-root": {
-              backgroundColor: "#f0f0f0",
+              borderBottom: "2px solid #000",
               fontWeight: "bold",
+              backgroundColor: "transparent",
             },
             borderCollapse: "collapse",
           }}

@@ -107,8 +107,20 @@ model DocumentTemplate {
   updatedAt      DateTime           @updatedAt
   config         Json?
   organizationId String?
+  // Template variant fields
+  designName     String?            @default("Default")
+  description    String?
+  thumbnail      String?            // URL to preview thumbnail
+  isActive       Boolean            @default(false)
+  isDefault      Boolean            @default(false) // System default template
+  mockData       Json?              // Mock data for preview
+  layoutConfig   Json?              // Layout-specific configuration
+  styleConfig    Json?              // Styling configuration
   taggedAssets   AssetTemplateTag[]
   organization   Organization?      @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, type, isActive])
+  @@index([organizationId, type])
 }
 
 model AssetTemplateTag {

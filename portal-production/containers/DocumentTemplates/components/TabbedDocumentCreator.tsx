@@ -53,6 +53,7 @@ import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
 import { useForm, Controller } from "react-hook-form";
 import { usePathname, useRouter } from "next/navigation";
+import { usePastDescriptions } from "../hooks/usePastDescriptions";
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -125,6 +126,9 @@ export default function TabbedDocumentCreator({
   const [backConfirmDialogOpen, setBackConfirmDialogOpen] = useState(false);
 
   const { getToken } = useAuth();
+
+  // Past descriptions history hook
+  const { pastDescriptions, isLoading: isLoadingDescriptions } = usePastDescriptions();
 
   // Template configuration form for field visibility
   const templateMethods = useForm({
@@ -1301,12 +1305,30 @@ export default function TabbedDocumentCreator({
                                 } else if (columnId === "description") {
                                   return (
                                     <TableCell key={columnId}>
-                                      <TextField
+                                      <Autocomplete
                                         fullWidth
-                                        value={item.description}
-                                        onChange={(e) => updateItem(item.id, "description", e.target.value)}
+                                        freeSolo
+                                        value={item.description || ""}
+                                        onChange={(_, newValue) => updateItem(item.id, "description", newValue || "")}
+                                        onInputChange={(_, newInputValue) => updateItem(item.id, "description", newInputValue)}
+                                        options={pastDescriptions}
+                                        loading={isLoadingDescriptions}
                                         size="small"
-                                        placeholder="Enter description"
+                                        renderInput={(params) => (
+                                          <TextField
+                                            {...params}
+                                            placeholder="Enter or select description"
+                                            InputProps={{
+                                              ...params.InputProps,
+                                              endAdornment: (
+                                                <>
+                                                  {isLoadingDescriptions ? <CircularProgress color="inherit" size={20} /> : null}
+                                                  {params.InputProps.endAdornment}
+                                                </>
+                                              ),
+                                            }}
+                                          />
+                                        )}
                                       />
                                     </TableCell>
                                   );

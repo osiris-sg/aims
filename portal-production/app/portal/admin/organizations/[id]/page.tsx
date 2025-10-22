@@ -57,6 +57,9 @@ import {
   ArrowBack as ArrowBackIcon,
   Refresh as RefreshIcon,
   ExpandMore as ExpandMoreIcon,
+  Preview as PreviewIcon,
+  CheckCircle as CheckCircleIcon,
+  RadioButtonUnchecked as RadioButtonUncheckedIcon,
   Dashboard,
   Inventory,
   AnalyticsRounded,
@@ -93,6 +96,8 @@ import { useRouter, useParams } from "next/navigation";
 import { request } from "@/helpers/request";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
+import { exportTemplateToExcel, parseExcelTemplate } from "@/helpers/excelTemplateHandler";
+import CleanDocumentPreview from "@/containers/DocumentTemplates/components/CleanDocumentPreview";
 
 // Icon mapping for Material-UI icons
 const iconMap: Record<string, React.ComponentType> = {
@@ -220,6 +225,16 @@ export default function OrganizationDetailPage() {
   const [customFields, setCustomFields] = useState<any>({});
   const [uiConfig, setUIConfig] = useState<any>(null);
   const [enabledDocumentTypes, setEnabledDocumentTypes] = useState<string[]>([]);
+  const [templateCounts, setTemplateCounts] = useState<{ [key: string]: { total: number; active: boolean } }>({});
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [selectedDocType, setSelectedDocType] = useState<string>("");
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [previewTemplate, setPreviewTemplate] = useState<any>(null);
+  const [mockData, setMockData] = useState<any>(null);
+  const [excelImportDialogOpen, setExcelImportDialogOpen] = useState(false);
+  const [selectedTemplateForImport, setSelectedTemplateForImport] = useState<string | null>(null);
+  const [excelFile, setExcelFile] = useState<File | null>(null);
 
   // Module management state
   const [addModuleDialogOpen, setAddModuleDialogOpen] = useState(false);
@@ -265,6 +280,94 @@ export default function OrganizationDetailPage() {
     currency: "USD",
     language: "en",
   });
+
+  // Helper function to replace template placeholders with actual data
+  const replacePlaceholders = (template: string, data: any, org: any) => {
+    let html = template;
+
+    // Company data replacements
+    html = html.replace(/\{\{company_name\}\}/g, data.company?.name || org?.name || "");
+    html = html.replace(/\{\{company_address\}\}/g, data.company?.address || org?.address || "");
+    html = html.replace(/\{\{company_phone\}\}/g, data.company?.phoneNumber || org?.phoneNumber || "");
+    html = html.replace(/\{\{company_gst\}\}/g, data.company?.gstRegNo || org?.registrationNumber || "");
+
+    // Customer data replacements
+    html = html.replace(/\{\{customer_name\}\}/g, data.customer?.name || "");
+    html = html.replace(/\{\{customer_address\}\}/g, data.customer?.address || "");
+
+    // Document info replacements
+    html = html.replace(/\{\{invoice_number\}\}/g, data.documentInfo?.documentNumber || "");
+    html = html.replace(/\{\{invoice_date\}\}/g, data.documentInfo?.date || "");
+    html = html.replace(/\{\{do_number\}\}/g, data.documentInfo?.documentNumber || "");
+    html = html.replace(/\{\{do_date\}\}/g, data.documentInfo?.date || "");
+    html = html.replace(/\{\{quotation_number\}\}/g, data.documentInfo?.documentNumber || "");
+    html = html.replace(/\{\{quotation_date\}\}/g, data.documentInfo?.date || "");
+    html = html.replace(/\{\{rdo_number\}\}/g, data.documentInfo?.documentNumber || "");
+    html = html.replace(/\{\{rdo_date\}\}/g, data.documentInfo?.date || "");
+    html = html.replace(/\{\{report_number\}\}/g, data.documentInfo?.documentNumber || "");
+    html = html.replace(/\{\{report_date\}\}/g, data.documentInfo?.date || "");
+    html = html.replace(/\{\{reference_no\}\}/g, data.documentInfo?.referenceNo || "");
+    html = html.replace(/\{\{do_no\}\}/g, data.documentInfo?.doNo || "");
+    html = html.replace(/\{\{po_no\}\}/g, data.documentInfo?.poNo || "");
+    html = html.replace(/\{\{due_date\}\}/g, data.dueDate || "");
+    html = html.replace(/\{\{payment_terms\}\}/g, data.paymentTerms || "");
+
+    // Delivery address replacements
+    html = html.replace(/\{\{delivery_address\}\}/g, data.deliveryAddress?.address || "");
+    html = html.replace(/\{\{attention_to\}\}/g, data.deliveryAddress?.attention || "");
+    html = html.replace(/\{\{contact_phone\}\}/g, data.deliveryAddress?.phone || "");
+    html = html.replace(/\{\{delivery_instructions\}\}/g, data.deliveryAddress?.instructions || "");
+
+    // Item replacements (handle up to 10 items)
+    const items = data.items || [];
+    for (let i = 1; i <= 10; i++) {
+      const item = items[i - 1];
+      html = html.replace(new RegExp(`\\{\\{item_${i}\\}\\}`, 'g'), item ? i.toString() : "");
+      html = html.replace(new RegExp(`\\{\\{description_${i}\\}\\}`, 'g'), item?.description || "");
+      html = html.replace(new RegExp(`\\{\\{quantity_${i}\\}\\}`, 'g'), item?.quantity?.toString() || "");
+      html = html.replace(new RegExp(`\\{\\{unit_price_${i}\\}\\}`, 'g'), item?.unitPrice?.toFixed(2) || "");
+      html = html.replace(new RegExp(`\\{\\{tax_${i}\\}\\}`, 'g'), item?.tax?.toString() || "9");
+      html = html.replace(new RegExp(`\\{\\{amount_${i}\\}\\}`, 'g'), item?.amount?.toFixed(2) || "");
+    }
+
+    // Calculate totals
+    const subtotal = items.reduce((acc: number, item: any) => acc + (item.amount || 0), 0);
+    const totalTax = items.reduce((acc: number, item: any) => acc + (item.amount || 0) * ((item.tax || 9) / 100), 0);
+    const total = subtotal + totalTax;
+
+    html = html.replace(/\{\{subtotal\}\}/g, subtotal.toFixed(2));
+    html = html.replace(/\{\{tax_total\}\}/g, totalTax.toFixed(2));
+    html = html.replace(/\{\{total\}\}/g, total.toFixed(2));
+
+    // Other replacements
+    html = html.replace(/\{\{notes\}\}/g, data.note || "");
+    html = html.replace(/\{\{terms_conditions\}\}/g, data.termsAndConditions || "");
+    html = html.replace(/\{\{bank_details\}\}/g, data.bankDetails || "");
+    html = html.replace(/\{\{currency\}\}/g, data.currency || "SGD");
+    html = html.replace(/\{\{validity_date\}\}/g, data.validityTerm || "");
+    html = html.replace(/\{\{remarks\}\}/g, data.remarks || "");
+    html = html.replace(/\{\{agreement_text\}\}/g, data.agreementText || "");
+
+    // MSR specific replacements
+    html = html.replace(/\{\{equipment_id\}\}/g, data.equipmentId || "");
+    html = html.replace(/\{\{location\}\}/g, data.location || "");
+    html = html.replace(/\{\{service_date\}\}/g, data.serviceDate || "");
+    html = html.replace(/\{\{report_type\}\}/g, data.reportType || "");
+    html = html.replace(/\{\{description\}\}/g, data.description || "");
+    html = html.replace(/\{\{next_maintenance\}\}/g, data.note || "");
+
+    // RDO specific replacements
+    html = html.replace(/\{\{collect_from\}\}/g, data.collectFrom || "");
+    html = html.replace(/\{\{return_address\}\}/g, data.deliveryAddress?.address || "");
+    html = html.replace(/\{\{original_do_no\}\}/g, data.documentInfo?.doNo || "");
+    html = html.replace(/\{\{return_reason\}\}/g, data.note || "");
+    html = html.replace(/\{\{return_instructions\}\}/g, data.deliveryAddress?.instructions || "");
+
+    // Clean up any remaining placeholders
+    html = html.replace(/\{\{[^}]+\}\}/g, "");
+
+    return html;
+  };
 
   useEffect(() => {
     if (organizationId) {
@@ -631,6 +734,206 @@ export default function OrganizationDetailPage() {
     });
   };
 
+  // ===== TEMPLATE MANAGEMENT =====
+
+  const fetchTemplateCountsForType = async (type: string) => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await request(
+        { path: `/documentTemplates/variants/${type}`, method: "GET" },
+        {},
+        token,
+        { "x-organization-id": organizationId }
+      );
+
+      if (response.success !== false) {
+        const templates = response.data || response || [];
+        const activeTemplate = templates.find((t: any) => t.isActive);
+        return {
+          total: templates.length,
+          active: !!activeTemplate,
+        };
+      }
+      return { total: 0, active: false };
+    } catch (error) {
+      console.error(`Error fetching templates for ${type}:`, error);
+      return { total: 0, active: false };
+    }
+  };
+
+  const fetchAllTemplateCounts = async () => {
+    const counts: { [key: string]: { total: number; active: boolean } } = {};
+    for (const docType of enabledDocumentTypes) {
+      counts[docType] = await fetchTemplateCountsForType(docType);
+    }
+    setTemplateCounts(counts);
+  };
+
+  useEffect(() => {
+    if (enabledDocumentTypes.length > 0) {
+      fetchAllTemplateCounts();
+    }
+  }, [enabledDocumentTypes]);
+
+  const handleManageTemplates = async (docType: string) => {
+    setSelectedDocType(docType);
+    setTemplateDialogOpen(true);
+    setLoadingTemplates(true);
+
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      // Fetch templates for this type
+      const templatesResponse = await request(
+        { path: `/documentTemplates/variants/${docType}`, method: "GET" },
+        {},
+        token,
+        { "x-organization-id": organizationId }
+      );
+
+      // Fetch mock data for preview
+      const mockDataResponse = await request(
+        { path: `/documentTemplates/mock-data/${docType}`, method: "GET" },
+        {},
+        token
+      );
+
+      if (templatesResponse.success !== false) {
+        const fetchedTemplates = templatesResponse.data || templatesResponse || [];
+
+        // If no templates exist, create a default one
+        if (fetchedTemplates.length === 0) {
+          const createResponse = await request(
+            { path: `/documentTemplates/create`, method: "POST" },
+            {
+              type: docType,
+              name: `${docType} Template`,
+              designName: "Default",
+              isActive: true,
+            },
+            token,
+            { "x-organization-id": organizationId }
+          );
+
+          if (createResponse.success) {
+            fetchedTemplates.push(createResponse.data);
+          }
+        }
+
+        setTemplates(fetchedTemplates);
+      }
+
+      if (mockDataResponse.success !== false) {
+        setMockData(mockDataResponse.data || mockDataResponse);
+      }
+    } catch (error) {
+      console.error("Error fetching templates:", error);
+      toast.error("Failed to load templates");
+    } finally {
+      setLoadingTemplates(false);
+    }
+  };
+
+  const handleActivateTemplate = async (templateId: string) => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await request(
+        { path: `/documentTemplates/variants/${templateId}/activate`, method: "POST" },
+        {},
+        token,
+        { "x-organization-id": organizationId }
+      );
+
+      if (response.success !== false) {
+        toast.success("Template activated successfully");
+        // Refresh templates
+        handleManageTemplates(selectedDocType);
+        // Update counts
+        fetchAllTemplateCounts();
+      }
+    } catch (error) {
+      console.error("Error activating template:", error);
+      toast.error("Failed to activate template");
+    }
+  };
+
+  // ===== EXCEL TEMPLATE MANAGEMENT =====
+
+  const handleExportTemplateToExcel = (template: any) => {
+    try {
+      // Export the template to Excel using the document type
+      exportTemplateToExcel(template.type, template);
+      toast.success(`Template exported to Excel successfully`);
+    } catch (error) {
+      console.error("Error exporting template to Excel:", error);
+      toast.error("Failed to export template to Excel");
+    }
+  };
+
+  const handleImportExcelTemplate = (templateId: string) => {
+    setSelectedTemplateForImport(templateId);
+    setExcelFile(null);
+    setExcelImportDialogOpen(true);
+  };
+
+  const handleExcelFileUpload = async () => {
+    if (!excelFile || !selectedTemplateForImport) return;
+
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const formData = new FormData();
+      formData.append("file", excelFile);
+
+      const apiUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || "http://localhost:4040";
+      const response = await fetch(
+        `${apiUrl}/documentTemplates/variants/${selectedTemplateForImport}/upload-excel`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "x-organization-id": organizationId,
+          },
+          body: formData,
+        }
+      );
+
+      if (response.ok) {
+        const result = await response.json();
+        toast.success("Template updated from Excel successfully");
+        setExcelImportDialogOpen(false);
+        setExcelFile(null);
+        // Refresh templates
+        handleManageTemplates(selectedDocType);
+      } else {
+        const errorText = await response.text();
+        console.error("Upload error response:", errorText);
+        let errorMessage = "Failed to upload Excel template";
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.message || errorMessage;
+        } catch (e) {
+          errorMessage = errorText || errorMessage;
+        }
+        toast.error(errorMessage);
+        console.error("Excel upload failed:", {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorMessage
+        });
+      }
+    } catch (error) {
+      console.error("Error uploading Excel template:", error);
+      toast.error("Failed to upload Excel template");
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
@@ -962,7 +1265,7 @@ export default function OrganizationDetailPage() {
           </Box>
 
           <Alert severity="info" sx={{ mb: 3 }}>
-            Enable or disable document types that will be available in the Templates page for this organization.
+            Enable or disable document types that will be available in the Templates page for this organization. Click "Manage Templates" to view and manage template designs for each type.
           </Alert>
 
           <TableContainer>
@@ -972,7 +1275,9 @@ export default function OrganizationDetailPage() {
                   <TableCell>Document Type Code</TableCell>
                   <TableCell>Name</TableCell>
                   <TableCell>Description</TableCell>
-                  <TableCell>Enabled</TableCell>
+                  <TableCell align="center">Templates</TableCell>
+                  <TableCell align="center">Enabled</TableCell>
+                  <TableCell align="center">Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -989,11 +1294,29 @@ export default function OrganizationDetailPage() {
                         {docType.description}
                       </Typography>
                     </TableCell>
-                    <TableCell>
+                    <TableCell align="center">
+                      <Chip
+                        label={templateCounts[docType.code]?.total || 0}
+                        size="small"
+                        color={templateCounts[docType.code]?.active ? "success" : "default"}
+                        title={`${templateCounts[docType.code]?.total || 0} templates, ${templateCounts[docType.code]?.active ? '1 active' : 'none active'}`}
+                      />
+                    </TableCell>
+                    <TableCell align="center">
                       <Switch
                         checked={Array.isArray(enabledDocumentTypes) && enabledDocumentTypes.includes(docType.code)}
                         onChange={() => handleDocumentTypeToggle(docType.code)}
                       />
+                    </TableCell>
+                    <TableCell align="center">
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => handleManageTemplates(docType.code)}
+                        disabled={!Array.isArray(enabledDocumentTypes) || !enabledDocumentTypes.includes(docType.code)}
+                      >
+                        Manage Templates
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -1498,6 +1821,302 @@ export default function OrganizationDetailPage() {
           <Button onClick={() => setFieldDialogOpen(false)}>Cancel</Button>
           <Button onClick={handleSaveCustomField} variant="contained">
             Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* TEMPLATE MANAGEMENT DIALOG */}
+      <Dialog open={templateDialogOpen} onClose={() => setTemplateDialogOpen(false)} maxWidth="lg" fullWidth>
+        <DialogTitle>
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <Typography variant="h6">
+              Manage Templates - {DEFAULT_DOCUMENT_TYPES.find(dt => dt.code === selectedDocType)?.name || selectedDocType}
+            </Typography>
+            <IconButton onClick={() => setTemplateDialogOpen(false)} size="small">
+              <CancelIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent dividers>
+          {loadingTemplates ? (
+            <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <Box>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Select which template design should be active for this document type. Only one template can be active at a time.
+              </Alert>
+
+              {templates.length === 0 ? (
+                <Alert severity="warning">No templates found for this document type.</Alert>
+              ) : (
+                <Grid container spacing={2}>
+                  {templates.map((template) => (
+                    <Grid item xs={12} md={6} key={template.id}>
+                      <Card
+                        sx={{
+                          border: template.isActive ? "2px solid" : "1px solid",
+                          borderColor: template.isActive ? "primary.main" : "divider",
+                          position: "relative",
+                        }}
+                      >
+                        {template.isActive && (
+                          <Chip
+                            icon={<CheckCircleIcon />}
+                            label="Active"
+                            color="primary"
+                            size="small"
+                            sx={{
+                              position: "absolute",
+                              top: 8,
+                              right: 8,
+                              zIndex: 1,
+                            }}
+                          />
+                        )}
+
+                        <CardContent>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+                            <IconButton
+                              color={template.isActive ? "primary" : "default"}
+                              onClick={() => !template.isActive && handleActivateTemplate(template.id)}
+                              disabled={template.isActive}
+                            >
+                              {template.isActive ? <CheckCircleIcon /> : <RadioButtonUncheckedIcon />}
+                            </IconButton>
+                            <Box sx={{ flex: 1 }}>
+                              <Typography variant="subtitle1" fontWeight={500}>
+                                {template.designName || "Default Design"}
+                              </Typography>
+                              {template.description && (
+                                <Typography variant="body2" color="text.secondary">
+                                  {template.description}
+                                </Typography>
+                              )}
+                            </Box>
+                          </Box>
+
+                          <Box sx={{ display: "flex", gap: 1, mt: 2, flexWrap: "wrap" }}>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              startIcon={<PreviewIcon />}
+                              onClick={() => setPreviewTemplate(template)}
+                            >
+                              Preview
+                            </Button>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              startIcon={<CloudDownload />}
+                              onClick={() => handleExportTemplateToExcel(template)}
+                            >
+                              Export Excel
+                            </Button>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              startIcon={<CloudUpload />}
+                              onClick={() => handleImportExcelTemplate(template.id)}
+                            >
+                              Import Excel
+                            </Button>
+                            {!template.isActive && (
+                              <Button
+                                size="small"
+                                variant="contained"
+                                onClick={() => handleActivateTemplate(template.id)}
+                              >
+                                Activate
+                              </Button>
+                            )}
+                          </Box>
+
+                          <Box sx={{ mt: 1 }}>
+                            <Typography variant="caption" color="text.secondary">
+                              Last updated: {new Date(template.updatedAt).toLocaleDateString()}
+                            </Typography>
+                          </Box>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  ))}
+                </Grid>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTemplateDialogOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* TEMPLATE PREVIEW DIALOG */}
+      <Dialog
+        open={!!previewTemplate}
+        onClose={() => setPreviewTemplate(null)}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <Typography variant="h6">
+              Preview: {previewTemplate?.designName || "Template"}
+            </Typography>
+            <IconButton onClick={() => setPreviewTemplate(null)} size="small">
+              <CancelIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent dividers sx={{ bgcolor: "grey.50", p: 0 }}>
+          {previewTemplate && mockData && (
+            <Box>
+              <Alert severity="info" sx={{ m: 2 }}>
+                This is a preview with sample data. The actual document will use real data from your organization.
+              </Alert>
+              <Box sx={{ overflow: "auto", maxHeight: "70vh", p: 2 }}>
+                {previewTemplate.layoutConfig?.htmlTemplate ? (
+                  // Use the HTML template from Excel import
+                  <Paper
+                    sx={{
+                      width: "210mm",
+                      minHeight: "297mm",
+                      margin: "0 auto",
+                      p: "20mm",
+                      backgroundColor: "white",
+                      // Override styles for imported templates to remove ALL borders
+                      "& .template-table td": {
+                        border: "none !important",
+                        borderBottom: "none !important",
+                        borderTop: "none !important",
+                        borderLeft: "none !important",
+                        borderRight: "none !important",
+                        padding: "8px !important",
+                      },
+                      "& .template-header": {
+                        backgroundColor: "transparent !important",
+                        border: "none !important",
+                        borderBottom: "2px solid #000 !important",
+                        fontWeight: "bold !important",
+                      },
+                      "& table": {
+                        borderCollapse: "collapse !important",
+                        border: "none !important",
+                      },
+                      "& table td": {
+                        border: "none !important",
+                        borderBottom: "none !important",
+                        borderTop: "none !important",
+                        borderLeft: "none !important",
+                        borderRight: "none !important",
+                        padding: "8px !important",
+                      },
+                      "& table th": {
+                        border: "none !important",
+                        borderBottom: "2px solid #000 !important",
+                        borderTop: "none !important",
+                        borderLeft: "none !important",
+                        borderRight: "none !important",
+                        padding: "8px !important",
+                        fontWeight: "bold !important",
+                      },
+                    }}
+                    dangerouslySetInnerHTML={{
+                      __html: replacePlaceholders(previewTemplate.layoutConfig.htmlTemplate, mockData, organization)
+                    }}
+                  />
+                ) : (
+                  // Fall back to default preview component
+                  <CleanDocumentPreview
+                    documentType={selectedDocType as "QO1" | "DO" | "RDO" | "TI" | "MSR"}
+                    data={mockData}
+                    organization={organization}
+                  />
+                )}
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPreviewTemplate(null)}>Close</Button>
+          {previewTemplate && !previewTemplate.isActive && (
+            <Button
+              variant="contained"
+              onClick={() => {
+                handleActivateTemplate(previewTemplate.id);
+                setPreviewTemplate(null);
+              }}
+            >
+              Activate This Template
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* EXCEL IMPORT DIALOG */}
+      <Dialog open={excelImportDialogOpen} onClose={() => setExcelImportDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <Typography variant="h6">Import Excel Template</Typography>
+            <IconButton onClick={() => setExcelImportDialogOpen(false)} size="small">
+              <CancelIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Upload an Excel file with template placeholders like {`{{company_name}}`}, {`{{customer_name}}`}, etc.
+            The template will be converted and applied to the selected document type.
+          </Alert>
+
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="body2" gutterBottom>
+              Select Excel file (.xlsx):
+            </Typography>
+            <TextField
+              type="file"
+              fullWidth
+              inputProps={{
+                accept: ".xlsx,.xls",
+                onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    setExcelFile(file);
+                  }
+                },
+              }}
+              sx={{ mt: 1 }}
+            />
+          </Box>
+
+          {excelFile && (
+            <Alert severity="success" sx={{ mt: 2 }}>
+              Selected file: {excelFile.name}
+            </Alert>
+          )}
+
+          <Box sx={{ mt: 3 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              Template Structure Guidelines:
+            </Typography>
+            <Typography variant="body2" component="ul" sx={{ pl: 2 }}>
+              <li>Use placeholders like {`{{field_name}}`} for dynamic content</li>
+              <li>The first worksheet will be used as the template</li>
+              <li>Formatting and layout will be preserved</li>
+              <li>Tables will be converted to HTML format</li>
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setExcelImportDialogOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleExcelFileUpload}
+            variant="contained"
+            disabled={!excelFile}
+            startIcon={<CloudUpload />}
+          >
+            Upload & Apply
           </Button>
         </DialogActions>
       </Dialog>

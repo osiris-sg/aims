@@ -1,4 +1,5 @@
-import { Controller, Post, Body, Delete, Get, Param, Req, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, Delete, Get, Param, Req, UseGuards, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { DocumentTemplatesService } from './documentTemplates.service';
 import { GetDocumentTemplateDto } from './dto/get-documentTemplate.dto';
 import { CreateDocumentTemplateDto } from './dto/create-documentTemplate.dto';
@@ -79,5 +80,61 @@ export class DocumentTemplatesController {
       throw new Error('User is not assigned to any organization');
     }
     return await this.documentTemplatesService.getDocumentTemplateByType(type, organizationId);
+  }
+
+  // Template Variants Management
+  @Get('variants/:type')
+  @Permissions('documentTemplates:read')
+  async getTemplateVariantsByType(@Param('type') type: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentTemplatesService.getTemplateVariantsByType(type, organizationId);
+  }
+
+  @Post('variants/:id/activate')
+  @Permissions('documentTemplates:update')
+  async activateTemplateVariant(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentTemplatesService.activateTemplateVariant(id, organizationId);
+  }
+
+  @Post('variants/:id/duplicate')
+  @Permissions('documentTemplates:create')
+  async duplicateTemplateVariant(
+    @Param('id') id: string,
+    @Body() body: { designName: string; description?: string },
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentTemplatesService.duplicateTemplateVariant(id, organizationId, body.designName, body.description);
+  }
+
+  @Get('mock-data/:type')
+  @Permissions('documentTemplates:read')
+  async getMockDataForType(@Param('type') type: string) {
+    return await this.documentTemplatesService.getMockDataForType(type);
+  }
+
+  @Post('variants/:id/upload-excel')
+  @Permissions('documentTemplates:update')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadExcelTemplate(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentTemplatesService.updateTemplateFromExcel(id, organizationId, file);
   }
 }
