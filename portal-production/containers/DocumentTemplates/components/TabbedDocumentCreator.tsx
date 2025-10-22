@@ -65,7 +65,7 @@ function TabPanel(props: TabPanelProps) {
   const { children, value, index, ...other } = props;
   return (
     <div role="tabpanel" hidden={value !== index} {...other}>
-      {value === index && <Box sx={{ p: 1 }}>{children}</Box>}
+      {value === index && <Box sx={{ p: 0.5 }}>{children}</Box>}
     </div>
   );
 }
@@ -582,88 +582,16 @@ export default function TabbedDocumentCreator({
 
           {/* GENERAL TAB */}
           <TabPanel value={mainTabValue} index={0}>
-            <Grid container spacing={1}>
-              {/* Company Information */}
+            <Grid container spacing={0.5}>
+              {/* Customer and Document Information in a single row */}
               <Grid item xs={12} md={6}>
                 <Card sx={{ height: "100%" }}>
-                  <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
-                      Company Information
-                    </Typography>
-                    <Divider sx={{ mb: 1 }} />
-                    <Grid container spacing={1}>
-                      <Grid item xs={12}>
-                        <TextField
-                          fullWidth
-                          label="Company Name"
-                          value={formData.company.name}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              company: { ...formData.company, name: e.target.value },
-                            })
-                          }
-                          size="small"
-                        />
-                      </Grid>
-                      <Grid item xs={12}>
-                        <TextField
-                          fullWidth
-                          label="Company Address"
-                          value={formData.company.address}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              company: { ...formData.company, address: e.target.value },
-                            })
-                          }
-                          size="small"
-                          multiline
-                          rows={1}
-                        />
-                      </Grid>
-                      <Grid item xs={6}>
-                        <TextField
-                          fullWidth
-                          label="Phone Number"
-                          value={formData.company.phoneNumber}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              company: { ...formData.company, phoneNumber: e.target.value },
-                            })
-                          }
-                          size="small"
-                        />
-                      </Grid>
-                      <Grid item xs={6}>
-                        <TextField
-                          fullWidth
-                          label="GST Reg No"
-                          value={formData.company.gstRegNo}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              company: { ...formData.company, gstRegNo: e.target.value },
-                            })
-                          }
-                          size="small"
-                        />
-                      </Grid>
-                    </Grid>
-                  </CardContent>
-                </Card>
-              </Grid>
-
-              {/* Customer Information */}
-              <Grid item xs={12} md={6}>
-                <Card sx={{ height: "100%" }}>
-                  <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
+                  <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
+                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25, fontSize: "0.8rem" }}>
                       Customer Information
                     </Typography>
-                    <Divider sx={{ mb: 1 }} />
-                    <Grid container spacing={1}>
+                    <Divider sx={{ mb: 0.5 }} />
+                    <Grid container spacing={0.5}>
                       <Grid item xs={12}>
                         <Autocomplete
                           options={customers}
@@ -686,37 +614,36 @@ export default function TabbedDocumentCreator({
                           renderInput={(params) => (
                             <TextField {...params} label="Select Customer" size="small" />
                           )}
+                          size="small"
                         />
                       </Grid>
                       {formData.customer.name && (
-                        <>
-                          <Grid item xs={12}>
-                            <Paper sx={{ p: 1, bgcolor: "grey.50" }}>
-                              <Typography variant="caption" fontWeight={500}>
-                                {formData.customer.name}
-                              </Typography>
-                              <Typography variant="caption" display="block" color="text.secondary" sx={{ fontSize: "10px" }}>
-                                {formData.customer.address}
-                              </Typography>
-                            </Paper>
-                          </Grid>
-                        </>
+                        <Grid item xs={12}>
+                          <Paper sx={{ p: 0.5, bgcolor: "grey.50" }}>
+                            <Typography variant="caption" fontWeight={500} sx={{ fontSize: "0.75rem" }}>
+                              {formData.customer.name}
+                            </Typography>
+                            <Typography variant="caption" display="block" color="text.secondary" sx={{ fontSize: "0.7rem" }}>
+                              {formData.customer.address}
+                            </Typography>
+                          </Paper>
+                        </Grid>
                       )}
                     </Grid>
                   </CardContent>
                 </Card>
               </Grid>
 
-              {/* Document Information */}
-              <Grid item xs={12}>
-                <Card>
-                  <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
+              {/* Document Information - same row */}
+              <Grid item xs={12} md={6}>
+                <Card sx={{ height: "100%" }}>
+                  <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
+                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25, fontSize: "0.8rem" }}>
                       Document Information
                     </Typography>
-                    <Divider sx={{ mb: 1 }} />
-                    <Grid container spacing={1}>
-                      <Grid item xs={12} md={3}>
+                    <Divider sx={{ mb: 0.5 }} />
+                    <Grid container spacing={0.5}>
+                      <Grid item xs={12} md={6}>
                         <TextField
                           fullWidth
                           label="Date"
@@ -732,7 +659,7 @@ export default function TabbedDocumentCreator({
                           InputLabelProps={{ shrink: true }}
                         />
                       </Grid>
-                      <Grid item xs={12} md={3}>
+                      <Grid item xs={12} md={6}>
                         <TextField
                           fullWidth
                           label={`${getDocumentTitle()} Number`}
@@ -751,7 +678,7 @@ export default function TabbedDocumentCreator({
                         />
                       </Grid>
                       {(documentType === "TI" || documentType === "DO" || documentType === "QO1") && (!isTemplateEditMode || templateWatch("referenceNo")) && (
-                        <Grid item xs={12} md={3}>
+                        <Grid item xs={12} md={6}>
                           <TextField
                             fullWidth
                             label="Reference No"
@@ -771,7 +698,7 @@ export default function TabbedDocumentCreator({
                         </Grid>
                       )}
                       {documentType === "TI" && (
-                        <Grid item xs={12} md={3}>
+                        <Grid item xs={12} md={6}>
                           <FormControl fullWidth size="small">
                             <InputLabel>DO No</InputLabel>
                             <Select
@@ -804,7 +731,7 @@ export default function TabbedDocumentCreator({
                         </Grid>
                       )}
                       {documentType === "RDO" && (
-                        <Grid item xs={12} md={3}>
+                        <Grid item xs={12} md={6}>
                           <TextField
                             fullWidth
                             label="Return Order No"
@@ -823,7 +750,7 @@ export default function TabbedDocumentCreator({
                         </Grid>
                       )}
                       {documentType === "DO" && (
-                        <Grid item xs={12} md={3}>
+                        <Grid item xs={12} md={6}>
                           <TextField
                             fullWidth
                             label="DO No"
@@ -842,7 +769,7 @@ export default function TabbedDocumentCreator({
                         </Grid>
                       )}
                       {(documentType === "DO" || documentType === "QO1" || documentType === "RDO") && (
-                        <Grid item xs={12} md={3}>
+                        <Grid item xs={12} md={6}>
                           <TextField
                             fullWidth
                             label="PO No"
@@ -869,15 +796,15 @@ export default function TabbedDocumentCreator({
 
           {/* DETAILS TAB */}
           <TabPanel value={mainTabValue} index={1}>
-            <Grid container spacing={1}>
+            <Grid container spacing={0.5}>
               <Grid item xs={12}>
                 <Card>
-                  <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
+                  <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
+                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25, fontSize: "0.8rem" }}>
                       Additional Details
                     </Typography>
-                    <Divider sx={{ mb: 1 }} />
-                    <Grid container spacing={1}>
+                    <Divider sx={{ mb: 0.5 }} />
+                    <Grid container spacing={0.5}>
                       {/* Project - for DO and TI */}
                       {(documentType === "DO" || documentType === "TI") && (
                         <Grid item xs={12} md={6}>
@@ -1092,15 +1019,15 @@ export default function TabbedDocumentCreator({
           {/* DELIVERY ADDRESS TAB - Only for DO, RDO, and QO1 */}
           {(documentType === "DO" || documentType === "RDO" || documentType === "QO1") && (
             <TabPanel value={mainTabValue} index={2}>
-              <Grid container spacing={1}>
+              <Grid container spacing={0.5}>
                 <Grid item xs={12}>
                   <Card>
-                    <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                      <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
+                    <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
+                      <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25, fontSize: "0.8rem" }}>
                         {documentType === "RDO" ? "Return Information" : "Delivery Information"}
                       </Typography>
-                      <Divider sx={{ mb: 1 }} />
-                      <Grid container spacing={1}>
+                      <Divider sx={{ mb: 0.5 }} />
+                      <Grid container spacing={0.5}>
                         <Grid item xs={12} md={6}>
                           <TextField
                             fullWidth
@@ -1244,10 +1171,10 @@ export default function TabbedDocumentCreator({
           )}
 
           {/* ITEMS SECTION WITH TABS */}
-          <Box sx={{ mt: 1, mx: 1, flex: 1, display: "flex", flexDirection: "column" }}>
+          <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, display: "flex", flexDirection: "column" }}>
             <Card sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
-              <CardContent sx={{ p: 1.5, flex: 1, display: "flex", flexDirection: "column", "&:last-child": { pb: 1.5 } }}>
-                <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
+              <CardContent sx={{ p: 1, flex: 1, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>
+                <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25, fontSize: "0.8rem" }}>
                   Items
                 </Typography>
                 <Divider />
