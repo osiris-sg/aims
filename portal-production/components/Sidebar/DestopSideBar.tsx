@@ -96,11 +96,11 @@ export default function DesktopSideBar() {
                 alt=""
                 sx={{
                   borderRadius: "var(--default-border-radius)",
-                  width: "2.5rem",
-                  height: "2.5rem",
+                  width: "1.75rem",
+                  height: "1.75rem",
                 }}
               />
-              <Typography variant="h3" sx={{ color: theme.palette.primary.contrastText }}>
+              <Typography variant="h5" sx={{ color: theme.palette.primary.contrastText }}>
                 AIMS
               </Typography>
             </Box>

@@ -69,7 +69,7 @@ const FileUploader = forwardRef<FileUploaderRef, Props>((props, ref) => {
       >
         {/* Attach the custom ref to the input */}
         <input {...getInputProps()} ref={inputRef} style={{ display: "none" }} />
-        <ImageOutlinedIcon sx={{ fontSize: 60, color: theme.palette.secondary.contrastText }} />
+        <ImageOutlinedIcon sx={{ fontSize: "3.75rem", color: theme.palette.secondary.contrastText }} />
       </Box>
       {uploadedImage && (
         <ImageResizer

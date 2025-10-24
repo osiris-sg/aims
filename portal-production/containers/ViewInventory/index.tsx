@@ -29,7 +29,7 @@ export default function ViewInventory() {
           {isGetInventoryLoading ? (
             <Skeleton animation="wave" variant="rectangular" width={400} height={300} sx={{ maxWidth: "100%", borderRadius: 2 }} />
           ) : (
-            <Avatar src={`${process.env.NEXT_PUBLIC_RESOURCE_URL}${asset?.image}`} alt={asset?.name.toString().slice(0, 2).toUpperCase() || "NA"} sx={{ width: 400, height: 300, fontSize: 32, maxWidth: "100%", maxHeight: "300px" }} variant="rounded" />
+            <Avatar src={`${process.env.NEXT_PUBLIC_RESOURCE_URL}${asset?.image}`} alt={asset?.name.toString().slice(0, 2).toUpperCase() || "NA"} sx={{ width: 400, height: 300, fontSize: "2rem", maxWidth: "100%", maxHeight: "300px" }} variant="rounded" />
           )}
         </Grid2>
 

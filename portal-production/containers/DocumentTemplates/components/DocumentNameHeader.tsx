@@ -331,13 +331,13 @@ function DocumentNameHeaderComponent(props: Props) {
       <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mt: 0.5 }}>
         <Box sx={{ flex: 1 }}>
           <Chip size="small" label="Old" variant="outlined" sx={{ mb: 0.5 }} />
-          <Box component="pre" sx={{ m: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "monospace", fontSize: 12 }}>
+          <Box component="pre" sx={{ m: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "monospace", fontSize: "0.75rem" }}>
             {JSON.stringify(oldVal, null, 2)}
           </Box>
         </Box>
         <Box sx={{ flex: 1 }}>
           <Chip size="small" label="New" color="primary" variant="outlined" sx={{ mb: 0.5 }} />
-          <Box component="pre" sx={{ m: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "monospace", fontSize: 12 }}>
+          <Box component="pre" sx={{ m: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "monospace", fontSize: "0.75rem" }}>
             {JSON.stringify(newVal, null, 2)}
           </Box>
         </Box>
@@ -397,8 +397,8 @@ function DocumentNameHeaderComponent(props: Props) {
         <Grid2 size={{ sm: 12, md: 5 }}>
           {props.headerLoading ? (
             <>
-              <Skeleton variant="text" sx={{ fontSize: 28, width: 220 }} />
-              <Skeleton variant="text" sx={{ fontSize: 14, width: 320 }} />
+              <Skeleton variant="text" sx={{ fontSize: "1.75rem", width: 220 }} />
+              <Skeleton variant="text" sx={{ fontSize: "0.875rem", width: 320 }} />
             </>
           ) : (
             <>

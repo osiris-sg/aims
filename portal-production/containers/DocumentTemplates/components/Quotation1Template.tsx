@@ -227,31 +227,31 @@ export default function Quotation1Template(props: Props) {
                       ...(isViewMode
                         ? {
                             // Typography scale similar to Invoice
-                            "& .MuiTypography-root": { fontSize: "11px !important", lineHeight: 1.35 },
+                            "& .MuiTypography-root": { fontSize: "0.6875rem !important", lineHeight: 1.35 },
                             "& .MuiTypography-h4": {
-                              fontSize: "18px !important",
+                              fontSize: "1.125rem !important",
                               fontWeight: 700,
                             },
                             "& .MuiTypography-h5": {
-                              fontSize: "16px !important",
+                              fontSize: "1rem !important",
                               fontWeight: 700,
                             },
                             // Generic text fallbacks for custom components
                             "& p, & span, & label, & .MuiFormLabel-root": {
-                              fontSize: "11px !important",
+                              fontSize: "0.6875rem !important",
                               lineHeight: 1.35,
                             },
                             // Inputs/Textareas if any appear in view mode
                             "& .MuiInputBase-root, & .MuiInputBase-input, & .MuiOutlinedInput-input, & textarea": {
-                              fontSize: "11px !important",
+                              fontSize: "0.6875rem !important",
                             },
                             // Table polish (applies to our Table component output)
                             "& table": { width: "100%", borderCollapse: "collapse" },
-                            "& th, & td": { fontSize: "11px !important", padding: "8px 10px", border: "1px solid", borderColor: "divider" },
+                            "& th, & td": { fontSize: "0.6875rem !important", padding: "8px 10px", border: "1px solid", borderColor: "divider" },
                             "& thead th": { backgroundColor: "#f6f7fb", color: "#1f2937", fontWeight: 700 },
                             "& tbody tr:nth-of-type(even)": { backgroundColor: "#fafafa" },
                             // Buttons (rare in view mode)
-                            "& .MuiButton-root": { fontSize: "11px", padding: "4px 8px" },
+                            "& .MuiButton-root": { fontSize: "0.6875rem", padding: "4px 8px" },
                           }
                         : {}),
                     }}
@@ -371,7 +371,7 @@ export default function Quotation1Template(props: Props) {
                               sx={{
                                 fontWeight: "bold",
                                 textAlign: "left",
-                                fontSize: "16px",
+                                fontSize: "1rem",
                                 mb: 0.5,
                                 letterSpacing: "0.5px",
                               }}

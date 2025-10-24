@@ -19,7 +19,7 @@ export default function DeliveryOrdersCard() {
     <Card sx={{ height: "100%", display: "flex", flexDirection: "column", backgroundColor: "white" }}>
       <CardContent sx={{ flexGrow: 1 }}>
         <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
-          <LocalShippingIcon sx={{ fontSize: 32, mr: 1, color: "warning.main" }} />
+          <LocalShippingIcon sx={{ fontSize: "2rem", mr: 1, color: "warning.main" }} />
           <Typography variant="h6" component="h2">
             Pending Invoice Creation
           </Typography>

@@ -22,7 +22,7 @@ export default function ViewCustomer() {
             sx={{
               width: 120,
               height: 120,
-              fontSize: 48,
+              fontSize: "3rem",
               bgcolor: "primary.main",
               color: "white",
             }}

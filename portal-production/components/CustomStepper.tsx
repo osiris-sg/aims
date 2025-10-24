@@ -20,7 +20,7 @@ const CustomStepIcon = (props: StepIconProps) => {
         color: completed ? "white" : active ? theme.palette.secondary.main : theme.palette.secondary.light,
       }}
     >
-      {completed ? <CheckIcon sx={{ fontSize: 18 }} /> : active ? "•" : ""}
+      {completed ? <CheckIcon sx={{ fontSize: "1.125rem" }} /> : active ? "•" : ""}
     </Box>
   );
 };

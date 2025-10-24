@@ -587,7 +587,7 @@ export default function TabbedDocumentCreator({
               <Grid item xs={12} md={6}>
                 <Card sx={{ height: "100%" }}>
                   <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
-                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25, fontSize: "0.8rem" }}>
+                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25 }}>
                       Customer Information
                     </Typography>
                     <Divider sx={{ mb: 0.5 }} />
@@ -620,10 +620,10 @@ export default function TabbedDocumentCreator({
                       {formData.customer.name && (
                         <Grid item xs={12}>
                           <Paper sx={{ p: 0.5, bgcolor: "grey.50" }}>
-                            <Typography variant="caption" fontWeight={500} sx={{ fontSize: "0.75rem" }}>
+                            <Typography variant="caption" fontWeight={500}>
                               {formData.customer.name}
                             </Typography>
-                            <Typography variant="caption" display="block" color="text.secondary" sx={{ fontSize: "0.7rem" }}>
+                            <Typography variant="caption" display="block" color="text.secondary">
                               {formData.customer.address}
                             </Typography>
                           </Paper>
@@ -638,7 +638,7 @@ export default function TabbedDocumentCreator({
               <Grid item xs={12} md={6}>
                 <Card sx={{ height: "100%" }}>
                   <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
-                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25, fontSize: "0.8rem" }}>
+                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25 }}>
                       Document Information
                     </Typography>
                     <Divider sx={{ mb: 0.5 }} />
@@ -800,7 +800,7 @@ export default function TabbedDocumentCreator({
               <Grid item xs={12}>
                 <Card>
                   <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
-                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25, fontSize: "0.8rem" }}>
+                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25 }}>
                       Additional Details
                     </Typography>
                     <Divider sx={{ mb: 0.5 }} />
@@ -1023,7 +1023,7 @@ export default function TabbedDocumentCreator({
                 <Grid item xs={12}>
                   <Card>
                     <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
-                      <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25, fontSize: "0.8rem" }}>
+                      <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25 }}>
                         {documentType === "RDO" ? "Return Information" : "Delivery Information"}
                       </Typography>
                       <Divider sx={{ mb: 0.5 }} />
@@ -1174,14 +1174,14 @@ export default function TabbedDocumentCreator({
           <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, display: "flex", flexDirection: "column" }}>
             <Card sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
               <CardContent sx={{ p: 1, flex: 1, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>
-                <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25, fontSize: "0.8rem" }}>
+                <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25 }}>
                   Items
                 </Typography>
                 <Divider />
 
                 {/* Items Sub-tabs */}
                 <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
-                  <Tabs value={itemsTabValue} onChange={handleItemsTabChange} sx={{ minHeight: 32, "& .MuiTab-root": { minHeight: 32, py: 0, fontSize: "0.875rem" } }}>
+                  <Tabs value={itemsTabValue} onChange={handleItemsTabChange} sx={{ minHeight: 32, "& .MuiTab-root": { minHeight: 32, py: 0 } }}>
                     <Tab label="Details" />
                     <Tab label="Footer" />
                   </Tabs>

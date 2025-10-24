@@ -210,7 +210,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
           }}
         >
           <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 1 }}>
-            <PersonIcon sx={{ color: "#1976d2", fontSize: 28 }} />
+            <PersonIcon sx={{ color: "#1976d2", fontSize: "1.75rem" }} />
             <Typography
               variant="h5"
               sx={{

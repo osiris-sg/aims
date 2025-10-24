@@ -219,7 +219,7 @@ export default function InvoiceTemplate(props: Props) {
                       maxWidth: "210mm", // A4 width
                       margin: "0 auto",
                       fontFamily: "'Arial', sans-serif",
-                      fontSize: "12px",
+                      fontSize: "0.75rem",
                       lineHeight: 1.3,
                       color: "#000",
                       "@media print": {
@@ -228,7 +228,7 @@ export default function InvoiceTemplate(props: Props) {
                         minHeight: "297mm",
                         maxWidth: "210mm",
                         boxShadow: "none",
-                        fontSize: "11px",
+                        fontSize: "0.6875rem",
                         lineHeight: 1.2,
                         pageBreakInside: "avoid",
                       },
@@ -254,22 +254,22 @@ export default function InvoiceTemplate(props: Props) {
                       {/* Right Side - Company Info */}
                       <Box sx={{ flex: "1 1 auto", textAlign: "right" }}>
                         {watch("company.name") && (
-                          <Typography variant="h6" sx={{ fontWeight: "bold", fontSize: "18px", mb: 0.5 }}>
+                          <Typography variant="h6" sx={{ fontWeight: "bold", fontSize: "1.125rem", mb: 0.5 }}>
                             {watch("company.name")}
                           </Typography>
                         )}
                         {watch("company.address") && (
-                          <Typography variant="body2" sx={{ fontSize: "12px", mb: 0.5 }}>
+                          <Typography variant="body2" sx={{ fontSize: "0.75rem", mb: 0.5 }}>
                             {watch("company.address")}
                           </Typography>
                         )}
                         {watch("company.phoneNumber") && (
-                          <Typography variant="body2" sx={{ fontSize: "12px", mb: 0.5 }}>
+                          <Typography variant="body2" sx={{ fontSize: "0.75rem", mb: 0.5 }}>
                             Tel: {watch("company.phoneNumber")}
                           </Typography>
                         )}
                         {watch("gstRegNo") && (
-                          <Typography variant="body2" sx={{ fontSize: "12px" }}>
+                          <Typography variant="body2" sx={{ fontSize: "0.75rem" }}>
                             Company & GST Reg No: {watch("gstRegNo")}
                           </Typography>
                         )}
@@ -301,7 +301,7 @@ export default function InvoiceTemplate(props: Props) {
                   {/* Invoice Title */}
                   {isViewMode ? (
                     <Box sx={{ textAlign: "center", my: 3 }}>
-                      <Typography variant="h4" sx={{ fontWeight: "bold", fontSize: "24px" }}>
+                      <Typography variant="h4" sx={{ fontWeight: "bold", fontSize: "1.5rem" }}>
                         {getDocumentTypeDisplayNameWithDefaults("TI", organization)}
                       </Typography>
                     </Box>
@@ -327,13 +327,13 @@ export default function InvoiceTemplate(props: Props) {
                         <Grid2 size={6}>
                           {customer && (
                             <Box>
-                              <Typography variant="body1" sx={{ fontWeight: "bold", mb: 0.5, fontSize: "13px" }}>
+                              <Typography variant="body1" sx={{ fontWeight: "bold", mb: 0.5, fontSize: "0.8125rem" }}>
                                 {customer.name}
                               </Typography>
-                              <Typography variant="body2" sx={{ fontSize: "11px", mb: 0.3 }}>
+                              <Typography variant="body2" sx={{ fontSize: "0.6875rem", mb: 0.3 }}>
                                 {customer.address}
                               </Typography>
-                              <Typography variant="body2" sx={{ fontSize: "11px", mb: 0.5 }}>
+                              <Typography variant="body2" sx={{ fontSize: "0.6875rem", mb: 0.5 }}>
                                 Attn: Accounts Dept.
                               </Typography>
                             </Box>
@@ -343,33 +343,33 @@ export default function InvoiceTemplate(props: Props) {
                         {/* Right Side - Invoice Details */}
                         <Grid2 size={6}>
                           <Box sx={{ textAlign: "right" }}>
-                            <Typography variant="body2" sx={{ fontSize: "11px", mb: 0.3 }}>
+                            <Typography variant="body2" sx={{ fontSize: "0.6875rem", mb: 0.3 }}>
                               <strong>Invoice Date</strong>
                             </Typography>
-                            <Typography variant="body2" sx={{ fontSize: "11px", mb: 0.8 }}>
+                            <Typography variant="body2" sx={{ fontSize: "0.6875rem", mb: 0.8 }}>
                               {watch("date") || new Date().toLocaleDateString("en-GB")}
                             </Typography>
 
-                            <Typography variant="body2" sx={{ fontSize: "11px", mb: 0.3 }}>
+                            <Typography variant="body2" sx={{ fontSize: "0.6875rem", mb: 0.3 }}>
                               <strong>Invoice Number</strong>
                             </Typography>
-                            <Typography variant="body2" sx={{ fontSize: "11px", mb: 0.8 }}>
+                            <Typography variant="body2" sx={{ fontSize: "0.6875rem", mb: 0.8 }}>
                               {watch("invoiceNumber") || `${getDocumentTypeDisplayNameWithDefaults("TI", organization)}${new Date().getFullYear()}${(new Date().getMonth() + 1).toString().padStart(2, "0")}1034`}
                             </Typography>
 
                             {watch("referenceNo") && (
                               <>
-                                <Typography variant="body2" sx={{ fontSize: "11px", mb: 0.3 }}>
+                                <Typography variant="body2" sx={{ fontSize: "0.6875rem", mb: 0.3 }}>
                                   <strong>Reference</strong>
                                 </Typography>
-                                <Typography variant="body2" sx={{ fontSize: "11px", mb: 0.8 }}>
+                                <Typography variant="body2" sx={{ fontSize: "0.6875rem", mb: 0.8 }}>
                                   {watch("referenceNo")}
                                 </Typography>
                               </>
                             )}
 
                             {watch("doNo") && (
-                              <Typography variant="body2" sx={{ fontSize: "11px" }}>
+                              <Typography variant="body2" sx={{ fontSize: "0.6875rem" }}>
                                 (DO{watch("doNo")} 2xAF100 1st mth)
                               </Typography>
                             )}
@@ -464,7 +464,7 @@ export default function InvoiceTemplate(props: Props) {
                         "& .MuiTable-root": {
                           border: "1px solid #000",
                           borderCollapse: "collapse",
-                          fontSize: "12px",
+                          fontSize: "0.75rem",
                           minWidth: "100%",
                           maxWidth: "100%",
                           tableLayout: "fixed",
@@ -475,7 +475,7 @@ export default function InvoiceTemplate(props: Props) {
                         "& .MuiTableCell-root": {
                           border: "1px solid #000",
                           padding: "8px 4px",
-                          fontSize: "12px",
+                          fontSize: "0.75rem",
                           lineHeight: 1.2,
                           verticalAlign: "top",
                           wordWrap: "break-word",
@@ -488,12 +488,12 @@ export default function InvoiceTemplate(props: Props) {
                         },
                         "@media print": {
                           "& .MuiTable-root": {
-                            fontSize: "10px",
+                            fontSize: "0.625rem",
                             pageBreakInside: "auto",
                           },
                           "& .MuiTableCell-root": {
                             padding: "4px 2px",
-                            fontSize: "10px",
+                            fontSize: "0.625rem",
                           },
                         },
                       }),
@@ -524,28 +524,28 @@ export default function InvoiceTemplate(props: Props) {
                         /* Professional Totals for View Mode */
                         <Box sx={{ minWidth: 250, maxWidth: 300 }}>
                           <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3, borderBottom: "1px solid #e0e0e0" }}>
-                            <Typography variant="body2" sx={{ fontSize: "11px" }}>
+                            <Typography variant="body2" sx={{ fontSize: "0.6875rem" }}>
                               Subtotal
                             </Typography>
-                            <Typography variant="body2" sx={{ fontSize: "11px" }}>
+                            <Typography variant="body2" sx={{ fontSize: "0.6875rem" }}>
                               {subtotal.toFixed(2)}
                             </Typography>
                           </Box>
                           <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3, borderBottom: "2px solid #000", mb: 0.5 }}>
-                            <Typography variant="body2" sx={{ fontSize: "10px", fontWeight: "bold", lineHeight: 1.2 }}>
+                            <Typography variant="body2" sx={{ fontSize: "0.625rem", fontWeight: "bold", lineHeight: 1.2 }}>
                               TOTAL LOCAL SUPPLY OF GOODS
                               <br />
                               AND SERVICES 9%
                             </Typography>
-                            <Typography variant="body2" sx={{ fontSize: "11px", fontWeight: "bold" }}>
+                            <Typography variant="body2" sx={{ fontSize: "0.6875rem", fontWeight: "bold" }}>
                               {totalTax.toFixed(2)}
                             </Typography>
                           </Box>
                           <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.5 }}>
-                            <Typography variant="body1" sx={{ fontSize: "12px", fontWeight: "bold" }}>
+                            <Typography variant="body1" sx={{ fontSize: "0.75rem", fontWeight: "bold" }}>
                               TOTAL SGD
                             </Typography>
-                            <Typography variant="body1" sx={{ fontSize: "12px", fontWeight: "bold" }}>
+                            <Typography variant="body1" sx={{ fontSize: "0.75rem", fontWeight: "bold" }}>
                               {total.toFixed(2)}
                             </Typography>
                           </Box>
@@ -590,39 +590,39 @@ export default function InvoiceTemplate(props: Props) {
                     /* Professional Footer for View Mode */
                     <Box sx={{ mt: 2 }}>
                       {/* Due Date */}
-                      <Typography variant="body1" sx={{ fontSize: "12px", fontWeight: "bold", mb: 1 }}>
+                      <Typography variant="body1" sx={{ fontSize: "0.75rem", fontWeight: "bold", mb: 1 }}>
                         Due Date: {watch("dueDate") || "30 Nov 2024"}
                       </Typography>
 
                       {/* Payment Instructions */}
-                      <Typography variant="body2" sx={{ fontSize: "10px", mb: 0.3, lineHeight: 1.3 }}>
+                      <Typography variant="body2" sx={{ fontSize: "0.625rem", mb: 0.3, lineHeight: 1.3 }}>
                         All Cheque should be crossed and made payable to: {watch("company.name") || "Your Company Name"}
                       </Typography>
-                      <Typography variant="body2" sx={{ fontSize: "10px", mb: 0.2, lineHeight: 1.3 }}>
+                      <Typography variant="body2" sx={{ fontSize: "0.625rem", mb: 0.2, lineHeight: 1.3 }}>
                         By Bank Transfer: Standard Chartered Bank
                       </Typography>
-                      <Typography variant="body2" sx={{ fontSize: "10px", mb: 0.2, lineHeight: 1.3 }}>
+                      <Typography variant="body2" sx={{ fontSize: "0.625rem", mb: 0.2, lineHeight: 1.3 }}>
                         Branch: 12 Marina Boulevard, Marina Bay Financial Centre Tower 1
                       </Typography>
-                      <Typography variant="body2" sx={{ fontSize: "10px", mb: 0.2, lineHeight: 1.3 }}>
+                      <Typography variant="body2" sx={{ fontSize: "0.625rem", mb: 0.2, lineHeight: 1.3 }}>
                         Bank Branch No.: 9496-007 Swift Code: SCBLSG22
                       </Typography>
-                      <Typography variant="body2" sx={{ fontSize: "10px", mb: 0.2, lineHeight: 1.3 }}>
+                      <Typography variant="body2" sx={{ fontSize: "0.625rem", mb: 0.2, lineHeight: 1.3 }}>
                         Bank Account No.: 07-1-005302-9
                       </Typography>
-                      <Typography variant="body2" sx={{ fontSize: "10px", mb: 1, lineHeight: 1.3 }}>
+                      <Typography variant="body2" sx={{ fontSize: "0.625rem", mb: 1, lineHeight: 1.3 }}>
                         PayNow to UEN: {watch("gstRegNo") || "200303416N"}
                       </Typography>
 
                       {/* Note */}
                       {watch("note") && (
-                        <Typography variant="body2" sx={{ fontSize: "10px", mb: 1, lineHeight: 1.3 }}>
+                        <Typography variant="body2" sx={{ fontSize: "0.625rem", mb: 1, lineHeight: 1.3 }}>
                           {watch("note")}
                         </Typography>
                       )}
 
                       {/* Computer Generated Notice */}
-                      <Typography variant="body2" sx={{ fontSize: "9px", fontStyle: "italic", textAlign: "center", mt: 2 }}>
+                      <Typography variant="body2" sx={{ fontSize: "0.5625rem", fontStyle: "italic", textAlign: "center", mt: 2 }}>
                         This is a computer-generated document, no signature is required
                       </Typography>
                     </Box>

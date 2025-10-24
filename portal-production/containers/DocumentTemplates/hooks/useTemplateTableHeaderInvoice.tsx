@@ -28,7 +28,7 @@ const AmountCell = ({ rowIndex, control }: { rowIndex: number; control: Control<
 
   const amount = (unitPrice * quantity * (1 + tax / 100)).toFixed(2);
 
-  return <div style={{ padding: "10px", fontSize: "14px", minHeight: "40px" }}>${amount}</div>;
+  return <div style={{ padding: "10px", fontSize: "0.875rem", minHeight: "40px" }}>${amount}</div>;
 };
 
 export default function useTemplateTableHeader(props: Props) {
@@ -130,11 +130,11 @@ export default function useTemplateTableHeader(props: Props) {
         minSize: 100,
         cell: ({ row }: { row: any }) => {
           if (xeroLoading) {
-            return <div style={{ padding: "10px", fontSize: "12px", color: "#666" }}>Loading accounts...</div>;
+            return <div style={{ padding: "10px", fontSize: "0.75rem", color: "#666" }}>Loading accounts...</div>;
           }
 
           if (xeroError || !isXeroConnected) {
-            return <div style={{ padding: "10px", fontSize: "12px", color: "#d32f2f" }}>Xero not connected</div>;
+            return <div style={{ padding: "10px", fontSize: "0.75rem", color: "#d32f2f" }}>Xero not connected</div>;
           }
 
           const accountMenuItems = Array.isArray(xeroAccounts)
@@ -145,7 +145,7 @@ export default function useTemplateTableHeader(props: Props) {
             : [];
 
           if (accountMenuItems.length === 0) {
-            return <div style={{ padding: "10px", fontSize: "12px", color: "#666" }}>No accounts available</div>;
+            return <div style={{ padding: "10px", fontSize: "0.75rem", color: "#666" }}>No accounts available</div>;
           }
 
           return (

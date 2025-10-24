@@ -111,7 +111,7 @@ export default function FormImage(props: Props) {
                       >
                         <ImageOutlinedIcon
                           sx={{
-                            fontSize: 60,
+                            fontSize: "3.75rem",
                             color: theme.palette.secondary.contrastText,
                           }}
                         />

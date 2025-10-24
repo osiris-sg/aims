@@ -282,7 +282,7 @@ export default function DocumentExtractionPage() {
 
                   {selectedFile ? (
                     <Stack alignItems="center" spacing={2}>
-                      <CheckCircle color="success" sx={{ fontSize: 48 }} />
+                      <CheckCircle color="success" sx={{ fontSize: "3rem" }} />
                       <Typography variant="body1">{selectedFile.name}</Typography>
                       <Typography variant="caption" color="text.secondary">
                         {(selectedFile.size / 1024).toFixed(2)} KB
@@ -290,7 +290,7 @@ export default function DocumentExtractionPage() {
                     </Stack>
                   ) : (
                     <Stack alignItems="center" spacing={2}>
-                      <CloudUpload sx={{ fontSize: 48, color: 'primary.main' }} />
+                      <CloudUpload sx={{ fontSize: "3rem", color: 'primary.main' }} />
                       <Typography variant="body1">
                         Drop your document here or click to browse
                       </Typography>
@@ -368,7 +368,7 @@ export default function DocumentExtractionPage() {
                     />
                   ) : (
                     <Stack alignItems="center" justifyContent="center" sx={{ minHeight: '300px' }}>
-                      <Description sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
+                      <Description sx={{ fontSize: "4rem", color: 'text.secondary', mb: 2 }} />
                       <Typography variant="h6" color="text.secondary">
                         PDF Document Selected
                       </Typography>

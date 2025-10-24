@@ -1,5 +1,4 @@
-import { Controller, Post, Body, Delete, Get, Param, Req, UseGuards, UploadedFile, UseInterceptors } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { Controller, Post, Body, Delete, Get, Param, Req, UseGuards } from '@nestjs/common';
 import { DocumentTemplatesService } from './documentTemplates.service';
 import { GetDocumentTemplateDto } from './dto/get-documentTemplate.dto';
 import { CreateDocumentTemplateDto } from './dto/create-documentTemplate.dto';
@@ -123,18 +122,4 @@ export class DocumentTemplatesController {
     return await this.documentTemplatesService.getMockDataForType(type);
   }
 
-  @Post('variants/:id/upload-excel')
-  @Permissions('documentTemplates:update')
-  @UseInterceptors(FileInterceptor('file'))
-  async uploadExcelTemplate(
-    @Param('id') id: string,
-    @UploadedFile() file: Express.Multer.File,
-    @Req() req: RequestWithOrganization,
-  ) {
-    const organizationId = req.userOrganization?.id;
-    if (!organizationId) {
-      throw new Error('User is not assigned to any organization');
-    }
-    return await this.documentTemplatesService.updateTemplateFromExcel(id, organizationId, file);
-  }
 }

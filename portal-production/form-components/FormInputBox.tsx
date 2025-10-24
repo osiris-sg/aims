@@ -50,7 +50,7 @@ export default function FormInputBox(props: Props) {
               required={required}
               sx={{
                 color: viewMode ? "text.primary" : "text.secondary",
-                ...(label === "Signature Text" && { fontSize: 12 }),
+                ...(label === "Signature Text" && { fontSize: "0.75rem" }),
               }}
             >
               {label}

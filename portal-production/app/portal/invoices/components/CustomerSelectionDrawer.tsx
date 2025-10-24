@@ -116,7 +116,7 @@ export default function CustomerSelectionDrawer({ open, onClose, onSelectCustome
                 color: "text.secondary",
               }}
             >
-              <PersonIcon sx={{ fontSize: 48, mb: 2, opacity: 0.5 }} />
+              <PersonIcon sx={{ fontSize: "3rem", mb: 2, opacity: 0.5 }} />
               <Typography variant="body1">{searchTerm ? "No customers found" : "No customers available"}</Typography>
               {searchTerm && (
                 <Typography variant="body2" sx={{ mt: 1 }}>

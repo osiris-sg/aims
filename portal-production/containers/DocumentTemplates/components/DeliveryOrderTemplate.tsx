@@ -350,7 +350,7 @@ export default function DeliveryOrderTemplate(props: Props) {
                         <Typography variant="body2" sx={{ fontWeight: "bold", mb: 1 }}>
                           Form Validation Errors:
                         </Typography>
-                        <pre style={{ fontSize: "12px", margin: 0, whiteSpace: "pre-wrap" }}>{JSON.stringify(errors, null, 2)}</pre>
+                        <pre style={{ fontSize: "0.75rem", margin: 0, whiteSpace: "pre-wrap" }}>{JSON.stringify(errors, null, 2)}</pre>
                       </Alert>
                     )}
 

@@ -280,7 +280,7 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
 
         <Grid container spacing={3}>
           <Grid item xs={12} md={4}>
-            <Avatar src={`${process.env.NEXT_PUBLIC_RESOURCE_URL}${asset.image}`} alt={asset.name.toString().slice(0, 2).toUpperCase() || "NA"} sx={{ width: 400, height: 300, fontSize: 32, maxWidth: "100%", maxHeight: "300px" }} variant="rounded" />
+            <Avatar src={`${process.env.NEXT_PUBLIC_RESOURCE_URL}${asset.image}`} alt={asset.name.toString().slice(0, 2).toUpperCase() || "NA"} sx={{ width: 400, height: 300, fontSize: "2rem", maxWidth: "100%", maxHeight: "300px" }} variant="rounded" />
           </Grid>
           <Grid item xs={12} md={4}>
             <Stack direction="column" gap={2}>

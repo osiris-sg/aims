@@ -597,7 +597,7 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
 
                         {photos.length === 0 ? (
                           <Box sx={{ textAlign: "center", py: 4, color: "text.secondary" }}>
-                            <CameraIcon sx={{ fontSize: 48, mb: 1, opacity: 0.5 }} />
+                            <CameraIcon sx={{ fontSize: "3rem", mb: 1, opacity: 0.5 }} />
                             <Typography>No photos captured yet</Typography>
                             <Typography variant="body2">Click &quot;Take Photo&quot; to start documenting</Typography>
                           </Box>
@@ -807,7 +807,7 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
                         <Typography variant="body2" sx={{ fontWeight: "bold", mb: 1 }}>
                           Form Validation Errors:
                         </Typography>
-                        <pre style={{ fontSize: "12px", margin: 0, whiteSpace: "pre-wrap" }}>{JSON.stringify(errors, null, 2)}</pre>
+                        <pre style={{ fontSize: "0.75rem", margin: 0, whiteSpace: "pre-wrap" }}>{JSON.stringify(errors, null, 2)}</pre>
                       </Alert>
                     )}
                   </Box>

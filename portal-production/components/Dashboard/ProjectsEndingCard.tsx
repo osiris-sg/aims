@@ -16,7 +16,7 @@ export default function ProjectsEndingCard() {
     <Card sx={{ height: "100%", display: "flex", flexDirection: "column", backgroundColor: "white" }}>
       <CardContent sx={{ flexGrow: 1 }}>
         <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
-          <AccountTreeIcon sx={{ fontSize: 32, mr: 1, color: "info.main" }} />
+          <AccountTreeIcon sx={{ fontSize: "2rem", mr: 1, color: "info.main" }} />
           <Typography variant="h6" component="h2">
             Projects Ending Soon
           </Typography>

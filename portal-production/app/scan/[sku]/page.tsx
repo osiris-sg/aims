@@ -204,7 +204,7 @@ export default function ScanInventory() {
                         width: "100%",
                         height: "auto",
                         minHeight: "60vh",
-                        fontSize: 32,
+                        fontSize: "2rem",
                       }}
                       variant="rounded"
                     />

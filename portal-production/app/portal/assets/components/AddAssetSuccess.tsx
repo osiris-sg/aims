@@ -39,7 +39,7 @@ export default function AddAssetSuccess() {
           mt: 0,
         }}
       >
-        {/* <CheckCircleIcon sx={{ fontSize: 80, color: "success.main" }} /> */}
+        {/* <CheckCircleIcon sx={{ fontSize: "5rem", color: "success.main" }} /> */}
 
         {/* <Stack spacing="var(--default-gap)" alignItems="center">
           <Typography variant="h4" sx={{ color: "text.secondary", textAlign: "center" }}>

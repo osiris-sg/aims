@@ -80,7 +80,7 @@ export default function DocumentCustomizer(props: Props) {
                         {g.label} ({g.columns.join(", ")})
                       </Typography>
                       <IconWrapper onClick={() => onRemoveGroup(g.id)}>
-                        <span style={{ fontSize: 12 }}>Remove</span>
+                        <span style={{ fontSize: "0.75rem" }}>Remove</span>
                       </IconWrapper>
                     </Stack>
                   ))}
@@ -188,7 +188,7 @@ function AddGroupForm({ availableColumns, onAddGroup }: { availableColumns?: str
           setCols("");
         }}
       >
-        <span style={{ fontSize: 12 }}>Add</span>
+        <span style={{ fontSize: "0.75rem" }}>Add</span>
       </IconWrapper>
     </Stack>
   );

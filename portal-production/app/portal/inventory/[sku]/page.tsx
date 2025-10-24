@@ -245,7 +245,7 @@ export default function ViewInventoryPage({ params }: { params: { sku: string } 
               <Avatar
                 src={inventory.asset?.image ? `${process.env.NEXT_PUBLIC_RESOURCE_URL}${inventory.asset.image}` : undefined}
                 alt={inventory.asset?.name ? inventory.asset.name.toString().slice(0, 2).toUpperCase() : "NA"}
-                sx={{ width: 400, height: 300, fontSize: 32, maxWidth: "100%", maxHeight: "300px" }}
+                sx={{ width: 400, height: 300, fontSize: "2rem", maxWidth: "100%", maxHeight: "300px" }}
                 variant="rounded"
               />
             )}

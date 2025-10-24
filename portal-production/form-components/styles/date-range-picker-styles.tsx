@@ -48,7 +48,7 @@ export const StyledDateRangePicker = styled(ImportedRangePicker)(({ theme }) => 
   },
   "& .rdrStaticRange": {
     //   borderBottom: `1px solid ${theme.palette.divider}`,
-    fontSize: "14px",
+    fontSize: "0.875rem",
     color: theme.palette.text.primary,
   },
   "& .rdrStaticRange:hover, .rdrStaticRange:focus": {

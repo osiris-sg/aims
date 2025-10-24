@@ -96,7 +96,6 @@ import { useRouter, useParams } from "next/navigation";
 import { request } from "@/helpers/request";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
-import { exportTemplateToExcel, parseExcelTemplate } from "@/helpers/excelTemplateHandler";
 import CleanDocumentPreview from "@/containers/DocumentTemplates/components/CleanDocumentPreview";
 
 // Icon mapping for Material-UI icons
@@ -143,7 +142,7 @@ const IconRenderer: React.FC<{ iconName?: string }> = ({ iconName }) => {
   if (!IconComponent) {
     return null;
   }
-  return <IconComponent sx={{ fontSize: 20 }} />;
+  return <IconComponent sx={{ fontSize: "1.25rem" }} />;
 };
 
 interface OrganizationModule {
@@ -232,9 +231,6 @@ export default function OrganizationDetailPage() {
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [previewTemplate, setPreviewTemplate] = useState<any>(null);
   const [mockData, setMockData] = useState<any>(null);
-  const [excelImportDialogOpen, setExcelImportDialogOpen] = useState(false);
-  const [selectedTemplateForImport, setSelectedTemplateForImport] = useState<string | null>(null);
-  const [excelFile, setExcelFile] = useState<File | null>(null);
 
   // Module management state
   const [addModuleDialogOpen, setAddModuleDialogOpen] = useState(false);
@@ -862,77 +858,6 @@ export default function OrganizationDetailPage() {
     }
   };
 
-  // ===== EXCEL TEMPLATE MANAGEMENT =====
-
-  const handleExportTemplateToExcel = (template: any) => {
-    try {
-      // Export the template to Excel using the document type
-      exportTemplateToExcel(template.type, template);
-      toast.success(`Template exported to Excel successfully`);
-    } catch (error) {
-      console.error("Error exporting template to Excel:", error);
-      toast.error("Failed to export template to Excel");
-    }
-  };
-
-  const handleImportExcelTemplate = (templateId: string) => {
-    setSelectedTemplateForImport(templateId);
-    setExcelFile(null);
-    setExcelImportDialogOpen(true);
-  };
-
-  const handleExcelFileUpload = async () => {
-    if (!excelFile || !selectedTemplateForImport) return;
-
-    try {
-      const token = await getToken();
-      if (!token) return;
-
-      const formData = new FormData();
-      formData.append("file", excelFile);
-
-      const apiUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || "http://localhost:4040";
-      const response = await fetch(
-        `${apiUrl}/documentTemplates/variants/${selectedTemplateForImport}/upload-excel`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "x-organization-id": organizationId,
-          },
-          body: formData,
-        }
-      );
-
-      if (response.ok) {
-        const result = await response.json();
-        toast.success("Template updated from Excel successfully");
-        setExcelImportDialogOpen(false);
-        setExcelFile(null);
-        // Refresh templates
-        handleManageTemplates(selectedDocType);
-      } else {
-        const errorText = await response.text();
-        console.error("Upload error response:", errorText);
-        let errorMessage = "Failed to upload Excel template";
-        try {
-          const errorJson = JSON.parse(errorText);
-          errorMessage = errorJson.message || errorMessage;
-        } catch (e) {
-          errorMessage = errorText || errorMessage;
-        }
-        toast.error(errorMessage);
-        console.error("Excel upload failed:", {
-          status: response.status,
-          statusText: response.statusText,
-          error: errorMessage
-        });
-      }
-    } catch (error) {
-      console.error("Error uploading Excel template:", error);
-      toast.error("Failed to upload Excel template");
-    }
-  };
 
   if (loading) {
     return (
@@ -1906,22 +1831,6 @@ export default function OrganizationDetailPage() {
                             >
                               Preview
                             </Button>
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              startIcon={<CloudDownload />}
-                              onClick={() => handleExportTemplateToExcel(template)}
-                            >
-                              Export Excel
-                            </Button>
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              startIcon={<CloudUpload />}
-                              onClick={() => handleImportExcelTemplate(template.id)}
-                            >
-                              Import Excel
-                            </Button>
                             {!template.isActive && (
                               <Button
                                 size="small"
@@ -2054,72 +1963,6 @@ export default function OrganizationDetailPage() {
         </DialogActions>
       </Dialog>
 
-      {/* EXCEL IMPORT DIALOG */}
-      <Dialog open={excelImportDialogOpen} onClose={() => setExcelImportDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>
-          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <Typography variant="h6">Import Excel Template</Typography>
-            <IconButton onClick={() => setExcelImportDialogOpen(false)} size="small">
-              <CancelIcon />
-            </IconButton>
-          </Box>
-        </DialogTitle>
-        <DialogContent>
-          <Alert severity="info" sx={{ mb: 2 }}>
-            Upload an Excel file with template placeholders like {`{{company_name}}`}, {`{{customer_name}}`}, etc.
-            The template will be converted and applied to the selected document type.
-          </Alert>
-
-          <Box sx={{ mt: 2 }}>
-            <Typography variant="body2" gutterBottom>
-              Select Excel file (.xlsx):
-            </Typography>
-            <TextField
-              type="file"
-              fullWidth
-              inputProps={{
-                accept: ".xlsx,.xls",
-                onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    setExcelFile(file);
-                  }
-                },
-              }}
-              sx={{ mt: 1 }}
-            />
-          </Box>
-
-          {excelFile && (
-            <Alert severity="success" sx={{ mt: 2 }}>
-              Selected file: {excelFile.name}
-            </Alert>
-          )}
-
-          <Box sx={{ mt: 3 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              Template Structure Guidelines:
-            </Typography>
-            <Typography variant="body2" component="ul" sx={{ pl: 2 }}>
-              <li>Use placeholders like {`{{field_name}}`} for dynamic content</li>
-              <li>The first worksheet will be used as the template</li>
-              <li>Formatting and layout will be preserved</li>
-              <li>Tables will be converted to HTML format</li>
-            </Typography>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setExcelImportDialogOpen(false)}>Cancel</Button>
-          <Button
-            onClick={handleExcelFileUpload}
-            variant="contained"
-            disabled={!excelFile}
-            startIcon={<CloudUpload />}
-          >
-            Upload & Apply
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 }

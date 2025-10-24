@@ -63,49 +63,46 @@ const theme = createTheme({
     },
   },
   typography: {
+    htmlFontSize: 12, // Default is 16px, increase this to make everything bigger (try 18 or 20)
+    // Remove fontSize overrides to let them scale with htmlFontSize
+    // MUI default scale: h1=6rem, h2=3.75rem, h3=3rem, h4=2.125rem, h5=1.5rem, h6=1.25rem, body1=1rem, body2=0.875rem
     h1: {
-      fontSize: "2rem",
       fontWeight: 700,
     },
     h2: {
-      fontSize: "1.8rem", // Custom size for h2
       fontWeight: 600,
     },
     h3: {
-      fontSize: "1.5rem", // Custom size for h3
       fontWeight: 500,
     },
     h4: {
-      fontSize: "1.25rem", // Custom size for h3
       fontWeight: 600,
     },
     h5: {
-      fontSize: "1rem", // Custom size for h3
       fontWeight: 500,
     },
     h6: {
-      fontSize: "0.8rem", // Custom size for h3
       fontWeight: 500,
     },
     body1: {
-      fontSize: "1rem", // Custom size for body1 (paragraph text)
+      // Will be 1rem = 18px with htmlFontSize: 18
     },
     body2: {
-      fontSize: "0.875rem", // Custom size for body2
       fontWeight: 300,
+      // Will be 0.875rem = 15.75px with htmlFontSize: 18
     },
     caption: {
-      fontSize: "0.75rem", // Custom size for captions
+      // Will be 0.75rem = 13.5px with htmlFontSize: 18
     },
   },
   components: {
     MuiListItemText: {
       styleOverrides: {
         primary: {
-          fontSize: "1rem", // Default font size for ListItem primary text
+          // Will scale with htmlFontSize automatically
         },
         secondary: {
-          fontSize: "0.8rem", // Default font size for ListItem secondary text
+          // Will scale with htmlFontSize automatically
         },
       },
     },
@@ -125,7 +122,7 @@ const theme = createTheme({
           borderRadius: "0.7rem",
           fontWeight: 400, // Custom button font weight
           textTransform: "capitalize",
-          fontSize: "1rem",
+          // fontSize removed to let it scale with htmlFontSize
           padding: "var(--half-padding) var(--large-padding)",
         },
       },

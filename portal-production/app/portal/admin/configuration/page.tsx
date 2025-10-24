@@ -140,7 +140,7 @@ const IconRenderer: React.FC<{ iconName?: string }> = ({ iconName }) => {
     console.warn(`Icon "${iconName}" not found in iconMap. Available icons:`, Object.keys(iconMap));
     return null;
   }
-  return <IconComponent sx={{ fontSize: 20 }} />;
+  return <IconComponent sx={{ fontSize: "1.25rem" }} />;
 };
 
 interface TabPanelProps {
