@@ -210,10 +210,10 @@ export default function InvoicesPage() {
         token
       );
       if (response.success) {
-        const tiDocs = response.data.filter((doc: any) => doc.documentType === "TI");
+        const invoiceDocs = response.data.filter((doc: any) => doc.documentType === "INVOICE");
         setDocuments({
-          docs: tiDocs,
-          totalDocs: tiDocs.length,
+          docs: invoiceDocs,
+          totalDocs: invoiceDocs.length,
           limit,
           totalPages: 1,
           page: 1,

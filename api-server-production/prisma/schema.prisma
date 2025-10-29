@@ -102,7 +102,8 @@ model Customer {
 model DocumentTemplate {
   id             String             @id @default(uuid()) @db.Uuid
   name           String?
-  type           String
+  type           String             // Document category: "INVOICE", "QUOTATION", "DELIVERY_ORDER", etc.
+  templateVariant String            @default("Default") // Template design variant: "TI", "TI2", "QO1", "Default", etc.
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
   config         Json?
@@ -121,6 +122,7 @@ model DocumentTemplate {
 
   @@index([organizationId, type, isActive])
   @@index([organizationId, type])
+  @@index([organizationId, type, templateVariant])
 }
 
 model AssetTemplateTag {

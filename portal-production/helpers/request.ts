@@ -39,7 +39,7 @@ export class RequestService {
     this.instance = axios.create();
   }
 
-  public sendRequest = async (_metadata: any, data: any, token?: string, isClientSide: boolean = true, formData: boolean = false) => {
+  public sendRequest = async (_metadata: any, data: any, token?: string, customHeaders?: any, isClientSide: boolean = true, formData: boolean = false) => {
     try {
       const metadata = { ..._metadata };
       const pathTokens = metadata.path.split("/:");
@@ -55,6 +55,11 @@ export class RequestService {
 
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      // Merge custom headers
+      if (customHeaders && typeof customHeaders === 'object') {
+        Object.assign(headers, customHeaders);
       }
       //TODO: This should be changed from the user subscription plan
       const url = `${process.env.NEXT_PUBLIC_BACKEND_API_URL}${metadata.path}`;

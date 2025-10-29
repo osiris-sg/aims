@@ -402,12 +402,12 @@ export default function TabbedDocumentCreator({
       baseFields.push({
         title: "Default Values",
         items: [
-          { label: "Company Name", name: "defaultValues.companyName", type: "textarea" },
-          { label: "Company Address", name: "defaultValues.companyAddress", type: "textarea" },
-          { label: "GST Reg No", name: "defaultValues.gstRegNo", type: "textarea" },
-          { label: "Note", name: "defaultValues.note", type: "textarea" },
-          ...(documentType === "TI" || documentType === "QO1" ? [{ label: "Terms & Conditions", name: "defaultValues.termsAndConditions", type: "textarea" }] : []),
-          ...(documentType === "TI" ? [{ label: "Bank Details", name: "defaultValues.bankDetails", type: "textarea" }] : []),
+          { label: "Company Name", name: "defaultValues.companyName" },
+          { label: "Company Address", name: "defaultValues.companyAddress" },
+          { label: "GST Reg No", name: "defaultValues.gstRegNo" },
+          { label: "Note", name: "defaultValues.note" },
+          ...(documentType === "TI" || documentType === "QO1" ? [{ label: "Terms & Conditions", name: "defaultValues.termsAndConditions" }] : []),
+          ...(documentType === "TI" ? [{ label: "Bank Details", name: "defaultValues.bankDetails" }] : []),
         ],
       });
     }
@@ -1195,7 +1195,7 @@ export default function TabbedDocumentCreator({
                         <TableHead>
                           <TableRow>
                             {/* Render columns based on configuration */}
-                            {(isTemplateEditMode ? templateWatch("tableColumnOrder") : ["item", "description", "quantity", "unitPrice", "tax", "amount"]).map((columnId) => {
+                            {(isTemplateEditMode ? templateWatch("tableColumnOrder") : ["item", "description", "quantity", "unitPrice", "tax", "amount"]).map((columnId: string) => {
                               const isVisible = isTemplateEditMode ? templateWatch(`tableHeaders.${columnId}`) : true;
                               const label = isTemplateEditMode ? templateWatch(`columnLabels.${columnId}`) || columnId :
                                 columnId === "item" ? "Item" :
@@ -1223,7 +1223,7 @@ export default function TabbedDocumentCreator({
                           {items.map((item: any, index: number) => (
                             <TableRow key={item.id}>
                               {/* Render cells based on configuration */}
-                              {(isTemplateEditMode ? templateWatch("tableColumnOrder") : ["item", "description", "quantity", "unitPrice", "tax", "amount"]).map((columnId) => {
+                              {(isTemplateEditMode ? templateWatch("tableColumnOrder") : ["item", "description", "quantity", "unitPrice", "tax", "amount"]).map((columnId: string) => {
                                 const isVisible = isTemplateEditMode ? templateWatch(`tableHeaders.${columnId}`) : true;
                                 if (!isVisible) return null;
 

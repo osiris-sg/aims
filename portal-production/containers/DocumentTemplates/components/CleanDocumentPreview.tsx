@@ -3,6 +3,11 @@
 import React from "react";
 import { Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from "@mui/material";
 
+// Font handling:
+// - Using Carlito from Google Fonts (open-source, metric-compatible with Calibri)
+// - Fallback chain: Carlito → Calibri (if installed) → Arial → sans-serif
+// - Carlito is loaded via Next.js font optimization and available via --font-carlito CSS variable
+
 interface CleanDocumentPreviewProps {
   documentType: "QO1" | "DO" | "RDO" | "TI" | "TI2" | "MSR";
   data: any;
@@ -48,7 +53,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           margin: "0 auto",
           p: "20mm",
           backgroundColor: "white",
-          fontFamily: "'Arial', sans-serif",
+          fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
           fontSize: "0.75rem",
           lineHeight: 1.6,
           color: "#000",
@@ -353,7 +358,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           margin: "0 auto",
           p: "20mm",
           backgroundColor: "white",
-          fontFamily: "'Arial', sans-serif",
+          fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
           fontSize: "0.75rem",
           lineHeight: 1.6,
           color: "#000",
@@ -671,7 +676,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         margin: "0 auto",
         p: "15mm",
         backgroundColor: "white",
-        fontFamily: "'Arial', sans-serif",
+        fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
         fontSize: "0.75rem",
         lineHeight: 1.4,
         color: "#000",

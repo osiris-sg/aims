@@ -96,6 +96,7 @@ export default function page() {
   const handleSave = async (data: any) => {
     try {
       const token = await getToken();
+      if (!token) return;
 
       // Format data according to UpdateDocumentDto structure
       const updatePayload = {

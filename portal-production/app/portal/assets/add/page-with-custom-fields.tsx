@@ -135,12 +135,13 @@ export default function AddAssetPageWithCustomFields() {
           control={control}
           name="categoryId"
           label="Category"
-          options={[
+          menuItems={[
             // This should be fetched from API
             { value: "cat1", label: "Category 1" },
             { value: "cat2", label: "Category 2" },
           ]}
-          rules={{ required: "Category is required" }}
+          menuTitle="Category"
+          required
         />
       </Grid>
       <Grid item xs={12} md={6}>
@@ -158,8 +159,6 @@ export default function AddAssetPageWithCustomFields() {
           name="description"
           label="Description"
           placeHolder="Enter description"
-          multiline
-          rows={3}
         />
       </Grid>
       <Grid item xs={12} md={6}>
@@ -167,11 +166,12 @@ export default function AddAssetPageWithCustomFields() {
           control={control}
           name="parentAssetId"
           label="Parent Asset (Optional)"
-          options={[
+          menuItems={[
             // This should be fetched from API
             { value: "", label: "None" },
             { value: "parent1", label: "Parent Asset 1" },
           ]}
+          menuTitle="Parent Asset"
         />
       </Grid>
       <Grid item xs={12}>

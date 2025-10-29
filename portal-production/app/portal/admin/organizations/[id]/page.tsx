@@ -138,7 +138,7 @@ const availableIcons = Object.keys(iconMap).sort();
 // Component to render an icon
 const IconRenderer: React.FC<{ iconName?: string }> = ({ iconName }) => {
   if (!iconName) return null;
-  const IconComponent = iconMap[iconName];
+  const IconComponent = iconMap[iconName] as React.ComponentType<{ sx?: any }>;
   if (!IconComponent) {
     return null;
   }
@@ -189,11 +189,11 @@ const DEFAULT_MODULES = [
 ];
 
 const DEFAULT_DOCUMENT_TYPES = [
-  { code: "QO1", name: "Quotation", description: "Quotation template" },
-  { code: "DO", name: "Delivery Order", description: "Document for delivery tracking" },
-  { code: "RDO", name: "Return Delivery Order", description: "Document for return deliveries" },
-  { code: "TI", name: "Tax Invoice", description: "Invoice with tax details" },
-  { code: "MSR", name: "Maintenance Service Report", description: "Service and maintenance reports" },
+  { code: "QUOTATION", name: "Quotation", description: "Quotation template", variants: ["QO1", "QO2"] },
+  { code: "DELIVERY_ORDER", name: "Delivery Order", description: "Document for delivery tracking", variants: ["DO"] },
+  { code: "RETURN_DELIVERY_ORDER", name: "Return Delivery Order", description: "Document for return deliveries", variants: ["RDO"] },
+  { code: "INVOICE", name: "Tax Invoice", description: "Invoice with tax details", variants: ["TI", "TI2"] },
+  { code: "MAINTENANCE_SERVICE_REPORT", name: "Maintenance Service Report", description: "Service and maintenance reports", variants: ["MSR"] },
 ];
 
 interface TabPanelProps {
@@ -419,6 +419,7 @@ export default function OrganizationDetailPage() {
           // This ensures existing organizations get all types enabled automatically
           try {
             const token = await getToken();
+            if (!token) return;
             await request(
               { path: `/admin/organizations/${organizationId}/document-types`, method: "PUT" },
               { customDocumentTypes: allTypes },
@@ -440,6 +441,7 @@ export default function OrganizationDetailPage() {
   const fetchConfigurationData = async () => {
     try {
       const token = await getToken();
+      if (!token) return;
 
       // Fetch custom fields
       const customFieldsResponse = await request(
@@ -500,6 +502,7 @@ export default function OrganizationDetailPage() {
   const handleModuleToggle = async (module: OrganizationModule) => {
     try {
       const token = await getToken();
+      if (!token) return;
 
       const response = await request(
         {
@@ -535,6 +538,7 @@ export default function OrganizationDetailPage() {
   const handleSaveModule = async () => {
     try {
       const token = await getToken();
+      if (!token) return;
 
       if (editingModule) {
         // Update existing module
@@ -593,6 +597,7 @@ export default function OrganizationDetailPage() {
   const handleInitializeModules = async () => {
     try {
       const token = await getToken();
+      if (!token) return;
 
       const response = await request(
         {
@@ -617,6 +622,8 @@ export default function OrganizationDetailPage() {
   const handleSaveCustomField = async () => {
     try {
       const token = await getToken();
+      if (!token) return;
+
       const url = editingField
         ? `/configuration/custom-fields/${editingField.id}`
         : `/configuration/custom-fields`;
@@ -646,6 +653,8 @@ export default function OrganizationDetailPage() {
 
     try {
       const token = await getToken();
+      if (!token) return;
+
       const response = await request(
         { path: `/configuration/custom-fields/${fieldId}`, method: "DELETE" },
         {},
@@ -679,6 +688,8 @@ export default function OrganizationDetailPage() {
   const handleSaveDocumentTypes = async () => {
     try {
       const token = await getToken();
+      if (!token) return;
+
       const response = await request(
         { path: `/admin/organizations/${organizationId}/document-types`, method: "PUT" },
         { customDocumentTypes: enabledDocumentTypes },
@@ -701,6 +712,8 @@ export default function OrganizationDetailPage() {
   const handleSaveUIConfig = async () => {
     try {
       const token = await getToken();
+      if (!token) return;
+
       const response = await request(
         { path: `/configuration/ui`, method: "PUT" },
         uiConfigForm,
@@ -732,10 +745,10 @@ export default function OrganizationDetailPage() {
 
   // ===== TEMPLATE MANAGEMENT =====
 
-  const fetchTemplateCountsForType = async (type: string) => {
+  const fetchTemplateCountsForType = async (type: string): Promise<{ total: number; active: boolean }> => {
     try {
       const token = await getToken();
-      if (!token) return;
+      if (!token) return { total: 0, active: false };
 
       const response = await request(
         { path: `/documentTemplates/variants/${type}`, method: "GET" },
@@ -797,8 +810,14 @@ export default function OrganizationDetailPage() {
         token
       );
 
+      console.log('📋 Templates API Response:', templatesResponse);
+      console.log('📋 Response data:', templatesResponse.data);
+      console.log('📋 Response type:', typeof templatesResponse);
+
       if (templatesResponse.success !== false) {
         const fetchedTemplates = templatesResponse.data || templatesResponse || [];
+        console.log('📋 Fetched templates array:', fetchedTemplates);
+        console.log('📋 Templates count:', fetchedTemplates.length);
 
         // If no templates exist, create a default one
         if (fetchedTemplates.length === 0) {
@@ -1811,9 +1830,16 @@ export default function OrganizationDetailPage() {
                               {template.isActive ? <CheckCircleIcon /> : <RadioButtonUncheckedIcon />}
                             </IconButton>
                             <Box sx={{ flex: 1 }}>
-                              <Typography variant="subtitle1" fontWeight={500}>
-                                {template.designName || "Default Design"}
-                              </Typography>
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                                <Typography variant="subtitle1" fontWeight={500}>
+                                  {template.templateVariant || template.designName || "Default"}
+                                </Typography>
+                                <Chip
+                                  label={template.designName || "Default"}
+                                  size="small"
+                                  variant="outlined"
+                                />
+                              </Box>
                               {template.description && (
                                 <Typography variant="body2" color="text.secondary">
                                   {template.description}
@@ -1938,7 +1964,7 @@ export default function OrganizationDetailPage() {
                 ) : (
                   // Fall back to default preview component
                   <CleanDocumentPreview
-                    documentType={selectedDocType as "QO1" | "DO" | "RDO" | "TI" | "MSR"}
+                    documentType={(previewTemplate.templateVariant || previewTemplate.designName) as "QO1" | "DO" | "RDO" | "TI" | "TI2" | "MSR"}
                     data={mockData}
                     organization={organization}
                   />

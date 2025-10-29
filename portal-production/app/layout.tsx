@@ -1,6 +1,6 @@
 // "use client";
 import type { Metadata } from "next";
-import { Roboto } from "next/font/google";
+import { Roboto, Carlito } from "next/font/google";
 import "./globals.css";
 import { AppRouterCacheProvider } from "@mui/material-nextjs/v15-appRouter";
 import { CssBaseline, ThemeProvider } from "@mui/material";
@@ -16,6 +16,15 @@ const roboto = Roboto({
   subsets: ["latin"],
   display: "swap",
   variable: "--font-roboto",
+});
+
+// Carlito is an open-source, metric-compatible alternative to Calibri
+// It's available via Google Fonts and will work reliably on Vercel and all browsers
+const carlito = Carlito({
+  weight: ["400", "700"],
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-carlito",
 });
 
 export const metadata: Metadata = {
@@ -35,7 +44,7 @@ export default function RootLayout({
         <Head>
           <link rel="icon" href="/favicon.png" type="image/png" />
         </Head>
-        <body className={`${roboto.variable} ROOT_LAYOUT`}>
+        <body className={`${roboto.variable} ${carlito.variable} ROOT_LAYOUT`}>
           <ReduxProvider>
             <AppRouterCacheProvider>
               <ThemeProvider theme={theme}>

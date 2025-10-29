@@ -135,7 +135,7 @@ const availableIcons = Object.keys(iconMap).sort();
 const IconRenderer: React.FC<{ iconName?: string }> = ({ iconName }) => {
   console.log('Rendering icon:', iconName, 'Available in map:', iconName ? iconMap[iconName] !== undefined : false);
   if (!iconName) return null;
-  const IconComponent = iconMap[iconName];
+  const IconComponent = iconMap[iconName] as React.ComponentType<{ sx?: any }>;
   if (!IconComponent) {
     console.warn(`Icon "${iconName}" not found in iconMap. Available icons:`, Object.keys(iconMap));
     return null;
@@ -181,7 +181,18 @@ export default function ConfigurationAdminPage() {
   const [fieldDialogOpen, setFieldDialogOpen] = useState(false);
   const [editingField, setEditingField] = useState<any>(null);
   const [selectedEntityType, setSelectedEntityType] = useState("Asset");
-  const [fieldForm, setFieldForm] = useState({
+  const [fieldForm, setFieldForm] = useState<{
+    entityType: string;
+    fieldName: string;
+    displayLabel: string;
+    fieldType: string;
+    required: boolean;
+    showInList: boolean;
+    showInForm: boolean;
+    groupName: string;
+    options: { value: string; label: string }[];
+    validation: any;
+  }>({
     entityType: "Asset",
     fieldName: "",
     displayLabel: "",
@@ -474,7 +485,14 @@ export default function ConfigurationAdminPage() {
                         size="small"
                         onClick={() => {
                           setEditingModule(module);
-                          setModuleForm(module);
+                          setModuleForm({
+                            moduleCode: module.moduleCode,
+                            displayName: module.displayName || "",
+                            icon: module.icon || "",
+                            enabled: module.enabled,
+                            sortOrder: module.sortOrder || 0,
+                            config: module.config || {},
+                          });
                           setModuleDialogOpen(true);
                         }}
                       >
@@ -560,7 +578,18 @@ export default function ConfigurationAdminPage() {
                         size="small"
                         onClick={() => {
                           setEditingField(field);
-                          setFieldForm(field);
+                          setFieldForm({
+                            entityType: field.entityType,
+                            fieldName: field.fieldName,
+                            displayLabel: field.displayLabel,
+                            fieldType: field.fieldType,
+                            required: field.required,
+                            showInList: field.showInList,
+                            showInForm: field.showInForm,
+                            groupName: field.groupName || "Additional Information",
+                            options: field.options || [],
+                            validation: field.validation || {},
+                          });
                           setFieldDialogOpen(true);
                         }}
                       >
@@ -812,7 +841,7 @@ export default function ConfigurationAdminPage() {
             renderInput={(params) => <TextField {...params} label="Icon" />}
             renderOption={(props, option) => (
               <Box component="li" {...props} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                {renderIcon(option)}
+                <IconRenderer iconName={option} />
                 <Typography>{option}</Typography>
               </Box>
             )}

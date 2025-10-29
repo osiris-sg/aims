@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Delete, Get, Param, Req, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, Delete, Get, Param, Req, UseGuards, Headers } from '@nestjs/common';
 import { DocumentTemplatesService } from './documentTemplates.service';
 import { GetDocumentTemplateDto } from './dto/get-documentTemplate.dto';
 import { CreateDocumentTemplateDto } from './dto/create-documentTemplate.dto';
@@ -84,8 +84,9 @@ export class DocumentTemplatesController {
   // Template Variants Management
   @Get('variants/:type')
   @Permissions('documentTemplates:read')
-  async getTemplateVariantsByType(@Param('type') type: string, @Req() req: RequestWithOrganization) {
-    const organizationId = req.userOrganization?.id;
+  async getTemplateVariantsByType(@Param('type') type: string, @Req() req: RequestWithOrganization, @Headers('x-organization-id') headerOrgId?: string) {
+    // For admin panel, use the header org ID if provided, otherwise use user's org
+    const organizationId = headerOrgId || req.userOrganization?.id;
     if (!organizationId) {
       throw new Error('User is not assigned to any organization');
     }
@@ -94,8 +95,9 @@ export class DocumentTemplatesController {
 
   @Post('variants/:id/activate')
   @Permissions('documentTemplates:update')
-  async activateTemplateVariant(@Param('id') id: string, @Req() req: RequestWithOrganization) {
-    const organizationId = req.userOrganization?.id;
+  async activateTemplateVariant(@Param('id') id: string, @Req() req: RequestWithOrganization, @Headers('x-organization-id') headerOrgId?: string) {
+    // For admin panel, use the header org ID if provided, otherwise use user's org
+    const organizationId = headerOrgId || req.userOrganization?.id;
     if (!organizationId) {
       throw new Error('User is not assigned to any organization');
     }
