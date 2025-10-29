@@ -48,12 +48,15 @@ import {
 } from "@mui/icons-material";
 import CleanDocumentPreview from "./CleanDocumentPreview";
 import DocumentCustomizer from "./DocumentCustomizer";
+import DynamicFormFields from "./DynamicFormFields";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
 import { useForm, Controller } from "react-hook-form";
 import { usePathname, useRouter } from "next/navigation";
 import { usePastDescriptions } from "../hooks/usePastDescriptions";
+import { getTemplateFormFields } from "../utils/templateFieldSync";
+import { TemplateFieldConfig } from "../config/templateFieldDefinitions";
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -124,6 +127,10 @@ export default function TabbedDocumentCreator({
 
   // Back button confirmation dialog
   const [backConfirmDialogOpen, setBackConfirmDialogOpen] = useState(false);
+
+  // Dynamic form field configuration
+  const [templateFieldConfig, setTemplateFieldConfig] = useState<TemplateFieldConfig | null>(null);
+  const [isLoadingFieldConfig, setIsLoadingFieldConfig] = useState(true);
 
   const { getToken } = useAuth();
 
@@ -239,6 +246,38 @@ export default function TabbedDocumentCreator({
     agreementText: existingData?.agreementText || "",
     title: existingData?.title || "",
   });
+
+  // Load template field configuration
+  useEffect(() => {
+    async function loadTemplateFields() {
+      try {
+        setIsLoadingFieldConfig(true);
+        const token = await getToken();
+        if (!token) {
+          setIsLoadingFieldConfig(false);
+          return;
+        }
+
+        // Get field configuration for this template variant
+        // Pass documentType as the template variant
+        const config = await getTemplateFormFields(
+          documentType,  // template variant (TI, TI2, DO, etc.)
+          undefined,      // template ID (not available yet)
+          token
+        );
+
+        console.log('Loaded template field config:', config);
+        setTemplateFieldConfig(config);
+      } catch (error) {
+        console.error('Error loading template fields:', error);
+        toast.error('Failed to load template configuration');
+      } finally {
+        setIsLoadingFieldConfig(false);
+      }
+    }
+
+    loadTemplateFields();
+  }, [documentType, documentId, getToken]);
 
   // Items management
   const [items, setItems] = useState(existingData?.items || []);
@@ -569,18 +608,52 @@ export default function TabbedDocumentCreator({
               </IconButton>
             )}
 
-            {/* Main Tabs */}
+            {/* Main Tabs - Dynamic rendering based on template config */}
             <Box sx={{ borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-              <Tabs value={mainTabValue} onChange={handleMainTabChange} sx={{ minHeight: 36, "& .MuiTab-root": { minHeight: 36, py: 0 } }}>
-                <Tab label="General" />
-                <Tab label="Details" />
-                {(documentType === "DO" || documentType === "RDO" || documentType === "QO1") && (
-                  <Tab label={documentType === "RDO" ? "Return Info" : "Delivery Address"} />
-                )}
-              </Tabs>
+              {isLoadingFieldConfig ? (
+                <Box sx={{ p: 2, textAlign: 'center' }}>
+                  <CircularProgress size={20} />
+                </Box>
+              ) : (
+                <Tabs value={mainTabValue} onChange={handleMainTabChange} sx={{ minHeight: 36, "& .MuiTab-root": { minHeight: 36, py: 0 } }}>
+                  {templateFieldConfig?.tabs.map((tab) => (
+                    <Tab key={tab.tabId} label={tab.tabLabel} />
+                  ))}
+                  {/* Items tab - always present */}
+                  <Tab label="Items" />
+                  {/* Legacy delivery address tab for specific document types */}
+                  {(documentType === "DO" || documentType === "RDO" || documentType === "QO1") && (
+                    <Tab label={documentType === "RDO" ? "Return Info" : "Delivery Address"} />
+                  )}
+                </Tabs>
+              )}
             </Box>
 
-          {/* GENERAL TAB */}
+          {/* Dynamic Tabs based on template config */}
+          {templateFieldConfig?.tabs.map((tab, index) => (
+            <TabPanel key={tab.tabId} value={mainTabValue} index={index}>
+              <Card>
+                <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
+                  <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25 }}>
+                    {tab.tabLabel}
+                  </Typography>
+                  <Divider sx={{ mb: 0.5 }} />
+                  <DynamicFormFields
+                    fields={tab.fields}
+                    formData={formData}
+                    setFormData={setFormData}
+                    customers={customers}
+                    projects={projects}
+                    deliveryOrders={deliveryOrders}
+                    siteOffices={siteOffices}
+                  />
+                </CardContent>
+              </Card>
+            </TabPanel>
+          ))}
+
+          {/* LEGACY: Keep old GENERAL TAB for backwards compatibility */}
+          {!templateFieldConfig && (
           <TabPanel value={mainTabValue} index={0}>
             <Grid container spacing={0.5}>
               {/* Customer and Document Information in a single row */}
@@ -793,8 +866,10 @@ export default function TabbedDocumentCreator({
               </Grid>
             </Grid>
           </TabPanel>
+          )}
 
-          {/* DETAILS TAB */}
+          {/* LEGACY: DETAILS TAB */}
+          {!templateFieldConfig && (
           <TabPanel value={mainTabValue} index={1}>
             <Grid container spacing={0.5}>
               <Grid item xs={12}>
@@ -1014,6 +1089,12 @@ export default function TabbedDocumentCreator({
                 </Card>
               </Grid>
             </Grid>
+          </TabPanel>
+          )}
+
+          {/* ITEMS TAB - Always present after dynamic tabs */}
+          <TabPanel value={mainTabValue} index={templateFieldConfig ? templateFieldConfig.tabs.length : 2}>
+            {/* Items tab content will be here */}
           </TabPanel>
 
           {/* DELIVERY ADDRESS TAB - Only for DO, RDO, and QO1 */}
