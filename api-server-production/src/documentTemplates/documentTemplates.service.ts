@@ -312,6 +312,8 @@ export class DocumentTemplatesService {
         customer: {
           name: 'ABC Corporation',
           address: '456 Client Avenue, Singapore 654321',
+          phone: '+65 6542 2242',
+          gstRegNo: '200809146E',
         },
         documentInfo: {
           date: new Date().toISOString().split('T')[0],

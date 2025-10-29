@@ -393,29 +393,34 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         </Box>
 
         {/* Customer and Invoice Details Section */}
-        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
+        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1, alignItems: "flex-end" }}>
           {/* Left - TO Section */}
           <Box sx={{ width: "45%" }}>
-            <Typography sx={{ fontSize: "10px", fontWeight: 600, mb: 0.5 }}>
-              TO
-            </Typography>
-            <Typography sx={{ fontSize: "10px", fontWeight: 600, mb: 0.3 }}>
-              {data.customer?.name || ""}
-            </Typography>
-            <Typography sx={{ fontSize: "9px", whiteSpace: "pre-line" }}>
-              {data.customer?.address || ""}
-            </Typography>
-            {data.customer?.contact && (
-              <>
-                <Typography sx={{ fontSize: "9px", mt: 0.5 }}>
-                  TEL: {data.customer.contact}
+            <Box sx={{ display: "flex", mb: 2 }}>
+              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, minWidth: "35px" }}>TO</Typography>
+              <Typography sx={{ fontSize: "0.75rem", mx: 0.5 }}>:</Typography>
+              <Box sx={{ flex: 1 }}>
+                <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.3 }}>
+                  {data.customer?.name || ""}
                 </Typography>
-              </>
+                <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
+                  {data.customer?.address || ""}
+                </Typography>
+              </Box>
+            </Box>
+            {data.customer?.phone && (
+              <Box sx={{ display: "flex" }}>
+                <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, minWidth: "35px" }}>TEL</Typography>
+                <Typography sx={{ fontSize: "0.75rem", mx: 0.5 }}>:</Typography>
+                <Typography sx={{ fontSize: "0.75rem", flex: 1 }}>
+                  {data.customer.phone}
+                </Typography>
+              </Box>
             )}
           </Box>
 
           {/* Right - Invoice Details with Tax Invoice Title */}
-          <Box sx={{ width: "45%", display: "flex", justifyContent: "flex-end" }}>
+          <Box sx={{ width: "45%", display: "flex", justifyContent: "flex-end", pl: 4 }}>
             <Box sx={{ lineHeight: 1.4 }}>
             {/* Tax Invoice Title */}
             <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 1 }}>
