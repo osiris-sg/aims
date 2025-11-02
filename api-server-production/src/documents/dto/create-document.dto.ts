@@ -6,9 +6,5 @@ export class CreateDocumentDto {
 
   @IsUUID()
   @IsOptional()
-  inventoryId: string;
-
-  @IsUUID()
-  @IsOptional()
   documentTemplateId: string;
 }

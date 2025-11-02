@@ -77,7 +77,6 @@ model Inventory {
   status         InventoryStatus
   organizationId String
   assignments    Assignment[]
-  documents      Document[]
   asset          Asset           @relation(fields: [assetId], references: [id])
   organization   Organization    @relation(fields: [organizationId], references: [id])
   timelineItems  TimelineItem[]
@@ -93,7 +92,6 @@ model Customer {
   updatedAt      DateTime     @updatedAt
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
-  documents      Document[]
   siteOffices    SiteOffice[]
 
   @@unique([email, organizationId])
@@ -152,23 +150,18 @@ model Document {
   id                 String         @id @default(uuid()) @db.Uuid
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
-  config             Json
+  config             Json           // All form data stored here (customer, items, etc.)
   documentTemplateId String
-  type               String
-  customerId         String?        @db.Uuid
-  inventoryId        String?        @db.Uuid
-  projectId          String?        @db.Uuid
+  type               String         // Document type: INVOICE, QUOTATION, etc.
   organizationId     String
-  name               String?
+  name               String?        // Document number/identifier
   status             DocumentStatus @default(draft)
-  // Revision fields
+
+  // Revision fields for document versioning
   baseDocumentId     String?        @db.Uuid
   revisionNumber     Int?           @default(0)
 
-  customer           Customer?      @relation(fields: [customerId], references: [id])
-  inventory          Inventory?     @relation(fields: [inventoryId], references: [id])
   organization       Organization   @relation(fields: [organizationId], references: [id])
-  project            Project?       @relation(fields: [projectId], references: [id])
   timelineItems      TimelineItem[]
 
   // Self-relation for revisions: base document -> many revisions
@@ -246,7 +239,6 @@ model Project {
   status         ProjectStatus @default(pending)
   siteOfficeId   String?       @db.Uuid
   assignments    Assignment[]
-  documents      Document[]
   organization   Organization? @relation(fields: [organizationId], references: [id])
   siteOffice     SiteOffice?   @relation("SiteOfficeProjects", fields: [siteOfficeId], references: [id])
 }

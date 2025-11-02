@@ -61,7 +61,6 @@ export class AdminService {
           select: { id: true, name: true },
         },
         asset: true,
-        documents: true,
         timelineItems: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -76,7 +75,6 @@ export class AdminService {
           select: { id: true, name: true },
         },
         asset: true,
-        documents: true,
         timelineItems: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -91,7 +89,6 @@ export class AdminService {
           select: { id: true, name: true },
         },
         asset: true,
-        documents: true,
         timelineItems: true,
       },
     });
@@ -105,7 +102,6 @@ export class AdminService {
         organization: {
           select: { id: true, name: true },
         },
-        documents: true,
         siteOffices: {
           include: {
             projects: true,
@@ -123,7 +119,6 @@ export class AdminService {
         organization: {
           select: { id: true, name: true },
         },
-        documents: true,
         siteOffices: {
           include: {
             projects: true,
@@ -141,7 +136,6 @@ export class AdminService {
         organization: {
           select: { id: true, name: true },
         },
-        documents: true,
         siteOffices: {
           include: {
             projects: true,
@@ -159,8 +153,6 @@ export class AdminService {
         organization: {
           select: { id: true, name: true },
         },
-        inventory: true,
-        customer: true,
         timelineItems: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -174,8 +166,6 @@ export class AdminService {
         organization: {
           select: { id: true, name: true },
         },
-        inventory: true,
-        customer: true,
         timelineItems: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -189,8 +179,6 @@ export class AdminService {
         organization: {
           select: { id: true, name: true },
         },
-        inventory: true,
-        customer: true,
         timelineItems: true,
       },
     });

@@ -32,14 +32,19 @@ export class DocumentsService {
 
   async getByInventory(inventoryId: string, organizationId: string) {
     try {
-      return await this.prisma.document.findMany({
+      // Get all documents and filter by inventoryId in config.items
+      const documents = await this.prisma.document.findMany({
         where: {
-          inventory: {
-            id: inventoryId,
-          },
           organizationId: organizationId,
         },
         orderBy: { createdAt: 'desc' },
+      });
+
+      // Filter documents that have the inventoryId in their items
+      return documents.filter((doc: any) => {
+        const config = doc.config as any;
+        if (!config?.items || !Array.isArray(config.items)) return false;
+        return config.items.some((item: any) => item.inventoryItemId === inventoryId);
       });
     } catch (error) {
       throw new HttpException(`Fetch by inventory failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -50,8 +55,12 @@ export class DocumentsService {
     try {
       const configAsPlainObject: any = dto.config ? dto.config : null;
       const id: any = dto.id ? dto.id : null;
-      console.log('Project ID:', dto.projectId, 'Type:', typeof dto.projectId);
+
+      // Extract projectId from config if it exists
+      const projectId = configAsPlainObject?.projectId;
+      console.log('Project ID from config:', projectId, 'Type:', typeof projectId);
       console.log('dto', dto);
+
       // Handle captured images - ensure they are stored as URLs
       if (configAsPlainObject?.capturedImages && Array.isArray(configAsPlainObject.capturedImages)) {
         // The capturedImages should already be S3 URLs from the frontend
@@ -66,7 +75,7 @@ export class DocumentsService {
         console.log('MSR photos to be stored:', configAsPlainObject.photos.length, 'photos');
       }
 
-      // Update the document itself, include customer if provided
+      // Update the document itself with config only
       const updatedDocument = await this.prisma.document.update({
         where: {
           id,
@@ -77,16 +86,15 @@ export class DocumentsService {
           type: dto.type,
           // Update document status if provided
           status: dto.status, // DocumentStatus enum
-          // Connect customer if customerId provided
-          customer: dto.customerId ? { connect: { id: dto.customerId } } : undefined,
-          project: dto.projectId ? { connect: { id: dto.projectId } } : undefined,
+          name: dto.name, // Update document name if provided
         },
       });
 
-      if (dto.projectId) {
+      // Update project if projectId exists in config
+      if (projectId) {
         await this.prisma.project.update({
           where: {
-            id: dto.projectId,
+            id: projectId,
             organizationId, // Ensure project belongs to the same organization
           },
           data: {
@@ -145,18 +153,7 @@ export class DocumentsService {
                 status: newStatus,
               },
             });
-            // Connect inventory to the document
-            await this.prisma.document.update({
-              where: {
-                id,
-                organizationId,
-              },
-              data: {
-                inventory: {
-                  connect: { id: _item.inventoryItemId },
-                },
-              },
-            });
+            // No need to connect inventory anymore as it's stored in config
             // Create timeline item for document update
             await this.prisma.timelineItem.create({
               data: {
@@ -179,7 +176,7 @@ export class DocumentsService {
         );
       }
 
-      if (dto.projectId && dto.config?.items?.length) {
+      if (projectId && dto.config?.items?.length) {
         // Validate that all items have inventoryItemId for project assignments
         const itemsWithoutInventory = dto.config.items.filter(
           (_item) => !_item.inventoryItemId || _item.inventoryItemId.trim() === ''
@@ -197,7 +194,7 @@ export class DocumentsService {
 
             const existingAssignment = await this.prisma.assignment.findFirst({
               where: {
-                projectId: dto.projectId,
+                projectId: projectId,
                 inventoryId: _item.inventoryItemId,
               },
             });
@@ -205,7 +202,7 @@ export class DocumentsService {
             if (!existingAssignment) {
               await this.prisma.assignment.create({
                 data: {
-                  projectId: dto.projectId,
+                  projectId: projectId,
                   inventoryId: _item.inventoryItemId,
                   startDate: dto.config.startDate || null,
                   endDate: dto.config.endDate || null,
@@ -275,7 +272,7 @@ export class DocumentsService {
             type: dto.type || 'Default',
             config: configAsPlainObject,
             organizationId, // Automatically assign to user's organization
-            customerId: dto.customerId,
+            name: dto.name, // Include document name if provided
           },
         });
 
@@ -318,14 +315,7 @@ export class DocumentsService {
                   status: newStatus,
                 },
               });
-              await tx.document.update({
-                where: { id: createdDocument.id },
-                data: {
-                  inventory: {
-                    connect: { id: _item.inventoryItemId },
-                  },
-                },
-              });
+              // No need to connect inventory anymore as it's stored in config
               // Create timeline item for document submission
               await tx.timelineItem.create({
                 data: {
@@ -466,9 +456,6 @@ export class DocumentsService {
           type: original.type,
           config: original.config,
           organizationId: original.organizationId,
-          customerId: original.customerId,
-          inventoryId: original.inventoryId,
-          projectId: original.projectId,
           status: original.status,
           name: nameWithRevision,
           baseDocumentId,
@@ -505,24 +492,41 @@ export class DocumentsService {
         where: {
           organizationId: organizationId,
         },
-        include: {
-          inventory: true,
-          customer: true,
-        },
         orderBy: { createdAt: 'desc' },
       });
 
-      return documents.map((doc) => ({
-        id: doc.id,
-        name: doc.name,
-        associated_item: doc.inventory?.sku ?? 'N/A',
-        associated_customer: doc.customer?.name ?? 'N/A',
-        documentType: doc.type,
-        templateId: doc.documentTemplateId,
-        status: doc.status,
-        createdAt: doc.createdAt,
-        config: doc.config, // Include config data for due dates and other fields
-      }));
+      // Fetch customer names if customerId exists in config
+      const customerIds = documents
+        .map((doc: any) => (doc.config as any)?.customerId)
+        .filter(Boolean);
+
+      const uniqueCustomerIds = [...new Set(customerIds)];
+      const customers = uniqueCustomerIds.length > 0
+        ? await this.prisma.customer.findMany({
+            where: { id: { in: uniqueCustomerIds } },
+            select: { id: true, name: true },
+          })
+        : [];
+
+      const customerMap = new Map(customers.map(c => [c.id, c.name]));
+
+      return documents.map((doc: any) => {
+        const config = doc.config as any;
+        const customerId = config?.customerId;
+        const customerName = customerId ? customerMap.get(customerId) : null;
+
+        return {
+          id: doc.id,
+          name: doc.name,
+          associated_item: config?.items?.[0]?.sku ?? 'N/A',
+          associated_customer: customerName ?? 'N/A',
+          documentType: doc.type,
+          templateId: doc.documentTemplateId,
+          status: doc.status,
+          createdAt: doc.createdAt,
+          config: doc.config, // Include config data for due dates and other fields
+        };
+      });
     } catch (error) {
       throw new HttpException(`Fetch all documents failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
@@ -532,30 +536,41 @@ export class DocumentsService {
     try {
       console.log('🚚 DELIVERY ORDERS: Fetching for customer:', customerId, 'in organization:', organizationId);
 
+      // Get all delivery orders
       const deliveryOrders = await this.prisma.document.findMany({
         where: {
           organizationId: organizationId,
           type: 'DO', // Delivery Order document type
-          customerId: customerId,
-          // Include all delivery orders regardless of status (including drafts)
-        },
-        include: {
-          customer: true,
         },
         orderBy: { createdAt: 'desc' },
       });
 
-      console.log('🚚 DELIVERY ORDERS: Found', deliveryOrders.length, 'delivery orders');
+      // Filter by customerId in config
+      const filteredOrders = deliveryOrders.filter((doc: any) => {
+        const config = doc.config as any;
+        return config?.customerId === customerId;
+      });
 
-      const result = deliveryOrders.map((doc) => ({
-        id: doc.id,
-        name: doc.name,
-        doNo: (doc.config as any)?.doNo || doc.name, // Use doNo from config or fallback to name
-        status: doc.status,
-        customerId: doc.customerId,
-        customerName: doc.customer?.name,
-        createdAt: doc.createdAt,
-      }));
+      console.log('🚚 DELIVERY ORDERS: Found', filteredOrders.length, 'delivery orders for customer');
+
+      // Fetch customer details
+      const customer = await this.prisma.customer.findUnique({
+        where: { id: customerId },
+        select: { name: true },
+      });
+
+      const result = filteredOrders.map((doc: any) => {
+        const config = doc.config as any;
+        return {
+          id: doc.id,
+          name: doc.name,
+          doNo: config?.doNo || doc.name, // Use doNo from config or fallback to name
+          status: doc.status,
+          customerId: config?.customerId,
+          customerName: customer?.name,
+          createdAt: doc.createdAt,
+        };
+      });
 
       console.log('🚚 DELIVERY ORDERS: Returning:', result);
       return result;
@@ -623,15 +638,23 @@ export class DocumentsService {
   private async createXeroInvoice(document: any, config: any, organizationId: string) {
     try {
       console.log('🔍 XERO: Starting invoice creation process for document:', document.id);
-      console.log('🔍 XERO: Document details - Name:', document.name, 'Customer ID:', document.customerId);
+
+      // Extract customerId from config
+      const customerId = config?.customerId;
+      console.log('🔍 XERO: Document details - Name:', document.name, 'Customer ID:', customerId);
+
+      if (!customerId) {
+        console.error('🔴 XERO: Customer ID not found in document config:', document.id);
+        throw new Error('Customer ID not found in document config');
+      }
 
       // Get customer information
       const customer = await this.prisma.customer.findUnique({
-        where: { id: document.customerId },
+        where: { id: customerId },
       });
 
       if (!customer) {
-        console.error('🔴 XERO: Customer not found for document:', document.id, 'Customer ID:', document.customerId);
+        console.error('🔴 XERO: Customer not found for document:', document.id, 'Customer ID:', customerId);
         throw new Error('Customer not found for invoice');
       }
 
@@ -883,13 +906,21 @@ export class DocumentsService {
 
       console.log('✅ XERO: Invoice confirmed to exist in Xero, proceeding with update');
 
+      // Extract customerId from config
+      const customerId = config?.customerId;
+
+      if (!customerId) {
+        console.error('🔴 XERO: Customer ID not found in document config:', document.id);
+        throw new Error('Customer ID not found in document config');
+      }
+
       // Get customer information
       const customer = await this.prisma.customer.findUnique({
-        where: { id: document.customerId },
+        where: { id: customerId },
       });
 
       if (!customer) {
-        console.error('🔴 XERO: Customer not found for document:', document.id, 'Customer ID:', document.customerId);
+        console.error('🔴 XERO: Customer not found for document:', document.id, 'Customer ID:', customerId);
         throw new Error('Customer not found for invoice update');
       }
 

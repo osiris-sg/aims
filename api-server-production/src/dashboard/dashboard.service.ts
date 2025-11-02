@@ -104,10 +104,6 @@ export class DashboardService {
           organizationId,
           type: 'TI',
         },
-        include: {
-          customer: true,
-          inventory: true,
-        },
         orderBy: { createdAt: 'desc' },
       });
 
@@ -125,7 +121,7 @@ export class DashboardService {
             id: invoice.id,
             name: invoice.name || `Invoice ${invoice.id}`,
             dueDate: dueDate.toISOString(),
-            customerName: invoice.customer?.name || 'Unknown Customer',
+            customerName: (invoice.config as any)?.customerName || 'Unknown Customer',
             amount: invoice.config?.['totalAmount'] || 0,
           };
 
@@ -162,10 +158,6 @@ export class DashboardService {
           type: 'DO',
           // Add status check here if you have a status field in config
         },
-        include: {
-          customer: true,
-          inventory: true,
-        },
         orderBy: { updatedAt: 'desc' },
       });
 
@@ -199,7 +191,7 @@ export class DashboardService {
             pendingOrders.push({
               id: order.id,
               name: order.name || `Delivery Order ${order.id}`,
-              customerName: order.customer?.name || 'Unknown Customer',
+              customerName: (order.config as any)?.customerName || 'Unknown Customer',
               completedDate: order.updatedAt.toISOString(),
             });
           }

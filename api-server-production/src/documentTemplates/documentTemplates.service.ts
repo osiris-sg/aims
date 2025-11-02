@@ -106,18 +106,35 @@ export class DocumentTemplatesService {
     try {
       console.log('we have this data at hee ', dto);
 
+      // Check if there's already an active template of this type for this organization
+      const existingActiveTemplate = await this.prisma.documentTemplate.findFirst({
+        where: {
+          type: dto.type,
+          organizationId,
+          isActive: true,
+        },
+      });
+
+      if (existingActiveTemplate) {
+        throw new HttpException(
+          `An active template of type "${dto.type}" already exists for this organization. Please deactivate it first or use the activate endpoint to switch templates.`,
+          HttpStatus.CONFLICT,
+        );
+      }
+
       const newDocumentTemplate = await this.prisma.documentTemplate.create({
         data: {
           name: dto.name,
           type: dto.type,
           organizationId, // Automatically assign to user's organization
+          isActive: false, // New templates start as inactive
         },
       });
 
       return newDocumentTemplate;
     } catch (error) {
       console.error('Error creating document template:', error);
-      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(error.message, error.status || HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 

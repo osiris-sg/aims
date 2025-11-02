@@ -74,7 +74,7 @@ function TabPanel(props: TabPanelProps) {
 }
 
 interface DocumentCreatorProps {
-  documentType: "QO1" | "DO" | "RDO" | "TI" | "MSR";
+  documentType: "QO1" | "DO" | "RDO" | "TI" | "TI2" | "MSR" | "INVOICE" | string;
   documentId?: string;
   onSave?: (data: any) => void;
   onPrint?: () => void;
@@ -202,19 +202,26 @@ export default function TabbedDocumentCreator({
       address: "",
     },
     documentInfo: {
-      date: existingData?.date || new Date().toISOString().split("T")[0],
-      documentNumber: existingData?.documentNumber || existingData?.name || "",
-      referenceNo: existingData?.referenceNo || "",
-      poNo: existingData?.poNo || "",
-      doNo: existingData?.doNo || "",
-      returnOrderNo: existingData?.returnOrderNo || "",
+      date: existingData?.documentInfo?.date || existingData?.date || new Date().toISOString().split("T")[0],
+      documentNumber: existingData?.documentInfo?.documentNumber || existingData?.documentNumber || existingData?.name || "",
+      referenceNo: existingData?.documentInfo?.referenceNo || existingData?.referenceNo || "",
+      poNo: existingData?.documentInfo?.poNo || existingData?.poNo || "",
+      doNo: existingData?.documentInfo?.doNo || existingData?.doNo || "",
+      returnOrderNo: existingData?.documentInfo?.returnOrderNo || existingData?.returnOrderNo || "",
+      // Add all documentInfo fields from TI2 template
+      salesPerson: existingData?.documentInfo?.salesPerson || existingData?.salesPerson || "",
+      soNo: existingData?.documentInfo?.soNo || existingData?.soNo || "",
+      page: existingData?.documentInfo?.page || existingData?.page || "1",
+      paymentTerms: existingData?.documentInfo?.paymentTerms || existingData?.paymentTerms || "0 DAYS",
+      currency: existingData?.documentInfo?.currency || existingData?.currency || "USD",
+      qinRef: existingData?.documentInfo?.qinRef || existingData?.qinRef || "",
     },
     // Details tab data
     projectId: existingData?.projectId || "",
-    salesPerson: existingData?.salesPerson || "",
+    salesPerson: existingData?.documentInfo?.salesPerson || existingData?.salesPerson || "",
     salesContact: existingData?.salesContact || "",
     salesEmail: existingData?.salesEmail || "",
-    paymentTerms: existingData?.paymentTerms || "30 days",
+    paymentTerms: existingData?.documentInfo?.paymentTerms || existingData?.paymentTerms || "30 days",
     dueDate: existingData?.dueDate || "",
     // Quotation-specific fields
     quotationNo: existingData?.quotationNo || "",
@@ -619,8 +626,6 @@ export default function TabbedDocumentCreator({
                   {templateFieldConfig?.tabs.map((tab) => (
                     <Tab key={tab.tabId} label={tab.tabLabel} />
                   ))}
-                  {/* Items tab - always present */}
-                  <Tab label="Items" />
                   {/* Legacy delivery address tab for specific document types */}
                   {(documentType === "DO" || documentType === "RDO" || documentType === "QO1") && (
                     <Tab label={documentType === "RDO" ? "Return Info" : "Delivery Address"} />
@@ -1092,10 +1097,6 @@ export default function TabbedDocumentCreator({
           </TabPanel>
           )}
 
-          {/* ITEMS TAB - Always present after dynamic tabs */}
-          <TabPanel value={mainTabValue} index={templateFieldConfig ? templateFieldConfig.tabs.length : 2}>
-            {/* Items tab content will be here */}
-          </TabPanel>
 
           {/* DELIVERY ADDRESS TAB - Only for DO, RDO, and QO1 */}
           {(documentType === "DO" || documentType === "RDO" || documentType === "QO1") && (
@@ -1251,7 +1252,7 @@ export default function TabbedDocumentCreator({
             </TabPanel>
           )}
 
-          {/* ITEMS SECTION WITH TABS */}
+          {/* ITEMS SECTION - Always visible */}
           <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, display: "flex", flexDirection: "column" }}>
             <Card sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
               <CardContent sx={{ p: 1, flex: 1, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>
@@ -1464,7 +1465,7 @@ export default function TabbedDocumentCreator({
                     </Grid>
 
                     {/* Terms & Conditions - for TI and QO1 */}
-                    {(documentType === "TI" || documentType === "QO1") && (
+                    {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || documentType === "QO1") && (
                       <Grid item xs={12} md={documentType === "QO1" ? 12 : 6}>
                         <TextField
                           fullWidth
@@ -1526,7 +1527,7 @@ export default function TabbedDocumentCreator({
                     )}
 
                     {/* Bank Details - for TI only */}
-                    {documentType === "TI" && (
+                    {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE") && (
                       <Grid item xs={12}>
                         <TextField
                           fullWidth

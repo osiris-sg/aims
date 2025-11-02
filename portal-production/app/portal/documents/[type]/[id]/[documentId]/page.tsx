@@ -12,6 +12,11 @@ import { useGetCustomers } from "@/containers/DocumentTemplates/hooks/useGetCust
 import { useGetProjects } from "@/containers/DocumentTemplates/hooks/useGetProjects";
 import { useGetDeliveryOrders } from "@/containers/DocumentTemplates/hooks/useGetDeliveryOrders";
 import { useGetSiteOffices } from "@/containers/DocumentTemplates/hooks/useGetSiteOffices";
+import { getTemplateFields } from "@/containers/DocumentTemplates/config/templateFieldDefinitions";
+import {
+  transformFormDataForBackend,
+  transformBackendDataForForm
+} from "@/containers/DocumentTemplates/utils/documentDataTransformer";
 
 export default function page() {
   const params = useParams();
@@ -22,7 +27,8 @@ export default function page() {
 
   // Track selected customer for filtering
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
-  const [documentData, setDocumentData] = useState<any>(null);
+  const [existingData, setExistingData] = useState<any>(null);
+  const [documentMetadata, setDocumentMetadata] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // Fetch existing document data
@@ -58,12 +64,77 @@ export default function page() {
         console.log("Document Data:", response.data);
         console.log("Response success:", response.success);
 
-        if (response.success) {
-          console.log("Setting document data...");
-          setDocumentData(response.data);
+        if (response.success && response.data) {
+          // Store full document metadata
+          setDocumentMetadata(response.data);
+
+          // Fetch the document template to get the variant
+          let templateVariant = type; // Default to type from URL
+
+          if (response.data.documentTemplateId) {
+            try {
+              console.log("Fetching template with ID:", response.data.documentTemplateId);
+              const templateResponse = await request(
+                {
+                  path: `/documentTemplates/${response.data.documentTemplateId}`,
+                  method: "GET",
+                },
+                {},
+                token
+              );
+
+              console.log("Template Response:", templateResponse);
+              console.log("Template Data:", templateResponse.data);
+
+              if (templateResponse.success && templateResponse.data) {
+                // Store variant from template
+                templateVariant = templateResponse.data.templateVariant || templateResponse.data.designName || "TI";
+                setDocumentMetadata(prev => ({
+                  ...prev,
+                  variant: templateVariant,
+                }));
+                console.log("Template variant set to:", templateVariant);
+                console.log("Template full data:", {
+                  id: templateResponse.data.id,
+                  type: templateResponse.data.type,
+                  templateVariant: templateResponse.data.templateVariant,
+                  designName: templateResponse.data.designName,
+                });
+              }
+            } catch (error) {
+              console.error("Error fetching template:", error);
+            }
+          }
+
+          // Extract config data and transform for form display
+          const config = response.data.config || {};
+
+          console.log("Raw config from database:", config);
+          console.log("Template variant being used:", templateVariant);
+
+          // Get field definitions for the template variant
+          const fieldConfig = getTemplateFields(templateVariant);
+          console.log("Field config for variant:", fieldConfig);
+
+          // Transform flat backend data to nested structure for form
+          const documentData = transformBackendDataForForm(config, fieldConfig);
+
+          // Ensure document name is set
+          documentData.name = response.data.name;
+          documentData.documentNumber = response.data.name;
+
+          console.log("Transformed document data:", documentData);
+          console.log("documentInfo after transform:", documentData.documentInfo);
+
+          setExistingData(documentData);
+
           console.log("Document name from DB:", response.data?.name);
+          console.log("Extracted form data:", documentData);
+
           // Set the selected customer ID if document has one
-          if (response.data?.customerId) {
+          if (config.customerId) {
+            setSelectedCustomerId(config.customerId);
+          } else if (response.data.customerId) {
             setSelectedCustomerId(response.data.customerId);
           }
         } else {
@@ -96,44 +167,33 @@ export default function page() {
   const handleSave = async (data: any) => {
     try {
       const token = await getToken();
-      if (!token) return;
+      if (!token) {
+        toast.error("Authentication required");
+        return;
+      }
 
-      // Format data according to UpdateDocumentDto structure
+      // Get field definitions for the template variant
+      const templateVariant = documentMetadata?.variant || type;
+      const fieldConfig = getTemplateFields(templateVariant);
+
+      // Transform form data dynamically based on field definitions
+      const configData = transformFormDataForBackend(data, fieldConfig, organization);
+
+      // Prepare update payload with transformed config
       const updatePayload = {
         id: documentId as string,
-        type: type as string, // Required field from URL params
-        documentTemplateId: params.id as string, // The template ID from URL
+        type: type as string,
+        config: configData,
+        status: 'draft', // Always save as draft (lowercase to match enum)
         customerId: data.customer?.id || null,
-        projectId: data.projectId || null,
-        status: "draft", // Set status to draft
-        config: {
-          company: {
-            // Use organization settings as the source of truth for company info
-            name: data.company?.name || organization?.name || "Company Name", // Required field
-            address: data.company?.address || organization?.address || "",
-            phoneNumber: data.company?.phoneNumber || organization?.phoneNumber || "",
-          },
-          customerId: data.customer?.id,
-          items: data.items || [],
-          attention: {
-            name: data.deliveryAddress?.attention,
-            phoneNumber: data.deliveryAddress?.phone,
-          },
-          date: data.documentInfo?.date,
-          referenceNo: data.documentInfo?.referenceNo,
-          poNo: data.documentInfo?.poNo,
-          doNo: data.documentInfo?.doNo,
-          returnOrderNo: data.documentInfo?.returnOrderNo,
-          gstRegNo: data.company?.gstRegNo || organization?.registrationNumber,
-          note: data.note,
-          dueDate: data.dueDate,
-          deliveryTo: data.deliveryTo || data.deliveryAddress?.address,
-          collectFrom: data.collectFrom,
-        },
-        name: data.name || data.documentInfo?.documentNumber, // Save the document name
+        projectId: data.project?.id || data.projectId || null,
+        documentTemplateId: documentMetadata?.documentTemplateId || params.id as string,
+        name: data.name || data.documentInfo?.documentNumber || documentMetadata?.name,
       };
 
-      // Save document logic here - backend uses POST /documents/update
+      console.log('Saving document with payload:', updatePayload);
+
+      // Save document using correct endpoint
       const response = await request(
         {
           path: `/documents/update`,
@@ -144,15 +204,18 @@ export default function page() {
       );
 
       if (response.success) {
-        toast.success("Document saved as draft!");
+        toast.success("Document saved successfully!");
         // Navigate back to document list page
         router.push("/portal/documents");
       } else {
+        console.error("Save failed - Full response:", response);
+        console.error("Save failed - Data sent:", updatePayload);
         toast.error(response.message || "Failed to save document");
       }
-    } catch (error) {
+    } catch (error: any) {
+      console.error("Error saving document - Full error:", error);
+      console.error("Error response data:", error?.response?.data);
       toast.error("Failed to save document");
-      console.error("Error saving document:", error);
     }
   };
 
@@ -203,11 +266,22 @@ export default function page() {
     );
   }
 
+  // Determine the template variant to use
+  // Priority: document's stored variant > template variant from documentTemplate > URL type
+  const templateVariant = documentMetadata?.variant || existingData?.variant || type;
+
+  console.log("=== TEMPLATE VARIANT SELECTION ===");
+  console.log("documentMetadata:", documentMetadata);
+  console.log("documentMetadata?.variant:", documentMetadata?.variant);
+  console.log("existingData?.variant:", existingData?.variant);
+  console.log("type from URL:", type);
+  console.log("Final templateVariant being passed to TabbedDocumentCreator:", templateVariant);
+
   return (
     <TabbedDocumentCreator
-      documentType={type as any}
+      documentType={templateVariant as any}
       documentId={documentId as string}
-      existingData={documentData}
+      existingData={existingData}
       onSave={handleSave}
       onPrint={handlePrint}
       customers={customersList}

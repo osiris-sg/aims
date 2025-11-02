@@ -166,19 +166,11 @@ export class UpdateDocumentDto extends PartialType(CreateDocumentDto) {
 
   @IsUUID()
   @IsOptional()
-  inventoryId: string;
-
-  @IsUUID()
-  @IsOptional()
   documentTemplateId: string;
 
   @IsString()
   @IsNotEmpty()
   type: string;
-
-  @IsString()
-  @IsOptional()
-  customerId?: string;
 
   @IsEnum(DocumentStatus)
   @IsOptional()
@@ -188,7 +180,7 @@ export class UpdateDocumentDto extends PartialType(CreateDocumentDto) {
   @IsOptional()
   token?: string;
 
-  @IsUUID()
+  @IsString()
   @IsOptional()
-  projectId?: string;
+  name?: string;
 }

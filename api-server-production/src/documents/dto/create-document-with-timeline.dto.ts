@@ -95,10 +95,10 @@ export class CreateDocumentWithTimelineDto {
   config?: IConfig;
 
   @IsString()
-  @IsNotEmpty()
-  customerId: string;
+  @IsOptional()
+  status?: string;
 
   @IsString()
   @IsOptional()
-  status?: string;
+  name?: string;
 }
