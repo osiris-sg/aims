@@ -105,7 +105,9 @@ export class DocumentsService {
       }
 
       // If config.items exists and is an array, handle inventory/timeline logic (for DO, RDO, etc.)
-      if (dto.type !== 'QO1' && dto.type !== 'MSR' && dto.config && Array.isArray(dto.config.items)) {
+      // Exclude invoice types (TI, TI2, INVOICE) and quotations (QO1) and service reports (MSR) from inventory validation
+      const invoiceTypes = ['QO1', 'MSR', 'TI', 'TI2', 'INVOICE'];
+      if (!invoiceTypes.includes(dto.type) && dto.config && Array.isArray(dto.config.items)) {
         // Validate that all items have inventoryItemId
         const itemsWithoutInventory = dto.config.items.filter(
           (_item) => !_item.inventoryItemId || _item.inventoryItemId.trim() === ''

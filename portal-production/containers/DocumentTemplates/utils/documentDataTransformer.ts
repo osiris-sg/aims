@@ -54,8 +54,10 @@ export function transformFormDataForBackend(
     result.customerId = formData.customer.id;
   }
 
-  // Handle items array
+  // Handle items array - ensure we get the items from the formData
+  console.log("transformFormDataForBackend - formData.items:", formData.items);
   result.items = formData.items || [];
+  console.log("transformFormDataForBackend - result.items after copy:", result.items);
 
   // Process all fields from field definitions
   if (fieldConfig?.tabs) {

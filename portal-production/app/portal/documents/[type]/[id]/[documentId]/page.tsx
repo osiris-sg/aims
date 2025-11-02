@@ -165,6 +165,9 @@ export default function page() {
   const { siteOffices, fetchSiteOffices } = useGetSiteOffices();
 
   const handleSave = async (data: any) => {
+    console.log("handleSave - Received data from TabbedDocumentCreator:", data);
+    console.log("handleSave - Items in received data:", JSON.stringify(data.items, null, 2));
+
     try {
       const token = await getToken();
       if (!token) {
@@ -176,8 +179,11 @@ export default function page() {
       const templateVariant = documentMetadata?.variant || type;
       const fieldConfig = getTemplateFields(templateVariant);
 
+      console.log("handleSave - Before transform - data.items:", data.items);
       // Transform form data dynamically based on field definitions
       const configData = transformFormDataForBackend(data, fieldConfig, organization);
+      console.log("handleSave - After transform - configData:", configData);
+      console.log("handleSave - After transform - configData.items:", JSON.stringify(configData.items, null, 2));
 
       // Prepare update payload with transformed config
       const updatePayload = {

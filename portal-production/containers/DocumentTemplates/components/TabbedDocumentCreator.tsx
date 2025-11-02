@@ -55,6 +55,7 @@ import { toast } from "react-toastify";
 import { useForm, Controller } from "react-hook-form";
 import { usePathname, useRouter } from "next/navigation";
 import { usePastDescriptions } from "../hooks/usePastDescriptions";
+import { useGetInventoriesForItemTable } from "../hooks/useGetInventoriesForItemTable";
 import { getTemplateFormFields } from "../utils/templateFieldSync";
 import { TemplateFieldConfig } from "../config/templateFieldDefinitions";
 
@@ -136,6 +137,18 @@ export default function TabbedDocumentCreator({
 
   // Past descriptions history hook
   const { pastDescriptions, isLoading: isLoadingDescriptions } = usePastDescriptions();
+
+  // Inventory items for item table
+  const { inventoriesForDocument } = useGetInventoriesForItemTable();
+
+  // Debug inventory data
+  useEffect(() => {
+    console.log("inventoriesForDocument loaded:", inventoriesForDocument);
+    if (inventoriesForDocument && inventoriesForDocument.length > 0) {
+      console.log("Sample inventory item structure:", inventoriesForDocument[0]);
+      console.log("All inventory IDs and SKUs:", inventoriesForDocument.map(inv => ({ id: inv.id, sku: inv.sku })));
+    }
+  }, [inventoriesForDocument]);
 
   // Template configuration form for field visibility
   const templateMethods = useForm({
@@ -286,14 +299,44 @@ export default function TabbedDocumentCreator({
     loadTemplateFields();
   }, [documentType, documentId, getToken]);
 
-  // Items management
-  const [items, setItems] = useState(existingData?.items || []);
+  // Items management - normalize field names from old inventoryId to new inventoryItemId
+  const [items, setItems] = useState(() => {
+    const existingItems = existingData?.items || [];
+    console.log("Initializing items from existingData:", existingItems);
+
+    // If there are existing items, map them
+    if (existingItems.length > 0) {
+      const mapped = existingItems.map((item: any) => ({
+        ...item,
+        inventoryItemId: item.inventoryItemId || item.inventoryId || "",  // Support both old and new field names
+        inventoryId: undefined,  // Remove old field name if it exists
+      }));
+      console.log("Mapped existing items:", mapped);
+      return mapped;
+    }
+
+    // If no existing items, create one empty item
+    const defaultItem = {
+      id: Date.now(),
+      itemCode: "",
+      inventoryItemId: "",
+      description: "",
+      quantity: 1,
+      unitPrice: 0,
+      tax: "9",
+      amount: 0,
+    };
+    console.log("No existing items, creating default item:", defaultItem);
+    return [defaultItem];
+  });
 
   const addNewItem = () => {
     setItems([
       ...items,
       {
         id: Date.now(),
+        itemCode: "",
+        inventoryItemId: "",  // Changed from inventoryId to inventoryItemId
         description: "",
         quantity: 1,
         unitPrice: 0,
@@ -308,17 +351,22 @@ export default function TabbedDocumentCreator({
   };
 
   const updateItem = (id: number, field: string, value: any) => {
-    setItems(
-      items.map((item: any) => {
+    console.log(`updateItem called - id: ${id}, field: ${field}, value:`, value);
+    setItems((prevItems: any[]) => {
+      const newItems = prevItems.map((item: any) => {
         if (item.id === id) {
           const updated = { ...item, [field]: value };
           // Calculate amount
           updated.amount = updated.quantity * updated.unitPrice;
+          console.log(`Item ${id} - Setting ${field} to:`, value);
+          console.log("Updated item object:", updated);
           return updated;
         }
         return item;
-      })
-    );
+      });
+      console.log("All items after update:", newItems);
+      return newItems;
+    });
   };
 
   // Calculations
@@ -491,11 +539,22 @@ export default function TabbedDocumentCreator({
 
   // Handle save as draft from dialog
   const handleSaveAsDraft = async () => {
+    console.log("handleSaveAsDraft - Current items state:", items);
+    console.log("handleSaveAsDraft - Current formData:", formData);
+
     if (isTemplateEditMode) {
       const templateConfig = templateMethods.getValues();
       await onSave?.({ ...formData, config: templateConfig });
     } else {
-      await onSave?.({ ...formData, name: formData.name || formData.documentInfo.documentNumber });
+      // Include items in the save data
+      const saveData = {
+        ...formData,
+        items: items, // Include items array
+        name: formData.name || formData.documentInfo.documentNumber
+      };
+      console.log("handleSaveAsDraft - Data being sent to onSave:", saveData);
+      console.log("handleSaveAsDraft - Items in saveData:", JSON.stringify(saveData.items, null, 2));
+      await onSave?.(saveData);
     }
     // Navigate back after saving
     if (documentType === "TI") {
@@ -565,8 +624,15 @@ export default function TabbedDocumentCreator({
                 const templateConfig = templateMethods.getValues();
                 onSave?.({ ...formData, config: templateConfig });
               } else {
-                // Save document data with name field
-                onSave?.({ ...formData, name: formData.name || formData.documentInfo.documentNumber });
+                // Save document data with name field and items
+                const saveData = {
+                  ...formData,
+                  items: items,
+                  name: formData.name || formData.documentInfo.documentNumber
+                };
+                console.log("Direct Save - Data being sent to onSave:", saveData);
+                console.log("Direct Save - Items in saveData:", JSON.stringify(saveData.items, null, 2));
+                onSave?.(saveData);
               }
             }}
           >
@@ -1310,7 +1376,65 @@ export default function TabbedDocumentCreator({
                                 if (!isVisible) return null;
 
                                 if (columnId === "item") {
-                                  return <TableCell key={columnId}>{index + 1}</TableCell>;
+                                  return (
+                                    <TableCell key={columnId}>
+                                      <Autocomplete
+                                        fullWidth
+                                        freeSolo
+                                        // Display the SKU based on the inventoryItemId
+                                        value={(() => {
+                                          if (item.inventoryItemId) {
+                                            const inv = inventoriesForDocument.find(i => i.id === item.inventoryItemId);
+                                            return inv ? inv.sku : item.itemCode || "";
+                                          }
+                                          return item.itemCode || "";
+                                        })()}
+                                        onChange={(event, newValue) => {
+                                          console.log("Item autocomplete onChange triggered");
+                                          console.log("Event:", event);
+                                          console.log("New value:", newValue);
+                                          console.log("Available inventories:", inventoriesForDocument);
+
+                                          if (newValue === null || newValue === undefined) {
+                                            // Clear selection
+                                            updateItem(item.id, "inventoryItemId", "");
+                                            updateItem(item.id, "itemCode", "");
+                                            return;
+                                          }
+
+                                          // Check if the selected value matches an inventory SKU
+                                          const selectedInventory = inventoriesForDocument.find(inv => inv.sku === newValue);
+                                          console.log("Selected inventory found:", selectedInventory);
+
+                                          if (selectedInventory) {
+                                            // Save the inventory ID and display the SKU
+                                            console.log("Setting inventory ID to:", selectedInventory.id);
+                                            console.log("Setting item code to:", selectedInventory.sku);
+                                            updateItem(item.id, "inventoryItemId", selectedInventory.id);
+                                            updateItem(item.id, "itemCode", selectedInventory.sku);
+                                            updateItem(item.id, "description", selectedInventory.name || selectedInventory.description || "");
+                                            updateItem(item.id, "unitPrice", selectedInventory.unitPrice || 0);
+                                          } else {
+                                            // For custom text entry (freeSolo), clear inventory ID but keep the text
+                                            console.log("Custom text entered:", newValue);
+                                            updateItem(item.id, "inventoryItemId", "");
+                                            updateItem(item.id, "itemCode", newValue || "");
+                                          }
+                                        }}
+                                        // Remove onInputChange to avoid conflicts
+                                        options={inventoriesForDocument.map(inv => inv.sku)}
+                                        getOptionLabel={(option) => option || ""}
+                                        size="small"
+                                        sx={{ minWidth: 120 }}
+                                        renderInput={(params) => (
+                                          <TextField
+                                            {...params}
+                                            placeholder="Select or type SKU"
+                                          />
+                                        )}
+                                      />
+                                    </TableCell>
+                                  );
                                 } else if (columnId === "description") {
                                   return (
                                     <TableCell key={columnId}>
