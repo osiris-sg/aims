@@ -16,7 +16,9 @@ export class PriceHistoryService {
         where: {
           id: documentId,
           organizationId,
-          type: 'INVOICE' // Only save price history for invoices
+          type: {
+            in: ['INVOICE', 'TI', 'TI2'] // Save price history for all invoice types
+          }
         },
       });
 
@@ -33,7 +35,7 @@ export class PriceHistoryService {
 
       // Create price history entries for each item
       const priceHistoryEntries = items.map((item: any) => ({
-        itemCode: item.item || item.code || '',
+        itemCode: item.itemCode || item.item || item.code || '',
         itemDescription: item.description || '',
         unitPrice: parseFloat(item.unitPrice) || 0,
         quantity: parseFloat(item.quantity) || 0,

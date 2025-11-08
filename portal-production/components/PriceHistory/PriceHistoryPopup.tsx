@@ -20,6 +20,8 @@ import {
   IconButton,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import { useAuth } from '@clerk/nextjs';
+import { request } from '@/helpers/request';
 
 // Helper function to format dates
 const formatDate = (date: string | Date) => {
@@ -65,6 +67,7 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
   customerId,
   onSelectPrice,
 }) => {
+  const { getToken } = useAuth();
   const [loading, setLoading] = useState(false);
   const [lastPrice, setLastPrice] = useState<LastPriceData | null>(null);
   const [priceHistory, setPriceHistory] = useState<PriceHistoryItem[]>([]);
@@ -81,41 +84,56 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
   const fetchPriceHistory = async () => {
     setLoading(true);
     try {
+      const token = await getToken();
+      if (!token) {
+        console.error('No auth token available');
+        return;
+      }
+
       // Fetch last sold price
-      const lastPriceResponse = await fetch(
-        `/api/price-history/item/${encodeURIComponent(itemCode)}/last-price${
-          customerId ? `?customerId=${customerId}` : ''
-        }`,
+      const lastPriceResponse = await request(
         {
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${localStorage.getItem('token')}`,
-          },
-        }
+          path: `/price-history/item/${encodeURIComponent(itemCode)}/last-price${
+            customerId ? `?customerId=${customerId}` : ''
+          }`,
+          method: 'GET',
+        },
+        {},
+        token
       );
 
-      if (lastPriceResponse.ok) {
-        const data = await lastPriceResponse.json();
-        setLastPrice(data);
+      console.log('Last Price Response:', lastPriceResponse);
+      if (lastPriceResponse) {
+        setLastPrice(lastPriceResponse);
       }
 
       // Fetch price history
-      const historyResponse = await fetch(
-        `/api/price-history/item/${encodeURIComponent(itemCode)}${
-          customerId ? `?customerId=${customerId}` : ''
-        }&limit=10`,
+      const queryParams = new URLSearchParams();
+      if (customerId) queryParams.append('customerId', customerId);
+      queryParams.append('limit', '10');
+
+      const historyResponse = await request(
         {
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${localStorage.getItem('token')}`,
-          },
-        }
+          path: `/price-history/item/${encodeURIComponent(itemCode)}?${queryParams.toString()}`,
+          method: 'GET',
+        },
+        {},
+        token
       );
 
-      if (historyResponse.ok) {
-        const data = await historyResponse.json();
+      console.log('History Response:', historyResponse);
+      console.log('History Response Type:', typeof historyResponse);
+      console.log('History Response Keys:', historyResponse ? Object.keys(historyResponse) : 'null');
+
+      // Check if historyResponse has the expected structure
+      if (historyResponse && historyResponse.success && historyResponse.data) {
+        // The actual array is at historyResponse.data.data
+        const historyData = historyResponse.data.data || [];
+
+        console.log('History Data to map:', historyData);
+
         setPriceHistory(
-          data.data.map((item: any) => ({
+          historyData.map((item: any) => ({
             reference: item.documentNumber,
             date: item.documentDate,
             uom: item.uom || 'PC',
@@ -123,6 +141,17 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
             amount: item.unitPrice,
           }))
         );
+
+        // Also set the last price if we have data
+        if (historyData.length > 0 && !lastPriceResponse) {
+          setLastPrice({
+            documentNumber: historyData[0].documentNumber,
+            documentDate: historyData[0].documentDate,
+            unitPrice: historyData[0].unitPrice,
+            quantity: historyData[0].quantity,
+            uom: historyData[0].uom || 'PC'
+          });
+        }
       }
 
       // TODO: Fetch stock balance and cost from inventory API
