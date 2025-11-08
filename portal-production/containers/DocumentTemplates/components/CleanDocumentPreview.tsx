@@ -176,10 +176,9 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           >
             <TableHead>
               <TableRow>
-                <TableCell sx={{ width: "50%" }}>Description</TableCell>
-                <TableCell sx={{ width: "12%", textAlign: "center" }}>Quantity</TableCell>
+                <TableCell sx={{ width: "55%" }}>Description</TableCell>
+                <TableCell sx={{ width: "15%", textAlign: "center" }}>Quantity</TableCell>
                 <TableCell sx={{ width: "15%", textAlign: "right" }}>Unit Price</TableCell>
-                <TableCell sx={{ width: "8%", textAlign: "center" }}>Tax</TableCell>
                 <TableCell sx={{ width: "15%", textAlign: "right" }}>Amount SGD</TableCell>
               </TableRow>
             </TableHead>
@@ -208,7 +207,6 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity?.toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "right" }}>{item.unitPrice?.toFixed(2)}</TableCell>
-                  <TableCell sx={{ textAlign: "center" }}>{item.tax || 9}%</TableCell>
                   <TableCell sx={{ textAlign: "right" }}>{(item.amount || 0).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
@@ -217,7 +215,6 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               {items.length < 5 &&
                 Array.from({ length: 5 - items.length }).map((_, index) => (
                   <TableRow key={`empty-${index}`} sx={{ height: 40 }}>
-                    <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
@@ -500,10 +497,9 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           >
             <TableHead>
               <TableRow>
-                <TableCell sx={{ width: "50%" }}>Description</TableCell>
-                <TableCell sx={{ width: "12%", textAlign: "center" }}>Quantity</TableCell>
+                <TableCell sx={{ width: "55%" }}>Description</TableCell>
+                <TableCell sx={{ width: "15%", textAlign: "center" }}>Quantity</TableCell>
                 <TableCell sx={{ width: "15%", textAlign: "right" }}>Unit Price</TableCell>
-                <TableCell sx={{ width: "8%", textAlign: "center" }}>Tax</TableCell>
                 <TableCell sx={{ width: "15%", textAlign: "right" }}>Amount SGD</TableCell>
               </TableRow>
             </TableHead>
@@ -532,7 +528,6 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity?.toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "right" }}>{item.unitPrice?.toFixed(2)}</TableCell>
-                  <TableCell sx={{ textAlign: "center" }}>{item.tax || 9}%</TableCell>
                   <TableCell sx={{ textAlign: "right" }}>{(item.amount || 0).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
@@ -541,7 +536,6 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               {items.length < 5 &&
                 Array.from({ length: 5 - items.length }).map((_, index) => (
                   <TableRow key={`empty-${index}`} sx={{ height: 40 }}>
-                    <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
