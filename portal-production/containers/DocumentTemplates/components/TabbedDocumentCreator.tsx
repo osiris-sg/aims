@@ -145,6 +145,7 @@ export default function TabbedDocumentCreator({
   const [priceHistoryDialogOpen, setPriceHistoryDialogOpen] = useState(false);
   const [selectedItemCode, setSelectedItemCode] = useState<string>("");
   const [selectedAssetId, setSelectedAssetId] = useState<string>("");
+  const [priceHistoryCache, setPriceHistoryCache] = useState<Record<string, any>>({});
 
   // Dynamic form field configuration
   const [templateFieldConfig, setTemplateFieldConfig] = useState<TemplateFieldConfig | null>(null);
@@ -477,6 +478,42 @@ export default function TabbedDocumentCreator({
   const handlePrint = () => {
     // Generate PDF instead of browser print
     generatePdf();
+  };
+
+  // Prefetch price history for an asset
+  const prefetchPriceHistory = async (assetId: string) => {
+    // Skip if already cached
+    if (priceHistoryCache[assetId]) {
+      return;
+    }
+
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const queryParams = new URLSearchParams();
+      if (formData.customer?.id) queryParams.append('customerId', formData.customer.id);
+      queryParams.append('limit', '10');
+      queryParams.append('offset', '0');
+
+      const response = await request(
+        {
+          path: `/price-history/asset/${assetId}?${queryParams.toString()}`,
+          method: 'GET',
+        },
+        {},
+        token
+      );
+
+      if (response?.success && response.data) {
+        setPriceHistoryCache(prev => ({
+          ...prev,
+          [assetId]: response.data
+        }));
+      }
+    } catch (error) {
+      console.error('Error prefetching price history:', error);
+    }
   };
 
   const handleShowPriceHistory = (itemCode: string) => {
@@ -1639,6 +1676,11 @@ export default function TabbedDocumentCreator({
                                             updateItem(item.id, "itemCode", selectedInventory.sku);
                                             updateItem(item.id, "description", selectedInventory.name || selectedInventory.description || "");
                                             updateItem(item.id, "unitPrice", selectedInventory.unitPrice || 0);
+
+                                            // Prefetch price history for this asset
+                                            if (selectedInventory.assetId) {
+                                              prefetchPriceHistory(selectedInventory.assetId);
+                                            }
                                           } else {
                                             // For custom text entry (freeSolo), clear inventory ID but keep the text
                                             console.log("Custom text entered:", newValue);
@@ -2121,6 +2163,7 @@ export default function TabbedDocumentCreator({
           items.find((item: any) => item.itemCode === selectedItemCode)?.description || selectedItemCode
         }
         customerId={formData.customer?.id}
+        initialData={priceHistoryCache[selectedAssetId]}
         onSelectPrice={(price, quantity) => {
           // Find the item and update its price
           const itemToUpdate = items.find((item: any) => item.itemCode === selectedItemCode);

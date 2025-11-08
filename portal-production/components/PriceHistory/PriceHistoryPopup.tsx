@@ -18,6 +18,7 @@ import {
   TextField,
   CircularProgress,
   IconButton,
+  TablePagination,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { useAuth } from '@clerk/nextjs';
@@ -57,6 +58,7 @@ interface PriceHistoryPopupProps {
   itemCode: string;
   itemDescription: string;
   customerId?: string;
+  initialData?: any; // Prefetched data
   onSelectPrice?: (price: number, quantity: number) => void;
 }
 
@@ -67,6 +69,7 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
   itemCode,
   itemDescription,
   customerId,
+  initialData,
   onSelectPrice,
 }) => {
   const { getToken } = useAuth();
@@ -77,11 +80,61 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
   const [cost, setCost] = useState(0);
   const [selectedQuantity, setSelectedQuantity] = useState(100);
 
+  // Pagination state
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [totalCount, setTotalCount] = useState(0);
+
+  useEffect(() => {
+    if (open && assetId) {
+      setPage(0); // Reset to first page when dialog opens
+
+      // Use cached data if available
+      if (initialData && page === 0) {
+        loadInitialData(initialData);
+      } else {
+        fetchPriceHistory();
+      }
+    }
+  }, [open, assetId, customerId]);
+
   useEffect(() => {
     if (open && assetId) {
       fetchPriceHistory();
     }
-  }, [open, assetId, customerId]);
+  }, [page, rowsPerPage]);
+
+  const loadInitialData = (data: any) => {
+    const historyData = data.data || [];
+    const total = data.total || historyData.length;
+
+    setPriceHistory(
+      historyData.map((item: any) => ({
+        reference: item.documentNumber,
+        date: item.documentDate,
+        uom: item.uom || 'PC',
+        quantity: item.quantity,
+        amount: item.unitPrice,
+      }))
+    );
+
+    setTotalCount(total);
+
+    // Set the last price from the first item
+    if (historyData.length > 0) {
+      setLastPrice({
+        documentNumber: historyData[0].documentNumber,
+        documentDate: historyData[0].documentDate,
+        unitPrice: historyData[0].unitPrice,
+        quantity: historyData[0].quantity,
+        uom: historyData[0].uom || 'PC'
+      });
+    }
+
+    // TODO: Fetch stock balance and cost from inventory API
+    setStockBalance(0);
+    setCost(0);
+  };
 
   const fetchPriceHistory = async () => {
     setLoading(true);
@@ -92,10 +145,11 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
         return;
       }
 
-      // Fetch price history (single API call)
+      // Fetch price history with pagination
       const queryParams = new URLSearchParams();
       if (customerId) queryParams.append('customerId', customerId);
-      queryParams.append('limit', '10');
+      queryParams.append('limit', rowsPerPage.toString());
+      queryParams.append('offset', (page * rowsPerPage).toString());
 
       const historyResponse = await request(
         {
@@ -112,6 +166,7 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
       if (historyResponse && historyResponse.success && historyResponse.data) {
         // The actual array is at historyResponse.data.data
         const historyData = historyResponse.data.data || [];
+        const total = historyResponse.data.total || historyData.length;
 
         console.log('History Data to map:', historyData);
 
@@ -125,8 +180,10 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
           }))
         );
 
-        // Set the last price from the first item (data is already sorted by date desc)
-        if (historyData.length > 0) {
+        setTotalCount(total);
+
+        // Set the last price from the first item on first page (data is already sorted by date desc)
+        if (page === 0 && historyData.length > 0) {
           setLastPrice({
             documentNumber: historyData[0].documentNumber,
             documentDate: historyData[0].documentDate,
@@ -312,6 +369,19 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
                   ))}
                 </TableBody>
               </Table>
+              <TablePagination
+                rowsPerPageOptions={[5, 10, 25, 50]}
+                component="div"
+                count={totalCount}
+                rowsPerPage={rowsPerPage}
+                page={page}
+                onPageChange={(event, newPage) => setPage(newPage)}
+                onRowsPerPageChange={(event) => {
+                  setRowsPerPage(parseInt(event.target.value, 10));
+                  setPage(0);
+                }}
+                sx={{ bgcolor: 'white' }}
+              />
             </TableContainer>
 
             {/* Last Sold Price Section */}

@@ -150,28 +150,31 @@ export class PriceHistoryService {
         where.customerId = options.customerId;
       }
 
-      const priceHistory = await this.prisma.priceHistory.findMany({
-        where,
-        orderBy: {
-          documentDate: 'desc',
-        },
-        take: options?.limit || 20,
-        skip: options?.offset || 0,
-        select: {
-          id: true,
-          unitPrice: true,
-          quantity: true,
-          uom: true,
-          totalAmount: true,
-          documentNumber: true,
-          documentDate: true,
-          customerName: true,
-        },
-      });
+      const [priceHistory, total] = await Promise.all([
+        this.prisma.priceHistory.findMany({
+          where,
+          orderBy: {
+            documentDate: 'desc',
+          },
+          take: options?.limit || 20,
+          skip: options?.offset || 0,
+          select: {
+            id: true,
+            unitPrice: true,
+            quantity: true,
+            uom: true,
+            totalAmount: true,
+            documentNumber: true,
+            documentDate: true,
+            customerName: true,
+          },
+        }),
+        this.prisma.priceHistory.count({ where }),
+      ]);
 
       return {
         data: priceHistory,
-        total: priceHistory.length,
+        total,
         limit: options?.limit || 20,
         offset: options?.offset || 0,
       };
