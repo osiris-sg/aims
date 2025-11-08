@@ -32,4 +32,7 @@ export const ROUTES = {
 
   USERS: "/portal/user-management/users",
   CREATE_PROJECT: "/portal/projects/create",
+
+  // Reports
+  PRICE_HISTORY_REPORT: "/portal/reports/price-history",
 };

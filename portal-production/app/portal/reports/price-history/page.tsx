@@ -35,7 +35,7 @@ import {
   History as HistoryIcon,
 } from "@mui/icons-material";
 import { useAuth } from "@clerk/nextjs";
-import { request } from "@/helpers/api/request";
+import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
 import { DatePicker, LocalizationProvider } from "@mui/x-date-pickers";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
