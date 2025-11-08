@@ -53,6 +53,7 @@ interface LastPriceData {
 interface PriceHistoryPopupProps {
   open: boolean;
   onClose: () => void;
+  assetId: string;
   itemCode: string;
   itemDescription: string;
   customerId?: string;
@@ -62,6 +63,7 @@ interface PriceHistoryPopupProps {
 const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
   open,
   onClose,
+  assetId,
   itemCode,
   itemDescription,
   customerId,
@@ -76,10 +78,10 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
   const [selectedQuantity, setSelectedQuantity] = useState(100);
 
   useEffect(() => {
-    if (open && itemCode) {
+    if (open && assetId) {
       fetchPriceHistory();
     }
-  }, [open, itemCode, customerId]);
+  }, [open, assetId, customerId]);
 
   const fetchPriceHistory = async () => {
     setLoading(true);
@@ -90,31 +92,14 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
         return;
       }
 
-      // Fetch last sold price
-      const lastPriceResponse = await request(
-        {
-          path: `/price-history/item/${encodeURIComponent(itemCode)}/last-price${
-            customerId ? `?customerId=${customerId}` : ''
-          }`,
-          method: 'GET',
-        },
-        {},
-        token
-      );
-
-      console.log('Last Price Response:', lastPriceResponse);
-      if (lastPriceResponse) {
-        setLastPrice(lastPriceResponse);
-      }
-
-      // Fetch price history
+      // Fetch price history (single API call)
       const queryParams = new URLSearchParams();
       if (customerId) queryParams.append('customerId', customerId);
       queryParams.append('limit', '10');
 
       const historyResponse = await request(
         {
-          path: `/price-history/item/${encodeURIComponent(itemCode)}?${queryParams.toString()}`,
+          path: `/price-history/asset/${assetId}?${queryParams.toString()}`,
           method: 'GET',
         },
         {},
@@ -122,8 +107,6 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
       );
 
       console.log('History Response:', historyResponse);
-      console.log('History Response Type:', typeof historyResponse);
-      console.log('History Response Keys:', historyResponse ? Object.keys(historyResponse) : 'null');
 
       // Check if historyResponse has the expected structure
       if (historyResponse && historyResponse.success && historyResponse.data) {
@@ -142,8 +125,8 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
           }))
         );
 
-        // Also set the last price if we have data
-        if (historyData.length > 0 && !lastPriceResponse) {
+        // Set the last price from the first item (data is already sorted by date desc)
+        if (historyData.length > 0) {
           setLastPrice({
             documentNumber: historyData[0].documentNumber,
             documentDate: historyData[0].documentDate,

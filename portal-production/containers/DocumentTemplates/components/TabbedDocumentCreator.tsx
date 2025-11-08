@@ -144,6 +144,7 @@ export default function TabbedDocumentCreator({
   // Price history popup state
   const [priceHistoryDialogOpen, setPriceHistoryDialogOpen] = useState(false);
   const [selectedItemCode, setSelectedItemCode] = useState<string>("");
+  const [selectedAssetId, setSelectedAssetId] = useState<string>("");
 
   // Dynamic form field configuration
   const [templateFieldConfig, setTemplateFieldConfig] = useState<TemplateFieldConfig | null>(null);
@@ -484,7 +485,22 @@ export default function TabbedDocumentCreator({
       return;
     }
 
+    // Find the item to get its inventoryItemId
+    const currentItem = items.find((item: any) => item.itemCode === itemCode);
+    if (!currentItem || !currentItem.inventoryItemId) {
+      toast.error("Please select an inventory item first");
+      return;
+    }
+
+    // Get the assetId from the inventory
+    const inventory = inventoriesForDocument.find(inv => inv.id === currentItem.inventoryItemId);
+    if (!inventory || !inventory.assetId) {
+      toast.error("No asset linked to this inventory item");
+      return;
+    }
+
     setSelectedItemCode(itemCode);
+    setSelectedAssetId(inventory.assetId);
     setPriceHistoryDialogOpen(true);
   };
 
@@ -2099,14 +2115,15 @@ export default function TabbedDocumentCreator({
       <PriceHistoryPopup
         open={priceHistoryDialogOpen}
         onClose={() => setPriceHistoryDialogOpen(false)}
+        assetId={selectedAssetId}
         itemCode={selectedItemCode}
         itemDescription={
-          items.find(item => item.itemCode === selectedItemCode)?.description || selectedItemCode
+          items.find((item: any) => item.itemCode === selectedItemCode)?.description || selectedItemCode
         }
         customerId={formData.customer?.id}
         onSelectPrice={(price, quantity) => {
           // Find the item and update its price
-          const itemToUpdate = items.find(item => item.itemCode === selectedItemCode);
+          const itemToUpdate = items.find((item: any) => item.itemCode === selectedItemCode);
           if (itemToUpdate) {
             updateItem(itemToUpdate.id, 'unitPrice', price);
             updateItem(itemToUpdate.id, 'quantity', quantity);

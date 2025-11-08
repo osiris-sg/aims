@@ -55,6 +55,7 @@ model Asset {
   subAssets       Asset[]            @relation("AssetHierarchy")
   taggedTemplates AssetTemplateTag[]
   inventories     Inventory[]
+  priceHistories  PriceHistory[]
 
   @@unique([skuKey, organizationId, deletedAt])
 }
@@ -439,8 +440,7 @@ model OrganizationUIConfig {
 // Price History for tracking item prices from confirmed invoices
 model PriceHistory {
   id                String       @id @default(uuid())
-  itemCode          String       // Product/SKU code
-  itemDescription   String       // Product description at time of sale
+  assetId           String       @db.Uuid // Reference to the asset/item sold (REQUIRED)
   unitPrice         Float        // Unit price at time of sale
   quantity          Float        // Quantity sold
   uom               String?      // Unit of measure
@@ -457,10 +457,11 @@ model PriceHistory {
   // Relations
   document          Document     @relation(fields: [documentId], references: [id])
   customer          Customer?    @relation(fields: [customerId], references: [id])
+  asset             Asset        @relation(fields: [assetId], references: [id])
   organization      Organization @relation(fields: [organizationId], references: [id])
 
   // Indexes for fast queries
-  @@index([itemCode, organizationId])
+  @@index([assetId, organizationId])
   @@index([customerId, organizationId])
   @@index([documentDate])
   @@index([createdAt])

@@ -28,12 +28,12 @@ interface RequestWithOrganization extends Request {
 export class PriceHistoryController {
   constructor(private readonly priceHistoryService: PriceHistoryService) {}
 
-  @Get('item/:itemCode/last-price')
-  @ApiOperation({ summary: 'Get last sold price for an item' })
+  @Get('asset/:assetId/last-price')
+  @ApiOperation({ summary: 'Get last sold price for an asset' })
   @ApiQuery({ name: 'customerId', required: false })
   @Permissions('documents:read')
   async getLastSoldPrice(
-    @Param('itemCode') itemCode: string,
+    @Param('assetId') assetId: string,
     @Req() req: RequestWithOrganization,
     @Query('customerId') customerId?: string,
   ) {
@@ -43,20 +43,20 @@ export class PriceHistoryController {
     }
 
     return await this.priceHistoryService.getLastSoldPrice(
-      itemCode,
+      assetId,
       organizationId,
       customerId,
     );
   }
 
-  @Get('item/:itemCode')
-  @ApiOperation({ summary: 'Get price history for an item' })
+  @Get('asset/:assetId')
+  @ApiOperation({ summary: 'Get price history for an asset' })
   @ApiQuery({ name: 'customerId', required: false })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'offset', required: false, type: Number })
   @Permissions('documents:read')
   async getPriceHistory(
-    @Param('itemCode') itemCode: string,
+    @Param('assetId') assetId: string,
     @Req() req: RequestWithOrganization,
     @Query('customerId') customerId?: string,
     @Query('limit') limit?: string,
@@ -67,7 +67,7 @@ export class PriceHistoryController {
       throw new HttpException('User is not assigned to any organization', 400);
     }
 
-    return await this.priceHistoryService.getPriceHistory(itemCode, organizationId, {
+    return await this.priceHistoryService.getPriceHistory(assetId, organizationId, {
       customerId,
       limit: limit ? parseInt(limit) : undefined,
       offset: offset ? parseInt(offset) : undefined,

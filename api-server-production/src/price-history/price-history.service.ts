@@ -34,31 +34,53 @@ export class PriceHistoryService {
       const documentNumber = document.name || config.documentInfo?.documentNumber;
 
       // Create price history entries for each item
-      const priceHistoryEntries = items.map((item: any) => ({
-        itemCode: item.itemCode || item.item || item.code || '',
-        itemDescription: item.description || '',
-        unitPrice: parseFloat(item.unitPrice) || 0,
-        quantity: parseFloat(item.quantity) || 0,
-        uom: item.uom || 'PC',
-        totalAmount: parseFloat(item.amount) || (parseFloat(item.unitPrice) * parseFloat(item.quantity)) || 0,
-        documentId: documentId,
-        documentNumber: documentNumber,
-        documentDate: new Date(documentDate),
-        customerId: customer?.id || null,
-        customerName: customer?.name || null,
-        organizationId: organizationId,
-      }));
+      const priceHistoryEntries = await Promise.all(
+        items
+          .filter((item: any) => item.inventoryItemId) // Only process items with inventory
+          .map(async (item: any) => {
+            // Fetch the inventory item to get the assetId
+            const inventory = await this.prisma.inventory.findUnique({
+              where: { id: item.inventoryItemId },
+              select: {
+                assetId: true,
+              },
+            });
+
+            // Skip if inventory not found or no asset linked
+            if (!inventory || !inventory.assetId) {
+              console.warn(`Inventory ${item.inventoryItemId} not found or no asset linked`);
+              return null;
+            }
+
+            return {
+              assetId: inventory.assetId,
+              unitPrice: parseFloat(item.unitPrice) || 0,
+              quantity: parseFloat(item.quantity) || 0,
+              uom: item.uom || 'PC',
+              totalAmount: parseFloat(item.amount) || (parseFloat(item.unitPrice) * parseFloat(item.quantity)) || 0,
+              documentId: documentId,
+              documentNumber: documentNumber,
+              documentDate: new Date(documentDate),
+              customerId: customer?.id || null,
+              customerName: customer?.name || null,
+              organizationId: organizationId,
+            };
+          })
+      );
+
+      // Filter out null entries (items without valid inventory/asset)
+      const validEntries = priceHistoryEntries.filter((entry) => entry !== null);
 
       // Bulk create price history entries
-      if (priceHistoryEntries.length > 0) {
+      if (validEntries.length > 0) {
         await this.prisma.priceHistory.createMany({
-          data: priceHistoryEntries,
+          data: validEntries,
         });
       }
 
       return {
         success: true,
-        message: `Price history saved for ${priceHistoryEntries.length} items`,
+        message: `Price history saved for ${validEntries.length} items`,
       };
     } catch (error) {
       throw new HttpException(
@@ -69,12 +91,12 @@ export class PriceHistoryService {
   }
 
   /**
-   * Get last sold price for an item
+   * Get last sold price for an asset by assetId
    */
-  async getLastSoldPrice(itemCode: string, organizationId: string, customerId?: string) {
+  async getLastSoldPrice(assetId: string, organizationId: string, customerId?: string) {
     try {
       const where: Prisma.PriceHistoryWhereInput = {
-        itemCode,
+        assetId,
         organizationId,
       };
 
@@ -107,10 +129,10 @@ export class PriceHistoryService {
   }
 
   /**
-   * Get price history for an item
+   * Get price history for an asset by assetId
    */
   async getPriceHistory(
-    itemCode: string,
+    assetId: string,
     organizationId: string,
     options?: {
       customerId?: string;
@@ -120,7 +142,7 @@ export class PriceHistoryService {
   ) {
     try {
       const where: Prisma.PriceHistoryWhereInput = {
-        itemCode,
+        assetId,
         organizationId,
       };
 
@@ -128,32 +150,28 @@ export class PriceHistoryService {
         where.customerId = options.customerId;
       }
 
-      const [priceHistory, total] = await Promise.all([
-        this.prisma.priceHistory.findMany({
-          where,
-          orderBy: {
-            documentDate: 'desc',
-          },
-          take: options?.limit || 20,
-          skip: options?.offset || 0,
-          select: {
-            id: true,
-            unitPrice: true,
-            quantity: true,
-            uom: true,
-            totalAmount: true,
-            documentNumber: true,
-            documentDate: true,
-            customerName: true,
-            itemDescription: true,
-          },
-        }),
-        this.prisma.priceHistory.count({ where }),
-      ]);
+      const priceHistory = await this.prisma.priceHistory.findMany({
+        where,
+        orderBy: {
+          documentDate: 'desc',
+        },
+        take: options?.limit || 20,
+        skip: options?.offset || 0,
+        select: {
+          id: true,
+          unitPrice: true,
+          quantity: true,
+          uom: true,
+          totalAmount: true,
+          documentNumber: true,
+          documentDate: true,
+          customerName: true,
+        },
+      });
 
       return {
         data: priceHistory,
-        total,
+        total: priceHistory.length,
         limit: options?.limit || 20,
         offset: options?.offset || 0,
       };
@@ -190,14 +208,37 @@ export class PriceHistoryService {
       }
 
       if (options?.itemCode) {
-        where.itemCode = options.itemCode;
+        // Find asset by SKU and filter by assetId
+        const asset = await this.prisma.asset.findFirst({
+          where: {
+            skuKey: options.itemCode,
+            organizationId: organizationId,
+            deletedAt: null,
+          },
+          select: { id: true },
+        });
+        if (asset) {
+          where.assetId = asset.id;
+        } else {
+          // No matching asset, return empty results
+          return {
+            data: [],
+            total: 0,
+            page: options?.page || 1,
+            limit: options?.limit || 25,
+          };
+        }
       }
 
       if (options?.search) {
-        where.OR = [
-          { itemCode: { contains: options.search, mode: 'insensitive' } },
-          { itemDescription: { contains: options.search, mode: 'insensitive' } },
-        ];
+        // Search in asset name, SKU, and description
+        where.asset = {
+          OR: [
+            { skuKey: { contains: options.search, mode: 'insensitive' } },
+            { name: { contains: options.search, mode: 'insensitive' } },
+            { description: { contains: options.search, mode: 'insensitive' } },
+          ],
+        };
       }
 
       if (options?.startDate || options?.endDate) {
@@ -214,20 +255,17 @@ export class PriceHistoryService {
       const limit = options?.limit || 25;
       const offset = ((options?.page || 1) - 1) * limit;
 
-      // For now, use regular Prisma query instead of raw SQL for better compatibility
+      // Query with asset relation
       const [priceHistory, total] = await Promise.all([
         this.prisma.priceHistory.findMany({
           where,
           orderBy: [
-            { itemCode: 'asc' },
             { documentDate: 'desc' },
           ],
           take: limit,
           skip: offset,
           select: {
             id: true,
-            itemCode: true,
-            itemDescription: true,
             unitPrice: true,
             quantity: true,
             uom: true,
@@ -235,13 +273,30 @@ export class PriceHistoryService {
             documentNumber: true,
             documentDate: true,
             customerName: true,
+            customerId: true,
+            organizationId: true,
+            createdAt: true,
+            asset: {
+              select: {
+                skuKey: true,
+                name: true,
+                description: true,
+              },
+            },
           },
         }),
         this.prisma.priceHistory.count({ where }),
       ]);
 
+      // Map to include itemCode and itemDescription from asset
+      const mappedData = priceHistory.map(item => ({
+        ...item,
+        itemCode: item.asset.skuKey,
+        itemDescription: item.asset.name || item.asset.description,
+      }));
+
       return {
-        data: priceHistory,
+        data: mappedData,
         total,
         page: options?.page || 1,
         limit,
@@ -302,14 +357,36 @@ export class PriceHistoryService {
       }
 
       if (options?.itemCode) {
-        where.itemCode = options.itemCode;
+        // Find asset by SKU and filter by assetId
+        const asset = await this.prisma.asset.findFirst({
+          where: {
+            skuKey: options.itemCode,
+            organizationId: organizationId,
+            deletedAt: null,
+          },
+          select: { id: true },
+        });
+        if (asset) {
+          where.assetId = asset.id;
+        } else {
+          // No matching asset, return empty results
+          return {
+            content: '',
+            filename: `price-history-${new Date().toISOString().split('T')[0]}.csv`,
+            contentType: 'text/csv',
+          };
+        }
       }
 
       if (options?.search) {
-        where.OR = [
-          { itemCode: { contains: options.search, mode: 'insensitive' } },
-          { itemDescription: { contains: options.search, mode: 'insensitive' } },
-        ];
+        // Search in asset name, SKU, and description
+        where.asset = {
+          OR: [
+            { skuKey: { contains: options.search, mode: 'insensitive' } },
+            { name: { contains: options.search, mode: 'insensitive' } },
+            { description: { contains: options.search, mode: 'insensitive' } },
+          ],
+        };
       }
 
       if (options?.startDate || options?.endDate) {
@@ -326,12 +403,9 @@ export class PriceHistoryService {
       const priceHistory = await this.prisma.priceHistory.findMany({
         where,
         orderBy: [
-          { itemCode: 'asc' },
           { documentDate: 'desc' },
         ],
         select: {
-          itemCode: true,
-          itemDescription: true,
           unitPrice: true,
           quantity: true,
           uom: true,
@@ -339,6 +413,13 @@ export class PriceHistoryService {
           documentNumber: true,
           documentDate: true,
           customerName: true,
+          asset: {
+            select: {
+              skuKey: true,
+              name: true,
+              description: true,
+            },
+          },
         },
       });
 
@@ -357,8 +438,8 @@ export class PriceHistoryService {
         ];
 
         const rows = priceHistory.map((item) => [
-          item.itemCode,
-          item.itemDescription,
+          item.asset.skuKey,
+          item.asset.name || item.asset.description || '',
           item.unitPrice.toString(),
           item.quantity.toString(),
           item.uom || '',
@@ -380,10 +461,22 @@ export class PriceHistoryService {
         };
       }
 
-      // For other formats, return the raw data
+      // For other formats, return the raw data with mapped fields
+      const mappedData = priceHistory.map(item => ({
+        itemCode: item.asset.skuKey,
+        itemDescription: item.asset.name || item.asset.description,
+        unitPrice: item.unitPrice,
+        quantity: item.quantity,
+        uom: item.uom,
+        totalAmount: item.totalAmount,
+        documentNumber: item.documentNumber,
+        documentDate: item.documentDate,
+        customerName: item.customerName,
+      }));
+
       return {
-        data: priceHistory,
-        total: priceHistory.length,
+        data: mappedData,
+        total: mappedData.length,
         format: options?.format || 'json',
       };
     } catch (error) {
