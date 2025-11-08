@@ -123,8 +123,12 @@ export default function page() {
           documentData.name = response.data.name;
           documentData.documentNumber = response.data.name;
 
+          // Include the document status
+          documentData.status = response.data.status;
+
           console.log("Transformed document data:", documentData);
           console.log("documentInfo after transform:", documentData.documentInfo);
+          console.log("Document status:", response.data.status);
 
           setExistingData(documentData);
 
@@ -190,7 +194,7 @@ export default function page() {
         id: documentId as string,
         type: type as string,
         config: configData,
-        status: 'draft', // Always save as draft (lowercase to match enum)
+        status: data.status || 'draft', // Use provided status or default to draft
         customerId: data.customer?.id || null,
         projectId: data.project?.id || data.projectId || null,
         documentTemplateId: documentMetadata?.documentTemplateId || params.id as string,

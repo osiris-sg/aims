@@ -55,6 +55,10 @@ export default function page() {
 
           // Extract config data for the form
           const documentData = response.data.config || response.data;
+
+          // Include the document status
+          documentData.status = response.data.status;
+
           setExistingData(documentData);
 
           // Set customer ID if available for filtering
@@ -91,7 +95,7 @@ export default function page() {
         id: documentId,
         type: type as string,
         config: data,
-        status: documentMetadata?.status || 'DRAFT',
+        status: data.status || documentMetadata?.status || 'draft', // Use provided status, then existing, then default
         customerId: data.customer?.id,
         projectId: data.project?.id,
         documentTemplateId: documentMetadata?.documentTemplateId,

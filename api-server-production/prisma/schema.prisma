@@ -33,6 +33,7 @@ model Organization {
   modules            OrganizationModule[]
   customFields       CustomField[]
   uiConfig           OrganizationUIConfig?
+  priceHistories     PriceHistory[]
 }
 
 model Asset {
@@ -94,6 +95,7 @@ model Customer {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
   siteOffices    SiteOffice[]
+  priceHistories PriceHistory[] // Track price history for this customer
 
   @@unique([email, organizationId])
 }
@@ -164,6 +166,7 @@ model Document {
 
   organization       Organization   @relation(fields: [organizationId], references: [id])
   timelineItems      TimelineItem[]
+  priceHistories     PriceHistory[] // Track price history entries from this document
 
   // Self-relation for revisions: base document -> many revisions
   baseDocument       Document?      @relation("DocumentRevisions", fields: [baseDocumentId], references: [id])
@@ -326,6 +329,7 @@ enum InventoryStatus {
 
 enum DocumentStatus {
   draft
+  confirmed
   pending_delivery
   delivered_not_installed
   delivered_installed
@@ -430,4 +434,34 @@ model OrganizationUIConfig {
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
   organization      Organization @relation(fields: [organizationId], references: [id])
+}
+
+// Price History for tracking item prices from confirmed invoices
+model PriceHistory {
+  id                String       @id @default(uuid())
+  itemCode          String       // Product/SKU code
+  itemDescription   String       // Product description at time of sale
+  unitPrice         Float        // Unit price at time of sale
+  quantity          Float        // Quantity sold
+  uom               String?      // Unit of measure
+  totalAmount       Float        // Total amount for this line item
+  documentId        String       @db.Uuid // Reference to the document (invoice)
+  documentNumber    String       // Invoice number for reference
+  documentDate      DateTime     // Date of the invoice
+  customerId        String?      @db.Uuid // Customer who bought it
+  customerName      String?      // Customer name for reference
+  organizationId    String       // Organization ID
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  // Relations
+  document          Document     @relation(fields: [documentId], references: [id])
+  customer          Customer?    @relation(fields: [customerId], references: [id])
+  organization      Organization @relation(fields: [organizationId], references: [id])
+
+  // Indexes for fast queries
+  @@index([itemCode, organizationId])
+  @@index([customerId, organizationId])
+  @@index([documentDate])
+  @@index([createdAt])
 }

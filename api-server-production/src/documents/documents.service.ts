@@ -4,12 +4,14 @@ import { PrismaService } from 'src/common/prisma.service';
 import { CreateDocumentWithTimelineDto } from './dto/create-document-with-timeline.dto';
 import { InventoryStatus, DocumentStatus } from '@prisma/client';
 import { XeroService } from 'src/common/xero.service';
+import { PriceHistoryService } from '../price-history/price-history.service';
 
 @Injectable()
 export class DocumentsService {
   constructor(
     private prisma: PrismaService,
     private xeroService: XeroService,
+    private priceHistoryService: PriceHistoryService,
   ) {}
 
   async getById(id: string, organizationId: string) {
@@ -56,6 +58,28 @@ export class DocumentsService {
       const configAsPlainObject: any = dto.config ? dto.config : null;
       const id: any = dto.id ? dto.id : null;
 
+      // Check if document exists and its current status
+      const existingDocument = await this.prisma.document.findUnique({
+        where: {
+          id,
+          organizationId
+        },
+      });
+
+      if (!existingDocument) {
+        throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+      }
+
+      // If document is already confirmed, prevent any edits to config/content
+      // Only allow status changes or no changes at all
+      if (existingDocument.status === 'confirmed') {
+        // If trying to change config/content of a confirmed document, prevent it
+        if (dto.config && Object.keys(dto.config).length > 0) {
+          throw new HttpException('Cannot edit confirmed document. Please create a revision instead.', HttpStatus.FORBIDDEN);
+        }
+        // Allow only status changes for confirmed documents
+      }
+
       // Extract projectId from config if it exists
       const projectId = configAsPlainObject?.projectId;
       console.log('Project ID from config:', projectId, 'Type:', typeof projectId);
@@ -89,6 +113,19 @@ export class DocumentsService {
           name: dto.name, // Update document name if provided
         },
       });
+
+      // If document is being confirmed and is an invoice, save price history
+      if (dto.status === 'confirmed' &&
+          existingDocument.status !== 'confirmed' &&
+          (dto.type === 'INVOICE' || dto.type === 'TI' || dto.type === 'TI2')) {
+        try {
+          await this.priceHistoryService.savePriceHistoryFromDocument(id, organizationId);
+          console.log('Price history saved for confirmed invoice:', id);
+        } catch (error) {
+          console.error('Failed to save price history:', error);
+          // Don't fail the document update if price history fails
+        }
+      }
 
       // Update project if projectId exists in config
       if (projectId) {
@@ -458,7 +495,7 @@ export class DocumentsService {
           type: original.type,
           config: original.config,
           organizationId: original.organizationId,
-          status: original.status,
+          status: 'draft', // Always set revision status to draft
           name: nameWithRevision,
           baseDocumentId,
           revisionNumber: nextRevisionNumber,

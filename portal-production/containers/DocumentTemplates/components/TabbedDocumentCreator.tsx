@@ -45,10 +45,15 @@ import {
   PictureAsPdf as PdfIcon,
   Settings as SettingsIcon,
   ArrowBack as ArrowBackIcon,
+  CheckCircle as CheckCircleIcon,
+  ContentCopy as ContentCopyIcon,
+  History as HistoryIcon,
+  Close as CloseIcon,
 } from "@mui/icons-material";
 import CleanDocumentPreview from "./CleanDocumentPreview";
 import DocumentCustomizer from "./DocumentCustomizer";
 import DynamicFormFields from "./DynamicFormFields";
+import PriceHistoryPopup from "@/components/PriceHistory/PriceHistoryPopup";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
@@ -118,7 +123,14 @@ export default function TabbedDocumentCreator({
   const [mainTabValue, setMainTabValue] = useState(0);
   // Items section tabs
   const [itemsTabValue, setItemsTabValue] = useState(0);
-  const [previewMode, setPreviewMode] = useState(false);
+  const documentStatus = existingData?.status || "draft";
+  const isDocumentConfirmed = documentStatus === "confirmed";
+  const isDocumentEditable = !isDocumentConfirmed && !isTemplateEditMode;
+
+  // Force preview mode for confirmed documents
+  const [previewMode, setPreviewMode] = useState(isDocumentConfirmed);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [isConfirming, setIsConfirming] = useState(false);
   const [isToolBarOpen, setToolBarOpen] = useState(false);
 
   // PDF generation states
@@ -128,6 +140,10 @@ export default function TabbedDocumentCreator({
 
   // Back button confirmation dialog
   const [backConfirmDialogOpen, setBackConfirmDialogOpen] = useState(false);
+
+  // Price history popup state
+  const [priceHistoryDialogOpen, setPriceHistoryDialogOpen] = useState(false);
+  const [selectedItemCode, setSelectedItemCode] = useState<string>("");
 
   // Dynamic form field configuration
   const [templateFieldConfig, setTemplateFieldConfig] = useState<TemplateFieldConfig | null>(null);
@@ -348,20 +364,16 @@ export default function TabbedDocumentCreator({
   };
 
   const updateItem = (id: number, field: string, value: any) => {
-    console.log(`updateItem called - id: ${id}, field: ${field}, value:`, value);
     setItems((prevItems: any[]) => {
       const newItems = prevItems.map((item: any) => {
         if (item.id === id) {
           const updated = { ...item, [field]: value };
           // Calculate amount
           updated.amount = updated.quantity * updated.unitPrice;
-          console.log(`Item ${id} - Setting ${field} to:`, value);
-          console.log("Updated item object:", updated);
           return updated;
         }
         return item;
       });
-      console.log("All items after update:", newItems);
       return newItems;
     });
   };
@@ -466,6 +478,84 @@ export default function TabbedDocumentCreator({
     generatePdf();
   };
 
+  const handleShowPriceHistory = (itemCode: string) => {
+    if (!itemCode) {
+      toast.error("Please select an item first");
+      return;
+    }
+
+    setSelectedItemCode(itemCode);
+    setPriceHistoryDialogOpen(true);
+  };
+
+  const handleConfirmDocument = async () => {
+    setIsConfirming(true);
+    try {
+      // First save the document with current data if not saved
+      const saveData = {
+        ...formData,
+        items: items,
+        name: formData.name || formData.documentInfo.documentNumber,
+        status: "confirmed"
+      };
+
+      // Call onSave with confirmed status
+      await onSave?.(saveData);
+
+      toast.success("Document confirmed successfully");
+      setConfirmDialogOpen(false);
+
+      // Refresh the page to update the status
+      router.refresh();
+    } catch (error) {
+      console.error("Error confirming document:", error);
+      toast.error("Failed to confirm document");
+    } finally {
+      setIsConfirming(false);
+    }
+  };
+
+  const handleCreateRevision = async () => {
+    try {
+      const token = await getToken();
+      if (!token) {
+        toast.error("Authentication required");
+        return;
+      }
+
+      // Get the document ID from existingData or documentId prop
+      const docId = existingData?.id || documentId;
+      if (!docId) {
+        toast.error("Document ID not found");
+        return;
+      }
+
+      // Create revision through API using correct request format
+      const response = await request(
+        {
+          path: `/documents/${docId}/revisions`,
+          method: "POST",
+        },
+        {},
+        token
+      );
+
+      if (response?.success && response?.data?.id) {
+        toast.success("Revision created successfully");
+        // Navigate to edit the new revision
+        // Get the document type from the response (keep uppercase)
+        const newDocType = response.data.type || 'INVOICE';
+        const templateId = response.data.documentTemplateId || documentId;
+        router.push(`/portal/documents/${newDocType}/${templateId}/${response.data.id}`);
+      } else {
+        toast.error(response?.message || "Failed to create revision");
+      }
+    } catch (error) {
+      console.error("Error creating revision:", error);
+      toast.error("Failed to create revision");
+    }
+  };
+
   // Get editable visibility fields based on document type
   const getEditableVisibilityFields = () => {
     const baseFields = [
@@ -537,14 +627,23 @@ export default function TabbedDocumentCreator({
 
   // Handle back button click
   const handleBackClick = () => {
-    setBackConfirmDialogOpen(true);
+    // If document is confirmed, just navigate back without showing dialog
+    const documentStatus = existingData?.status || "draft";
+    if (documentStatus === "confirmed") {
+      // Navigate back directly for confirmed documents
+      if (documentType === "TI") {
+        router.push("/portal/invoices");
+      } else {
+        router.push("/portal/documents");
+      }
+    } else {
+      // Show dialog only for draft documents
+      setBackConfirmDialogOpen(true);
+    }
   };
 
   // Handle save as draft from dialog
   const handleSaveAsDraft = async () => {
-    console.log("handleSaveAsDraft - Current items state:", items);
-    console.log("handleSaveAsDraft - Current formData:", formData);
-
     if (isTemplateEditMode) {
       const templateConfig = templateMethods.getValues();
       await onSave?.({ ...formData, config: templateConfig });
@@ -555,8 +654,6 @@ export default function TabbedDocumentCreator({
         items: items, // Include items array
         name: formData.name || formData.documentInfo.documentNumber
       };
-      console.log("handleSaveAsDraft - Data being sent to onSave:", saveData);
-      console.log("handleSaveAsDraft - Items in saveData:", JSON.stringify(saveData.items, null, 2));
       await onSave?.(saveData);
     }
     // Navigate back after saving
@@ -568,12 +665,50 @@ export default function TabbedDocumentCreator({
   };
 
   // Handle delete from dialog
-  const handleDelete = () => {
-    // Navigate back without saving
-    if (documentType === "TI") {
-      router.push("/portal/invoices");
-    } else {
-      router.push("/portal/documents");
+  const handleDelete = async () => {
+    try {
+      // Only delete if document exists (has been saved before)
+      if (existingData?.id || documentId) {
+        const token = await getToken();
+        if (!token) {
+          toast.error("Authentication required");
+          return;
+        }
+
+        const docId = existingData?.id || documentId;
+
+        // Delete the document
+        const response = await request(
+          {
+            path: `/documents/delete/${docId}`,
+            method: "DELETE",
+          },
+          {},
+          token
+        );
+
+        if (response?.success) {
+          toast.success("Document deleted successfully");
+        } else {
+          toast.error(response?.message || "Failed to delete document");
+        }
+      }
+
+      // Navigate back regardless of deletion result
+      if (documentType === "TI") {
+        router.push("/portal/invoices");
+      } else {
+        router.push("/portal/documents");
+      }
+    } catch (error) {
+      console.error("Error deleting document:", error);
+      toast.error("Failed to delete document");
+      // Still navigate back even if deletion fails
+      if (documentType === "TI") {
+        router.push("/portal/invoices");
+      } else {
+        router.push("/portal/documents");
+      }
     }
   };
 
@@ -606,41 +741,86 @@ export default function TabbedDocumentCreator({
           </Typography>
         </Box>
         <Box sx={{ display: "flex", gap: 1 }}>
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={previewMode ? <EditIcon /> : <PreviewIcon />}
-            onClick={() => setPreviewMode(!previewMode)}
-          >
-            {previewMode ? "Edit" : "Preview"}
-          </Button>
+          {isDocumentConfirmed && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<ContentCopyIcon />}
+              onClick={handleCreateRevision}
+              color="info"
+            >
+              Create Revision
+            </Button>
+          )}
+          {!isDocumentConfirmed && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={previewMode ? <EditIcon /> : <PreviewIcon />}
+              onClick={() => setPreviewMode(!previewMode)}
+            >
+              {previewMode ? "Edit" : "Preview"}
+            </Button>
+          )}
           <Button size="small" variant="outlined" startIcon={<PrintIcon />} onClick={handlePrint}>
             Print / PDF
           </Button>
-          <Button
-            size="small"
-            variant="contained"
-            startIcon={<SaveIcon />}
-            onClick={() => {
-              if (isTemplateEditMode) {
-                // Save template configuration
-                const templateConfig = templateMethods.getValues();
-                onSave?.({ ...formData, config: templateConfig });
-              } else {
-                // Save document data with name field and items
-                const saveData = {
-                  ...formData,
-                  items: items,
-                  name: formData.name || formData.documentInfo.documentNumber
-                };
-                console.log("Direct Save - Data being sent to onSave:", saveData);
-                console.log("Direct Save - Items in saveData:", JSON.stringify(saveData.items, null, 2));
-                onSave?.(saveData);
-              }
-            }}
-          >
-            {isTemplateEditMode ? "Save Template" : "Save as Draft"}
-          </Button>
+          {!isDocumentConfirmed && !isTemplateEditMode && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<CheckCircleIcon />}
+              onClick={() => setConfirmDialogOpen(true)}
+              color="success"
+            >
+              Confirm Document
+            </Button>
+          )}
+          {!isDocumentConfirmed && (
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<SaveIcon />}
+              onClick={() => {
+                if (isTemplateEditMode) {
+                  // Save template configuration
+                  const templateConfig = templateMethods.getValues();
+                  onSave?.({ ...formData, config: templateConfig });
+                } else {
+                  // Save document data with name field and items
+                  const saveData = {
+                    ...formData,
+                    items: items,
+                    name: formData.name || formData.documentInfo.documentNumber
+                  };
+                  console.log("Direct Save - Data being sent to onSave:", saveData);
+                  console.log("Direct Save - Items in saveData:", JSON.stringify(saveData.items, null, 2));
+                  onSave?.(saveData);
+                }
+              }}
+            >
+              {isTemplateEditMode ? "Save Template" : "Save as Draft"}
+            </Button>
+          )}
+          {isDocumentConfirmed && (
+            <Typography
+              variant="body2"
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.5,
+                color: 'success.main',
+                fontWeight: 500,
+                bgcolor: 'success.lighter',
+                px: 2,
+                py: 0.5,
+                borderRadius: 1
+              }}
+            >
+              <CheckCircleIcon fontSize="small" />
+              Document Confirmed
+            </Typography>
+          )}
         </Box>
       </Box>
 
@@ -665,7 +845,7 @@ export default function TabbedDocumentCreator({
         )}
 
         {/* Main Content Area */}
-        {!previewMode ? (
+        {!previewMode && !isDocumentConfirmed ? (
           <Box sx={{ flex: 1, overflow: "auto", position: "relative", display: "flex", flexDirection: "column" }}>
             {/* Template Settings Toggle Button */}
             {isTemplateEditMode && (
@@ -1342,7 +1522,7 @@ export default function TabbedDocumentCreator({
                 <TabPanel value={itemsTabValue} index={0}>
                   <Box>
                     <TableContainer>
-                      <Table>
+                      <Table sx={{ tableLayout: 'fixed' }}>
                         <TableHead>
                           <TableRow>
                             {/* Render columns based on configuration - exclude tax for invoices */}
@@ -1366,16 +1546,27 @@ export default function TabbedDocumentCreator({
                               if (!isVisible) return null;
 
                               return (
-                                <TableCell key={columnId} align={
-                                  columnId === "quantity" || columnId === "unitPrice" || columnId === "tax" ? "center" :
-                                  columnId === "amount" ? "right" : "left"
-                                }>
+                                <TableCell
+                                  key={columnId}
+                                  align={
+                                    columnId === "quantity" || columnId === "unitPrice" || columnId === "tax" ? "center" :
+                                    columnId === "amount" ? "right" : "left"
+                                  }
+                                  sx={{
+                                    width: columnId === "description" ? "45%" :
+                                           columnId === "item" ? "15%" :
+                                           columnId === "quantity" ? "10%" :
+                                           columnId === "unitPrice" ? "12%" :
+                                           columnId === "tax" ? "8%" :
+                                           columnId === "amount" ? "10%" : "auto"
+                                  }}
+                                >
                                   {label}
                                 </TableCell>
                               );
                             });
                           })()}
-                            <TableCell align="center">Actions</TableCell>
+                            <TableCell align="center" sx={{ width: "8%" }}>Actions</TableCell>
                           </TableRow>
                         </TableHead>
                         <TableBody>
@@ -1455,7 +1646,7 @@ export default function TabbedDocumentCreator({
                                   );
                                 } else if (columnId === "description") {
                                   return (
-                                    <TableCell key={columnId}>
+                                    <TableCell key={columnId} sx={{ verticalAlign: 'top', padding: '8px' }}>
                                       <Autocomplete
                                         fullWidth
                                         freeSolo
@@ -1469,6 +1660,28 @@ export default function TabbedDocumentCreator({
                                           <TextField
                                             {...params}
                                             placeholder="Enter or select description"
+                                            multiline
+                                            minRows={1}
+                                            maxRows={10}
+                                            sx={{
+                                              '& .MuiInputBase-root': {
+                                                alignItems: 'flex-start',
+                                                padding: '4px 0',
+                                              },
+                                              '& .MuiInputBase-input': {
+                                                overflow: 'auto !important',
+                                                textOverflow: 'initial !important',
+                                                whiteSpace: 'pre-wrap !important',
+                                                wordBreak: 'break-word !important',
+                                                minHeight: '24px',
+                                                lineHeight: '1.5',
+                                                padding: '4px 8px !important',
+                                              },
+                                              '& .MuiAutocomplete-endAdornment': {
+                                                alignSelf: 'flex-start',
+                                                marginTop: '4px',
+                                              },
+                                            }}
                                             InputProps={{
                                               ...params.InputProps,
                                               endAdornment: (
@@ -1498,13 +1711,29 @@ export default function TabbedDocumentCreator({
                                 } else if (columnId === "unitPrice") {
                                   return (
                                     <TableCell key={columnId} align="center">
-                                      <TextField
-                                        type="number"
-                                        value={item.unitPrice}
-                                        onChange={(e) => updateItem(item.id, "unitPrice", parseFloat(e.target.value))}
-                                        size="small"
-                                        sx={{ width: 100 }}
-                                      />
+                                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+                                        <TextField
+                                          type="number"
+                                          value={item.unitPrice}
+                                          onChange={(e) => updateItem(item.id, "unitPrice", parseFloat(e.target.value))}
+                                          size="small"
+                                          sx={{ width: 100 }}
+                                        />
+                                        {item.itemCode && (
+                                          <IconButton
+                                            size="small"
+                                            onClick={() => handleShowPriceHistory(item.itemCode)}
+                                            sx={{
+                                              padding: 0.5,
+                                              color: 'primary.main',
+                                              '&:hover': { bgcolor: 'primary.lighter' }
+                                            }}
+                                            title="View price history"
+                                          >
+                                            <HistoryIcon fontSize="small" />
+                                          </IconButton>
+                                        )}
+                                      </Box>
                                     </TableCell>
                                   );
                                 } else if (columnId === "tax") {
@@ -1825,6 +2054,66 @@ export default function TabbedDocumentCreator({
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Confirm Document Dialog */}
+      <Dialog
+        open={confirmDialogOpen}
+        onClose={() => !isConfirming && setConfirmDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Confirm Document</DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" sx={{ mb: 2 }}>
+            Are you sure you want to confirm this document? Once confirmed:
+          </Typography>
+          <Box component="ul" sx={{ pl: 2 }}>
+            <Typography component="li" variant="body2" sx={{ mb: 1 }}>
+              The document will be locked and cannot be edited
+            </Typography>
+            <Typography component="li" variant="body2" sx={{ mb: 1 }}>
+              Any changes will require creating a revision
+            </Typography>
+            <Typography component="li" variant="body2">
+              The document status will change to &quot;Confirmed&quot;
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmDialogOpen(false)} disabled={isConfirming}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirmDocument}
+            variant="contained"
+            color="success"
+            disabled={isConfirming}
+            startIcon={isConfirming ? <CircularProgress size={16} /> : <CheckCircleIcon />}
+          >
+            {isConfirming ? "Confirming..." : "Confirm Document"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Price History Popup */}
+      <PriceHistoryPopup
+        open={priceHistoryDialogOpen}
+        onClose={() => setPriceHistoryDialogOpen(false)}
+        itemCode={selectedItemCode}
+        itemDescription={
+          items.find(item => item.itemCode === selectedItemCode)?.description || selectedItemCode
+        }
+        customerId={formData.customer?.id}
+        onSelectPrice={(price, quantity) => {
+          // Find the item and update its price
+          const itemToUpdate = items.find(item => item.itemCode === selectedItemCode);
+          if (itemToUpdate) {
+            updateItem(itemToUpdate.id, 'unitPrice', price);
+            updateItem(itemToUpdate.id, 'quantity', quantity);
+          }
+          setPriceHistoryDialogOpen(false);
+        }}
+      />
     </Box>
   );
 }

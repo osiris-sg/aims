@@ -26,6 +26,7 @@ import { AdminModule } from './admin/admin.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { DocumentExtractionModule } from './document-extraction/document-extraction.module';
 import { ConfigurationModule } from './configuration/configuration.module';
+import { PriceHistoryModule } from './price-history/price-history.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { ConfigurationModule } from './configuration/configuration.module';
     DashboardModule,
     DocumentExtractionModule,
     ConfigurationModule,
+    PriceHistoryModule,
   ],
   controllers: [AppController],
   providers: [
