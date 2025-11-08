@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsNumber, Min, Max } from 'class-validator';
 
 export class CreateOrganizationDto {
   @ApiProperty({
@@ -51,4 +51,17 @@ export class CreateOrganizationDto {
   })
   @IsOptional()
   customDocumentTypes?: Record<string, string>;
+
+  @ApiProperty({
+    required: false,
+    description: 'Tax rate percentage for the organization (e.g., 9 for 9%)',
+    example: 9,
+    minimum: 0,
+    maximum: 100,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  taxRate?: number;
 }

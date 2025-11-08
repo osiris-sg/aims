@@ -141,14 +141,6 @@ export default function TabbedDocumentCreator({
   // Inventory items for item table
   const { inventoriesForDocument } = useGetInventoriesForItemTable();
 
-  // Debug inventory data
-  useEffect(() => {
-    console.log("inventoriesForDocument loaded:", inventoriesForDocument);
-    if (inventoriesForDocument && inventoriesForDocument.length > 0) {
-      console.log("Sample inventory item structure:", inventoriesForDocument[0]);
-      console.log("All inventory IDs and SKUs:", inventoriesForDocument.map(inv => ({ id: inv.id, sku: inv.sku })));
-    }
-  }, [inventoriesForDocument]);
 
   // Template configuration form for field visibility
   const templateMethods = useForm({
@@ -302,7 +294,9 @@ export default function TabbedDocumentCreator({
   // Items management - normalize field names from old inventoryId to new inventoryItemId
   const [items, setItems] = useState(() => {
     const existingItems = existingData?.items || [];
-    console.log("Initializing items from existingData:", existingItems);
+
+    // Check if this is an invoice type that doesn't need item tax
+    const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
 
     // If there are existing items, map them
     if (existingItems.length > 0) {
@@ -310,8 +304,9 @@ export default function TabbedDocumentCreator({
         ...item,
         inventoryItemId: item.inventoryItemId || item.inventoryId || "",  // Support both old and new field names
         inventoryId: undefined,  // Remove old field name if it exists
+        // Only include tax for non-invoice types
+        tax: isInvoiceType ? undefined : (item.tax || "9"),
       }));
-      console.log("Mapped existing items:", mapped);
       return mapped;
     }
 
@@ -323,14 +318,15 @@ export default function TabbedDocumentCreator({
       description: "",
       quantity: 1,
       unitPrice: 0,
-      tax: "9",
+      // Only include tax for non-invoice types
+      tax: isInvoiceType ? undefined : "9",
       amount: 0,
     };
-    console.log("No existing items, creating default item:", defaultItem);
     return [defaultItem];
   });
 
   const addNewItem = () => {
+    const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
     setItems([
       ...items,
       {
@@ -340,7 +336,8 @@ export default function TabbedDocumentCreator({
         description: "",
         quantity: 1,
         unitPrice: 0,
-        tax: 9,
+        // Only include tax for non-invoice types
+        tax: isInvoiceType ? undefined : 9,
         amount: 0,
       },
     ]);
@@ -369,9 +366,15 @@ export default function TabbedDocumentCreator({
     });
   };
 
-  // Calculations
+  // Calculations - use organization tax rate for invoices
+  const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
   const subtotal = items.reduce((acc: number, item: any) => acc + (item.amount || 0), 0);
-  const totalTax = items.reduce((acc: number, item: any) => acc + (item.amount || 0) * (item.tax / 100), 0);
+
+  // For invoices, use organization tax rate; for others, use item-level tax
+  const totalTax = isInvoiceType
+    ? subtotal * ((organization?.taxRate || 9) / 100)
+    : items.reduce((acc: number, item: any) => acc + (item.amount || 0) * ((item.tax || 0) / 100), 0);
+
   const total = subtotal + totalTax;
 
   const handleMainTabChange = (_: React.SyntheticEvent, newValue: number) => {
@@ -1342,9 +1345,16 @@ export default function TabbedDocumentCreator({
                       <Table>
                         <TableHead>
                           <TableRow>
-                            {/* Render columns based on configuration */}
-                            {(isTemplateEditMode ? templateWatch("tableColumnOrder") : ["item", "description", "quantity", "unitPrice", "tax", "amount"]).map((columnId: string) => {
-                              const isVisible = isTemplateEditMode ? templateWatch(`tableHeaders.${columnId}`) : true;
+                            {/* Render columns based on configuration - exclude tax for invoices */}
+                            {(() => {
+                              const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
+                              const defaultColumns = isInvoiceType
+                                ? ["item", "description", "quantity", "unitPrice", "amount"]
+                                : ["item", "description", "quantity", "unitPrice", "tax", "amount"];
+                              return (isTemplateEditMode ? templateWatch("tableColumnOrder") : defaultColumns).map((columnId: string) => {
+                                // Skip tax column for invoices
+                                if (isInvoiceType && columnId === "tax") return null;
+                                const isVisible = isTemplateEditMode ? templateWatch(`tableHeaders.${columnId}`) : true;
                               const label = isTemplateEditMode ? templateWatch(`columnLabels.${columnId}`) || columnId :
                                 columnId === "item" ? "Item" :
                                 columnId === "description" ? "Description" :
@@ -1363,17 +1373,25 @@ export default function TabbedDocumentCreator({
                                   {label}
                                 </TableCell>
                               );
-                            })}
+                            });
+                          })()}
                             <TableCell align="center">Actions</TableCell>
                           </TableRow>
                         </TableHead>
                         <TableBody>
                           {items.map((item: any, index: number) => (
                             <TableRow key={item.id}>
-                              {/* Render cells based on configuration */}
-                              {(isTemplateEditMode ? templateWatch("tableColumnOrder") : ["item", "description", "quantity", "unitPrice", "tax", "amount"]).map((columnId: string) => {
-                                const isVisible = isTemplateEditMode ? templateWatch(`tableHeaders.${columnId}`) : true;
-                                if (!isVisible) return null;
+                              {/* Render cells based on configuration - exclude tax for invoices */}
+                              {(() => {
+                                const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
+                                const defaultColumns = isInvoiceType
+                                  ? ["item", "description", "quantity", "unitPrice", "amount"]
+                                  : ["item", "description", "quantity", "unitPrice", "tax", "amount"];
+                                return (isTemplateEditMode ? templateWatch("tableColumnOrder") : defaultColumns).map((columnId: string) => {
+                                  // Skip tax column for invoices
+                                  if (isInvoiceType && columnId === "tax") return null;
+                                  const isVisible = isTemplateEditMode ? templateWatch(`tableHeaders.${columnId}`) : true;
+                                  if (!isVisible) return null;
 
                                 if (columnId === "item") {
                                   return (
@@ -1521,7 +1539,8 @@ export default function TabbedDocumentCreator({
                                     </TableCell>
                                   );
                                 }
-                              })}
+                              });
+                            })()}
                               <TableCell align="center">
                                 <IconButton
                                   size="small"
@@ -1556,7 +1575,9 @@ export default function TabbedDocumentCreator({
                             <Typography variant="body2" fontWeight="bold">SGD {subtotal.toFixed(2)}</Typography>
                           </Box>
                           <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-                            <Typography variant="body2">Tax:</Typography>
+                            <Typography variant="body2">
+                              Tax{isInvoiceType ? ` (${organization?.taxRate || 9}%)` : ''}:
+                            </Typography>
                             <Typography variant="body2">SGD {totalTax.toFixed(2)}</Typography>
                           </Box>
                           <Divider sx={{ my: 0.5 }} />

@@ -21,6 +21,7 @@ export default function OrganizationSettingsPage() {
       address: organization?.address || "",
       phoneNumber: organization?.phoneNumber || "",
       registrationNumber: organization?.registrationNumber || "",
+      taxRate: organization?.taxRate || 9,
       logo: organization?.logo ? [{ data: organization.logo }] : undefined,
       defaultStamp: organization?.defaultStamp ? [{ data: organization.defaultStamp }] : undefined,
       customDocumentTypes: organization?.customDocumentTypes || {},
@@ -77,6 +78,7 @@ export default function OrganizationSettingsPage() {
       address: data.address,
       phoneNumber: data.phoneNumber,
       registrationNumber: data.registrationNumber,
+      taxRate: parseFloat(data.taxRate) || 0,
       customDocumentTypes: data.customDocumentTypes,
     };
 
@@ -156,6 +158,14 @@ export default function OrganizationSettingsPage() {
         <FormInputBox control={control} name="address" label="Address" placeHolder="Enter address" />
         <FormInputBox control={control} name="phoneNumber" label="Phone Number" placeHolder="Enter phone" />
         <FormInputBox control={control} name="registrationNumber" label="Registration No" placeHolder="Enter registration number" />
+        <FormInputBox
+          control={control}
+          name="taxRate"
+          label="Tax Rate (%)"
+          placeHolder="Enter tax rate (e.g., 9 for 9%)"
+          type="number"
+          inputProps={{ min: 0, max: 100, step: 0.1 }}
+        />
 
         <Box>
           <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>

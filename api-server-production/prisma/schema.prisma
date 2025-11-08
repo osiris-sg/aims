@@ -18,6 +18,7 @@ model Organization {
   logo               String?
   defaultStamp       String?
   customDocumentTypes Json?
+  taxRate            Float?             @default(9)
   assets             Asset[]
   categories         Category[]
   customers          Customer[]
