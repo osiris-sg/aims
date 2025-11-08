@@ -172,7 +172,22 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="md"
+      fullWidth
+      sx={{
+        zIndex: 9999,
+        '& .MuiBackdrop-root': {
+          backgroundColor: 'rgba(0, 0, 0, 0.5)'
+        },
+        '& .MuiDialog-paper': {
+          backgroundColor: '#FFFFFF',
+          backgroundImage: 'none'
+        }
+      }}
+    >
       <DialogTitle
         sx={{
           bgcolor: '#1976d2',
@@ -189,32 +204,53 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
         </IconButton>
       </DialogTitle>
 
-      <DialogContent dividers sx={{ p: 2 }}>
-        {loading ? (
-          <Box display="flex" justifyContent="center" p={3}>
-            <CircularProgress />
-          </Box>
-        ) : (
-          <>
-            {/* Item Details */}
-            <Grid container spacing={2} mb={2}>
+      <DialogContent
+        dividers
+        sx={{
+          p: 2,
+          bgcolor: '#FFFFFF',
+          backgroundColor: '#FFFFFF',
+          backgroundImage: 'none',
+          isolation: 'isolate'
+        }}
+      >
+        <Box
+          sx={{
+            bgcolor: '#FFFFFF',
+            backgroundColor: '#FFFFFF',
+            backgroundImage: 'none'
+          }}
+        >
+          {loading ? (
+            <Box display="flex" justifyContent="center" p={3}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <>
+              {/* Item Details */}
+              <Grid container spacing={2} mb={2}>
               <Grid item xs={12}>
-                <Box sx={{ bgcolor: '#8B7355', color: 'white', p: 1 }}>
+                <Box sx={{
+                  bgcolor: '#f5f5f5',
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 1,
+                  p: 1.5
+                }}>
                   <Grid container spacing={2}>
                     <Grid item xs={3}>
-                      <Typography variant="body2">Code</Typography>
+                      <Typography variant="body2" color="text.secondary">Code</Typography>
                       <Typography variant="body1" fontWeight="bold">
                         {itemCode}
                       </Typography>
                     </Grid>
                     <Grid item xs={6}>
-                      <Typography variant="body2">Description</Typography>
+                      <Typography variant="body2" color="text.secondary">Description</Typography>
                       <Typography variant="body1" fontWeight="bold">
                         {itemDescription}
                       </Typography>
                     </Grid>
                     <Grid item xs={3}>
-                      <Typography variant="body2">Stock Balance</Typography>
+                      <Typography variant="body2" color="text.secondary">Stock Balance</Typography>
                       <Typography variant="body1" fontWeight="bold">
                         {stockBalance.toFixed(3)}
                       </Typography>
@@ -224,23 +260,36 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
               </Grid>
 
               <Grid item xs={6}>
-                <Box sx={{ bgcolor: '#8B7355', color: 'white', p: 1 }}>
-                  <Typography variant="body2">Part No</Typography>
+                <Box sx={{
+                  bgcolor: '#f5f5f5',
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 1,
+                  p: 1
+                }}>
+                  <Typography variant="body2" color="text.secondary">Part No</Typography>
                   <TextField
                     size="small"
                     fullWidth
                     variant="outlined"
                     sx={{
                       bgcolor: 'white',
-                      '& .MuiOutlinedInput-root': { height: 30 },
+                      '& .MuiOutlinedInput-root': {
+                        height: 30,
+                        bgcolor: 'white'
+                      }
                     }}
                   />
                 </Box>
               </Grid>
 
               <Grid item xs={6}>
-                <Box sx={{ bgcolor: '#8B7355', color: 'white', p: 1 }}>
-                  <Typography variant="body2">Cost</Typography>
+                <Box sx={{
+                  bgcolor: '#f5f5f5',
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 1,
+                  p: 1
+                }}>
+                  <Typography variant="body2" color="text.secondary">Cost</Typography>
                   <Typography variant="body1" fontWeight="bold">
                     {cost.toFixed(4)}
                   </Typography>
@@ -249,8 +298,8 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
             </Grid>
 
             {/* Price History Table */}
-            <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
-              <Table size="small">
+            <TableContainer component={Paper} variant="outlined" sx={{ mb: 2, bgcolor: 'white' }}>
+              <Table size="small" sx={{ bgcolor: 'white' }}>
                 <TableHead>
                   <TableRow>
                     <TableCell>Reference</TableCell>
@@ -262,12 +311,18 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
                 </TableHead>
                 <TableBody>
                   {priceHistory.map((item, index) => (
-                    <TableRow key={index}>
-                      <TableCell>{item.reference}</TableCell>
-                      <TableCell>{formatDate(item.date)}</TableCell>
-                      <TableCell>{item.uom}</TableCell>
-                      <TableCell align="right">{item.quantity}</TableCell>
-                      <TableCell align="right">
+                    <TableRow
+                      key={index}
+                      sx={{
+                        bgcolor: 'white',
+                        '&:hover': { bgcolor: 'rgba(0, 0, 0, 0.04)' }
+                      }}
+                    >
+                      <TableCell sx={{ bgcolor: 'transparent' }}>{item.reference}</TableCell>
+                      <TableCell sx={{ bgcolor: 'transparent' }}>{formatDate(item.date)}</TableCell>
+                      <TableCell sx={{ bgcolor: 'transparent' }}>{item.uom}</TableCell>
+                      <TableCell sx={{ bgcolor: 'transparent' }} align="right">{item.quantity}</TableCell>
+                      <TableCell sx={{ bgcolor: 'transparent' }} align="right">
                         {item.amount.toFixed(2)}
                       </TableCell>
                     </TableRow>
@@ -277,57 +332,74 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
             </TableContainer>
 
             {/* Last Sold Price Section */}
-            <Box sx={{ bgcolor: '#8B7355', color: 'white', p: 1.5 }}>
-              <Grid container spacing={2} alignItems="center">
-                <Grid item xs={3}>
-                  <Typography variant="body2">Document Reference</Typography>
+            <Box sx={{
+              bgcolor: '#f5f5f5',
+              border: '1px solid #e0e0e0',
+              borderRadius: 1,
+              p: 1.5,
+              mb: 2
+            }}>
+              <Grid container spacing={1.5} alignItems="flex-end">
+                <Grid item xs={12} sm={4}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                    Document Reference
+                  </Typography>
                   <TextField
                     size="small"
                     fullWidth
-                    value={lastPrice?.documentNumber || ''}
+                    value={priceHistory.length > 0 ? priceHistory[0].reference : ''}
                     variant="outlined"
+                    InputProps={{ readOnly: true }}
                     sx={{
                       bgcolor: 'white',
-                      '& .MuiOutlinedInput-root': { height: 30 },
+                      '& .MuiOutlinedInput-root': { height: 35 },
                     }}
                   />
                 </Grid>
-                <Grid item xs={2}>
-                  <Typography variant="body2">Date</Typography>
+                <Grid item xs={12} sm={2.5}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                    Date
+                  </Typography>
                   <TextField
                     size="small"
                     fullWidth
                     value={
-                      lastPrice?.documentDate
-                        ? formatDate(lastPrice.documentDate)
+                      priceHistory.length > 0
+                        ? formatDate(priceHistory[0].date)
                         : ''
                     }
                     variant="outlined"
+                    InputProps={{ readOnly: true }}
                     sx={{
                       bgcolor: 'white',
-                      '& .MuiOutlinedInput-root': { height: 30 },
+                      '& .MuiOutlinedInput-root': { height: 35 },
                     }}
                   />
                 </Grid>
-                <Grid item xs={2}>
-                  <Typography variant="body2">Last Sold Price</Typography>
+                <Grid item xs={12} sm={2.5}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, whiteSpace: 'nowrap' }}>
+                    Price
+                  </Typography>
                   <TextField
                     size="small"
                     fullWidth
-                    value={lastPrice?.unitPrice?.toFixed(4) || '0.0000'}
+                    value={priceHistory.length > 0 ? priceHistory[0].amount.toFixed(4) : '0.0000'}
                     variant="outlined"
+                    InputProps={{ readOnly: true }}
                     sx={{
                       bgcolor: 'white',
-                      '& .MuiOutlinedInput-root': { height: 30 },
+                      '& .MuiOutlinedInput-root': { height: 35 },
                     }}
                   />
                 </Grid>
-                <Grid item xs={2}>
-                  <Typography variant="body2">Quantity</Typography>
+                <Grid item xs={12} sm={1.5}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                    Qty
+                  </Typography>
                   <TextField
                     size="small"
                     fullWidth
-                    value={selectedQuantity}
+                    value={priceHistory.length > 0 ? priceHistory[0].quantity : selectedQuantity}
                     onChange={(e) =>
                       setSelectedQuantity(Number(e.target.value))
                     }
@@ -335,22 +407,32 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
                     variant="outlined"
                     sx={{
                       bgcolor: 'white',
-                      '& .MuiOutlinedInput-root': { height: 30 },
+                      '& .MuiOutlinedInput-root': { height: 35 },
                     }}
                   />
                 </Grid>
-                <Grid item xs={1}>
-                  <Typography variant="body2">UOM</Typography>
-                  <Typography variant="body1">
-                    {lastPrice?.uom || 'PAIR'}
+                <Grid item xs={12} sm={1.5}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                    UOM
                   </Typography>
+                  <TextField
+                    size="small"
+                    fullWidth
+                    value={priceHistory.length > 0 ? priceHistory[0].uom : 'PC'}
+                    variant="outlined"
+                    InputProps={{ readOnly: true }}
+                    sx={{
+                      bgcolor: 'white',
+                      '& .MuiOutlinedInput-root': { height: 35 },
+                    }}
+                  />
                 </Grid>
               </Grid>
             </Box>
 
             {/* Remarks Section */}
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="body2" sx={{ mb: 0.5 }}>
+            <Box sx={{ mt: 1 }}>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
                 Remarks
               </Typography>
               <TextField
@@ -359,10 +441,14 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
                 rows={2}
                 variant="outlined"
                 placeholder="Enter remarks..."
+                sx={{
+                  bgcolor: 'white'
+                }}
               />
             </Box>
           </>
         )}
+        </Box>
       </DialogContent>
 
       <DialogActions>
