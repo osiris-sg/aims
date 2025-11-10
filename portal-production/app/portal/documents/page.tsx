@@ -1,9 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
-import { useAuth } from "@clerk/nextjs";
-import { useOrganization } from "@hooks/useOrganization";
-import { request } from "@/helpers/request";
+import React, { useState } from "react";
+import { useGetDocuments, useDeleteDocument } from "@/app/portal/hooks/api";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import { Box, IconButton, Alert, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button } from "@mui/material";
@@ -13,7 +11,6 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import { useRouter } from "next/navigation";
 import moment from "moment";
 import { toast } from "react-toastify";
-import { DOCUMENT_API } from "../documents/constants";
 
 interface Document {
   id: string;
@@ -24,19 +21,6 @@ interface Document {
   documentType: string;
   templateId: string;
   createdAt: string;
-}
-
-interface PaginatedResponse {
-  docs: Document[];
-  totalDocs: number;
-  limit: number;
-  totalPages: number;
-  page: number;
-  pagingCounter: number;
-  hasPrevPage: boolean;
-  hasNextPage: boolean;
-  prevPage: number | null;
-  nextPage: null;
 }
 
 interface Filters {
@@ -50,23 +34,6 @@ interface Filters {
 
 export default function DocumentsPage() {
   const router = useRouter();
-  const { organization } = useOrganization();
-  const { getToken } = useAuth();
-  const organizationId = organization?.id;
-
-  const [documents, setDocuments] = useState<PaginatedResponse>({
-    docs: [],
-    totalDocs: 0,
-    limit: 10,
-    totalPages: 0,
-    page: 1,
-    pagingCounter: 0,
-    hasPrevPage: false,
-    hasNextPage: false,
-    prevPage: null,
-    nextPage: null,
-  });
-  const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
@@ -78,10 +45,14 @@ export default function DocumentsPage() {
       endDate: null,
     },
   });
-  const [error, setError] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [documentToDelete, setDocumentToDelete] = useState<Document | null>(null);
-  const [deleting, setDeleting] = useState(false);
+
+  // Fetch documents with new hook
+  const { documents = [], isLoading, error, refetch } = useGetDocuments();
+
+  // Delete document mutation
+  const deleteDocumentMutation = useDeleteDocument();
 
   const columns = [
     {
@@ -236,36 +207,17 @@ export default function DocumentsPage() {
   };
 
   const handleDeleteConfirm = async () => {
-    if (!documentToDelete || !organizationId) return;
-    
-    setDeleting(true);
+    if (!documentToDelete) return;
+
     try {
-      const token = await getToken();
-      if (!token) return;
-
-      const response = await request(
-        {
-          path: `${DOCUMENT_API.DELETE.path}/${documentToDelete.id}`,
-          method: DOCUMENT_API.DELETE.method,
-        },
-        {},
-        token
-      );
-
-      if (response.success) {
-        toast.success("Document deleted successfully");
-        setDeleteDialogOpen(false);
-        setDocumentToDelete(null);
-        // Refresh the documents list
-        fetchDocuments();
-      } else {
-        toast.error(response.message || "Failed to delete document");
-      }
-    } catch (error) {
+      await deleteDocumentMutation.mutateAsync(documentToDelete.id);
+      toast.success("Document deleted successfully");
+      setDeleteDialogOpen(false);
+      setDocumentToDelete(null);
+      refetch();
+    } catch (error: any) {
       console.error("Error deleting document:", error);
-      toast.error("An error occurred while deleting the document");
-    } finally {
-      setDeleting(false);
+      toast.error(error.message || "An error occurred while deleting the document");
     }
   };
 
@@ -274,67 +226,21 @@ export default function DocumentsPage() {
     setDocumentToDelete(null);
   };
 
-  const fetchDocuments = useCallback(async () => {
-    if (!organizationId) return;
-    setLoading(true);
-    setError(null);
-    console.log("organizationId:", organizationId);
-    try {
-      const token = await getToken();
-      if (!token) return;
-
-      const response = await request(
-        {
-          path: DOCUMENT_API.GET_ALL.path,
-          method: "POST",
-        },
-        { organizationId },
-        token
-      );
-      if (response.success) {
-        console.log("Fetched documents:", response.data);
-        setDocuments({
-          docs: response.data,
-          totalDocs: response.data.length,
-          limit,
-          totalPages: 1,
-          page: 1,
-          pagingCounter: 1,
-          hasPrevPage: false,
-          hasNextPage: false,
-          prevPage: null,
-          nextPage: null,
-        });
-      } else {
-        setError(response.message || "Failed to fetch documents");
-      }
-    } catch (error) {
-      console.error("Error fetching documents:", error);
-      setError("An error occurred while fetching documents");
-    } finally {
-      setLoading(false);
-    }
-  }, [organizationId, getToken, limit]);
-
-  useEffect(() => {
-    fetchDocuments();
-  }, [fetchDocuments]);
-
   return (
     <MainCard>
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          {String(error)}
         </Alert>
       )}
       <PageTable
         columns={columns}
-        data={documents.docs}
+        data={documents}
         tableName="Document List"
         subTitle="Document Detail Information"
         buttonName="Create Document"
         onAddClick={() => router.push("/portal/documents/create")}
-        loading={loading}
+        loading={isLoading}
         page={page}
         limit={limit}
         search={search}
@@ -344,8 +250,8 @@ export default function DocumentsPage() {
         setSearch={setSearch}
         setFilters={handleSetFilters}
         availableFilters={["status", "category", "createdOn"]}
-        pageCount={documents.totalPages}
-        totalDocs={documents.totalDocs}
+        pageCount={Math.ceil(documents.length / limit)}
+        totalDocs={documents.length}
       />
 
       {/* Delete Confirmation Dialog */}
@@ -364,16 +270,16 @@ export default function DocumentsPage() {
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleDeleteCancel} disabled={deleting}>
+          <Button onClick={handleDeleteCancel} disabled={deleteDocumentMutation.isPending}>
             Cancel
           </Button>
-          <Button 
-            onClick={handleDeleteConfirm} 
-            color="error" 
+          <Button
+            onClick={handleDeleteConfirm}
+            color="error"
             variant="contained"
-            disabled={deleting}
+            disabled={deleteDocumentMutation.isPending}
           >
-            {deleting ? "Deleting..." : "Delete"}
+            {deleteDocumentMutation.isPending ? "Deleting..." : "Delete"}
           </Button>
         </DialogActions>
       </Dialog>

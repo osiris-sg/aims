@@ -8,7 +8,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
-import { useGetCustomers } from "@/containers/DocumentTemplates/hooks/useGetCustomers";
+import { useGetCustomers } from "@/app/portal/hooks/api";
 import { useGetProjects } from "@/containers/DocumentTemplates/hooks/useGetProjects";
 import { useGetDeliveryOrders } from "@/containers/DocumentTemplates/hooks/useGetDeliveryOrders";
 import { useGetSiteOffices } from "@/containers/DocumentTemplates/hooks/useGetSiteOffices";
@@ -163,7 +163,7 @@ export default function page() {
   }, [documentId, getToken]);
 
   // Fetch data
-  const { customers } = useGetCustomers();
+  const { customers = [] } = useGetCustomers({ limit: 1000 });
   const { projects } = useGetProjects(selectedCustomerId); // Filter by customer
   const { deliveryOrders } = useGetDeliveryOrders(selectedCustomerId); // Filter by customer
   const { siteOffices, fetchSiteOffices } = useGetSiteOffices();
@@ -234,7 +234,7 @@ export default function page() {
   };
 
   // Format data for the component
-  const customersList = customers?.docs?.map((customer: any) => ({
+  const customersList = customers?.map((customer: any) => ({
     id: customer.id,
     name: customer.name,
     address: customer.address || "",

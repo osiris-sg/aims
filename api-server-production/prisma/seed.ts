@@ -1379,6 +1379,111 @@ async function main() {
     },
   });
 
+  // ===== ACCOUNTING PERMISSIONS =====
+
+  // Payments permissions
+  const createPaymentPermission = await prisma.permission.upsert({
+    where: { name: 'payments:create' },
+    update: {},
+    create: {
+      name: 'payments:create',
+      description: 'Can record payments',
+      resource: 'payments',
+      action: 'create',
+    },
+  });
+
+  const readPaymentPermission = await prisma.permission.upsert({
+    where: { name: 'payments:read' },
+    update: {},
+    create: {
+      name: 'payments:read',
+      description: 'Can view payments',
+      resource: 'payments',
+      action: 'read',
+    },
+  });
+
+  const updatePaymentPermission = await prisma.permission.upsert({
+    where: { name: 'payments:update' },
+    update: {},
+    create: {
+      name: 'payments:update',
+      description: 'Can update payments',
+      resource: 'payments',
+      action: 'update',
+    },
+  });
+
+  const deletePaymentPermission = await prisma.permission.upsert({
+    where: { name: 'payments:delete' },
+    update: {},
+    create: {
+      name: 'payments:delete',
+      description: 'Can delete payments',
+      resource: 'payments',
+      action: 'delete',
+    },
+  });
+
+  // Transactions permissions
+  const createTransactionPermission = await prisma.permission.upsert({
+    where: { name: 'transactions:create' },
+    update: {},
+    create: {
+      name: 'transactions:create',
+      description: 'Can create manual transactions (adjustments, opening balances)',
+      resource: 'transactions',
+      action: 'create',
+    },
+  });
+
+  const readTransactionPermission = await prisma.permission.upsert({
+    where: { name: 'transactions:read' },
+    update: {},
+    create: {
+      name: 'transactions:read',
+      description: 'Can view transactions',
+      resource: 'transactions',
+      action: 'read',
+    },
+  });
+
+  const updateTransactionPermission = await prisma.permission.upsert({
+    where: { name: 'transactions:update' },
+    update: {},
+    create: {
+      name: 'transactions:update',
+      description: 'Can update transactions and recalculate balances',
+      resource: 'transactions',
+      action: 'update',
+    },
+  });
+
+  const deleteTransactionPermission = await prisma.permission.upsert({
+    where: { name: 'transactions:delete' },
+    update: {},
+    create: {
+      name: 'transactions:delete',
+      description: 'Can delete manual transactions',
+      resource: 'transactions',
+      action: 'delete',
+    },
+  });
+
+  // Statements permissions
+  const readStatementPermission = await prisma.permission.upsert({
+    where: { name: 'statements:read' },
+    update: {},
+    create: {
+      name: 'statements:read',
+      description: 'Can view and generate statements of account',
+      resource: 'statements',
+      action: 'read',
+    },
+  });
+
+  console.log('✅ Accounting permissions created successfully');
   console.log('Seed completed successfully');
 }
 

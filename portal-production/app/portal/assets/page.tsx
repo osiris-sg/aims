@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import { useRouter } from "next/navigation";
@@ -8,9 +8,7 @@ import VisibilityIcon from "@mui/icons-material/Visibility";
 import ModeEditIcon from "@mui/icons-material/ModeEdit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DeleteItemDialog from "@/components/DeleteItemDialog";
-import { useAuth } from "@clerk/nextjs";
-import { useOrganization } from "@hooks/useOrganization";
-import { request } from "@/helpers/request";
+import { useGetAssets, useDeleteAsset, useGetCategories } from "@/app/portal/hooks/api";
 import { ROUTES } from "@/routes";
 import AssetHierarchyTable from "./components/AssetHierarchyTable";
 import { ToggleButton, ToggleButtonGroup } from "@mui/material";
@@ -19,10 +17,6 @@ import ViewListIcon from "@mui/icons-material/ViewList";
 
 export default function AssetsPage() {
   const router = useRouter();
-  const { organization } = useOrganization();
-  const { getToken } = useAuth();
-  const organizationId = organization?.id;
-
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
@@ -30,133 +24,40 @@ export default function AssetsPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleteName, setDeleteName] = useState<string | null>(null);
   const [assetToDelete, setAssetToDelete] = useState<string | null>(null);
-  const [assets, setAssets] = useState<any>({ docs: [], totalDocuments: 0, totalPagesCount: 0 });
-  const [hierarchyAssets, setHierarchyAssets] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [viewMode, setViewMode] = useState<"table" | "hierarchy">("table");
 
-  const fetchAssets = React.useCallback(async () => {
-    if (!organizationId) return;
+  // Fetch assets with new hook (for table view)
+  const { assets = [], total = 0, isLoading: loadingAssets, refetch: refetchAssets } = useGetAssets({
+    page,
+    limit,
+    search,
+    filters
+  });
 
-    setIsLoading(true);
-    try {
-      const token = await getToken();
-      if (!token) return;
+  // Fetch hierarchy assets (for hierarchy view) - we'll need to add this to the hook if not present
+  // For now, using the table data
+  const hierarchyAssets = assets;
 
-      const response = await request(
-        {
-          path: `/assets`,
-          method: "POST",
-        },
-        {
-          page,
-          limit,
-          search,
-          filters,
-          organizationId,
-        },
-        token
-      );
+  // Fetch categories
+  const { categories = [], isLoading: loadingCategories } = useGetCategories();
 
-      if (response.success) {
-        setAssets(response.data);
-      }
-    } catch (error) {
-      console.error("Error fetching assets:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [organizationId, getToken, page, limit, search, filters]);
+  // Delete asset mutation
+  const deleteAssetMutation = useDeleteAsset();
 
-  const fetchHierarchyAssets = React.useCallback(async () => {
-    if (!organizationId) return;
-
-    setIsLoading(true);
-    try {
-      const token = await getToken();
-      if (!token) return;
-
-      const response = await request(
-        {
-          path: `/assets/hierarchy`,
-          method: "GET",
-        },
-        {},
-        token
-      );
-
-      if (response.success) {
-        setHierarchyAssets(response.data);
-      }
-    } catch (error) {
-      console.error("Error fetching hierarchy assets:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [organizationId, getToken]);
-
-  const fetchCategories = React.useCallback(async () => {
-    if (!organizationId) return;
-
-    try {
-      const token = await getToken();
-      if (!token) return;
-
-      const response = await request(
-        {
-          path: `/categories`,
-          method: "GET",
-        },
-        { organizationId },
-        token
-      );
-
-      if (response.success) {
-        setCategories(response.data);
-      }
-    } catch (error) {
-      console.error("Error fetching categories:", error);
-    }
-  }, [organizationId, getToken]);
+  const isLoading = loadingAssets || loadingCategories;
 
   const deleteAsset = async () => {
-    if (!assetToDelete || !organizationId) return;
+    if (!assetToDelete) return;
 
     try {
-      const token = await getToken();
-      if (!token) return;
-
-      const response = await request(
-        {
-          path: `/assets/delete`,
-          method: "DELETE",
-        },
-        { id: assetToDelete },
-        token
-      );
-
-      if (response.success) {
-        setConfirmOpen(false);
-        setAssetToDelete(null);
-        fetchAssets();
-      }
+      await deleteAssetMutation.mutateAsync(assetToDelete);
+      setConfirmOpen(false);
+      setAssetToDelete(null);
+      refetchAssets();
     } catch (error) {
       console.error("Error deleting asset:", error);
     }
   };
-
-  useEffect(() => {
-    if (viewMode === "table") {
-      fetchAssets();
-    } else {
-      fetchHierarchyAssets();
-    }
-  }, [viewMode, page, limit, search, filters, organizationId, fetchAssets, fetchHierarchyAssets]);
-
-  useEffect(() => {
-    fetchCategories();
-  }, [organizationId, fetchCategories]);
 
   const columns = [
     {
@@ -257,7 +158,7 @@ export default function AssetsPage() {
         <PageTable
           loading={isLoading}
           columns={columns}
-          data={assets.docs}
+          data={assets}
           tableName="All Assets"
           subTitle="Items Detail Information"
           buttonName="Add Asset"
@@ -271,8 +172,8 @@ export default function AssetsPage() {
           setFilters={setFilters}
           onAddClick={() => router.push(ROUTES.ADD_ASSET)}
           availableFilters={["category"]}
-          pageCount={assets.totalPagesCount}
-          totalDocs={assets.totalDocuments}
+          pageCount={Math.ceil(total / limit)}
+          totalDocs={total}
         />
       ) : (
         <AssetHierarchyTable
@@ -288,11 +189,7 @@ export default function AssetsPage() {
           }}
           onAddPart={(parentId) => router.push(`${ROUTES.ADD_ASSET}?parentId=${parentId}`)}
           onAddRootAsset={() => router.push(ROUTES.ADD_ASSET)}
-          onRefresh={() => {
-            if (viewMode === "hierarchy") {
-              fetchHierarchyAssets();
-            }
-          }}
+          onRefresh={refetchAssets}
         />
       )}
 

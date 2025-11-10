@@ -27,6 +27,9 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { DocumentExtractionModule } from './document-extraction/document-extraction.module';
 import { ConfigurationModule } from './configuration/configuration.module';
 import { PriceHistoryModule } from './price-history/price-history.module';
+import { PaymentsModule } from './payments/payments.module';
+import { TransactionsModule } from './transactions/transactions.module';
+import { StatementsModule } from './statements/statements.module';
 
 @Module({
   imports: [
@@ -53,6 +56,9 @@ import { PriceHistoryModule } from './price-history/price-history.module';
     DocumentExtractionModule,
     ConfigurationModule,
     PriceHistoryModule,
+    PaymentsModule,
+    TransactionsModule,
+    StatementsModule,
   ],
   controllers: [AppController],
   providers: [

@@ -2,9 +2,10 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { PrismaService } from 'src/common/prisma.service';
 import { CreateDocumentWithTimelineDto } from './dto/create-document-with-timeline.dto';
-import { InventoryStatus, DocumentStatus } from '@prisma/client';
+import { InventoryStatus, DocumentStatus, TransactionType } from '@prisma/client';
 import { XeroService } from 'src/common/xero.service';
 import { PriceHistoryService } from '../price-history/price-history.service';
+import { TransactionsService } from '../transactions/transactions.service';
 
 @Injectable()
 export class DocumentsService {
@@ -12,6 +13,7 @@ export class DocumentsService {
     private prisma: PrismaService,
     private xeroService: XeroService,
     private priceHistoryService: PriceHistoryService,
+    private transactionsService: TransactionsService,
   ) {}
 
   async getById(id: string, organizationId: string) {
@@ -114,7 +116,7 @@ export class DocumentsService {
         },
       });
 
-      // If document is being confirmed and is an invoice, save price history
+      // If document is being confirmed and is an invoice, save price history and create transaction
       if (dto.status === 'confirmed' &&
           existingDocument.status !== 'confirmed' &&
           (dto.type === 'INVOICE' || dto.type === 'TI' || dto.type === 'TI2')) {
@@ -124,6 +126,40 @@ export class DocumentsService {
         } catch (error) {
           console.error('Failed to save price history:', error);
           // Don't fail the document update if price history fails
+        }
+
+        // Create accounting transaction for the invoice
+        try {
+          const config: any = configAsPlainObject || existingDocument.config;
+          const customer = config?.customer;
+          const documentInfo = config?.documentInfo;
+
+          if (customer && customer.id) {
+            // Calculate total amount from items
+            const items = config?.items || [];
+            const totalAmount = items.reduce((sum: number, item: any) => {
+              const amount = parseFloat(item.amount) || (parseFloat(item.quantity) * parseFloat(item.unitPrice)) || 0;
+              return sum + amount;
+            }, 0);
+
+            if (totalAmount > 0) {
+              await this.transactionsService.create({
+                customerId: customer.id,
+                transactionType: TransactionType.INVOICE,
+                documentId: id,
+                transactionDate: documentInfo?.date || new Date().toISOString(),
+                reference: updatedDocument.name || documentInfo?.documentNumber || `Invoice ${id.substring(0, 8)}`,
+                description: `Invoice ${updatedDocument.name || id.substring(0, 8)}`,
+                debit: totalAmount,
+                credit: 0,
+              }, organizationId);
+
+              console.log('✅ Accounting transaction created for invoice:', id, 'Amount:', totalAmount);
+            }
+          }
+        } catch (error) {
+          console.error('Failed to create accounting transaction:', error);
+          // Don't fail the document update if transaction creation fails
         }
       }
 
@@ -275,6 +311,21 @@ export class DocumentsService {
 
   async deleteDocument(id: string, organizationId: string) {
     try {
+      // First, delete any associated accounting transactions
+      try {
+        await this.prisma.transaction.deleteMany({
+          where: {
+            documentId: id,
+            organizationId,
+          },
+        });
+        console.log('✅ Deleted accounting transactions for document:', id);
+      } catch (error) {
+        console.error('Failed to delete accounting transactions:', error);
+        // Continue with document deletion even if transaction deletion fails
+      }
+
+      // Delete the document
       return await this.prisma.document.delete({
         where: {
           id,

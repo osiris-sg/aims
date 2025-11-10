@@ -1,18 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { useAuth } from "@clerk/nextjs";
-import { useOrganization } from "@hooks/useOrganization";
-import { request } from "@/helpers/request";
+import React, { useState } from "react";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import { Box, Dialog, DialogTitle, DialogContent, DialogActions, Button, CircularProgress, Typography, IconButton } from "@mui/material";
 import { useRouter } from "next/navigation";
 import { ROUTES } from "@/routes";
 import AddInventoryItem from "./components/AddInventoryItem";
-import useGetAssets from "./hooks/useGetAssets";
-import useDeleteInventory from "./hooks/useDeleteInventory";
-import useViewQRHandler from "./hooks/useViewQRHandler";
+import { useGetInventory, useGetAssets, useDeleteInventory, useGetQrCode } from "@/app/portal/hooks/api";
 import QrCode2Icon from "@mui/icons-material/QrCode2";
 import ViewQRDialog from "./components/ViewQRDialog";
 import VisibilityIcon from "@mui/icons-material/Visibility";
@@ -31,43 +26,16 @@ interface Inventory {
   };
 }
 
-interface PaginatedResponse {
-  docs: Inventory[];
-  totalPagesCount: number;
-  totalDocuments: number;
-  hasNextPage: boolean;
-  hasPrevPage: boolean;
-  limit: number;
-  nextPage: number;
-}
-
 export default function InventoryPage() {
   const router = useRouter();
-  const { organization } = useOrganization();
-  const { getToken } = useAuth();
-  const organizationId = organization?.id;
-  const { assets } = useGetAssets();
-  const { deleteInventory, isDeleting } = useDeleteInventory();
-  const { qrCode, isQrLoading, openQRDialog, closeQRDialog, selectedSku } = useViewQRHandler();
-
   const [openDrawer, setOpenDrawer] = useState(false);
-  const [inventories, setInventories] = useState<PaginatedResponse>({
-    docs: [],
-    totalPagesCount: 0,
-    totalDocuments: 0,
-    hasNextPage: false,
-    hasPrevPage: false,
-    limit: 10,
-    nextPage: 0,
-  });
-  const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({
-    status: "", // Change from undefined to empty string for consistency
+    status: "",
     category: "",
-    assetId: "", // Add asset filter
+    assetId: "",
     createdOn: {
       startDate: null as Date | null,
       endDate: null as Date | null,
@@ -75,6 +43,19 @@ export default function InventoryPage() {
   });
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedInventory, setSelectedInventory] = useState<Inventory | null>(null);
+  const [selectedSku, setSelectedSku] = useState<string | null>(null);
+
+  // Fetch inventory with new hook
+  const { inventory = [], total = 0, isLoading, refetch } = useGetInventory({ page, limit, search, filters });
+
+  // Fetch assets for dropdown
+  const { assets = [] } = useGetAssets({ limit: 1000 });
+
+  // Delete inventory mutation
+  const deleteInventoryMutation = useDeleteInventory();
+
+  // QR code hook
+  const getQrCodeMutation = useGetQrCode();
 
   const columns = [
     {
@@ -88,7 +69,7 @@ export default function InventoryPage() {
       accessorKey: "assetId",
       header: "Asset Name",
       cell: ({ row }: { row: any }) => {
-        const asset = assets?.docs?.find((item: any) => item.id === row.original.assetId);
+        const asset = assets?.find((item: any) => item.id === row.original.assetId);
         return <Typography variant="body2">{asset ? asset.name : "N/A"}</Typography>;
       },
     },
@@ -120,7 +101,7 @@ export default function InventoryPage() {
       cell: (info: any) => (
         <Box sx={{ display: "flex", gap: 1 }}>
           <IconButton
-            onClick={() => openQRDialog(info.row.original.sku)}
+            onClick={() => handleOpenQRDialog(info.row.original.sku)}
             sx={{
               color: "customYellow.contrastText",
               bgcolor: "tertiary.dark",
@@ -166,51 +147,30 @@ export default function InventoryPage() {
     },
   ];
 
-  const fetchInventories = async () => {
-    if (!organizationId) return;
-    setLoading(true);
-
+  const handleOpenQRDialog = async (sku: string) => {
+    setSelectedSku(sku);
     try {
-      const token = await getToken();
-      if (!token) return;
-
-      const response = await request(
-        {
-          path: "/inventories",
-          method: "POST",
-        },
-        {
-          page,
-          limit,
-          search,
-          filters,
-          organizationId,
-        },
-        token
-      );
-
-      if (response.success) {
-        console.log("Inventories response:", response.data);
-        setInventories(response.data);
-      }
+      await getQrCodeMutation.mutateAsync(sku);
     } catch (error) {
-      console.error("Error fetching inventories:", error);
-    } finally {
-      setLoading(false);
+      console.error("Error fetching QR code:", error);
     }
   };
 
+  const handleCloseQRDialog = () => {
+    setSelectedSku(null);
+  };
+
   const handleDelete = async () => {
-    if (!selectedInventory || !organizationId) return;
-    deleteInventory(
-      { id: selectedInventory.id },
-      {
-        onSuccess: () => {
-          setDeleteDialogOpen(false);
-          setSelectedInventory(null);
-        },
-      }
-    );
+    if (!selectedInventory) return;
+
+    try {
+      await deleteInventoryMutation.mutateAsync(selectedInventory.id);
+      setDeleteDialogOpen(false);
+      setSelectedInventory(null);
+      refetch();
+    } catch (error) {
+      console.error("Error deleting inventory:", error);
+    }
   };
 
   const handleAddClick = () => {
@@ -221,20 +181,16 @@ export default function InventoryPage() {
     setOpenDrawer(false);
   };
 
-  useEffect(() => {
-    fetchInventories();
-  }, [page, limit, search, filters, organizationId]);
-
   return (
     <MainCard>
       <PageTable
         columns={columns}
-        data={inventories.docs}
+        data={inventory}
         tableName="Inventory List"
         subTitle="Items Detail Information"
         buttonName="Add Items"
         onAddClick={handleAddClick}
-        loading={loading}
+        loading={isLoading}
         page={page}
         limit={limit}
         search={search}
@@ -244,9 +200,9 @@ export default function InventoryPage() {
         setSearch={setSearch}
         setFilters={setFilters}
         availableFilters={["status", "category", "asset", "createdOn"]}
-        pageCount={inventories.totalPagesCount}
-        totalDocs={inventories.totalDocuments}
-        assetsData={assets?.docs || []} // Pass assets data for filter dropdown
+        pageCount={Math.ceil(total / limit)}
+        totalDocs={total}
+        assetsData={assets || []} // Pass assets data for filter dropdown
       />
 
       <AddInventoryItem open={openDrawer} onClose={handleCloseDrawer} />
@@ -256,13 +212,18 @@ export default function InventoryPage() {
         <DialogContent>Are you sure you want to delete this inventory item? This action cannot be undone.</DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleDelete} color="error" disabled={isDeleting}>
-            {isDeleting ? <CircularProgress size={24} /> : "Delete"}
+          <Button onClick={handleDelete} color="error" disabled={deleteInventoryMutation.isPending}>
+            {deleteInventoryMutation.isPending ? <CircularProgress size={24} /> : "Delete"}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <ViewQRDialog open={!!selectedSku} onClose={closeQRDialog} qrCode={qrCode} isQRLoading={isQrLoading} />
+      <ViewQRDialog
+        open={!!selectedSku}
+        onClose={handleCloseQRDialog}
+        qrCode={getQrCodeMutation.data || null}
+        isQRLoading={getQrCodeMutation.isPending}
+      />
     </MainCard>
   );
 }

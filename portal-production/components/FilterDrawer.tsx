@@ -6,10 +6,8 @@ import { useForm } from "react-hook-form";
 
 import DateRangePicker from "@/form-components/FormDateRangePicker";
 import FormSelect from "@/form-components/FormSelect";
-import { useSelector } from "react-redux";
-import { selectCategories as inventoryCategories } from "@/containers/Inventory/slice/selectors";
 import { INVENTORY_STATUS } from "@/containers/Inventory/slice/constants";
-import { selectCategories as assetCategories } from "@/containers/Assets/slice/selectors";
+import { useGetCategories } from "@/app/portal/hooks/api";
 
 interface FilterDrawerProps {
   openFilterDrawerStatus: boolean;
@@ -24,11 +22,8 @@ export default function FilterDrawer(props: FilterDrawerProps) {
   const { openFilterDrawerStatus = false, onClose, onSetFilters, defaultFilters, availableFilterTypes, assetsData = [] } = props;
   const theme = useTheme();
 
-  const inventoryCats = useSelector(inventoryCategories);
-  const assetCats = useSelector(assetCategories);
-
-  // Use the first non-empty array, or default to empty array if both are empty
-  const categories = inventoryCats && inventoryCats.length > 0 ? inventoryCats : assetCats && assetCats.length > 0 ? assetCats : [];
+  // Use React Query hook to fetch categories
+  const { categories = [] } = useGetCategories();
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [disableSubmit, setDisableSubmit] = useState(false);

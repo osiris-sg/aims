@@ -34,6 +34,9 @@ model Organization {
   customFields       CustomField[]
   uiConfig           OrganizationUIConfig?
   priceHistories     PriceHistory[]
+  payments           Payment[]
+  transactions       Transaction[]
+  customerBalances   CustomerBalance[]
 }
 
 model Asset {
@@ -97,8 +100,12 @@ model Customer {
   organization   Organization @relation(fields: [organizationId], references: [id])
   siteOffices    SiteOffice[]
   priceHistories PriceHistory[] // Track price history for this customer
+  payments       Payment[]
+  transactions   Transaction[]
+  customerBalance CustomerBalance? @relation("CustomerToBalance")
 
   @@unique([email, organizationId])
+  @@unique([id, organizationId])
 }
 
 model DocumentTemplate {
@@ -168,6 +175,8 @@ model Document {
   organization       Organization   @relation(fields: [organizationId], references: [id])
   timelineItems      TimelineItem[]
   priceHistories     PriceHistory[] // Track price history entries from this document
+  payments           Payment[]      // Payments made against this document
+  transactions       Transaction[]  // Financial transactions from this document
 
   // Self-relation for revisions: base document -> many revisions
   baseDocument       Document?      @relation("DocumentRevisions", fields: [baseDocumentId], references: [id])
@@ -465,4 +474,91 @@ model PriceHistory {
   @@index([customerId, organizationId])
   @@index([documentDate])
   @@index([createdAt])
+}
+
+// Payment tracking for invoices
+model Payment {
+  id                String       @id @default(uuid())
+  organizationId    String
+  customerId        String       @db.Uuid
+  documentId        String       @db.Uuid
+  amount            Float
+  paymentDate       DateTime
+  paymentMethod     String       // cash, check, transfer, etc
+  reference         String?      // check number, transfer reference
+  notes             String?
+  createdBy         String       // user ID who recorded payment
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  // Relations
+  organization      Organization @relation(fields: [organizationId], references: [id])
+  customer          Customer     @relation(fields: [customerId], references: [id])
+  document          Document     @relation(fields: [documentId], references: [id])
+
+  // Create related transaction when payment is recorded
+  transactions      Transaction[]
+
+  @@index([customerId, organizationId])
+  @@index([documentId])
+  @@index([paymentDate])
+  @@index([organizationId, paymentDate])
+}
+
+// Unified transaction ledger for all financial activities
+model Transaction {
+  id                String       @id @default(uuid())
+  organizationId    String
+  customerId        String       @db.Uuid
+  transactionType   TransactionType // invoice, payment, credit_note, debit_note, adjustment, opening_balance
+  documentId        String?      @db.Uuid // nullable for adjustments/opening balance
+  paymentId         String?      // for payment transactions
+  transactionDate   DateTime
+  reference         String?      // document number or payment reference
+  description       String
+  debit             Float        @default(0)
+  credit            Float        @default(0)
+  balance           Float        @default(0) // running balance at time of transaction
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  // Relations
+  organization      Organization @relation(fields: [organizationId], references: [id])
+  customer          Customer     @relation(fields: [customerId], references: [id])
+  document          Document?    @relation(fields: [documentId], references: [id])
+  payment           Payment?     @relation(fields: [paymentId], references: [id])
+
+  // Indexes for fast SOA queries
+  @@index([customerId, transactionDate])
+  @@index([organizationId, transactionDate])
+  @@index([documentId])
+  @@index([paymentId])
+}
+
+// Customer balance tracking
+model CustomerBalance {
+  id                String       @id @default(uuid())
+  organizationId    String
+  customerId        String       @db.Uuid
+  openingBalance    Float        @default(0)
+  currentBalance    Float        @default(0)
+  lastTransactionDate DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  // Relations
+  organization      Organization @relation(fields: [organizationId], references: [id])
+  customer          Customer     @relation("CustomerToBalance", fields: [customerId, organizationId], references: [id, organizationId])
+
+  @@unique([customerId, organizationId])
+  @@index([organizationId])
+}
+
+enum TransactionType {
+  INVOICE
+  PAYMENT
+  CREDIT_NOTE
+  DEBIT_NOTE
+  ADJUSTMENT
+  OPENING_BALANCE
 }

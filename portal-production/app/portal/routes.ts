@@ -35,4 +35,8 @@ export const ROUTES = {
 
   // Reports
   PRICE_HISTORY_REPORT: "/portal/reports/price-history",
+  STATEMENT_OF_ACCOUNT: "/portal/reports/statement-of-account",
+
+  // Accounting
+  PAYMENTS: "/portal/payments",
 };

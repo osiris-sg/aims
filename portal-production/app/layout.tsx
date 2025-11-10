@@ -8,7 +8,6 @@ import theme from "@/themes/lightTheme";
 import Head from "next/head";
 import { ClerkProvider } from "@clerk/nextjs";
 import Portal from "@/containers/portal";
-import ReduxProvider from "./ReduxProvider";
 import Providers from "./providers";
 
 const roboto = Roboto({
@@ -45,16 +44,14 @@ export default function RootLayout({
           <link rel="icon" href="/favicon.png" type="image/png" />
         </Head>
         <body className={`${roboto.variable} ${carlito.variable} ROOT_LAYOUT`}>
-          <ReduxProvider>
-            <AppRouterCacheProvider>
-              <ThemeProvider theme={theme}>
-                <CssBaseline />
-                <Providers>
+          <AppRouterCacheProvider>
+            <ThemeProvider theme={theme}>
+              <CssBaseline />
+              <Providers>
                 <Portal>{children}</Portal>
-                </Providers>
-              </ThemeProvider>
-            </AppRouterCacheProvider>
-          </ReduxProvider>
+              </Providers>
+            </ThemeProvider>
+          </AppRouterCacheProvider>
         </body>
       </html>
     </ClerkProvider>

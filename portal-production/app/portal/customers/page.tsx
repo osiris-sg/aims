@@ -1,13 +1,11 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { useAuth } from "@clerk/nextjs";
-import { useOrganization } from "@hooks/useOrganization";
-import { request } from "@/helpers/request";
+import React, { useState } from "react";
+import { useGetCustomers, useDeleteCustomer } from "@/app/portal/hooks/api";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
-import { Box, IconButton, Typography, Button, Stack, useTheme } from "@mui/material";
+import { Box, IconButton } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import VisibilityIcon from "@mui/icons-material/Visibility";
@@ -24,19 +22,6 @@ interface Customer {
   createdAt: string;
 }
 
-interface PaginatedResponse {
-  docs: Customer[];
-  totalDocs: number;
-  limit: number;
-  totalPages: number;
-  page: number;
-  pagingCounter: number;
-  hasPrevPage: boolean;
-  hasNextPage: boolean;
-  prevPage: number | null;
-  nextPage: number | null;
-}
-
 interface Filters {
   createdOn?: {
     startDate: string | null;
@@ -45,32 +30,8 @@ interface Filters {
   [key: string]: any;
 }
 
-interface CustomerFormData {
-  name: string;
-  email: string;
-  phone: string;
-  address: string;
-}
-
 export default function CustomersPage() {
   const router = useRouter();
-  const { organization } = useOrganization();
-  const { getToken } = useAuth();
-  const organizationId = organization?.id;
-  const theme = useTheme();
-  const [customers, setCustomers] = useState<PaginatedResponse>({
-    docs: [],
-    totalDocs: 0,
-    limit: 10,
-    totalPages: 0,
-    page: 1,
-    pagingCounter: 0,
-    hasPrevPage: false,
-    hasNextPage: false,
-    prevPage: null,
-    nextPage: null,
-  });
-  const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
@@ -81,10 +42,15 @@ export default function CustomersPage() {
     },
   });
   const [customerToDelete, setCustomerToDelete] = useState<string | null>(null);
-  const [isDeleteInProgress, setIsDeleteInProgress] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | undefined>();
   const [isEditMode, setIsEditMode] = useState(false);
+
+  // Fetch customers with new hook
+  const { customers = [], total = 0, isLoading, refetch } = useGetCustomers({ page, limit, search, filters });
+
+  // Delete customer mutation
+  const deleteCustomerMutation = useDeleteCustomer();
 
   const columns = [
     {
@@ -166,64 +132,15 @@ export default function CustomersPage() {
     },
   ];
 
-  const fetchCustomers = async () => {
-    if (!organizationId) return;
-    setLoading(true);
-
-    try {
-      const token = await getToken();
-      if (!token) return;
-
-      const response = await request(
-        {
-          path: "/customers",
-          method: "POST",
-        },
-        {
-          page,
-          limit,
-          search,
-          filters,
-          organizationId,
-        },
-        token
-      );
-
-      if (response.success) {
-        setCustomers(response.data);
-      }
-    } catch (error) {
-      console.error("Error fetching customers:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleDelete = async () => {
-    if (!organizationId || !customerToDelete) return;
-    setIsDeleteInProgress(true);
+    if (!customerToDelete) return;
 
     try {
-      const token = await getToken();
-      if (!token) return;
-
-      const response = await request(
-        {
-          path: `/customers/delete`,
-          method: "DELETE",
-        },
-        { id: customerToDelete },
-        token
-      );
-
-      if (response.success) {
-        fetchCustomers();
-      }
+      await deleteCustomerMutation.mutateAsync(customerToDelete);
+      setCustomerToDelete(null);
+      refetch();
     } catch (error) {
       console.error("Error deleting customer:", error);
-    } finally {
-      setIsDeleteInProgress(false);
-      setCustomerToDelete(null);
     }
   };
 
@@ -245,25 +162,16 @@ export default function CustomersPage() {
     setIsEditMode(false);
   };
 
-  const handleSuccess = () => {
-    // Refresh the customers list or handle success
-    handleCloseDrawer();
-  };
-
-  useEffect(() => {
-    fetchCustomers();
-  }, [organizationId, page, limit, search, filters]);
-
   return (
     <MainCard>
       <PageTable
         columns={columns}
-        data={customers.docs}
+        data={customers}
         tableName="Customers List"
         subTitle="Customers Detail Information"
         buttonName="Add Customer"
         onAddClick={handleAddCustomer}
-        loading={loading}
+        loading={isLoading}
         page={page}
         limit={limit}
         search={search}
@@ -273,13 +181,24 @@ export default function CustomersPage() {
         setSearch={setSearch}
         setFilters={setFilters}
         availableFilters={["createdOn"]}
-        pageCount={customers.totalPages}
-        totalDocs={customers.totalDocs}
+        pageCount={Math.ceil(total / limit)}
+        totalDocs={total}
       />
 
-      <DeleteItemDialogNoConfirm open={!!customerToDelete} onCancel={() => setCustomerToDelete(null)} onConfirm={handleDelete} loading={isDeleteInProgress} />
+      <DeleteItemDialogNoConfirm
+        open={!!customerToDelete}
+        onCancel={() => setCustomerToDelete(null)}
+        onConfirm={handleDelete}
+        loading={deleteCustomerMutation.isPending}
+      />
 
-      <AddCustomer open={isDrawerOpen} onClose={handleCloseDrawer} onSuccess={fetchCustomers} customerId={selectedCustomerId} isEditMode={isEditMode} />
+      <AddCustomer
+        open={isDrawerOpen}
+        onClose={handleCloseDrawer}
+        onSuccess={refetch}
+        customerId={selectedCustomerId}
+        isEditMode={isEditMode}
+      />
     </MainCard>
   );
 }
