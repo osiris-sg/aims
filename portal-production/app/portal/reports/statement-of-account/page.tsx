@@ -27,7 +27,6 @@ import {
 import { Download as DownloadIcon, Print as PrintIcon } from '@mui/icons-material';
 import { useGetCustomers } from '@/app/portal/hooks/api';
 import { useGenerateSOA } from '@/app/portal/hooks/api';
-import { useOrganization } from '@hooks/useOrganization';
 
 interface Customer {
   id: string;
@@ -87,24 +86,8 @@ export default function StatementOfAccountPage() {
   const [statementData, setStatementData] = useState<StatementData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Check organization context
-  const { organization } = useOrganization();
-  console.log('=== Organization Context ===');
-  console.log('organization:', organization);
-  console.log('organization.id:', organization?.id);
-  console.log('===========================');
-
   // Fetch customers with new hook
   const { customers = [], isLoading: loadingCustomers } = useGetCustomers({ limit: 1000 });
-
-  // Debug logging
-  console.log('=== useGetCustomers Debug ===');
-  console.log('customers:', customers);
-  console.log('customers type:', typeof customers);
-  console.log('customers isArray:', Array.isArray(customers));
-  console.log('customers length:', customers?.length);
-  console.log('loadingCustomers:', loadingCustomers);
-  console.log('============================');
 
   // Generate SOA mutation
   const generateSOAMutation = useGenerateSOA();

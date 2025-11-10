@@ -46,7 +46,7 @@ export default function InventoryPage() {
   const [selectedSku, setSelectedSku] = useState<string | null>(null);
 
   // Fetch inventory with new hook
-  const { inventory = [], total = 0, isLoading, refetch } = useGetInventory({ page, limit, search, filters });
+  const { inventories: inventory = [], total = 0, isLoading, refetch } = useGetInventory({ page, limit, search, filters });
 
   // Fetch assets for dropdown
   const { assets = [] } = useGetAssets({ limit: 1000 });

@@ -238,8 +238,8 @@ export function useGetDocumentTemplates(options: { page?: number; limit?: number
         }
 
         return {
-          docs: response.data.documentTemplates || response.data.docs || [],
-          total: response.data.total || 0,
+          docs: response.data.docs || response.data.documentTemplates || [],
+          total: response.data.total || response.data.totalDocuments || 0,
           page: response.data.page || page,
           limit: response.data.limit || limit,
         };

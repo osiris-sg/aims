@@ -40,46 +40,26 @@ export function useGetCustomers(options: GetCustomersOptions = {}) {
     queryKey: ['customers', organizationId, page, limit, search, filters],
     queryFn: async () => {
       try {
-        console.log('=== useGetCustomers Hook - queryFn called ===');
-        console.log('organizationId:', organizationId);
-
         const token = await getToken();
-        console.log('token available:', !!token);
+        if (!token || !organizationId) return { docs: [], total: 0, page: 1, limit: 1000 };
 
-        if (!token || !organizationId) {
-          console.log('No token or organizationId, returning empty');
-          return { docs: [], total: 0, page: 1, limit: 1000 };
-        }
-
-        console.log('Making API request to /customers with:', { page, limit, search, filters });
         const response = await request(
           { path: '/customers', method: 'POST' },
           { page, limit, search, filters },
           token
         );
 
-        console.log('API Response:', response);
-        console.log('response.success:', response.success);
-        console.log('response.data:', response.data);
-        console.log('response.data.docs:', response.data?.docs);
-
         if (!response.success) {
           console.error('Failed to fetch customers:', response.message);
           return { docs: [], total: 0, page: 1, limit: 1000 };
         }
 
-        const result = {
-          docs: response.data.docs || [],
-          total: response.data.total || 0,
+        return {
+          docs: response.data.docs || response.data.customers || [],
+          total: response.data.total || response.data.totalDocuments || 0,
           page: response.data.page || page,
           limit: response.data.limit || limit,
         };
-
-        console.log('Returning result:', result);
-        console.log('result.docs length:', result.docs.length);
-        console.log('==========================================');
-
-        return result;
       } catch (error) {
         console.error('Error fetching customers:', error);
         return { docs: [], total: 0, page: 1, limit: 1000 };

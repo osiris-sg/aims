@@ -55,8 +55,8 @@ export function useGetAssets(options: GetAssetsOptions = {}) {
         }
 
         return {
-          docs: response.data.assets || response.data.docs || [],
-          total: response.data.total || 0,
+          docs: response.data.docs || response.data.assets || [],
+          total: response.data.total || response.data.totalDocuments || 0,
           page: response.data.page || page,
           limit: response.data.limit || limit,
         };

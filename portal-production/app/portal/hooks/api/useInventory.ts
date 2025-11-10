@@ -1,7 +1,7 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth } from '@clerk/nextjs';
-import { useOrganization } from '@hooks/useOrganization';
-import { request } from '@/helpers/request';
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
+import { request } from "@/helpers/request";
 
 interface Inventory {
   id: string;
@@ -34,34 +34,37 @@ export function useGetInventory(options: GetInventoryOptions = {}) {
   const { getToken } = useAuth();
   const organizationId = organization?.id;
 
-  const { page = 1, limit = 1000, search = '', filters = {} } = options;
+  const { page = 1, limit = 1000, search = "", filters = {} } = options;
 
-  const { data = { docs: [], total: 0, page: 1, limit: 1000 }, isLoading, error, refetch } = useQuery({
-    queryKey: ['inventory', organizationId, page, limit, search, filters],
+  const {
+    data = { docs: [], total: 0, page: 1, limit: 1000 },
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["inventory-v2", organizationId, page, limit, search, filters], // Changed key to bust cache
     queryFn: async () => {
       try {
         const token = await getToken();
-        if (!token || !organizationId) return { docs: [], total: 0, page: 1, limit: 1000 };
+        if (!token || !organizationId) {
+          return { docs: [], total: 0, page: 1, limit: 1000 };
+        }
 
-        const response = await request(
-          { path: '/inventories', method: 'POST' },
-          { page, limit, search, filters },
-          token
-        );
+        const response = await request({ path: "/inventories", method: "POST" }, { page, limit, search, filters }, token);
 
         if (!response.success) {
-          console.error('Failed to fetch inventory:', response.message);
+          console.error("Failed to fetch inventory:", response.message);
           return { docs: [], total: 0, page: 1, limit: 1000 };
         }
 
         return {
-          docs: response.data.inventories || response.data.docs || [],
-          total: response.data.total || 0,
+          docs: response.data.docs || response.data.inventories || [],
+          total: response.data.total || response.data.totalDocuments || 0,
           page: response.data.page || page,
           limit: response.data.limit || limit,
         };
       } catch (error) {
-        console.error('Error fetching inventory:', error);
+        console.error("Error fetching inventory:", error);
         return { docs: [], total: 0, page: 1, limit: 1000 };
       }
     },
@@ -77,27 +80,28 @@ export function useGetInventoryBySku(sku: string) {
   const { organization } = useOrganization();
   const organizationId = organization?.id;
 
-  const { data: inventory, isLoading, error, refetch } = useQuery({
-    queryKey: ['inventory', 'sku', sku],
+  const {
+    data: inventory,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["inventory", "sku", sku],
     queryFn: async () => {
       try {
         const token = await getToken();
         if (!token || !sku) return null;
 
-        const response = await request(
-          { path: `/inventories/sku/${sku}`, method: 'GET' },
-          {},
-          token
-        );
+        const response = await request({ path: `/inventories/sku/${sku}`, method: "GET" }, {}, token);
 
         if (!response.success) {
-          console.error('Failed to fetch inventory:', response.message);
+          console.error("Failed to fetch inventory:", response.message);
           return null;
         }
 
         return response.data;
       } catch (error) {
-        console.error('Error fetching inventory:', error);
+        console.error("Error fetching inventory:", error);
         return null;
       }
     },
@@ -113,27 +117,28 @@ export function useGetInventoryByStatus(status: string[]) {
   const { organization } = useOrganization();
   const organizationId = organization?.id;
 
-  const { data: inventories = [], isLoading, error, refetch } = useQuery({
-    queryKey: ['inventory', 'status', status, organizationId],
+  const {
+    data: inventories = [],
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["inventory", "status", status, organizationId],
     queryFn: async () => {
       try {
         const token = await getToken();
         if (!token || !status || status.length === 0) return [];
 
-        const response = await request(
-          { path: '/inventories/by-status', method: 'POST' },
-          { status },
-          token
-        );
+        const response = await request({ path: "/inventories/by-status", method: "POST" }, { status }, token);
 
         if (!response.success) {
-          console.error('Failed to fetch inventory by status:', response.message);
+          console.error("Failed to fetch inventory by status:", response.message);
           return [];
         }
 
         return response.data || [];
       } catch (error) {
-        console.error('Error fetching inventory by status:', error);
+        console.error("Error fetching inventory by status:", error);
         return [];
       }
     },
@@ -149,27 +154,28 @@ export function useGetInventoriesByIds(ids: string[]) {
   const { organization } = useOrganization();
   const organizationId = organization?.id;
 
-  const { data: inventories = [], isLoading, error, refetch } = useQuery({
-    queryKey: ['inventory', 'ids', ids, organizationId],
+  const {
+    data: inventories = [],
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["inventory", "ids", ids, organizationId],
     queryFn: async () => {
       try {
         const token = await getToken();
         if (!token || !ids || ids.length === 0) return [];
 
-        const response = await request(
-          { path: '/inventories/by-ids', method: 'POST' },
-          { ids },
-          token
-        );
+        const response = await request({ path: "/inventories/by-ids", method: "POST" }, { ids }, token);
 
         if (!response.success) {
-          console.error('Failed to fetch inventories by IDs:', response.message);
+          console.error("Failed to fetch inventories by IDs:", response.message);
           return [];
         }
 
         return response.data || [];
       } catch (error) {
-        console.error('Error fetching inventories by IDs:', error);
+        console.error("Error fetching inventories by IDs:", error);
         return [];
       }
     },
@@ -185,21 +191,22 @@ export function useGetInventoriesByAsset(assetId: string) {
   const { organization } = useOrganization();
   const organizationId = organization?.id;
 
-  const { data = { inventories: [], statusCounts: {} }, isLoading, error, refetch } = useQuery({
-    queryKey: ['inventoryByAsset', assetId],
+  const {
+    data = { inventories: [], statusCounts: {} },
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["inventoryByAsset", assetId],
     queryFn: async () => {
       try {
         const token = await getToken();
         if (!token || !assetId) return { inventories: [], statusCounts: {} };
 
-        const response = await request(
-          { path: `/inventories/asset/${assetId}`, method: 'GET' },
-          {},
-          token
-        );
+        const response = await request({ path: `/inventories/asset/${assetId}`, method: "GET" }, {}, token);
 
         if (!response.success) {
-          console.error('Failed to fetch inventories by asset:', response.message);
+          console.error("Failed to fetch inventories by asset:", response.message);
           return { inventories: [], statusCounts: {} };
         }
 
@@ -208,7 +215,7 @@ export function useGetInventoriesByAsset(assetId: string) {
           statusCounts: response.data.statusCounts || {},
         };
       } catch (error) {
-        console.error('Error fetching inventories by asset:', error);
+        console.error("Error fetching inventories by asset:", error);
         return { inventories: [], statusCounts: {} };
       }
     },
@@ -222,27 +229,28 @@ export function useGetInventoriesByAsset(assetId: string) {
 export function useGetDocumentsByInventoryId(inventoryId: string) {
   const { getToken } = useAuth();
 
-  const { data: documents = [], isLoading, error, refetch } = useQuery({
-    queryKey: ['documents', 'inventory', inventoryId],
+  const {
+    data: documents = [],
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["documents", "inventory", inventoryId],
     queryFn: async () => {
       try {
         const token = await getToken();
         if (!token || !inventoryId) return [];
 
-        const response = await request(
-          { path: `/documents/inventory/${inventoryId}`, method: 'GET' },
-          {},
-          token
-        );
+        const response = await request({ path: `/documents/inventory/${inventoryId}`, method: "GET" }, {}, token);
 
         if (!response.success) {
-          console.error('Failed to fetch documents:', response.message);
+          console.error("Failed to fetch documents:", response.message);
           return [];
         }
 
         return response.data || [];
       } catch (error) {
-        console.error('Error fetching documents:', error);
+        console.error("Error fetching documents:", error);
         return [];
       }
     },
@@ -256,27 +264,28 @@ export function useGetDocumentsByInventoryId(inventoryId: string) {
 export function useGetTimelineItemsByInventoryId(inventoryId: string) {
   const { getToken } = useAuth();
 
-  const { data: timelineItems = [], isLoading, error, refetch } = useQuery({
-    queryKey: ['timelineItems', 'inventory', inventoryId],
+  const {
+    data: timelineItems = [],
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["timelineItems", "inventory", inventoryId],
     queryFn: async () => {
       try {
         const token = await getToken();
         if (!token || !inventoryId) return [];
 
-        const response = await request(
-          { path: `/timeline-items/inventory/${inventoryId}`, method: 'GET' },
-          {},
-          token
-        );
+        const response = await request({ path: `/timeline-items/inventory/${inventoryId}`, method: "GET" }, {}, token);
 
         if (!response.success) {
-          console.error('Failed to fetch timeline items:', response.message);
+          console.error("Failed to fetch timeline items:", response.message);
           return [];
         }
 
         return response.data || [];
       } catch (error) {
-        console.error('Error fetching timeline items:', error);
+        console.error("Error fetching timeline items:", error);
         return [];
       }
     },
@@ -294,23 +303,19 @@ export function useCreateInventory() {
   return useMutation({
     mutationFn: async (inventoryData: Partial<Inventory>) => {
       const token = await getToken();
-      if (!token) throw new Error('No authentication token available');
+      if (!token) throw new Error("No authentication token available");
 
-      const response = await request(
-        { path: '/inventories/create', method: 'POST' },
-        inventoryData,
-        token
-      );
+      const response = await request({ path: "/inventories/create", method: "POST" }, inventoryData, token);
 
       if (!response.success) {
-        throw new Error(response.message || 'Failed to create inventory');
+        throw new Error(response.message || "Failed to create inventory");
       }
 
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['inventory'] });
-      queryClient.invalidateQueries({ queryKey: ['inventoryByAsset'] });
+      queryClient.invalidateQueries({ queryKey: ["inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["inventoryByAsset"] });
     },
   });
 }
@@ -323,24 +328,20 @@ export function useUpdateInventory() {
   return useMutation({
     mutationFn: async (inventoryData: Partial<Inventory> & { id: string }) => {
       const token = await getToken();
-      if (!token) throw new Error('No authentication token available');
+      if (!token) throw new Error("No authentication token available");
 
-      const response = await request(
-        { path: '/inventories/update', method: 'POST' },
-        inventoryData,
-        token
-      );
+      const response = await request({ path: "/inventories/update", method: "POST" }, inventoryData, token);
 
       if (!response.success) {
-        throw new Error(response.message || 'Failed to update inventory');
+        throw new Error(response.message || "Failed to update inventory");
       }
 
       return response.data;
     },
     onSuccess: (data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['inventory'] });
-      queryClient.invalidateQueries({ queryKey: ['inventory', 'sku', variables.sku] });
-      queryClient.invalidateQueries({ queryKey: ['inventoryByAsset'] });
+      queryClient.invalidateQueries({ queryKey: ["inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory", "sku", variables.sku] });
+      queryClient.invalidateQueries({ queryKey: ["inventoryByAsset"] });
     },
   });
 }
@@ -353,23 +354,19 @@ export function useDeleteInventory() {
   return useMutation({
     mutationFn: async (inventoryId: string) => {
       const token = await getToken();
-      if (!token) throw new Error('No authentication token available');
+      if (!token) throw new Error("No authentication token available");
 
-      const response = await request(
-        { path: '/inventories/delete', method: 'DELETE' },
-        { id: inventoryId },
-        token
-      );
+      const response = await request({ path: "/inventories/delete", method: "DELETE" }, { id: inventoryId }, token);
 
       if (!response.success) {
-        throw new Error(response.message || 'Failed to delete inventory');
+        throw new Error(response.message || "Failed to delete inventory");
       }
 
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['inventory'] });
-      queryClient.invalidateQueries({ queryKey: ['inventoryByAsset'] });
+      queryClient.invalidateQueries({ queryKey: ["inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["inventoryByAsset"] });
     },
   });
 }
@@ -381,16 +378,12 @@ export function useGenerateSku() {
   return useMutation({
     mutationFn: async (assetId: string) => {
       const token = await getToken();
-      if (!token) throw new Error('No authentication token available');
+      if (!token) throw new Error("No authentication token available");
 
-      const response = await request(
-        { path: '/inventories/generate-sku', method: 'POST' },
-        { assetId },
-        token
-      );
+      const response = await request({ path: "/inventories/generate-sku", method: "POST" }, { assetId }, token);
 
       if (!response.success) {
-        throw new Error(response.message || 'Failed to generate SKU');
+        throw new Error(response.message || "Failed to generate SKU");
       }
 
       return response.data;
@@ -402,27 +395,28 @@ export function useGenerateSku() {
 export function useGetQrCode(sku: string) {
   const { getToken } = useAuth();
 
-  const { data: qrCode, isLoading, error, refetch } = useQuery({
-    queryKey: ['qrCode', sku],
+  const {
+    data: qrCode,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["qrCode", sku],
     queryFn: async () => {
       try {
         const token = await getToken();
         if (!token || !sku) return null;
 
-        const response = await request(
-          { path: `/inventories/qrcode/${sku}`, method: 'GET' },
-          {},
-          token
-        );
+        const response = await request({ path: `/inventories/qrcode/${sku}`, method: "GET" }, {}, token);
 
         if (!response.success) {
-          console.error('Failed to fetch QR code:', response.message);
+          console.error("Failed to fetch QR code:", response.message);
           return null;
         }
 
         return response.data;
       } catch (error) {
-        console.error('Error fetching QR code:', error);
+        console.error("Error fetching QR code:", error);
         return null;
       }
     },
@@ -433,9 +427,9 @@ export function useGetQrCode(sku: string) {
 }
 
 export const INVENTORY_STATUS = [
-  { label: 'Rental', value: 'rental' },
-  { label: 'Reserved', value: 'reserved' },
-  { label: 'Maintenance', value: 'maintenance' },
-  { label: 'Sold', value: 'sold' },
-  { label: 'Instock', value: 'instock' },
+  { label: "Rental", value: "rental" },
+  { label: "Reserved", value: "reserved" },
+  { label: "Maintenance", value: "maintenance" },
+  { label: "Sold", value: "sold" },
+  { label: "Instock", value: "instock" },
 ];
