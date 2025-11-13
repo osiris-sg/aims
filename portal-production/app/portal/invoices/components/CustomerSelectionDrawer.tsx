@@ -29,7 +29,8 @@ export default function CustomerSelectionDrawer({ open, onClose, onSelectCustome
 
   const handleSelectCustomer = (customer: Customer) => {
     onSelectCustomer(customer);
-    onClose();
+    // Don't call onClose here as it's handled by parent component
+    // onClose();
     setSearchTerm(""); // Reset search
   };
 

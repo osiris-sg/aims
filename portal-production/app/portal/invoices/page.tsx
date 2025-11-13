@@ -12,9 +12,11 @@ import DownloadIcon from "@mui/icons-material/Download";
 import LinkIcon from "@mui/icons-material/Link";
 import { useRouter } from "next/navigation";
 import moment from "moment";
+import { toast } from "react-toastify";
 import { DOCUMENT_API } from "../documents/constants";
 import { ROUTES } from "@/routes";
 import CustomerSelectionDrawer from "./components/CustomerSelectionDrawer";
+import InvoiceVariantDrawer from "./components/InvoiceVariantDrawer";
 import { useXeroConnection } from "./hooks/useXeroConnection";
 
 interface Document {
@@ -94,6 +96,7 @@ export default function InvoicesPage() {
   });
   const [error, setError] = useState<string | null>(null);
   const [customerDrawerOpen, setCustomerDrawerOpen] = useState(false);
+  const [variantDrawerOpen, setVariantDrawerOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
 
   // Xero connection hook
@@ -121,6 +124,58 @@ export default function InvoicesPage() {
       cell: ({ row }: any) => {
         const dueDate = row.original.config?.dueDate;
         return dueDate ? moment(dueDate).format("DD/MM/YYYY") : "N/A";
+      },
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      cell: ({ row }: any) => {
+        const status = row.original.status;
+        // Format status for display
+        const formatStatus = (status: string) => {
+          if (!status) return "Draft";
+          return status
+            .split("_")
+            .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(" ");
+        };
+
+        // Get color based on status
+        const getStatusColor = (status: string) => {
+          switch (status) {
+            case "draft":
+              return "text.secondary";
+            case "pending_delivery":
+              return "warning.main";
+            case "delivered_not_installed":
+              return "info.main";
+            case "delivered_installed":
+              return "success.main";
+            case "pending_payment":
+              return "warning.main";
+            case "paid":
+              return "success.main";
+            case "pending_return":
+              return "warning.main";
+            case "returned":
+              return "text.secondary";
+            default:
+              return "text.primary";
+          }
+        };
+
+        return (
+          <Box
+            sx={{
+              color: getStatusColor(status || "draft"),
+              fontWeight: 500,
+              textTransform: "capitalize",
+            }}
+          >
+            {formatStatus(status || "draft")}
+          </Box>
+        );
       },
     },
     {
@@ -271,10 +326,40 @@ export default function InvoicesPage() {
   };
 
   const handleCustomerSelect = (customer: Customer) => {
+    console.log("Customer selected:", customer);
     setSelectedCustomer(customer);
+    // Don't use handleDrawerClose as it clears selectedCustomer
     setCustomerDrawerOpen(false);
-    // Create invoice with selected customer
-    onSubmit({ documentType: "TI" }, customer);
+    // Open variant selection drawer after a brief delay to ensure state is updated
+    setTimeout(() => {
+      setVariantDrawerOpen(true);
+    }, 100);
+  };
+
+  const handleVariantSelect = (variant: any) => {
+    console.log("=== VARIANT SELECTED ===");
+    console.log("Variant:", variant);
+    console.log("Template ID:", variant.id);
+    console.log("Document Type:", variant.type);
+    console.log("Template Variant:", variant.templateVariant);
+    console.log("Selected Customer:", selectedCustomer);
+
+    setVariantDrawerOpen(false);
+
+    // Create invoice with selected customer and variant
+    if (selectedCustomer) {
+      console.log("Customer exists, calling onSubmit");
+      // Use the document type from the template (e.g., "INVOICE")
+      onSubmit({
+        documentType: variant.type, // Use type from the template
+        templateVariant: variant.templateVariant
+      }, selectedCustomer, variant.id);
+    } else {
+      console.error("No customer selected! This shouldn't happen.");
+      toast.error("Please select a customer first");
+      // Reopen customer drawer
+      setCustomerDrawerOpen(true);
+    }
   };
 
   const handleDrawerClose = () => {
@@ -282,39 +367,94 @@ export default function InvoicesPage() {
     setSelectedCustomer(null);
   };
 
-  const onSubmit = async (data: any, customer?: Customer) => {
+  const handleVariantDrawerClose = () => {
+    setVariantDrawerOpen(false);
+    // Don't clear selected customer in case they want to go back
+  };
+
+  const onSubmit = async (data: any, customer?: Customer, variantId?: string) => {
+    console.log("=== ONSUBMIT CALLED ===");
+    console.log("Data:", data);
+    console.log("Customer:", customer);
+    console.log("Variant ID:", variantId);
+
     try {
       setIsDocumentTemplateUpdating(true);
       const token = await getToken();
-      const documentTemplateId = await getTemplateIdByType(data.documentType, token ?? "");
-      console.log("Selected Document Type:", organizationId);
+
+      // Use provided variantId or fetch template ID by type
+      let documentTemplateId = variantId;
+      if (!documentTemplateId || documentTemplateId.startsWith('default-')) {
+        console.log("Fetching template ID for type:", data.documentType);
+        documentTemplateId = await getTemplateIdByType(data.documentType, token ?? "");
+        console.log("Fetched template ID:", documentTemplateId);
+      }
+
+      console.log("=== CREATING DOCUMENT ===");
+      console.log("Selected Document Type:", data.documentType);
       console.log("Selected Customer:", customer);
+      console.log("Selected Template ID:", documentTemplateId);
+      console.log("Organization ID:", organizationId);
+
+      const requestPayload = {
+        type: data.documentType, // Use the document type from the template
+        config: customer ? { customerId: customer.id, templateVariant: data.templateVariant } : {},
+        documentTemplateId: documentTemplateId,
+        organizationId: organizationId,
+      };
+      console.log("Request payload:", requestPayload);
 
       const response = await request(
         {
           path: "/documents/basic",
           method: "POST",
         },
-        {
-          type: data.documentType,
-          config: customer ? { customerId: customer.id } : {},
-          documentTemplateId: documentTemplateId,
-          organizationId: organizationId,
-        },
+        requestPayload,
         token ?? undefined
       );
 
-      const createdDocumentId = response?.data.id;
+      console.log("=== RESPONSE RECEIVED ===");
+      console.log("Full Response:", response);
+      console.log("Response success:", response?.success);
+      console.log("Response data:", response?.data);
+
+      if (!response || !response.success) {
+        console.error("Document creation failed:", response);
+        alert(`Failed to create document: ${response?.message || 'Unknown error'}`);
+        return;
+      }
+
+      const createdDocumentId = response?.data?.id;
+      if (!createdDocumentId) {
+        console.error("No document ID in response:", response);
+        alert("Failed to create document: No document ID returned");
+        return;
+      }
+
       console.log("Created Document ID:", createdDocumentId);
 
       // Navigate to the document with customer pre-selected
+      // Use the document type from the template
       const url = `/portal/documents/${data.documentType}/${documentTemplateId}/${createdDocumentId}`;
       const urlWithCustomer = customer ? `${url}?customerId=${customer.id}` : url;
-      router.push(urlWithCustomer);
+
+      console.log("=== NAVIGATING ===");
+      console.log("Navigation URL:", urlWithCustomer);
+
+      toast.success("Invoice created successfully! Redirecting...");
+
+      // Small delay to ensure toast is visible
+      setTimeout(() => {
+        router.push(urlWithCustomer);
+        console.log("Navigation triggered");
+      }, 500);
     } catch (error) {
+      console.error("=== ERROR IN ONSUBMIT ===");
       console.error("Error submitting form:", error);
+      alert(`Error creating invoice: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsDocumentTemplateUpdating(false);
+      console.log("isDocumentTemplateUpdating set to false");
     }
   };
 
@@ -382,6 +522,14 @@ export default function InvoicesPage() {
 
       {/* Customer Selection Drawer */}
       <CustomerSelectionDrawer open={customerDrawerOpen} onClose={handleDrawerClose} onSelectCustomer={handleCustomerSelect} />
+
+      {/* Invoice Variant Selection Drawer */}
+      <InvoiceVariantDrawer
+        open={variantDrawerOpen}
+        onClose={handleVariantDrawerClose}
+        onSelectVariant={handleVariantSelect}
+        selectedCustomer={selectedCustomer}
+      />
     </MainCard>
   );
 }
