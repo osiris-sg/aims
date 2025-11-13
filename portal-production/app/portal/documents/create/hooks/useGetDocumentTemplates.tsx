@@ -59,15 +59,18 @@ export const useGetDocumentTemplates = () => {
   const availableDocumentTypes = useMemo(() => {
     if (!documentTemplates.docs || documentTemplates.docs.length === 0) {
       // Fallback to default types while templates are loading
-      return DOCUMENT_TYPES;
+      // Filter out INVOICE from default types as well
+      return DOCUMENT_TYPES.filter((type: any) => type.value !== 'INVOICE');
     }
 
-    // Map document templates to the format expected by the dropdown
-    return documentTemplates.docs.map((template) => ({
-      label: template.name || template.type, // Use template name or fallback to type
-      value: template.type, // Keep the type as value for API calls
-      templateId: template.id, // Store template ID for reference
-    }));
+    // Filter out INVOICE templates and map to the format expected by the dropdown
+    return documentTemplates.docs
+      .filter((template) => template.type !== 'INVOICE') // Exclude INVOICE type templates
+      .map((template) => ({
+        label: template.name || template.type, // Use template name or fallback to type
+        value: template.type, // Keep the type as value for API calls
+        templateId: template.id, // Store template ID for reference
+      }));
   }, [documentTemplates.docs]);
 
   return {

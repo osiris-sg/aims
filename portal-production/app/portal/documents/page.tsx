@@ -51,6 +51,9 @@ export default function DocumentsPage() {
   // Fetch documents with new hook
   const { documents = [], isLoading, error, refetch } = useGetDocuments();
 
+  // Filter out INVOICE type documents (they have their own page)
+  const filteredDocuments = documents.filter((doc: any) => doc.documentType !== 'INVOICE');
+
   // Delete document mutation
   const deleteDocumentMutation = useDeleteDocument();
 
@@ -235,7 +238,7 @@ export default function DocumentsPage() {
       )}
       <PageTable
         columns={columns}
-        data={documents}
+        data={filteredDocuments}
         tableName="Document List"
         subTitle="Document Detail Information"
         buttonName="Create Document"
@@ -250,8 +253,8 @@ export default function DocumentsPage() {
         setSearch={setSearch}
         setFilters={handleSetFilters}
         availableFilters={["status", "category", "createdOn"]}
-        pageCount={Math.ceil(documents.length / limit)}
-        totalDocs={documents.length}
+        pageCount={Math.ceil(filteredDocuments.length / limit)}
+        totalDocs={filteredDocuments.length}
       />
 
       {/* Delete Confirmation Dialog */}
