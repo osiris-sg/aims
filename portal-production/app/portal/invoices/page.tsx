@@ -17,6 +17,7 @@ import { DOCUMENT_API } from "../documents/constants";
 import { ROUTES } from "@/routes";
 import CustomerSelectionDrawer from "./components/CustomerSelectionDrawer";
 import InvoiceVariantDrawer from "./components/InvoiceVariantDrawer";
+import InvoiceStatistics from "./components/InvoiceStatistics";
 import { useXeroConnection } from "./hooks/useXeroConnection";
 
 interface Document {
@@ -518,6 +519,12 @@ export default function InvoicesPage() {
         pageCount={documents.totalPages}
         totalDocs={documents.totalDocs}
         actionButtons={actionButtons}
+        headerContent={
+          <InvoiceStatistics
+            documents={documents.docs}
+            loading={loading}
+          />
+        }
       />
 
       {/* Customer Selection Drawer */}

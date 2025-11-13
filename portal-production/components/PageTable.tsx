@@ -38,9 +38,10 @@ interface Props {
   renderSubComponent?: (props: { row: any }) => React.ReactNode;
   actionButtons?: React.ReactNode[];
   assetsData?: any[]; // Add assets data prop
+  headerContent?: React.ReactNode; // Custom content to display between header and table
 }
 export default function PageTable(props: Props) {
-  const { columns, data, tableName, subTitle, loading, buttonName, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, availableFilters, totalDocs, renderSubComponent, actionButtons, assetsData } = props;
+  const { columns, data, tableName, subTitle, loading, buttonName, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, availableFilters, totalDocs, renderSubComponent, actionButtons, assetsData, headerContent } = props;
   const { control, handleSubmit, watch } = useForm({ defaultValues: { limit, search } });
   const _limit = watch("limit");
   const _search = watch("search");
@@ -129,6 +130,14 @@ export default function PageTable(props: Props) {
             </Box>
           </Grid2>
         </Grid2>
+
+        {/* Custom header content */}
+        {headerContent && (
+          <Box sx={{ width: "100%" }}>
+            {headerContent}
+          </Box>
+        )}
+
         <Box sx={{ overflowX: "auto", width: "100%", border: "1px solid", borderColor: "tertiary.main", padding: "var(--default-padding)", borderRadius: "var(--default-border-radius)", flex: 1 }}>
           <Table columns={columns} data={data} onRowSelect={() => {}} loading={loading} subRowAccessor={subRowAccessor} />
         </Box>
