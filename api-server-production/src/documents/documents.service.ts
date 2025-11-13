@@ -6,6 +6,11 @@ import { InventoryStatus, DocumentStatus, TransactionType } from '@prisma/client
 import { XeroService } from 'src/common/xero.service';
 import { PriceHistoryService } from '../price-history/price-history.service';
 import { TransactionsService } from '../transactions/transactions.service';
+import { EmailService } from '../email/email.service';
+import { SendInvoiceEmailDto } from '../email/dto/send-invoice-email.dto';
+import { S3Service } from 'src/common/services/s3.service';
+import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
+import * as moment from 'moment';
 
 @Injectable()
 export class DocumentsService {
@@ -14,6 +19,9 @@ export class DocumentsService {
     private xeroService: XeroService,
     private priceHistoryService: PriceHistoryService,
     private transactionsService: TransactionsService,
+    private emailService: EmailService,
+    private s3Service: S3Service,
+    private pdfGeneratorService: PdfGeneratorService,
   ) {}
 
   async getById(id: string, organizationId: string) {
@@ -101,6 +109,41 @@ export class DocumentsService {
         console.log('MSR photos to be stored:', configAsPlainObject.photos.length, 'photos');
       }
 
+      // Validate status transition for invoices
+      const invoiceTypesForValidation = ['INVOICE', 'TI', 'TI2'];
+      if (dto.status && invoiceTypesForValidation.includes(existingDocument.type)) {
+        const currentStatus = existingDocument.status;
+        const newStatus = dto.status;
+
+        // Define valid status transitions for invoices
+        const validTransitions: Record<string, string[]> = {
+          'draft': ['confirmed'], // draft can only go to confirmed
+          'confirmed': ['pending_payment'], // confirmed can go to pending_payment (after email sent)
+          'pending_payment': ['paid'], // pending_payment can go to paid
+          'paid': [], // paid is final status
+        };
+
+        // Check if transition is valid
+        const allowedNextStatuses = validTransitions[currentStatus] || [];
+        if (!allowedNextStatuses.includes(newStatus)) {
+          // Special case: Allow manual status change to 'paid' only from 'pending_payment'
+          if (newStatus === DocumentStatus.paid && currentStatus !== DocumentStatus.pending_payment) {
+            throw new HttpException(
+              `Invoice must be in "pending_payment" status before marking as paid. Current status: ${currentStatus}`,
+              HttpStatus.BAD_REQUEST,
+            );
+          } else if (newStatus === DocumentStatus.paid && currentStatus === DocumentStatus.pending_payment) {
+            // This is allowed - user manually marking as paid from pending_payment status
+          } else {
+            throw new HttpException(
+              `Invalid status transition from "${currentStatus}" to "${newStatus}". ` +
+              `Allowed transitions: ${allowedNextStatuses.length > 0 ? allowedNextStatuses.join(', ') : 'none (final status)'}`,
+              HttpStatus.BAD_REQUEST,
+            );
+          }
+        }
+      }
+
       // Update the document itself with config only
       const updatedDocument = await this.prisma.document.update({
         where: {
@@ -179,8 +222,8 @@ export class DocumentsService {
 
       // If config.items exists and is an array, handle inventory/timeline logic (for DO, RDO, etc.)
       // Exclude invoice types (TI, TI2, INVOICE) and quotations (QO1) and service reports (MSR) from inventory validation
-      const invoiceTypes = ['QO1', 'MSR', 'TI', 'TI2', 'INVOICE'];
-      if (!invoiceTypes.includes(dto.type) && dto.config && Array.isArray(dto.config.items)) {
+      const documentTypesExcludedFromInventory = ['QO1', 'MSR', 'TI', 'TI2', 'INVOICE'];
+      if (!documentTypesExcludedFromInventory.includes(dto.type) && dto.config && Array.isArray(dto.config.items)) {
         // Validate that all items have inventoryItemId
         const itemsWithoutInventory = dto.config.items.filter(
           (_item) => !_item.inventoryItemId || _item.inventoryItemId.trim() === ''
@@ -1210,6 +1253,233 @@ export class DocumentsService {
       throw new HttpException(
         `Failed to fetch past descriptions: ${error.message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Send invoice email to customer
+   */
+  async sendInvoiceEmail(
+    documentId: string,
+    emailDto: SendInvoiceEmailDto,
+    organizationId: string,
+  ) {
+    try {
+      // 1. Get the document
+      const document = await this.prisma.document.findFirst({
+        where: {
+          id: documentId,
+          organizationId,
+        },
+        include: {
+          organization: true,
+        },
+      });
+
+      if (!document) {
+        throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+      }
+
+      // 2. Validate it's an invoice
+      const invoiceTypes = ['INVOICE', 'TI', 'TI2'];
+      if (!invoiceTypes.includes(document.type)) {
+        throw new HttpException(
+          'Only invoices can be sent via email',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      // 3. Validate status is 'confirmed'
+      if (document.status !== 'confirmed') {
+        throw new HttpException(
+          'Only confirmed invoices can be sent. Please confirm the invoice first.',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      // 4. Extract invoice details from config
+      const config: any = document.config;
+      const customer = config?.customer;
+      const documentInfo = config?.documentInfo;
+      const items = config?.items || [];
+
+      if (!customer) {
+        throw new HttpException(
+          'Invoice must have a customer',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      // Calculate total amount
+      const totalAmount = items.reduce((sum: number, item: any) => {
+        const amount =
+          parseFloat(item.amount) ||
+          parseFloat(item.quantity) * parseFloat(item.unitPrice) ||
+          0;
+        return sum + amount;
+      }, 0);
+
+      // Get invoice number and due date
+      const invoiceNumber = document.name || documentInfo?.documentNumber || `INV-${documentId.substring(0, 8)}`;
+      const dueDate = config?.dueDate
+        ? moment(config.dueDate).format('DD MMM YYYY')
+        : moment().add(30, 'days').format('DD MMM YYYY');
+
+      // 5. Generate or get PDF URL
+      let pdfUrl: string | undefined;
+      try {
+        // Try to get existing PDF from S3
+        const s3Key = `documents/${organizationId}/${document.type}/${documentId}.pdf`;
+        try {
+          pdfUrl = await this.s3Service.getSignedUrl(s3Key, 3600); // 1 hour expiry
+        } catch (error) {
+          // PDF doesn't exist, generate it
+          console.log('PDF not found in S3, generating new one...');
+
+          // Generate HTML
+          const html = this.pdfGeneratorService.generateInvoiceHtml({
+            organization: document.organization,
+            customer,
+            documentInfo,
+            items,
+            config,
+          });
+
+          // Generate PDF
+          const pdfBuffer = await this.pdfGeneratorService.generatePdfFromHtml(html);
+
+          // Upload to S3
+          const { key } = await this.s3Service.uploadPdf(
+            organizationId,
+            document.type,
+            documentId,
+            pdfBuffer,
+          );
+
+          // Get signed URL
+          pdfUrl = await this.s3Service.getSignedUrl(key, 3600);
+        }
+      } catch (error) {
+        console.error('Failed to get/generate PDF:', error);
+        // Continue without PDF attachment
+      }
+
+      // 6. Send email via email service
+      const emailResult = await this.emailService.sendInvoiceEmail({
+        to: emailDto.to,
+        cc: emailDto.cc,
+        bcc: emailDto.bcc,
+        subject: emailDto.subject,
+        message: emailDto.message,
+        invoiceNumber,
+        invoiceAmount: totalAmount,
+        dueDate,
+        customerName: customer.name || 'Customer',
+        organizationName: document.organization.name,
+        pdfUrl,
+        paymentLink: undefined, // TODO: Generate payment link when public payment page is implemented
+      });
+
+      if (!emailResult.success) {
+        throw new HttpException(
+          emailResult.error || 'Failed to send email',
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        );
+      }
+
+      // 7. Update document status to 'pending_payment' (email has been sent)
+      await this.prisma.document.update({
+        where: {
+          id: documentId,
+        },
+        data: {
+          status: DocumentStatus.pending_payment,
+        },
+      });
+
+      return {
+        success: true,
+        message: 'Invoice email sent successfully',
+        messageId: emailResult.messageId,
+      };
+    } catch (error) {
+      console.error('Error sending invoice email:', error);
+      throw new HttpException(
+        error.message || 'Failed to send invoice email',
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Get payment summary for an invoice
+   * Returns total amount, amount paid, and remaining balance
+   */
+  async getPaymentSummary(documentId: string, organizationId: string) {
+    try {
+      // Get the document
+      const document = await this.prisma.document.findFirst({
+        where: {
+          id: documentId,
+          organizationId,
+        },
+      });
+
+      if (!document) {
+        throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+      }
+
+      // Validate it's an invoice
+      const invoiceTypes = ['INVOICE', 'TI', 'TI2'];
+      if (!invoiceTypes.includes(document.type)) {
+        throw new HttpException(
+          'Payment summary is only available for invoices',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      // Calculate invoice total amount from config.items
+      const config: any = document.config;
+      const items = config?.items || [];
+
+      const invoiceAmount = items.reduce((sum: number, item: any) => {
+        const amount =
+          parseFloat(item.amount) ||
+          parseFloat(item.quantity) * parseFloat(item.unitPrice) ||
+          0;
+        return sum + amount;
+      }, 0);
+
+      // Get all payments for this document
+      const payments = await this.prisma.payment.findMany({
+        where: {
+          documentId,
+          organizationId,
+        },
+      });
+
+      // Calculate total paid
+      const totalPaid = payments.reduce((sum, payment) => {
+        return sum + parseFloat(payment.amount.toString());
+      }, 0);
+
+      // Calculate remaining balance
+      const remainingBalance = invoiceAmount - totalPaid;
+
+      return {
+        success: true,
+        invoiceAmount: parseFloat(invoiceAmount.toFixed(2)),
+        totalPaid: parseFloat(totalPaid.toFixed(2)),
+        remainingBalance: parseFloat(remainingBalance.toFixed(2)),
+        invoiceNumber: document.name || `INV-${documentId.substring(0, 8)}`,
+        status: document.status,
+      };
+    } catch (error) {
+      console.error('Error getting payment summary:', error);
+      throw new HttpException(
+        error.message || 'Failed to get payment summary',
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }

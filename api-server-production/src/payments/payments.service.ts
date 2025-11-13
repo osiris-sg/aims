@@ -2,7 +2,7 @@ import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { UpdatePaymentDto } from './dto/update-payment.dto';
-import { Prisma, TransactionType } from '@prisma/client';
+import { Prisma, TransactionType, DocumentStatus } from '@prisma/client';
 
 @Injectable()
 export class PaymentsService {
@@ -106,6 +106,9 @@ export class PaymentsService {
 
         return { payment, transaction };
       });
+
+      // Auto-update invoice status based on payments
+      await this.updateInvoiceStatusAfterPayment(createPaymentDto.documentId, organizationId);
 
       return {
         success: true,
@@ -394,6 +397,86 @@ export class PaymentsService {
         `Failed to delete payment: ${error.message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
+    }
+  }
+
+  /**
+   * Automatically update invoice status based on payment amounts
+   * Called after creating or updating payments
+   */
+  private async updateInvoiceStatusAfterPayment(documentId: string, organizationId: string) {
+    try {
+      // Get the document
+      const document = await this.prisma.document.findFirst({
+        where: {
+          id: documentId,
+          organizationId,
+        },
+      });
+
+      if (!document) {
+        return; // Silently return if document not found
+      }
+
+      // Only process invoices
+      const invoiceTypes = ['INVOICE', 'TI', 'TI2'];
+      if (!invoiceTypes.includes(document.type)) {
+        return; // Not an invoice, skip status update
+      }
+
+      // Don't update if already paid
+      if (document.status === DocumentStatus.paid) {
+        return;
+      }
+
+      // Calculate invoice total from config.items
+      const config: any = document.config;
+      const items = config?.items || [];
+
+      const invoiceAmount = items.reduce((sum: number, item: any) => {
+        const amount =
+          parseFloat(item.amount) ||
+          (parseFloat(item.quantity) * parseFloat(item.unitPrice)) ||
+          0;
+        return sum + amount;
+      }, 0);
+
+      // Get all payments for this document
+      const payments = await this.prisma.payment.findMany({
+        where: {
+          documentId,
+          organizationId,
+        },
+      });
+
+      // Calculate total paid
+      const totalPaid = payments.reduce((sum, payment) => {
+        return sum + parseFloat(payment.amount.toString());
+      }, 0);
+
+      // Determine new status based on payment coverage
+      let newStatus: DocumentStatus | null = null;
+
+      if (totalPaid >= invoiceAmount) {
+        // Fully paid
+        newStatus = DocumentStatus.paid;
+      } else if (totalPaid > 0) {
+        // Partially paid
+        newStatus = DocumentStatus.pending_payment;
+      }
+
+      // Update invoice status if needed
+      if (newStatus && newStatus !== document.status) {
+        await this.prisma.document.update({
+          where: { id: documentId },
+          data: { status: newStatus },
+        });
+
+        console.log(`✅ Invoice ${document.name} status updated to ${newStatus} (Paid: ${totalPaid}/${invoiceAmount})`);
+      }
+    } catch (error) {
+      // Log error but don't throw - this is a non-critical operation
+      console.error('Error updating invoice status after payment:', error);
     }
   }
 }

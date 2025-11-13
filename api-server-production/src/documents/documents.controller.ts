@@ -8,6 +8,8 @@ import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { S3Service } from 'src/common/services/s3.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
+import { EmailService } from 'src/email/email.service';
+import { SendInvoiceEmailDto } from 'src/email/dto/send-invoice-email.dto';
 
 // Extend Request type to include userOrganization
 interface RequestWithOrganization extends Request {
@@ -23,6 +25,7 @@ export class DocumentsController {
     private readonly documentsService: DocumentsService,
     private readonly s3Service: S3Service,
     private readonly pdfGeneratorService: PdfGeneratorService,
+    private readonly emailService: EmailService,
   ) {}
 
   @Post('with-timeline')
@@ -215,6 +218,63 @@ export class DocumentsController {
       console.error('Error generating PDF:', error);
       throw new HttpException(
         error.message || 'Failed to generate PDF',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Post(':id/send-email')
+  @Permissions('documents:send-email')
+  async sendInvoiceEmail(
+    @Param('id') documentId: string,
+    @Body() emailDto: SendInvoiceEmailDto,
+    @Req() req: RequestWithOrganization,
+  ) {
+    try {
+      const organizationId = req.userOrganization?.id;
+      if (!organizationId) {
+        throw new HttpException('User is not assigned to any organization', HttpStatus.FORBIDDEN);
+      }
+
+      // Call the service method to send email
+      const result = await this.documentsService.sendInvoiceEmail(
+        documentId,
+        emailDto,
+        organizationId,
+      );
+
+      return result;
+    } catch (error) {
+      console.error('Error sending invoice email:', error);
+      throw new HttpException(
+        error.message || 'Failed to send invoice email',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Get(':id/payment-summary')
+  @Permissions('documents:read')
+  async getPaymentSummary(
+    @Param('id') documentId: string,
+    @Req() req: RequestWithOrganization,
+  ) {
+    try {
+      const organizationId = req.userOrganization?.id;
+      if (!organizationId) {
+        throw new HttpException('User is not assigned to any organization', HttpStatus.FORBIDDEN);
+      }
+
+      const summary = await this.documentsService.getPaymentSummary(
+        documentId,
+        organizationId,
+      );
+
+      return summary;
+    } catch (error) {
+      console.error('Error getting payment summary:', error);
+      throw new HttpException(
+        error.message || 'Failed to get payment summary',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

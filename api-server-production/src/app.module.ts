@@ -30,6 +30,7 @@ import { PriceHistoryModule } from './price-history/price-history.module';
 import { PaymentsModule } from './payments/payments.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { StatementsModule } from './statements/statements.module';
+import { EmailModule } from './email/email.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { StatementsModule } from './statements/statements.module';
     PaymentsModule,
     TransactionsModule,
     StatementsModule,
+    EmailModule,
   ],
   controllers: [AppController],
   providers: [

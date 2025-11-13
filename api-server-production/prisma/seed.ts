@@ -562,6 +562,30 @@ async function main() {
     },
   });
 
+  // Add send-email permission for documents
+  const sendEmailDocumentPermission = await prisma.permission.upsert({
+    where: { name: 'documents:send-email' },
+    update: {},
+    create: {
+      name: 'documents:send-email',
+      description: 'Can send documents via email',
+      resource: 'documents',
+      action: 'send-email',
+    },
+  });
+
+  // Add payment-summary permission for documents
+  const getPaymentSummaryPermission = await prisma.permission.upsert({
+    where: { name: 'documents:payment-summary' },
+    update: {},
+    create: {
+      name: 'documents:payment-summary',
+      description: 'Can get payment summary for invoices',
+      resource: 'documents',
+      action: 'payment-summary',
+    },
+  });
+
   // Create permissions for document extraction
   const extractDocumentPermission = await prisma.permission.upsert({
     where: { name: 'document-extraction:extract' },
@@ -1038,6 +1062,8 @@ async function main() {
           { id: readDocumentByAssetPermission.id },
           { id: tagTemplateToAssetPermission.id },
           { id: untagTemplateFromAssetPermission.id },
+          { id: sendEmailDocumentPermission.id },
+          { id: getPaymentSummaryPermission.id },
           // Document extraction
           { id: extractDocumentPermission.id },
           { id: extractDocumentFromUrlPermission.id },
@@ -1145,6 +1171,8 @@ async function main() {
           { id: readDocumentByAssetPermission.id },
           { id: tagTemplateToAssetPermission.id },
           { id: untagTemplateFromAssetPermission.id },
+          { id: sendEmailDocumentPermission.id },
+          { id: getPaymentSummaryPermission.id },
           // Document extraction
           { id: extractDocumentPermission.id },
           { id: extractDocumentFromUrlPermission.id },

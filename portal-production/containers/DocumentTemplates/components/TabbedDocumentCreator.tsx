@@ -49,11 +49,15 @@ import {
   ContentCopy as ContentCopyIcon,
   History as HistoryIcon,
   Close as CloseIcon,
+  Email as EmailIcon,
+  Payment as PaymentIcon,
 } from "@mui/icons-material";
 import CleanDocumentPreview from "./CleanDocumentPreview";
 import DocumentCustomizer from "./DocumentCustomizer";
 import DynamicFormFields from "./DynamicFormFields";
 import PriceHistoryPopup from "@/components/PriceHistory/PriceHistoryPopup";
+import SendInvoiceEmailDialog from "@/app/portal/invoices/components/SendInvoiceEmailDialog";
+import RecordPaymentDialog from "@/app/portal/invoices/components/RecordPaymentDialog";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
@@ -140,6 +144,12 @@ export default function TabbedDocumentCreator({
 
   // Back button confirmation dialog
   const [backConfirmDialogOpen, setBackConfirmDialogOpen] = useState(false);
+
+  // Send email dialog state
+  const [sendEmailDialogOpen, setSendEmailDialogOpen] = useState(false);
+
+  // Payment dialog state
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
 
   // Price history popup state
   const [priceHistoryDialogOpen, setPriceHistoryDialogOpen] = useState(false);
@@ -827,6 +837,33 @@ export default function TabbedDocumentCreator({
               color="success"
             >
               Confirm Document
+            </Button>
+          )}
+          {/* Send Email button for confirmed invoices */}
+          {documentStatus === "confirmed" &&
+           documentStatus !== "pending_payment" &&
+           (documentType === "TI" || documentType === "TI2" || documentType === "INVOICE") && (
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<EmailIcon />}
+              onClick={() => setSendEmailDialogOpen(true)}
+              color="primary"
+            >
+              Send Email
+            </Button>
+          )}
+          {/* Mark as Paid button for pending_payment invoices */}
+          {documentStatus === "pending_payment" &&
+           (documentType === "TI" || documentType === "TI2" || documentType === "INVOICE") && (
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<PaymentIcon />}
+              onClick={() => setPaymentDialogOpen(true)}
+              color="success"
+            >
+              Mark as Paid
             </Button>
           )}
           {!isDocumentConfirmed && (
@@ -2174,6 +2211,51 @@ export default function TabbedDocumentCreator({
           setPriceHistoryDialogOpen(false);
         }}
       />
+
+      {/* Send Email Dialog */}
+      {documentStatus === "confirmed" && (documentType === "TI" || documentType === "TI2" || documentType === "INVOICE") && (
+        <SendInvoiceEmailDialog
+          open={sendEmailDialogOpen}
+          onClose={() => setSendEmailDialogOpen(false)}
+          onSent={() => {
+            setSendEmailDialogOpen(false);
+            router.refresh(); // Refresh to update status
+          }}
+          invoice={{
+            id: documentId || "",
+            name: formData.name || formData.documentInfo?.documentNumber || "",
+            config: formData,
+            type: documentType,
+            status: documentStatus,
+            organizationId: organization?.id || ""
+          }}
+          customer={{
+            id: formData.customer?.id || "",
+            name: formData.customer?.name || "",
+            email: formData.customer?.email || ""
+          }}
+        />
+      )}
+
+      {/* Payment Dialog for marking invoice as paid */}
+      {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE") && (
+        <RecordPaymentDialog
+          open={paymentDialogOpen}
+          onClose={() => setPaymentDialogOpen(false)}
+          onSuccess={() => {
+            setPaymentDialogOpen(false);
+            router.refresh(); // Refresh to update status
+            toast.success("Payment recorded and invoice marked as paid");
+          }}
+          invoice={{
+            id: documentId || "",
+            name: formData.name || formData.documentInfo?.documentNumber || "",
+            customerId: formData.customer?.id,
+            customerName: formData.customer?.name,
+            status: documentStatus,
+          }}
+        />
+      )}
     </Box>
   );
 }
