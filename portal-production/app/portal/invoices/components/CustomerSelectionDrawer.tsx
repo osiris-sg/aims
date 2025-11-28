@@ -104,7 +104,7 @@ export default function CustomerSelectionDrawer({ open, onClose, onSelectCustome
             </Box>
           ) : error ? (
             <Box sx={{ p: 2 }}>
-              <Alert severity="error">{error}</Alert>
+              <Alert severity="error">{error instanceof Error ? error.message : String(error)}</Alert>
             </Box>
           ) : filteredCustomers.length === 0 ? (
             <Box

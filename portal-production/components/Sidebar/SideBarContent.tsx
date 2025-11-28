@@ -315,8 +315,19 @@ export default function SideBarContent() {
         }}
       >
         {secondaryListItems.map((item: any, index: number) => {
+          const isActive = pathname.startsWith(item.path);
           const secondaryItem = (
-            <ListItem key={index} disablePadding sx={{ display: "block" }}>
+            <ListItem
+              key={index}
+              disablePadding
+              sx={{
+                display: "block",
+                borderRadius: "var(--default-border-radius)",
+                backgroundColor: isActive ? theme.palette.primary.contrastText : "transparent",
+                ":hover": { backgroundColor: theme.palette.primary.light },
+                mb: 0.5,
+              }}
+            >
               <ListItemButton
                 sx={{
                   justifyContent: "center",
@@ -329,6 +340,7 @@ export default function SideBarContent() {
               >
                 <ListItemIcon
                   sx={{
+                    color: isActive ? theme.palette.primary.main : "white",
                     minWidth: "fit-content!important",
                     marginRight: isCollapsed ? "0" : "var(--default-gap)",
                     justifyContent: "center",
@@ -337,7 +349,14 @@ export default function SideBarContent() {
                 >
                   {item.icon}
                 </ListItemIcon>
-                {!isCollapsed && <ListItemText primary={item.text} />}
+                {!isCollapsed && (
+                  <ListItemText
+                    primary={item.text}
+                    sx={{
+                      color: isActive ? theme.palette.primary.main : "white",
+                    }}
+                  />
+                )}
               </ListItemButton>
             </ListItem>
           );

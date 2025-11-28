@@ -33,8 +33,8 @@ export default function InventoryPage() {
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({
-    status: "",
-    category: "",
+    status: [] as string[],
+    category: [] as string[],
     assetId: "",
     createdOn: {
       startDate: null as Date | null,

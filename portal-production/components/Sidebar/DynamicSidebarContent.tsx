@@ -281,8 +281,19 @@ export default function DynamicSidebarContent() {
         }}
       >
         {secondaryItems.map((item) => {
+          const isActive = pathname === item.path || pathname.startsWith(item.path + '/');
           const secondaryItem = (
-            <ListItem key={item.id} disablePadding sx={{ display: "block" }}>
+            <ListItem
+              key={item.id}
+              disablePadding
+              sx={{
+                display: "block",
+                borderRadius: "var(--default-border-radius)",
+                backgroundColor: isActive ? theme.palette.primary.contrastText : "transparent",
+                ":hover": { backgroundColor: theme.palette.primary.light },
+                mb: 0.5,
+              }}
+            >
               <ListItemButton
                 sx={{
                   justifyContent: "center",
@@ -292,7 +303,7 @@ export default function DynamicSidebarContent() {
                 }}
                 component={Link}
                 href={item.path}
-                selected={pathname === item.path}
+                selected={isActive}
               >
                 <ListItemIcon
                   sx={{
@@ -300,7 +311,7 @@ export default function DynamicSidebarContent() {
                     marginRight: isCollapsed ? "0" : "var(--default-gap)",
                     justifyContent: "center",
                     display: "flex",
-                    color: pathname === item.path ? theme.palette.primary.main : "inherit",
+                    color: isActive ? theme.palette.primary.main : "white",
                   }}
                 >
                   {getIcon(item.icon)}
@@ -309,7 +320,7 @@ export default function DynamicSidebarContent() {
                   <ListItemText
                     primary={item.text}
                     sx={{
-                      color: pathname === item.path ? theme.palette.primary.main : "inherit",
+                      color: isActive ? theme.palette.primary.main : "white",
                     }}
                   />
                 )}

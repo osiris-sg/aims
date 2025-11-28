@@ -115,31 +115,36 @@ export class DocumentsService {
         const currentStatus = existingDocument.status;
         const newStatus = dto.status;
 
-        // Define valid status transitions for invoices
-        const validTransitions: Record<string, string[]> = {
-          'draft': ['confirmed'], // draft can only go to confirmed
-          'confirmed': ['pending_payment'], // confirmed can go to pending_payment (after email sent)
-          'pending_payment': ['paid'], // pending_payment can go to paid
-          'paid': [], // paid is final status
-        };
+        // Skip validation if status is not changing
+        if (currentStatus === newStatus) {
+          console.log(`Status unchanged: keeping document as "${currentStatus}"`);
+        } else {
+          // Define valid status transitions for invoices
+          const validTransitions: Record<string, string[]> = {
+            'draft': ['confirmed'], // draft can only go to confirmed
+            'confirmed': ['pending_payment'], // confirmed can go to pending_payment (after email sent)
+            'pending_payment': ['paid'], // pending_payment can go to paid
+            'paid': [], // paid is final status
+          };
 
-        // Check if transition is valid
-        const allowedNextStatuses = validTransitions[currentStatus] || [];
-        if (!allowedNextStatuses.includes(newStatus)) {
-          // Special case: Allow manual status change to 'paid' only from 'pending_payment'
-          if (newStatus === DocumentStatus.paid && currentStatus !== DocumentStatus.pending_payment) {
-            throw new HttpException(
-              `Invoice must be in "pending_payment" status before marking as paid. Current status: ${currentStatus}`,
-              HttpStatus.BAD_REQUEST,
-            );
-          } else if (newStatus === DocumentStatus.paid && currentStatus === DocumentStatus.pending_payment) {
-            // This is allowed - user manually marking as paid from pending_payment status
-          } else {
-            throw new HttpException(
-              `Invalid status transition from "${currentStatus}" to "${newStatus}". ` +
-              `Allowed transitions: ${allowedNextStatuses.length > 0 ? allowedNextStatuses.join(', ') : 'none (final status)'}`,
-              HttpStatus.BAD_REQUEST,
-            );
+          // Check if transition is valid
+          const allowedNextStatuses = validTransitions[currentStatus] || [];
+          if (!allowedNextStatuses.includes(newStatus)) {
+            // Special case: Allow manual status change to 'paid' only from 'pending_payment'
+            if (newStatus === DocumentStatus.paid && currentStatus !== DocumentStatus.pending_payment) {
+              throw new HttpException(
+                `Invoice must be in "pending_payment" status before marking as paid. Current status: ${currentStatus}`,
+                HttpStatus.BAD_REQUEST,
+              );
+            } else if (newStatus === DocumentStatus.paid && currentStatus === DocumentStatus.pending_payment) {
+              // This is allowed - user manually marking as paid from pending_payment status
+            } else {
+              throw new HttpException(
+                `Invalid status transition from "${currentStatus}" to "${newStatus}". ` +
+                `Allowed transitions: ${allowedNextStatuses.length > 0 ? allowedNextStatuses.join(', ') : 'none (final status)'}`,
+                HttpStatus.BAD_REQUEST,
+              );
+            }
           }
         }
       }

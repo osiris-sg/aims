@@ -164,7 +164,7 @@ export default function OrganizationSettingsPage() {
           label="Tax Rate (%)"
           placeHolder="Enter tax rate (e.g., 9 for 9%)"
           type="number"
-          inputProps={{ min: 0, max: 100, step: 0.1 }}
+          min={0}
         />
 
         <Box>

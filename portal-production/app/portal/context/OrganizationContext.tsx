@@ -11,6 +11,7 @@ interface Organization {
   address?: string | null;
   phoneNumber?: string | null;
   registrationNumber?: string | null;
+  taxRate?: number | null;
   logo?: string | null;
   defaultStamp?: string | null;
   customDocumentTypes?: Record<string, string> | null;

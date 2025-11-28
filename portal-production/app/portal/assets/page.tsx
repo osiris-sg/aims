@@ -20,7 +20,7 @@ export default function AssetsPage() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState({ category: "" });
+  const [filters, setFilters] = useState({ category: [] as string[] });
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleteName, setDeleteName] = useState<string | null>(null);
   const [assetToDelete, setAssetToDelete] = useState<string | null>(null);

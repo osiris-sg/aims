@@ -56,8 +56,8 @@ export default function FilterDrawer(props: FilterDrawerProps) {
     return initialFilters;
   });
 
-  const categoryList = categories.map((category) => ({ value: category.id, label: category.name }));
-  const assetList = assetsData.map((asset) => ({ value: asset.id, label: asset.name }));
+  const categoryList = categories.map((category: any) => ({ value: category.id, label: category.name }));
+  const assetList = assetsData.map((asset: any) => ({ value: asset.id, label: asset.name }));
   const selectedCategory = watch("category");
   const selectedStatus = watch("status");
   const selectedAsset = watch("assetId");

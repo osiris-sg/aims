@@ -69,7 +69,7 @@ export default function page() {
           setDocumentMetadata(response.data);
 
           // Fetch the document template to get the variant
-          let templateVariant = type; // Default to type from URL
+          let templateVariant = Array.isArray(type) ? type[0] : type; // Default to type from URL
 
           if (response.data.documentTemplateId) {
             try {
@@ -89,7 +89,7 @@ export default function page() {
               if (templateResponse.success && templateResponse.data) {
                 // Store variant from template
                 templateVariant = templateResponse.data.templateVariant || templateResponse.data.designName || "TI";
-                setDocumentMetadata(prev => ({
+                setDocumentMetadata((prev: any) => ({
                   ...prev,
                   variant: templateVariant,
                 }));

@@ -9,20 +9,21 @@ import { Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, Ta
 // - Carlito is loaded via Next.js font optimization and available via --font-carlito CSS variable
 
 interface CleanDocumentPreviewProps {
-  documentType: "QO1" | "DO" | "RDO" | "TI" | "TI2" | "MSR";
+  documentType: "QO1" | "DO" | "RDO" | "TI" | "TI2" | "MSR" | "INVOICE" | string;
   data: any;
   organization?: any;
 }
 
 export default function CleanDocumentPreview({ documentType, data, organization }: CleanDocumentPreviewProps) {
   const getDocumentTitle = () => {
-    const titles = {
+    const titles: Record<string, string> = {
       QO1: "QUOTATION",
       DO: "DELIVERY ORDER",
       RDO: "RETURN DELIVERY ORDER",
       TI: "Tax Invoice",
       TI2: "TAX INVOICE",
       MSR: "MAINTENANCE SERVICE REPORT",
+      INVOICE: "INVOICE",
     };
     return titles[documentType] || "DOCUMENT";
   };

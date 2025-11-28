@@ -391,39 +391,25 @@ export function useGenerateSku() {
   });
 }
 
-// Get QR code for inventory
-export function useGetQrCode(sku: string) {
+// Get QR code for inventory (mutation version for on-demand fetching)
+export function useGetQrCode() {
   const { getToken } = useAuth();
 
-  const {
-    data: qrCode,
-    isLoading,
-    error,
-    refetch,
-  } = useQuery({
-    queryKey: ["qrCode", sku],
-    queryFn: async () => {
-      try {
-        const token = await getToken();
-        if (!token || !sku) return null;
+  return useMutation({
+    mutationFn: async (sku: string) => {
+      const token = await getToken();
+      if (!token || !sku) return null;
 
-        const response = await request({ path: `/inventories/qrcode/${sku}`, method: "GET" }, {}, token);
+      const response = await request({ path: `/inventories/qrcode/${sku}`, method: "GET" }, {}, token);
 
-        if (!response.success) {
-          console.error("Failed to fetch QR code:", response.message);
-          return null;
-        }
-
-        return response.data;
-      } catch (error) {
-        console.error("Error fetching QR code:", error);
-        return null;
+      if (!response.success) {
+        console.error("Failed to fetch QR code:", response.message);
+        throw new Error(response.message || "Failed to fetch QR code");
       }
-    },
-    enabled: !!sku,
-  });
 
-  return { qrCode, isLoading, error, refetch };
+      return response.data;
+    },
+  });
 }
 
 export const INVENTORY_STATUS = [

@@ -233,6 +233,7 @@ export default function TabbedDocumentCreator({
       id: existingData?.customerId || "",
       name: "",
       address: "",
+      email: "",
     },
     documentInfo: {
       date: existingData?.documentInfo?.date || existingData?.date || new Date().toISOString().split("T")[0],
@@ -410,7 +411,7 @@ export default function TabbedDocumentCreator({
   };
 
   const getDocumentTitle = () => {
-    const titles = {
+    const titles: Record<string, string> = {
       QO1: "Quotation",
       DO: "Delivery Order",
       RDO: "Return Delivery Order",
@@ -1021,6 +1022,7 @@ export default function TabbedDocumentCreator({
                                 id: newValue?.id || "",
                                 name: newValue?.name || "",
                                 address: newValue?.address || "",
+                                email: newValue?.email || "",
                               },
                             });
                             // Call the customer change handler to fetch related data

@@ -95,40 +95,6 @@ export function useGetDocumentById(documentId: string) {
   return { document, isLoading, error, refetch };
 }
 
-// Get documents by inventory ID
-export function useGetDocumentsByInventoryId(inventoryId: string) {
-  const { getToken } = useAuth();
-
-  const { data: documents = [], isLoading, error, refetch } = useQuery({
-    queryKey: ['documents', 'inventory', inventoryId],
-    queryFn: async () => {
-      try {
-        const token = await getToken();
-        if (!token || !inventoryId) return [];
-
-        const response = await request(
-          { path: `/documents/inventory/${inventoryId}`, method: 'GET' },
-          {},
-          token
-        );
-
-        if (!response.success) {
-          console.error('Failed to fetch documents:', response.message);
-          return [];
-        }
-
-        return response.data || [];
-      } catch (error) {
-        console.error('Error fetching documents:', error);
-        return [];
-      }
-    },
-    enabled: !!inventoryId,
-  });
-
-  return { documents, isLoading, error, refetch };
-}
-
 // Create document with timeline
 export function useCreateDocumentWithTimeline() {
   const { getToken } = useAuth();

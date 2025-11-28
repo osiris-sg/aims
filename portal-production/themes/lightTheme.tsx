@@ -18,9 +18,10 @@ const theme = createTheme({
   palette: {
     mode: "light",
     primary: {
-      //Lets keep this for purpule varients
-      main: "#7C4AAE",
-      light: "#9C6DD6",
+      //Black theme
+      main: "#333333",
+      light: "#555555",
+      dark: "#111111",
       contrastText: "#fff",
     },
     secondary: {
@@ -63,7 +64,7 @@ const theme = createTheme({
     },
   },
   typography: {
-    htmlFontSize: 12, // Default is 16px, increase this to make everything bigger (try 18 or 20)
+    htmlFontSize: 16, // Default is 16px, increase this to make everything bigger (try 18 or 20)
     // Remove fontSize overrides to let them scale with htmlFontSize
     // MUI default scale: h1=6rem, h2=3.75rem, h3=3rem, h4=2.125rem, h5=1.5rem, h6=1.25rem, body1=1rem, body2=0.875rem
     h1: {
