@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Box, CircularProgress } from "@mui/material";
 import TabbedDocumentCreator from "@/containers/DocumentTemplates/components/TabbedDocumentCreator";
@@ -8,7 +8,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
-import { useGetCustomers } from "@/app/portal/hooks/api";
+import { useGetCustomers, useGetDocuments } from "@/app/portal/hooks/api";
 import { useGetProjects } from "@/containers/DocumentTemplates/hooks/useGetProjects";
 import { useGetDeliveryOrders } from "@/containers/DocumentTemplates/hooks/useGetDeliveryOrders";
 import { useGetSiteOffices } from "@/containers/DocumentTemplates/hooks/useGetSiteOffices";
@@ -21,7 +21,7 @@ import {
 export default function page() {
   const params = useParams();
   const router = useRouter();
-  const { type, documentId } = params;
+  const { type, id, documentId } = params;
   const { getToken } = useAuth();
   const { organization } = useOrganization();
 
@@ -30,6 +30,46 @@ export default function page() {
   const [existingData, setExistingData] = useState<any>(null);
   const [documentMetadata, setDocumentMetadata] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Fetch all documents for navigation
+  const { documents: allDocuments = [] } = useGetDocuments({});
+
+  // Filter documents by the same template and sort by creation date (newest first)
+  // The 'id' in the URL is the documentTemplateId
+  // Backend returns 'templateId' field for each document
+  const filteredDocuments = useMemo(() => {
+    if (!allDocuments.length || !id) return [];
+
+    // Filter documents that use the same document template
+    // Backend returns templateId (not documentTemplateId)
+    return allDocuments
+      .filter((doc: any) => doc.templateId === id)
+      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [allDocuments, id]);
+
+  // Find current document index and calculate navigation
+  const currentIndex = useMemo(() => {
+    if (!filteredDocuments.length || !documentId) return -1;
+    return filteredDocuments.findIndex((doc: any) => doc.id === documentId);
+  }, [filteredDocuments, documentId]);
+
+  const hasPrevious = currentIndex > 0;
+  const hasNext = currentIndex >= 0 && currentIndex < filteredDocuments.length - 1;
+
+  // Navigation handlers
+  const handlePrevious = useCallback(() => {
+    if (hasPrevious && filteredDocuments[currentIndex - 1]) {
+      const prevDoc = filteredDocuments[currentIndex - 1];
+      router.push(`/portal/documents/${type}/${id}/${prevDoc.id}`);
+    }
+  }, [hasPrevious, filteredDocuments, currentIndex, router, type, id]);
+
+  const handleNext = useCallback(() => {
+    if (hasNext && filteredDocuments[currentIndex + 1]) {
+      const nextDoc = filteredDocuments[currentIndex + 1];
+      router.push(`/portal/documents/${type}/${id}/${nextDoc.id}`);
+    }
+  }, [hasNext, filteredDocuments, currentIndex, router, type, id]);
 
   // Fetch existing document data
   useEffect(() => {
@@ -300,6 +340,10 @@ export default function page() {
       siteOffices={siteOfficesList}
       onCustomerChange={handleCustomerChange}
       organization={organization}
+      onPrevious={handlePrevious}
+      onNext={handleNext}
+      hasPrevious={hasPrevious}
+      hasNext={hasNext}
     />
   );
 }

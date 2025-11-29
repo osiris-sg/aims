@@ -51,6 +51,8 @@ import {
   Close as CloseIcon,
   Email as EmailIcon,
   Payment as PaymentIcon,
+  NavigateBefore as NavigateBeforeIcon,
+  NavigateNext as NavigateNextIcon,
 } from "@mui/icons-material";
 import CleanDocumentPreview from "./CleanDocumentPreview";
 import DocumentCustomizer from "./DocumentCustomizer";
@@ -95,6 +97,11 @@ interface DocumentCreatorProps {
   siteOffices?: any[];
   onCustomerChange?: (customerId: string) => void;
   organization?: any;
+  // Navigation props for Previous/Next document navigation
+  onPrevious?: () => void;
+  onNext?: () => void;
+  hasPrevious?: boolean;
+  hasNext?: boolean;
 }
 
 export default function TabbedDocumentCreator({
@@ -109,6 +116,10 @@ export default function TabbedDocumentCreator({
   documentId,
   onCustomerChange,
   organization,
+  onPrevious,
+  onNext,
+  hasPrevious = false,
+  hasNext = false,
 }: DocumentCreatorProps) {
   // Check if we're in template edit mode
   const pathname = usePathname();
@@ -803,6 +814,49 @@ export default function TabbedDocumentCreator({
               ? existingData?.name || `${getDocumentTitle()} Template`
               : formData.name || formData.documentInfo.documentNumber || `${getDocumentTitle()} - New`}
           </Typography>
+          {/* Previous/Next Navigation Buttons */}
+          {(onPrevious || onNext) && (
+            <Box sx={{ display: "flex", gap: 1, ml: 1 }}>
+              <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                <IconButton
+                  onClick={onPrevious}
+                  disabled={!hasPrevious}
+                  size="small"
+                  sx={{
+                    border: "1px solid",
+                    borderColor: "divider",
+                    borderRadius: 1,
+                    "&:disabled": { opacity: 0.4 },
+                  }}
+                  title="Previous Document"
+                >
+                  <NavigateBeforeIcon />
+                </IconButton>
+                <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "text.secondary" }}>
+                  Previous
+                </Typography>
+              </Box>
+              <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                <IconButton
+                  onClick={onNext}
+                  disabled={!hasNext}
+                  size="small"
+                  sx={{
+                    border: "1px solid",
+                    borderColor: "divider",
+                    borderRadius: 1,
+                    "&:disabled": { opacity: 0.4 },
+                  }}
+                  title="Next Document"
+                >
+                  <NavigateNextIcon />
+                </IconButton>
+                <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "text.secondary" }}>
+                  Next
+                </Typography>
+              </Box>
+            </Box>
+          )}
         </Box>
         <Box sx={{ display: "flex", gap: 1 }}>
           {isDocumentConfirmed && (
@@ -1612,9 +1666,11 @@ export default function TabbedDocumentCreator({
 
                 {/* ITEMS DETAILS TAB */}
                 <TabPanel value={itemsTabValue} index={0}>
-                  <Box>
-                    <TableContainer>
-                      <Table sx={{ tableLayout: 'fixed' }}>
+                  <Box sx={{ display: "flex", flexDirection: "column", height: "calc(100vh - 520px)", minHeight: 200 }}>
+                    {/* Scrollable table area */}
+                    <Box sx={{ flex: 1, overflow: "auto", minHeight: 0, borderBottom: "1px solid", borderColor: "divider" }}>
+                      <TableContainer>
+                        <Table sx={{ tableLayout: 'fixed' }} stickyHeader>
                         <TableHead>
                           <TableRow>
                             {/* Render columns based on configuration - exclude tax for invoices */}
@@ -1880,41 +1936,44 @@ export default function TabbedDocumentCreator({
                           ))}
                         </TableBody>
                       </Table>
-                    </TableContainer>
+                      </TableContainer>
+                    </Box>
 
-                    <Button
-                      variant="contained"
-                      startIcon={<AddIcon />}
-                      onClick={addNewItem}
-                      sx={{ mt: 2 }}
-                      size="small"
-                    >
-                      Add Item
-                    </Button>
+                    {/* Fixed bottom section with Add Item button and Totals */}
+                    <Box sx={{ flexShrink: 0, pt: 1 }}>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                        <Button
+                          variant="contained"
+                          startIcon={<AddIcon />}
+                          onClick={addNewItem}
+                          size="small"
+                        >
+                          Add Item
+                        </Button>
 
-                    {/* Totals */}
-                    <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 2 }}>
-                      <Card sx={{ minWidth: 250, bgcolor: "grey.50" }}>
-                        <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                          <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-                            <Typography variant="body2">Subtotal:</Typography>
-                            <Typography variant="body2" fontWeight="bold">SGD {subtotal.toFixed(2)}</Typography>
-                          </Box>
-                          <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-                            <Typography variant="body2">
-                              Tax{isInvoiceType ? ` (${organization?.taxRate || 9}%)` : ''}:
-                            </Typography>
-                            <Typography variant="body2">SGD {totalTax.toFixed(2)}</Typography>
-                          </Box>
-                          <Divider sx={{ my: 0.5 }} />
-                          <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                            <Typography variant="body2" fontWeight="bold">Total:</Typography>
-                            <Typography variant="body2" fontWeight="bold" color="primary">
-                              SGD {total.toFixed(2)}
-                            </Typography>
-                          </Box>
-                        </CardContent>
-                      </Card>
+                        {/* Totals */}
+                        <Card sx={{ minWidth: 250, bgcolor: "grey.50" }}>
+                          <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
+                            <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                              <Typography variant="body2">Subtotal:</Typography>
+                              <Typography variant="body2" fontWeight="bold">SGD {subtotal.toFixed(2)}</Typography>
+                            </Box>
+                            <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                              <Typography variant="body2">
+                                Tax{isInvoiceType ? ` (${organization?.taxRate || 9}%)` : ''}:
+                              </Typography>
+                              <Typography variant="body2">SGD {totalTax.toFixed(2)}</Typography>
+                            </Box>
+                            <Divider sx={{ my: 0.5 }} />
+                            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                              <Typography variant="body2" fontWeight="bold">Total:</Typography>
+                              <Typography variant="body2" fontWeight="bold" color="primary">
+                                SGD {total.toFixed(2)}
+                              </Typography>
+                            </Box>
+                          </CardContent>
+                        </Card>
+                      </Box>
                     </Box>
                   </Box>
                 </TabPanel>
