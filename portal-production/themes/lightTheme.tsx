@@ -64,67 +64,159 @@ const theme = createTheme({
     },
   },
   typography: {
-    htmlFontSize: 16, // Default is 16px, increase this to make everything bigger (try 18 or 20)
-    // Remove fontSize overrides to let them scale with htmlFontSize
-    // MUI default scale: h1=6rem, h2=3.75rem, h3=3rem, h4=2.125rem, h5=1.5rem, h6=1.25rem, body1=1rem, body2=0.875rem
+    htmlFontSize: 16,
+    fontSize: 12, // Base font size ~9pt
     h1: {
+      fontSize: '1.5rem',
       fontWeight: 700,
     },
     h2: {
+      fontSize: '1.25rem',
       fontWeight: 600,
     },
     h3: {
+      fontSize: '1.1rem',
       fontWeight: 500,
     },
     h4: {
+      fontSize: '1rem',
       fontWeight: 600,
     },
     h5: {
+      fontSize: '0.9rem',
       fontWeight: 500,
     },
     h6: {
+      fontSize: '0.85rem',
       fontWeight: 500,
     },
     body1: {
-      // Will be 1rem = 18px with htmlFontSize: 18
+      fontSize: '0.75rem', // ~9pt
     },
     body2: {
+      fontSize: '0.7rem',
       fontWeight: 300,
-      // Will be 0.875rem = 15.75px with htmlFontSize: 18
     },
     caption: {
-      // Will be 0.75rem = 13.5px with htmlFontSize: 18
+      fontSize: '0.65rem',
+    },
+    button: {
+      fontSize: '0.75rem',
     },
   },
   components: {
     MuiListItemText: {
       styleOverrides: {
         primary: {
-          // Will scale with htmlFontSize automatically
+          fontSize: '0.75rem',
         },
         secondary: {
-          // Will scale with htmlFontSize automatically
+          fontSize: '0.7rem',
         },
       },
     },
     MuiTextField: {
+      defaultProps: {
+        size: 'small',
+      },
       styleOverrides: {
         root: {
-          borderRadius: "0.7rem",
+          borderRadius: "0.5rem",
           "& .MuiOutlinedInput-root": {
-            borderRadius: "0.7rem",
+            borderRadius: "0.5rem",
+            fontSize: '0.75rem',
+          },
+          "& .MuiInputLabel-root": {
+            fontSize: '0.75rem',
           },
         },
       },
     },
-    MuiButton: {
+    MuiInputBase: {
       styleOverrides: {
         root: {
-          borderRadius: "0.7rem",
-          fontWeight: 400, // Custom button font weight
+          fontSize: '0.75rem',
+        },
+        input: {
+          fontSize: '0.75rem',
+          padding: '6px 10px',
+        },
+      },
+    },
+    MuiSelect: {
+      defaultProps: {
+        size: 'small',
+      },
+      styleOverrides: {
+        select: {
+          fontSize: '0.75rem',
+          padding: '6px 10px',
+        },
+      },
+    },
+    MuiMenuItem: {
+      styleOverrides: {
+        root: {
+          fontSize: '0.75rem',
+        },
+      },
+    },
+    MuiTableCell: {
+      styleOverrides: {
+        root: {
+          fontSize: '0.75rem',
+          padding: '6px 12px',
+        },
+        head: {
+          fontSize: '0.75rem',
+          fontWeight: 600,
+        },
+      },
+    },
+    MuiTab: {
+      styleOverrides: {
+        root: {
+          fontSize: '0.75rem',
+          minHeight: 36,
+        },
+      },
+    },
+    MuiChip: {
+      styleOverrides: {
+        root: {
+          fontSize: '0.7rem',
+        },
+        label: {
+          fontSize: '0.7rem',
+        },
+      },
+    },
+    MuiButton: {
+      defaultProps: {
+        size: 'small',
+      },
+      styleOverrides: {
+        root: {
+          borderRadius: "0.5rem",
+          fontWeight: 400,
           textTransform: "capitalize",
-          // fontSize removed to let it scale with htmlFontSize
-          padding: "var(--half-padding) var(--large-padding)",
+          fontSize: '0.75rem',
+          padding: "4px 12px",
+        },
+      },
+    },
+    MuiIconButton: {
+      defaultProps: {
+        size: 'small',
+      },
+    },
+    MuiAutocomplete: {
+      styleOverrides: {
+        input: {
+          fontSize: '0.75rem',
+        },
+        option: {
+          fontSize: '0.75rem',
         },
       },
     },

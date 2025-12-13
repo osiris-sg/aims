@@ -152,92 +152,151 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
   },
 
   // TI2 - Tax Invoice (Alternate Design with more fields)
+  // Layout: Left column = form fields (labels on left), Right column = summary/totals
   TI2: {
     tabs: [
       {
         tabId: "general",
-        tabLabel: "GENERAL",
+        tabLabel: "General",
         fields: [
-          // Customer Section
-          {
-            fieldName: "customer",
-            displayLabel: "Customer",
-            fieldType: "customer",
-            required: true,
-            gridSize: 12,
-            dataSource: "customers",
-          },
-          // Document Information - Right section fields
-          {
-            fieldName: "documentInfo.date",
-            displayLabel: "Date",
-            fieldType: "date",
-            required: true,
-            gridSize: 6,
-          },
+          // === LEFT COLUMN FIELDS (in order) ===
           {
             fieldName: "documentInfo.documentNumber",
             displayLabel: "Invoice No.",
             fieldType: "text",
             required: true,
-            gridSize: 6,
           },
           {
-            fieldName: "documentInfo.doNo",
-            displayLabel: "DO No",
-            fieldType: "select",
-            required: false,
-            gridSize: 6,
-            dataSource: "deliveryOrders",
-            filterBy: "customerId",
+            fieldName: "documentInfo.date",
+            displayLabel: "Date",
+            fieldType: "date",
+            required: true,
           },
           {
-            fieldName: "documentInfo.poNo",
-            displayLabel: "P/O No",
-            fieldType: "text",
-            required: false,
-            gridSize: 6,
-          },
-          {
-            fieldName: "documentInfo.soNo",
-            displayLabel: "S/O No",
-            fieldType: "text",
-            required: false,
-            gridSize: 6,
+            fieldName: "customer",
+            displayLabel: "Customer code",
+            fieldType: "customer",
+            required: true,
+            dataSource: "customers",
           },
           {
             fieldName: "documentInfo.salesPerson",
-            displayLabel: "Salesman",
+            displayLabel: "Salesman code",
             fieldType: "text",
             required: false,
-            gridSize: 6,
             defaultValue: "",
-            storagePath: "salesPerson", // Stored flat in database
           },
           {
-            fieldName: "documentInfo.page",
-            displayLabel: "Page",
+            fieldName: "documentInfo.poNo",
+            displayLabel: "P/O Number",
             fieldType: "text",
             required: false,
-            gridSize: 6,
-            defaultValue: "1",
+          },
+          {
+            fieldName: "documentInfo.doNo",
+            displayLabel: "D/O Number",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "deliveryTo",
+            displayLabel: "Deliver to",
+            fieldType: "textarea",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.contact",
+            displayLabel: "Contact",
+            fieldType: "text",
+            required: false,
           },
           {
             fieldName: "documentInfo.paymentTerms",
             displayLabel: "Terms",
             fieldType: "text",
             required: false,
-            gridSize: 6,
             defaultValue: "0 DAYS",
+          },
+          // === RIGHT COLUMN FIELDS (summary/totals - in order) ===
+          {
+            fieldName: "documentInfo.rate",
+            displayLabel: "Rate",
+            fieldType: "number",
+            required: false,
+            defaultValue: 1.0,
           },
           {
             fieldName: "documentInfo.currency",
             displayLabel: "Currency",
             fieldType: "select",
             required: false,
-            gridSize: 6,
             defaultValue: "USD",
             dataSource: "currencies",
+          },
+          {
+            fieldName: "documentInfo.grossTotal",
+            displayLabel: "Gross Total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.discountPercent",
+            displayLabel: "Disc %",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.discountAmount",
+            displayLabel: "Discount Amount",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.subTotal",
+            displayLabel: "Sub-total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.taxApplicable",
+            displayLabel: "Tax",
+            fieldType: "select",
+            required: false,
+            defaultValue: "Y",
+            dataSource: "yesNo",
+          },
+          {
+            fieldName: "documentInfo.absorbTax",
+            displayLabel: "Absorb Tax",
+            fieldType: "select",
+            required: false,
+            defaultValue: "N",
+            dataSource: "yesNo",
+          },
+          {
+            fieldName: "documentInfo.gstPercent",
+            displayLabel: "GST",
+            fieldType: "number",
+            required: false,
+            defaultValue: 9.0,
+          },
+          {
+            fieldName: "documentInfo.gstAmount",
+            displayLabel: "GST Amount",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.nettTotal",
+            displayLabel: "Nett Total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
           },
         ],
       },
@@ -292,12 +351,187 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
     ],
   },
 
+  // DO - Delivery Order
+  // Layout: Left column = form fields (labels on left), Right column = summary/totals
+  DO: {
+    tabs: [
+      {
+        tabId: "general",
+        tabLabel: "General",
+        fields: [
+          // === LEFT COLUMN FIELDS (in order) ===
+          {
+            fieldName: "documentInfo.documentNumber",
+            displayLabel: "Delivery Order No.",
+            fieldType: "text",
+            required: true,
+          },
+          {
+            fieldName: "documentInfo.date",
+            displayLabel: "Date",
+            fieldType: "date",
+            required: true,
+          },
+          {
+            fieldName: "customer",
+            displayLabel: "Customer code",
+            fieldType: "customer",
+            required: true,
+            dataSource: "customers",
+          },
+          {
+            fieldName: "documentInfo.salesPerson",
+            displayLabel: "Salesman code",
+            fieldType: "text",
+            required: false,
+            defaultValue: "",
+          },
+          {
+            fieldName: "documentInfo.poNo",
+            displayLabel: "P/O Number",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.issueBy",
+            displayLabel: "Issue By",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "deliveryTo",
+            displayLabel: "Deliver to",
+            fieldType: "textarea",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.contact",
+            displayLabel: "Contact",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.paymentTerms",
+            displayLabel: "Terms",
+            fieldType: "text",
+            required: false,
+            defaultValue: "CASH",
+          },
+          // === RIGHT COLUMN FIELDS (summary/totals - in order) ===
+          {
+            fieldName: "documentInfo.rate",
+            displayLabel: "Rate",
+            fieldType: "number",
+            required: false,
+            defaultValue: 1.0,
+          },
+          {
+            fieldName: "documentInfo.currency",
+            displayLabel: "Currency",
+            fieldType: "select",
+            required: false,
+            defaultValue: "RP",
+            dataSource: "currencies",
+          },
+          {
+            fieldName: "documentInfo.grossTotal",
+            displayLabel: "Gross Total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.discountPercent",
+            displayLabel: "Disc %",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.discountAmount",
+            displayLabel: "Discount Amount",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.subTotal",
+            displayLabel: "Sub-total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.taxApplicable",
+            displayLabel: "Tax",
+            fieldType: "select",
+            required: false,
+            defaultValue: "Y",
+            dataSource: "yesNo",
+          },
+          {
+            fieldName: "documentInfo.absorbTax",
+            displayLabel: "Absorb Tax",
+            fieldType: "select",
+            required: false,
+            defaultValue: "N",
+            dataSource: "yesNo",
+          },
+          {
+            fieldName: "documentInfo.gstPercent",
+            displayLabel: "GST",
+            fieldType: "number",
+            required: false,
+            defaultValue: 7.0,
+          },
+          {
+            fieldName: "documentInfo.gstAmount",
+            displayLabel: "GST Amount",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.nettTotal",
+            displayLabel: "Nett Total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+        ],
+      },
+      {
+        tabId: "details",
+        tabLabel: "Details",
+        fields: [
+          {
+            fieldName: "documentInfo.referenceNo",
+            displayLabel: "Reference No",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.remarks",
+            displayLabel: "Remarks",
+            fieldType: "textarea",
+            required: false,
+          },
+        ],
+      },
+    ],
+  },
+
+  // DELIVERY_ORDER - Alias for DO
+  DELIVERY_ORDER: { tabs: [] as TabDefinition[] }, // Will be mapped to DO in getTemplateFields
+
   // Aliases for legacy document types
   INVOICE: { tabs: [] as TabDefinition[] }, // Will be mapped to TI in getTemplateFields
 };
 
 // Map INVOICE to TI fields
 TEMPLATE_FIELD_DEFINITIONS.INVOICE = TEMPLATE_FIELD_DEFINITIONS.TI;
+// Map DELIVERY_ORDER to DO fields
+TEMPLATE_FIELD_DEFINITIONS.DELIVERY_ORDER = TEMPLATE_FIELD_DEFINITIONS.DO;
 
 /**
  * Get field definitions for a specific template variant
@@ -306,6 +540,7 @@ export function getTemplateFields(templateVariant: string): TemplateFieldConfig 
   // Handle legacy type names
   const variantMap: Record<string, string> = {
     INVOICE: "TI",
+    DELIVERY_ORDER: "DO",
   };
 
   const mappedVariant = variantMap[templateVariant] || templateVariant;

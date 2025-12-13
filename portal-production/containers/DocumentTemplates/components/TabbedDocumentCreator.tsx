@@ -57,6 +57,7 @@ import {
 import CleanDocumentPreview from "./CleanDocumentPreview";
 import DocumentCustomizer from "./DocumentCustomizer";
 import DynamicFormFields from "./DynamicFormFields";
+import StockCardDialog from "./StockCardDialog";
 import PriceHistoryPopup from "@/components/PriceHistory/PriceHistoryPopup";
 import SendInvoiceEmailDialog from "@/app/portal/invoices/components/SendInvoiceEmailDialog";
 import RecordPaymentDialog from "@/app/portal/invoices/components/RecordPaymentDialog";
@@ -167,6 +168,9 @@ export default function TabbedDocumentCreator({
   const [selectedItemCode, setSelectedItemCode] = useState<string>("");
   const [selectedAssetId, setSelectedAssetId] = useState<string>("");
   const [priceHistoryCache, setPriceHistoryCache] = useState<Record<string, any>>({});
+
+  // Stock card dialog state
+  const [stockCardDialogOpen, setStockCardDialogOpen] = useState(false);
 
   // Dynamic form field configuration
   const [templateFieldConfig, setTemplateFieldConfig] = useState<TemplateFieldConfig | null>(null);
@@ -350,19 +354,8 @@ export default function TabbedDocumentCreator({
       return mapped;
     }
 
-    // If no existing items, create one empty item
-    const defaultItem = {
-      id: Date.now(),
-      itemCode: "",
-      inventoryItemId: "",
-      description: "",
-      quantity: 1,
-      unitPrice: 0,
-      // Only include tax for non-invoice types
-      tax: isInvoiceType ? undefined : "9",
-      amount: 0,
-    };
-    return [defaultItem];
+    // If no existing items, start with empty array - rows appear only when user adds items
+    return [];
   });
 
   const addNewItem = () => {
@@ -381,6 +374,32 @@ export default function TabbedDocumentCreator({
         amount: 0,
       },
     ]);
+  };
+
+  // Handle item selection from Stock Card dialog
+  const handleStockCardItemSelect = (selectedItem: any) => {
+    const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
+    const description = selectedItem.description || selectedItem.name || selectedItem.asset?.name || selectedItem.asset?.description || "";
+    const unitPrice = selectedItem.unitPrice || selectedItem.asset?.price || 0;
+
+    setItems([
+      ...items,
+      {
+        id: Date.now(),
+        itemCode: selectedItem.sku || "",
+        inventoryItemId: selectedItem.id || "",
+        description: description,
+        quantity: 1,
+        unitPrice: unitPrice,
+        tax: isInvoiceType ? undefined : 9,
+        amount: unitPrice, // quantity is 1, so amount equals unitPrice
+      },
+    ]);
+
+    // Prefetch price history for this asset if available
+    if (selectedItem.assetId) {
+      prefetchPriceHistory(selectedItem.assetId);
+    }
   };
 
   const deleteItem = (id: number) => {
@@ -425,8 +444,11 @@ export default function TabbedDocumentCreator({
     const titles: Record<string, string> = {
       QO1: "Quotation",
       DO: "Delivery Order",
+      DELIVERY_ORDER: "Delivery Order",
       RDO: "Return Delivery Order",
       TI: "Tax Invoice",
+      TI2: "Tax Invoice",
+      INVOICE: "Tax Invoice",
       MSR: "Maintenance Service Report",
     };
     return titles[documentType] || "Document";
@@ -857,6 +879,187 @@ export default function TabbedDocumentCreator({
               </Box>
             </Box>
           )}
+          {/* Add New Document Button */}
+          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", ml: 1 }}>
+            <IconButton
+              onClick={async () => {
+                // Create a new document of the same type directly
+                try {
+                  const token = await getToken();
+                  if (!token) {
+                    toast.error("Authentication required");
+                    return;
+                  }
+
+                  // Get template ID from:
+                  // 1. existingData (if passed)
+                  // 2. URL path segments (pathSegments[3] is the template ID in /portal/documents/[type]/[id]/[documentId])
+                  // 3. documentId prop as fallback
+                  const templateId = existingData?.documentTemplateId || pathSegments[3] || documentId;
+
+                  // Use existingData.type (actual document type like "INVOICE")
+                  // rather than documentType prop (which is the variant like "TI2")
+                  const actualDocType = existingData?.type || "INVOICE";
+
+                  if (!templateId) {
+                    toast.error("Could not find document template. Please try creating from the main page.");
+                    return;
+                  }
+
+                  // Create new document
+                  const response = await request(
+                    {
+                      path: "/documents/basic",
+                      method: "POST",
+                    },
+                    {
+                      type: actualDocType,
+                      config: {},
+                      documentTemplateId: templateId,
+                      organizationId: organization?.id,
+                    },
+                    token
+                  );
+
+                  if (response?.success && response?.data?.id) {
+                    toast.success(`New ${getDocumentTitle()} created`);
+                    // Use the type from URL (pathSegments[2]) to maintain consistent URL format
+                    const urlType = pathSegments[2] || documentType;
+                    router.push(`/portal/documents/${urlType}/${templateId}/${response.data.id}`);
+                  } else {
+                    toast.error(response?.message || "Failed to create document");
+                  }
+                } catch (error) {
+                  console.error("Error creating new document:", error);
+                  toast.error("Failed to create document");
+                }
+              }}
+              size="small"
+              sx={{
+                border: "1px solid",
+                borderColor: "divider",
+                borderRadius: 1,
+                bgcolor: "primary.main",
+                color: "primary.contrastText",
+                "&:hover": { bgcolor: "primary.dark" },
+              }}
+              title={`Add New ${getDocumentTitle()}`}
+            >
+              <AddIcon />
+            </IconButton>
+            <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "text.secondary" }}>
+              Add
+            </Typography>
+          </Box>
+          {/* Extract to Invoice Button - Only for DO/DELIVERY_ORDER */}
+          {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (
+            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", ml: 1 }}>
+              <IconButton
+                onClick={async () => {
+                  // Extract DO items and create an Invoice
+                  try {
+                    const token = await getToken();
+                    if (!token) {
+                      toast.error("Authentication required");
+                      return;
+                    }
+
+                    // Get invoice template ID by type
+                    const templateResponse = await request(
+                      {
+                        path: `/documentTemplates/type/INVOICE`,
+                        method: "GET",
+                      },
+                      {},
+                      token
+                    );
+
+                    const invoiceTemplateId = templateResponse?.data?.id;
+                    if (!invoiceTemplateId) {
+                      toast.error("Could not find Invoice template. Please create one first.");
+                      return;
+                    }
+
+                    // Prepare config with data from DO
+                    const extractedConfig = {
+                      // Customer info
+                      customerId: formData.customer?.id,
+                      customerName: formData.customer?.name,
+                      customerAddress: formData.customer?.address,
+                      customerEmail: formData.customer?.email,
+                      // Document info - reference the DO
+                      doNo: formData.documentInfo?.documentNumber || formData.name,
+                      poNo: formData.documentInfo?.poNo,
+                      salesPerson: formData.documentInfo?.salesPerson,
+                      contact: formData.documentInfo?.contact,
+                      paymentTerms: formData.documentInfo?.paymentTerms,
+                      deliveryTo: formData.deliveryTo,
+                      // Financial info
+                      currency: formData.documentInfo?.currency,
+                      rate: formData.documentInfo?.rate,
+                      taxApplicable: formData.documentInfo?.taxApplicable,
+                      absorbTax: formData.documentInfo?.absorbTax,
+                      gstPercent: formData.documentInfo?.gstPercent,
+                      // Items from DO
+                      items: items.map((item: any) => ({
+                        itemCode: item.itemCode,
+                        inventoryItemId: item.inventoryItemId,
+                        description: item.description,
+                        quantity: item.quantity,
+                        unitPrice: item.unitPrice,
+                        amount: item.amount,
+                      })),
+                      // Reference to source DO
+                      sourceDocumentId: documentId,
+                      sourceDocumentType: "DELIVERY_ORDER",
+                      sourceDocumentNumber: formData.documentInfo?.documentNumber || formData.name,
+                    };
+
+                    // Create new Invoice with extracted data
+                    const response = await request(
+                      {
+                        path: "/documents/basic",
+                        method: "POST",
+                      },
+                      {
+                        type: "INVOICE",
+                        config: extractedConfig,
+                        documentTemplateId: invoiceTemplateId,
+                        organizationId: organization?.id,
+                      },
+                      token
+                    );
+
+                    if (response?.success && response?.data?.id) {
+                      toast.success("Invoice created from Delivery Order");
+                      // Navigate to the new invoice
+                      router.push(`/portal/documents/TI2/${invoiceTemplateId}/${response.data.id}`);
+                    } else {
+                      toast.error(response?.message || "Failed to create invoice");
+                    }
+                  } catch (error) {
+                    console.error("Error extracting to invoice:", error);
+                    toast.error("Failed to create invoice from DO");
+                  }
+                }}
+                size="small"
+                sx={{
+                  border: "1px solid",
+                  borderColor: "divider",
+                  borderRadius: 1,
+                  bgcolor: "secondary.main",
+                  color: "secondary.contrastText",
+                  "&:hover": { bgcolor: "secondary.dark" },
+                }}
+                title="Extract to Invoice"
+              >
+                <ContentCopyIcon />
+              </IconButton>
+              <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "text.secondary" }}>
+                Extract
+              </Typography>
+            </Box>
+          )}
         </Box>
         <Box sx={{ display: "flex", gap: 1 }}>
           {isDocumentConfirmed && (
@@ -1031,7 +1234,7 @@ export default function TabbedDocumentCreator({
           {/* Dynamic Tabs based on template config */}
           {templateFieldConfig?.tabs.map((tab, index) => (
             <TabPanel key={tab.tabId} value={mainTabValue} index={index}>
-              <Card>
+              <Card sx={{ maxHeight: 350, overflow: 'auto' }}>
                 <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
                   <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25 }}>
                     {tab.tabLabel}
@@ -1937,20 +2140,22 @@ export default function TabbedDocumentCreator({
                         </TableBody>
                       </Table>
                       </TableContainer>
-                    </Box>
-
-                    {/* Fixed bottom section with Add Item button and Totals */}
-                    <Box sx={{ flexShrink: 0, pt: 1 }}>
-                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      {/* Add Item button - positioned right below the last row */}
+                      <Box sx={{ pt: 1, pl: 1 }}>
                         <Button
                           variant="contained"
                           startIcon={<AddIcon />}
-                          onClick={addNewItem}
+                          onClick={() => setStockCardDialogOpen(true)}
                           size="small"
                         >
                           Add Item
                         </Button>
+                      </Box>
+                    </Box>
 
+                    {/* Fixed bottom section with Totals */}
+                    <Box sx={{ flexShrink: 0, pt: 1 }}>
+                      <Box sx={{ display: "flex", justifyContent: "flex-end", alignItems: "flex-start" }}>
                         {/* Totals */}
                         <Card sx={{ minWidth: 250, bgcolor: "grey.50" }}>
                           <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
@@ -2317,6 +2522,14 @@ export default function TabbedDocumentCreator({
           }}
         />
       )}
+
+      {/* Stock Card Dialog for item selection */}
+      <StockCardDialog
+        open={stockCardDialogOpen}
+        onClose={() => setStockCardDialogOpen(false)}
+        onSelectItem={handleStockCardItemSelect}
+        inventoryItems={inventoriesForDocument}
+      />
     </Box>
   );
 }
