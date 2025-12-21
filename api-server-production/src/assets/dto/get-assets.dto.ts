@@ -1,10 +1,15 @@
 import { Type } from 'class-transformer';
-import { IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNested, IsBoolean, IsArray } from 'class-validator';
 
 class FiltersDto {
-  @IsString()
+  // Category can be a string or an array of strings
   @IsOptional()
-  category: string;
+  category?: string | string[];
+
+  // Filter by tracking mode: true = tracked assets, false = untracked products
+  @IsBoolean()
+  @IsOptional()
+  isTracked?: boolean;
 }
 
 export class GetAssetDto {
@@ -23,5 +28,5 @@ export class GetAssetDto {
   @ValidateNested()
   @Type(() => FiltersDto)
   @IsOptional()
-  filters: FiltersDto;
+  filters?: FiltersDto;
 }

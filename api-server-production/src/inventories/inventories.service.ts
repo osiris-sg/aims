@@ -205,6 +205,27 @@ export class InventoriesService {
   async createInventories(createInventoryDto: CreateInventoryDto, organizationId: string) {
     try {
       const { assetId, quantity, status } = createInventoryDto;
+
+      // Verify asset exists and is tracked
+      const asset = await this.prisma.asset.findFirst({
+        where: {
+          id: assetId,
+          organizationId,
+        },
+      });
+
+      if (!asset) {
+        throw new HttpException('Asset not found', HttpStatus.NOT_FOUND);
+      }
+
+      // Prevent creating inventory for untracked products
+      if (asset.isTracked === false) {
+        throw new HttpException(
+          'Cannot create inventory items for untracked products. Use quantity adjustment instead.',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
       const skuRange = await this.generateSkuRange(assetId, quantity, organizationId);
 
       const inventoryItems = skuRange.map((sku) => ({

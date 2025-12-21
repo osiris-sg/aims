@@ -270,7 +270,14 @@ export default function OrganizationDetailPage() {
       mode: "light",
     },
     terminology: {},
-    features: {},
+    features: {
+      enableAssetTrackingMode: false,
+      enableProjects: true,
+      enableDocumentAI: true,
+      enableCustomFields: true,
+      enableAnalytics: true,
+      enableXeroIntegration: false,
+    },
     dateFormat: "MM/dd/yyyy",
     timeFormat: "12h",
     currency: "USD",
@@ -374,7 +381,20 @@ export default function OrganizationDetailPage() {
 
   useEffect(() => {
     if (uiConfig) {
-      setUIConfigForm(uiConfig);
+      // Merge fetched config with defaults to ensure all features are visible
+      setUIConfigForm((prev: any) => ({
+        ...prev,
+        ...uiConfig,
+        features: {
+          enableAssetTrackingMode: false,
+          enableProjects: true,
+          enableDocumentAI: true,
+          enableCustomFields: true,
+          enableAnalytics: true,
+          enableXeroIntegration: false,
+          ...(uiConfig.features || {}),
+        },
+      }));
     }
   }, [uiConfig]);
 
@@ -1466,6 +1486,101 @@ export default function OrganizationDetailPage() {
                     </Box>
                   </Box>
                 </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <Card>
+                <CardContent>
+                  <Typography variant="subtitle1" gutterBottom>
+                    Feature Settings
+                  </Typography>
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Enable or disable specific features for this organization
+                  </Typography>
+
+                  <List>
+                    <ListItem>
+                      <ListItemText
+                        primary="Asset Tracking Mode"
+                        secondary={
+                          uiConfigForm.features?.enableAssetTrackingMode
+                            ? "ON: Organization uses tracked Assets with individual inventory SKUs"
+                            : "OFF: Organization uses Products with simple quantity tracking (no individual inventory)"
+                        }
+                      />
+                      <ListItemSecondaryAction>
+                        <Switch
+                          edge="end"
+                          checked={uiConfigForm.features?.enableAssetTrackingMode ?? false}
+                          onChange={(e) =>
+                            setUIConfigForm({
+                              ...uiConfigForm,
+                              features: {
+                                ...uiConfigForm.features,
+                                enableAssetTrackingMode: e.target.checked,
+                              },
+                            })
+                          }
+                        />
+                      </ListItemSecondaryAction>
+                    </ListItem>
+                    <Divider component="li" />
+                    <ListItem>
+                      <ListItemText
+                        primary="Projects Module"
+                        secondary="Enable project management features"
+                      />
+                      <ListItemSecondaryAction>
+                        <Switch
+                          edge="end"
+                          checked={uiConfigForm.features?.enableProjects ?? true}
+                          onChange={(e) =>
+                            setUIConfigForm({
+                              ...uiConfigForm,
+                              features: {
+                                ...uiConfigForm.features,
+                                enableProjects: e.target.checked,
+                              },
+                            })
+                          }
+                        />
+                      </ListItemSecondaryAction>
+                    </ListItem>
+                    <Divider component="li" />
+                    <ListItem>
+                      <ListItemText
+                        primary="Analytics Dashboard"
+                        secondary="Enable analytics and reporting features"
+                      />
+                      <ListItemSecondaryAction>
+                        <Switch
+                          edge="end"
+                          checked={uiConfigForm.features?.enableAnalytics ?? true}
+                          onChange={(e) =>
+                            setUIConfigForm({
+                              ...uiConfigForm,
+                              features: {
+                                ...uiConfigForm.features,
+                                enableAnalytics: e.target.checked,
+                              },
+                            })
+                          }
+                        />
+                      </ListItemSecondaryAction>
+                    </ListItem>
+                  </List>
+                </CardContent>
+                <CardActions>
+                  <Button
+                    variant="contained"
+                    startIcon={<SaveIcon />}
+                    onClick={handleSaveUIConfig}
+                  >
+                    Save Feature Settings
+                  </Button>
+                </CardActions>
               </Card>
             </Grid>
           </Grid>

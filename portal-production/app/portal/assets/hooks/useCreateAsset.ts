@@ -11,6 +11,10 @@ interface CreateAssetData {
   categoryId: string;
   image?: File;
   description?: string;
+  price?: number;
+  isTracked?: boolean;
+  quantity?: number;
+  minQuantity?: number;
 }
 
 export const useCreateAsset = () => {
@@ -32,12 +36,28 @@ export const useCreateAsset = () => {
       }
 
       // Prepare the request body
-      const requestBody = {
+      const requestBody: any = {
         name: data.name,
         skuKey: data.skuKey,
         categoryId: data.categoryId,
         description: data.description || "",
+        isTracked: data.isTracked ?? true,
       };
+
+      // Add price if provided
+      if (data.price !== undefined && data.price !== null && !isNaN(Number(data.price))) {
+        requestBody.price = Number(data.price);
+      }
+
+      // Add quantity for untracked products (ensure it's a number)
+      if (data.isTracked === false && data.quantity !== undefined) {
+        requestBody.quantity = Number(data.quantity);
+      }
+
+      // Add minimum quantity if provided
+      if (data.minQuantity !== undefined && data.minQuantity !== null && !isNaN(Number(data.minQuantity))) {
+        requestBody.minQuantity = Number(data.minQuantity);
+      }
 
       console.log("Request Body:", requestBody);
 

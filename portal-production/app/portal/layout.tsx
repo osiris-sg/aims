@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react";
 import styles from "./layout.module.scss";
 import { Box } from "@mui/material";
 import DesktopSideBar from "@/components/Sidebar/DestopSideBar";
+import DocumentSidebar from "@/components/Sidebar/DocumentSidebar";
 import AppNavbar from "@/components/Appnavbar";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -53,8 +54,8 @@ export default function Layout(props: Props) {
     <OrganizationProvider>
       <ConfigurationProvider>
         <SidebarProvider>
-          <Box className={isDocumentPage ? "" : styles.PORTAL_LAYOUT} sx={isDocumentPage ? { bgcolor: "#f5f5f5", minHeight: "100vh" } : {}}>
-            {!isDocumentPage && <DesktopSideBar />}
+          <Box className={styles.PORTAL_LAYOUT} sx={isDocumentPage ? { bgcolor: "#f5f5f5", minHeight: "100vh" } : {}}>
+            {isDocumentPage ? <DocumentSidebar /> : <DesktopSideBar />}
             {!isDocumentPage && <AppNavbar />}
             <Box sx={{ flexGrow: 1, height: "100%", width: "100%", display: "flex", flexDirection: "column" }}>{children}</Box>
             <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick rtl={false} pauseOnFocusLoss draggable pauseOnHover theme="light" />

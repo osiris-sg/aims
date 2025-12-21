@@ -7,6 +7,20 @@ const nextConfig = {
     CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
   },
   swcMinify: false,
+  async redirects() {
+    return [
+      {
+        source: "/portal/invoices",
+        destination: "/portal/sales/invoices",
+        permanent: true,
+      },
+      {
+        source: "/portal/documents",
+        destination: "/portal/sales/quotations",
+        permanent: false,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

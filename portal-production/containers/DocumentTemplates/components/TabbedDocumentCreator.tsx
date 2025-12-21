@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Box,
   Tabs,
@@ -53,6 +53,7 @@ import {
   Payment as PaymentIcon,
   NavigateBefore as NavigateBeforeIcon,
   NavigateNext as NavigateNextIcon,
+  Inventory as InventoryIcon,
 } from "@mui/icons-material";
 import CleanDocumentPreview from "./CleanDocumentPreview";
 import DocumentCustomizer from "./DocumentCustomizer";
@@ -61,7 +62,7 @@ import StockCardDialog from "./StockCardDialog";
 import PriceHistoryPopup from "@/components/PriceHistory/PriceHistoryPopup";
 import SendInvoiceEmailDialog from "@/app/portal/invoices/components/SendInvoiceEmailDialog";
 import RecordPaymentDialog from "@/app/portal/invoices/components/RecordPaymentDialog";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
 import { useForm, Controller } from "react-hook-form";
@@ -177,6 +178,7 @@ export default function TabbedDocumentCreator({
   const [isLoadingFieldConfig, setIsLoadingFieldConfig] = useState(true);
 
   const { getToken } = useAuth();
+  const { user } = useUser();
 
   // Past descriptions history hook
   const { pastDescriptions, isLoading: isLoadingDescriptions } = usePastDescriptions();
@@ -357,6 +359,61 @@ export default function TabbedDocumentCreator({
     // If no existing items, start with empty array - rows appear only when user adds items
     return [];
   });
+
+  // Track initial form state for change detection
+  const initialFormStateRef = useRef<{ formData: any; items: any[] } | null>(null);
+
+  // Capture initial state when component mounts or existingData changes
+  useEffect(() => {
+    // Create a snapshot of the initial state for comparison
+    const initialSnapshot = {
+      formData: JSON.parse(JSON.stringify(formData)),
+      items: JSON.parse(JSON.stringify(items)),
+    };
+    initialFormStateRef.current = initialSnapshot;
+  }, [existingData]); // Only re-capture when existingData changes (document load)
+
+  // Function to check if form has changes compared to initial state
+  const hasFormChanges = useCallback((): boolean => {
+    if (!initialFormStateRef.current) return false;
+
+    const initial = initialFormStateRef.current;
+
+    // Compare formData (excluding tracking fields that change on save)
+    const currentFormDataStr = JSON.stringify({
+      ...formData,
+      savedBy: undefined,
+      savedAt: undefined,
+      lastUsedBy: undefined,
+      lastUsedAt: undefined,
+    });
+    const initialFormDataStr = JSON.stringify({
+      ...initial.formData,
+      savedBy: undefined,
+      savedAt: undefined,
+      lastUsedBy: undefined,
+      lastUsedAt: undefined,
+    });
+
+    if (currentFormDataStr !== initialFormDataStr) {
+      console.log('Form data changed');
+      return true;
+    }
+
+    // Compare items (excluding id which is generated dynamically)
+    const normalizeItems = (itemsList: any[]) =>
+      itemsList.map(({ id, ...rest }) => rest);
+
+    const currentItemsStr = JSON.stringify(normalizeItems(items));
+    const initialItemsStr = JSON.stringify(normalizeItems(initial.items));
+
+    if (currentItemsStr !== initialItemsStr) {
+      console.log('Items changed');
+      return true;
+    }
+
+    return false;
+  }, [formData, items]);
 
   const addNewItem = () => {
     const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
@@ -588,12 +645,21 @@ export default function TabbedDocumentCreator({
   const handleConfirmDocument = async () => {
     setIsConfirming(true);
     try {
+      // Get current user info for tracking
+      const currentUserName = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || 'SYS';
+      const currentTimestamp = new Date().toISOString();
+
       // First save the document with current data if not saved
       const saveData = {
         ...formData,
         items: items,
         name: formData.name || formData.documentInfo.documentNumber,
-        status: "confirmed"
+        status: "confirmed",
+        // Tracking info
+        confirmedBy: currentUserName,
+        confirmedAt: currentTimestamp,
+        lastUsedBy: currentUserName,
+        lastUsedAt: currentTimestamp,
       };
 
       // Call onSave with confirmed status
@@ -734,22 +800,43 @@ export default function TabbedDocumentCreator({
         router.push("/portal/documents");
       }
     } else {
-      // Show dialog only for draft documents
-      setBackConfirmDialogOpen(true);
+      // Check if there are any changes to the form
+      const hasChanges = hasFormChanges();
+
+      if (hasChanges) {
+        // Show dialog only if there are unsaved changes
+        setBackConfirmDialogOpen(true);
+      } else {
+        // No changes, navigate back directly
+        if (documentType === "TI") {
+          router.push("/portal/invoices");
+        } else {
+          router.push("/portal/documents");
+        }
+      }
     }
   };
 
   // Handle save as draft from dialog
   const handleSaveAsDraft = async () => {
+    // Get current user info for tracking
+    const currentUserName = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || 'SYS';
+    const currentTimestamp = new Date().toISOString();
+
     if (isTemplateEditMode) {
       const templateConfig = templateMethods.getValues();
       await onSave?.({ ...formData, config: templateConfig });
     } else {
-      // Include items in the save data
+      // Include items in the save data with tracking info
       const saveData = {
         ...formData,
         items: items, // Include items array
-        name: formData.name || formData.documentInfo.documentNumber
+        name: formData.name || formData.documentInfo.documentNumber,
+        // Tracking info for draft save
+        savedBy: currentUserName,
+        savedAt: currentTimestamp,
+        lastUsedBy: currentUserName,
+        lastUsedAt: currentTimestamp,
       };
       await onSave?.(saveData);
     }
@@ -1032,8 +1119,8 @@ export default function TabbedDocumentCreator({
 
                     if (response?.success && response?.data?.id) {
                       toast.success("Invoice created from Delivery Order");
-                      // Navigate to the new invoice
-                      router.push(`/portal/documents/TI2/${invoiceTemplateId}/${response.data.id}`);
+                      // Navigate to the new invoice - use actual document type (INVOICE) not variant (TI2)
+                      router.push(`/portal/documents/INVOICE/${invoiceTemplateId}/${response.data.id}`);
                     } else {
                       toast.error(response?.message || "Failed to create invoice");
                     }
@@ -1083,6 +1170,17 @@ export default function TabbedDocumentCreator({
               {previewMode ? "Edit" : "Preview"}
             </Button>
           )}
+          {!isDocumentConfirmed && !previewMode && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<InventoryIcon />}
+              onClick={() => setStockCardDialogOpen(true)}
+              color="secondary"
+            >
+              Stock Card
+            </Button>
+          )}
           <Button size="small" variant="outlined" startIcon={<PrintIcon />} onClick={handlePrint}>
             Print / PDF
           </Button>
@@ -1130,16 +1228,25 @@ export default function TabbedDocumentCreator({
               variant="contained"
               startIcon={<SaveIcon />}
               onClick={() => {
+                // Get current user info for tracking
+                const currentUserName = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || 'SYS';
+                const currentTimestamp = new Date().toISOString();
+
                 if (isTemplateEditMode) {
                   // Save template configuration
                   const templateConfig = templateMethods.getValues();
                   onSave?.({ ...formData, config: templateConfig });
                 } else {
-                  // Save document data with name field and items
+                  // Save document data with name field, items, and tracking info
                   const saveData = {
                     ...formData,
                     items: items,
-                    name: formData.name || formData.documentInfo.documentNumber
+                    name: formData.name || formData.documentInfo.documentNumber,
+                    // Tracking info for draft save
+                    savedBy: currentUserName,
+                    savedAt: currentTimestamp,
+                    lastUsedBy: currentUserName,
+                    lastUsedAt: currentTimestamp,
                   };
                   console.log("Direct Save - Data being sent to onSave:", saveData);
                   console.log("Direct Save - Items in saveData:", JSON.stringify(saveData.items, null, 2));
@@ -1211,6 +1318,54 @@ export default function TabbedDocumentCreator({
                 <SettingsIcon />
               </IconButton>
             )}
+
+            {/* Document Tracking Info - Unconfirmed User, Confirmed User & Last Used */}
+            <Box
+              sx={{
+                display: "flex",
+                justifyContent: "flex-start",
+                alignItems: "center",
+                gap: 4,
+                px: 2,
+                py: 0.75,
+                bgcolor: "grey.100",
+                borderBottom: "1px solid",
+                borderColor: "divider",
+              }}
+            >
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Typography variant="body2" sx={{ fontStyle: "italic", fontWeight: 600, color: "text.secondary" }}>
+                  Unconfirmed User:
+                </Typography>
+                <Typography variant="body2" sx={{ color: "text.primary" }}>
+                  {existingData?.savedBy && existingData?.status !== 'confirmed'
+                    ? `${existingData.savedBy} ${existingData.savedAt ? new Date(existingData.savedAt).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}`
+                    : '-'}
+                </Typography>
+              </Box>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Typography variant="body2" sx={{ fontStyle: "italic", fontWeight: 600, color: "text.secondary" }}>
+                  Confirmed User:
+                </Typography>
+                <Typography variant="body2" sx={{ color: "text.primary" }}>
+                  {existingData?.confirmedBy
+                    ? `${existingData.confirmedBy} ${existingData.confirmedAt ? new Date(existingData.confirmedAt).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}`
+                    : '-'}
+                </Typography>
+              </Box>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Typography variant="body2" sx={{ fontWeight: 600, color: "text.secondary" }}>
+                  Last Used:
+                </Typography>
+                <Typography variant="body2" sx={{ color: "text.primary" }}>
+                  {existingData?.lastUsedBy
+                    ? `${existingData.lastUsedBy} ${existingData.lastUsedAt ? new Date(existingData.lastUsedAt).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}`
+                    : existingData?.updatedAt
+                    ? new Date(existingData.updatedAt).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                    : '-'}
+                </Typography>
+              </Box>
+            </Box>
 
             {/* Main Tabs - Dynamic rendering based on template config */}
             <Box sx={{ borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>

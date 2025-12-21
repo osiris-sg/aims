@@ -4,6 +4,7 @@ import { CreateAssetDto } from './dto/create-asset.dto';
 import { UpdateAssetDto } from './dto/update-asset.dto';
 import { PrismaService } from 'src/common/prisma.service';
 import { DeleteAssetDto } from './dto/delete-asset.dto';
+import { AdjustQuantityDto, AdjustmentType } from './dto/adjust-quantity.dto';
 import { Prisma } from '@prisma/client';
 
 @Injectable()
@@ -24,12 +25,24 @@ export class AssetsService {
         whereClause.OR = [{ name: { contains: search, mode: 'insensitive' } }, { skuKey: { contains: search, mode: 'insensitive' } }];
       }
 
-      // Category filter
-      if (filters?.category && filters.category !== '') {
-        whereClause.categoryId = filters.category;
+      // Category filter - handle both string and array
+      if (filters?.category) {
+        if (Array.isArray(filters.category)) {
+          // If it's an array with items, filter by those categories
+          if (filters.category.length > 0) {
+            whereClause.categoryId = { in: filters.category };
+          }
+          // If empty array, don't add any filter (show all)
+        } else if (filters.category !== '') {
+          // If it's a non-empty string, filter by that category
+          whereClause.categoryId = filters.category;
+        }
       }
 
-      // TODO: Check instock status here
+      // Filter by tracking mode
+      if (filters?.isTracked !== undefined) {
+        whereClause.isTracked = filters.isTracked;
+      }
 
       const assets = await this.prisma.asset.findMany({
         where: whereClause,
@@ -37,6 +50,12 @@ export class AssetsService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
+          category: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
           inventories: {
             where: {
               status: 'instock', // Change this to match your "in stock" logic
@@ -51,6 +70,8 @@ export class AssetsService {
       const assetsWithinstockCount = assets.map((asset) => ({
         ...asset,
         instockInventoryCount: asset.inventories.length,
+        // stockCount shows inventory count for tracked assets, quantity for untracked products
+        stockCount: asset.isTracked ? asset.inventories.length : (asset.quantity ?? 0),
       }));
 
       const totalDocs = await this.prisma.asset.count({ where: whereClause });
@@ -469,6 +490,164 @@ export class AssetsService {
 
     if (descendantIds.includes(proposedParentId)) {
       throw new HttpException('Cannot set parent: This would create a circular reference', HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  async canSwitchTrackingMode(assetId: string, userOrganizationId: string) {
+    try {
+      const asset = await this.prisma.asset.findFirst({
+        where: {
+          id: assetId,
+          organizationId: userOrganizationId,
+          deletedAt: null,
+        },
+        include: {
+          inventories: {
+            select: { id: true },
+          },
+        },
+      });
+
+      if (!asset) {
+        throw new HttpException('Asset not found', HttpStatus.NOT_FOUND);
+      }
+
+      // Can always switch from untracked to tracked
+      // Can only switch from tracked to untracked if there are no inventory items
+      const canSwitch = !asset.isTracked || asset.inventories.length === 0;
+      const reason = !canSwitch
+        ? 'Cannot switch to untracked mode: Asset has existing inventory items. Remove all inventory items first.'
+        : null;
+
+      return {
+        canSwitch,
+        reason,
+        currentMode: asset.isTracked ? 'tracked' : 'untracked',
+        inventoryCount: asset.inventories.length,
+      };
+    } catch (error) {
+      throw new HttpException(error.message, error.status || HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  async adjustQuantity(adjustQuantityDto: AdjustQuantityDto, userOrganizationId: string, adjustedBy: string) {
+    try {
+      const { assetId, amount, type, reason } = adjustQuantityDto;
+
+      // Get the asset and verify it's untracked
+      const asset = await this.prisma.asset.findFirst({
+        where: {
+          id: assetId,
+          organizationId: userOrganizationId,
+          deletedAt: null,
+        },
+      });
+
+      if (!asset) {
+        throw new HttpException('Asset not found', HttpStatus.NOT_FOUND);
+      }
+
+      if (asset.isTracked) {
+        throw new HttpException('Cannot adjust quantity for tracked assets. Use inventory management instead.', HttpStatus.BAD_REQUEST);
+      }
+
+      const previousQty = asset.quantity ?? 0;
+      let newQty: number;
+
+      switch (type) {
+        case AdjustmentType.ADD:
+          newQty = previousQty + amount;
+          break;
+        case AdjustmentType.SUBTRACT:
+          newQty = previousQty - amount;
+          if (newQty < 0) {
+            throw new HttpException('Quantity cannot go below zero', HttpStatus.BAD_REQUEST);
+          }
+          break;
+        case AdjustmentType.SET:
+          newQty = amount;
+          break;
+        default:
+          throw new HttpException('Invalid adjustment type', HttpStatus.BAD_REQUEST);
+      }
+
+      // Use transaction to update quantity and create history record
+      const result = await this.prisma.$transaction(async (tx) => {
+        // Update the asset quantity
+        const updatedAsset = await tx.asset.update({
+          where: { id: assetId },
+          data: { quantity: newQty },
+        });
+
+        // Create quantity adjustment history record
+        const adjustment = await tx.quantityAdjustment.create({
+          data: {
+            assetId,
+            previousQty,
+            newQty,
+            adjustmentType: type,
+            amount,
+            reason,
+            adjustedBy,
+            organizationId: userOrganizationId,
+          },
+        });
+
+        return { asset: updatedAsset, adjustment };
+      });
+
+      return result;
+    } catch (error) {
+      throw new HttpException(error.message, error.status || HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  async getQuantityHistory(assetId: string, userOrganizationId: string, page = 1, limit = 20) {
+    try {
+      // Verify asset exists and belongs to org
+      const asset = await this.prisma.asset.findFirst({
+        where: {
+          id: assetId,
+          organizationId: userOrganizationId,
+          deletedAt: null,
+        },
+      });
+
+      if (!asset) {
+        throw new HttpException('Asset not found', HttpStatus.NOT_FOUND);
+      }
+
+      const skip = (page - 1) * limit;
+
+      const [adjustments, totalDocs] = await Promise.all([
+        this.prisma.quantityAdjustment.findMany({
+          where: {
+            assetId,
+            organizationId: userOrganizationId,
+          },
+          orderBy: { adjustedAt: 'desc' },
+          skip,
+          take: limit,
+        }),
+        this.prisma.quantityAdjustment.count({
+          where: {
+            assetId,
+            organizationId: userOrganizationId,
+          },
+        }),
+      ]);
+
+      return {
+        docs: adjustments,
+        hasNextPage: skip + adjustments.length < totalDocs,
+        hasPreviousPage: page > 1,
+        page,
+        limit,
+        totalPagesCount: Math.ceil(totalDocs / limit),
+        totalDocuments: totalDocs,
+      };
+    } catch (error) {
+      throw new HttpException(error.message, error.status || HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 }

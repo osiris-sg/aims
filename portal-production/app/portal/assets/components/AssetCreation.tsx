@@ -1,19 +1,29 @@
 import FormInputBox from "@/form-components/FormInputBox";
 import FormSelect from "@/form-components/FormSelect";
-import { Stack } from "@mui/material";
-import React from "react";
+import { Stack, Skeleton } from "@mui/material";
+import React, { useEffect } from "react";
 import { useFormContext } from "react-hook-form";
 import { useAddCategoryHandler } from "../hooks/useAddCategoryHandler";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 export default function AssetCreation() {
-  const { control } = useFormContext();
+  const { control, setValue } = useFormContext();
   const { handleAddCategory, handleDeleteCategory, categories, categoriesLoading, deleteCategoryLoading } = useAddCategoryHandler();
+  const { isAssetTrackingModeEnabled, isLoading: featuresLoading } = useOrganizationFeatures();
+
+  // Set isTracked based on organization setting (not user choice)
+  // ON = tracked assets, OFF = untracked products
+  useEffect(() => {
+    if (!featuresLoading) {
+      setValue("isTracked", isAssetTrackingModeEnabled);
+    }
+  }, [isAssetTrackingModeEnabled, featuresLoading, setValue]);
 
   return (
     <Stack direction="column" spacing="var(--default-gap)">
-      <FormInputBox control={control} name="name" label="Name" placeHolder="Enter Asset Name" required />
+      <FormInputBox control={control} name="name" label="Name" placeHolder={isAssetTrackingModeEnabled ? "Enter Asset Name" : "Enter Product Name"} required />
 
-      <FormInputBox control={control} name="skuKey" label="SKUKEY" placeHolder="Enter SKUKEY" bottomText="Unique identifier for different assets" required />
+      <FormInputBox control={control} name="skuKey" label="SKUKEY" placeHolder="Enter SKUKEY" bottomText={isAssetTrackingModeEnabled ? "Unique identifier for different assets" : "Unique identifier for different products"} required />
 
       <FormSelect
         control={control}
@@ -31,6 +41,22 @@ export default function AssetCreation() {
         isAdding={categoriesLoading}
         isDeleting={deleteCategoryLoading}
       />
+
+      {/* Quantity Field - Only shown for untracked products (when feature is OFF) */}
+      {featuresLoading ? (
+        <Skeleton variant="rectangular" height={80} sx={{ borderRadius: 2 }} />
+      ) : !isAssetTrackingModeEnabled && (
+        <FormInputBox
+          control={control}
+          name="quantity"
+          label="Quantity"
+          placeHolder="Enter initial quantity"
+          bottomText="Set the starting stock quantity for this product"
+          type="number"
+          min={0}
+          required
+        />
+      )}
     </Stack>
   );
 }

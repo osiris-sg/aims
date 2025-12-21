@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import { useRouter } from "next/navigation";
-import { Avatar, IconButton, Typography, Box } from "@mui/material";
+import { Avatar, IconButton, Typography, Box, ToggleButton, ToggleButtonGroup } from "@mui/material";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import ModeEditIcon from "@mui/icons-material/ModeEdit";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -11,9 +11,9 @@ import DeleteItemDialog from "@/components/DeleteItemDialog";
 import { useGetAssets, useDeleteAsset, useGetCategories } from "@/app/portal/hooks/api";
 import { ROUTES } from "@/routes";
 import AssetHierarchyTable from "./components/AssetHierarchyTable";
-import { ToggleButton, ToggleButtonGroup } from "@mui/material";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import ViewListIcon from "@mui/icons-material/ViewList";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 export default function AssetsPage() {
   const router = useRouter();
@@ -26,12 +26,21 @@ export default function AssetsPage() {
   const [assetToDelete, setAssetToDelete] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"table" | "hierarchy">("table");
 
+  // Check if tracking mode feature is enabled for this organization
+  // ON = tracked assets, OFF = untracked products (organization-wide setting)
+  const { isAssetTrackingModeEnabled } = useOrganizationFeatures();
+
+  // No need to filter by tracking mode - all items in org have same mode
+  const apiFilters = {
+    ...filters,
+  };
+
   // Fetch assets with new hook (for table view)
   const { assets = [], total = 0, isLoading: loadingAssets, refetch: refetchAssets } = useGetAssets({
     page,
     limit,
     search,
-    filters
+    filters: apiFilters,
   });
 
   // Fetch hierarchy assets (for hierarchy view) - we'll need to add this to the hook if not present
@@ -59,15 +68,19 @@ export default function AssetsPage() {
     }
   };
 
-  const columns = [
+  // Build columns - no Type column needed since all items in org have same mode
+  const baseColumns = [
     {
       accessorKey: "skuKey",
       header: "SKU-Key",
     },
     {
       accessorKey: "name",
-      header: "Asset Name",
+      header: "Name",
     },
+  ];
+
+  const remainingColumns = [
     {
       accessorKey: "image",
       header: "Image",
@@ -82,8 +95,20 @@ export default function AssetsPage() {
       cell: ({ row }: any) => <Typography variant="body2">{categories?.find((item: any) => item.id === row.original.categoryId)?.name}</Typography>,
     },
     {
-      accessorKey: "instockInventoryCount",
-      header: "Status-In Stock",
+      accessorKey: "stockCount",
+      header: isAssetTrackingModeEnabled ? "In Stock" : "Quantity",
+      cell: ({ row }: any) => {
+        // If tracking mode ON (assets): show inventory count
+        // If tracking mode OFF (products): show quantity
+        const count = isAssetTrackingModeEnabled
+          ? row.original.instockInventoryCount
+          : row.original.quantity;
+        return (
+          <Typography variant="body2">
+            {count ?? 0} {isAssetTrackingModeEnabled ? "in stock" : "units"}
+          </Typography>
+        );
+      },
     },
     {
       accessorKey: "action",
@@ -138,10 +163,16 @@ export default function AssetsPage() {
     },
   ];
 
+  // Combine all columns
+  const columns = [...baseColumns, ...remainingColumns];
+
   return (
     <MainCard>
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-        <Typography variant="h5"></Typography>
+        {/* Show title based on organization's tracking mode */}
+        <Typography variant="h6">
+          {isAssetTrackingModeEnabled ? "Assets" : "Products"}
+        </Typography>
         <ToggleButtonGroup value={viewMode} exclusive onChange={(_, newView) => newView && setViewMode(newView)} aria-label="view mode">
           <ToggleButton value="table" aria-label="table view">
             <ViewListIcon sx={{ mr: 1 }} />
@@ -159,9 +190,9 @@ export default function AssetsPage() {
           loading={isLoading}
           columns={columns}
           data={assets}
-          tableName="All Assets"
+          tableName={isAssetTrackingModeEnabled ? "All Assets" : "All Products"}
           subTitle="Items Detail Information"
-          buttonName="Add Asset"
+          buttonName={isAssetTrackingModeEnabled ? "Add Asset" : "Add Product"}
           page={page}
           limit={limit}
           search={search}

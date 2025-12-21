@@ -10,7 +10,7 @@ export default function useGetAssets() {
   const organizationId = organization?.id;
 
   const { data: assets = { docs: [] } } = useQuery({
-    queryKey: ["assets", organizationId],
+    queryKey: ["assets", "tracked", organizationId],
     queryFn: async () => {
       try {
         console.log("=== useGetAssets fetching ===");
@@ -31,7 +31,11 @@ export default function useGetAssets() {
             page: 1,
             limit: 100,
             search: "",
-            filters: {},
+            filters: {
+              // Only show tracked assets for inventory creation
+              // Untracked products cannot have individual inventory items
+              isTracked: true,
+            },
             organizationId,
           },
           token

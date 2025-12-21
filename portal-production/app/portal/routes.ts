@@ -13,6 +13,16 @@ export const ROUTES = {
 
   INVOICES: "/portal/invoices",
 
+  // Sales routes
+  SALES: "/portal/sales",
+  SALES_QUOTATIONS: "/portal/sales/quotations",
+  SALES_SALES_ORDERS: "/portal/sales/sales-orders",
+  SALES_DELIVERY_ORDERS: "/portal/sales/delivery-orders",
+  SALES_INVOICES: "/portal/sales/invoices",
+  SALES_DEBIT_NOTES: "/portal/sales/debit-notes",
+  SALES_CREDIT_NOTES: "/portal/sales/credit-notes",
+  SALES_STOCK_CARD: "/portal/sales/stock-card",
+
   PROJECTS: "/portal/projects",
 
   DOCUMENTS: "/portal/documents",

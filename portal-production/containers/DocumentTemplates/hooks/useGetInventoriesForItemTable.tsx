@@ -7,6 +7,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useParams } from "next/navigation";
 import { request } from "@/helpers/request";
 import useGetDocument from "./useGetDocument";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 export const useGetInventoriesForItemTable = () => {
   const { getToken } = useAuth();
@@ -15,6 +16,7 @@ export const useGetInventoriesForItemTable = () => {
   const { type } = useParams() as { type?: string };
   const { document } = useGetDocument();
   const [inventoriesForDocument, setInventoriesForDocument] = useState<any[]>([]);
+  const { isAssetTrackingModeEnabled } = useOrganizationFeatures();
   const fetchInventoriesByStatus = useCallback(
     async (status: string) => {
       if (!organizationId) return [];
@@ -56,6 +58,46 @@ export const useGetInventoriesForItemTable = () => {
     return response?.data?.docs || [];
   }, [organizationId, getToken]);
 
+  // Fetch assets/products for Products mode (when tracking is OFF)
+  const fetchAssets = useCallback(async () => {
+    const token = await getToken();
+    if (!token || !organizationId) return [];
+
+    const response = await request(
+      {
+        path: "/assets",
+        method: "POST",
+      },
+      {
+        page: 1,
+        limit: 100,
+      },
+      token
+    );
+
+    // Map assets to the inventory item format expected by StockCardDialog
+    const assets = response?.data?.docs || [];
+    return assets.map((asset: any) => ({
+      id: asset.id,
+      sku: asset.skuKey,
+      name: asset.name,
+      description: asset.description || asset.name,
+      category: asset.category?.name || "",
+      categoryName: asset.category?.name || "",
+      quantity: asset.quantity ?? asset.stockCount ?? 0,
+      minQuantity: asset.minQuantity,
+      unitPrice: asset.price,
+      status: asset.quantity > 0 ? "available" : "out_of_stock",
+      assetId: asset.id,
+      asset: {
+        id: asset.id,
+        name: asset.name,
+        description: asset.description,
+        category: asset.category,
+      },
+    }));
+  }, [organizationId, getToken]);
+
   const fetchInventoriesByIds = useCallback(
     async (inventoryIds: string[]) => {
       if (!inventoryIds?.length || !organizationId) return [];
@@ -83,6 +125,14 @@ export const useGetInventoriesForItemTable = () => {
 
     let inventories: any[] = [];
 
+    // In Products mode (tracking OFF), fetch assets/products instead of inventory items
+    if (!isAssetTrackingModeEnabled) {
+      inventories = await fetchAssets();
+      setInventoriesForDocument(inventories);
+      return inventories;
+    }
+
+    // In Assets mode (tracking ON), fetch inventory items as usual
     if (type === "RDO") {
       inventories = await fetchInventoriesByStatus("rental");
     } else if (type === "DO") {
@@ -108,7 +158,7 @@ export const useGetInventoriesForItemTable = () => {
 
     setInventoriesForDocument(inventories);
     return inventories;
-  }, [organizationId, type, document?.config?.items, fetchInventoriesByStatus, fetchAllInventories, fetchInventoriesByIds]);
+  }, [organizationId, type, document?.config?.items, fetchInventoriesByStatus, fetchAllInventories, fetchInventoriesByIds, isAssetTrackingModeEnabled, fetchAssets]);
 
   // Removed direct call to getInventories; now handled by useEffect.
 

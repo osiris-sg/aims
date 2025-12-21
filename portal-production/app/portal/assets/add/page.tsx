@@ -12,13 +12,20 @@ import AssetCreation from "../components/AssetCreation";
 import AdditionalDetails from "../components/AdditionalDetails";
 import LastStep from "../components/LastStep";
 import AddAssetSuccess from "../components/AddAssetSuccess";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 export default function AddAssetPage() {
   const theme = useTheme();
   const router = useRouter();
   const { activeStep, handleNext, handleBack, methods, handleSubmit, onSubmit, isAssetUpdating, isSkuCheckInProgress, isSkuKeyAvailable, error, isEditMode, logFormState } = useAddAssetFormHandler();
 
-  const steps = isEditMode ? ["Edit Asset", "Additional Details", "Confirm Changes"] : ["Asset Creation", "Additional Details", "Review"];
+  // Get organization's tracking mode - ON = Assets, OFF = Products
+  const { isAssetTrackingModeEnabled } = useOrganizationFeatures();
+  const itemType = isAssetTrackingModeEnabled ? "Asset" : "Product";
+
+  const steps = isEditMode
+    ? [`Edit ${itemType}`, "Additional Details", "Confirm Changes"]
+    : [`${itemType} Creation`, "Additional Details", "Review"];
 
   if (!isEditMode && activeStep === 3) {
     return <AddAssetSuccess />;
@@ -42,7 +49,7 @@ export default function AddAssetPage() {
           <IconButton onClick={() => router.push(ROUTES.ASSETS)}>
             <ArrowBackIcon color="action" />
           </IconButton>
-          <Typography variant="body1">All Assets</Typography>
+          <Typography variant="body1">All {itemType}s</Typography>
           <Chip label={isEditMode ? "Editing" : "In progress"} sx={{ color: theme.palette.primary.light }} />
         </Stack>
 
@@ -74,17 +81,19 @@ export default function AddAssetPage() {
               }}
             >
               <Typography variant="h4" sx={{ color: "text.secondary" }}>
-                {activeStep === 0 ? (isEditMode ? "Edit Asset" : "Asset Creation") : activeStep === 1 ? "Additional Asset Details" : "Confirm Changes"}
+                {activeStep === 0 ? (isEditMode ? `Edit ${itemType}` : `${itemType} Creation`) : activeStep === 1 ? `Additional ${itemType} Details` : "Confirm Changes"}
               </Typography>
 
               <Typography variant="body2" sx={{ color: "text.secondary" }}>
                 {activeStep === 0
                   ? isEditMode
-                    ? "Edit the details of this asset. Ensure all fields are accurate before saving."
-                    : 'Add a new asset to the inventory by filling the details below. Every asset must have a unique identifier (SKUKEY) to help you identify different assets. If you wish to increase/decrease quantity to an existing asset, please head over to the inventory page and use "Add Item" instead.'
+                    ? `Edit the details of this ${itemType.toLowerCase()}. Ensure all fields are accurate before saving.`
+                    : isAssetTrackingModeEnabled
+                      ? 'Add a new asset to the inventory by filling the details below. Every asset must have a unique identifier (SKUKEY) to help you identify different assets. If you wish to increase/decrease quantity to an existing asset, please head over to the inventory page and use "Add Item" instead.'
+                      : 'Add a new product by filling the details below. Every product must have a unique identifier (SKUKEY) to help you identify different products.'
                   : activeStep === 1
-                  ? "Fill up optional details about the asset. You can choose to edit these details later."
-                  : "Confirm the details of this asset. Once confirmed, the asset will be updated shortly."}
+                  ? `Fill up optional details about the ${itemType.toLowerCase()}. You can choose to edit these details later.`
+                  : `Confirm the details of this ${itemType.toLowerCase()}. Once confirmed, the ${itemType.toLowerCase()} will be updated shortly.`}
               </Typography>
             </Box>
 
@@ -145,7 +154,7 @@ export default function AddAssetPage() {
                         console.log("Is edit mode:", isEditMode);
                       }}
                     >
-                      {isAssetUpdating ? (isEditMode ? "Saving..." : "Creating...") : isEditMode ? "Save Changes" : "Submit"}
+                      {isAssetUpdating ? (isEditMode ? "Saving..." : `Creating ${itemType}...`) : isEditMode ? "Save Changes" : `Create ${itemType}`}
                     </Button>
                   </>
                 )}

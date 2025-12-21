@@ -8,7 +8,7 @@ interface Props {
 
 export default function InvoiceEditLayout({ children }: Props) {
   return (
-    <Box sx={{ height: "100vh", width: "100vw", display: "flex", flexDirection: "column", bgcolor: "#f5f5f5" }}>
+    <Box sx={{ height: "100%", width: "100%", display: "flex", flexDirection: "column", bgcolor: "#f5f5f5" }}>
       {children}
     </Box>
   );

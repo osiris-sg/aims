@@ -8,6 +8,7 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ROUTES } from "@/routes";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 const assetSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -18,6 +19,20 @@ const assetSchema = z.object({
   description: z.string().optional(),
   location: z.string().optional(),
   notes: z.string().optional(),
+  price: z.coerce.number().min(0).optional(),
+  isTracked: z.boolean().default(true),
+  // Use coerce to convert string input to number
+  quantity: z.coerce.number().min(0).optional(),
+  minQuantity: z.coerce.number().min(0).optional(),
+}).refine((data) => {
+  // Quantity is required when isTracked is false
+  if (data.isTracked === false && (data.quantity === undefined || data.quantity === null || isNaN(data.quantity))) {
+    return false;
+  }
+  return true;
+}, {
+  message: "Quantity is required for untracked products",
+  path: ["quantity"],
 });
 
 // Schema for the actual data we send to the backend
@@ -26,13 +41,11 @@ const updateAssetSchema = z.object({
   skuKey: z.string().min(1, "SKU Key is required"),
   image: z.any().optional(),
   description: z.string().optional(),
-  category: z
-    .object({
-      connect: z.object({
-        id: z.string().min(1, "Category ID is required"),
-      }),
-    })
-    .optional(),
+  price: z.number().min(0).optional().nullable(),
+  isTracked: z.boolean().optional(),
+  quantity: z.number().min(0).optional().nullable(),
+  minQuantity: z.number().min(0).optional().nullable(),
+  categoryId: z.string().optional(),
 });
 
 export type AssetFormData = z.infer<typeof assetSchema>;
@@ -49,6 +62,9 @@ export const useAddAssetFormHandler = () => {
   const [isEditMode, setIsEditMode] = useState(false);
   const { createAsset, isLoading: isAssetUpdating, error } = useCreateAsset();
 
+  // Get organization's tracking mode - ON = Assets, OFF = Products
+  const { isAssetTrackingModeEnabled } = useOrganizationFeatures();
+
   const methods = useForm<AssetFormData>({
     resolver: zodResolver(assetSchema),
     defaultValues: {
@@ -60,6 +76,10 @@ export const useAddAssetFormHandler = () => {
       description: "",
       location: "",
       notes: "",
+      price: undefined,
+      isTracked: true,
+      quantity: undefined,
+      minQuantity: undefined,
     },
   });
 
@@ -101,7 +121,11 @@ export const useAddAssetFormHandler = () => {
           description: response.data.description || "",
           location: response.data.location || "",
           notes: response.data.notes || "",
+          price: response.data.price ?? undefined,
           image: response.data.image,
+          isTracked: response.data.isTracked !== false, // Default to true
+          quantity: response.data.quantity ?? undefined,
+          minQuantity: response.data.minQuantity ?? undefined,
         };
         console.log("Setting form data:", formData);
         methods.reset(formData);
@@ -202,26 +226,22 @@ export const useAddAssetFormHandler = () => {
       skuKey: string;
       description?: string;
       image?: any;
-      category?: {
-        connect: {
-          id: string;
-        };
-      };
+      isTracked?: boolean;
+      quantity?: number;
+      minQuantity?: number;
+      price?: number;
+      categoryId?: string;
     } = {
       name: data.name,
       skuKey: data.skuKey,
       description: data.description,
       image: data.image || undefined, // Keep image as is, don't send if undefined
+      isTracked: data.isTracked,
+      quantity: data.isTracked === false ? data.quantity : undefined,
+      minQuantity: data.minQuantity,
+      price: data.price,
+      categoryId: data.categoryId || undefined,
     };
-
-    // Handle category relation properly
-    if (data.categoryId) {
-      formDataWithStatus.category = {
-        connect: {
-          id: data.categoryId,
-        },
-      };
-    }
 
     // Handle image field properly
     if (formDataWithStatus.image instanceof File) {
@@ -293,7 +313,12 @@ export const useAddAssetFormHandler = () => {
         ...data,
       });
       if (success) {
-        setActiveStep(3); // Move to success step
+        // In Products mode (feature OFF), skip success page and go directly to products list
+        if (!isAssetTrackingModeEnabled) {
+          router.push(ROUTES.ASSETS);
+        } else {
+          setActiveStep(3); // Move to success step (for Assets mode)
+        }
       }
     }
   };

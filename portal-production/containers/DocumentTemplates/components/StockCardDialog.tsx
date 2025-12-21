@@ -25,7 +25,11 @@ import {
 import {
   Close as CloseIcon,
   Search as SearchIcon,
+  Add as AddIcon,
+  Visibility as ViewIcon,
 } from "@mui/icons-material";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import ProductDetailDialog from "./ProductDetailDialog";
 
 interface InventoryItem {
   id: string;
@@ -35,6 +39,7 @@ interface InventoryItem {
   category?: string;
   categoryName?: string;
   quantity?: number;
+  minQuantity?: number;
   unitPrice?: number;
   status?: string;
   assetId?: string;
@@ -66,6 +71,23 @@ export default function StockCardDialog({
 }: StockCardDialogProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [searchMode, setSearchMode] = useState<SearchMode>("code");
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [selectedViewItem, setSelectedViewItem] = useState<InventoryItem | null>(null);
+  const { isAssetTrackingModeEnabled } = useOrganizationFeatures();
+  const itemType = isAssetTrackingModeEnabled ? "Item" : "Product";
+
+  const handleViewItem = (item: InventoryItem, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent row click
+    setSelectedViewItem(item);
+    setViewDialogOpen(true);
+  };
+
+  const handleAddItem = (item: InventoryItem, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent row click
+    onSelectItem(item);
+    setSearchTerm("");
+    onClose();
+  };
 
   // Filter inventory items based on search term and mode
   const filteredItems = useMemo(() => {
@@ -134,7 +156,7 @@ export default function StockCardDialog({
         }}
       >
         <Typography variant="h6" fontWeight={500}>
-          Stock Card - Select Item
+          Stock Card - Select {itemType}
         </Typography>
         <IconButton onClick={handleClose} size="small" sx={{ color: "primary.contrastText" }}>
           <CloseIcon />
@@ -249,6 +271,18 @@ export default function StockCardDialog({
                   Balance
                 </TableCell>
                 <TableCell
+                  align="center"
+                  sx={{
+                    fontWeight: 600,
+                    bgcolor: "grey.100",
+                    borderBottom: 2,
+                    borderColor: "primary.main",
+                    width: "10%",
+                  }}
+                >
+                  Min Qty
+                </TableCell>
+                <TableCell
                   align="right"
                   sx={{
                     fontWeight: 600,
@@ -260,6 +294,20 @@ export default function StockCardDialog({
                 >
                   Unit Price
                 </TableCell>
+                {isAssetTrackingModeEnabled && (
+                  <TableCell
+                    align="center"
+                    sx={{
+                      fontWeight: 600,
+                      bgcolor: "grey.100",
+                      borderBottom: 2,
+                      borderColor: "primary.main",
+                      width: "10%",
+                    }}
+                  >
+                    Status
+                  </TableCell>
+                )}
                 <TableCell
                   align="center"
                   sx={{
@@ -267,19 +315,19 @@ export default function StockCardDialog({
                     bgcolor: "grey.100",
                     borderBottom: 2,
                     borderColor: "primary.main",
-                    width: "10%",
+                    width: "12%",
                   }}
                 >
-                  Status
+                  Actions
                 </TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {filteredItems.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={isAssetTrackingModeEnabled ? 8 : 7} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">
-                      {searchTerm ? "No items found matching your search" : "No items available"}
+                      {searchTerm ? `No ${itemType.toLowerCase()}s found matching your search` : `No ${itemType.toLowerCase()}s available`}
                     </Typography>
                   </TableCell>
                 </TableRow>
@@ -318,28 +366,53 @@ export default function StockCardDialog({
                     <TableCell align="center">
                       {item.quantity !== undefined ? item.quantity : "-"}
                     </TableCell>
+                    <TableCell align="center">
+                      {item.minQuantity !== undefined && item.minQuantity !== null ? item.minQuantity : "-"}
+                    </TableCell>
                     <TableCell align="right">
-                      {item.unitPrice !== undefined
+                      {item.unitPrice != null
                         ? `$${item.unitPrice.toFixed(2)}`
                         : "-"}
                     </TableCell>
+                    {isAssetTrackingModeEnabled && (
+                      <TableCell align="center">
+                        <Chip
+                          label={item.status || "N/A"}
+                          size="small"
+                          color={
+                            item.status === "instock"
+                              ? "success"
+                              : item.status === "rental"
+                              ? "warning"
+                              : "default"
+                          }
+                          sx={{
+                            fontWeight: 500,
+                            fontSize: "0.7rem",
+                            textTransform: "capitalize",
+                          }}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell align="center">
-                      <Chip
-                        label={item.status || "N/A"}
-                        size="small"
-                        color={
-                          item.status === "instock"
-                            ? "success"
-                            : item.status === "rental"
-                            ? "warning"
-                            : "default"
-                        }
-                        sx={{
-                          fontWeight: 500,
-                          fontSize: "0.7rem",
-                          textTransform: "capitalize",
-                        }}
-                      />
+                      <Box sx={{ display: "flex", gap: 0.5, justifyContent: "center" }}>
+                        <IconButton
+                          size="small"
+                          color="primary"
+                          onClick={(e) => handleAddItem(item, e)}
+                          title="Add to document"
+                        >
+                          <AddIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          color="secondary"
+                          onClick={(e) => handleViewItem(item, e)}
+                          title="View details"
+                        >
+                          <ViewIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
                     </TableCell>
                   </TableRow>
                 ))
@@ -361,13 +434,20 @@ export default function StockCardDialog({
           }}
         >
           <Typography variant="body2" color="text.secondary">
-            Showing {filteredItems.length} of {inventoryItems.length} items
+            Showing {filteredItems.length} of {inventoryItems.length} {itemType.toLowerCase()}s
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            Click on a row to select an item
+            Click on a row to select a {itemType.toLowerCase()}
           </Typography>
         </Box>
       </DialogContent>
+
+      {/* Product Detail Dialog */}
+      <ProductDetailDialog
+        open={viewDialogOpen}
+        onClose={() => setViewDialogOpen(false)}
+        item={selectedViewItem}
+      />
     </Dialog>
   );
 }

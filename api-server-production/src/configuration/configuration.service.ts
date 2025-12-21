@@ -77,13 +77,29 @@ export class ConfigurationService {
     const defaultModules = [
       { moduleCode: 'DASHBOARD', displayName: 'Dashboard', icon: 'Dashboard', sortOrder: 0, config: { route: '/portal' } },
       { moduleCode: 'INVENTORY', displayName: 'Inventory', icon: 'Inventory', sortOrder: 1, config: { route: '/portal/inventory' } },
-      { moduleCode: 'ASSETS', displayName: 'Assets', icon: 'AnalyticsRounded', sortOrder: 2, config: { route: '/portal/assets' } },
+      { moduleCode: 'ASSETS', displayName: 'Products', icon: 'AnalyticsRounded', sortOrder: 2, config: { route: '/portal/assets' } },
       { moduleCode: 'CUSTOMERS', displayName: 'Customers', icon: 'PeopleRounded', sortOrder: 3, config: { route: '/portal/customers' } },
-      { moduleCode: 'DOCUMENTS', displayName: 'Documents', icon: 'Description', sortOrder: 4, config: { route: '/portal/documents', subMenus: ['templates', 'extraction'] } },
-      { moduleCode: 'INVOICES', displayName: 'Invoices', icon: 'AssignmentRounded', sortOrder: 5, config: { route: '/portal/invoices' } },
-      { moduleCode: 'PROJECTS', displayName: 'Projects', icon: 'AccountTree', sortOrder: 6, config: { route: '/portal/projects' } },
-      { moduleCode: 'USER_MANAGEMENT', displayName: 'User Management', icon: 'PeopleRounded', sortOrder: 7, config: { route: '/portal/user-management', subMenus: ['users', 'roles'] } },
-      { moduleCode: 'AUDIT', displayName: 'Audit', icon: 'AnalyticsRounded', sortOrder: 8, config: { route: '/portal/audit' } },
+      {
+        moduleCode: 'SALES',
+        displayName: 'Sales',
+        icon: 'ShoppingCart',
+        sortOrder: 4,
+        config: {
+          route: '/portal/sales',
+          subMenus: [
+            { key: 'quotations', label: 'Quotation' },
+            { key: 'sales-orders', label: 'Sales Order' },
+            { key: 'delivery-orders', label: 'Delivery Order' },
+            { key: 'invoices', label: 'Invoice' },
+            { key: 'debit-notes', label: 'Debit Note' },
+            { key: 'credit-notes', label: 'Credit Note' },
+            { key: 'stock-card', label: 'Stock Card' },
+          ],
+        },
+      },
+      { moduleCode: 'PROJECTS', displayName: 'Projects', icon: 'AccountTree', sortOrder: 5, config: { route: '/portal/projects' } },
+      { moduleCode: 'USER_MANAGEMENT', displayName: 'User Management', icon: 'PeopleRounded', sortOrder: 6, config: { route: '/portal/user-management', subMenus: ['users', 'roles'] } },
+      { moduleCode: 'AUDIT', displayName: 'Audit', icon: 'AnalyticsRounded', sortOrder: 7, config: { route: '/portal/audit' } },
     ];
 
     const modulePromises = defaultModules.map(module =>

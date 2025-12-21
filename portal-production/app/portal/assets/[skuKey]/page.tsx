@@ -5,8 +5,10 @@ import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
-import { Box, Button, Typography, Avatar, Grid, Card, Skeleton, Stack, IconButton, useTheme, Checkbox, FormControlLabel, DialogTitle, DialogContent, DialogActions } from "@mui/material";
+import { Box, Button, Typography, Avatar, Grid, Card, Skeleton, Stack, IconButton, useTheme, Checkbox, FormControlLabel, DialogTitle, DialogContent, DialogActions, Chip } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
+import InventoryIcon from "@mui/icons-material/Inventory";
+import CategoryIcon from "@mui/icons-material/Category";
 import Dialog from "@mui/material/Dialog";
 
 import DialogContentText from "@mui/material/DialogContentText";
@@ -15,6 +17,8 @@ import { ROUTES } from "@/routes";
 import useViewAssetTableHeader from "../hooks/useViewAssetTableHeader";
 import { toast } from "react-toastify";
 import AssetPartsManager from "../components/AssetPartsManager";
+import ProductQuantityAdjuster from "../components/ProductQuantityAdjuster";
+import QuantityHistoryTable from "../components/QuantityHistoryTable";
 
 interface DocumentTemplate {
   id: string;
@@ -273,7 +277,7 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
       <Box sx={{ p: 3 }}>
         <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
           <Box component="span" sx={{ cursor: "pointer" }} onClick={() => router.push(ROUTES.ASSETS)}>
-            <strong>Asset</strong>
+            <strong>{asset.isTracked !== false ? "Asset" : "Product"}</strong>
           </Box>{" "}
           / {params.skuKey}
         </Typography>
@@ -284,15 +288,24 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
           </Grid>
           <Grid item xs={12} md={4}>
             <Stack direction="column" gap={2}>
-              <Typography variant="h5" fontWeight="bold">
-                {asset.name}
-              </Typography>
+              <Stack direction="row" alignItems="center" gap={1}>
+                <Typography variant="h5" fontWeight="bold">
+                  {asset.name}
+                </Typography>
+                <Chip
+                  icon={asset.isTracked !== false ? <InventoryIcon /> : <CategoryIcon />}
+                  label={asset.isTracked !== false ? "Asset" : "Product"}
+                  size="small"
+                  color={asset.isTracked !== false ? "primary" : "success"}
+                  variant="outlined"
+                />
+              </Stack>
               <Stack direction="column">
                 <Typography variant="body1" color="text.secondary">
                   Category: {category?.name}
                 </Typography>
                 <Typography variant="body1" color="text.secondary">
-                  Asset Details: {asset.description}
+                  {asset.isTracked !== false ? "Asset" : "Product"} Details: {asset.description}
                 </Typography>
               </Stack>
             </Stack>
@@ -315,55 +328,80 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
                   <EditIcon />
                 </IconButton>
               </Box>
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 1, alignItems: "flex-start" }}>
-                <Typography variant="body1" color="text.secondary">
-                  Inventory
-                </Typography>
-                <Button variant="contained">View</Button>
-              </Box>
+              {asset.isTracked !== false && (
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1, alignItems: "flex-start" }}>
+                  <Typography variant="body1" color="text.secondary">
+                    Inventory
+                  </Typography>
+                  <Button variant="contained">View</Button>
+                </Box>
+              )}
             </Stack>
           </Grid>
         </Grid>
 
-        <Box sx={{ mt: 4, gap: 2 }}>
-          <Typography variant="body1" sx={{ mb: 2 }}>
-            Inventory Status
-          </Typography>
+        {/* Conditional rendering based on tracking mode */}
+        {asset.isTracked !== false ? (
+          <>
+            {/* Inventory Status - Only for tracked assets */}
+            <Box sx={{ mt: 4, gap: 2 }}>
+              <Typography variant="body1" sx={{ mb: 2 }}>
+                Inventory Status
+              </Typography>
 
-          <Box sx={{ display: "flex", justifyContent: "center", flexWrap: "wrap", gap: "20px" }}>
-            {Object.entries(inventoriesStatusCounts).map(([status, count]) => (
-              <Card
-                key={status}
-                sx={{
-                  width: "170px",
-                  height: "145px",
-                  textAlign: "center",
-                  boxShadow: 0,
-                  backgroundColor: "transparent",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  border: `1px solid ${theme.palette.tertiary.main}`,
-                  borderRadius: 1,
-                  margin: "10px",
-                }}
-              >
-                <Typography variant="h2" fontWeight={200}>
-                  {count}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {status.charAt(0).toUpperCase() + status.slice(1)}
-                </Typography>
-              </Card>
-            ))}
-          </Box>
-        </Box>
+              <Box sx={{ display: "flex", justifyContent: "center", flexWrap: "wrap", gap: "20px" }}>
+                {Object.entries(inventoriesStatusCounts).map(([status, count]) => (
+                  <Card
+                    key={status}
+                    sx={{
+                      width: "170px",
+                      height: "145px",
+                      textAlign: "center",
+                      boxShadow: 0,
+                      backgroundColor: "transparent",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      border: `1px solid ${theme.palette.tertiary.main}`,
+                      borderRadius: 1,
+                      margin: "10px",
+                    }}
+                  >
+                    <Typography variant="h2" fontWeight={200}>
+                      {count}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {status.charAt(0).toUpperCase() + status.slice(1)}
+                    </Typography>
+                  </Card>
+                ))}
+              </Box>
+            </Box>
 
-        {/* Asset Parts Manager */}
-        <Box sx={{ mt: 4, gap: 2 }}>
-          <AssetPartsManager assetId={asset.id} assetName={asset.name} onRefresh={fetchAsset} />
-        </Box>
+            {/* Asset Parts Manager - Only for tracked assets */}
+            <Box sx={{ mt: 4, gap: 2 }}>
+              <AssetPartsManager assetId={asset.id} assetName={asset.name} onRefresh={fetchAsset} />
+            </Box>
+          </>
+        ) : (
+          <>
+            {/* Product Quantity Management - Only for untracked products */}
+            <Box sx={{ mt: 4 }}>
+              <ProductQuantityAdjuster
+                assetId={asset.id}
+                currentQuantity={asset.quantity ?? 0}
+                assetName={asset.name}
+                onQuantityChange={fetchAsset}
+              />
+            </Box>
+
+            {/* Quantity History Table - Only for untracked products */}
+            <Box sx={{ mt: 4 }}>
+              <QuantityHistoryTable assetId={asset.id} />
+            </Box>
+          </>
+        )}
 
         <Box sx={{ mt: 4, gap: 2 }}>
           <Typography variant="body1" sx={{ mb: 2 }}>

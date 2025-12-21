@@ -5,20 +5,31 @@ import FormInputBox from "@/form-components/FormInputBox";
 import FormSelect from "@/form-components/FormSelect";
 import FormImage from "@/form-components/FormImage";
 import { useGetCategories } from "../hooks/useGetCategories";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 export default function LastStep() {
   const { control } = useFormContext();
   const { categories } = useGetCategories();
+  const { isAssetTrackingModeEnabled } = useOrganizationFeatures();
+  const itemType = isAssetTrackingModeEnabled ? "Asset" : "Product";
 
   return (
     <Stack spacing="var(--default-gap)">
-      <FormInputBox control={control} name="name" label="Name" placeHolder="Enter Asset Name" disabled />
+      <FormInputBox control={control} name="name" label="Name" placeHolder={`Enter ${itemType} Name`} disabled />
 
       <FormInputBox control={control} name="skuKey" label="SKUKEY" placeHolder="Enter SKUKEY" disabled />
 
       <FormSelect control={control} name="categoryId" label="Category" placeHolder="Add a new category..." addItem={true} menuTitle="Choose a category" menuItems={categories.map((item) => ({ label: item.name, value: item.id }))} disabled />
 
-      <FormInputBox control={control} name="description" label="Description" placeHolder="Enter Asset Description" disabled />
+      <FormInputBox control={control} name="description" label="Description" placeHolder={`Enter ${itemType} Description`} disabled />
+
+      {!isAssetTrackingModeEnabled && (
+        <FormInputBox control={control} name="quantity" label="Quantity" placeHolder="Enter quantity" type="number" disabled />
+      )}
+
+      <FormInputBox control={control} name="price" label="Price" placeHolder="Enter price" type="number" disabled />
+
+      <FormInputBox control={control} name="minQuantity" label="Minimum Quantity" placeHolder="Enter minimum quantity" type="number" disabled />
 
       <FormImage control={control} name="image" label="Image" disabled />
     </Stack>

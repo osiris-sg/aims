@@ -1,11 +1,12 @@
-import { Controller, Post, Body, Put, Delete, Param, Get, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, Put, Delete, Param, Get, UseGuards, Req, Query } from '@nestjs/common';
 import { AssetsService } from './assets.service';
 import { GetAssetDto } from './dto/get-assets.dto';
 import { CreateAssetDto } from './dto/create-asset.dto';
 import { UpdateAssetDto } from './dto/update-asset.dto';
 import { DeleteAssetDto } from './dto/delete-asset.dto';
 import { UpdateAssetParentDto } from './dto/update-asset-parent.dto';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
+import { AdjustQuantityDto } from './dto/adjust-quantity.dto';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody, ApiQuery } from '@nestjs/swagger';
 
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
@@ -134,5 +135,56 @@ export class AssetsController {
   @ApiResponse({ status: 200, description: 'List of all descendant assets.' })
   async getAssetDescendants(@Param('id') assetId: string, @UserOrganization() userOrganization: any) {
     return this.assetsService.getAssetDescendants(assetId, userOrganization.id);
+  }
+
+  @Get(':id/can-switch-mode')
+  @Permissions('assets:read')
+  @ApiOperation({ summary: 'Check if an asset can switch tracking mode' })
+  @ApiParam({ name: 'id', type: 'string', description: 'The ID of the asset' })
+  @ApiResponse({ status: 200, description: 'Returns whether mode switching is allowed and the reason if not.' })
+  @ApiResponse({ status: 404, description: 'Asset not found.' })
+  async canSwitchTrackingMode(@Param('id') assetId: string, @UserOrganization() userOrganization: any) {
+    return this.assetsService.canSwitchTrackingMode(assetId, userOrganization.id);
+  }
+
+  @Post('adjust-quantity')
+  @Permissions('assets:update')
+  @ApiOperation({ summary: 'Adjust quantity for an untracked product' })
+  @ApiBody({ type: AdjustQuantityDto })
+  @ApiResponse({ status: 200, description: 'The quantity has been successfully adjusted.' })
+  @ApiResponse({ status: 400, description: 'Invalid input or asset is tracked.' })
+  @ApiResponse({ status: 404, description: 'Asset not found.' })
+  async adjustQuantity(
+    @Body() adjustQuantityDto: AdjustQuantityDto,
+    @UserOrganization() userOrganization: any,
+    @Req() req: any,
+  ) {
+    const user = req.user;
+    const adjustedBy = user?.firstName && user?.lastName
+      ? `${user.firstName} ${user.lastName}`
+      : user?.emailAddresses?.[0]?.emailAddress || user?.id || 'Unknown';
+    return this.assetsService.adjustQuantity(adjustQuantityDto, userOrganization.id, adjustedBy);
+  }
+
+  @Get(':id/quantity-history')
+  @Permissions('assets:read')
+  @ApiOperation({ summary: 'Get quantity adjustment history for an asset' })
+  @ApiParam({ name: 'id', type: 'string', description: 'The ID of the asset' })
+  @ApiQuery({ name: 'page', type: 'number', required: false, description: 'Page number (default: 1)' })
+  @ApiQuery({ name: 'limit', type: 'number', required: false, description: 'Items per page (default: 20)' })
+  @ApiResponse({ status: 200, description: 'List of quantity adjustment history records.' })
+  @ApiResponse({ status: 404, description: 'Asset not found.' })
+  async getQuantityHistory(
+    @Param('id') assetId: string,
+    @UserOrganization() userOrganization: any,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.assetsService.getQuantityHistory(
+      assetId,
+      userOrganization.id,
+      page ? Number(page) : 1,
+      limit ? Number(limit) : 20,
+    );
   }
 }

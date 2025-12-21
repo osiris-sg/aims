@@ -113,7 +113,9 @@ export function transformFormDataForBackend(
   // Add any additional flat fields that might exist in form
   const flatFields = [
     'note', 'dueDate', 'collectFrom', 'startDate', 'endDate',
-    'signature', 'gstRegNo', 'paymentTerms'
+    'signature', 'gstRegNo', 'paymentTerms',
+    // Tracking fields
+    'savedBy', 'savedAt', 'confirmedBy', 'confirmedAt', 'lastUsedBy', 'lastUsedAt'
   ];
 
   flatFields.forEach(field => {

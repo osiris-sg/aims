@@ -27,11 +27,13 @@ import {
   ExpandLess,
   ExpandMore,
   ErrorOutline,
+  ShoppingCart,
 } from "@mui/icons-material";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useSidebar } from "./SidebarContext";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 // Material UI icon mapping
 const iconMap: Record<string, React.ComponentType> = {
@@ -44,6 +46,7 @@ const iconMap: Record<string, React.ComponentType> = {
   AccountTree,
   AdminPanelSettings,
   SettingsRounded,
+  ShoppingCart,
 };
 
 const getIcon = (iconName?: string) => {
@@ -58,6 +61,10 @@ export default function DynamicSidebarContent() {
   const { modules, loading, error, isModuleEnabled } = useConfiguration();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
+
+  // Get organization's tracking mode setting
+  // ON = Assets mode (show Inventory), OFF = Products mode (hide Inventory, rename Assets to Products)
+  const { isAssetTrackingModeEnabled } = useOrganizationFeatures();
 
   // Handle submenu toggles
   const handleMenuClick = (moduleCode: string) => {
@@ -125,8 +132,26 @@ export default function DynamicSidebarContent() {
   }
 
   // Filter and sort enabled modules
+  // In Products mode (feature OFF): hide INVENTORY, rename ASSETS to Products
   const enabledModules = modules
     .filter(m => m.enabled)
+    .filter(m => {
+      // Hide INVENTORY module when in Products mode (feature OFF)
+      if (m.moduleCode === 'INVENTORY' && !isAssetTrackingModeEnabled) {
+        return false;
+      }
+      return true;
+    })
+    .map(m => {
+      // Rename ASSETS to Products when in Products mode (feature OFF)
+      if (m.moduleCode === 'ASSETS' && !isAssetTrackingModeEnabled) {
+        return {
+          ...m,
+          displayName: 'Products',
+        };
+      }
+      return m;
+    })
     .sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999));
 
   const renderMenuItem = (module: any, index: number) => {
@@ -201,22 +226,28 @@ export default function DynamicSidebarContent() {
           <Collapse in={isOpen} timeout="auto" unmountOnExit>
             <List component="div" disablePadding>
               {module.config.subMenus.map((submenu: any) => {
+                // Handle both string and object format for submenus
+                const submenuKey = typeof submenu === 'string' ? submenu : submenu.key;
+                const submenuLabel = typeof submenu === 'string'
+                  ? submenu.charAt(0).toUpperCase() + submenu.slice(1).replace(/-/g, ' ')
+                  : submenu.label;
+
                 // Special cases:
                 // - 'list' submenu links to the main route
                 // - 'extraction' links to /portal/document-extraction (standalone route)
                 let submenuRoute;
-                if (submenu === 'list') {
+                if (submenuKey === 'list') {
                   submenuRoute = module.config.route;
-                } else if (submenu === 'extraction' && module.moduleCode === 'DOCUMENTS') {
+                } else if (submenuKey === 'extraction' && module.moduleCode === 'DOCUMENTS') {
                   submenuRoute = '/portal/document-extraction';
                 } else {
-                  submenuRoute = `${module.config.route}/${submenu}`;
+                  submenuRoute = `${module.config.route}/${submenuKey}`;
                 }
                 const isSubmenuActive = pathname === submenuRoute || pathname.startsWith(submenuRoute + '/');
 
                 return (
                   <ListItemButton
-                    key={submenu}
+                    key={submenuKey}
                     sx={{
                       pl: 4,
                       backgroundColor: isSubmenuActive ? theme.palette.primary.light : "transparent",
@@ -226,7 +257,7 @@ export default function DynamicSidebarContent() {
                     selected={isSubmenuActive}
                   >
                     <ListItemText
-                      primary={submenu.charAt(0).toUpperCase() + submenu.slice(1)}
+                      primary={submenuLabel}
                       sx={{ color: "white" }}
                     />
                   </ListItemButton>

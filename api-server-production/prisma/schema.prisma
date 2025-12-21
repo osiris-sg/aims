@@ -37,6 +37,7 @@ model Organization {
   payments           Payment[]
   transactions       Transaction[]
   customerBalances   CustomerBalance[]
+  quantityAdjustments QuantityAdjustment[]
 }
 
 model Asset {
@@ -52,6 +53,12 @@ model Asset {
   organizationId  String?
   price           Float?
   parentAssetId   String?            @db.Uuid
+  // Tracking mode: true = individual inventory items with SKUs, false = simple quantity
+  isTracked       Boolean            @default(true)
+  // Quantity for untracked products (only used when isTracked = false)
+  quantity        Int?
+  // Minimum quantity threshold for low stock alerts
+  minQuantity     Int?
   category        Category           @relation(fields: [categoryId], references: [id])
   organization    Organization?      @relation(fields: [organizationId], references: [id])
   parentAsset     Asset?             @relation("AssetHierarchy", fields: [parentAssetId], references: [id])
@@ -59,6 +66,7 @@ model Asset {
   taggedTemplates AssetTemplateTag[]
   inventories     Inventory[]
   priceHistories  PriceHistory[]
+  quantityAdjustments QuantityAdjustment[]
 
   @@unique([skuKey, organizationId, deletedAt])
 }
@@ -561,4 +569,33 @@ enum TransactionType {
   DEBIT_NOTE
   ADJUSTMENT
   OPENING_BALANCE
+}
+
+// Quantity adjustment history for untracked products
+model QuantityAdjustment {
+  id              String       @id @default(uuid()) @db.Uuid
+  assetId         String       @db.Uuid
+  previousQty     Int          // Quantity before adjustment
+  newQty          Int          // Quantity after adjustment
+  adjustmentType  AdjustmentType // add, subtract, set
+  amount          Int          // Amount adjusted
+  reason          String?      // Optional reason for adjustment
+  adjustedBy      String       // User name/email who made the adjustment
+  adjustedAt      DateTime     @default(now())
+  organizationId  String
+  createdAt       DateTime     @default(now())
+
+  // Relations
+  asset           Asset        @relation(fields: [assetId], references: [id])
+  organization    Organization @relation(fields: [organizationId], references: [id])
+
+  // Indexes for fast queries
+  @@index([assetId, adjustedAt])
+  @@index([organizationId, adjustedAt])
+}
+
+enum AdjustmentType {
+  ADD
+  SUBTRACT
+  SET
 }
