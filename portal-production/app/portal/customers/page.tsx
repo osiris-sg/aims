@@ -15,6 +15,7 @@ import AddCustomer from "./components/AddCustomer";
 
 interface Customer {
   id: string;
+  customerCode: string;
   name: string;
   email: string;
   phone: string;
@@ -53,6 +54,12 @@ export default function CustomersPage() {
   const deleteCustomerMutation = useDeleteCustomer();
 
   const columns = [
+    {
+      id: "customerCode",
+      accessorKey: "customerCode",
+      header: "Customer Code",
+      cell: (info: any) => info.getValue() || "-",
+    },
     {
       id: "name",
       accessorKey: "name",

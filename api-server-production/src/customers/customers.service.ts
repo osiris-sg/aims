@@ -20,6 +20,7 @@ export class CustomersService {
       // Search filter
       if (search) {
         whereClause.OR = [
+          { customerCode: { contains: search, mode: 'insensitive' } },
           { name: { contains: search, mode: 'insensitive' } },
           { email: { contains: search, mode: 'insensitive' } },
           { phone: { contains: search, mode: 'insensitive' } },
@@ -86,9 +87,14 @@ export class CustomersService {
   async createCustomers(createCustomerDto: CreateCustomerDto, organizationId: string) {
     try {
       console.log('Creating customer with data:', createCustomerDto, 'and organizationId:', organizationId);
+
+      // Generate customer code: C + first letter of name + 3-digit sequential number
+      const customerCode = await this.generateCustomerCode(createCustomerDto.name, organizationId);
+
       const newCustomer = await this.prisma.customer.create({
         data: {
           ...createCustomerDto,
+          customerCode,
           organizationId, // Automatically assign to user's organization
         },
       });
@@ -96,6 +102,31 @@ export class CustomersService {
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
+  }
+
+  /**
+   * Generate customer code in format: C + first letter of name + 3-digit sequential number
+   * Example: CA001, CA002, CB001, etc.
+   */
+  private async generateCustomerCode(customerName: string, organizationId: string): Promise<string> {
+    // Get the first letter of the customer name (uppercase), default to 'X' if empty
+    const firstLetter = customerName?.trim().charAt(0).toUpperCase() || 'X';
+    const prefix = `C${firstLetter}`;
+
+    // Count existing customers with the same prefix in this organization
+    const existingCount = await this.prisma.customer.count({
+      where: {
+        organizationId,
+        customerCode: {
+          startsWith: prefix,
+        },
+      },
+    });
+
+    // Generate the sequential number (3 digits, padded with zeros)
+    const sequentialNumber = String(existingCount + 1).padStart(3, '0');
+
+    return `${prefix}${sequentialNumber}`;
   }
 
   async updateCustomers(updateCustomerDto: UpdateCustomerDto, organizationId: string) {
