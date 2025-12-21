@@ -526,12 +526,508 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
 
   // Aliases for legacy document types
   INVOICE: { tabs: [] as TabDefinition[] }, // Will be mapped to TI in getTemplateFields
+
+  // SO - Sales Order
+  // Based on legacy accounting system layout
+  // Layout: Left column = form fields (labels on left), Right column = summary/totals
+  SO: {
+    tabs: [
+      {
+        tabId: "general",
+        tabLabel: "General",
+        fields: [
+          // === LEFT COLUMN FIELDS (in order) ===
+          {
+            fieldName: "documentInfo.documentNumber",
+            displayLabel: "S/O Number",
+            fieldType: "text",
+            required: true,
+          },
+          {
+            fieldName: "documentInfo.date",
+            displayLabel: "Date",
+            fieldType: "date",
+            required: true,
+          },
+          {
+            fieldName: "customer",
+            displayLabel: "Customer code",
+            fieldType: "customer",
+            required: true,
+            dataSource: "customers",
+          },
+          {
+            fieldName: "documentInfo.salesPerson",
+            displayLabel: "Salesman code",
+            fieldType: "text",
+            required: false,
+            defaultValue: "",
+          },
+          {
+            fieldName: "documentInfo.poNo",
+            displayLabel: "P/O Number",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "deliveryTo",
+            displayLabel: "Deliver to",
+            fieldType: "textarea",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.deliveryDate",
+            displayLabel: "Delivery Date",
+            fieldType: "date",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.contact",
+            displayLabel: "Contact",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.paymentTerms",
+            displayLabel: "Terms",
+            fieldType: "text",
+            required: false,
+            defaultValue: "0 DAYS",
+          },
+          // === RIGHT COLUMN FIELDS (summary/totals - in order) ===
+          {
+            fieldName: "documentInfo.rate",
+            displayLabel: "Rate",
+            fieldType: "number",
+            required: false,
+            defaultValue: 1.0,
+          },
+          {
+            fieldName: "documentInfo.currency",
+            displayLabel: "Currency",
+            fieldType: "select",
+            required: false,
+            defaultValue: "SGD",
+            dataSource: "currencies",
+          },
+          {
+            fieldName: "documentInfo.grossTotal",
+            displayLabel: "Gross Total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.discountPercent",
+            displayLabel: "Disc %",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.discountAmount",
+            displayLabel: "Discount Amount",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.subTotal",
+            displayLabel: "Sub-total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.taxApplicable",
+            displayLabel: "Tax",
+            fieldType: "select",
+            required: false,
+            defaultValue: "Y",
+            dataSource: "yesNo",
+          },
+          {
+            fieldName: "documentInfo.absorbTax",
+            displayLabel: "Absorb Tax",
+            fieldType: "select",
+            required: false,
+            defaultValue: "N",
+            dataSource: "yesNo",
+          },
+          {
+            fieldName: "documentInfo.gstPercent",
+            displayLabel: "GST",
+            fieldType: "number",
+            required: false,
+            defaultValue: 9.0,
+          },
+          {
+            fieldName: "documentInfo.gstAmount",
+            displayLabel: "GST Amount",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.nettTotal",
+            displayLabel: "Nett Total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+        ],
+      },
+      {
+        tabId: "details",
+        tabLabel: "Details",
+        fields: [
+          {
+            fieldName: "documentInfo.referenceNo",
+            displayLabel: "Reference No",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.remarks",
+            displayLabel: "Remarks",
+            fieldType: "textarea",
+            required: false,
+          },
+        ],
+      },
+      {
+        tabId: "deliveryAddress",
+        tabLabel: "Delivery Address",
+        fields: [
+          {
+            fieldName: "deliveryAddress.line1",
+            displayLabel: "Address Line 1",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "deliveryAddress.line2",
+            displayLabel: "Address Line 2",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "deliveryAddress.city",
+            displayLabel: "City",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "deliveryAddress.postalCode",
+            displayLabel: "Postal Code",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "deliveryAddress.country",
+            displayLabel: "Country",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "deliveryAddress.attention",
+            displayLabel: "Attention",
+            fieldType: "text",
+            required: false,
+          },
+        ],
+      },
+    ],
+  },
+
+  // SALES_ORDER - Alias for SO
+  SALES_ORDER: { tabs: [] as TabDefinition[] }, // Will be mapped to SO in getTemplateFields
+
+  // DN - Debit Note
+  DN: {
+    tabs: [
+      {
+        tabId: "general",
+        tabLabel: "General",
+        fields: [
+          {
+            fieldName: "documentInfo.documentNumber",
+            displayLabel: "Debit Note No.",
+            fieldType: "text",
+            required: true,
+          },
+          {
+            fieldName: "documentInfo.date",
+            displayLabel: "Date",
+            fieldType: "date",
+            required: true,
+          },
+          {
+            fieldName: "customer",
+            displayLabel: "Customer code",
+            fieldType: "customer",
+            required: true,
+            dataSource: "customers",
+          },
+          {
+            fieldName: "documentInfo.salesPerson",
+            displayLabel: "Salesman code",
+            fieldType: "text",
+            required: false,
+            defaultValue: "",
+          },
+          {
+            fieldName: "documentInfo.invoiceNo",
+            displayLabel: "Invoice No.",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.doNo",
+            displayLabel: "Delivery Order No.",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.contact",
+            displayLabel: "Contact",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.paymentTerms",
+            displayLabel: "Terms",
+            fieldType: "text",
+            required: false,
+            defaultValue: "0 DAYS",
+          },
+          // Right side totals
+          {
+            fieldName: "documentInfo.rate",
+            displayLabel: "Rate",
+            fieldType: "number",
+            required: false,
+            defaultValue: 1.0,
+          },
+          {
+            fieldName: "documentInfo.grossTotal",
+            displayLabel: "Gross Total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.discountPercent",
+            displayLabel: "Disc %",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.subTotal",
+            displayLabel: "Sub-total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.taxApplicable",
+            displayLabel: "Tax",
+            fieldType: "select",
+            required: false,
+            defaultValue: "Y",
+            dataSource: "yesNo",
+          },
+          {
+            fieldName: "documentInfo.absorbTax",
+            displayLabel: "Absorb Tax",
+            fieldType: "select",
+            required: false,
+            defaultValue: "N",
+            dataSource: "yesNo",
+          },
+          {
+            fieldName: "documentInfo.gstPercent",
+            displayLabel: "GST",
+            fieldType: "number",
+            required: false,
+            defaultValue: 9.0,
+          },
+          {
+            fieldName: "documentInfo.nettTotal",
+            displayLabel: "Nett Total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+        ],
+      },
+      {
+        tabId: "details",
+        tabLabel: "Details",
+        fields: [
+          {
+            fieldName: "documentInfo.remarks",
+            displayLabel: "Remarks",
+            fieldType: "textarea",
+            required: false,
+          },
+        ],
+      },
+    ],
+  },
+
+  // DEBIT_NOTE - Alias for DN
+  DEBIT_NOTE: { tabs: [] as TabDefinition[] }, // Will be mapped to DN in getTemplateFields
+
+  // CN - Credit Note
+  CN: {
+    tabs: [
+      {
+        tabId: "general",
+        tabLabel: "General",
+        fields: [
+          {
+            fieldName: "documentInfo.documentNumber",
+            displayLabel: "Credit Note No.",
+            fieldType: "text",
+            required: true,
+          },
+          {
+            fieldName: "documentInfo.date",
+            displayLabel: "Date",
+            fieldType: "date",
+            required: true,
+          },
+          {
+            fieldName: "customer",
+            displayLabel: "Customer code",
+            fieldType: "customer",
+            required: true,
+            dataSource: "customers",
+          },
+          {
+            fieldName: "documentInfo.salesPerson",
+            displayLabel: "Salesman code",
+            fieldType: "text",
+            required: false,
+            defaultValue: "",
+          },
+          {
+            fieldName: "documentInfo.invoiceNo",
+            displayLabel: "Invoice No.",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.doNo",
+            displayLabel: "Delivery Order No.",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.contact",
+            displayLabel: "Contact",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.paymentTerms",
+            displayLabel: "Terms",
+            fieldType: "text",
+            required: false,
+            defaultValue: "0 DAYS",
+          },
+          // Right side totals
+          {
+            fieldName: "documentInfo.rate",
+            displayLabel: "Rate",
+            fieldType: "number",
+            required: false,
+            defaultValue: 1.0,
+          },
+          {
+            fieldName: "documentInfo.grossTotal",
+            displayLabel: "Gross Total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.discountPercent",
+            displayLabel: "Disc %",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.subTotal",
+            displayLabel: "Sub-total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.taxApplicable",
+            displayLabel: "Tax",
+            fieldType: "select",
+            required: false,
+            defaultValue: "Y",
+            dataSource: "yesNo",
+          },
+          {
+            fieldName: "documentInfo.absorbTax",
+            displayLabel: "Absorb Tax",
+            fieldType: "select",
+            required: false,
+            defaultValue: "N",
+            dataSource: "yesNo",
+          },
+          {
+            fieldName: "documentInfo.gstPercent",
+            displayLabel: "GST",
+            fieldType: "number",
+            required: false,
+            defaultValue: 9.0,
+          },
+          {
+            fieldName: "documentInfo.nettTotal",
+            displayLabel: "Nett Total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+        ],
+      },
+      {
+        tabId: "details",
+        tabLabel: "Details",
+        fields: [
+          {
+            fieldName: "documentInfo.remarks",
+            displayLabel: "Remarks",
+            fieldType: "textarea",
+            required: false,
+          },
+        ],
+      },
+    ],
+  },
+
+  // CREDIT_NOTE - Alias for CN
+  CREDIT_NOTE: { tabs: [] as TabDefinition[] }, // Will be mapped to CN in getTemplateFields
 };
 
 // Map INVOICE to TI fields
 TEMPLATE_FIELD_DEFINITIONS.INVOICE = TEMPLATE_FIELD_DEFINITIONS.TI;
 // Map DELIVERY_ORDER to DO fields
 TEMPLATE_FIELD_DEFINITIONS.DELIVERY_ORDER = TEMPLATE_FIELD_DEFINITIONS.DO;
+// Map SALES_ORDER to SO fields
+TEMPLATE_FIELD_DEFINITIONS.SALES_ORDER = TEMPLATE_FIELD_DEFINITIONS.SO;
+// Map DEBIT_NOTE to DN fields
+TEMPLATE_FIELD_DEFINITIONS.DEBIT_NOTE = TEMPLATE_FIELD_DEFINITIONS.DN;
+// Map CREDIT_NOTE to CN fields
+TEMPLATE_FIELD_DEFINITIONS.CREDIT_NOTE = TEMPLATE_FIELD_DEFINITIONS.CN;
 
 /**
  * Get field definitions for a specific template variant
@@ -541,6 +1037,9 @@ export function getTemplateFields(templateVariant: string): TemplateFieldConfig 
   const variantMap: Record<string, string> = {
     INVOICE: "TI",
     DELIVERY_ORDER: "DO",
+    SALES_ORDER: "SO",
+    DEBIT_NOTE: "DN",
+    CREDIT_NOTE: "CN",
   };
 
   const mappedVariant = variantMap[templateVariant] || templateVariant;

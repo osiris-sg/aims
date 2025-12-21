@@ -12,7 +12,7 @@ export default function SalesOrdersPage() {
       title={`${config.label} List`}
       subtitle={`${config.label} Detail Information`}
       createButtonLabel={`Create ${config.label}`}
-      createPath={config.createPath}
+      createDocumentType={config.createDocumentType}
     />
   );
 }

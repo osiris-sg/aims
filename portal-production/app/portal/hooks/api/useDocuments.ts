@@ -163,7 +163,7 @@ export function useDeleteDocument() {
       if (!token) throw new Error('No authentication token available');
 
       const response = await request(
-        { path: `/documents/${documentId}`, method: 'DELETE' },
+        { path: `/documents/delete/${documentId}`, method: 'DELETE' },
         {},
         token
       );

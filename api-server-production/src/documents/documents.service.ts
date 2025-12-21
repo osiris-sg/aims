@@ -508,6 +508,12 @@ export class DocumentsService {
         select: { customDocumentTypes: true, logo: true, defaultStamp: true },
       });
 
+      // Get document template to use templateVariant for naming
+      const documentTemplate = await this.prisma.documentTemplate.findUnique({
+        where: { id: documentTemplateId },
+        select: { templateVariant: true },
+      });
+
       const now = new Date();
       const year = now.getFullYear();
       const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -526,9 +532,10 @@ export class DocumentsService {
 
       const serial = String(count + 1).padStart(3, '0');
 
-      // Use custom document type prefix if available, otherwise use the original type
+      // Use templateVariant for document name prefix (e.g., "SO" instead of "SALES_ORDER")
+      // Falls back to custom document types, then to the original type
       const customTypes = organization?.customDocumentTypes as Record<string, string> | null;
-      const documentPrefix = customTypes?.[type] || type;
+      const documentPrefix = documentTemplate?.templateVariant || customTypes?.[type] || type;
       const name = `${documentPrefix}${year}${month}-${serial}`;
 
       // Seed initial config with organization defaults so they persist even if user doesn't save the form

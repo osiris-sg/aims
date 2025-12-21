@@ -30,7 +30,9 @@
     "migrate-sales-nav": "ts-node scripts/migrate-to-sales-navigation.ts",
     "migrate-sales-nav:dry": "ts-node scripts/migrate-to-sales-navigation.ts --dry-run",
     "migrate-inventory-nav": "ts-node scripts/migrate-to-inventory-navigation.ts",
-    "migrate-inventory-nav:dry": "ts-node scripts/migrate-to-inventory-navigation.ts --dry-run"
+    "migrate-inventory-nav:dry": "ts-node scripts/migrate-to-inventory-navigation.ts --dry-run",
+    "add-so-templates": "ts-node scripts/add-sales-order-templates.ts",
+    "add-so-templates:dry": "ts-node scripts/add-sales-order-templates.ts --dry-run"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.779.0",

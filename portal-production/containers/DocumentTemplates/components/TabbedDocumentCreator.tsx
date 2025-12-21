@@ -794,11 +794,7 @@ export default function TabbedDocumentCreator({
     const documentStatus = existingData?.status || "draft";
     if (documentStatus === "confirmed") {
       // Navigate back directly for confirmed documents
-      if (documentType === "TI") {
-        router.push("/portal/invoices");
-      } else {
-        router.push("/portal/documents");
-      }
+      router.back();
     } else {
       // Check if there are any changes to the form
       const hasChanges = hasFormChanges();
@@ -808,11 +804,7 @@ export default function TabbedDocumentCreator({
         setBackConfirmDialogOpen(true);
       } else {
         // No changes, navigate back directly
-        if (documentType === "TI") {
-          router.push("/portal/invoices");
-        } else {
-          router.push("/portal/documents");
-        }
+        router.back();
       }
     }
   };
@@ -841,11 +833,7 @@ export default function TabbedDocumentCreator({
       await onSave?.(saveData);
     }
     // Navigate back after saving
-    if (documentType === "TI") {
-      router.push("/portal/invoices");
-    } else {
-      router.push("/portal/documents");
-    }
+    router.back();
   };
 
   // Handle delete from dialog
@@ -879,20 +867,12 @@ export default function TabbedDocumentCreator({
       }
 
       // Navigate back regardless of deletion result
-      if (documentType === "TI") {
-        router.push("/portal/invoices");
-      } else {
-        router.push("/portal/documents");
-      }
+      router.back();
     } catch (error) {
       console.error("Error deleting document:", error);
       toast.error("Failed to delete document");
       // Still navigate back even if deletion fails
-      if (documentType === "TI") {
-        router.push("/portal/invoices");
-      } else {
-        router.push("/portal/documents");
-      }
+      router.back();
     }
   };
 

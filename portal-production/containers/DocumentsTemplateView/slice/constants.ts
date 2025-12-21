@@ -57,4 +57,7 @@ export const DOCUMENT_TYPES = [
   { label: "Maintenance Service Report", value: "MSR" },
   { label: "Quotation", value: "QO1" },
   { label: "Invoice", value: "TI" },
+  { label: "Sales Order", value: "SO" },
+  { label: "Debit Note", value: "DN" },
+  { label: "Credit Note", value: "CN" },
 ];

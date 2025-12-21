@@ -14,49 +14,49 @@ export const SALES_DOCUMENT_TYPES = {
     label: "Quotation",
     pluralLabel: "Quotations",
     icon: RequestQuoteIcon,
-    createPath: "/portal/documents/create?type=QUOTATION",
+    createDocumentType: "QUOTATION", // type field in DocumentTemplate table
   },
   SALES_ORDER: {
-    types: ["SALES_ORDER"],
+    types: ["SO", "SALES_ORDER"],
     label: "Sales Order",
     pluralLabel: "Sales Orders",
     icon: ShoppingCartIcon,
-    createPath: "/portal/documents/create?type=SALES_ORDER",
+    createDocumentType: "SALES_ORDER", // type field in DocumentTemplate table
   },
   DELIVERY_ORDER: {
     types: ["DELIVERY_ORDER", "DO"],
     label: "Delivery Order",
     pluralLabel: "Delivery Orders",
     icon: LocalShippingIcon,
-    createPath: "/portal/documents/create?type=DO",
+    createDocumentType: "DELIVERY_ORDER", // type field in DocumentTemplate table
   },
   INVOICE: {
     types: ["INVOICE", "TI", "TI2"],
     label: "Invoice",
     pluralLabel: "Invoices",
     icon: ReceiptIcon,
-    createPath: "/portal/sales/invoices/create",
+    createDocumentType: "INVOICE", // type field in DocumentTemplate table
   },
   DEBIT_NOTE: {
-    types: ["DEBIT_NOTE"],
+    types: ["DEBIT_NOTE", "DN"],
     label: "Debit Note",
     pluralLabel: "Debit Notes",
     icon: RemoveCircleIcon,
-    createPath: "/portal/documents/create?type=DEBIT_NOTE",
+    createDocumentType: "DEBIT_NOTE", // type field in DocumentTemplate table
   },
   CREDIT_NOTE: {
-    types: ["CREDIT_NOTE"],
+    types: ["CREDIT_NOTE", "CN"],
     label: "Credit Note",
     pluralLabel: "Credit Notes",
     icon: AddCircleIcon,
-    createPath: "/portal/documents/create?type=CREDIT_NOTE",
+    createDocumentType: "CREDIT_NOTE", // type field in DocumentTemplate table
   },
   STOCK_CARD: {
     types: [],
     label: "Stock Card",
     pluralLabel: "Stock Card",
     icon: InventoryIcon,
-    createPath: "",
+    createDocumentType: "", // No document creation for stock card
   },
 };
 

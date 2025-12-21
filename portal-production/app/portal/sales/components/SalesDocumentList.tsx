@@ -21,6 +21,9 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import { useRouter } from "next/navigation";
 import moment from "moment";
 import { toast } from "react-toastify";
+import { useAuth } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
+import { request } from "@/helpers/request";
 
 interface Document {
   id: string;
@@ -47,7 +50,7 @@ export interface SalesDocumentListProps {
   title: string;
   subtitle: string;
   createButtonLabel: string;
-  createPath: string;
+  createDocumentType: string; // The document type to create (e.g., "SO", "DO", "TI")
   showDelete?: boolean;
   additionalColumns?: any[];
   headerContent?: React.ReactNode;
@@ -59,13 +62,15 @@ export default function SalesDocumentList({
   title,
   subtitle,
   createButtonLabel,
-  createPath,
+  createDocumentType,
   showDelete = true,
   additionalColumns = [],
   headerContent,
   actionButtons,
 }: SalesDocumentListProps) {
   const router = useRouter();
+  const { getToken } = useAuth();
+  const { organization } = useOrganization();
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
@@ -79,6 +84,7 @@ export default function SalesDocumentList({
   });
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [documentToDelete, setDocumentToDelete] = useState<Document | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
 
   // Fetch documents with new hook
   const { documents = [], isLoading, error, refetch } = useGetDocuments();
@@ -266,9 +272,59 @@ export default function SalesDocumentList({
     setDocumentToDelete(null);
   };
 
-  const handleAddClick = () => {
-    if (createPath) {
-      router.push(createPath);
+  const handleAddClick = async () => {
+    if (!organization?.id || !createDocumentType) {
+      toast.error("Unable to create document. Please try again.");
+      return;
+    }
+
+    setIsCreating(true);
+    try {
+      const token = await getToken();
+
+      // First, get the document template ID for this type
+      const templateResponse = await request(
+        {
+          path: `/documentTemplates/type/${createDocumentType}`,
+          method: "GET",
+        },
+        {},
+        token ?? undefined
+      );
+
+      if (!templateResponse.success || !templateResponse.data?.id) {
+        toast.error(`No template found for document type: ${createDocumentType}`);
+        return;
+      }
+
+      const documentTemplateId = templateResponse.data.id;
+
+      // Create the document
+      const response = await request(
+        {
+          path: "/documents/basic",
+          method: "POST",
+        },
+        {
+          type: createDocumentType,
+          config: {},
+          documentTemplateId: documentTemplateId,
+          organizationId: organization.id,
+        },
+        token ?? undefined
+      );
+
+      if (response?.data?.id) {
+        // Navigate directly to the edit page
+        router.push(`/portal/documents/${createDocumentType}/${documentTemplateId}/${response.data.id}`);
+      } else {
+        toast.error("Failed to create document");
+      }
+    } catch (error: any) {
+      console.error("Error creating document:", error);
+      toast.error(error.message || "An error occurred while creating the document");
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -284,9 +340,10 @@ export default function SalesDocumentList({
         data={filteredDocuments}
         tableName={title}
         subTitle={subtitle}
-        buttonName={createButtonLabel}
+        buttonName={isCreating ? "Creating..." : createButtonLabel}
         onAddClick={handleAddClick}
         loading={isLoading}
+        buttonDisabled={isCreating}
         page={page}
         limit={limit}
         search={search}
