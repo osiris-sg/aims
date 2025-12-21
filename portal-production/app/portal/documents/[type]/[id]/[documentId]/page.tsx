@@ -276,6 +276,7 @@ export default function page() {
   // Format data for the component
   const customersList = customers?.map((customer: any) => ({
     id: customer.id,
+    customerCode: customer.customerCode || "",
     name: customer.name,
     address: customer.address || "",
     phone: customer.phone || "",

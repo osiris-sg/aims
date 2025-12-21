@@ -12,10 +12,94 @@ import {
   Select,
   MenuItem,
   FormControl,
-  Autocomplete,
   Typography,
+  InputAdornment,
+  IconButton,
 } from '@mui/material';
+import { Search as SearchIcon } from '@mui/icons-material';
 import { FieldDefinition } from '../config/templateFieldDefinitions';
+
+// Separate component for customer field to properly use hooks
+interface CustomerCodeFieldProps {
+  customers: any[];
+  formData: any;
+  setFormData: (data: any) => void;
+  onOpenDialog?: () => void;
+  inputSx: any;
+}
+
+function CustomerCodeField({ customers, formData, setFormData, onOpenDialog, inputSx }: CustomerCodeFieldProps) {
+  const selectedCustomer = customers.find((c: any) => c.id === formData.customer?.id);
+  const [customerCodeInput, setCustomerCodeInput] = React.useState(
+    selectedCustomer?.customerCode || ''
+  );
+
+  // Display value: code + name when customer is selected
+  const displayValue = selectedCustomer
+    ? `${selectedCustomer.customerCode || ''} ${selectedCustomer.name || ''}`.trim()
+    : customerCodeInput;
+
+  // Update input when selected customer changes
+  React.useEffect(() => {
+    if (selectedCustomer?.customerCode) {
+      setCustomerCodeInput(selectedCustomer.customerCode);
+    }
+  }, [selectedCustomer?.customerCode]);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      // Search for customer by code (case-insensitive)
+      const foundCustomer = customers.find(
+        (c: any) => c.customerCode?.toLowerCase() === customerCodeInput.toLowerCase()
+      );
+      if (foundCustomer) {
+        setFormData({
+          ...formData,
+          customer: {
+            id: foundCustomer.id || '',
+            name: foundCustomer.name || '',
+            address: foundCustomer.address || '',
+            email: foundCustomer.email || '',
+          },
+        });
+      }
+    }
+  };
+
+  return (
+    <TextField
+      value={selectedCustomer ? displayValue : customerCodeInput}
+      onChange={(e) => {
+        // If user starts typing, clear selected customer and allow typing
+        if (selectedCustomer) {
+          setFormData({
+            ...formData,
+            customer: { id: '', name: '', address: '', email: '' },
+          });
+        }
+        setCustomerCodeInput(e.target.value.toUpperCase());
+      }}
+      onKeyDown={handleKeyDown}
+      size="small"
+      sx={{ ...inputSx, flex: 1, minWidth: 150 }}
+      InputProps={{
+        startAdornment: (
+          <InputAdornment position="start" sx={{ mr: 0 }}>
+            <IconButton
+              size="small"
+              onClick={() => onOpenDialog?.()}
+              sx={{ p: 0.25, ml: -0.5 }}
+              title="Search customers"
+            >
+              <SearchIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </InputAdornment>
+        ),
+      }}
+    />
+  );
+}
 
 interface DynamicFormFieldsProps {
   fields: FieldDefinition[];
@@ -25,6 +109,7 @@ interface DynamicFormFieldsProps {
   projects?: any[];
   deliveryOrders?: any[];
   siteOffices?: any[];
+  onOpenCustomerDialog?: () => void;
 }
 
 // Currency options
@@ -78,6 +163,7 @@ export default function DynamicFormFields({
   projects = [],
   deliveryOrders = [],
   siteOffices = [],
+  onOpenCustomerDialog,
 }: DynamicFormFieldsProps) {
 
   // Helper to get nested value from object path
@@ -114,25 +200,12 @@ export default function DynamicFormFields({
     switch (field.fieldType) {
       case 'customer':
         return (
-          <Autocomplete
-            options={customers}
-            getOptionLabel={(option) => option.name || option.code || ''}
-            value={customers.find((c) => c.id === formData.customer?.id) || null}
-            onChange={(_, newValue) => {
-              setFormData({
-                ...formData,
-                customer: newValue || { id: '', name: '', address: '', phone: '', email: '' },
-              });
-            }}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                size="small"
-                sx={inputSx}
-              />
-            )}
-            sx={{ flex: 1, minWidth: 150 }}
-            size="small"
+          <CustomerCodeField
+            customers={customers}
+            formData={formData}
+            setFormData={setFormData}
+            onOpenDialog={onOpenCustomerDialog}
+            inputSx={inputSx}
           />
         );
 

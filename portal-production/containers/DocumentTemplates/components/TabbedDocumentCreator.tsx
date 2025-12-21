@@ -59,6 +59,7 @@ import CleanDocumentPreview from "./CleanDocumentPreview";
 import DocumentCustomizer from "./DocumentCustomizer";
 import DynamicFormFields from "./DynamicFormFields";
 import StockCardDialog from "./StockCardDialog";
+import CustomerSelectDialog from "./CustomerSelectDialog";
 import PriceHistoryPopup from "@/components/PriceHistory/PriceHistoryPopup";
 import SendInvoiceEmailDialog from "@/app/portal/invoices/components/SendInvoiceEmailDialog";
 import RecordPaymentDialog from "@/app/portal/invoices/components/RecordPaymentDialog";
@@ -172,6 +173,9 @@ export default function TabbedDocumentCreator({
 
   // Stock card dialog state
   const [stockCardDialogOpen, setStockCardDialogOpen] = useState(false);
+
+  // Customer select dialog state
+  const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
 
   // Dynamic form field configuration
   const [templateFieldConfig, setTemplateFieldConfig] = useState<TemplateFieldConfig | null>(null);
@@ -1383,6 +1387,7 @@ export default function TabbedDocumentCreator({
                     projects={projects}
                     deliveryOrders={deliveryOrders}
                     siteOffices={siteOffices}
+                    onOpenCustomerDialog={() => setCustomerDialogOpen(true)}
                   />
                 </CardContent>
               </Card>
@@ -1403,29 +1408,21 @@ export default function TabbedDocumentCreator({
                     <Divider sx={{ mb: 0.5 }} />
                     <Grid container spacing={0.5}>
                       <Grid item xs={12}>
-                        <Autocomplete
-                          options={customers}
-                          getOptionLabel={(option) => option.name}
-                          value={customers.find((c) => c.id === formData.customer.id) || null}
-                          onChange={(_, newValue) => {
-                            setFormData({
-                              ...formData,
-                              customer: {
-                                id: newValue?.id || "",
-                                name: newValue?.name || "",
-                                address: newValue?.address || "",
-                                email: newValue?.email || "",
-                              },
-                            });
-                            // Call the customer change handler to fetch related data
-                            if (onCustomerChange && newValue?.id) {
-                              onCustomerChange(newValue.id);
-                            }
-                          }}
-                          renderInput={(params) => (
-                            <TextField {...params} label="Select Customer" size="small" />
-                          )}
+                        <TextField
+                          fullWidth
+                          label="Customer Code"
                           size="small"
+                          value={
+                            formData.customer?.id
+                              ? customers.find((c: any) => c.id === formData.customer.id)?.customerCode || formData.customer.name || "Selected"
+                              : ""
+                          }
+                          onClick={() => setCustomerDialogOpen(true)}
+                          InputProps={{
+                            readOnly: true,
+                            sx: { cursor: "pointer" },
+                          }}
+                          placeholder="Click to select customer"
                         />
                       </Grid>
                       {formData.customer.name && (
@@ -2664,6 +2661,28 @@ export default function TabbedDocumentCreator({
         onClose={() => setStockCardDialogOpen(false)}
         onSelectItem={handleStockCardItemSelect}
         inventoryItems={inventoriesForDocument}
+      />
+
+      {/* Customer Select Dialog */}
+      <CustomerSelectDialog
+        open={customerDialogOpen}
+        onClose={() => setCustomerDialogOpen(false)}
+        customers={customers}
+        onSelectCustomer={(customer) => {
+          setFormData({
+            ...formData,
+            customer: {
+              id: customer.id || "",
+              name: customer.name || "",
+              address: customer.address || "",
+              email: customer.email || "",
+            },
+          });
+          // Call the customer change handler to fetch related data
+          if (onCustomerChange && customer.id) {
+            onCustomerChange(customer.id);
+          }
+        }}
       />
     </Box>
   );
