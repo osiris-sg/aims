@@ -33,7 +33,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useSidebar } from "./SidebarContext";
-import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 // Material UI icon mapping
 const iconMap: Record<string, React.ComponentType> = {
@@ -62,9 +61,6 @@ export default function DynamicSidebarContent() {
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
 
-  // Get organization's tracking mode setting
-  // ON = Assets mode (show Inventory), OFF = Products mode (hide Inventory, rename Assets to Products)
-  const { isAssetTrackingModeEnabled } = useOrganizationFeatures();
 
   // Handle submenu toggles
   const handleMenuClick = (moduleCode: string) => {
@@ -132,26 +128,8 @@ export default function DynamicSidebarContent() {
   }
 
   // Filter and sort enabled modules
-  // In Products mode (feature OFF): hide INVENTORY, rename ASSETS to Products
   const enabledModules = modules
     .filter(m => m.enabled)
-    .filter(m => {
-      // Hide INVENTORY module when in Products mode (feature OFF)
-      if (m.moduleCode === 'INVENTORY' && !isAssetTrackingModeEnabled) {
-        return false;
-      }
-      return true;
-    })
-    .map(m => {
-      // Rename ASSETS to Products when in Products mode (feature OFF)
-      if (m.moduleCode === 'ASSETS' && !isAssetTrackingModeEnabled) {
-        return {
-          ...m,
-          displayName: 'Products',
-        };
-      }
-      return m;
-    })
     .sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999));
 
   const renderMenuItem = (module: any, index: number) => {

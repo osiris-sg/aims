@@ -19,6 +19,11 @@ const nextConfig = {
         destination: "/portal/sales/quotations",
         permanent: false,
       },
+      {
+        source: "/portal/assets",
+        destination: "/portal/inventory/products",
+        permanent: false,
+      },
     ];
   },
 };

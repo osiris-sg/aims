@@ -1,3 +1,73 @@
+import CategoryIcon from "@mui/icons-material/Category";
+import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
+import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
+import AddBoxIcon from "@mui/icons-material/AddBox";
+import IndeterminateCheckBoxIcon from "@mui/icons-material/IndeterminateCheckBox";
+import AssessmentIcon from "@mui/icons-material/Assessment";
+import ViewListIcon from "@mui/icons-material/ViewList";
+
+// Inventory menu items for sidebar navigation
+export const INVENTORY_MENU_ITEMS = {
+  PRODUCTS: {
+    key: "products",
+    label: "Products",
+    pluralLabel: "Products",
+    icon: CategoryIcon,
+    path: "/portal/inventory/products",
+    description: "Manage your products and assets",
+  },
+  PURCHASES: {
+    key: "purchases",
+    label: "Purchases",
+    pluralLabel: "Purchases",
+    icon: ShoppingCartIcon,
+    path: "/portal/inventory/purchases",
+    description: "Record purchase orders and incoming stock",
+  },
+  PURCHASES_RETURN: {
+    key: "purchases-return",
+    label: "Purchases Return",
+    pluralLabel: "Purchases Returns",
+    icon: AssignmentReturnIcon,
+    path: "/portal/inventory/purchases-return",
+    description: "Manage returns to suppliers",
+  },
+  ADJUSTMENT_IN: {
+    key: "adjustment-in",
+    label: "Stock Adjustment In",
+    pluralLabel: "Stock Adjustments In",
+    icon: AddBoxIcon,
+    path: "/portal/inventory/adjustment-in",
+    description: "Record stock additions and corrections",
+  },
+  ADJUSTMENT_OUT: {
+    key: "adjustment-out",
+    label: "Stock Adjustment Out",
+    pluralLabel: "Stock Adjustments Out",
+    icon: IndeterminateCheckBoxIcon,
+    path: "/portal/inventory/adjustment-out",
+    description: "Record stock removals and corrections",
+  },
+  REPORTS: {
+    key: "reports",
+    label: "Reports",
+    pluralLabel: "Reports",
+    icon: AssessmentIcon,
+    path: "/portal/inventory/reports",
+    description: "View inventory reports and analytics",
+  },
+  STOCK_CARD: {
+    key: "stock-card",
+    label: "Stock Card",
+    pluralLabel: "Stock Cards",
+    icon: ViewListIcon,
+    path: "/portal/inventory/stock-card",
+    description: "View detailed stock transaction history",
+  },
+};
+
+export type InventoryMenuKey = keyof typeof INVENTORY_MENU_ITEMS;
+
 export const INVENTORY_STATUS = [
   { label: "Rental", value: "rental" },
   { label: "Reserved", value: "reserved" },

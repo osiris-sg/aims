@@ -26,7 +26,11 @@
     "assign-osirisadmin": "ts-node scripts/assign-osirisadmin.ts",
     "debug-user-roles": "ts-node scripts/debug-user-roles.ts",
     "setup-database": "ts-node scripts/setup-database.ts",
-    "setup-user": "ts-node scripts/setup-user.ts"
+    "setup-user": "ts-node scripts/setup-user.ts",
+    "migrate-sales-nav": "ts-node scripts/migrate-to-sales-navigation.ts",
+    "migrate-sales-nav:dry": "ts-node scripts/migrate-to-sales-navigation.ts --dry-run",
+    "migrate-inventory-nav": "ts-node scripts/migrate-to-inventory-navigation.ts",
+    "migrate-inventory-nav:dry": "ts-node scripts/migrate-to-inventory-navigation.ts --dry-run"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.779.0",

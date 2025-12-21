@@ -8,6 +8,13 @@ export const ROUTES = {
   EDIT_ASSET: "/portal/assets/edit",
 
   INVENTORY: "/portal/inventory",
+  INVENTORY_PRODUCTS: "/portal/inventory/products",
+  INVENTORY_PURCHASES: "/portal/inventory/purchases",
+  INVENTORY_PURCHASES_RETURN: "/portal/inventory/purchases-return",
+  INVENTORY_ADJUSTMENT_IN: "/portal/inventory/adjustment-in",
+  INVENTORY_ADJUSTMENT_OUT: "/portal/inventory/adjustment-out",
+  INVENTORY_REPORTS: "/portal/inventory/reports",
+  INVENTORY_STOCK_CARD: "/portal/inventory/stock-card",
 
   CUSTOMERS: "/portal/customers",
 

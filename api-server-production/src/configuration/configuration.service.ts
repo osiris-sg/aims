@@ -76,14 +76,30 @@ export class ConfigurationService {
   async initializeDefaultModules(organizationId: string) {
     const defaultModules = [
       { moduleCode: 'DASHBOARD', displayName: 'Dashboard', icon: 'Dashboard', sortOrder: 0, config: { route: '/portal' } },
-      { moduleCode: 'INVENTORY', displayName: 'Inventory', icon: 'Inventory', sortOrder: 1, config: { route: '/portal/inventory' } },
-      { moduleCode: 'ASSETS', displayName: 'Products', icon: 'AnalyticsRounded', sortOrder: 2, config: { route: '/portal/assets' } },
-      { moduleCode: 'CUSTOMERS', displayName: 'Customers', icon: 'PeopleRounded', sortOrder: 3, config: { route: '/portal/customers' } },
+      {
+        moduleCode: 'INVENTORY',
+        displayName: 'Inventory',
+        icon: 'Inventory',
+        sortOrder: 1,
+        config: {
+          route: '/portal/inventory',
+          subMenus: [
+            { key: 'products', label: 'Products' },
+            { key: 'purchases', label: 'Purchases' },
+            { key: 'purchases-return', label: 'Purchases Return' },
+            { key: 'adjustment-in', label: 'Stock Adjustment In' },
+            { key: 'adjustment-out', label: 'Stock Adjustment Out' },
+            { key: 'reports', label: 'Reports' },
+            { key: 'stock-card', label: 'Stock Card' },
+          ],
+        },
+      },
+      { moduleCode: 'CUSTOMERS', displayName: 'Customers', icon: 'PeopleRounded', sortOrder: 2, config: { route: '/portal/customers' } },
       {
         moduleCode: 'SALES',
         displayName: 'Sales',
         icon: 'ShoppingCart',
-        sortOrder: 4,
+        sortOrder: 3,
         config: {
           route: '/portal/sales',
           subMenus: [
@@ -97,9 +113,9 @@ export class ConfigurationService {
           ],
         },
       },
-      { moduleCode: 'PROJECTS', displayName: 'Projects', icon: 'AccountTree', sortOrder: 5, config: { route: '/portal/projects' } },
-      { moduleCode: 'USER_MANAGEMENT', displayName: 'User Management', icon: 'PeopleRounded', sortOrder: 6, config: { route: '/portal/user-management', subMenus: ['users', 'roles'] } },
-      { moduleCode: 'AUDIT', displayName: 'Audit', icon: 'AnalyticsRounded', sortOrder: 7, config: { route: '/portal/audit' } },
+      { moduleCode: 'PROJECTS', displayName: 'Projects', icon: 'AccountTree', sortOrder: 4, config: { route: '/portal/projects' } },
+      { moduleCode: 'USER_MANAGEMENT', displayName: 'User Management', icon: 'PeopleRounded', sortOrder: 5, config: { route: '/portal/user-management', subMenus: ['users', 'roles'] } },
+      { moduleCode: 'AUDIT', displayName: 'Audit', icon: 'AnalyticsRounded', sortOrder: 6, config: { route: '/portal/audit' } },
     ];
 
     const modulePromises = defaultModules.map(module =>
