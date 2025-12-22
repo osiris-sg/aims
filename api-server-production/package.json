@@ -32,7 +32,15 @@
     "migrate-inventory-nav": "ts-node scripts/migrate-to-inventory-navigation.ts",
     "migrate-inventory-nav:dry": "ts-node scripts/migrate-to-inventory-navigation.ts --dry-run",
     "add-so-templates": "ts-node scripts/add-sales-order-templates.ts",
-    "add-so-templates:dry": "ts-node scripts/add-sales-order-templates.ts --dry-run"
+    "add-so-templates:dry": "ts-node scripts/add-sales-order-templates.ts --dry-run",
+    "add-po-templates": "ts-node scripts/add-purchase-order-templates.ts",
+    "add-po-templates:dry": "ts-node scripts/add-purchase-order-templates.ts --dry-run",
+    "add-pr-templates": "ts-node scripts/add-purchase-return-templates.ts",
+    "add-pr-templates:dry": "ts-node scripts/add-purchase-return-templates.ts --dry-run",
+    "add-sai-templates": "ts-node scripts/add-stock-adjustment-in-templates.ts",
+    "add-sai-templates:dry": "ts-node scripts/add-stock-adjustment-in-templates.ts --dry-run",
+    "add-sao-templates": "ts-node scripts/add-stock-adjustment-out-templates.ts",
+    "add-sao-templates:dry": "ts-node scripts/add-stock-adjustment-out-templates.ts --dry-run"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.779.0",

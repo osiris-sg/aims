@@ -12,6 +12,7 @@ import { useGetCustomers } from "@/app/portal/hooks/api";
 import { useGetProjects } from "@/containers/DocumentTemplates/hooks/useGetProjects";
 import { useGetDeliveryOrders } from "@/containers/DocumentTemplates/hooks/useGetDeliveryOrders";
 import { useGetSiteOffices } from "@/containers/DocumentTemplates/hooks/useGetSiteOffices";
+import { useGetSalesmen } from "@/containers/DocumentTemplates/hooks/useGetSalesmen";
 
 export default function EditDocumentPage() {
   const params = useParams();
@@ -67,6 +68,7 @@ export default function EditDocumentPage() {
   const { projects } = useGetProjects(selectedCustomerId); // Filter by customer
   const { deliveryOrders } = useGetDeliveryOrders(selectedCustomerId); // Filter by customer
   const { siteOffices, fetchSiteOffices } = useGetSiteOffices();
+  const { salesmen } = useGetSalesmen();
 
   const handleSave = async (data: any) => {
     try {
@@ -149,6 +151,7 @@ export default function EditDocumentPage() {
       projects={projectsList}
       deliveryOrders={deliveryOrdersList}
       siteOffices={siteOfficesList}
+      salesmen={salesmen}
       onCustomerChange={handleCustomerChange}
       organization={organization}
     />

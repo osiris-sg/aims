@@ -60,4 +60,13 @@ export class UpdateUserDto {
   @IsOptional()
   @IsString()
   organizationId?: string;
+
+  @ApiProperty({
+    description: 'The salesman code for the user (e.g., S001)',
+    example: 'S001',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  salesmanCode?: string;
 }

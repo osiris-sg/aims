@@ -12,6 +12,7 @@ import { useGetCustomers, useGetDocuments } from "@/app/portal/hooks/api";
 import { useGetProjects } from "@/containers/DocumentTemplates/hooks/useGetProjects";
 import { useGetDeliveryOrders } from "@/containers/DocumentTemplates/hooks/useGetDeliveryOrders";
 import { useGetSiteOffices } from "@/containers/DocumentTemplates/hooks/useGetSiteOffices";
+import { useGetSalesmen } from "@/containers/DocumentTemplates/hooks/useGetSalesmen";
 import { getTemplateFields } from "@/containers/DocumentTemplates/config/templateFieldDefinitions";
 import {
   transformFormDataForBackend,
@@ -207,6 +208,7 @@ export default function page() {
   const { projects } = useGetProjects(selectedCustomerId); // Filter by customer
   const { deliveryOrders } = useGetDeliveryOrders(selectedCustomerId); // Filter by customer
   const { siteOffices, fetchSiteOffices } = useGetSiteOffices();
+  const { salesmen } = useGetSalesmen();
 
   const handleSave = async (data: any) => {
     console.log("handleSave - Received data from TabbedDocumentCreator:", data);
@@ -339,6 +341,7 @@ export default function page() {
       projects={projectsList}
       deliveryOrders={deliveryOrdersList}
       siteOffices={siteOfficesList}
+      salesmen={salesmen}
       onCustomerChange={handleCustomerChange}
       organization={organization}
       onPrevious={handlePrevious}

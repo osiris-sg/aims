@@ -40,6 +40,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
       lastName: "",
       email: "",
       password: "",
+      salesmanCode: "",
     },
   });
 
@@ -88,6 +89,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
         email: data.email,
         password: data.password,
         roleIds: selectedRoles,
+        salesmanCode: data.salesmanCode || undefined,
       });
 
       // Reset form and close drawer after successful creation
@@ -96,6 +98,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
         lastName: "",
         email: "",
         password: "",
+        salesmanCode: "",
       });
       setSelectedRoles([]);
       setShowPassword(false);
@@ -271,6 +274,15 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
               </Grid>
 
               <Grid item xs={12}>
+                  <FormInputBox
+                    label="Salesman Code"
+                    control={control}
+                    name="salesmanCode"
+                    placeHolder="Enter salesman code (e.g., S001)"
+                  />
+                </Grid>
+
+              <Grid item xs={12}>
                   <FormControl fullWidth>
                     <InputLabel id="select-roles-label" sx={{ color: "#666666" }}>
                       Select Roles
@@ -366,6 +378,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                   lastName: "",
                   email: "",
                   password: "",
+                  salesmanCode: "",
                 });
                 setSelectedRoles([]);
                 setShowPassword(false);

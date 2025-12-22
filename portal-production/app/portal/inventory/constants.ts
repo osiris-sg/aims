@@ -68,6 +68,40 @@ export const INVENTORY_MENU_ITEMS = {
 
 export type InventoryMenuKey = keyof typeof INVENTORY_MENU_ITEMS;
 
+// Inventory document types for document filtering (similar to SALES_DOCUMENT_TYPES)
+export const INVENTORY_DOCUMENT_TYPES = {
+  PURCHASE_ORDER: {
+    types: ["PO", "PURCHASE_ORDER"],
+    label: "Purchase Order",
+    pluralLabel: "Purchase Orders",
+    icon: ShoppingCartIcon,
+    createDocumentType: "PO", // type field in DocumentTemplate table
+  },
+  PURCHASE_RETURN: {
+    types: ["PR", "PURCHASE_RETURN"],
+    label: "Purchase Return",
+    pluralLabel: "Purchase Returns",
+    icon: AssignmentReturnIcon,
+    createDocumentType: "PR",
+  },
+  STOCK_ADJUSTMENT_IN: {
+    types: ["SAI", "STOCK_ADJUSTMENT_IN"],
+    label: "Stock Adjustment In",
+    pluralLabel: "Stock Adjustments In",
+    icon: AddBoxIcon,
+    createDocumentType: "SAI",
+  },
+  STOCK_ADJUSTMENT_OUT: {
+    types: ["SAO", "STOCK_ADJUSTMENT_OUT"],
+    label: "Stock Adjustment Out",
+    pluralLabel: "Stock Adjustments Out",
+    icon: IndeterminateCheckBoxIcon,
+    createDocumentType: "SAO",
+  },
+};
+
+export type InventoryDocumentTypeKey = keyof typeof INVENTORY_DOCUMENT_TYPES;
+
 export const INVENTORY_STATUS = [
   { label: "Rental", value: "rental" },
   { label: "Reserved", value: "reserved" },

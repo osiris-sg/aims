@@ -31,6 +31,36 @@ export class DocumentTemplatesController {
     return await this.documentTemplatesService.getDocumentTemplates(getDocumentTemplateDto, organizationId);
   }
 
+  // IMPORTANT: Specific routes must come BEFORE the generic :id route
+  @Get('type/:type')
+  @Permissions('documentTemplates:read')
+  async getDocumentTemplateByType(@Param('type') type: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentTemplatesService.getDocumentTemplateByType(type, organizationId);
+  }
+
+  // Template Variants Management
+  @Get('variants/:type')
+  @Permissions('documentTemplates:read')
+  async getTemplateVariantsByType(@Param('type') type: string, @Req() req: RequestWithOrganization, @Headers('x-organization-id') headerOrgId?: string) {
+    // For admin panel, use the header org ID if provided, otherwise use user's org
+    const organizationId = headerOrgId || req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentTemplatesService.getTemplateVariantsByType(type, organizationId);
+  }
+
+  @Get('mock-data/:type')
+  @Permissions('documentTemplates:read')
+  async getMockDataForType(@Param('type') type: string) {
+    return await this.documentTemplatesService.getMockDataForType(type);
+  }
+
+  // Generic :id route must come AFTER all specific routes
   @Get(':id')
   @Permissions('documentTemplates:read-one')
   getDocumentTemplateByID(@Param('id') id: string, @Req() req: RequestWithOrganization) {
@@ -71,28 +101,6 @@ export class DocumentTemplatesController {
     return await this.documentTemplatesService.deleteDocumentTemplates(deleteDocumentTemplateDto, organizationId);
   }
 
-  @Get('type/:type')
-  @Permissions('documentTemplates:read')
-  async getDocumentTemplateByType(@Param('type') type: string, @Req() req: RequestWithOrganization) {
-    const organizationId = req.userOrganization?.id;
-    if (!organizationId) {
-      throw new Error('User is not assigned to any organization');
-    }
-    return await this.documentTemplatesService.getDocumentTemplateByType(type, organizationId);
-  }
-
-  // Template Variants Management
-  @Get('variants/:type')
-  @Permissions('documentTemplates:read')
-  async getTemplateVariantsByType(@Param('type') type: string, @Req() req: RequestWithOrganization, @Headers('x-organization-id') headerOrgId?: string) {
-    // For admin panel, use the header org ID if provided, otherwise use user's org
-    const organizationId = headerOrgId || req.userOrganization?.id;
-    if (!organizationId) {
-      throw new Error('User is not assigned to any organization');
-    }
-    return await this.documentTemplatesService.getTemplateVariantsByType(type, organizationId);
-  }
-
   @Post('variants/:id/activate')
   @Permissions('documentTemplates:update')
   async activateTemplateVariant(@Param('id') id: string, @Req() req: RequestWithOrganization, @Headers('x-organization-id') headerOrgId?: string) {
@@ -116,12 +124,6 @@ export class DocumentTemplatesController {
       throw new Error('User is not assigned to any organization');
     }
     return await this.documentTemplatesService.duplicateTemplateVariant(id, organizationId, body.designName, body.description);
-  }
-
-  @Get('mock-data/:type')
-  @Permissions('documentTemplates:read')
-  async getMockDataForType(@Param('type') type: string) {
-    return await this.documentTemplatesService.getMockDataForType(type);
   }
 
 }

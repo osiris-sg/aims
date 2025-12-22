@@ -79,6 +79,45 @@ export class OrganizationsController {
     }
   }
 
+  @Get('salesmen/list')
+  @UseGuards(ClerkAuthGuard)
+  async getSalesmen(@Req() req: RequestWithOrganization) {
+    console.log('=== GET /organizations/salesmen/list ===');
+    console.log('Request user:', (req as any).user?.id);
+    console.log('User organization:', req.userOrganization);
+
+    try {
+      const organization = req.userOrganization;
+
+      if (!organization) {
+        console.log('No organization found for user');
+        return {
+          success: false,
+          message: 'User is not assigned to any organization',
+          data: [],
+        };
+      }
+
+      console.log('Fetching salesmen for organization:', organization.id);
+      const salesmen = await this.organizationsService.getSalesmenByOrganization(organization.id);
+      console.log('Salesmen found:', salesmen.length);
+      console.log('Salesmen data:', JSON.stringify(salesmen, null, 2));
+
+      return {
+        success: true,
+        message: 'Salesmen retrieved successfully',
+        data: salesmen,
+      };
+    } catch (error: any) {
+      console.error('Error fetching salesmen:', error);
+      return {
+        success: false,
+        message: error.message || 'Failed to retrieve salesmen',
+        data: [],
+      };
+    }
+  }
+
   @Get(':id')
   @UseGuards(ClerkAuthGuard)
   @Permissions('organizations:read-one')
@@ -145,4 +184,5 @@ export class OrganizationsController {
       };
     }
   }
+
 }

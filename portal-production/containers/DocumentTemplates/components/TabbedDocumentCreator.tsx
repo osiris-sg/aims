@@ -60,6 +60,7 @@ import DocumentCustomizer from "./DocumentCustomizer";
 import DynamicFormFields from "./DynamicFormFields";
 import StockCardDialog from "./StockCardDialog";
 import CustomerSelectDialog from "./CustomerSelectDialog";
+import SalesmanSelectDialog from "./SalesmanSelectDialog";
 import PriceHistoryPopup from "@/components/PriceHistory/PriceHistoryPopup";
 import SendInvoiceEmailDialog from "@/app/portal/invoices/components/SendInvoiceEmailDialog";
 import RecordPaymentDialog from "@/app/portal/invoices/components/RecordPaymentDialog";
@@ -98,6 +99,7 @@ interface DocumentCreatorProps {
   projects?: any[];
   deliveryOrders?: any[];
   siteOffices?: any[];
+  salesmen?: any[];
   onCustomerChange?: (customerId: string) => void;
   organization?: any;
   // Navigation props for Previous/Next document navigation
@@ -116,6 +118,7 @@ export default function TabbedDocumentCreator({
   projects = [],
   deliveryOrders = [],
   siteOffices = [],
+  salesmen = [],
   documentId,
   onCustomerChange,
   organization,
@@ -176,6 +179,12 @@ export default function TabbedDocumentCreator({
 
   // Customer select dialog state
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
+  const [customerFieldName, setCustomerFieldName] = useState<string>("customer"); // Track which field opened the dialog
+  const [customerStoreMode, setCustomerStoreMode] = useState<"object" | "code">("object"); // How to store the selected customer
+
+  // Salesman select dialog state
+  const [salesmanDialogOpen, setSalesmanDialogOpen] = useState(false);
+  const [salesmanFieldName, setSalesmanFieldName] = useState<string>("documentInfo.salesPerson"); // Track which field opened the dialog
 
   // Dynamic form field configuration
   const [templateFieldConfig, setTemplateFieldConfig] = useState<TemplateFieldConfig | null>(null);
@@ -1387,7 +1396,22 @@ export default function TabbedDocumentCreator({
                     projects={projects}
                     deliveryOrders={deliveryOrders}
                     siteOffices={siteOffices}
-                    onOpenCustomerDialog={() => setCustomerDialogOpen(true)}
+                    salesmen={salesmen}
+                    onOpenCustomerDialog={(fieldName?: string) => {
+                      // If fieldName is not 'customer', it's a supplier field that stores just the code
+                      if (fieldName && fieldName !== 'customer') {
+                        setCustomerFieldName(fieldName);
+                        setCustomerStoreMode("code");
+                      } else {
+                        setCustomerFieldName("customer");
+                        setCustomerStoreMode("object");
+                      }
+                      setCustomerDialogOpen(true);
+                    }}
+                    onOpenSalesmanDialog={(fieldName?: string) => {
+                      setSalesmanFieldName(fieldName || "documentInfo.salesPerson");
+                      setSalesmanDialogOpen(true);
+                    }}
                   />
                 </CardContent>
               </Card>
@@ -2669,19 +2693,58 @@ export default function TabbedDocumentCreator({
         onClose={() => setCustomerDialogOpen(false)}
         customers={customers}
         onSelectCustomer={(customer) => {
-          setFormData({
-            ...formData,
-            customer: {
-              id: customer.id || "",
-              name: customer.name || "",
-              address: customer.address || "",
-              email: customer.email || "",
-            },
-          });
-          // Call the customer change handler to fetch related data
-          if (onCustomerChange && customer.id) {
-            onCustomerChange(customer.id);
+          if (customerStoreMode === "code") {
+            // For supplier field: store just the customer code at the specified field path
+            const setNestedValue = (obj: any, path: string, value: any) => {
+              const newObj = JSON.parse(JSON.stringify(obj));
+              const parts = path.split('.');
+              let current = newObj;
+              for (let i = 0; i < parts.length - 1; i++) {
+                if (!current[parts[i]]) current[parts[i]] = {};
+                current = current[parts[i]];
+              }
+              current[parts[parts.length - 1]] = value;
+              return newObj;
+            };
+            setFormData(setNestedValue(formData, customerFieldName, customer.customerCode || ""));
+          } else {
+            // For regular customer field: store full customer object
+            setFormData({
+              ...formData,
+              customer: {
+                id: customer.id || "",
+                name: customer.name || "",
+                address: customer.address || "",
+                email: customer.email || "",
+              },
+            });
+            // Call the customer change handler to fetch related data
+            if (onCustomerChange && customer.id) {
+              onCustomerChange(customer.id);
+            }
           }
+        }}
+      />
+
+      {/* Salesman Select Dialog */}
+      <SalesmanSelectDialog
+        open={salesmanDialogOpen}
+        onClose={() => setSalesmanDialogOpen(false)}
+        salesmen={salesmen}
+        onSelectSalesman={(salesman) => {
+          // Set the value at the tracked field path (e.g., "documentInfo.salesPerson" or "documentInfo.purchaserCode")
+          const setNestedValue = (obj: any, path: string, value: any) => {
+            const newObj = JSON.parse(JSON.stringify(obj)); // Deep clone
+            const parts = path.split('.');
+            let current = newObj;
+            for (let i = 0; i < parts.length - 1; i++) {
+              if (!current[parts[i]]) current[parts[i]] = {};
+              current = current[parts[i]];
+            }
+            current[parts[parts.length - 1]] = value;
+            return newObj;
+          };
+          setFormData(setNestedValue(formData, salesmanFieldName, salesman.salesmanCode || ""));
         }}
       />
     </Box>

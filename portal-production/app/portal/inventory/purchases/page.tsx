@@ -1,64 +1,386 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import { useAuth } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
+import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
-import { Box, Typography, Button } from "@mui/material";
-import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
-import ConstructionIcon from "@mui/icons-material/Construction";
+import PageTable from "@/components/PageTable";
+import { Box, IconButton, Alert } from "@mui/material";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import DownloadIcon from "@mui/icons-material/Download";
+import { useRouter } from "next/navigation";
+import moment from "moment";
+import { toast } from "react-toastify";
+import { DOCUMENT_API } from "@/app/portal/documents/constants";
+import { INVENTORY_DOCUMENT_TYPES } from "../constants";
+
+interface Document {
+  id: string;
+  name: string;
+  associated_item: string;
+  associated_customer: string;
+  status: string;
+  documentType: string;
+  templateId: string;
+  createdAt: string;
+  config?: {
+    dueDate?: string;
+    supplierCode?: string;
+    [key: string]: any;
+  };
+}
+
+interface Customer {
+  id: string;
+  name: string;
+  email?: string;
+  address?: string;
+}
+
+interface PaginatedResponse {
+  docs: Document[];
+  totalDocs: number;
+  limit: number;
+  totalPages: number;
+  page: number;
+  pagingCounter: number;
+  hasPrevPage: boolean;
+  hasNextPage: boolean;
+  prevPage: number | null;
+  nextPage: null;
+}
+
+interface Filters {
+  status?: string;
+  category?: string;
+  createdOn?: {
+    startDate: string | null;
+    endDate: string | null;
+  };
+  [key: string]: any;
+}
 
 export default function PurchasesPage() {
+  const router = useRouter();
+  const { organization } = useOrganization();
+  const { getToken } = useAuth();
+  const organizationId = organization?.id;
+  const config = INVENTORY_DOCUMENT_TYPES.PURCHASE_ORDER;
+
+  const [documents, setDocuments] = useState<PaginatedResponse>({
+    docs: [],
+    totalDocs: 0,
+    limit: 10,
+    totalPages: 0,
+    page: 1,
+    pagingCounter: 0,
+    hasPrevPage: false,
+    hasNextPage: false,
+    prevPage: null,
+    nextPage: null,
+  });
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<Filters>({
+    status: "",
+    category: "",
+    createdOn: {
+      startDate: null,
+      endDate: null,
+    },
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [supplierDrawerOpen, setSupplierDrawerOpen] = useState(false);
+  const [isDocumentTemplateUpdating, setIsDocumentTemplateUpdating] = useState(false);
+
+  const columns = [
+    {
+      accessorKey: "name",
+      header: "PO Number",
+      cell: ({ row }: any) => row.original.name,
+    },
+    {
+      accessorKey: "supplierCode",
+      header: "Supplier",
+      cell: ({ row }: any) => row.original.config?.supplierCode || "N/A",
+    },
+    {
+      accessorKey: "associated_item",
+      header: "Associated Item",
+    },
+    {
+      accessorKey: "deliveryDate",
+      header: "Delivery Date",
+      cell: ({ row }: any) => {
+        const deliveryDate = row.original.config?.deliveryDate;
+        return deliveryDate ? moment(deliveryDate).format("DD/MM/YYYY") : "N/A";
+      },
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }: any) => {
+        const status = row.original.status;
+        const formatStatus = (status: string) => {
+          if (!status) return "Draft";
+          return status
+            .split("_")
+            .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(" ");
+        };
+
+        const getStatusColor = (status: string) => {
+          switch (status) {
+            case "draft":
+              return "text.secondary";
+            case "pending":
+              return "warning.main";
+            case "confirmed":
+              return "info.main";
+            case "received":
+              return "success.main";
+            case "cancelled":
+              return "error.main";
+            default:
+              return "text.primary";
+          }
+        };
+
+        return (
+          <Box
+            sx={{
+              color: getStatusColor(status || "draft"),
+              fontWeight: 500,
+              textTransform: "capitalize",
+            }}
+          >
+            {formatStatus(status || "draft")}
+          </Box>
+        );
+      },
+    },
+    {
+      accessorKey: "createdAt",
+      header: "Created Date",
+      cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
+    },
+    {
+      accessorKey: "action",
+      header: "Action",
+      cell: ({ row }: any) => {
+        const { documentType, templateId, id } = row.original;
+
+        const handleDownload = () => {
+          const viewUrl = `/portal/documents/view/${documentType}/${templateId}/${id}?autoprint=true`;
+          window.open(viewUrl, "_blank");
+        };
+
+        return (
+          <Box sx={{ display: "flex", gap: "var(--default-gap)" }}>
+            <IconButton
+              onClick={() => router.push(`/portal/documents/${documentType}/${templateId}/${id}`)}
+              sx={{
+                color: "customYellow.contrastText",
+                bgcolor: "customYellow.main",
+                "&:hover": {
+                  bgcolor: "customYellow.dark",
+                },
+                borderRadius: "8px",
+              }}
+            >
+              <VisibilityIcon />
+            </IconButton>
+            <IconButton
+              onClick={handleDownload}
+              sx={{
+                color: "white",
+                bgcolor: "primary.main",
+                "&:hover": {
+                  bgcolor: "primary.dark",
+                },
+                borderRadius: "8px",
+              }}
+            >
+              <DownloadIcon />
+            </IconButton>
+          </Box>
+        );
+      },
+    },
+  ];
+
+  const serializeDate = (date: Date | null) => {
+    if (!date) return null;
+    return JSON.parse(JSON.stringify(date));
+  };
+
+  const handleSetFilters = (newFilters: Filters) => {
+    const updatedFilters = {
+      ...newFilters,
+      createdOn: {
+        startDate: newFilters.createdOn?.startDate ? serializeDate(new Date(newFilters.createdOn.startDate)) : null,
+        endDate: newFilters.createdOn?.endDate ? serializeDate(new Date(newFilters.createdOn.endDate)) : null,
+      },
+    };
+    setFilters(updatedFilters);
+  };
+
+  const fetchDocuments = useCallback(async () => {
+    if (!organizationId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await request(
+        {
+          path: DOCUMENT_API.GET_ALL.path,
+          method: "POST",
+        },
+        { organizationId },
+        token
+      );
+      if (response.success) {
+        const purchaseOrderDocs = response.data.filter((doc: any) =>
+          config.types.includes(doc.documentType)
+        );
+        setDocuments({
+          docs: purchaseOrderDocs,
+          totalDocs: purchaseOrderDocs.length,
+          limit,
+          totalPages: 1,
+          page: 1,
+          pagingCounter: 1,
+          hasPrevPage: false,
+          hasNextPage: false,
+          prevPage: null,
+          nextPage: null,
+        });
+      } else {
+        setError(response.message || "Failed to fetch documents");
+      }
+    } catch (error) {
+      console.error("Error fetching documents:", error);
+      setError("An error occurred while fetching documents");
+    } finally {
+      setLoading(false);
+    }
+  }, [organizationId, getToken, limit, config.types]);
+
+  useEffect(() => {
+    fetchDocuments();
+  }, [fetchDocuments]);
+
+  const getTemplateIdByType = async (documentType: string, token: string) => {
+    try {
+      const response = await request(
+        {
+          path: `/documentTemplates/type/${documentType}`,
+          method: "GET",
+        },
+        {},
+        token
+      );
+
+      if (response?.success && response.data?.id) {
+        return response.data.id;
+      } else {
+        console.warn("Template ID not found");
+        return documentType;
+      }
+    } catch (error) {
+      console.error("Error fetching template ID by type:", error);
+      return documentType;
+    }
+  };
+
+  const handleCreatePOClick = () => {
+    // For PO, we might want supplier selection instead of customer
+    // For now, directly create the document
+    onSubmit({ documentType: config.createDocumentType });
+  };
+
+  const onSubmit = async (data: any, supplier?: Customer) => {
+    try {
+      setIsDocumentTemplateUpdating(true);
+      const token = await getToken();
+
+      const documentTemplateId = await getTemplateIdByType(data.documentType, token ?? "");
+
+      const requestPayload = {
+        type: data.documentType,
+        config: supplier ? { supplierId: supplier.id } : {},
+        documentTemplateId: documentTemplateId,
+        organizationId: organizationId,
+      };
+
+      const response = await request(
+        {
+          path: "/documents/basic",
+          method: "POST",
+        },
+        requestPayload,
+        token ?? undefined
+      );
+
+      if (!response || !response.success) {
+        alert(`Failed to create document: ${response?.message || "Unknown error"}`);
+        return;
+      }
+
+      const createdDocumentId = response?.data?.id;
+      if (!createdDocumentId) {
+        alert("Failed to create document: No document ID returned");
+        return;
+      }
+
+      const url = `/portal/documents/${data.documentType}/${documentTemplateId}/${createdDocumentId}`;
+
+      toast.success("Purchase Order created successfully! Redirecting...");
+
+      setTimeout(() => {
+        router.push(url);
+      }, 500);
+    } catch (error) {
+      console.error("Error submitting form:", error);
+      alert(`Error creating Purchase Order: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setIsDocumentTemplateUpdating(false);
+    }
+  };
+
   return (
     <MainCard>
-      <Box
-        sx={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          minHeight: "60vh",
-          textAlign: "center",
-          gap: 3,
-        }}
-      >
-        <Box
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            width: 80,
-            height: 80,
-            borderRadius: "50%",
-            bgcolor: "primary.light",
-            mb: 2,
-          }}
-        >
-          <ShoppingCartIcon sx={{ fontSize: 40, color: "primary.main" }} />
-        </Box>
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
-        <Typography variant="h4" gutterBottom>
-          Purchases
-        </Typography>
-
-        <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 500 }}>
-          Record and manage purchase orders from suppliers. Track incoming stock and maintain supplier relationships.
-        </Typography>
-
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 2, color: "warning.main" }}>
-          <ConstructionIcon />
-          <Typography variant="body2" color="warning.main">
-            This feature is coming soon
-          </Typography>
-        </Box>
-
-        <Button
-          variant="contained"
-          disabled
-          startIcon={<ShoppingCartIcon />}
-          sx={{ mt: 2 }}
-        >
-          Create Purchase Order
-        </Button>
-      </Box>
+      <PageTable
+        columns={columns}
+        data={documents.docs}
+        tableName={`${config.label} List`}
+        subTitle={`${config.label} Detail Information`}
+        buttonName={`Create ${config.label}`}
+        onAddClick={handleCreatePOClick}
+        loading={loading || isDocumentTemplateUpdating}
+        page={page}
+        limit={limit}
+        search={search}
+        filters={filters}
+        setPage={setPage}
+        setLimit={setLimit}
+        setSearch={setSearch}
+        setFilters={handleSetFilters}
+        availableFilters={["status", "createdOn"]}
+        pageCount={documents.totalPages}
+        totalDocs={documents.totalDocs}
+      />
     </MainCard>
   );
 }

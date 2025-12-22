@@ -46,4 +46,13 @@ export class CreateUserDto {
   @IsString()
   @IsOptional()
   organizationId?: string;
+
+  @ApiProperty({
+    description: 'The salesman code for the user (e.g., S001)',
+    example: 'S001',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  salesmanCode?: string;
 }

@@ -240,6 +240,7 @@ model UserOrganization {
   id             String       @id @default(uuid())
   userId         String
   organizationId String
+  salesmanCode   String?      // Auto-generated code like S001, S002
   isActive       Boolean      @default(true)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
@@ -249,6 +250,7 @@ model UserOrganization {
   organization   Organization @relation(fields: [organizationId], references: [id])
 
   @@unique([userId, organizationId])
+  @@unique([salesmanCode, organizationId])
 }
 
 model Project {

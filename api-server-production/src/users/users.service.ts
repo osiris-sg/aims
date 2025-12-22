@@ -259,10 +259,12 @@ export class UsersService {
       },
       update: {
         isActive: true,
+        salesmanCode: createUserDto.salesmanCode || undefined,
       },
       create: {
         userId,
         organizationId,
+        salesmanCode: createUserDto.salesmanCode || null,
         isActive: true,
       },
     });
@@ -395,10 +397,12 @@ export class UsersService {
         },
         update: {
           isActive: true,
+          salesmanCode: updateUserDto.salesmanCode || undefined,
         },
         create: {
           userId,
           organizationId,
+          salesmanCode: updateUserDto.salesmanCode || null,
           isActive: true,
         },
       });

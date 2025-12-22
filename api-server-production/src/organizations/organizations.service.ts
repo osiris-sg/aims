@@ -1,9 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { ClerkClient } from '@clerk/backend';
 
 @Injectable()
 export class OrganizationsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject('ClerkClient')
+    private readonly clerkClient: ClerkClient,
+  ) {}
 
   async create(data: {
     name: string;
@@ -108,7 +113,7 @@ export class OrganizationsService {
     });
   }
 
-  async assignUserToOrganization(userId: string, organizationId: string) {
+  async assignUserToOrganization(userId: string, organizationId: string, salesmanCode?: string) {
     return this.prisma.userOrganization.upsert({
       where: {
         userId_organizationId: {
@@ -119,10 +124,12 @@ export class OrganizationsService {
       update: {
         isActive: true,
         updatedAt: new Date(),
+        salesmanCode: salesmanCode || undefined,
       },
       create: {
         userId,
         organizationId,
+        salesmanCode: salesmanCode || null,
         isActive: true,
       },
     });
@@ -174,5 +181,60 @@ export class OrganizationsService {
         },
       },
     });
+  }
+
+  async getSalesmenByOrganization(organizationId: string) {
+    console.log('=== getSalesmenByOrganization ===');
+    console.log('Organization ID:', organizationId);
+
+    // Get all users in this organization
+    const userOrgs = await this.prisma.userOrganization.findMany({
+      where: {
+        organizationId,
+        isActive: true,
+      },
+      select: {
+        userId: true,
+        salesmanCode: true,
+      },
+    });
+
+    console.log('User organizations found:', userOrgs.length);
+    console.log('User orgs data:', JSON.stringify(userOrgs, null, 2));
+
+    // Fetch user details from Clerk for each user
+    const salesmen = await Promise.all(
+      userOrgs.map(async (uo) => {
+        try {
+          console.log('Fetching Clerk user:', uo.userId);
+          const clerkUser = await this.clerkClient.users.getUser(uo.userId);
+          console.log('Clerk user found:', clerkUser.firstName, clerkUser.lastName);
+
+          const name = `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim()
+            || clerkUser.username
+            || clerkUser.emailAddresses[0]?.emailAddress
+            || 'Unknown';
+
+          return {
+            id: uo.userId,
+            salesmanCode: uo.salesmanCode || '',
+            name,
+            email: clerkUser.emailAddresses[0]?.emailAddress || '',
+          };
+        } catch (error) {
+          console.error('Error fetching Clerk user:', uo.userId, error);
+          // If Clerk fetch fails, return with basic info
+          return {
+            id: uo.userId,
+            salesmanCode: uo.salesmanCode || '',
+            name: 'Unknown',
+            email: '',
+          };
+        }
+      })
+    );
+
+    console.log('Final salesmen list:', salesmen.length);
+    return salesmen;
   }
 }

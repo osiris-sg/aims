@@ -19,85 +19,256 @@ import {
 import { Search as SearchIcon } from '@mui/icons-material';
 import { FieldDefinition } from '../config/templateFieldDefinitions';
 
-// Separate component for customer field to properly use hooks
+// Salesman interface
+interface Salesman {
+  id: string;
+  salesmanCode: string;
+  name: string;
+  email?: string;
+}
+
+// Separate component for customer/supplier field to properly use hooks
 interface CustomerCodeFieldProps {
   customers: any[];
   formData: any;
   setFormData: (data: any) => void;
-  onOpenDialog?: () => void;
+  onOpenDialog?: (fieldName?: string) => void;
   inputSx: any;
+  fieldName?: string; // e.g., "customer" or "documentInfo.supplierCode" - defaults to "customer"
+  storeMode?: 'object' | 'code'; // 'object' stores full customer object, 'code' stores just the code string
 }
 
-function CustomerCodeField({ customers, formData, setFormData, onOpenDialog, inputSx }: CustomerCodeFieldProps) {
-  const selectedCustomer = customers.find((c: any) => c.id === formData.customer?.id);
-  const [customerCodeInput, setCustomerCodeInput] = React.useState(
-    selectedCustomer?.customerCode || ''
-  );
+function CustomerCodeField({
+  customers,
+  formData,
+  setFormData,
+  onOpenDialog,
+  inputSx,
+  fieldName = 'customer',
+  storeMode = 'object'
+}: CustomerCodeFieldProps) {
+  // Helper to get nested value
+  const getNestedVal = (obj: any, path: string) => {
+    return path.split('.').reduce((acc, part) => acc && acc[part], obj);
+  };
 
-  // Display value: code + name when customer is selected
-  const displayValue = selectedCustomer
-    ? `${selectedCustomer.customerCode || ''} ${selectedCustomer.name || ''}`.trim()
-    : customerCodeInput;
+  // Helper to set nested value
+  const setNestedVal = (obj: any, path: string, value: any) => {
+    const newObj = JSON.parse(JSON.stringify(obj));
+    const parts = path.split('.');
+    let current = newObj;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (!current[parts[i]]) current[parts[i]] = {};
+      current = current[parts[i]];
+    }
+    current[parts[parts.length - 1]] = value;
+    return newObj;
+  };
+
+  // For object mode, find customer by ID; for code mode, find by code
+  const currentValue = getNestedVal(formData, fieldName);
+  const selectedCustomer = storeMode === 'object'
+    ? customers.find((c: any) => c.id === currentValue?.id)
+    : customers.find((c: any) => c.customerCode === currentValue);
+
+  const [customerCodeInput, setCustomerCodeInput] = React.useState(
+    selectedCustomer?.customerCode || (storeMode === 'code' ? currentValue : '') || ''
+  );
 
   // Update input when selected customer changes
   React.useEffect(() => {
     if (selectedCustomer?.customerCode) {
       setCustomerCodeInput(selectedCustomer.customerCode);
+    } else if (storeMode === 'code') {
+      const val = getNestedVal(formData, fieldName) || '';
+      setCustomerCodeInput(val);
     }
-  }, [selectedCustomer?.customerCode]);
+  }, [selectedCustomer?.customerCode, formData, fieldName, storeMode]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      // Search for customer by code (case-insensitive)
       const foundCustomer = customers.find(
         (c: any) => c.customerCode?.toLowerCase() === customerCodeInput.toLowerCase()
       );
       if (foundCustomer) {
-        setFormData({
-          ...formData,
-          customer: {
-            id: foundCustomer.id || '',
-            name: foundCustomer.name || '',
-            address: foundCustomer.address || '',
-            email: foundCustomer.email || '',
-          },
-        });
+        if (storeMode === 'object') {
+          setFormData({
+            ...formData,
+            customer: {
+              id: foundCustomer.id || '',
+              name: foundCustomer.name || '',
+              address: foundCustomer.address || '',
+              email: foundCustomer.email || '',
+            },
+          });
+        } else {
+          setFormData(setNestedVal(formData, fieldName, foundCustomer.customerCode));
+        }
       }
     }
   };
 
   return (
-    <TextField
-      value={selectedCustomer ? displayValue : customerCodeInput}
-      onChange={(e) => {
-        // If user starts typing, clear selected customer and allow typing
-        if (selectedCustomer) {
-          setFormData({
-            ...formData,
-            customer: { id: '', name: '', address: '', email: '' },
-          });
-        }
-        setCustomerCodeInput(e.target.value.toUpperCase());
-      }}
-      onKeyDown={handleKeyDown}
-      size="small"
-      sx={{ ...inputSx, flex: 1, minWidth: 150 }}
-      InputProps={{
-        startAdornment: (
-          <InputAdornment position="start" sx={{ mr: 0 }}>
-            <IconButton
-              size="small"
-              onClick={() => onOpenDialog?.()}
-              sx={{ p: 0.25, ml: -0.5 }}
-              title="Search customers"
-            >
-              <SearchIcon sx={{ fontSize: 16 }} />
-            </IconButton>
-          </InputAdornment>
-        ),
-      }}
-    />
+    <Box sx={{ display: 'flex', alignItems: 'center', flex: 1, gap: 1 }}>
+      <TextField
+        value={selectedCustomer ? (selectedCustomer.customerCode || '') : customerCodeInput}
+        onChange={(e) => {
+          const newVal = e.target.value.toUpperCase();
+          if (storeMode === 'object') {
+            if (selectedCustomer) {
+              setFormData({
+                ...formData,
+                customer: { id: '', name: '', address: '', email: '' },
+              });
+            }
+            setCustomerCodeInput(newVal);
+          } else {
+            setCustomerCodeInput(newVal);
+            setFormData(setNestedVal(formData, fieldName, newVal));
+          }
+        }}
+        onKeyDown={handleKeyDown}
+        size="small"
+        sx={{ ...inputSx, width: 100, minWidth: 80 }}
+        InputProps={{
+          startAdornment: (
+            <InputAdornment position="start" sx={{ mr: 0 }}>
+              <IconButton
+                size="small"
+                onClick={() => onOpenDialog?.(fieldName)}
+                sx={{ p: 0.25, ml: -0.5 }}
+                title="Search"
+              >
+                <SearchIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </InputAdornment>
+          ),
+        }}
+      />
+      {selectedCustomer?.name && (
+        <Typography
+          sx={{
+            fontSize: '0.75rem',
+            fontWeight: 400,
+            color: 'text.secondary',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {selectedCustomer.name}
+        </Typography>
+      )}
+    </Box>
+  );
+}
+
+// Separate component for salesman/purchaser field to properly use hooks
+interface SalesmanCodeFieldProps {
+  salesmen: Salesman[];
+  formData: any;
+  setFormData: (data: any) => void;
+  onOpenDialog?: (fieldName?: string) => void;
+  inputSx: any;
+  fieldName: string; // e.g., "documentInfo.salesPerson" or "documentInfo.purchaserCode"
+}
+
+// Helper to get nested value from object path
+const getNestedVal = (obj: any, path: string) => {
+  return path.split('.').reduce((acc, part) => acc && acc[part], obj);
+};
+
+// Helper to set nested value in object
+const setNestedVal = (obj: any, path: string, value: any) => {
+  const newObj = JSON.parse(JSON.stringify(obj)); // Deep clone
+  const parts = path.split('.');
+  let current = newObj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (!current[parts[i]]) current[parts[i]] = {};
+    current = current[parts[i]];
+  }
+  current[parts[parts.length - 1]] = value;
+  return newObj;
+};
+
+function SalesmanCodeField({ salesmen, formData, setFormData, onOpenDialog, inputSx, fieldName }: SalesmanCodeFieldProps) {
+  // Extract salesmen array - handle both direct array and response object with data property
+  const salesmenArray = React.useMemo(() => {
+    if (Array.isArray(salesmen)) {
+      return salesmen;
+    }
+    // Handle case where full API response is passed: {success, message, data: [...]}
+    if (salesmen && typeof salesmen === 'object' && 'data' in salesmen && Array.isArray((salesmen as any).data)) {
+      return (salesmen as any).data;
+    }
+    return [];
+  }, [salesmen]);
+
+  const currentValue = getNestedVal(formData, fieldName) || '';
+  const selectedSalesman = salesmenArray.find((s: Salesman) => s.salesmanCode === currentValue);
+  const [codeInput, setCodeInput] = React.useState(currentValue);
+
+  // Update input when value changes
+  React.useEffect(() => {
+    const val = getNestedVal(formData, fieldName) || '';
+    setCodeInput(val);
+  }, [formData, fieldName]);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const found = salesmenArray.find(
+        (s: Salesman) => s.salesmanCode?.toLowerCase() === codeInput.toLowerCase()
+      );
+      if (found) {
+        setFormData(setNestedVal(formData, fieldName, found.salesmanCode));
+      }
+    }
+  };
+
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', flex: 1, gap: 1 }}>
+      <TextField
+        value={codeInput}
+        onChange={(e) => {
+          const newVal = e.target.value.toUpperCase();
+          setCodeInput(newVal);
+          setFormData(setNestedVal(formData, fieldName, newVal));
+        }}
+        onKeyDown={handleKeyDown}
+        size="small"
+        sx={{ ...inputSx, width: 80, minWidth: 60 }}
+        InputProps={{
+          startAdornment: (
+            <InputAdornment position="start" sx={{ mr: 0 }}>
+              <IconButton
+                size="small"
+                onClick={() => onOpenDialog?.(fieldName)}
+                sx={{ p: 0.25, ml: -0.5 }}
+                title="Search"
+              >
+                <SearchIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </InputAdornment>
+          ),
+        }}
+      />
+      {selectedSalesman?.name && (
+        <Typography
+          sx={{
+            fontSize: '0.75rem',
+            fontWeight: 400,
+            color: 'text.secondary',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {selectedSalesman.name}
+        </Typography>
+      )}
+    </Box>
   );
 }
 
@@ -109,7 +280,9 @@ interface DynamicFormFieldsProps {
   projects?: any[];
   deliveryOrders?: any[];
   siteOffices?: any[];
-  onOpenCustomerDialog?: () => void;
+  salesmen?: Salesman[];
+  onOpenCustomerDialog?: (fieldName?: string) => void;
+  onOpenSalesmanDialog?: (fieldName?: string) => void;
 }
 
 // Currency options
@@ -163,7 +336,9 @@ export default function DynamicFormFields({
   projects = [],
   deliveryOrders = [],
   siteOffices = [],
+  salesmen = [],
   onOpenCustomerDialog,
+  onOpenSalesmanDialog,
 }: DynamicFormFieldsProps) {
 
   // Helper to get nested value from object path
@@ -206,6 +381,32 @@ export default function DynamicFormFields({
             setFormData={setFormData}
             onOpenDialog={onOpenCustomerDialog}
             inputSx={inputSx}
+          />
+        );
+
+      case 'supplier':
+        // Supplier uses the same customer data but stores just the code in a specific field
+        return (
+          <CustomerCodeField
+            customers={customers}
+            formData={formData}
+            setFormData={setFormData}
+            onOpenDialog={onOpenCustomerDialog}
+            inputSx={inputSx}
+            fieldName={field.fieldName}
+            storeMode="code"
+          />
+        );
+
+      case 'salesman':
+        return (
+          <SalesmanCodeField
+            salesmen={salesmen}
+            formData={formData}
+            setFormData={setFormData}
+            onOpenDialog={onOpenSalesmanDialog}
+            inputSx={inputSx}
+            fieldName={field.fieldName}
           />
         );
 
