@@ -131,4 +131,14 @@ export class InventoriesController {
     }
     return this.inventoriesService.getInventoriesByIds(getInventoriesByIdsDto, organizationId);
   }
+
+  @Get(':id/stock-movements')
+  @Permissions('inventories:read')
+  async getStockMovements(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.inventoriesService.getStockMovementHistory(id, organizationId);
+  }
 }

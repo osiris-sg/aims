@@ -391,8 +391,7 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
               <ProductQuantityAdjuster
                 assetId={asset.id}
                 currentQuantity={asset.quantity ?? 0}
-                assetName={asset.name}
-                onQuantityChange={fetchAsset}
+                onUpdate={fetchAsset}
               />
             </Box>
 

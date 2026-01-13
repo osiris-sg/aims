@@ -1547,6 +1547,219 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
 
   // STOCK_ADJUSTMENT_OUT - Alias for SAO
   STOCK_ADJUSTMENT_OUT: { tabs: [] as TabDefinition[] }, // Will be mapped to SAO in getTemplateFields
+
+  // ========================================
+  // QUOTATION DOCUMENTS
+  // ========================================
+
+  // QT - Quotation
+  // Based on legacy accounting system layout
+  // Layout: Left column = form fields (labels on left), Right column = summary/totals
+  QT: {
+    tabs: [
+      {
+        tabId: "general",
+        tabLabel: "General",
+        fields: [
+          // === LEFT COLUMN FIELDS (in order) ===
+          {
+            fieldName: "documentInfo.documentNumber",
+            displayLabel: "Quotation No.",
+            fieldType: "text",
+            required: true,
+          },
+          {
+            fieldName: "documentInfo.date",
+            displayLabel: "Date",
+            fieldType: "date",
+            required: true,
+          },
+          {
+            fieldName: "customer",
+            displayLabel: "Customer code",
+            fieldType: "customer",
+            required: true,
+            dataSource: "customers",
+          },
+          {
+            fieldName: "documentInfo.salesPerson",
+            displayLabel: "Salesman code",
+            fieldType: "salesman",
+            required: false,
+            defaultValue: "",
+            dataSource: "salesmen",
+          },
+          {
+            fieldName: "documentInfo.referenceNo",
+            displayLabel: "Your Reference",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.contact",
+            displayLabel: "Contact",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.paymentTerms",
+            displayLabel: "Terms",
+            fieldType: "text",
+            required: false,
+            defaultValue: "CASH",
+          },
+          // === RIGHT COLUMN FIELDS (summary/totals - in order) ===
+          {
+            fieldName: "documentInfo.rate",
+            displayLabel: "Rate",
+            fieldType: "number",
+            required: false,
+            defaultValue: 1.0,
+          },
+          {
+            fieldName: "documentInfo.currency",
+            displayLabel: "Currency",
+            fieldType: "select",
+            required: false,
+            defaultValue: "SGD",
+            dataSource: "currencies",
+          },
+          {
+            fieldName: "documentInfo.grossTotal",
+            displayLabel: "Gross Total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.discountPercent",
+            displayLabel: "Disc %",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.discountAmount",
+            displayLabel: "Discount Amount",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.subTotal",
+            displayLabel: "Sub-total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.taxApplicable",
+            displayLabel: "Tax",
+            fieldType: "select",
+            required: false,
+            defaultValue: "N",
+            dataSource: "yesNo",
+          },
+          {
+            fieldName: "documentInfo.absorbTax",
+            displayLabel: "Absorb Tax",
+            fieldType: "select",
+            required: false,
+            defaultValue: "N",
+            dataSource: "yesNo",
+          },
+          {
+            fieldName: "documentInfo.gstPercent",
+            displayLabel: "GST",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.gstAmount",
+            displayLabel: "GST Amount",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.nettTotal",
+            displayLabel: "Nett Total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+        ],
+      },
+      {
+        tabId: "details",
+        tabLabel: "Details",
+        fields: [
+          {
+            fieldName: "documentInfo.remarks",
+            displayLabel: "Remarks",
+            fieldType: "textarea",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.validityPeriod",
+            displayLabel: "Validity Period",
+            fieldType: "text",
+            required: false,
+            defaultValue: "30 days",
+          },
+        ],
+      },
+      {
+        tabId: "deliveryAddress",
+        tabLabel: "Delivery Address",
+        fields: [
+          {
+            fieldName: "deliveryAddress.line1",
+            displayLabel: "Address Line 1",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "deliveryAddress.line2",
+            displayLabel: "Address Line 2",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "deliveryAddress.city",
+            displayLabel: "City",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "deliveryAddress.postalCode",
+            displayLabel: "Postal Code",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "deliveryAddress.country",
+            displayLabel: "Country",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "deliveryAddress.attention",
+            displayLabel: "Attention",
+            fieldType: "text",
+            required: false,
+          },
+        ],
+      },
+    ],
+  },
+
+  // QUOTATION - Alias for QT
+  QUOTATION: { tabs: [] as TabDefinition[] }, // Will be mapped to QT in getTemplateFields
+
+  // QO - Alias for QT (alternate short code)
+  QO: { tabs: [] as TabDefinition[] }, // Will be mapped to QT in getTemplateFields
 };
 
 // Map INVOICE to TI fields
@@ -1567,6 +1780,10 @@ TEMPLATE_FIELD_DEFINITIONS.PURCHASE_RETURN = TEMPLATE_FIELD_DEFINITIONS.PR;
 TEMPLATE_FIELD_DEFINITIONS.STOCK_ADJUSTMENT_IN = TEMPLATE_FIELD_DEFINITIONS.SAI;
 // Map STOCK_ADJUSTMENT_OUT to SAO fields
 TEMPLATE_FIELD_DEFINITIONS.STOCK_ADJUSTMENT_OUT = TEMPLATE_FIELD_DEFINITIONS.SAO;
+// Map QUOTATION to QT fields
+TEMPLATE_FIELD_DEFINITIONS.QUOTATION = TEMPLATE_FIELD_DEFINITIONS.QT;
+// Map QO to QT fields
+TEMPLATE_FIELD_DEFINITIONS.QO = TEMPLATE_FIELD_DEFINITIONS.QT;
 
 /**
  * Get field definitions for a specific template variant
@@ -1583,6 +1800,8 @@ export function getTemplateFields(templateVariant: string): TemplateFieldConfig 
     PURCHASE_RETURN: "PR",
     STOCK_ADJUSTMENT_IN: "SAI",
     STOCK_ADJUSTMENT_OUT: "SAO",
+    QUOTATION: "QT",
+    QO: "QT",
   };
 
   const mappedVariant = variantMap[templateVariant] || templateVariant;

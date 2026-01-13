@@ -55,7 +55,7 @@ export default function QuantityHistoryTable({ assetId }: QuantityHistoryTablePr
       case "SET":
         return <EditIcon fontSize="small" color="info" />;
       default:
-        return null;
+        return undefined;
     }
   };
 

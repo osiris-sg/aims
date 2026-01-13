@@ -49,9 +49,11 @@ export function transformFormDataForBackend(
     phoneNumber: formData.company?.phoneNumber || organization?.phoneNumber || '',
   };
 
-  // Handle customer specially (it's an object in form, but we store just the ID)
+  // Handle customer specially (store both ID and name for display purposes)
   if (formData.customer?.id) {
     result.customerId = formData.customer.id;
+    result.customerName = formData.customer.name || '';
+    result.customerCode = formData.customer.customerCode || '';
   }
 
   // Handle items array - ensure we get the items from the formData
@@ -115,7 +117,13 @@ export function transformFormDataForBackend(
     'note', 'dueDate', 'collectFrom', 'startDate', 'endDate',
     'signature', 'gstRegNo', 'paymentTerms',
     // Tracking fields
-    'savedBy', 'savedAt', 'confirmedBy', 'confirmedAt', 'lastUsedBy', 'lastUsedAt'
+    'savedBy', 'savedAt', 'confirmedBy', 'confirmedAt', 'lastUsedBy', 'lastUsedAt',
+    // PO confirmation fields (supplier D/O info)
+    'supplierDONo', 'supplierDODate', 'exchangeRate', 'linkToAccounts',
+    // Stock Adjustment confirmation fields
+    'fromReferenceNo', 'toReferenceNo', 'deleteConfirmedReference',
+    // DO confirmation fields
+    'fromDONo', 'toDONo'
   ];
 
   flatFields.forEach(field => {

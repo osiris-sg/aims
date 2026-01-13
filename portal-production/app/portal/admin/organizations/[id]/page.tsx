@@ -231,6 +231,7 @@ export default function OrganizationDetailPage() {
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [previewTemplate, setPreviewTemplate] = useState<any>(null);
   const [mockData, setMockData] = useState<any>(null);
+  const [stockDeductionTrigger, setStockDeductionTrigger] = useState<string>("DO");
 
   // Module management state
   const [addModuleDialogOpen, setAddModuleDialogOpen] = useState(false);
@@ -425,6 +426,11 @@ export default function OrganizationDetailPage() {
           });
         }
         setModuleData(moduleDataMap);
+
+        // Initialize stock deduction trigger
+        if (response.data.stockDeductionTrigger) {
+          setStockDeductionTrigger(response.data.stockDeductionTrigger);
+        }
 
         // Initialize document types
         if (response.data.customDocumentTypes && Array.isArray(response.data.customDocumentTypes) && response.data.customDocumentTypes.length > 0) {
@@ -752,6 +758,28 @@ export default function OrganizationDetailPage() {
     }
   };
 
+  const handleSaveStockDeductionTrigger = async () => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await request(
+        { path: `/admin/organizations/${organizationId}`, method: "PUT" },
+        { stockDeductionTrigger },
+        token
+      );
+
+      if (response.success) {
+        toast.success("Stock deduction trigger updated successfully");
+        fetchOrganizationDetails();
+      } else {
+        toast.error("Failed to update stock deduction trigger");
+      }
+    } catch (error) {
+      toast.error("Error saving stock deduction trigger");
+    }
+  };
+
   const resetModuleForm = () => {
     setModuleForm({
       moduleCode: "",
@@ -1016,7 +1044,6 @@ export default function OrganizationDetailPage() {
             <Tab icon={<DescriptionOutlined />} label="Documents" />
             <Tab icon={<ThemeIcon />} label="UI Configuration" />
             <Tab icon={<SettingsIcon />} label="Settings" />
-            <Tab icon={<SettingsIcon />} label="Advanced" />
           </Tabs>
         </Box>
 
@@ -1450,195 +1477,241 @@ export default function OrganizationDetailPage() {
 
         {/* SETTINGS TAB */}
         <TabPanel value={tabValue} index={4}>
-          <Typography variant="h6" sx={{ mb: 2 }}>
-            Organization Settings
-          </Typography>
-          <Grid container spacing={3}>
-            <Grid item xs={12} md={6}>
-              <Card>
-                <CardContent>
-                  <Typography variant="subtitle1" gutterBottom>
-                    Basic Information
-                  </Typography>
-                  <Divider sx={{ my: 2 }} />
-                  <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        Organization Name
-                      </Typography>
-                      <Typography>{organization.name}</Typography>
-                    </Box>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        Organization ID
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                        {organization.id}
-                      </Typography>
-                    </Box>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        Created At
-                      </Typography>
-                      <Typography>
-                        {new Date(organization.createdAt).toLocaleDateString()}
-                      </Typography>
-                    </Box>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            {/* Basic Information */}
+            <Card>
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom>
+                  Basic Information
+                </Typography>
+                <Divider sx={{ my: 2 }} />
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Organization Name
+                    </Typography>
+                    <Typography>{organization.name}</Typography>
                   </Box>
-                </CardContent>
-              </Card>
-            </Grid>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Organization ID
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                      {organization.id}
+                    </Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Created At
+                    </Typography>
+                    <Typography>
+                      {new Date(organization.createdAt).toLocaleDateString()}
+                    </Typography>
+                  </Box>
+                </Box>
+              </CardContent>
+            </Card>
 
-            <Grid item xs={12} md={6}>
-              <Card>
-                <CardContent>
-                  <Typography variant="subtitle1" gutterBottom>
-                    Feature Settings
-                  </Typography>
-                  <Divider sx={{ my: 2 }} />
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Enable or disable specific features for this organization
-                  </Typography>
+            {/* Feature Settings */}
+            <Card>
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom>
+                  Feature Settings
+                </Typography>
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Enable or disable specific features for this organization
+                </Typography>
 
-                  <List>
-                    <ListItem>
-                      <ListItemText
-                        primary="Asset Tracking Mode"
-                        secondary={
-                          uiConfigForm.features?.enableAssetTrackingMode
-                            ? "ON: Organization uses tracked Assets with individual inventory SKUs"
-                            : "OFF: Organization uses Products with simple quantity tracking (no individual inventory)"
-                        }
-                      />
-                      <ListItemSecondaryAction>
-                        <Switch
-                          edge="end"
-                          checked={uiConfigForm.features?.enableAssetTrackingMode ?? false}
-                          onChange={(e) =>
-                            setUIConfigForm({
-                              ...uiConfigForm,
-                              features: {
-                                ...uiConfigForm.features,
-                                enableAssetTrackingMode: e.target.checked,
-                              },
-                            })
-                          }
-                        />
-                      </ListItemSecondaryAction>
-                    </ListItem>
-                    <Divider component="li" />
-                    <ListItem>
-                      <ListItemText
-                        primary="Projects Module"
-                        secondary="Enable project management features"
-                      />
-                      <ListItemSecondaryAction>
-                        <Switch
-                          edge="end"
-                          checked={uiConfigForm.features?.enableProjects ?? true}
-                          onChange={(e) =>
-                            setUIConfigForm({
-                              ...uiConfigForm,
-                              features: {
-                                ...uiConfigForm.features,
-                                enableProjects: e.target.checked,
-                              },
-                            })
-                          }
-                        />
-                      </ListItemSecondaryAction>
-                    </ListItem>
-                    <Divider component="li" />
-                    <ListItem>
-                      <ListItemText
-                        primary="Analytics Dashboard"
-                        secondary="Enable analytics and reporting features"
-                      />
-                      <ListItemSecondaryAction>
-                        <Switch
-                          edge="end"
-                          checked={uiConfigForm.features?.enableAnalytics ?? true}
-                          onChange={(e) =>
-                            setUIConfigForm({
-                              ...uiConfigForm,
-                              features: {
-                                ...uiConfigForm.features,
-                                enableAnalytics: e.target.checked,
-                              },
-                            })
-                          }
-                        />
-                      </ListItemSecondaryAction>
-                    </ListItem>
-                  </List>
-                </CardContent>
-                <CardActions>
-                  <Button
-                    variant="contained"
-                    startIcon={<SaveIcon />}
-                    onClick={handleSaveUIConfig}
-                  >
-                    Save Feature Settings
-                  </Button>
-                </CardActions>
-              </Card>
-            </Grid>
-          </Grid>
-        </TabPanel>
-
-        {/* ADVANCED TAB */}
-        <TabPanel value={tabValue} index={5}>
-          <Alert severity="info" sx={{ mb: 3 }}>
-            Advanced configuration options for power users and system administrators.
-          </Alert>
-
-          <Accordion>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography>Feature Flags</Typography>
-            </AccordionSummary>
-            <AccordionDetails>
-              <List>
-                {Object.entries(uiConfigForm.features || {}).map(([key, value]) => (
-                  <ListItem key={key}>
-                    <ListItemText primary={key} />
+                <List>
+                  <ListItem>
+                    <ListItemText
+                      primary="Asset Tracking Mode"
+                      secondary={
+                        uiConfigForm.features?.enableAssetTrackingMode
+                          ? "ON: Organization uses tracked Assets with individual inventory SKUs"
+                          : "OFF: Organization uses Products with simple quantity tracking (no individual inventory)"
+                      }
+                    />
                     <ListItemSecondaryAction>
                       <Switch
-                        checked={value as boolean}
+                        edge="end"
+                        checked={uiConfigForm.features?.enableAssetTrackingMode ?? false}
                         onChange={(e) =>
                           setUIConfigForm({
                             ...uiConfigForm,
                             features: {
                               ...uiConfigForm.features,
-                              [key]: e.target.checked,
+                              enableAssetTrackingMode: e.target.checked,
                             },
                           })
                         }
                       />
                     </ListItemSecondaryAction>
                   </ListItem>
-                ))}
-              </List>
-              <Button onClick={handleSaveUIConfig}>Save Feature Flags</Button>
-            </AccordionDetails>
-          </Accordion>
-
-          <Accordion>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography>Export/Import Configuration</Typography>
-            </AccordionSummary>
-            <AccordionDetails>
-              <Box>
-                <Button variant="outlined" sx={{ mr: 2 }}>
-                  Export Configuration
+                  <Divider component="li" />
+                  <ListItem>
+                    <ListItemText
+                      primary="Projects Module"
+                      secondary="Enable project management features"
+                    />
+                    <ListItemSecondaryAction>
+                      <Switch
+                        edge="end"
+                        checked={uiConfigForm.features?.enableProjects ?? true}
+                        onChange={(e) =>
+                          setUIConfigForm({
+                            ...uiConfigForm,
+                            features: {
+                              ...uiConfigForm.features,
+                              enableProjects: e.target.checked,
+                            },
+                          })
+                        }
+                      />
+                    </ListItemSecondaryAction>
+                  </ListItem>
+                  <Divider component="li" />
+                  <ListItem>
+                    <ListItemText
+                      primary="Analytics Dashboard"
+                      secondary="Enable analytics and reporting features"
+                    />
+                    <ListItemSecondaryAction>
+                      <Switch
+                        edge="end"
+                        checked={uiConfigForm.features?.enableAnalytics ?? true}
+                        onChange={(e) =>
+                          setUIConfigForm({
+                            ...uiConfigForm,
+                            features: {
+                              ...uiConfigForm.features,
+                              enableAnalytics: e.target.checked,
+                            },
+                          })
+                        }
+                      />
+                    </ListItemSecondaryAction>
+                  </ListItem>
+                </List>
+              </CardContent>
+              <CardActions>
+                <Button
+                  variant="contained"
+                  startIcon={<SaveIcon />}
+                  onClick={handleSaveUIConfig}
+                >
+                  Save Feature Settings
                 </Button>
-                <Button variant="outlined">Import Configuration</Button>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-                  Export your organization's complete configuration for backup or migration
-                  purposes.
+              </CardActions>
+            </Card>
+
+            {/* Stock Deduction Settings */}
+            <Card>
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom>
+                  Stock Deduction Settings
                 </Typography>
-              </Box>
-            </AccordionDetails>
-          </Accordion>
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Configure when stock quantities are deducted from inventory
+                </Typography>
+
+                <FormControl fullWidth sx={{ mb: 2 }}>
+                  <InputLabel>Stock Deduction Trigger</InputLabel>
+                  <Select
+                    value={stockDeductionTrigger}
+                    onChange={(e) => setStockDeductionTrigger(e.target.value)}
+                    label="Stock Deduction Trigger"
+                  >
+                    <MenuItem value="DO">Delivery Order (DO)</MenuItem>
+                    <MenuItem value="INVOICE">Invoice</MenuItem>
+                  </Select>
+                </FormControl>
+
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  {stockDeductionTrigger === "DO" ? (
+                    <>
+                      <strong>Delivery Order:</strong> Stock will be deducted when a Delivery Order is confirmed.
+                      This is useful when physical goods are tracked at delivery time.
+                    </>
+                  ) : (
+                    <>
+                      <strong>Invoice:</strong> Stock will be deducted when an Invoice is confirmed.
+                      This is useful when stock should only be deducted after billing.
+                    </>
+                  )}
+                </Alert>
+              </CardContent>
+              <CardActions>
+                <Button
+                  variant="contained"
+                  startIcon={<SaveIcon />}
+                  onClick={handleSaveStockDeductionTrigger}
+                >
+                  Save Stock Settings
+                </Button>
+              </CardActions>
+            </Card>
+
+            {/* Advanced Settings */}
+            <Card>
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom>
+                  Advanced Settings
+                </Typography>
+                <Divider sx={{ my: 2 }} />
+
+                <Accordion>
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Typography>Feature Flags</Typography>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <List>
+                      {Object.entries(uiConfigForm.features || {}).map(([key, value]) => (
+                        <ListItem key={key}>
+                          <ListItemText primary={key} />
+                          <ListItemSecondaryAction>
+                            <Switch
+                              checked={value as boolean}
+                              onChange={(e) =>
+                                setUIConfigForm({
+                                  ...uiConfigForm,
+                                  features: {
+                                    ...uiConfigForm.features,
+                                    [key]: e.target.checked,
+                                  },
+                                })
+                              }
+                            />
+                          </ListItemSecondaryAction>
+                        </ListItem>
+                      ))}
+                    </List>
+                    <Button onClick={handleSaveUIConfig}>Save Feature Flags</Button>
+                  </AccordionDetails>
+                </Accordion>
+
+                <Accordion>
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Typography>Export/Import Configuration</Typography>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <Box>
+                      <Button variant="outlined" sx={{ mr: 2 }}>
+                        Export Configuration
+                      </Button>
+                      <Button variant="outlined">Import Configuration</Button>
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                        Export your organization's complete configuration for backup or migration
+                        purposes.
+                      </Typography>
+                    </Box>
+                  </AccordionDetails>
+                </Accordion>
+              </CardContent>
+            </Card>
+          </Box>
         </TabPanel>
       </Paper>
 

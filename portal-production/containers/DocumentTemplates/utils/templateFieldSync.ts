@@ -130,7 +130,10 @@ export async function getTemplateFormFields(
 
     // Use default definitions for the variant
     console.log(`Using default field definitions for ${templateVariant}`);
-    return getTemplateFields(templateVariant);
+    const config = getTemplateFields(templateVariant);
+    console.log(`getTemplateFields(${templateVariant}) returned:`, config);
+    console.log(`Has tabs:`, config?.tabs?.length || 0);
+    return config;
   } catch (error) {
     console.error('Error fetching template form fields:', error);
     // Fallback to default definitions

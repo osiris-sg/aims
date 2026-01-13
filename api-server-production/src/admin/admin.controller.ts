@@ -159,6 +159,16 @@ export class AdminController {
     return this.adminService.getOrganizationById(id);
   }
 
+  @Put('organizations/:id')
+  async updateOrganization(
+    @Param('id') id: string,
+    @Body() data: { stockDeductionTrigger?: string },
+    @Req() req: RequestWithOrganization
+  ) {
+    await this.checkOsirisAdmin(req);
+    return this.adminService.updateOrganization(id, data);
+  }
+
   @Get('organizations/:id/stats')
   async getOrganizationStats(@Param('id') id: string, @Req() req: RequestWithOrganization) {
     await this.checkOsirisAdmin(req);

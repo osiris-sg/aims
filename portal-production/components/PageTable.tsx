@@ -21,6 +21,7 @@ interface Props {
   tableName: string;
   subTitle: string;
   buttonName?: string;
+  buttonDisabled?: boolean;
   loading: boolean;
   page?: number;
   limit?: number;
@@ -41,7 +42,7 @@ interface Props {
   headerContent?: React.ReactNode; // Custom content to display between header and table
 }
 export default function PageTable(props: Props) {
-  const { columns, data, tableName, subTitle, loading, buttonName, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, availableFilters, totalDocs, renderSubComponent, actionButtons, assetsData, headerContent } = props;
+  const { columns, data, tableName, subTitle, loading, buttonName, buttonDisabled, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, availableFilters, totalDocs, renderSubComponent, actionButtons, assetsData, headerContent } = props;
   const { control, handleSubmit, watch } = useForm({ defaultValues: { limit, search } });
   const _limit = watch("limit");
   const _search = watch("search");
@@ -101,7 +102,7 @@ export default function PageTable(props: Props) {
           <Grid2 size={{ xs: 12, md: 8 }}>
             <Box sx={{ display: "flex", justifyContent: "flex-end", gap: "var(--half-gap)" }}>
               {buttonName && (
-                <Button variant="contained" color="primary" startIcon={<AddCircleOutlineIcon />} onClick={onAddClick}>
+                <Button variant="contained" color="primary" startIcon={<AddCircleOutlineIcon />} onClick={onAddClick} disabled={buttonDisabled}>
                   {buttonName}
                 </Button>
               )}

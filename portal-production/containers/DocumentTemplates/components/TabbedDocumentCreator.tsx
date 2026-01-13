@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Box,
   Tabs,
@@ -54,11 +54,20 @@ import {
   NavigateBefore as NavigateBeforeIcon,
   NavigateNext as NavigateNextIcon,
   Inventory as InventoryIcon,
+  Search as SearchIcon,
+  LocalShipping as ReceiveIcon,
 } from "@mui/icons-material";
 import CleanDocumentPreview from "./CleanDocumentPreview";
 import DocumentCustomizer from "./DocumentCustomizer";
 import DynamicFormFields from "./DynamicFormFields";
 import StockCardDialog from "./StockCardDialog";
+import LocateDocumentDialog from "./LocateDocumentDialog";
+import ExtractQuotationDialog from "./ExtractQuotationDialog";
+import ExtractDOToInvoiceDialog from "./ExtractDOToInvoiceDialog";
+import ConfirmPODialog, { ConfirmPOData } from "./ConfirmPODialog";
+import ConfirmAdjustmentDialog, { ConfirmAdjustmentData } from "./ConfirmAdjustmentDialog";
+import ConfirmDODialog, { ConfirmDOData } from "./ConfirmDODialog";
+import ConfirmInvoiceDialog, { ConfirmInvoiceData } from "./ConfirmInvoiceDialog";
 import CustomerSelectDialog from "./CustomerSelectDialog";
 import SalesmanSelectDialog from "./SalesmanSelectDialog";
 import PriceHistoryPopup from "@/components/PriceHistory/PriceHistoryPopup";
@@ -72,7 +81,20 @@ import { usePathname, useRouter } from "next/navigation";
 import { usePastDescriptions } from "../hooks/usePastDescriptions";
 import { useGetInventoriesForItemTable } from "../hooks/useGetInventoriesForItemTable";
 import { getTemplateFormFields } from "../utils/templateFieldSync";
+import { useGetDocuments } from "@/app/portal/hooks/api";
 import { TemplateFieldConfig } from "../config/templateFieldDefinitions";
+
+// Helper to determine the parent route based on document type
+const getParentRoute = (docType: string): string => {
+  const inventoryTypes = ["PO", "PURCHASE_ORDER", "PR", "PURCHASE_RETURN", "SAI", "STOCK_ADJUSTMENT_IN", "SAO", "STOCK_ADJUSTMENT_OUT"];
+  const upperType = docType?.toUpperCase() || "";
+
+  if (inventoryTypes.includes(upperType)) {
+    return "/portal/inventory";
+  }
+  // Default to sales for all other document types
+  return "/portal/sales";
+};
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -91,6 +113,7 @@ function TabPanel(props: TabPanelProps) {
 
 interface DocumentCreatorProps {
   documentType: "QO1" | "DO" | "RDO" | "TI" | "TI2" | "MSR" | "INVOICE" | string;
+  actualDocumentType?: string; // The actual document type (INVOICE, QUOTATION, etc.) for creating documents
   documentId?: string;
   onSave?: (data: any) => void;
   onPrint?: () => void;
@@ -111,6 +134,7 @@ interface DocumentCreatorProps {
 
 export default function TabbedDocumentCreator({
   documentType,
+  actualDocumentType,
   onSave,
   onPrint,
   existingData,
@@ -151,6 +175,10 @@ export default function TabbedDocumentCreator({
   // Force preview mode for confirmed documents
   const [previewMode, setPreviewMode] = useState(isDocumentConfirmed);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [confirmPODialogOpen, setConfirmPODialogOpen] = useState(false);
+  const [confirmAdjustmentDialogOpen, setConfirmAdjustmentDialogOpen] = useState(false);
+  const [confirmDODialogOpen, setConfirmDODialogOpen] = useState(false);
+  const [confirmInvoiceDialogOpen, setConfirmInvoiceDialogOpen] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [isToolBarOpen, setToolBarOpen] = useState(false);
 
@@ -177,6 +205,25 @@ export default function TabbedDocumentCreator({
   // Stock card dialog state
   const [stockCardDialogOpen, setStockCardDialogOpen] = useState(false);
 
+  // Locate document dialog state
+  const [locateDialogOpen, setLocateDialogOpen] = useState(false);
+
+  // Extract quotation dialog state (for Delivery Orders)
+  const [extractQuotationDialogOpen, setExtractQuotationDialogOpen] = useState(false);
+  const [extractDODialogOpen, setExtractDODialogOpen] = useState(false);
+  const [deliveryOrdersForExtract, setDeliveryOrdersForExtract] = useState<any[]>([]);
+  const [quotationsForExtract, setQuotationsForExtract] = useState<any[]>([]);
+
+  // Receiving mode state (for Purchase Orders and Purchase Returns)
+  const [isReceiving, setIsReceiving] = useState(false);
+  const isPurchaseOrder = documentType === "PO" || documentType === "PURCHASE_ORDER";
+  const isPurchaseReturn = documentType === "PR" || documentType === "PURCHASE_RETURN";
+  const isPurchaseDocument = isPurchaseOrder || isPurchaseReturn;
+  const isStockAdjustmentIn = documentType === "SAI" || documentType === "STOCK_ADJUSTMENT_IN";
+  const isStockAdjustmentOut = documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_OUT";
+  const isStockAdjustment = isStockAdjustmentIn || isStockAdjustmentOut;
+  const isDeliveryOrder = documentType === "DO" || documentType === "DELIVERY_ORDER";
+
   // Customer select dialog state
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const [customerFieldName, setCustomerFieldName] = useState<string>("customer"); // Track which field opened the dialog
@@ -198,6 +245,23 @@ export default function TabbedDocumentCreator({
 
   // Inventory items for item table
   const { inventoriesForDocument } = useGetInventoriesForItemTable();
+
+  // All documents for locate dialog
+  const { documents: allDocuments } = useGetDocuments();
+
+  // Filter documents for the locate dialog (same document type)
+  const documentsForLocate = useMemo(() => {
+    // Get the template ID from the current document
+    const templateId = existingData?.documentTemplateId || pathSegments[3];
+    if (!templateId || !allDocuments) return [];
+
+    // Filter documents by the same template ID and sort by createdAt (newest first)
+    return allDocuments
+      .filter((doc: any) => doc.templateId === templateId)
+      .sort((a: any, b: any) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+  }, [allDocuments, existingData?.documentTemplateId, pathSegments]);
 
 
   // Template configuration form for field visibility
@@ -279,6 +343,12 @@ export default function TabbedDocumentCreator({
       paymentTerms: existingData?.documentInfo?.paymentTerms || existingData?.paymentTerms || "0 DAYS",
       currency: existingData?.documentInfo?.currency || existingData?.currency || "USD",
       qinRef: existingData?.documentInfo?.qinRef || existingData?.qinRef || "",
+      // Additional fields for quotation extraction
+      contact: existingData?.documentInfo?.contact || existingData?.contact || "",
+      rate: existingData?.documentInfo?.rate || existingData?.rate || "",
+      taxApplicable: existingData?.documentInfo?.taxApplicable ?? existingData?.taxApplicable ?? false,
+      absorbTax: existingData?.documentInfo?.absorbTax ?? existingData?.absorbTax ?? false,
+      gstPercent: existingData?.documentInfo?.gstPercent ?? existingData?.gstPercent ?? 0,
     },
     // Details tab data
     projectId: existingData?.projectId || "",
@@ -309,6 +379,10 @@ export default function TabbedDocumentCreator({
     deliveryTo: existingData?.deliveryTo || "",
     // Items data
     items: existingData?.items || [],
+    // Source document tracking (for quotation/DO extraction)
+    sourceDocumentId: existingData?.sourceDocumentId || "",
+    sourceDocumentType: existingData?.sourceDocumentType || "",
+    sourceDocumentNumber: existingData?.sourceDocumentNumber || "",
     // Footer data
     note: existingData?.note || "",
     termsAndConditions: existingData?.termsAndConditions || "",
@@ -430,6 +504,11 @@ export default function TabbedDocumentCreator({
 
   const addNewItem = () => {
     const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
+    const isStockAdjustmentIn = documentType === "SAI" || documentType === "STOCK_ADJUSTMENT_IN";
+    const isStockAdjustmentOut = documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_OUT";
+    const isStockAdjustment = isStockAdjustmentIn || isStockAdjustmentOut;
+    const isPurchaseOrderType = documentType === "PO" || documentType === "PURCHASE_ORDER" || documentType === "QT" || documentType === "QUOTATION" || documentType === "QO";
+    const needsUomAndDiscount = isStockAdjustment || isPurchaseOrderType;
     setItems([
       ...items,
       {
@@ -439,8 +518,13 @@ export default function TabbedDocumentCreator({
         description: "",
         quantity: 1,
         unitPrice: 0,
-        // Only include tax for non-invoice types
-        tax: isInvoiceType ? undefined : 9,
+        // Only include tax for non-invoice, non-stock-adjustment, and non-PO types
+        tax: isInvoiceType || needsUomAndDiscount ? undefined : 9,
+        // Include uom and discount for stock adjustment and PO types
+        uom: needsUomAndDiscount ? "" : undefined,
+        discount: needsUomAndDiscount ? 0 : undefined,
+        // Include receivedQty for stock adjustment in
+        receivedQty: isStockAdjustmentIn ? 0 : undefined,
         amount: 0,
       },
     ]);
@@ -449,22 +533,38 @@ export default function TabbedDocumentCreator({
   // Handle item selection from Stock Card dialog
   const handleStockCardItemSelect = (selectedItem: any) => {
     const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
+    const isStockAdjustmentIn = documentType === "SAI" || documentType === "STOCK_ADJUSTMENT_IN";
+    const isStockAdjustmentOut = documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_OUT";
+    const isStockAdjustmentType = isStockAdjustmentIn || isStockAdjustmentOut;
+    const isPurchaseOrderType = documentType === "PO" || documentType === "PURCHASE_ORDER" || documentType === "QT" || documentType === "QUOTATION" || documentType === "QO";
+    const needsUomAndDiscount = isStockAdjustmentType || isPurchaseOrderType;
     const description = selectedItem.description || selectedItem.name || selectedItem.asset?.name || selectedItem.asset?.description || "";
     const unitPrice = selectedItem.unitPrice || selectedItem.asset?.price || 0;
+    const uom = selectedItem.uom || selectedItem.asset?.uom || "";
 
-    setItems([
-      ...items,
-      {
-        id: Date.now(),
-        itemCode: selectedItem.sku || "",
-        inventoryItemId: selectedItem.id || "",
-        description: description,
-        quantity: 1,
-        unitPrice: unitPrice,
-        tax: isInvoiceType ? undefined : 9,
-        amount: unitPrice, // quantity is 1, so amount equals unitPrice
-      },
-    ]);
+    const newItem: any = {
+      id: Date.now(),
+      itemCode: selectedItem.sku || "",
+      inventoryItemId: selectedItem.id || "",
+      description: description,
+      quantity: 1,
+      unitPrice: unitPrice,
+      amount: unitPrice, // quantity is 1, so amount equals unitPrice
+    };
+
+    // Add uom and discount for stock adjustment and PO types
+    if (needsUomAndDiscount) {
+      newItem.uom = uom;
+      newItem.discount = 0;
+      // Add receivedQty only for stock adjustment in
+      if (isStockAdjustmentIn) {
+        newItem.receivedQty = 0;
+      }
+    } else {
+      newItem.tax = isInvoiceType ? undefined : 9;
+    }
+
+    setItems([...items, newItem]);
 
     // Prefetch price history for this asset if available
     if (selectedItem.assetId) {
@@ -481,8 +581,9 @@ export default function TabbedDocumentCreator({
       const newItems = prevItems.map((item: any) => {
         if (item.id === id) {
           const updated = { ...item, [field]: value };
-          // Calculate amount
-          updated.amount = updated.quantity * updated.unitPrice;
+          // Calculate amount (accounting for discount if present)
+          const discountMultiplier = updated.discount !== undefined ? (1 - (updated.discount || 0) / 100) : 1;
+          updated.amount = updated.quantity * updated.unitPrice * discountMultiplier;
           return updated;
         }
         return item;
@@ -513,6 +614,9 @@ export default function TabbedDocumentCreator({
   const getDocumentTitle = () => {
     const titles: Record<string, string> = {
       QO1: "Quotation",
+      QUOTATION: "Quotation",
+      QT: "Quotation",
+      QO: "Quotation",
       DO: "Delivery Order",
       DELIVERY_ORDER: "Delivery Order",
       RDO: "Return Delivery Order",
@@ -691,6 +795,231 @@ export default function TabbedDocumentCreator({
     }
   };
 
+  // Handle PO confirmation with supplier D/O info
+  const handleConfirmPO = async (poData: ConfirmPOData) => {
+    setIsConfirming(true);
+    try {
+      // Get current user info for tracking
+      const currentUserName = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || 'SYS';
+      const currentTimestamp = new Date().toISOString();
+
+      // Prepare save data with PO-specific fields
+      const saveData = {
+        ...formData,
+        items: items,
+        name: formData.name || formData.documentInfo?.documentNumber,
+        status: "confirmed",
+        // Supplier D/O info from the dialog
+        supplierDONo: poData.supplierDONo,
+        supplierDODate: poData.supplierDODate,
+        exchangeRate: poData.rate,
+        linkToAccounts: poData.linkToAccounts,
+        // Tracking info
+        confirmedBy: currentUserName,
+        confirmedAt: currentTimestamp,
+        lastUsedBy: currentUserName,
+        lastUsedAt: currentTimestamp,
+      };
+
+      // Call onSave with confirmed status
+      await onSave?.(saveData);
+
+      const docLabel = isPurchaseReturn ? "Purchase Return" : "Purchase Order";
+      toast.success(`${docLabel} confirmed and stock updated`);
+      setConfirmPODialogOpen(false);
+
+      // Refresh the page to update the status
+      router.refresh();
+    } catch (error) {
+      console.error("Error confirming PO/PR:", error);
+      const docLabel = isPurchaseReturn ? "Purchase Return" : "Purchase Order";
+      toast.error(`Failed to confirm ${docLabel}`);
+    } finally {
+      setIsConfirming(false);
+    }
+  };
+
+  // Handle Stock Adjustment confirmation
+  const handleConfirmAdjustment = async (adjustmentData: ConfirmAdjustmentData) => {
+    setIsConfirming(true);
+    try {
+      // Get current user info for tracking
+      const currentUserName = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || 'SYS';
+      const currentTimestamp = new Date().toISOString();
+
+      // Prepare save data with adjustment-specific fields
+      const saveData = {
+        ...formData,
+        items: items,
+        name: formData.name || formData.documentInfo?.documentNumber,
+        status: "confirmed",
+        // Adjustment reference info from the dialog
+        fromReferenceNo: adjustmentData.fromReferenceNo,
+        toReferenceNo: adjustmentData.toReferenceNo,
+        deleteConfirmedReference: adjustmentData.deleteConfirmedReference,
+        // Tracking info
+        confirmedBy: currentUserName,
+        confirmedAt: currentTimestamp,
+        lastUsedBy: currentUserName,
+        lastUsedAt: currentTimestamp,
+      };
+
+      // Call onSave with confirmed status
+      await onSave?.(saveData);
+
+      const docLabel = isStockAdjustmentIn ? "Stock Adjustment In" : "Stock Adjustment Out";
+      toast.success(`${docLabel} confirmed and stock updated`);
+      setConfirmAdjustmentDialogOpen(false);
+
+      // Refresh the page to update the status
+      router.refresh();
+    } catch (error) {
+      console.error("Error confirming adjustment:", error);
+      const docLabel = isStockAdjustmentIn ? "Stock Adjustment In" : "Stock Adjustment Out";
+      toast.error(`Failed to confirm ${docLabel}`);
+    } finally {
+      setIsConfirming(false);
+    }
+  };
+
+  // Handle Delivery Order confirmation (may deduct stock based on org settings)
+  const handleConfirmDO = async (doData: ConfirmDOData) => {
+    setIsConfirming(true);
+    try {
+      const token = await getToken();
+      if (!token) {
+        toast.error("Authentication required");
+        setIsConfirming(false);
+        return;
+      }
+
+      const docId = existingData?.id || documentId;
+      if (!docId) {
+        toast.error("Document must be saved before confirming");
+        setIsConfirming(false);
+        return;
+      }
+
+      // First, save the current form data (without confirmed status - let backend handle that)
+      const currentUserName = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || 'SYS';
+      const currentTimestamp = new Date().toISOString();
+
+      const saveData = {
+        ...formData,
+        items: items,
+        name: formData.name || formData.documentInfo?.documentNumber,
+        // Don't set status here - backend will set it to confirmed
+        // Tracking info
+        lastUsedBy: currentUserName,
+        lastUsedAt: currentTimestamp,
+      };
+
+      // Save current form state first
+      await onSave?.(saveData);
+
+      // Call backend to confirm DO and handle stock deduction
+      const confirmResponse = await request(
+        {
+          path: `/documents/${docId}/confirm-do`,
+          method: "POST",
+        },
+        {
+          fromDONo: doData.fromDONo,
+          toDONo: doData.toDONo,
+        },
+        token
+      );
+
+      if (confirmResponse.success) {
+        const stockMessage = confirmResponse.stockDeducted
+          ? " Stock has been deducted."
+          : " Stock will be deducted on Invoice.";
+        toast.success("Delivery Order confirmed successfully." + stockMessage);
+      } else {
+        throw new Error(confirmResponse.message || "Confirmation failed");
+      }
+
+      setConfirmDODialogOpen(false);
+
+      // Refresh the page to update the status
+      router.refresh();
+    } catch (error) {
+      console.error("Error confirming DO:", error);
+      toast.error("Failed to confirm Delivery Order");
+    } finally {
+      setIsConfirming(false);
+    }
+  };
+
+  // Handle Invoice confirmation (may deduct stock based on org settings)
+  const handleConfirmInvoice = async (invoiceData: ConfirmInvoiceData) => {
+    setIsConfirming(true);
+    try {
+      const token = await getToken();
+      if (!token) {
+        toast.error("Authentication required");
+        setIsConfirming(false);
+        return;
+      }
+
+      const docId = existingData?.id || documentId;
+      if (!docId) {
+        toast.error("Document must be saved before confirming");
+        setIsConfirming(false);
+        return;
+      }
+
+      // First, save the current form data (without confirmed status - let backend handle that)
+      const currentUserName = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || 'SYS';
+      const currentTimestamp = new Date().toISOString();
+
+      const saveData = {
+        ...formData,
+        items: items,
+        name: formData.name || formData.documentInfo?.documentNumber,
+        // Don't set status here - backend will set it to confirmed
+        // Tracking info
+        lastUsedBy: currentUserName,
+        lastUsedAt: currentTimestamp,
+      };
+
+      // Save current form state first
+      await onSave?.(saveData);
+
+      // Call backend to confirm Invoice and handle stock deduction
+      const confirmResponse = await request(
+        {
+          path: `/documents/${docId}/confirm-invoice`,
+          method: "POST",
+        },
+        {
+          fromInvoiceNo: invoiceData.fromInvoiceNo,
+          toInvoiceNo: invoiceData.toInvoiceNo,
+        },
+        token
+      );
+
+      if (confirmResponse.success) {
+        const stockMessage = confirmResponse.stockDeducted
+          ? " Stock has been deducted."
+          : " Stock was already deducted on Delivery Order.";
+        toast.success("Invoice confirmed successfully." + stockMessage);
+      } else {
+        throw new Error(confirmResponse.message || "Confirmation failed");
+      }
+
+      setConfirmInvoiceDialogOpen(false);
+
+      // Refresh the page to update the status
+      router.refresh();
+    } catch (error) {
+      console.error("Error confirming Invoice:", error);
+      toast.error("Failed to confirm Invoice");
+    } finally {
+      setIsConfirming(false);
+    }
+  };
+
   const handleCreateRevision = async () => {
     try {
       const token = await getToken();
@@ -747,11 +1076,11 @@ export default function TabbedDocumentCreator({
       {
         title: "Document Fields",
         items: [
-          ...(documentType === "TI" || documentType === "DO" || documentType === "QO1" ? [{ label: "Reference No", name: "referenceNo" }] : []),
-          ...(documentType === "DO" || documentType === "QO1" || documentType === "RDO" ? [{ label: "PO No", name: "poNo" }] : []),
+          ...(documentType === "TI" || documentType === "DO" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? [{ label: "Reference No", name: "referenceNo" }] : []),
+          ...(documentType === "DO" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" || documentType === "RDO" ? [{ label: "PO No", name: "poNo" }] : []),
           ...(documentType === "DO" ? [{ label: "DO No", name: "doNo" }] : []),
           ...(documentType === "RDO" ? [{ label: "Return Order No", name: "returnOrderNo" }] : []),
-          ...(documentType === "DO" || documentType === "QO1" ? [{ label: "Delivery To", name: "deliveryTo" }] : []),
+          ...(documentType === "DO" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? [{ label: "Delivery To", name: "deliveryTo" }] : []),
         ],
       },
       {
@@ -769,7 +1098,7 @@ export default function TabbedDocumentCreator({
           { label: "Company Address", name: "defaultValues.companyAddress" },
           { label: "GST Reg No", name: "defaultValues.gstRegNo" },
           { label: "Note", name: "defaultValues.note" },
-          ...(documentType === "TI" || documentType === "QO1" ? [{ label: "Terms & Conditions", name: "defaultValues.termsAndConditions" }] : []),
+          ...(documentType === "TI" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? [{ label: "Terms & Conditions", name: "defaultValues.termsAndConditions" }] : []),
           ...(documentType === "TI" ? [{ label: "Bank Details", name: "defaultValues.bankDetails" }] : []),
         ],
       });
@@ -806,8 +1135,8 @@ export default function TabbedDocumentCreator({
     // If document is confirmed, just navigate back without showing dialog
     const documentStatus = existingData?.status || "draft";
     if (documentStatus === "confirmed") {
-      // Navigate back directly for confirmed documents
-      router.back();
+      // Navigate to parent page for confirmed documents
+      router.push(getParentRoute(documentType));
     } else {
       // Check if there are any changes to the form
       const hasChanges = hasFormChanges();
@@ -816,8 +1145,8 @@ export default function TabbedDocumentCreator({
         // Show dialog only if there are unsaved changes
         setBackConfirmDialogOpen(true);
       } else {
-        // No changes, navigate back directly
-        router.back();
+        // No changes, navigate to parent page
+        router.push(getParentRoute(documentType));
       }
     }
   };
@@ -845,8 +1174,9 @@ export default function TabbedDocumentCreator({
       };
       await onSave?.(saveData);
     }
-    // Navigate back after saving
-    router.back();
+    toast.success("Document saved as draft");
+    // Navigate to parent page after saving
+    router.push(getParentRoute(documentType));
   };
 
   // Handle delete from dialog
@@ -879,13 +1209,13 @@ export default function TabbedDocumentCreator({
         }
       }
 
-      // Navigate back regardless of deletion result
-      router.back();
+      // Navigate to parent page regardless of deletion result
+      router.push(getParentRoute(documentType));
     } catch (error) {
       console.error("Error deleting document:", error);
       toast.error("Failed to delete document");
-      // Still navigate back even if deletion fails
-      router.back();
+      // Still navigate to parent page even if deletion fails
+      router.push(getParentRoute(documentType));
     }
   };
 
@@ -916,232 +1246,180 @@ export default function TabbedDocumentCreator({
               ? existingData?.name || `${getDocumentTitle()} Template`
               : formData.name || formData.documentInfo.documentNumber || `${getDocumentTitle()} - New`}
           </Typography>
-          {/* Previous/Next Navigation Buttons */}
+        </Box>
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+          {/* Navigation & Add Buttons */}
           {(onPrevious || onNext) && (
-            <Box sx={{ display: "flex", gap: 1, ml: 1 }}>
-              <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                <IconButton
-                  onClick={onPrevious}
-                  disabled={!hasPrevious}
-                  size="small"
-                  sx={{
-                    border: "1px solid",
-                    borderColor: "divider",
-                    borderRadius: 1,
-                    "&:disabled": { opacity: 0.4 },
-                  }}
-                  title="Previous Document"
-                >
-                  <NavigateBeforeIcon />
-                </IconButton>
-                <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "text.secondary" }}>
-                  Previous
-                </Typography>
-              </Box>
-              <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                <IconButton
-                  onClick={onNext}
-                  disabled={!hasNext}
-                  size="small"
-                  sx={{
-                    border: "1px solid",
-                    borderColor: "divider",
-                    borderRadius: 1,
-                    "&:disabled": { opacity: 0.4 },
-                  }}
-                  title="Next Document"
-                >
-                  <NavigateNextIcon />
-                </IconButton>
-                <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "text.secondary" }}>
-                  Next
-                </Typography>
-              </Box>
-            </Box>
+            <>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<NavigateBeforeIcon />}
+                onClick={onPrevious}
+                disabled={!hasPrevious}
+              >
+                Previous
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<NavigateNextIcon />}
+                onClick={onNext}
+                disabled={!hasNext}
+              >
+                Next
+              </Button>
+            </>
           )}
-          {/* Add New Document Button */}
-          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", ml: 1 }}>
-            <IconButton
+          <Button
+            size="small"
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={async () => {
+              try {
+                const token = await getToken();
+                if (!token) {
+                  toast.error("Authentication required");
+                  return;
+                }
+                const templateId = existingData?.documentTemplateId || pathSegments[3] || documentId;
+                // Use actualDocumentType prop (the real document category like INVOICE, QUOTATION)
+                // This ensures we store the correct type, not the template variant (TI2, QO1, etc.)
+                const docTypeForCreate = actualDocumentType || existingData?.type || "INVOICE";
+                console.log("=== ADD BUTTON - docTypeForCreate ===");
+                console.log("actualDocumentType prop:", actualDocumentType);
+                console.log("existingData?.type:", existingData?.type);
+                console.log("Final docTypeForCreate:", docTypeForCreate);
+                if (!templateId) {
+                  toast.error("Could not find document template. Please try creating from the main page.");
+                  return;
+                }
+                const response = await request(
+                  { path: "/documents/basic", method: "POST" },
+                  {
+                    type: docTypeForCreate,
+                    config: {},
+                    documentTemplateId: templateId,
+                    organizationId: organization?.id,
+                  },
+                  token
+                );
+                if (response?.success && response?.data?.id) {
+                  toast.success(`New ${getDocumentTitle()} created`);
+                  // Use actual document type (INVOICE, QUOTATION, etc.) for URL, not template variant (TI2, QO1, etc.)
+                  router.push(`/portal/documents/${docTypeForCreate}/${templateId}/${response.data.id}`);
+                } else {
+                  toast.error(response?.message || "Failed to create document");
+                }
+              } catch (error) {
+                console.error("Error creating new document:", error);
+                toast.error("Failed to create document");
+              }
+            }}
+            color="primary"
+          >
+            Add
+          </Button>
+          {/* Extract from Quotation Button - Only for DO/DELIVERY_ORDER */}
+          {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<ContentCopyIcon />}
               onClick={async () => {
-                // Create a new document of the same type directly
                 try {
                   const token = await getToken();
                   if (!token) {
                     toast.error("Authentication required");
                     return;
                   }
-
-                  // Get template ID from:
-                  // 1. existingData (if passed)
-                  // 2. URL path segments (pathSegments[3] is the template ID in /portal/documents/[type]/[id]/[documentId])
-                  // 3. documentId prop as fallback
-                  const templateId = existingData?.documentTemplateId || pathSegments[3] || documentId;
-
-                  // Use existingData.type (actual document type like "INVOICE")
-                  // rather than documentType prop (which is the variant like "TI2")
-                  const actualDocType = existingData?.type || "INVOICE";
-
-                  if (!templateId) {
-                    toast.error("Could not find document template. Please try creating from the main page.");
-                    return;
-                  }
-
-                  // Create new document
-                  const response = await request(
-                    {
-                      path: "/documents/basic",
-                      method: "POST",
-                    },
-                    {
-                      type: actualDocType,
-                      config: {},
-                      documentTemplateId: templateId,
-                      organizationId: organization?.id,
-                    },
+                  // Fetch quotations
+                  const quotationsResponse = await request(
+                    { path: "/documents", method: "POST" },
+                    { organizationId: organization?.id },
                     token
                   );
-
-                  if (response?.success && response?.data?.id) {
-                    toast.success(`New ${getDocumentTitle()} created`);
-                    // Use the type from URL (pathSegments[2]) to maintain consistent URL format
-                    const urlType = pathSegments[2] || documentType;
-                    router.push(`/portal/documents/${urlType}/${templateId}/${response.data.id}`);
+                  if (quotationsResponse?.success) {
+                    // Filter to only quotation types - check both type and documentType fields
+                    const quotationTypes = ["QUOTATION", "QT", "QO", "QO1"];
+                    const quotations = (quotationsResponse.data || []).filter(
+                      (doc: any) => {
+                        const docType = doc.type || doc.documentType || "";
+                        return quotationTypes.includes(docType.toUpperCase());
+                      }
+                    );
+                    console.log("Fetched documents:", quotationsResponse.data?.length);
+                    console.log("Filtered quotations:", quotations.length);
+                    setQuotationsForExtract(quotations);
+                    setExtractQuotationDialogOpen(true);
                   } else {
-                    toast.error(response?.message || "Failed to create document");
+                    toast.error("Failed to fetch quotations");
                   }
                 } catch (error) {
-                  console.error("Error creating new document:", error);
-                  toast.error("Failed to create document");
+                  console.error("Error fetching quotations:", error);
+                  toast.error("Failed to fetch quotations");
                 }
               }}
-              size="small"
-              sx={{
-                border: "1px solid",
-                borderColor: "divider",
-                borderRadius: 1,
-                bgcolor: "primary.main",
-                color: "primary.contrastText",
-                "&:hover": { bgcolor: "primary.dark" },
-              }}
-              title={`Add New ${getDocumentTitle()}`}
+              color="secondary"
             >
-              <AddIcon />
-            </IconButton>
-            <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "text.secondary" }}>
-              Add
-            </Typography>
-          </Box>
-          {/* Extract to Invoice Button - Only for DO/DELIVERY_ORDER */}
-          {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (
-            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", ml: 1 }}>
-              <IconButton
-                onClick={async () => {
-                  // Extract DO items and create an Invoice
-                  try {
-                    const token = await getToken();
-                    if (!token) {
-                      toast.error("Authentication required");
-                      return;
-                    }
-
-                    // Get invoice template ID by type
-                    const templateResponse = await request(
-                      {
-                        path: `/documentTemplates/type/INVOICE`,
-                        method: "GET",
-                      },
-                      {},
-                      token
-                    );
-
-                    const invoiceTemplateId = templateResponse?.data?.id;
-                    if (!invoiceTemplateId) {
-                      toast.error("Could not find Invoice template. Please create one first.");
-                      return;
-                    }
-
-                    // Prepare config with data from DO
-                    const extractedConfig = {
-                      // Customer info
-                      customerId: formData.customer?.id,
-                      customerName: formData.customer?.name,
-                      customerAddress: formData.customer?.address,
-                      customerEmail: formData.customer?.email,
-                      // Document info - reference the DO
-                      doNo: formData.documentInfo?.documentNumber || formData.name,
-                      poNo: formData.documentInfo?.poNo,
-                      salesPerson: formData.documentInfo?.salesPerson,
-                      contact: formData.documentInfo?.contact,
-                      paymentTerms: formData.documentInfo?.paymentTerms,
-                      deliveryTo: formData.deliveryTo,
-                      // Financial info
-                      currency: formData.documentInfo?.currency,
-                      rate: formData.documentInfo?.rate,
-                      taxApplicable: formData.documentInfo?.taxApplicable,
-                      absorbTax: formData.documentInfo?.absorbTax,
-                      gstPercent: formData.documentInfo?.gstPercent,
-                      // Items from DO
-                      items: items.map((item: any) => ({
-                        itemCode: item.itemCode,
-                        inventoryItemId: item.inventoryItemId,
-                        description: item.description,
-                        quantity: item.quantity,
-                        unitPrice: item.unitPrice,
-                        amount: item.amount,
-                      })),
-                      // Reference to source DO
-                      sourceDocumentId: documentId,
-                      sourceDocumentType: "DELIVERY_ORDER",
-                      sourceDocumentNumber: formData.documentInfo?.documentNumber || formData.name,
-                    };
-
-                    // Create new Invoice with extracted data
-                    const response = await request(
-                      {
-                        path: "/documents/basic",
-                        method: "POST",
-                      },
-                      {
-                        type: "INVOICE",
-                        config: extractedConfig,
-                        documentTemplateId: invoiceTemplateId,
-                        organizationId: organization?.id,
-                      },
-                      token
-                    );
-
-                    if (response?.success && response?.data?.id) {
-                      toast.success("Invoice created from Delivery Order");
-                      // Navigate to the new invoice - use actual document type (INVOICE) not variant (TI2)
-                      router.push(`/portal/documents/INVOICE/${invoiceTemplateId}/${response.data.id}`);
-                    } else {
-                      toast.error(response?.message || "Failed to create invoice");
-                    }
-                  } catch (error) {
-                    console.error("Error extracting to invoice:", error);
-                    toast.error("Failed to create invoice from DO");
-                  }
-                }}
-                size="small"
-                sx={{
-                  border: "1px solid",
-                  borderColor: "divider",
-                  borderRadius: 1,
-                  bgcolor: "secondary.main",
-                  color: "secondary.contrastText",
-                  "&:hover": { bgcolor: "secondary.dark" },
-                }}
-                title="Extract to Invoice"
-              >
-                <ContentCopyIcon />
-              </IconButton>
-              <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "text.secondary" }}>
-                Extract
-              </Typography>
-            </Box>
+              Extract
+            </Button>
           )}
-        </Box>
-        <Box sx={{ display: "flex", gap: 1 }}>
+          {/* Extract from DO Button - Only for TI/TI2/INVOICE */}
+          {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || documentType?.toUpperCase() === "INVOICE") && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<ContentCopyIcon />}
+              onClick={async () => {
+                try {
+                  const token = await getToken();
+                  if (!token) {
+                    toast.error("Authentication required");
+                    return;
+                  }
+                  // Fetch delivery orders
+                  const doResponse = await request(
+                    { path: "/documents", method: "POST" },
+                    { organizationId: organization?.id },
+                    token
+                  );
+                  if (doResponse?.success) {
+                    // Filter to only delivery order types
+                    const doTypes = ["DELIVERY_ORDER", "DO"];
+                    const deliveryOrders = (doResponse.data || []).filter(
+                      (doc: any) => {
+                        const docType = doc.type || doc.documentType || "";
+                        return doTypes.includes(docType.toUpperCase());
+                      }
+                    );
+                    console.log("Fetched documents:", doResponse.data?.length);
+                    console.log("Filtered delivery orders:", deliveryOrders.length);
+                    setDeliveryOrdersForExtract(deliveryOrders);
+                    setExtractDODialogOpen(true);
+                  } else {
+                    toast.error("Failed to fetch delivery orders");
+                  }
+                } catch (error) {
+                  console.error("Error fetching delivery orders:", error);
+                  toast.error("Failed to fetch delivery orders");
+                }
+              }}
+              color="secondary"
+            >
+              Extract
+            </Button>
+          )}
+          {/* Locate Document Button */}
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<SearchIcon />}
+            onClick={() => setLocateDialogOpen(true)}
+          >
+            Locate
+          </Button>
+          <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
           {isDocumentConfirmed && (
             <Button
               size="small"
@@ -1177,7 +1455,81 @@ export default function TabbedDocumentCreator({
           <Button size="small" variant="outlined" startIcon={<PrintIcon />} onClick={handlePrint}>
             Print / PDF
           </Button>
-          {!isDocumentConfirmed && !isTemplateEditMode && (
+          {/* Receive button for Purchase Orders/Returns (before receiving mode) */}
+          {!isDocumentConfirmed && !isTemplateEditMode && isPurchaseDocument && !isReceiving && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<ReceiveIcon />}
+              onClick={() => setIsReceiving(true)}
+              color="info"
+            >
+              Receive
+            </Button>
+          )}
+          {/* Cancel Receive button for Purchase Orders/Returns (in receiving mode) */}
+          {!isDocumentConfirmed && !isTemplateEditMode && isPurchaseDocument && isReceiving && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<CloseIcon />}
+              onClick={() => setIsReceiving(false)}
+              color="inherit"
+            >
+              Cancel Receive
+            </Button>
+          )}
+          {/* Confirm button for Purchase Orders/Returns (after entering received quantities) */}
+          {!isDocumentConfirmed && !isTemplateEditMode && isPurchaseDocument && isReceiving && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<CheckCircleIcon />}
+              onClick={() => setConfirmPODialogOpen(true)}
+              color="success"
+            >
+              {isPurchaseReturn ? "Confirm Purchase Return" : "Confirm Purchase Order"}
+            </Button>
+          )}
+          {/* Confirm button for Stock Adjustments */}
+          {!isDocumentConfirmed && !isTemplateEditMode && isStockAdjustment && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<CheckCircleIcon />}
+              onClick={() => setConfirmAdjustmentDialogOpen(true)}
+              color="success"
+            >
+              {isStockAdjustmentIn ? "Confirm Stock Adjustment In" : "Confirm Stock Adjustment Out"}
+            </Button>
+          )}
+          {/* Confirm button for Delivery Orders */}
+          {!isDocumentConfirmed && !isTemplateEditMode && isDeliveryOrder && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<CheckCircleIcon />}
+              onClick={() => setConfirmDODialogOpen(true)}
+              color="success"
+            >
+              Confirm Delivery Order
+            </Button>
+          )}
+          {/* Confirm button for Invoices */}
+          {!isDocumentConfirmed && !isTemplateEditMode && isInvoiceType && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<CheckCircleIcon />}
+              onClick={() => setConfirmInvoiceDialogOpen(true)}
+              color="success"
+            >
+              Confirm Invoice
+            </Button>
+          )}
+          {/* Confirm button for non-Purchase Order/Return, non-Quotation, non-Stock Adjustment, non-DO, and non-Invoice documents */}
+          {!isDocumentConfirmed && !isTemplateEditMode && !isPurchaseDocument && !isStockAdjustment && !isDeliveryOrder && !isInvoiceType &&
+           !(documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (
             <Button
               size="small"
               variant="outlined"
@@ -1220,7 +1572,7 @@ export default function TabbedDocumentCreator({
               size="small"
               variant="contained"
               startIcon={<SaveIcon />}
-              onClick={() => {
+              onClick={async () => {
                 // Get current user info for tracking
                 const currentUserName = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || 'SYS';
                 const currentTimestamp = new Date().toISOString();
@@ -1228,7 +1580,8 @@ export default function TabbedDocumentCreator({
                 if (isTemplateEditMode) {
                   // Save template configuration
                   const templateConfig = templateMethods.getValues();
-                  onSave?.({ ...formData, config: templateConfig });
+                  await onSave?.({ ...formData, config: templateConfig });
+                  toast.success("Template saved");
                 } else {
                   // Save document data with name field, items, and tracking info
                   const saveData = {
@@ -1243,7 +1596,8 @@ export default function TabbedDocumentCreator({
                   };
                   console.log("Direct Save - Data being sent to onSave:", saveData);
                   console.log("Direct Save - Items in saveData:", JSON.stringify(saveData.items, null, 2));
-                  onSave?.(saveData);
+                  await onSave?.(saveData);
+                  toast.success("Document saved as draft");
                 }
               }}
             >
@@ -1371,8 +1725,8 @@ export default function TabbedDocumentCreator({
                   {templateFieldConfig?.tabs.map((tab) => (
                     <Tab key={tab.tabId} label={tab.tabLabel} />
                   ))}
-                  {/* Legacy delivery address tab for specific document types */}
-                  {(documentType === "DO" || documentType === "RDO" || documentType === "QO1") && (
+                  {/* Legacy delivery address tab for specific document types - only when no dynamic template config */}
+                  {!templateFieldConfig && (documentType === "DO" || documentType === "RDO" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (
                     <Tab label={documentType === "RDO" ? "Return Info" : "Delivery Address"} />
                   )}
                 </Tabs>
@@ -1509,7 +1863,7 @@ export default function TabbedDocumentCreator({
                           size="small"
                         />
                       </Grid>
-                      {(documentType === "TI" || documentType === "DO" || documentType === "QO1") && (!isTemplateEditMode || templateWatch("referenceNo")) && (
+                      {(documentType === "TI" || documentType === "DO" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (!isTemplateEditMode || templateWatch("referenceNo")) && (
                         <Grid item xs={12} md={6}>
                           <TextField
                             fullWidth
@@ -1600,7 +1954,7 @@ export default function TabbedDocumentCreator({
                           />
                         </Grid>
                       )}
-                      {(documentType === "DO" || documentType === "QO1" || documentType === "RDO") && (
+                      {(documentType === "DO" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" || documentType === "RDO") && (
                         <Grid item xs={12} md={6}>
                           <TextField
                             fullWidth
@@ -1661,7 +2015,7 @@ export default function TabbedDocumentCreator({
                       )}
 
                       {/* Quotation-specific fields */}
-                      {documentType === "QO1" && (
+                      {documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" && (
                         <>
                           <Grid item xs={12} md={6}>
                             <TextField
@@ -1735,7 +2089,7 @@ export default function TabbedDocumentCreator({
                       )}
 
                       {/* Payment Terms - for TI and QO1 */}
-                      {(documentType === "TI" || documentType === "QO1") && (
+                      {(documentType === "TI" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (
                         <Grid item xs={12} md={6}>
                           <FormControl fullWidth size="small">
                             <InputLabel>Payment Terms</InputLabel>
@@ -1852,8 +2206,8 @@ export default function TabbedDocumentCreator({
           )}
 
 
-          {/* DELIVERY ADDRESS TAB - Only for DO, RDO, and QO1 */}
-          {(documentType === "DO" || documentType === "RDO" || documentType === "QO1") && (
+          {/* DELIVERY ADDRESS TAB - Only for DO, RDO, and QO1 when no dynamic template config */}
+          {!templateFieldConfig && (documentType === "DO" || documentType === "RDO" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (
             <TabPanel value={mainTabValue} index={2}>
               <Grid container spacing={0.5}>
                 <Grid item xs={12}>
@@ -1900,7 +2254,7 @@ export default function TabbedDocumentCreator({
                         </Grid>
 
                         {/* Delivery To for DO and QO1 with site offices */}
-                        {(documentType === "DO" || documentType === "QO1") && (
+                        {(documentType === "DO" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (
                           <Grid item xs={12}>
                             {siteOffices && siteOffices.length > 0 ? (
                               <Autocomplete
@@ -2035,20 +2389,31 @@ export default function TabbedDocumentCreator({
                             {/* Render columns based on configuration - exclude tax for invoices */}
                             {(() => {
                               const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
+                              const isStockAdjustmentIn = documentType === "SAI" || documentType === "STOCK_ADJUSTMENT_IN";
+                              const isStockAdjustmentOut = documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_OUT";
+                              const isStockAdjustment = isStockAdjustmentIn || isStockAdjustmentOut;
+                              const isPurchaseOrderType = documentType === "PO" || documentType === "PURCHASE_ORDER" || documentType === "QT" || documentType === "QUOTATION" || documentType === "QO";
                               const defaultColumns = isInvoiceType
                                 ? ["item", "description", "quantity", "unitPrice", "amount"]
+                                : isStockAdjustmentIn
+                                ? ["item", "description", "uom", "quantity", "unitPrice", "discount", "amount", "receivedQty"]
+                                : isStockAdjustmentOut || isPurchaseOrderType
+                                ? ["item", "description", "uom", "quantity", "unitPrice", "discount", "amount"]
                                 : ["item", "description", "quantity", "unitPrice", "tax", "amount"];
                               return (isTemplateEditMode ? templateWatch("tableColumnOrder") : defaultColumns).map((columnId: string) => {
                                 // Skip tax column for invoices
                                 if (isInvoiceType && columnId === "tax") return null;
                                 const isVisible = isTemplateEditMode ? templateWatch(`tableHeaders.${columnId}`) : true;
                               const label = isTemplateEditMode ? templateWatch(`columnLabels.${columnId}`) || columnId :
-                                columnId === "item" ? "Item" :
+                                columnId === "item" ? "Product Code" :
                                 columnId === "description" ? "Description" :
+                                columnId === "uom" ? "UOM" :
                                 columnId === "quantity" ? "Quantity" :
                                 columnId === "unitPrice" ? "Unit Price" :
                                 columnId === "tax" ? "Tax %" :
-                                columnId === "amount" ? "Amount" : columnId;
+                                columnId === "discount" ? "Disc %" :
+                                columnId === "amount" ? "Amount" :
+                                columnId === "receivedQty" ? "Received Qty" : columnId;
 
                               if (!isVisible) return null;
 
@@ -2056,16 +2421,19 @@ export default function TabbedDocumentCreator({
                                 <TableCell
                                   key={columnId}
                                   align={
-                                    columnId === "quantity" || columnId === "unitPrice" || columnId === "tax" ? "center" :
+                                    columnId === "quantity" || columnId === "unitPrice" || columnId === "tax" || columnId === "receivedQty" ? "center" :
                                     columnId === "amount" ? "right" : "left"
                                   }
                                   sx={{
-                                    width: columnId === "description" ? "45%" :
-                                           columnId === "item" ? "15%" :
-                                           columnId === "quantity" ? "10%" :
-                                           columnId === "unitPrice" ? "12%" :
+                                    width: columnId === "description" ? "25%" :
+                                           columnId === "item" ? "12%" :
+                                           columnId === "uom" ? "6%" :
+                                           columnId === "quantity" ? "8%" :
+                                           columnId === "unitPrice" ? "10%" :
                                            columnId === "tax" ? "8%" :
-                                           columnId === "amount" ? "10%" : "auto"
+                                           columnId === "discount" ? "6%" :
+                                           columnId === "amount" ? "10%" :
+                                           columnId === "receivedQty" ? "10%" : "auto"
                                   }}
                                 >
                                   {label}
@@ -2073,6 +2441,17 @@ export default function TabbedDocumentCreator({
                               );
                             });
                           })()}
+                            {/* Received Qty and Outstanding Qty columns for Purchase Orders/Returns in receiving mode */}
+                            {isPurchaseDocument && isReceiving && (
+                              <>
+                                <TableCell align="center" sx={{ width: "10%", bgcolor: "info.light" }}>
+                                  Received Qty
+                                </TableCell>
+                                <TableCell align="center" sx={{ width: "10%", bgcolor: "warning.light" }}>
+                                  Outstanding Qty
+                                </TableCell>
+                              </>
+                            )}
                             <TableCell align="center" sx={{ width: "8%" }}>Actions</TableCell>
                           </TableRow>
                         </TableHead>
@@ -2082,8 +2461,16 @@ export default function TabbedDocumentCreator({
                               {/* Render cells based on configuration - exclude tax for invoices */}
                               {(() => {
                                 const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
+                                const isStockAdjustmentIn = documentType === "SAI" || documentType === "STOCK_ADJUSTMENT_IN";
+                                const isStockAdjustmentOut = documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_OUT";
+                                const isStockAdjustment = isStockAdjustmentIn || isStockAdjustmentOut;
+                                const isPurchaseOrderType = documentType === "PO" || documentType === "PURCHASE_ORDER" || documentType === "QT" || documentType === "QUOTATION" || documentType === "QO";
                                 const defaultColumns = isInvoiceType
                                   ? ["item", "description", "quantity", "unitPrice", "amount"]
+                                  : isStockAdjustmentIn
+                                  ? ["item", "description", "uom", "quantity", "unitPrice", "discount", "amount", "receivedQty"]
+                                  : isStockAdjustmentOut || isPurchaseOrderType
+                                  ? ["item", "description", "uom", "quantity", "unitPrice", "discount", "amount"]
                                   : ["item", "description", "quantity", "unitPrice", "tax", "amount"];
                                 return (isTemplateEditMode ? templateWatch("tableColumnOrder") : defaultColumns).map((columnId: string) => {
                                   // Skip tax column for invoices
@@ -2248,6 +2635,41 @@ export default function TabbedDocumentCreator({
                                       </Box>
                                     </TableCell>
                                   );
+                                } else if (columnId === "uom") {
+                                  return (
+                                    <TableCell key={columnId} align="center">
+                                      <TextField
+                                        value={item.uom || ""}
+                                        onChange={(e) => updateItem(item.id, "uom", e.target.value)}
+                                        size="small"
+                                        sx={{ width: 60 }}
+                                      />
+                                    </TableCell>
+                                  );
+                                } else if (columnId === "discount") {
+                                  return (
+                                    <TableCell key={columnId} align="center">
+                                      <TextField
+                                        type="number"
+                                        value={item.discount || 0}
+                                        onChange={(e) => updateItem(item.id, "discount", parseFloat(e.target.value) || 0)}
+                                        size="small"
+                                        sx={{ width: 60 }}
+                                      />
+                                    </TableCell>
+                                  );
+                                } else if (columnId === "receivedQty") {
+                                  return (
+                                    <TableCell key={columnId} align="center">
+                                      <TextField
+                                        type="number"
+                                        value={item.receivedQty || 0}
+                                        onChange={(e) => updateItem(item.id, "receivedQty", parseFloat(e.target.value) || 0)}
+                                        size="small"
+                                        sx={{ width: 80 }}
+                                      />
+                                    </TableCell>
+                                  );
                                 } else if (columnId === "tax") {
                                   return (
                                     <TableCell key={columnId} align="center">
@@ -2282,6 +2704,26 @@ export default function TabbedDocumentCreator({
                                 }
                               });
                             })()}
+                              {/* Received Qty and Outstanding Qty cells for Purchase Orders/Returns in receiving mode */}
+                              {isPurchaseDocument && isReceiving && (
+                                <>
+                                  <TableCell align="center" sx={{ bgcolor: "info.50" }}>
+                                    <TextField
+                                      type="number"
+                                      value={item.receivedQty || 0}
+                                      onChange={(e) => updateItem(item.id, "receivedQty", parseFloat(e.target.value) || 0)}
+                                      size="small"
+                                      sx={{ width: 80 }}
+                                      inputProps={{ min: 0, max: item.quantity || 0 }}
+                                    />
+                                  </TableCell>
+                                  <TableCell align="center" sx={{ bgcolor: "warning.50" }}>
+                                    <Typography variant="body2" fontWeight={500}>
+                                      {((item.quantity || 0) - (item.receivedQty || 0)).toFixed(2)}
+                                    </Typography>
+                                  </TableCell>
+                                </>
+                              )}
                               <TableCell align="center">
                                 <IconButton
                                   size="small"
@@ -2343,21 +2785,21 @@ export default function TabbedDocumentCreator({
                 <TabPanel value={itemsTabValue} index={1}>
                   <Grid container spacing={2}>
                     {/* Notes - for all types */}
-                    <Grid item xs={12} md={documentType === "QO1" ? 12 : 6}>
+                    <Grid item xs={12} md={documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? 12 : 6}>
                       <TextField
                         fullWidth
                         label="Notes"
                         value={formData.note}
                         onChange={(e) => setFormData({ ...formData, note: e.target.value })}
                         multiline
-                        rows={documentType === "QO1" ? 3 : 4}
+                        rows={documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? 3 : 4}
                         size="small"
                       />
                     </Grid>
 
                     {/* Terms & Conditions - for TI and QO1 */}
-                    {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || documentType === "QO1") && (
-                      <Grid item xs={12} md={documentType === "QO1" ? 12 : 6}>
+                    {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (
+                      <Grid item xs={12} md={documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? 12 : 6}>
                         <TextField
                           fullWidth
                           label="Terms & Conditions"
@@ -2366,14 +2808,14 @@ export default function TabbedDocumentCreator({
                             setFormData({ ...formData, termsAndConditions: e.target.value })
                           }
                           multiline
-                          rows={documentType === "QO1" ? 3 : 4}
+                          rows={documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? 3 : 4}
                           size="small"
                         />
                       </Grid>
                     )}
 
                     {/* Quotation-specific fields */}
-                    {documentType === "QO1" && (
+                    {documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" && (
                       <>
                         <Grid item xs={12}>
                           <TextField
@@ -2612,6 +3054,40 @@ export default function TabbedDocumentCreator({
         </DialogActions>
       </Dialog>
 
+      {/* Confirm PO/PR Dialog */}
+      <ConfirmPODialog
+        open={confirmPODialogOpen}
+        onClose={() => !isConfirming && setConfirmPODialogOpen(false)}
+        onConfirm={handleConfirmPO}
+        poNumber={formData.name || formData.documentInfo?.documentNumber || ""}
+        documentType={documentType}
+      />
+
+      {/* Confirm Stock Adjustment Dialog */}
+      <ConfirmAdjustmentDialog
+        open={confirmAdjustmentDialogOpen}
+        onClose={() => !isConfirming && setConfirmAdjustmentDialogOpen(false)}
+        onConfirm={handleConfirmAdjustment}
+        documentNumber={formData.name || formData.documentInfo?.documentNumber || ""}
+        documentType={documentType}
+      />
+
+      {/* Confirm Delivery Order Dialog */}
+      <ConfirmDODialog
+        open={confirmDODialogOpen}
+        onClose={() => !isConfirming && setConfirmDODialogOpen(false)}
+        onConfirm={handleConfirmDO}
+        documentNumber={formData.name || formData.documentInfo?.documentNumber || ""}
+      />
+
+      {/* Invoice Confirmation Dialog */}
+      <ConfirmInvoiceDialog
+        open={confirmInvoiceDialogOpen}
+        onClose={() => !isConfirming && setConfirmInvoiceDialogOpen(false)}
+        onConfirm={handleConfirmInvoice}
+        documentNumber={formData.name || formData.documentInfo?.documentNumber || ""}
+      />
+
       {/* Price History Popup */}
       <PriceHistoryPopup
         open={priceHistoryDialogOpen}
@@ -2685,6 +3161,135 @@ export default function TabbedDocumentCreator({
         onClose={() => setStockCardDialogOpen(false)}
         onSelectItem={handleStockCardItemSelect}
         inventoryItems={inventoriesForDocument}
+      />
+
+      {/* Locate Document Dialog */}
+      <LocateDocumentDialog
+        open={locateDialogOpen}
+        onClose={() => setLocateDialogOpen(false)}
+        documents={documentsForLocate}
+        documentLabel={getDocumentTitle()}
+        onSelectDocument={(doc) => {
+          // Navigate to the selected document
+          const urlType = pathSegments[2] || documentType;
+          router.push(`/portal/documents/${urlType}/${doc.templateId}/${doc.id}`);
+        }}
+      />
+
+      {/* Extract Quotation Dialog - for DO */}
+      <ExtractQuotationDialog
+        open={extractQuotationDialogOpen}
+        onClose={() => setExtractQuotationDialogOpen(false)}
+        quotations={quotationsForExtract}
+        selectedCustomerId={formData.customer?.id}
+        selectedCustomerName={formData.customer?.name}
+        onSelectQuotation={(quotation) => {
+          // Populate DO with data from the selected quotation
+          const quotationConfig = quotation.config || {};
+
+          // Update form data with quotation info
+          setFormData({
+            ...formData,
+            customer: {
+              id: quotationConfig.customerId || "",
+              name: quotationConfig.customerName || "",
+              address: quotationConfig.customerAddress || "",
+              email: quotationConfig.customerEmail || "",
+            },
+            documentInfo: {
+              ...formData.documentInfo,
+              salesPerson: quotationConfig.salesmanCode || quotationConfig.salesPerson || "",
+              poNo: quotationConfig.poNo || quotationConfig.referenceNo || "",
+              contact: quotationConfig.contact || "",
+              paymentTerms: quotationConfig.paymentTerms || "",
+              currency: quotationConfig.currency || "",
+              rate: quotationConfig.rate || "",
+              taxApplicable: quotationConfig.taxApplicable,
+              absorbTax: quotationConfig.absorbTax,
+              gstPercent: quotationConfig.gstPercent,
+            },
+            deliveryTo: quotationConfig.deliveryTo || "",
+            sourceDocumentId: quotation.id,
+            sourceDocumentType: "QUOTATION",
+            sourceDocumentNumber: quotation.name,
+          });
+
+          // Populate items from quotation
+          if (quotationConfig.items && Array.isArray(quotationConfig.items)) {
+            const newItems = quotationConfig.items.map((item: any, index: number) => ({
+              id: Date.now() + index,
+              itemCode: item.itemCode || "",
+              inventoryItemId: item.inventoryItemId || "",
+              description: item.description || "",
+              quantity: item.quantity || 1,
+              unitPrice: item.unitPrice || 0,
+              uom: item.uom || "",
+              discount: item.discount || 0,
+              amount: item.amount || (item.quantity || 1) * (item.unitPrice || 0),
+            }));
+            setItems(newItems);
+          }
+
+          toast.success(`Quotation ${quotation.name} extracted to Delivery Order`);
+        }}
+      />
+
+      {/* Extract DO to Invoice Dialog - for Invoice */}
+      <ExtractDOToInvoiceDialog
+        open={extractDODialogOpen}
+        onClose={() => setExtractDODialogOpen(false)}
+        deliveryOrders={deliveryOrdersForExtract}
+        selectedCustomerId={formData.customer?.id}
+        selectedCustomerName={formData.customer?.name}
+        onSelectDO={(deliveryOrder) => {
+          // Populate Invoice with data from the selected Delivery Order
+          const doConfig = deliveryOrder.config || {};
+
+          // Update form data with DO info
+          setFormData({
+            ...formData,
+            customer: {
+              id: doConfig.customerId || "",
+              name: doConfig.customerName || "",
+              address: doConfig.customerAddress || "",
+              email: doConfig.customerEmail || "",
+            },
+            documentInfo: {
+              ...formData.documentInfo,
+              salesPerson: doConfig.salesmanCode || doConfig.salesPerson || "",
+              poNo: doConfig.poNo || doConfig.referenceNo || "",
+              contact: doConfig.contact || "",
+              paymentTerms: doConfig.paymentTerms || "",
+              currency: doConfig.currency || "",
+              rate: doConfig.rate || "",
+              taxApplicable: doConfig.taxApplicable,
+              absorbTax: doConfig.absorbTax,
+              gstPercent: doConfig.gstPercent,
+            },
+            deliveryTo: doConfig.deliveryTo || "",
+            sourceDocumentId: deliveryOrder.id,
+            sourceDocumentType: "DELIVERY_ORDER",
+            sourceDocumentNumber: deliveryOrder.name,
+          });
+
+          // Populate items from delivery order
+          if (doConfig.items && Array.isArray(doConfig.items)) {
+            const newItems = doConfig.items.map((item: any, index: number) => ({
+              id: Date.now() + index,
+              itemCode: item.itemCode || "",
+              inventoryItemId: item.inventoryItemId || "",
+              description: item.description || "",
+              quantity: item.quantity || 1,
+              unitPrice: item.unitPrice || 0,
+              uom: item.uom || "",
+              discount: item.discount || 0,
+              amount: item.amount || (item.quantity || 1) * (item.unitPrice || 0),
+            }));
+            setItems(newItems);
+          }
+
+          toast.success(`Delivery Order ${deliveryOrder.name} extracted to Invoice`);
+        }}
       />
 
       {/* Customer Select Dialog */}

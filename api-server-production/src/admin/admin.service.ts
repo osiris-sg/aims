@@ -324,6 +324,21 @@ export class AdminService {
     });
   }
 
+  async updateOrganization(id: string, data: { stockDeductionTrigger?: string }) {
+    const updatedOrg = await this.prisma.organization.update({
+      where: { id },
+      data: {
+        stockDeductionTrigger: data.stockDeductionTrigger,
+      },
+    });
+
+    return {
+      success: true,
+      data: updatedOrg,
+      message: 'Organization updated successfully',
+    };
+  }
+
   async getOrganizationStats(id: string) {
     const stats = await this.prisma.organization.findUnique({
       where: { id },
@@ -730,6 +745,7 @@ export class AdminService {
       { moduleCode: 'DASHBOARD', displayName: 'Dashboard', icon: 'Dashboard', sortOrder: 0, config: { route: '/portal' } },
       { moduleCode: 'ASSETS', displayName: 'Assets', icon: 'Settings', sortOrder: 10, config: { route: '/portal/assets' } },
       { moduleCode: 'INVENTORY', displayName: 'Inventory', icon: 'Inventory', sortOrder: 20, config: { route: '/portal/inventory' } },
+      { moduleCode: 'SALES', displayName: 'Sales', icon: 'ShoppingCart', sortOrder: 25, config: { route: '/portal/sales' } },
       { moduleCode: 'CUSTOMERS', displayName: 'Customers', icon: 'PeopleRounded', sortOrder: 30, config: { route: '/portal/customers' } },
       { moduleCode: 'DOCUMENTS', displayName: 'Documents', icon: 'Description', sortOrder: 40, config: { route: '/portal/documents' } },
       { moduleCode: 'INVOICES', displayName: 'Invoices', icon: 'Receipt', sortOrder: 50, config: { route: '/portal/invoices' } },

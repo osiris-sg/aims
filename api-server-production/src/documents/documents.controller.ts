@@ -253,6 +253,64 @@ export class DocumentsController {
     }
   }
 
+  @Post(':id/confirm-do')
+  @Permissions('documents:update')
+  async confirmDeliveryOrder(
+    @Param('id') documentId: string,
+    @Body() body: { fromDONo: string; toDONo: string },
+    @Req() req: RequestWithOrganization,
+  ) {
+    try {
+      const organizationId = req.userOrganization?.id;
+      if (!organizationId) {
+        throw new HttpException('User is not assigned to any organization', HttpStatus.FORBIDDEN);
+      }
+
+      const result = await this.documentsService.confirmDeliveryOrder(
+        documentId,
+        { fromDONo: body.fromDONo, toDONo: body.toDONo },
+        organizationId,
+      );
+
+      return result;
+    } catch (error) {
+      console.error('Error confirming Delivery Order:', error);
+      throw new HttpException(
+        error.message || 'Failed to confirm Delivery Order',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Post(':id/confirm-invoice')
+  @Permissions('documents:update')
+  async confirmInvoice(
+    @Param('id') documentId: string,
+    @Body() body: { fromInvoiceNo: string; toInvoiceNo: string },
+    @Req() req: RequestWithOrganization,
+  ) {
+    try {
+      const organizationId = req.userOrganization?.id;
+      if (!organizationId) {
+        throw new HttpException('User is not assigned to any organization', HttpStatus.FORBIDDEN);
+      }
+
+      const result = await this.documentsService.confirmInvoice(
+        documentId,
+        { fromInvoiceNo: body.fromInvoiceNo, toInvoiceNo: body.toInvoiceNo },
+        organizationId,
+      );
+
+      return result;
+    } catch (error) {
+      console.error('Error confirming Invoice:', error);
+      throw new HttpException(
+        error.message || 'Failed to confirm Invoice',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   @Get(':id/payment-summary')
   @Permissions('documents:read')
   async getPaymentSummary(

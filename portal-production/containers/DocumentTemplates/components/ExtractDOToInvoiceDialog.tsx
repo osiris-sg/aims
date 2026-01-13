@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -25,72 +25,94 @@ import {
   Close as CloseIcon,
   Search as SearchIcon,
 } from "@mui/icons-material";
+import moment from "moment";
 
-interface Salesman {
+interface DeliveryOrderDocument {
   id: string;
-  salesmanCode: string;
   name: string;
-  email?: string;
+  type: string;
+  templateId: string;
+  status?: string;
+  createdAt: string;
+  associated_customer?: string;
+  customer?: { name?: string };
+  customerName?: string;
+  config?: {
+    customerId?: string;
+    customerCode?: string;
+    customerName?: string;
+    customerAddress?: string;
+    customerEmail?: string;
+    salesmanCode?: string;
+    salesmanName?: string;
+    poNo?: string;
+    referenceNo?: string;
+    items?: any[];
+    [key: string]: any;
+  };
 }
 
-interface SalesmanSelectDialogProps {
+interface ExtractDOToInvoiceDialogProps {
   open: boolean;
   onClose: () => void;
-  onSelectSalesman: (salesman: Salesman) => void;
-  salesmen: Salesman[];
+  onSelectDO: (deliveryOrder: DeliveryOrderDocument) => void;
+  deliveryOrders: DeliveryOrderDocument[];
+  selectedCustomerId?: string;
+  selectedCustomerName?: string;
 }
 
-type SearchMode = "code" | "name";
+type SearchMode = "number" | "name";
 
-export default function SalesmanSelectDialog({
+export default function ExtractDOToInvoiceDialog({
   open,
   onClose,
-  onSelectSalesman,
-  salesmen,
-}: SalesmanSelectDialogProps) {
+  onSelectDO,
+  deliveryOrders,
+  selectedCustomerId,
+  selectedCustomerName,
+}: ExtractDOToInvoiceDialogProps) {
   const [searchTerm, setSearchTerm] = useState("");
-  const [searchMode, setSearchMode] = useState<SearchMode>("code");
+  const [searchMode, setSearchMode] = useState<SearchMode>("number");
 
-  // Extract salesmen array - handle both direct array and response object with data property
-  const salesmenArray = useMemo(() => {
-    if (Array.isArray(salesmen)) {
-      return salesmen;
+  // Reset search when dialog opens
+  useEffect(() => {
+    if (open) {
+      setSearchTerm("");
     }
-    // Handle case where full API response is passed: {success, message, data: [...]}
-    if (salesmen && typeof salesmen === 'object' && 'data' in salesmen && Array.isArray((salesmen as any).data)) {
-      return (salesmen as any).data;
-    }
-    return [];
-  }, [salesmen]);
+  }, [open]);
 
-  // Filter salesmen based on search term and mode
-  const filteredSalesmen = useMemo(() => {
-    // Ensure salesmen is an array
-    const salesmenList = salesmenArray;
+  // Filter delivery orders based on search term, mode, and selected customer
+  const filteredDeliveryOrders = useMemo(() => {
+    let filtered = deliveryOrders;
 
-    if (!searchTerm.trim()) {
-      return salesmenList;
+    // If a customer is already selected in Invoice, auto-filter to that customer's DOs
+    if (selectedCustomerId) {
+      filtered = filtered.filter(
+        (d) => d.config?.customerId === selectedCustomerId
+      );
     }
 
-    const term = searchTerm.toLowerCase();
+    // Apply search filter
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter((d) => {
+        switch (searchMode) {
+          case "number":
+            return d.name?.toLowerCase().includes(term);
+          case "name":
+            const customerName = d.config?.customerName || "";
+            return customerName.toLowerCase().includes(term);
+          default:
+            return true;
+        }
+      });
+    }
 
-    return salesmenList.filter((salesman: Salesman) => {
-      switch (searchMode) {
-        case "code":
-          return salesman.salesmanCode?.toLowerCase().includes(term);
-        case "name":
-          return salesman.name?.toLowerCase().includes(term);
-        default:
-          return true;
-      }
-    });
-  }, [salesmenArray, searchTerm, searchMode]);
+    return filtered;
+  }, [deliveryOrders, searchTerm, searchMode, selectedCustomerId]);
 
-  // Ensure we have a valid count for display
-  const totalCount = salesmenArray.length;
-
-  const handleRowClick = (salesman: Salesman) => {
-    onSelectSalesman(salesman);
+  const handleRowClick = (deliveryOrder: DeliveryOrderDocument) => {
+    onSelectDO(deliveryOrder);
     setSearchTerm("");
     onClose();
   };
@@ -104,12 +126,12 @@ export default function SalesmanSelectDialog({
     <Dialog
       open={open}
       onClose={handleClose}
-      maxWidth="sm"
+      maxWidth="md"
       fullWidth
       PaperProps={{
         sx: {
-          minHeight: "50vh",
-          maxHeight: "70vh",
+          minHeight: "60vh",
+          maxHeight: "80vh",
         },
       }}
     >
@@ -124,7 +146,7 @@ export default function SalesmanSelectDialog({
         }}
       >
         <Typography variant="h6" fontWeight={500}>
-          Locate Salesman
+          Extract Delivery Order to Invoice
         </Typography>
         <IconButton onClick={handleClose} size="small" sx={{ color: "primary.contrastText" }}>
           <CloseIcon />
@@ -141,14 +163,17 @@ export default function SalesmanSelectDialog({
             borderColor: "divider",
           }}
         >
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            Search for a salesman by code or name
-          </Typography>
+          {/* Show customer filter info if customer is selected */}
+          {selectedCustomerName && (
+            <Typography variant="body2" color="primary.main" sx={{ mb: 1, fontWeight: 500 }}>
+              Showing delivery orders for: {selectedCustomerName}
+            </Typography>
+          )}
 
           {/* Search Input */}
           <TextField
             fullWidth
-            placeholder="Search salesmen..."
+            placeholder="Search delivery orders..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             size="small"
@@ -173,9 +198,9 @@ export default function SalesmanSelectDialog({
             onChange={(e) => setSearchMode(e.target.value as SearchMode)}
           >
             <FormControlLabel
-              value="code"
+              value="number"
               control={<Radio size="small" color="primary" />}
-              label="Search By Code"
+              label="Search By Delivery Order Number"
               sx={{ mr: 3 }}
             />
             <FormControlLabel
@@ -187,7 +212,7 @@ export default function SalesmanSelectDialog({
         </Box>
 
         {/* Results Table */}
-        <TableContainer component={Paper} sx={{ maxHeight: "calc(70vh - 250px)" }}>
+        <TableContainer component={Paper} sx={{ maxHeight: "calc(80vh - 280px)" }}>
           <Table stickyHeader size="small">
             <TableHead>
               <TableRow>
@@ -197,10 +222,21 @@ export default function SalesmanSelectDialog({
                     bgcolor: "grey.100",
                     borderBottom: 2,
                     borderColor: "primary.main",
-                    width: "25%",
+                    width: "20%",
                   }}
                 >
-                  Salesman Code
+                  Delivery Order No.
+                </TableCell>
+                <TableCell
+                  sx={{
+                    fontWeight: 600,
+                    bgcolor: "grey.100",
+                    borderBottom: 2,
+                    borderColor: "primary.main",
+                    width: "15%",
+                  }}
+                >
+                  Date
                 </TableCell>
                 <TableCell
                   sx={{
@@ -219,28 +255,32 @@ export default function SalesmanSelectDialog({
                     bgcolor: "grey.100",
                     borderBottom: 2,
                     borderColor: "primary.main",
-                    width: "30%",
+                    width: "20%",
                   }}
                 >
-                  Email
+                  Purchase Order No.
                 </TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {filteredSalesmen.length === 0 ? (
+              {filteredDeliveryOrders.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={3} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">
-                      {searchTerm ? "No salesmen found matching your search" : "No salesmen available"}
+                      {searchTerm
+                        ? "No delivery orders found matching your search"
+                        : selectedCustomerId
+                        ? "No delivery orders available for this customer"
+                        : "No delivery orders available"}
                     </Typography>
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredSalesmen.map((salesman: Salesman, index: number) => (
+                filteredDeliveryOrders.map((deliveryOrder, index) => (
                   <TableRow
-                    key={salesman.id || index}
+                    key={deliveryOrder.id || index}
                     hover
-                    onClick={() => handleRowClick(salesman)}
+                    onClick={() => handleRowClick(deliveryOrder)}
                     sx={{
                       cursor: "pointer",
                       "&:hover": {
@@ -251,11 +291,24 @@ export default function SalesmanSelectDialog({
                       },
                     }}
                   >
-                    <TableCell sx={{ fontWeight: 500, color: "secondary.main" }}>
-                      {salesman.salesmanCode || "-"}
+                    <TableCell sx={{ fontWeight: 500, color: "primary.main" }}>
+                      {deliveryOrder.name || "-"}
                     </TableCell>
-                    <TableCell>{salesman.name || "-"}</TableCell>
-                    <TableCell>{salesman.email || "-"}</TableCell>
+                    <TableCell>
+                      {deliveryOrder.createdAt ? moment(deliveryOrder.createdAt).format("DD/MM/YYYY") : "-"}
+                    </TableCell>
+                    <TableCell>
+                      {deliveryOrder.config?.customerName ||
+                       (deliveryOrder.associated_customer && deliveryOrder.associated_customer !== "N/A" ? deliveryOrder.associated_customer : null) ||
+                       deliveryOrder.customer?.name ||
+                       deliveryOrder.customerName ||
+                       "-"}
+                    </TableCell>
+                    <TableCell>
+                      {deliveryOrder.config?.poNo ||
+                       deliveryOrder.config?.referenceNo ||
+                       "-"}
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -276,10 +329,10 @@ export default function SalesmanSelectDialog({
           }}
         >
           <Typography variant="body2" color="text.secondary">
-            Showing {filteredSalesmen.length} of {totalCount} salesmen
+            Showing {filteredDeliveryOrders.length} of {deliveryOrders.length} delivery orders
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            Click on a row to select a salesman
+            Click on a row to extract delivery order data
           </Typography>
         </Box>
       </DialogContent>

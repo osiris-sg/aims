@@ -54,20 +54,25 @@ export default function page() {
     return filteredDocuments.findIndex((doc: any) => doc.id === documentId);
   }, [filteredDocuments, documentId]);
 
-  const hasPrevious = currentIndex > 0;
-  const hasNext = currentIndex >= 0 && currentIndex < filteredDocuments.length - 1;
+  // Documents are sorted newest-first, so:
+  // - "Previous" goes to older documents (higher index)
+  // - "Next" goes to newer documents (lower index)
+  const hasPrevious = currentIndex >= 0 && currentIndex < filteredDocuments.length - 1;
+  const hasNext = currentIndex > 0;
 
   // Navigation handlers
   const handlePrevious = useCallback(() => {
-    if (hasPrevious && filteredDocuments[currentIndex - 1]) {
-      const prevDoc = filteredDocuments[currentIndex - 1];
+    // Go to older document (higher index in newest-first array)
+    if (hasPrevious && filteredDocuments[currentIndex + 1]) {
+      const prevDoc = filteredDocuments[currentIndex + 1];
       router.push(`/portal/documents/${type}/${id}/${prevDoc.id}`);
     }
   }, [hasPrevious, filteredDocuments, currentIndex, router, type, id]);
 
   const handleNext = useCallback(() => {
-    if (hasNext && filteredDocuments[currentIndex + 1]) {
-      const nextDoc = filteredDocuments[currentIndex + 1];
+    // Go to newer document (lower index in newest-first array)
+    if (hasNext && filteredDocuments[currentIndex - 1]) {
+      const nextDoc = filteredDocuments[currentIndex - 1];
       router.push(`/portal/documents/${type}/${id}/${nextDoc.id}`);
     }
   }, [hasNext, filteredDocuments, currentIndex, router, type, id]);
@@ -133,6 +138,7 @@ export default function page() {
                 setDocumentMetadata((prev: any) => ({
                   ...prev,
                   variant: templateVariant,
+                  actualDocumentType: templateResponse.data.type, // Store the actual document type (INVOICE, QUOTATION, etc.)
                 }));
                 console.log("Template variant set to:", templateVariant);
                 console.log("Template full data:", {
@@ -222,7 +228,12 @@ export default function page() {
       }
 
       // Get field definitions for the template variant
-      const templateVariant = documentMetadata?.variant || type;
+      // For quotation types, prefer the URL type to ensure correct template is used
+      const urlTypeForSave = Array.isArray(type) ? type[0] : type;
+      const quotationTypesForSave = ["QUOTATION", "QT", "QO"];
+      const templateVariant = quotationTypesForSave.includes(urlTypeForSave?.toUpperCase() || "")
+        ? urlTypeForSave
+        : (documentMetadata?.variant || type);
       const fieldConfig = getTemplateFields(templateVariant);
 
       console.log("handleSave - Before transform - data.items:", data.items);
@@ -256,9 +267,9 @@ export default function page() {
       );
 
       if (response.success) {
-        toast.success("Document saved successfully!");
-        // Navigate back to document list page
-        router.push("/portal/documents");
+        // Don't show toast or navigate here - let the caller handle it
+        // (e.g., handleConfirmDocument will refresh the page)
+        return;
       } else {
         console.error("Save failed - Full response:", response);
         console.error("Save failed - Data sent:", updatePayload);
@@ -321,7 +332,15 @@ export default function page() {
 
   // Determine the template variant to use
   // Priority: document's stored variant > template variant from documentTemplate > URL type
-  const templateVariant = documentMetadata?.variant || existingData?.variant || type;
+  // Special handling: if URL type is QUOTATION/QT/QO but variant is different, prefer URL type
+  let templateVariant = documentMetadata?.variant || existingData?.variant || type;
+
+  // For quotation types, prefer the URL type to ensure correct template is used
+  const urlType = Array.isArray(type) ? type[0] : type;
+  const quotationTypes = ["QUOTATION", "QT", "QO"];
+  if (quotationTypes.includes(urlType?.toUpperCase() || "")) {
+    templateVariant = urlType;
+  }
 
   console.log("=== TEMPLATE VARIANT SELECTION ===");
   console.log("documentMetadata:", documentMetadata);
@@ -330,9 +349,21 @@ export default function page() {
   console.log("type from URL:", type);
   console.log("Final templateVariant being passed to TabbedDocumentCreator:", templateVariant);
 
+  // Get actual document type (INVOICE, QUOTATION, etc.) for creating new documents
+  // Priority: actualDocumentType from template > document's own type field > existingData type > URL type
+  const actualDocumentType = documentMetadata?.actualDocumentType || documentMetadata?.type || existingData?.type || type;
+
+  console.log("=== ACTUAL DOCUMENT TYPE SELECTION ===");
+  console.log("documentMetadata?.actualDocumentType:", documentMetadata?.actualDocumentType);
+  console.log("documentMetadata?.type:", documentMetadata?.type);
+  console.log("existingData?.type:", existingData?.type);
+  console.log("type from URL:", type);
+  console.log("Final actualDocumentType:", actualDocumentType);
+
   return (
     <TabbedDocumentCreator
       documentType={templateVariant as any}
+      actualDocumentType={actualDocumentType as string}
       documentId={documentId as string}
       existingData={existingData}
       onSave={handleSave}

@@ -298,4 +298,142 @@ export class InventoriesService {
       throw new HttpException(`QR Code generation failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
+
+  /**
+   * Get stock movement history for an item (inventory or asset)
+   * Returns transaction history with Qty-In, Qty-Out, running balance, and associated documents
+   * Uses DocumentItem junction table for efficient O(log n) queries instead of scanning all documents
+   */
+  async getStockMovementHistory(itemId: string, organizationId: string) {
+    try {
+      console.log('[StockMovements] getStockMovementHistory called with itemId:', itemId, 'orgId:', organizationId);
+
+      // Document types that add stock (IN)
+      const stockInTypes = ['PO', 'PURCHASE_ORDER', 'SAI', 'STOCK_ADJUSTMENT_IN'];
+      // Document types that reduce stock (OUT)
+      const stockOutTypes = ['DO', 'DELIVERY_ORDER', 'INVOICE', 'TI', 'TI2', 'SAO', 'STOCK_ADJUSTMENT_OUT', 'DN', 'DEBIT_NOTE'];
+
+      // Get the initial stock quantity from inventory or asset
+      const inventory = await this.prisma.inventory.findUnique({
+        where: { id: itemId },
+        include: { asset: true },
+      });
+
+      let initialQuantity = 0;
+      let itemName = '';
+
+      if (inventory) {
+        // This is an inventory item (Asset Tracking ON)
+        initialQuantity = inventory.quantity || 0;
+        itemName = inventory.asset?.name || inventory.sku || '';
+      } else {
+        // Check if it's an asset (Asset Tracking OFF / Products mode)
+        const asset = await this.prisma.asset.findUnique({
+          where: { id: itemId },
+        });
+        if (asset) {
+          initialQuantity = asset.quantity || 0;
+          itemName = asset.name || asset.skuKey || '';
+        }
+      }
+
+      // Use DocumentItem junction table for efficient query
+      // This is O(log n) with index vs O(n) scanning all documents
+      const documentItems = await this.prisma.documentItem.findMany({
+        where: {
+          itemId,
+          document: {
+            organizationId,
+            status: { in: ['confirmed', 'delivered_not_installed', 'delivered_installed'] },
+          },
+        },
+        include: {
+          document: true,
+        },
+        orderBy: {
+          createdAt: 'asc',
+        },
+      });
+
+      console.log('[StockMovements] Found', documentItems.length, 'DocumentItem records for itemId:', itemId);
+
+      // Build movements from DocumentItem records
+      const movements: {
+        reference: string;
+        date: string;
+        poNo: string;
+        name: string;
+        qtyIn: number;
+        qtyOut: number;
+        balance: number;
+        priceOrCost: number;
+        currency: string;
+        documentId: string;
+        documentType: string;
+      }[] = [];
+
+      let runningBalance = 0;
+
+      for (const docItem of documentItems) {
+        const doc = docItem.document;
+        const config = doc.config as any;
+        const quantity = docItem.quantity || 0;
+
+        if (quantity === 0) continue;
+
+        const isStockIn = stockInTypes.includes(doc.type);
+        const isStockOut = stockOutTypes.includes(doc.type);
+
+        if (!isStockIn && !isStockOut) continue;
+
+        const qtyIn = isStockIn ? quantity : 0;
+        const qtyOut = isStockOut ? quantity : 0;
+
+        // Update running balance
+        runningBalance = runningBalance + qtyIn - qtyOut;
+
+        movements.push({
+          reference: doc.name || doc.id.substring(0, 8),
+          date: doc.createdAt.toISOString().split('T')[0],
+          poNo: config?.poNo || config?.referenceNo || '',
+          name: config?.customerName || config?.supplierName || '',
+          qtyIn,
+          qtyOut,
+          balance: runningBalance,
+          priceOrCost: docItem.unitPrice || 0,
+          currency: config?.currency || 'SGD',
+          documentId: doc.id,
+          documentType: doc.type,
+        });
+      }
+
+      // Sort by date (newest first for display)
+      movements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+      // Recalculate running balance from newest to oldest for display
+      // The balance shown should be AFTER each transaction
+      let displayBalance = initialQuantity;
+      const displayMovements = movements.map((m) => {
+        const movement = { ...m };
+        const netChange = m.qtyIn - m.qtyOut;
+        movement.balance = displayBalance;
+        displayBalance = displayBalance - netChange; // Go backwards for next (older) transaction
+        return movement;
+      });
+
+      return {
+        itemId,
+        itemName,
+        currentBalance: initialQuantity,
+        movements: displayMovements,
+        totalMovements: displayMovements.length,
+      };
+    } catch (error) {
+      console.error('Error getting stock movement history:', error);
+      throw new HttpException(
+        `Failed to get stock movement history: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
 }

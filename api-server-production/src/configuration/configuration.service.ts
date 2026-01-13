@@ -94,12 +94,11 @@ export class ConfigurationService {
           ],
         },
       },
-      { moduleCode: 'CUSTOMERS', displayName: 'Customers', icon: 'PeopleRounded', sortOrder: 2, config: { route: '/portal/customers' } },
       {
         moduleCode: 'SALES',
         displayName: 'Sales',
         icon: 'ShoppingCart',
-        sortOrder: 3,
+        sortOrder: 2,
         config: {
           route: '/portal/sales',
           subMenus: [
@@ -113,6 +112,7 @@ export class ConfigurationService {
           ],
         },
       },
+      { moduleCode: 'CUSTOMERS', displayName: 'Customers', icon: 'PeopleRounded', sortOrder: 3, config: { route: '/portal/customers' } },
       { moduleCode: 'PROJECTS', displayName: 'Projects', icon: 'AccountTree', sortOrder: 4, config: { route: '/portal/projects' } },
       { moduleCode: 'USER_MANAGEMENT', displayName: 'User Management', icon: 'PeopleRounded', sortOrder: 5, config: { route: '/portal/user-management', subMenus: ['users', 'roles'] } },
       { moduleCode: 'AUDIT', displayName: 'Audit', icon: 'AnalyticsRounded', sortOrder: 6, config: { route: '/portal/audit' } },

@@ -19,6 +19,7 @@ model Organization {
   defaultStamp       String?
   customDocumentTypes Json?
   taxRate            Float?             @default(9)
+  stockDeductionTrigger String?         @default("DO") // "DO" = Delivery Order, "INVOICE" = Invoice
   assets             Asset[]
   categories         Category[]
   customers          Customer[]
@@ -187,12 +188,46 @@ model Document {
   priceHistories     PriceHistory[] // Track price history entries from this document
   payments           Payment[]      // Payments made against this document
   transactions       Transaction[]  // Financial transactions from this document
+  documentItems      DocumentItem[] // Junction table for efficient item queries
 
   // Self-relation for revisions: base document -> many revisions
   baseDocument       Document?      @relation("DocumentRevisions", fields: [baseDocumentId], references: [id])
   revisions          Document[]     @relation("DocumentRevisions")
 
   @@index([baseDocumentId])
+  @@index([organizationId, type])
+  @@index([organizationId, status])
+  @@unique([name, organizationId, documentTemplateId])
+}
+
+// Junction table for document items - enables efficient queries for stock movements
+model DocumentItem {
+  id              String    @id @default(uuid()) @db.Uuid
+  documentId      String    @db.Uuid
+  itemId          String    @db.Uuid  // Can be inventoryId or assetId
+  itemType        ItemType  // INVENTORY or ASSET
+  sku             String?   // SKU for reference
+  description     String?   // Item description for reference
+  quantity        Float     @default(0)
+  unitPrice       Float?    @default(0)
+  discount        Float?    @default(0)
+  amount          Float?    @default(0)
+  uom             String?   // Unit of measure
+  lineNumber      Int?      // Position in document
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  document        Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
+  @@index([documentId])
+  @@index([itemId, itemType])
+  @@unique([documentId, itemId, lineNumber])
+}
+
+enum ItemType {
+  INVENTORY
+  ASSET
 }
 
 model Role {

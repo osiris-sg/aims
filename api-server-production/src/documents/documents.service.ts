@@ -2,7 +2,7 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { PrismaService } from 'src/common/prisma.service';
 import { CreateDocumentWithTimelineDto } from './dto/create-document-with-timeline.dto';
-import { InventoryStatus, DocumentStatus, TransactionType } from '@prisma/client';
+import { InventoryStatus, DocumentStatus, TransactionType, ItemType } from '@prisma/client';
 import { XeroService } from 'src/common/xero.service';
 import { PriceHistoryService } from '../price-history/price-history.service';
 import { TransactionsService } from '../transactions/transactions.service';
@@ -24,6 +24,87 @@ export class DocumentsService {
     private pdfGeneratorService: PdfGeneratorService,
   ) {}
 
+  /**
+   * Sync DocumentItem junction table for efficient item queries.
+   * This is called after document create/update to keep the junction table in sync.
+   */
+  private async syncDocumentItems(documentId: string, config: any, organizationId: string) {
+    try {
+      const items = config?.items;
+      if (!items || !Array.isArray(items)) {
+        // No items to sync, delete any existing DocumentItems for this document
+        await this.prisma.documentItem.deleteMany({
+          where: { documentId },
+        });
+        return;
+      }
+
+      // Delete existing DocumentItems for this document first
+      await this.prisma.documentItem.deleteMany({
+        where: { documentId },
+      });
+
+      // Create new DocumentItems for each item in config
+      const documentItemsData: any[] = [];
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const itemId = item.inventoryItemId || item.assetId;
+
+        if (!itemId) continue; // Skip items without an ID
+
+        // Determine item type by checking which table it exists in
+        let itemType: ItemType = ItemType.INVENTORY;
+
+        // Check if it's an inventory item
+        const inventoryItem = await this.prisma.inventory.findUnique({
+          where: { id: itemId },
+        });
+
+        if (!inventoryItem) {
+          // Not in inventory, check if it's an asset
+          const assetItem = await this.prisma.asset.findUnique({
+            where: { id: itemId },
+          });
+
+          if (assetItem) {
+            itemType = ItemType.ASSET;
+          } else {
+            // Item not found in either table, skip
+            console.warn(`DocumentItem sync: Item ${itemId} not found in Inventory or Asset table, skipping`);
+            continue;
+          }
+        }
+
+        documentItemsData.push({
+          documentId,
+          itemId,
+          itemType,
+          sku: item.sku || item.skuKey || null,
+          description: item.description || null,
+          quantity: parseFloat(item.quantity) || 0,
+          unitPrice: parseFloat(item.unitPrice) || 0,
+          discount: parseFloat(item.discount) || 0,
+          amount: parseFloat(item.amount) || 0,
+          uom: item.uom || null,
+          lineNumber: i + 1,
+        });
+      }
+
+      // Batch create DocumentItems
+      if (documentItemsData.length > 0) {
+        await this.prisma.documentItem.createMany({
+          data: documentItemsData,
+          skipDuplicates: true,
+        });
+        console.log(`📋 DocumentItem sync: Created ${documentItemsData.length} items for document ${documentId}`);
+      }
+    } catch (error) {
+      console.error('Failed to sync DocumentItems:', error);
+      // Don't throw - this is a background sync operation
+    }
+  }
+
   async getById(id: string, organizationId: string) {
     try {
       return await this.prisma.document.findFirst({
@@ -44,20 +125,32 @@ export class DocumentsService {
 
   async getByInventory(inventoryId: string, organizationId: string) {
     try {
-      // Get all documents and filter by inventoryId in config.items
-      const documents = await this.prisma.document.findMany({
+      // Use DocumentItem junction table for efficient query (O(log n) with index)
+      const documentItems = await this.prisma.documentItem.findMany({
         where: {
-          organizationId: organizationId,
+          itemId: inventoryId,
+          document: {
+            organizationId,
+          },
         },
-        orderBy: { createdAt: 'desc' },
+        include: {
+          document: true,
+        },
+        orderBy: {
+          document: {
+            createdAt: 'desc',
+          },
+        },
       });
 
-      // Filter documents that have the inventoryId in their items
-      return documents.filter((doc: any) => {
-        const config = doc.config as any;
-        if (!config?.items || !Array.isArray(config.items)) return false;
-        return config.items.some((item: any) => item.inventoryItemId === inventoryId);
-      });
+      // Return unique documents
+      const documentMap = new Map();
+      for (const item of documentItems) {
+        if (!documentMap.has(item.document.id)) {
+          documentMap.set(item.document.id, item.document);
+        }
+      }
+      return Array.from(documentMap.values());
     } catch (error) {
       throw new HttpException(`Fetch by inventory failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
@@ -211,6 +304,87 @@ export class DocumentsService {
         }
       }
 
+      // If document is being confirmed and is a Purchase Order, update inventory quantities
+      console.log('📋 UPDATE DOC: dto.type =', dto.type, ', dto.status =', dto.status, ', existingDocument.status =', existingDocument.status);
+      console.log('📋 UPDATE DOC: Is PO check:', dto.type === 'PO' || dto.type === 'PURCHASE_ORDER');
+      if (dto.status === 'confirmed' &&
+          existingDocument.status !== 'confirmed' &&
+          (dto.type === 'PO' || dto.type === 'PURCHASE_ORDER')) {
+        try {
+          const items = configAsPlainObject?.items || [];
+          console.log('📦 PO RECEIVE: Processing Purchase Order confirmation with items:', items.length);
+          console.log('📦 PO RECEIVE: Items with receivedQty:', items.map((i: any) => ({ id: i.inventoryItemId, qty: i.quantity, receivedQty: i.receivedQty })));
+
+          await Promise.all(
+            items.map(async (item: any) => {
+              if (!item.inventoryItemId) {
+                console.warn('⚠️ PO RECEIVE: Item missing inventoryItemId, skipping');
+                return;
+              }
+
+              const receivedQty = parseFloat(item.receivedQty) || 0;
+              if (receivedQty <= 0) {
+                console.warn('⚠️ PO RECEIVE: Item has no received quantity, skipping:', item.inventoryItemId);
+                return;
+              }
+
+              // Try to find in Inventory table first (Asset Tracking Mode ON)
+              let inventory = await this.prisma.inventory.findUnique({
+                where: { id: item.inventoryItemId },
+              });
+
+              if (inventory) {
+                // Update inventory quantity (add received quantity to existing stock)
+                const currentQty = inventory.quantity || 0;
+                const newQty = currentQty + receivedQty;
+
+                await this.prisma.inventory.update({
+                  where: { id: item.inventoryItemId },
+                  data: { quantity: newQty },
+                });
+
+                console.log(`✅ PO RECEIVE: Updated inventory ${item.inventoryItemId}: ${currentQty} + ${receivedQty} = ${newQty}`);
+
+                // Create timeline entry for the inventory update
+                await this.prisma.timelineItem.create({
+                  data: {
+                    message: `Received ${receivedQty} units from Purchase Order ${updatedDocument.name || id.substring(0, 8)}`,
+                    inventoryId: item.inventoryItemId,
+                    documentId: id,
+                    pdfUrl: null,
+                  },
+                });
+              } else {
+                // Try to find in Asset table (Products Mode - Asset Tracking OFF)
+                const asset = await this.prisma.asset.findUnique({
+                  where: { id: item.inventoryItemId },
+                });
+
+                if (asset) {
+                  // Update asset quantity (add received quantity to existing stock)
+                  const currentQty = asset.quantity || 0;
+                  const newQty = currentQty + receivedQty;
+
+                  await this.prisma.asset.update({
+                    where: { id: item.inventoryItemId },
+                    data: { quantity: newQty },
+                  });
+
+                  console.log(`✅ PO RECEIVE: Updated asset ${item.inventoryItemId}: ${currentQty} + ${receivedQty} = ${newQty}`);
+                } else {
+                  console.warn('⚠️ PO RECEIVE: Neither inventory nor asset found:', item.inventoryItemId);
+                }
+              }
+            })
+          );
+
+          console.log('✅ PO RECEIVE: Purchase Order inventory update completed');
+        } catch (error) {
+          console.error('❌ PO RECEIVE: Failed to update inventory:', error);
+          // Don't fail the document update if inventory update fails
+        }
+      }
+
       // Update project if projectId exists in config
       if (projectId) {
         await this.prisma.project.update({
@@ -226,8 +400,9 @@ export class DocumentsService {
       }
 
       // If config.items exists and is an array, handle inventory/timeline logic (for DO, RDO, etc.)
-      // Exclude invoice types (TI, TI2, INVOICE) and quotations (QO1) and service reports (MSR) from inventory validation
-      const documentTypesExcludedFromInventory = ['QO1', 'MSR', 'TI', 'TI2', 'INVOICE'];
+      // Exclude invoice types (TI, TI2, INVOICE), quotations (QO1, QUOTATION, QT, QO), service reports (MSR), and Purchase Orders (PO) from inventory status validation
+      // Note: PO is handled separately above with receivedQty logic
+      const documentTypesExcludedFromInventory = ['QO1', 'QUOTATION', 'QT', 'QO', 'MSR', 'TI', 'TI2', 'INVOICE', 'PO', 'PURCHASE_ORDER'];
       if (!documentTypesExcludedFromInventory.includes(dto.type) && dto.config && Array.isArray(dto.config.items)) {
         // Validate that all items have inventoryItemId
         const itemsWithoutInventory = dto.config.items.filter(
@@ -266,35 +441,47 @@ export class DocumentsService {
               docMessage = `A ${dto.type} document is updated`;
             }
 
-            // Update inventory status
-            await this.prisma.inventory.update({
-              where: {
-                id: _item.inventoryItemId,
-                organizationId, // Ensure inventory belongs to the same organization
-              },
-              data: {
-                status: newStatus,
-              },
+            // Try to update inventory status - first check if item exists in Inventory table
+            const inventoryItem = await this.prisma.inventory.findUnique({
+              where: { id: _item.inventoryItemId },
             });
-            // No need to connect inventory anymore as it's stored in config
-            // Create timeline item for document update
-            await this.prisma.timelineItem.create({
-              data: {
-                message: docMessage,
-                pdfUrl: '',
-                inventoryId: _item.inventoryItemId,
-                documentId: id,
-              },
-            });
-            // Create timeline item for status change
-            await this.prisma.timelineItem.create({
-              data: {
-                message: statusChangeMessage,
-                inventoryId: _item.inventoryItemId,
-                documentId: null,
-                pdfUrl: null,
-              },
-            });
+
+            if (inventoryItem) {
+              // Item is in Inventory table (Asset Tracking ON)
+              await this.prisma.inventory.update({
+                where: {
+                  id: _item.inventoryItemId,
+                  organizationId,
+                },
+                data: {
+                  status: newStatus,
+                },
+              });
+
+              // Create timeline item for document update
+              await this.prisma.timelineItem.create({
+                data: {
+                  message: docMessage,
+                  pdfUrl: '',
+                  inventoryId: _item.inventoryItemId,
+                  documentId: id,
+                },
+              });
+              // Create timeline item for status change
+              await this.prisma.timelineItem.create({
+                data: {
+                  message: statusChangeMessage,
+                  inventoryId: _item.inventoryItemId,
+                  documentId: null,
+                  pdfUrl: null,
+                },
+              });
+            } else {
+              // Item might be in Asset table (Asset Tracking OFF / Products mode)
+              // In this mode, we don't track rental status on assets, just skip the status update
+              // Timeline entries are not applicable for assets in this context
+              console.log(`Item ${_item.inventoryItemId} not found in Inventory table, skipping status update (likely Asset/Product)`);
+            }
           }),
         );
       }
@@ -350,6 +537,9 @@ export class DocumentsService {
       } else {
         console.log('⚪ XERO: Skipping invoice update - Document type:', dto.type, 'Status:', dto.status);
       }
+
+      // Sync DocumentItem junction table for efficient item queries
+      await this.syncDocumentItems(updatedDocument.id, configAsPlainObject || existingDocument.config, organizationId);
 
       return updatedDocument;
     } catch (error) {
@@ -496,6 +686,10 @@ export class DocumentsService {
       } catch (error) {
         throw new HttpException(`Update failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
       }
+    }).then(async (createdDocument) => {
+      // Sync DocumentItem junction table after transaction completes
+      await this.syncDocumentItems(createdDocument.id, dto.config, organizationId);
+      return createdDocument;
     });
   }
   async createBasicDocument(documentTemplateId: string, type: string, organizationId: string, config: any = {}) {
@@ -518,25 +712,39 @@ export class DocumentsService {
       const year = now.getFullYear();
       const month = String(now.getMonth() + 1).padStart(2, '0');
 
-      // Get count of existing documents with same type and same month/year
-      const count = await this.prisma.document.count({
-        where: {
-          type,
-          organizationId,
-          createdAt: {
-            gte: new Date(`${year}-${month}-01T00:00:00Z`),
-            lt: new Date(`${year}-${month}-31T23:59:59Z`),
-          },
-        },
-      });
-
-      const serial = String(count + 1).padStart(3, '0');
-
       // Use templateVariant for document name prefix (e.g., "SO" instead of "SALES_ORDER")
       // Falls back to custom document types, then to the original type
       const customTypes = organization?.customDocumentTypes as Record<string, string> | null;
       const documentPrefix = documentTemplate?.templateVariant || customTypes?.[type] || type;
-      const name = `${documentPrefix}${year}${month}-${serial}`;
+      const namePrefix = `${documentPrefix}${year}${month}-`;
+
+      // Find the highest serial number for this prefix to avoid duplicates
+      // This handles cases where documents are deleted (count would be wrong)
+      const existingDocs = await this.prisma.document.findMany({
+        where: {
+          organizationId,
+          documentTemplateId,
+          name: {
+            startsWith: namePrefix,
+          },
+        },
+        select: { name: true },
+        orderBy: { name: 'desc' },
+        take: 1,
+      });
+
+      let nextSerial = 1;
+      if (existingDocs.length > 0) {
+        // Extract the serial number from the last document name
+        const lastDocName = existingDocs[0].name;
+        const match = lastDocName.match(/-(\d+)$/);
+        if (match) {
+          nextSerial = parseInt(match[1], 10) + 1;
+        }
+      }
+
+      const serial = String(nextSerial).padStart(3, '0');
+      const name = `${namePrefix}${serial}`;
 
       // Seed initial config with organization defaults so they persist even if user doesn't save the form
       const initialConfig: any = config && typeof config === 'object' ? { ...config } : {};
@@ -561,6 +769,9 @@ export class DocumentsService {
           revisionNumber: 0,
         },
       });
+
+      // Sync DocumentItem junction table (in case config has items)
+      await this.syncDocumentItems(newDocument.id, initialConfig, organizationId);
 
       return newDocument;
     } catch (error) {
@@ -607,6 +818,9 @@ export class DocumentsService {
           revisionNumber: nextRevisionNumber,
         },
       });
+
+      // Sync DocumentItem junction table (copies items from original)
+      await this.syncDocumentItems(created.id, original.config, organizationId);
 
       return created;
     } catch (error) {
@@ -1420,6 +1634,321 @@ export class DocumentsService {
       throw new HttpException(
         error.message || 'Failed to send invoice email',
         error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Confirm a Delivery Order and optionally deduct stock based on organization settings
+   * Stock deduction occurs if organization.stockDeductionTrigger is set to "DO"
+   */
+  async confirmDeliveryOrder(
+    documentId: string,
+    confirmData: { fromDONo: string; toDONo: string },
+    organizationId: string
+  ) {
+    try {
+      console.log('📦 DO CONFIRM: Starting confirmation for document:', documentId);
+
+      // Get the document
+      const document = await this.prisma.document.findFirst({
+        where: {
+          id: documentId,
+          organizationId,
+        },
+      });
+
+      if (!document) {
+        throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+      }
+
+      // Validate it's a Delivery Order
+      if (document.type !== 'DO' && document.type !== 'DELIVERY_ORDER') {
+        throw new HttpException(
+          'This endpoint is only for Delivery Orders',
+          HttpStatus.BAD_REQUEST
+        );
+      }
+
+      // Get organization to check stockDeductionTrigger setting
+      const organization = await this.prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: { stockDeductionTrigger: true },
+      });
+
+      const stockDeductionTrigger = organization?.stockDeductionTrigger || 'DO';
+      console.log('📦 DO CONFIRM: Organization stock deduction trigger:', stockDeductionTrigger);
+
+      // Get items from document config
+      const config: any = document.config;
+      const items = config?.items || [];
+      console.log('📦 DO CONFIRM: Processing', items.length, 'items');
+
+      // If stock deduction is triggered by DO, deduct stock
+      if (stockDeductionTrigger === 'DO') {
+        console.log('📦 DO CONFIRM: Deducting stock (trigger is DO)');
+
+        await Promise.all(
+          items.map(async (item: any) => {
+            if (!item.inventoryItemId) {
+              console.warn('⚠️ DO CONFIRM: Item missing inventoryItemId, skipping');
+              return;
+            }
+
+            const quantity = parseFloat(item.quantity) || 0;
+            if (quantity <= 0) {
+              console.warn('⚠️ DO CONFIRM: Item has no quantity, skipping:', item.inventoryItemId);
+              return;
+            }
+
+            // Try to find in Inventory table first (Asset Tracking Mode ON)
+            let inventory = await this.prisma.inventory.findUnique({
+              where: { id: item.inventoryItemId },
+            });
+
+            if (inventory) {
+              // Deduct from inventory quantity
+              const currentQty = inventory.quantity || 0;
+              const newQty = Math.max(0, currentQty - quantity); // Don't go below 0
+
+              await this.prisma.inventory.update({
+                where: { id: item.inventoryItemId },
+                data: { quantity: newQty },
+              });
+
+              console.log(`✅ DO CONFIRM: Updated inventory ${item.inventoryItemId}: ${currentQty} - ${quantity} = ${newQty}`);
+
+              // Create timeline entry for the stock deduction
+              await this.prisma.timelineItem.create({
+                data: {
+                  message: `Stock deducted: ${quantity} units for Delivery Order ${document.name || documentId.substring(0, 8)}`,
+                  inventoryId: item.inventoryItemId,
+                  documentId: documentId,
+                  pdfUrl: null,
+                },
+              });
+            } else {
+              // Try to find in Asset table (Products Mode - Asset Tracking OFF)
+              const asset = await this.prisma.asset.findUnique({
+                where: { id: item.inventoryItemId },
+              });
+
+              if (asset) {
+                // Deduct from asset quantity
+                const currentQty = asset.quantity || 0;
+                const newQty = Math.max(0, currentQty - quantity); // Don't go below 0
+
+                await this.prisma.asset.update({
+                  where: { id: item.inventoryItemId },
+                  data: { quantity: newQty },
+                });
+
+                console.log(`✅ DO CONFIRM: Updated asset ${item.inventoryItemId}: ${currentQty} - ${quantity} = ${newQty}`);
+              } else {
+                console.warn('⚠️ DO CONFIRM: Neither inventory nor asset found:', item.inventoryItemId);
+              }
+            }
+          })
+        );
+
+        console.log('✅ DO CONFIRM: Stock deduction completed');
+      } else {
+        console.log('📦 DO CONFIRM: Skipping stock deduction (trigger is INVOICE)');
+      }
+
+      // Update document with confirmation data and set status to confirmed
+      const updatedConfig = {
+        ...config,
+        fromDONo: confirmData.fromDONo,
+        toDONo: confirmData.toDONo,
+        confirmedAt: new Date().toISOString(),
+        stockDeducted: stockDeductionTrigger === 'DO',
+      };
+
+      const updatedDocument = await this.prisma.document.update({
+        where: {
+          id: documentId,
+          organizationId,
+        },
+        data: {
+          config: updatedConfig,
+          status: 'confirmed',
+        },
+      });
+
+      console.log('✅ DO CONFIRM: Document confirmed successfully');
+
+      return {
+        success: true,
+        document: updatedDocument,
+        stockDeducted: stockDeductionTrigger === 'DO',
+        message: stockDeductionTrigger === 'DO'
+          ? 'Delivery Order confirmed and stock deducted'
+          : 'Delivery Order confirmed (stock will be deducted on Invoice)',
+      };
+    } catch (error) {
+      console.error('❌ DO CONFIRM: Error:', error);
+      throw new HttpException(
+        error.message || 'Failed to confirm Delivery Order',
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
+  /**
+   * Confirm an Invoice document.
+   * Stock deduction occurs if organization.stockDeductionTrigger is set to "INVOICE"
+   */
+  async confirmInvoice(
+    documentId: string,
+    confirmData: { fromInvoiceNo: string; toInvoiceNo: string },
+    organizationId: string
+  ) {
+    try {
+      console.log('🧾 INVOICE CONFIRM: Starting confirmation for document:', documentId);
+
+      // Get the document
+      const document = await this.prisma.document.findFirst({
+        where: {
+          id: documentId,
+          organizationId,
+        },
+      });
+
+      if (!document) {
+        throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+      }
+
+      // Validate it's an Invoice
+      const invoiceTypes = ['INVOICE', 'TI', 'TI2'];
+      if (!invoiceTypes.includes(document.type)) {
+        throw new HttpException(
+          'This endpoint is only for Invoices',
+          HttpStatus.BAD_REQUEST
+        );
+      }
+
+      // Get organization to check stockDeductionTrigger setting
+      const organization = await this.prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: { stockDeductionTrigger: true },
+      });
+
+      const stockDeductionTrigger = organization?.stockDeductionTrigger || 'DO';
+      console.log('🧾 INVOICE CONFIRM: Organization stock deduction trigger:', stockDeductionTrigger);
+
+      // Get items from document config
+      const config: any = document.config;
+      const items = config?.items || [];
+      console.log('🧾 INVOICE CONFIRM: Processing', items.length, 'items');
+
+      // If stock deduction is triggered by INVOICE, deduct stock
+      if (stockDeductionTrigger === 'INVOICE') {
+        console.log('🧾 INVOICE CONFIRM: Deducting stock (trigger is INVOICE)');
+
+        await Promise.all(
+          items.map(async (item: any) => {
+            if (!item.inventoryItemId) {
+              console.warn('⚠️ INVOICE CONFIRM: Item missing inventoryItemId, skipping');
+              return;
+            }
+
+            const quantity = parseFloat(item.quantity) || 0;
+            if (quantity <= 0) {
+              console.warn('⚠️ INVOICE CONFIRM: Item has no quantity, skipping:', item.inventoryItemId);
+              return;
+            }
+
+            // Try to find in Inventory table first (Asset Tracking Mode ON)
+            let inventory = await this.prisma.inventory.findUnique({
+              where: { id: item.inventoryItemId },
+            });
+
+            if (inventory) {
+              // Deduct from inventory quantity
+              const currentQty = inventory.quantity || 0;
+              const newQty = Math.max(0, currentQty - quantity); // Don't go below 0
+
+              await this.prisma.inventory.update({
+                where: { id: item.inventoryItemId },
+                data: { quantity: newQty },
+              });
+
+              console.log(`✅ INVOICE CONFIRM: Updated inventory ${item.inventoryItemId}: ${currentQty} - ${quantity} = ${newQty}`);
+
+              // Create timeline entry for the stock deduction
+              await this.prisma.timelineItem.create({
+                data: {
+                  message: `Stock deducted: ${quantity} units for Invoice ${document.name || documentId.substring(0, 8)}`,
+                  inventoryId: item.inventoryItemId,
+                  documentId: documentId,
+                  pdfUrl: null,
+                },
+              });
+            } else {
+              // Try to find in Asset table (Products Mode - Asset Tracking OFF)
+              const asset = await this.prisma.asset.findUnique({
+                where: { id: item.inventoryItemId },
+              });
+
+              if (asset) {
+                // Deduct from asset quantity
+                const currentQty = asset.quantity || 0;
+                const newQty = Math.max(0, currentQty - quantity); // Don't go below 0
+
+                await this.prisma.asset.update({
+                  where: { id: item.inventoryItemId },
+                  data: { quantity: newQty },
+                });
+
+                console.log(`✅ INVOICE CONFIRM: Updated asset ${item.inventoryItemId}: ${currentQty} - ${quantity} = ${newQty}`);
+              } else {
+                console.warn('⚠️ INVOICE CONFIRM: Neither inventory nor asset found:', item.inventoryItemId);
+              }
+            }
+          })
+        );
+
+        console.log('✅ INVOICE CONFIRM: Stock deduction completed');
+      } else {
+        console.log('🧾 INVOICE CONFIRM: Skipping stock deduction (trigger is DO, stock already deducted)');
+      }
+
+      // Update document with confirmation data and set status to confirmed
+      const updatedConfig = {
+        ...config,
+        fromInvoiceNo: confirmData.fromInvoiceNo,
+        toInvoiceNo: confirmData.toInvoiceNo,
+        confirmedAt: new Date().toISOString(),
+        stockDeducted: stockDeductionTrigger === 'INVOICE',
+      };
+
+      const updatedDocument = await this.prisma.document.update({
+        where: {
+          id: documentId,
+          organizationId,
+        },
+        data: {
+          config: updatedConfig,
+          status: 'confirmed',
+        },
+      });
+
+      console.log('✅ INVOICE CONFIRM: Document confirmed successfully');
+
+      return {
+        success: true,
+        document: updatedDocument,
+        stockDeducted: stockDeductionTrigger === 'INVOICE',
+        message: stockDeductionTrigger === 'INVOICE'
+          ? 'Invoice confirmed and stock deducted'
+          : 'Invoice confirmed (stock was already deducted on Delivery Order)',
+      };
+    } catch (error) {
+      console.error('❌ INVOICE CONFIRM: Error:', error);
+      throw new HttpException(
+        error.message || 'Failed to confirm Invoice',
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR
       );
     }
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -25,72 +25,95 @@ import {
   Close as CloseIcon,
   Search as SearchIcon,
 } from "@mui/icons-material";
+import moment from "moment";
 
-interface Salesman {
+interface QuotationDocument {
   id: string;
-  salesmanCode: string;
   name: string;
-  email?: string;
+  type: string;
+  templateId: string;
+  status?: string;
+  createdAt: string;
+  customer?: { name?: string };
+  customerName?: string;
+  referenceNo?: string;
+  poNo?: string;
+  config?: {
+    customerId?: string;
+    customerCode?: string;
+    customerName?: string;
+    customerAddress?: string;
+    customerEmail?: string;
+    salesmanCode?: string;
+    salesmanName?: string;
+    poNo?: string;
+    referenceNo?: string;
+    items?: any[];
+    [key: string]: any;
+  };
 }
 
-interface SalesmanSelectDialogProps {
+interface ExtractQuotationDialogProps {
   open: boolean;
   onClose: () => void;
-  onSelectSalesman: (salesman: Salesman) => void;
-  salesmen: Salesman[];
+  onSelectQuotation: (quotation: QuotationDocument) => void;
+  quotations: QuotationDocument[];
+  selectedCustomerId?: string;
+  selectedCustomerName?: string;
 }
 
-type SearchMode = "code" | "name";
+type SearchMode = "number" | "name";
 
-export default function SalesmanSelectDialog({
+export default function ExtractQuotationDialog({
   open,
   onClose,
-  onSelectSalesman,
-  salesmen,
-}: SalesmanSelectDialogProps) {
+  onSelectQuotation,
+  quotations,
+  selectedCustomerId,
+  selectedCustomerName,
+}: ExtractQuotationDialogProps) {
   const [searchTerm, setSearchTerm] = useState("");
-  const [searchMode, setSearchMode] = useState<SearchMode>("code");
+  const [searchMode, setSearchMode] = useState<SearchMode>("number");
 
-  // Extract salesmen array - handle both direct array and response object with data property
-  const salesmenArray = useMemo(() => {
-    if (Array.isArray(salesmen)) {
-      return salesmen;
+  // Reset search when dialog opens
+  useEffect(() => {
+    if (open) {
+      setSearchTerm("");
     }
-    // Handle case where full API response is passed: {success, message, data: [...]}
-    if (salesmen && typeof salesmen === 'object' && 'data' in salesmen && Array.isArray((salesmen as any).data)) {
-      return (salesmen as any).data;
-    }
-    return [];
-  }, [salesmen]);
+  }, [open]);
 
-  // Filter salesmen based on search term and mode
-  const filteredSalesmen = useMemo(() => {
-    // Ensure salesmen is an array
-    const salesmenList = salesmenArray;
+  // Filter quotations based on search term, mode, and selected customer
+  const filteredQuotations = useMemo(() => {
+    let filtered = quotations;
 
-    if (!searchTerm.trim()) {
-      return salesmenList;
+    // If a customer is already selected in DO, auto-filter to that customer's quotations
+    if (selectedCustomerId) {
+      filtered = filtered.filter(
+        (q) => q.config?.customerId === selectedCustomerId
+      );
     }
 
-    const term = searchTerm.toLowerCase();
+    // Apply search filter
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter((q) => {
+        switch (searchMode) {
+          case "number":
+            return q.name?.toLowerCase().includes(term);
+          case "name":
+            const customerName = q.config?.customerName || q.customer?.name || q.customerName || "";
+            return customerName.toLowerCase().includes(term);
+          default:
+            return true;
+        }
+      });
+    }
 
-    return salesmenList.filter((salesman: Salesman) => {
-      switch (searchMode) {
-        case "code":
-          return salesman.salesmanCode?.toLowerCase().includes(term);
-        case "name":
-          return salesman.name?.toLowerCase().includes(term);
-        default:
-          return true;
-      }
-    });
-  }, [salesmenArray, searchTerm, searchMode]);
+    return filtered;
+  }, [quotations, searchTerm, searchMode, selectedCustomerId]);
 
-  // Ensure we have a valid count for display
-  const totalCount = salesmenArray.length;
-
-  const handleRowClick = (salesman: Salesman) => {
-    onSelectSalesman(salesman);
+  const handleRowClick = (quotation: QuotationDocument) => {
+    onSelectQuotation(quotation);
     setSearchTerm("");
     onClose();
   };
@@ -104,12 +127,12 @@ export default function SalesmanSelectDialog({
     <Dialog
       open={open}
       onClose={handleClose}
-      maxWidth="sm"
+      maxWidth="md"
       fullWidth
       PaperProps={{
         sx: {
-          minHeight: "50vh",
-          maxHeight: "70vh",
+          minHeight: "60vh",
+          maxHeight: "80vh",
         },
       }}
     >
@@ -124,7 +147,7 @@ export default function SalesmanSelectDialog({
         }}
       >
         <Typography variant="h6" fontWeight={500}>
-          Locate Salesman
+          Extract Quotation to Delivery Order
         </Typography>
         <IconButton onClick={handleClose} size="small" sx={{ color: "primary.contrastText" }}>
           <CloseIcon />
@@ -141,14 +164,17 @@ export default function SalesmanSelectDialog({
             borderColor: "divider",
           }}
         >
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            Search for a salesman by code or name
-          </Typography>
+          {/* Show customer filter info if customer is selected */}
+          {selectedCustomerName && (
+            <Typography variant="body2" color="primary.main" sx={{ mb: 1, fontWeight: 500 }}>
+              Showing quotations for: {selectedCustomerName}
+            </Typography>
+          )}
 
           {/* Search Input */}
           <TextField
             fullWidth
-            placeholder="Search salesmen..."
+            placeholder="Search quotations..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             size="small"
@@ -173,9 +199,9 @@ export default function SalesmanSelectDialog({
             onChange={(e) => setSearchMode(e.target.value as SearchMode)}
           >
             <FormControlLabel
-              value="code"
+              value="number"
               control={<Radio size="small" color="primary" />}
-              label="Search By Code"
+              label="Search By Quotation Number"
               sx={{ mr: 3 }}
             />
             <FormControlLabel
@@ -187,7 +213,7 @@ export default function SalesmanSelectDialog({
         </Box>
 
         {/* Results Table */}
-        <TableContainer component={Paper} sx={{ maxHeight: "calc(70vh - 250px)" }}>
+        <TableContainer component={Paper} sx={{ maxHeight: "calc(80vh - 280px)" }}>
           <Table stickyHeader size="small">
             <TableHead>
               <TableRow>
@@ -197,10 +223,21 @@ export default function SalesmanSelectDialog({
                     bgcolor: "grey.100",
                     borderBottom: 2,
                     borderColor: "primary.main",
-                    width: "25%",
+                    width: "20%",
                   }}
                 >
-                  Salesman Code
+                  Quotation No.
+                </TableCell>
+                <TableCell
+                  sx={{
+                    fontWeight: 600,
+                    bgcolor: "grey.100",
+                    borderBottom: 2,
+                    borderColor: "primary.main",
+                    width: "15%",
+                  }}
+                >
+                  Date
                 </TableCell>
                 <TableCell
                   sx={{
@@ -211,7 +248,7 @@ export default function SalesmanSelectDialog({
                     width: "45%",
                   }}
                 >
-                  Name
+                  Customer Name
                 </TableCell>
                 <TableCell
                   sx={{
@@ -219,28 +256,32 @@ export default function SalesmanSelectDialog({
                     bgcolor: "grey.100",
                     borderBottom: 2,
                     borderColor: "primary.main",
-                    width: "30%",
+                    width: "20%",
                   }}
                 >
-                  Email
+                  Reference No.
                 </TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {filteredSalesmen.length === 0 ? (
+              {filteredQuotations.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={3} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">
-                      {searchTerm ? "No salesmen found matching your search" : "No salesmen available"}
+                      {searchTerm
+                        ? "No quotations found matching your search"
+                        : selectedCustomerId
+                        ? "No quotations available for this customer"
+                        : "No quotations available"}
                     </Typography>
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredSalesmen.map((salesman: Salesman, index: number) => (
+                filteredQuotations.map((quotation, index) => (
                   <TableRow
-                    key={salesman.id || index}
+                    key={quotation.id || index}
                     hover
-                    onClick={() => handleRowClick(salesman)}
+                    onClick={() => handleRowClick(quotation)}
                     sx={{
                       cursor: "pointer",
                       "&:hover": {
@@ -251,11 +292,25 @@ export default function SalesmanSelectDialog({
                       },
                     }}
                   >
-                    <TableCell sx={{ fontWeight: 500, color: "secondary.main" }}>
-                      {salesman.salesmanCode || "-"}
+                    <TableCell sx={{ fontWeight: 500, color: "primary.main" }}>
+                      {quotation.name || "-"}
                     </TableCell>
-                    <TableCell>{salesman.name || "-"}</TableCell>
-                    <TableCell>{salesman.email || "-"}</TableCell>
+                    <TableCell>
+                      {quotation.createdAt ? moment(quotation.createdAt).format("DD/MM/YYYY") : "-"}
+                    </TableCell>
+                    <TableCell>
+                      {quotation.config?.customerName ||
+                       quotation.customer?.name ||
+                       quotation.customerName ||
+                       "-"}
+                    </TableCell>
+                    <TableCell>
+                      {quotation.config?.referenceNo ||
+                       quotation.config?.poNo ||
+                       quotation.referenceNo ||
+                       quotation.poNo ||
+                       "-"}
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -276,10 +331,10 @@ export default function SalesmanSelectDialog({
           }}
         >
           <Typography variant="body2" color="text.secondary">
-            Showing {filteredSalesmen.length} of {totalCount} salesmen
+            Showing {filteredQuotations.length} of {quotations.length} quotations
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            Click on a row to select a salesman
+            Click on a row to extract quotation data
           </Typography>
         </Box>
       </DialogContent>
