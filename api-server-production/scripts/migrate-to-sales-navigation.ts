@@ -23,7 +23,7 @@ const SALES_MODULE = {
   moduleCode: 'SALES',
   displayName: 'Sales',
   icon: 'ShoppingCart',
-  sortOrder: 4,
+  sortOrder: 3,
   enabled: true,
   config: {
     route: '/portal/sales',
@@ -42,13 +42,13 @@ const SALES_MODULE = {
 // Modules to be removed
 const MODULES_TO_REMOVE = ['DOCUMENTS', 'INVOICES'];
 
-// Updated sort orders for remaining modules
+// Updated sort orders for remaining modules (SALES above CUSTOMERS)
 const UPDATED_SORT_ORDERS: Record<string, number> = {
   DASHBOARD: 0,
   INVENTORY: 1,
   ASSETS: 2,
-  CUSTOMERS: 3,
-  SALES: 4,
+  SALES: 3,
+  CUSTOMERS: 4,
   PROJECTS: 5,
   USER_MANAGEMENT: 6,
   AUDIT: 7,
