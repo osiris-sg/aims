@@ -294,6 +294,7 @@ export default function page() {
     address: customer.address || "",
     phone: customer.phone || "",
     email: customer.email || "",
+    salesman: customer.salesman || null,
   })) || [];
 
   const projectsList = projects?.map((project: any) => ({

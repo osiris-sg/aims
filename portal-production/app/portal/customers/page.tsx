@@ -21,6 +21,12 @@ interface Customer {
   phone: string;
   address: string;
   createdAt: string;
+  salesman?: {
+    id: string;
+    salesmanCode: string;
+    userId: string;
+    name: string;
+  } | null;
 }
 
 interface Filters {
@@ -83,6 +89,16 @@ export default function CustomersPage() {
       accessorKey: "address",
       header: "Address",
       cell: (info: any) => info.getValue(),
+    },
+    {
+      id: "salesman",
+      accessorKey: "salesman",
+      header: "Salesman",
+      cell: (info: any) => {
+        const salesman = info.getValue();
+        if (!salesman) return "-";
+        return `${salesman.name} (${salesman.salesmanCode})`;
+      },
     },
     {
       id: "createdAt",

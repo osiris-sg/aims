@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { Box, CircularProgress } from "@mui/material";
 import TabbedDocumentCreator from "@/containers/DocumentTemplates/components/TabbedDocumentCreator";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
@@ -11,35 +12,44 @@ import { useGetCustomers } from "@/app/portal/hooks/api";
 import { useGetProjects } from "@/containers/DocumentTemplates/hooks/useGetProjects";
 import { useGetDeliveryOrders } from "@/containers/DocumentTemplates/hooks/useGetDeliveryOrders";
 import { useGetSiteOffices } from "@/containers/DocumentTemplates/hooks/useGetSiteOffices";
+import { useGetSalesmen } from "@/containers/DocumentTemplates/hooks/useGetSalesmen";
 
 export default function page() {
   const params = useParams();
   const router = useRouter();
-  const { type, documentId } = params;
+  const { type, id, documentId } = params;
   const { getToken } = useAuth();
   const { organization } = useOrganization();
 
   // Track selected customer for filtering
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
   const [existingData, setExistingData] = useState<any>(null);
-  const [documentMetadata, setDocumentMetadata] = useState<any>(null); // Store full document response
+  const [documentMetadata, setDocumentMetadata] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   // Fetch data
   const { customers = [] } = useGetCustomers({ limit: 1000 });
-  const { projects } = useGetProjects(selectedCustomerId); // Filter by customer
-  const { deliveryOrders } = useGetDeliveryOrders(selectedCustomerId); // Filter by customer
+  const { projects } = useGetProjects(selectedCustomerId);
+  const { deliveryOrders } = useGetDeliveryOrders(selectedCustomerId);
   const { siteOffices, fetchSiteOffices } = useGetSiteOffices();
+  const { salesmen } = useGetSalesmen();
 
-  // Load existing document data
+  // Load existing document data and fetch template for variant
   useEffect(() => {
     const loadDocument = async () => {
-      if (!documentId) return;
+      if (!documentId) {
+        setLoading(false);
+        return;
+      }
 
       try {
         const token = await getToken();
-        if (!token) return;
+        if (!token) {
+          setLoading(false);
+          return;
+        }
 
+        // Fetch the document
         const response = await request(
           {
             path: `/documents/${documentId}`,
@@ -53,19 +63,48 @@ export default function page() {
           // Store full document metadata
           setDocumentMetadata(response.data);
 
+          // Fetch the document template to get the variant
+          let templateVariant = type;
+          if (response.data.documentTemplateId) {
+            try {
+              const templateResponse = await request(
+                {
+                  path: `/documentTemplates/${response.data.documentTemplateId}`,
+                  method: "GET",
+                },
+                {},
+                token
+              );
+
+              if (templateResponse.success && templateResponse.data) {
+                templateVariant = templateResponse.data.templateVariant || templateResponse.data.designName || type;
+                setDocumentMetadata((prev: any) => ({
+                  ...prev,
+                  variant: templateVariant,
+                  actualDocumentType: templateResponse.data.type,
+                }));
+              }
+            } catch (error) {
+              console.error("Error fetching template:", error);
+            }
+          }
+
           // Extract config data for the form
           const documentData = response.data.config || response.data;
 
-          // Include the document status
+          // Include the document status and name
           documentData.status = response.data.status;
+          documentData.name = response.data.name;
+          documentData.documentNumber = response.data.name;
 
           setExistingData(documentData);
 
           // Set customer ID if available for filtering
-          if (documentData.customer?.id) {
+          if (documentData.customerId) {
+            setSelectedCustomerId(documentData.customerId);
+          } else if (documentData.customer?.id) {
             setSelectedCustomerId(documentData.customer.id);
           } else if (response.data.customerId) {
-            // Fallback to customerId field
             setSelectedCustomerId(response.data.customerId);
           }
 
@@ -80,7 +119,7 @@ export default function page() {
     };
 
     loadDocument();
-  }, [documentId, getToken]);
+  }, [documentId, getToken, type]);
 
   const handleSave = async (data: any) => {
     try {
@@ -95,15 +134,15 @@ export default function page() {
         id: documentId,
         type: type as string,
         config: data,
-        status: data.status || documentMetadata?.status || 'draft', // Use provided status, then existing, then default
-        customerId: data.customer?.id,
-        projectId: data.project?.id,
-        documentTemplateId: documentMetadata?.documentTemplateId,
+        status: data.status || documentMetadata?.status || 'draft',
+        customerId: data.customer?.id || data.customerId || null,
+        projectId: data.project?.id || data.projectId || null,
+        documentTemplateId: documentMetadata?.documentTemplateId || id,
+        name: data.name || data.documentInfo?.documentNumber || documentMetadata?.name,
       };
 
       console.log('Saving document with payload:', updatePayload);
 
-      // Save invoice using correct request helper syntax and endpoint
       const response = await request(
         {
           path: `/documents/update`,
@@ -115,7 +154,6 @@ export default function page() {
 
       if (response.success) {
         toast.success("Invoice saved successfully!");
-        router.push("/portal/invoices");
       } else {
         toast.error(response.message || "Failed to save invoice");
       }
@@ -132,10 +170,12 @@ export default function page() {
   // Format data for the component
   const customersList = customers?.map((customer: any) => ({
     id: customer.id,
+    customerCode: customer.customerCode || "",
     name: customer.name,
     address: customer.address || "",
     phone: customer.phone || "",
     email: customer.email || "",
+    salesman: customer.salesman || null,
   })) || [];
 
   const projectsList = projects?.map((project: any) => ({
@@ -167,23 +207,32 @@ export default function page() {
   // Show loading state while fetching document
   if (loading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-        <p>Loading document...</p>
-      </div>
+      <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
+        <CircularProgress />
+      </Box>
     );
   }
 
+  // Determine the template variant to use
+  // Priority: document's stored variant > template variant from documentTemplate > URL type
+  const templateVariant = documentMetadata?.variant || existingData?.variant || type;
+
+  // Get actual document type for creating new documents
+  const actualDocumentType = documentMetadata?.actualDocumentType || documentMetadata?.type || existingData?.type || type;
+
   return (
     <TabbedDocumentCreator
-      documentType={type as any}
+      documentType={templateVariant as any}
+      actualDocumentType={actualDocumentType as string}
       documentId={documentId as string}
+      existingData={existingData}
       onSave={handleSave}
       onPrint={handlePrint}
-      existingData={existingData}
       customers={customersList}
       projects={projectsList}
       deliveryOrders={deliveryOrdersList}
       siteOffices={siteOfficesList}
+      salesmen={salesmen}
       onCustomerChange={handleCustomerChange}
       organization={organization}
     />

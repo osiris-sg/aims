@@ -38,13 +38,13 @@ export const uploadImage = async ({ blob, folderName, fileName, token }: { blob:
     const imageExtension = getFileExtensionFromBlob(actualBlob);
     const finalFileName = `${folderName}/${fileName || generateShortName()}.${imageExtension}`;
 
-    const formData = new FormData();
-    formData.append("file", actualBlob, finalFileName);
-    formData.append("key", finalFileName);
+    const formDataObj = new FormData();
+    formDataObj.append("file", actualBlob, finalFileName);
+    formDataObj.append("key", finalFileName);
 
-    const {
-      data: { Key },
-    } = await request(UPLOAD_IMAGE, formData, token, true, true);
+    // request signature: (metadata, data, token, customHeaders, isClientSide, formData)
+    const response = await request(UPLOAD_IMAGE, formDataObj, token, undefined, true, true);
+    const Key = response?.data?.Key || response?.Key;
 
     return Key;
   } catch {

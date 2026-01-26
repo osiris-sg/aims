@@ -8,6 +8,18 @@ import { Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, Ta
 // - Fallback chain: Carlito → Calibri (if installed) → Arial → sans-serif
 // - Carlito is loaded via Next.js font optimization and available via --font-carlito CSS variable
 
+// Helper to convert S3 key to full URL
+const getResourceUrl = (key: string | undefined | null): string | undefined => {
+  if (!key) return undefined;
+  // If it's already a full URL, return as-is
+  if (key.startsWith("http://") || key.startsWith("https://") || key.startsWith("data:")) {
+    return key;
+  }
+  // Otherwise, prepend the S3 base URL
+  const baseUrl = process.env.NEXT_PUBLIC_RESOURCE_URL || "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/";
+  return `${baseUrl}${key}`;
+};
+
 interface CleanDocumentPreviewProps {
   documentType: "QO1" | "DO" | "RDO" | "TI" | "TI2" | "MSR" | "INVOICE" | string;
   data: any;
@@ -17,15 +29,33 @@ interface CleanDocumentPreviewProps {
 export default function CleanDocumentPreview({ documentType, data, organization }: CleanDocumentPreviewProps) {
   const getDocumentTitle = () => {
     const titles: Record<string, string> = {
+      // Short codes
       QO1: "QUOTATION",
+      QO: "QUOTATION",
+      QT: "QUOTATION",
       DO: "DELIVERY ORDER",
       RDO: "RETURN DELIVERY ORDER",
-      TI: "Tax Invoice",
+      TI: "TAX INVOICE",
       TI2: "TAX INVOICE",
       MSR: "MAINTENANCE SERVICE REPORT",
+      SO: "SALES ORDER",
+      DN: "DEBIT NOTE",
+      CN: "CREDIT NOTE",
+      SAI: "STOCK ADJUSTMENT IN",
+      SAO: "STOCK ADJUSTMENT OUT",
+      // Full names
+      QUOTATION: "QUOTATION",
       INVOICE: "INVOICE",
+      DELIVERY_ORDER: "DELIVERY ORDER",
+      RETURN_DELIVERY_ORDER: "RETURN DELIVERY ORDER",
+      MAINTENANCE_SERVICE_REPORT: "MAINTENANCE SERVICE REPORT",
+      SALES_ORDER: "SALES ORDER",
+      DEBIT_NOTE: "DEBIT NOTE",
+      CREDIT_NOTE: "CREDIT NOTE",
+      STOCK_ADJUSTMENT_IN: "STOCK ADJUSTMENT IN",
+      STOCK_ADJUSTMENT_OUT: "STOCK ADJUSTMENT OUT",
     };
-    return titles[documentType] || "DOCUMENT";
+    return titles[documentType] || titles[documentType?.toUpperCase()] || "DOCUMENT";
   };
 
   // Calculate totals
@@ -70,8 +100,8 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           {/* Left Column - Logo, Title and Customer */}
           <Box sx={{ width: "35%" }}>
             {(data.logo || organization?.logo) && (
-              <Box sx={{ mb: 2, maxWidth: 120, height: 50 }}>
-                <img src={data.logo || organization?.logo} alt="Company Logo" style={{ maxWidth: "100%", maxHeight: "100%" }} />
+              <Box sx={{ mb: 2, mt: -6, maxWidth: 280, height: 120 }}>
+                <img src={getResourceUrl(data.logo || organization?.logo)} alt="Company Logo" style={{ maxWidth: "100%", maxHeight: "100%" }} />
               </Box>
             )}
 
@@ -360,6 +390,8 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           fontSize: "0.75rem",
           lineHeight: 1.6,
           color: "#000",
+          display: "flex",
+          flexDirection: "column",
           "@media print": {
             margin: 0,
             padding: "20mm",
@@ -548,14 +580,9 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         </TableContainer>
 
         {/* Additional Information */}
-        {(data.documentInfo?.doNo || data.documentInfo?.qinRef || data.documentInfo?.woNo ||
+        {(data.documentInfo?.qinRef || data.documentInfo?.woNo ||
           data.documentInfo?.location || data.documentInfo?.projectDept) && (
           <Box sx={{ mb: 3, fontSize: "0.6875rem", lineHeight: 1.8 }}>
-            {data.documentInfo?.doNo && (
-              <Typography sx={{ mb: 0.5 }}>
-                Our DO No. {data.documentInfo.doNo} dated {formatDate(data.documentInfo.doDate)}
-              </Typography>
-            )}
             {data.documentInfo?.qinRef && (
               <Typography sx={{ mb: 0.5 }}>
                 Our Qtn Ref. {data.documentInfo.qinRef} dated {formatDate(data.documentInfo.qinDate)}
@@ -579,90 +606,398 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           </Box>
         )}
 
-        {/* Totals */}
-        <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 4 }}>
-          <Box sx={{ width: 350 }}>
-            <Box
-              sx={{
-                display: "flex",
-                justifyContent: "space-between",
-                py: 1,
-                borderTop: "1px solid #000",
-              }}
-            >
-              <Typography sx={{ fontSize: "0.75rem", textAlign: "right", width: "60%" }}>
-                Subtotal
+        {/* Bottom Section Container - Pushed to bottom of page */}
+        <Box sx={{ mt: "auto" }}>
+        {/* Bottom Summary Row and Totals - TI2 Style */}
+        {(() => {
+          const rate = data.documentInfo?.rate || 1;
+          const currency = data.documentInfo?.currency || "SGD";
+          const discountPercent = data.documentInfo?.discount || 0;
+          const gstPercent = data.documentInfo?.gstPercent || 9;
+
+          // Calculate values
+          const grossTotal = subtotal;
+          const discountAmount = grossTotal * (discountPercent / 100);
+          const subtotalAfterDiscount = grossTotal - discountAmount;
+          const gstAmount = subtotalAfterDiscount * (gstPercent / 100);
+          const finalTotal = subtotalAfterDiscount + gstAmount;
+
+          return (
+            <Box sx={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid #000", pt: 1 }}>
+              {/* Left Side - Rate, Sub-total, GST summary */}
+              <Box sx={{ display: "flex", alignItems: "center", gap: 3 }}>
+                <Box sx={{ display: "flex", alignItems: "center" }}>
+                  <Typography sx={{ fontSize: "0.6875rem" }}>(Rate :</Typography>
+                  <Typography sx={{ fontSize: "0.6875rem", ml: 1, minWidth: 60 }}>{rate.toFixed(6)}</Typography>
+                </Box>
+                <Box sx={{ display: "flex", alignItems: "center" }}>
+                  <Typography sx={{ fontSize: "0.6875rem" }}>Sub-total:</Typography>
+                  <Typography sx={{ fontSize: "0.6875rem", ml: 1, minWidth: 50, textAlign: "right" }}>{subtotalAfterDiscount.toFixed(2)}</Typography>
+                </Box>
+                <Box sx={{ display: "flex", alignItems: "center" }}>
+                  <Typography sx={{ fontSize: "0.6875rem" }}>GST</Typography>
+                  <Typography sx={{ fontSize: "0.6875rem", ml: 1 }}>:</Typography>
+                  <Typography sx={{ fontSize: "0.6875rem", ml: 1, minWidth: 40, textAlign: "right" }}>{gstAmount.toFixed(2)})</Typography>
+                </Box>
+              </Box>
+
+              {/* Right Side - Detailed Totals */}
+              <Box sx={{ minWidth: 200 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
+                  <Typography sx={{ fontSize: "0.6875rem" }}>Sub-Total</Typography>
+                  <Typography sx={{ fontSize: "0.6875rem", textAlign: "right" }}>{grossTotal.toFixed(2)}</Typography>
+                </Box>
+                {discountPercent > 0 && (
+                  <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
+                    <Typography sx={{ fontSize: "0.6875rem" }}>Discount</Typography>
+                    <Box sx={{ display: "flex", gap: 2 }}>
+                      <Typography sx={{ fontSize: "0.6875rem" }}>{discountPercent.toFixed(2)}</Typography>
+                      <Typography sx={{ fontSize: "0.6875rem", textAlign: "right", minWidth: 50 }}>{discountAmount.toFixed(2)}</Typography>
+                    </Box>
+                  </Box>
+                )}
+                {discountPercent > 0 && (
+                  <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
+                    <Typography sx={{ fontSize: "0.6875rem" }}>Sub-Total</Typography>
+                    <Typography sx={{ fontSize: "0.6875rem", textAlign: "right" }}>{subtotalAfterDiscount.toFixed(2)}</Typography>
+                  </Box>
+                )}
+                <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
+                  <Typography sx={{ fontSize: "0.6875rem" }}>GST</Typography>
+                  <Box sx={{ display: "flex", gap: 2 }}>
+                    <Typography sx={{ fontSize: "0.6875rem" }}>{gstPercent.toFixed(2)} %</Typography>
+                    <Typography sx={{ fontSize: "0.6875rem", textAlign: "right", minWidth: 50 }}>{gstAmount.toFixed(2)}</Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3, borderTop: "1px solid #000", mt: 0.5, pt: 0.5 }}>
+                  <Typography sx={{ fontSize: "0.6875rem" }}>Total</Typography>
+                  <Box sx={{ display: "flex", gap: 2 }}>
+                    <Typography sx={{ fontSize: "0.6875rem" }}>{currency}</Typography>
+                    <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600, textAlign: "right", minWidth: 50 }}>{finalTotal.toFixed(2)}</Typography>
+                  </Box>
+                </Box>
+              </Box>
+            </Box>
+          );
+        })()}
+
+        {/* Amount in Words */}
+        {(() => {
+          const rate = data.documentInfo?.rate || 1;
+          const discountPercent = data.documentInfo?.discount || 0;
+          const gstPercent = data.documentInfo?.gstPercent || 9;
+          const grossTotal = subtotal;
+          const discountAmount = grossTotal * (discountPercent / 100);
+          const subtotalAfterDiscount = grossTotal - discountAmount;
+          const gstAmount = subtotalAfterDiscount * (gstPercent / 100);
+          const finalTotal = subtotalAfterDiscount + gstAmount;
+
+          // Convert number to words
+          const numberToWords = (num: number): string => {
+            const ones = ['', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE',
+              'TEN', 'ELEVEN', 'TWELVE', 'THIRTEEN', 'FOURTEEN', 'FIFTEEN', 'SIXTEEN', 'SEVENTEEN', 'EIGHTEEN', 'NINETEEN'];
+            const tens = ['', '', 'TWENTY', 'THIRTY', 'FORTY', 'FIFTY', 'SIXTY', 'SEVENTY', 'EIGHTY', 'NINETY'];
+
+            if (num === 0) return 'ZERO';
+
+            const convertHundreds = (n: number): string => {
+              let str = '';
+              if (n >= 100) {
+                str += ones[Math.floor(n / 100)] + ' HUNDRED ';
+                n %= 100;
+              }
+              if (n >= 20) {
+                str += tens[Math.floor(n / 10)] + ' ';
+                n %= 10;
+              }
+              if (n > 0) {
+                str += ones[n] + ' ';
+              }
+              return str;
+            };
+
+            let result = '';
+            const dollars = Math.floor(num);
+            const cents = Math.round((num - dollars) * 100);
+
+            if (dollars >= 1000) {
+              result += convertHundreds(Math.floor(dollars / 1000)) + 'THOUSAND ';
+            }
+            result += convertHundreds(dollars % 1000);
+
+            if (cents > 0) {
+              result += 'AND CENTS ' + convertHundreds(cents);
+            }
+
+            return result.trim() + ' ONLY.';
+          };
+
+          return (
+            <Box sx={{ mt: 2, borderBottom: "2px solid #000", pb: 1 }}>
+              <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500 }}>
+                S'PORE DOLLAR {numberToWords(finalTotal)}
               </Typography>
-              <Typography sx={{ fontSize: "0.75rem", textAlign: "right", width: "40%" }}>
-                {subtotal.toFixed(2)}
+            </Box>
+          );
+        })()}
+
+        {/* Terms, QR Code and Footer */}
+        <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2, gap: 2 }}>
+          {/* Left - Terms and Conditions */}
+          <Box sx={{ flex: 1, maxWidth: "55%" }}>
+            <Typography sx={{ fontSize: "0.5625rem", lineHeight: 1.4 }}>
+              The risk in the goods shall pass to the buyer upon delivery. The<br />
+              Ownership of the goods shall remain with the supplier<br />
+              until full<br />
+              payment has been made. This reservation of title is<br />
+              without prejudice to the supplier's other rights against<br />
+              Buyer's<br />
+              default in payment. Interest at 1% pr month will be
+            </Typography>
+          </Box>
+
+          {/* Center - PayNow QR */}
+          {data.payNowQR && (
+            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+              <img src={getResourceUrl(data.payNowQR)} alt="PayNow QR" style={{ width: 60, height: 60 }} />
+            </Box>
+          )}
+
+          {/* Right - Computer generated notice */}
+          <Box sx={{ textAlign: "right" }}>
+            <Typography sx={{ fontSize: "0.6875rem", fontStyle: "italic" }}>
+              This is a computer generated Invoice.
+            </Typography>
+            <Typography sx={{ fontSize: "0.6875rem", fontStyle: "italic" }}>
+              No signature is required.
+            </Typography>
+          </Box>
+        </Box>
+        </Box>
+
+      </Paper>
+    );
+  }
+
+  // DO - Delivery Order Layout (same style as TI2)
+  if (documentType === "DO") {
+    return (
+      <Paper
+        sx={{
+          width: "210mm",
+          minHeight: "297mm",
+          margin: "0 auto",
+          p: "20mm",
+          backgroundColor: "white",
+          fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
+          fontSize: "0.75rem",
+          lineHeight: 1.6,
+          color: "#000",
+          display: "flex",
+          flexDirection: "column",
+          "@media print": {
+            margin: 0,
+            padding: "20mm",
+            boxShadow: "none",
+          },
+        }}
+      >
+        {/* Company Header - Centered */}
+        <Box sx={{ textAlign: "center", mb: 2, mt: -6 }}>
+          <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
+            {data.company?.name || organization?.name || ""}
+          </Typography>
+          <Typography sx={{ fontSize: "0.75rem", mb: 0.2 }}>
+            Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
+            {data.company?.fax && `  Fax: ${data.company.fax}`}
+          </Typography>
+          <Typography sx={{ fontSize: "0.75rem" }}>
+            NPWP No: {data.company?.gstRegNo || organization?.registrationNumber || ""}
+          </Typography>
+        </Box>
+
+        {/* DO Reference Number - Top Right */}
+        <Box sx={{ textAlign: "right", mb: 1 }}>
+          <Typography sx={{ fontSize: "0.75rem" }}>
+            DO {data.documentInfo?.referenceNo || data.documentInfo?.documentNumber || ""}
+          </Typography>
+        </Box>
+
+        {/* Customer and DO Details Section */}
+        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1, alignItems: "flex-start" }}>
+          {/* Left - Bill To and Deliver To Section */}
+          <Box sx={{ width: "45%" }}>
+            {/* Bill To */}
+            <Box sx={{ mb: 3 }}>
+              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>Bill To :</Typography>
+              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600 }}>
+                {data.customer?.name || ""}
+              </Typography>
+              <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
+                {data.customer?.address || ""}
               </Typography>
             </Box>
 
-            <Box
-              sx={{
-                display: "flex",
-                justifyContent: "space-between",
-                py: 1,
-                borderBottom: "1px solid #000",
-              }}
-            >
-              <Typography sx={{ fontSize: "0.6875rem", textAlign: "right", width: "60%" }}>
-                TOTAL LOCAL SUPPLY OF GOODS<br />AND SERVICES 9%
+            {/* Deliver To */}
+            <Box>
+              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>Deliver To :</Typography>
+              <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
+                {data.deliveryTo || ""}
               </Typography>
-              <Typography sx={{ fontSize: "0.75rem", textAlign: "right", width: "40%", alignSelf: "flex-end" }}>
-                {totalTax.toFixed(2)}
-              </Typography>
+              {data.documentInfo?.contact && (
+                <Typography sx={{ fontSize: "0.75rem" }}>
+                  Attn: {data.documentInfo.contact}
+                </Typography>
+              )}
             </Box>
+          </Box>
 
-            <Box
-              sx={{
-                display: "flex",
-                justifyContent: "space-between",
-                py: 1,
-                borderBottom: "2px solid #000",
-              }}
-            >
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, textAlign: "right", width: "60%" }}>
-                TOTAL SGD
+          {/* Right - DO Details */}
+          <Box sx={{ width: "45%", display: "flex", justifyContent: "flex-end", pl: 4 }}>
+            <Box sx={{ lineHeight: 1.4 }}>
+              {/* Delivery Order Title */}
+              <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 0.5 }}>
+                DELIVERY ORDER
               </Typography>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, textAlign: "right", width: "40%" }}>
-                {total.toFixed(2)}
-              </Typography>
+              <Box sx={{ display: "flex" }}>
+                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>NPWP No.</Typography>
+                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
+                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.customer?.gstRegNo || data.customer?.npwp || ""}</Typography>
+              </Box>
+              <Box sx={{ display: "flex" }}>
+                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>DELIVERY ORDER</Typography>
+                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}></Typography>
+                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4, fontWeight: 600 }}>{data.documentInfo?.documentNumber || ""}</Typography>
+              </Box>
+              <Box sx={{ display: "flex" }}>
+                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Date</Typography>
+                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
+                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{formatDate(data.documentInfo?.date)}</Typography>
+              </Box>
+              <Box sx={{ display: "flex" }}>
+                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>P/O No.</Typography>
+                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
+                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.poNo || ""}</Typography>
+              </Box>
+              <Box sx={{ display: "flex" }}>
+                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Terms</Typography>
+                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
+                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.paymentTerms || "CASH"}</Typography>
+              </Box>
+              <Box sx={{ display: "flex" }}>
+                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Salesman</Typography>
+                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
+                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.salesPerson || ""}</Typography>
+              </Box>
+              <Box sx={{ display: "flex" }}>
+                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Customer</Typography>
+                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
+                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.customerCode || data.customer?.code || ""}</Typography>
+              </Box>
             </Box>
           </Box>
         </Box>
 
-        {/* Due Date and Payment Info */}
-        <Box sx={{ mt: 6, lineHeight: 1.8 }}>
-          <Typography sx={{ fontSize: "11px", fontWeight: 600, mb: 1 }}>
-            Due Date: {formatDate(data.dueDate) || "30 Nov 2024"}
-          </Typography>
-          <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
-            All Cheque should be crossed and made payable to: {data.company?.name || organization?.name || ""}
-          </Typography>
-          <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
-            By Bank Transfer: {data.bankDetails?.bankName || "Standard Chartered Bank"}
-          </Typography>
-          <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
-            Branch: {data.bankDetails?.branch || "12 Marina Boulevard, Marina Bay Financial Centre Tower 1"}
-          </Typography>
-          <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
-            Bank Branch No.: {data.bankDetails?.branchNo || "9496-007"} Swift Code: {data.bankDetails?.swiftCode || "SCBLSG22"}
-          </Typography>
-          <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
-            Bank Account No.: {data.bankDetails?.accountNo || "07-1-005302-9"}
-          </Typography>
-          <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
-            PayNow to UEN: {data.company?.gstRegNo || "200303416N"}
-          </Typography>
+        {/* Items Table */}
+        <TableContainer sx={{ mb: 3, mt: 0.5 }}>
+          <Table
+            sx={{
+              "& .MuiTableCell-root": {
+                border: "none",
+                borderBottom: "none",
+                padding: "10px 8px",
+                fontSize: "0.6875rem",
+              },
+              "& .MuiTableHead-root .MuiTableCell-root": {
+                border: "none",
+                borderBottom: "2px solid #000",
+                fontWeight: 600,
+                fontSize: "0.6875rem",
+              },
+            }}
+          >
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ width: "10%" }}>Item</TableCell>
+                <TableCell sx={{ width: "45%" }}>Description</TableCell>
+                <TableCell sx={{ width: "15%", textAlign: "center" }}>Quantity</TableCell>
+                <TableCell sx={{ width: "10%", textAlign: "center" }}>uom</TableCell>
+                <TableCell sx={{ width: "20%" }}>Remarks</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {items.map((item: any, index: number) => (
+                <TableRow key={index}>
+                  <TableCell>{item.itemCode || ""}</TableCell>
+                  <TableCell>
+                    <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500 }}>
+                      {item.description}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={{ textAlign: "center" }}>{item.quantity?.toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "center" }}>{item.uom || ""}</TableCell>
+                  <TableCell>{item.remarks || ""}</TableCell>
+                </TableRow>
+              ))}
+
+              {/* Add empty rows for spacing */}
+              {items.length < 5 &&
+                Array.from({ length: 5 - items.length }).map((_, index) => (
+                  <TableRow key={`empty-${index}`} sx={{ height: 40 }}>
+                    <TableCell>&nbsp;</TableCell>
+                    <TableCell>&nbsp;</TableCell>
+                    <TableCell>&nbsp;</TableCell>
+                    <TableCell>&nbsp;</TableCell>
+                    <TableCell>&nbsp;</TableCell>
+                  </TableRow>
+                ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+
+        {/* Bottom Signature Section - DO Style - Pushed to bottom of page */}
+        <Box sx={{ mt: "auto", borderTop: "1px solid #000", pt: 2 }}>
+          {/* Header Row - "Goods Received" on left, Company name on right */}
+          <Box sx={{ display: "flex", justifyContent: "space-between", mb: 6 }}>
+            <Typography sx={{ fontSize: "0.6875rem" }}>
+              Goods Received In Good Order & Condition
+            </Typography>
+            <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600 }}>
+              {organization?.name || ""}
+            </Typography>
+          </Box>
+
+          {/* Signature Lines Row */}
+          <Box sx={{ display: "flex", justifyContent: "space-between", mt: 4 }}>
+            {/* Chop & Sign */}
+            <Box sx={{ textAlign: "center", flex: 1 }}>
+              <Box sx={{ borderTop: "1px solid #000", width: "80%", mx: "auto", pt: 0.5 }}>
+                <Typography sx={{ fontSize: "0.6875rem" }}>
+                  Chop & Sign
+                </Typography>
+              </Box>
+            </Box>
+
+            {/* Delivery By */}
+            <Box sx={{ textAlign: "center", flex: 1 }}>
+              <Box sx={{ borderTop: "1px solid #000", width: "80%", mx: "auto", pt: 0.5 }}>
+                <Typography sx={{ fontSize: "0.6875rem" }}>
+                  Delivery By
+                </Typography>
+              </Box>
+            </Box>
+
+            {/* Issue By */}
+            <Box sx={{ textAlign: "center", flex: 1 }}>
+              <Box sx={{ borderTop: "1px solid #000", width: "80%", mx: "auto", pt: 0.5 }}>
+                <Typography sx={{ fontSize: "0.6875rem" }}>
+                  Issue By : {data.documentInfo?.issueBy || data.issueBy || ""}
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
         </Box>
 
-        {/* Footer */}
-        <Box sx={{ mt: 4, pt: 2, textAlign: "center" }}>
-          <Typography sx={{ fontSize: "0.625rem", fontStyle: "italic", color: "#666" }}>
-            This is a computer-generated document, no signature is required
-          </Typography>
-        </Box>
       </Paper>
     );
   }
@@ -692,8 +1027,8 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         {/* Left Column - Logo, Title and Customer */}
         <Box sx={{ width: "35%" }}>
           {(data.logo || organization?.logo) && (
-            <Box sx={{ mb: 2, maxWidth: 120, height: 50 }}>
-              <img src={data.logo || organization?.logo} alt="Company Logo" style={{ maxWidth: "100%", maxHeight: "100%" }} />
+            <Box sx={{ mb: 2, mt: -6, maxWidth: 280, height: 120 }}>
+              <img src={getResourceUrl(data.logo || organization?.logo)} alt="Company Logo" style={{ maxWidth: "100%", maxHeight: "100%" }} />
             </Box>
           )}
 

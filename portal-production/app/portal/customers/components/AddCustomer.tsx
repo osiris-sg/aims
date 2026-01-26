@@ -1,12 +1,19 @@
 import FormInputBox from "@/form-components/FormInputBox";
-import { Drawer, Typography, Stack, Button, useTheme } from "@mui/material";
-import { useForm } from "react-hook-form";
+import { Drawer, Typography, Stack, Button, useTheme, FormControl, InputLabel, Select, MenuItem, FormHelperText } from "@mui/material";
+import { useForm, Controller } from "react-hook-form";
 import * as yup from "yup";
 import { yupResolver } from "@hookform/resolvers/yup";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+
+interface Salesman {
+  id: string;
+  salesmanCode: string;
+  userId: string;
+  name: string;
+}
 
 interface AddCustomerProps {
   open: boolean;
@@ -21,12 +28,15 @@ const customerSchema = yup.object().shape({
   email: yup.string().email("Invalid email").notRequired(),
   phone: yup.string().notRequired(),
   address: yup.string().notRequired(),
+  salesmanId: yup.string().nullable().notRequired(),
 });
 
 export default function AddCustomer({ open, onClose, onSuccess, customerId, isEditMode = false }: AddCustomerProps) {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
   const theme = useTheme();
+  const [salesmen, setSalesmen] = useState<Salesman[]>([]);
+  const [loadingSalesmen, setLoadingSalesmen] = useState(false);
 
   const { control, handleSubmit, reset, setValue } = useForm({
     defaultValues: {
@@ -34,9 +44,43 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
       email: null,
       phone: null,
       address: null,
+      salesmanId: null as string | null,
     },
     resolver: yupResolver(customerSchema),
   });
+
+  // Fetch salesmen when drawer opens
+  useEffect(() => {
+    const fetchSalesmen = async () => {
+      if (!open) return;
+      setLoadingSalesmen(true);
+      try {
+        const token = await getToken();
+        if (!token || !organization?.id) return;
+
+        const response = await request(
+          {
+            path: "/customers/salesmen",
+            method: "GET",
+          },
+          {},
+          token
+        );
+
+        if (response.success && response.data) {
+          setSalesmen(response.data);
+        } else if (Array.isArray(response)) {
+          setSalesmen(response);
+        }
+      } catch (error) {
+        console.error("Error fetching salesmen:", error);
+      } finally {
+        setLoadingSalesmen(false);
+      }
+    };
+
+    fetchSalesmen();
+  }, [open, getToken, organization?.id]);
 
   useEffect(() => {
     const fetchCustomer = async () => {
@@ -60,6 +104,7 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
             setValue("email", customer.email);
             setValue("phone", customer.phone);
             setValue("address", customer.address);
+            setValue("salesmanId", customer.salesmanId || null);
           }
         } catch (error) {
           console.error("Error fetching customer:", error);
@@ -110,6 +155,32 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
             <FormInputBox control={control} name="email" label="Email" placeHolder="Enter customer email" type="email" />
             <FormInputBox control={control} name="phone" label="Phone" placeHolder="Enter customer phone number" />
             <FormInputBox control={control} name="address" label="Address" placeHolder="Enter customer address" />
+            <Controller
+              name="salesmanId"
+              control={control}
+              render={({ field, fieldState: { error } }) => (
+                <FormControl fullWidth size="small" error={!!error}>
+                  <InputLabel id="salesman-label">Salesman</InputLabel>
+                  <Select
+                    labelId="salesman-label"
+                    label="Salesman"
+                    value={field.value || ""}
+                    onChange={(e) => field.onChange(e.target.value || null)}
+                    disabled={loadingSalesmen}
+                  >
+                    <MenuItem value="">
+                      <em>None</em>
+                    </MenuItem>
+                    {salesmen.map((salesman) => (
+                      <MenuItem key={salesman.id} value={salesman.id}>
+                        {salesman.name} ({salesman.salesmanCode})
+                      </MenuItem>
+                    ))}
+                  </Select>
+                  {error && <FormHelperText>{error.message}</FormHelperText>}
+                </FormControl>
+              )}
+            />
           </Stack>
           <Stack
             direction="row"

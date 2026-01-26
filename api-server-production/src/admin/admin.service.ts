@@ -324,12 +324,14 @@ export class AdminService {
     });
   }
 
-  async updateOrganization(id: string, data: { stockDeductionTrigger?: string }) {
+  async updateOrganization(id: string, data: Record<string, any>) {
+    // Note: stockDeductionTrigger setting has been removed
+    // Stock deduction logic is now:
+    // - DO confirmation always deducts stock
+    // - Invoice confirmation only deducts stock if NOT extracted from a DO
     const updatedOrg = await this.prisma.organization.update({
       where: { id },
-      data: {
-        stockDeductionTrigger: data.stockDeductionTrigger,
-      },
+      data: {},
     });
 
     return {

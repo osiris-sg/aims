@@ -21,4 +21,8 @@ export class UpdateCustomerDto extends PartialType(CreateCustomerDto) {
   @IsString()
   @IsOptional()
   address: string;
+
+  @IsString()
+  @IsOptional()
+  salesmanId?: string | null;
 }

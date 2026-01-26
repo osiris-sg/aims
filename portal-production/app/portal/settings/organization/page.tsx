@@ -90,7 +90,7 @@ export default function OrganizationSettingsPage() {
     console.log("[OrgSettings] Extracted logo value:", logoVal);
     console.log("[OrgSettings] Extracted stamp value:", stampVal);
 
-    // Handle logo: if it's a File/Blob, upload and store key; if it's a string, use it directly
+    // Handle logo: if it's a File/Blob, upload and store key; if it's a string, use it directly; if deleted, set to null
     try {
       if (logoVal) {
         if (typeof logoVal === "string") {
@@ -101,12 +101,15 @@ export default function OrganizationSettingsPage() {
           console.log("[OrgSettings] Uploaded logo key:", uploadedLogoKey);
           if (uploadedLogoKey) payload.logo = uploadedLogoKey;
         }
+      } else {
+        // Logo was deleted - explicitly set to null to clear it
+        payload.logo = null;
       }
     } catch (e) {
       console.error("[OrgSettings] Logo upload failed", e);
     }
 
-    // Handle default stamp
+    // Handle default stamp: if it's a File/Blob, upload and store key; if it's a string, use it directly; if deleted, set to null
     try {
       if (stampVal) {
         if (typeof stampVal === "string") {
@@ -117,6 +120,9 @@ export default function OrganizationSettingsPage() {
           console.log("[OrgSettings] Uploaded stamp key:", uploadedStampKey);
           if (uploadedStampKey) payload.defaultStamp = uploadedStampKey;
         }
+      } else {
+        // Stamp was deleted - explicitly set to null to clear it
+        payload.defaultStamp = null;
       }
     } catch (e) {
       console.error("[OrgSettings] Stamp upload failed", e);

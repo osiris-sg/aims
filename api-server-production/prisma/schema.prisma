@@ -19,7 +19,7 @@ model Organization {
   defaultStamp       String?
   customDocumentTypes Json?
   taxRate            Float?             @default(9)
-  stockDeductionTrigger String?         @default("DO") // "DO" = Delivery Order, "INVOICE" = Invoice
+  stockDeductionTrigger String?         @default("DO") // Legacy field - no longer used. Stock deduction logic: DO always deducts, Invoice deducts only if not extracted from DO
   assets             Asset[]
   categories         Category[]
   customers          Customer[]
@@ -104,10 +104,12 @@ model Customer {
   email          String?
   phone          String?
   address        String?
+  salesmanId     String?      // Reference to UserOrganization.id for the assigned salesman
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
+  salesman       UserOrganization? @relation(fields: [salesmanId], references: [id])
   siteOffices    SiteOffice[]
   priceHistories PriceHistory[] // Track price history for this customer
   payments       Payment[]
@@ -117,6 +119,7 @@ model Customer {
   @@unique([email, organizationId])
   @@unique([id, organizationId])
   @@unique([customerCode, organizationId])
+  @@index([salesmanId])
 }
 
 model DocumentTemplate {
@@ -283,6 +286,7 @@ model UserOrganization {
   lastActiveAt   DateTime?
   settings       Json?
   organization   Organization @relation(fields: [organizationId], references: [id])
+  customers      Customer[]   // Customers assigned to this salesman
 
   @@unique([userId, organizationId])
   @@unique([salesmanCode, organizationId])

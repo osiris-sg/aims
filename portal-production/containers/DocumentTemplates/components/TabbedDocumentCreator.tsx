@@ -1431,16 +1431,6 @@ export default function TabbedDocumentCreator({
               Create Revision
             </Button>
           )}
-          {!isDocumentConfirmed && (
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={previewMode ? <EditIcon /> : <PreviewIcon />}
-              onClick={() => setPreviewMode(!previewMode)}
-            >
-              {previewMode ? "Edit" : "Preview"}
-            </Button>
-          )}
           {!isDocumentConfirmed && !previewMode && (
             <Button
               size="small"
@@ -1455,6 +1445,17 @@ export default function TabbedDocumentCreator({
           <Button size="small" variant="outlined" startIcon={<PrintIcon />} onClick={handlePrint}>
             Print / PDF
           </Button>
+          {!isDocumentConfirmed && (
+            <Button
+              size="small"
+              variant={previewMode ? "contained" : "outlined"}
+              startIcon={previewMode ? <EditIcon /> : <PreviewIcon />}
+              onClick={() => setPreviewMode(!previewMode)}
+              color={previewMode ? "primary" : "inherit"}
+            >
+              {previewMode ? "Edit" : "Preview"}
+            </Button>
+          )}
           {/* Receive button for Purchase Orders/Returns (before receiving mode) */}
           {!isDocumentConfirmed && !isTemplateEditMode && isPurchaseDocument && !isReceiving && (
             <Button
@@ -1540,9 +1541,8 @@ export default function TabbedDocumentCreator({
               Confirm Document
             </Button>
           )}
-          {/* Send Email button for confirmed invoices */}
-          {documentStatus === "confirmed" &&
-           documentStatus !== "pending_payment" &&
+          {/* Send Email button for invoices (draft or confirmed, not pending_payment) */}
+          {documentStatus !== "pending_payment" &&
            (documentType === "TI" || documentType === "TI2" || documentType === "INVOICE") && (
             <Button
               size="small"
@@ -3111,7 +3111,7 @@ export default function TabbedDocumentCreator({
       />
 
       {/* Send Email Dialog */}
-      {documentStatus === "confirmed" && (documentType === "TI" || documentType === "TI2" || documentType === "INVOICE") && (
+      {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE") && (
         <SendInvoiceEmailDialog
           open={sendEmailDialogOpen}
           onClose={() => setSendEmailDialogOpen(false)}
@@ -3232,6 +3232,72 @@ export default function TabbedDocumentCreator({
 
           toast.success(`Quotation ${quotation.name} extracted to Delivery Order`);
         }}
+        onSelectMultipleQuotations={(quotations) => {
+          // Merge multiple quotations into the delivery order
+          if (!quotations.length) return;
+
+          // Use the first quotation for customer/header info (they should all have the same customer)
+          const firstQuotation = quotations[0];
+          const quotationConfig = firstQuotation.config || {};
+
+          // Collect all source document references
+          const sourceDocumentNumbers = quotations.map(q => q.name).join(", ");
+          const sourceDocumentIds = quotations.map(q => q.id);
+
+          // Update form data with quotation info from first quotation
+          setFormData({
+            ...formData,
+            customer: {
+              id: quotationConfig.customerId || "",
+              name: quotationConfig.customerName || "",
+              address: quotationConfig.customerAddress || "",
+              email: quotationConfig.customerEmail || "",
+            },
+            documentInfo: {
+              ...formData.documentInfo,
+              salesPerson: quotationConfig.salesmanCode || quotationConfig.salesPerson || "",
+              poNo: quotationConfig.poNo || quotationConfig.referenceNo || "",
+              contact: quotationConfig.contact || "",
+              paymentTerms: quotationConfig.paymentTerms || "",
+              currency: quotationConfig.currency || "",
+              rate: quotationConfig.rate || "",
+              taxApplicable: quotationConfig.taxApplicable,
+              absorbTax: quotationConfig.absorbTax,
+              gstPercent: quotationConfig.gstPercent,
+            },
+            deliveryTo: quotationConfig.deliveryTo || "",
+            sourceDocumentId: sourceDocumentIds.join(","), // Store multiple IDs as comma-separated
+            sourceDocumentType: "QUOTATION",
+            sourceDocumentNumber: sourceDocumentNumbers,
+          });
+
+          // Merge items from all quotations
+          let allItems: any[] = [];
+          let itemIdCounter = Date.now();
+
+          quotations.forEach((quotation) => {
+            const config = quotation.config || {};
+            if (config.items && Array.isArray(config.items)) {
+              const newItems = config.items.map((item: any) => ({
+                id: itemIdCounter++,
+                itemCode: item.itemCode || "",
+                inventoryItemId: item.inventoryItemId || "",
+                description: item.description || "",
+                quantity: item.quantity || 1,
+                unitPrice: item.unitPrice || 0,
+                uom: item.uom || "",
+                discount: item.discount || 0,
+                amount: item.amount || (item.quantity || 1) * (item.unitPrice || 0),
+                sourceQuotationNumber: quotation.name, // Track which quotation this item came from
+              }));
+              allItems = [...allItems, ...newItems];
+            }
+          });
+
+          setItems(allItems);
+
+          toast.success(`${quotations.length} Quotations extracted to Delivery Order`);
+        }}
       />
 
       {/* Extract DO to Invoice Dialog - for Invoice */}
@@ -3290,6 +3356,72 @@ export default function TabbedDocumentCreator({
 
           toast.success(`Delivery Order ${deliveryOrder.name} extracted to Invoice`);
         }}
+        onSelectMultipleDOs={(deliveryOrders) => {
+          // Merge multiple delivery orders into the invoice
+          if (!deliveryOrders.length) return;
+
+          // Use the first DO for customer/header info (they should all have the same customer)
+          const firstDO = deliveryOrders[0];
+          const doConfig = firstDO.config || {};
+
+          // Collect all source document references
+          const sourceDocumentNumbers = deliveryOrders.map(d => d.name).join(", ");
+          const sourceDocumentIds = deliveryOrders.map(d => d.id);
+
+          // Update form data with DO info from first delivery order
+          setFormData({
+            ...formData,
+            customer: {
+              id: doConfig.customerId || "",
+              name: doConfig.customerName || "",
+              address: doConfig.customerAddress || "",
+              email: doConfig.customerEmail || "",
+            },
+            documentInfo: {
+              ...formData.documentInfo,
+              salesPerson: doConfig.salesmanCode || doConfig.salesPerson || "",
+              poNo: doConfig.poNo || doConfig.referenceNo || "",
+              contact: doConfig.contact || "",
+              paymentTerms: doConfig.paymentTerms || "",
+              currency: doConfig.currency || "",
+              rate: doConfig.rate || "",
+              taxApplicable: doConfig.taxApplicable,
+              absorbTax: doConfig.absorbTax,
+              gstPercent: doConfig.gstPercent,
+            },
+            deliveryTo: doConfig.deliveryTo || "",
+            sourceDocumentId: sourceDocumentIds.join(","), // Store multiple IDs as comma-separated
+            sourceDocumentType: "DELIVERY_ORDER",
+            sourceDocumentNumber: sourceDocumentNumbers,
+          });
+
+          // Merge items from all delivery orders
+          let allItems: any[] = [];
+          let itemIdCounter = Date.now();
+
+          deliveryOrders.forEach((deliveryOrder) => {
+            const config = deliveryOrder.config || {};
+            if (config.items && Array.isArray(config.items)) {
+              const newItems = config.items.map((item: any) => ({
+                id: itemIdCounter++,
+                itemCode: item.itemCode || "",
+                inventoryItemId: item.inventoryItemId || "",
+                description: item.description || "",
+                quantity: item.quantity || 1,
+                unitPrice: item.unitPrice || 0,
+                uom: item.uom || "",
+                discount: item.discount || 0,
+                amount: item.amount || (item.quantity || 1) * (item.unitPrice || 0),
+                sourceDoNumber: deliveryOrder.name, // Track which DO this item came from
+              }));
+              allItems = [...allItems, ...newItems];
+            }
+          });
+
+          setItems(allItems);
+
+          toast.success(`${deliveryOrders.length} Delivery Orders extracted to Invoice`);
+        }}
       />
 
       {/* Customer Select Dialog */}
@@ -3314,6 +3446,8 @@ export default function TabbedDocumentCreator({
             setFormData(setNestedValue(formData, customerFieldName, customer.customerCode || ""));
           } else {
             // For regular customer field: store full customer object
+            // Also auto-fill salesman if customer has one assigned
+            const salesmanCode = customer.salesman?.salesmanCode || "";
             setFormData({
               ...formData,
               customer: {
@@ -3322,6 +3456,13 @@ export default function TabbedDocumentCreator({
                 address: customer.address || "",
                 email: customer.email || "",
               },
+              // Auto-fill salesman from customer's assigned salesman
+              ...(salesmanCode && {
+                documentInfo: {
+                  ...formData.documentInfo,
+                  salesPerson: salesmanCode,
+                },
+              }),
             });
             // Call the customer change handler to fetch related data
             if (onCustomerChange && customer.id) {

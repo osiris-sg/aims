@@ -33,6 +33,17 @@ export class CustomersController {
     return await this.customersService.getCustomers(getCustomerDto, organizationId);
   }
 
+  // NOTE: Specific routes must come BEFORE generic :id route
+  @Get('salesmen')
+  @Permissions('customers:read')
+  async getSalesmen(@Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.customersService.getSalesmen(organizationId);
+  }
+
   @Get(':id')
   @Permissions('customers:read-one')
   async getCustomerById(@Param('id') id: string, @Req() req: RequestWithOrganization) {

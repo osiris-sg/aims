@@ -17,6 +17,10 @@ export class CreateCustomerDto {
   @IsString()
   address: string | null;
 
+  @IsOptional()
+  @IsString()
+  salesmanId?: string | null;
+
   @IsString()
   @IsOptional()
   createdAt?: Date | null;

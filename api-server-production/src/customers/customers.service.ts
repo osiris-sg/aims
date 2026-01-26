@@ -6,9 +6,12 @@ import { DeleteCustomerDto } from './dto/delete-customer.dto';
 import { PrismaService } from 'src/common/prisma.service';
 import { CreateSiteOfficeDto } from './dto/create-site-office.dto';
 import { UpdateSiteOfficeDto } from './dto/update-site-office-dto';
+import { createClerkClient } from '@clerk/backend';
 
 @Injectable()
 export class CustomersService {
+  private clerkClient = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
+
   constructor(private prisma: PrismaService) {}
 
   async getCustomers(getCustomerDto: GetCustomerDto, organizationId: string) {
@@ -48,17 +51,43 @@ export class CustomersService {
         orderBy: {
           createdAt: 'desc',
         },
+        include: {
+          salesman: true,
+        },
       });
+
+      // Enrich customers with salesman names from Clerk
+      const customersWithSalesmanNames = await Promise.all(
+        customers.map(async (customer) => {
+          if (customer.salesman) {
+            let salesmanName = customer.salesman.salesmanCode || 'Unknown';
+            try {
+              const clerkUser = await this.clerkClient.users.getUser(customer.salesman.userId);
+              salesmanName = `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || clerkUser.username || customer.salesman.salesmanCode || 'Unknown';
+            } catch (error) {
+              console.error(`Error fetching Clerk user ${customer.salesman.userId}:`, error);
+            }
+            return {
+              ...customer,
+              salesman: {
+                ...customer.salesman,
+                name: salesmanName,
+              },
+            };
+          }
+          return customer;
+        })
+      );
 
       const totalDocs = await this.prisma.customer.count({
         where: whereClause,
       });
 
-      const hasNextPage = skip + customers.length < totalDocs;
+      const hasNextPage = skip + customersWithSalesmanNames.length < totalDocs;
       const hasPreviousPage = page > 1;
 
       return {
-        docs: customers,
+        docs: customersWithSalesmanNames,
         hasNextPage,
         hasPreviousPage,
         page,
@@ -77,6 +106,9 @@ export class CustomersService {
         where: {
           id,
           organizationId,
+        },
+        include: {
+          salesman: true,
         },
       });
     } catch (error) {
@@ -304,6 +336,47 @@ export class CustomersService {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
-}
 
-// SiteOffice CRUD methods
+  /**
+   * Get all salesmen (users with salesmanCode) in the organization
+   */
+  async getSalesmen(organizationId: string) {
+    try {
+      const salesmen = await this.prisma.userOrganization.findMany({
+        where: {
+          organizationId,
+          isActive: true,
+          salesmanCode: {
+            not: null,
+          },
+        },
+        orderBy: {
+          salesmanCode: 'asc',
+        },
+      });
+
+      // Fetch user details from Clerk for each salesman
+      const salesmenWithNames = await Promise.all(
+        salesmen.map(async (s) => {
+          let name = s.salesmanCode || 'Unknown';
+          try {
+            const clerkUser = await this.clerkClient.users.getUser(s.userId);
+            name = `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || clerkUser.username || s.salesmanCode || 'Unknown';
+          } catch (error) {
+            console.error(`Error fetching Clerk user ${s.userId}:`, error);
+          }
+          return {
+            id: s.id,
+            salesmanCode: s.salesmanCode,
+            userId: s.userId,
+            name,
+          };
+        })
+      );
+
+      return salesmenWithNames;
+    } catch (error) {
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+}

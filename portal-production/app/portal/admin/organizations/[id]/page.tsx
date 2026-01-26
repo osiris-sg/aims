@@ -231,8 +231,6 @@ export default function OrganizationDetailPage() {
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [previewTemplate, setPreviewTemplate] = useState<any>(null);
   const [mockData, setMockData] = useState<any>(null);
-  const [stockDeductionTrigger, setStockDeductionTrigger] = useState<string>("DO");
-
   // Module management state
   const [addModuleDialogOpen, setAddModuleDialogOpen] = useState(false);
   const [editModuleDialogOpen, setEditModuleDialogOpen] = useState(false);
@@ -426,11 +424,6 @@ export default function OrganizationDetailPage() {
           });
         }
         setModuleData(moduleDataMap);
-
-        // Initialize stock deduction trigger
-        if (response.data.stockDeductionTrigger) {
-          setStockDeductionTrigger(response.data.stockDeductionTrigger);
-        }
 
         // Initialize document types
         if (response.data.customDocumentTypes && Array.isArray(response.data.customDocumentTypes) && response.data.customDocumentTypes.length > 0) {
@@ -755,28 +748,6 @@ export default function OrganizationDetailPage() {
       }
     } catch (error) {
       toast.error("Error saving UI configuration");
-    }
-  };
-
-  const handleSaveStockDeductionTrigger = async () => {
-    try {
-      const token = await getToken();
-      if (!token) return;
-
-      const response = await request(
-        { path: `/admin/organizations/${organizationId}`, method: "PUT" },
-        { stockDeductionTrigger },
-        token
-      );
-
-      if (response.success) {
-        toast.success("Stock deduction trigger updated successfully");
-        fetchOrganizationDetails();
-      } else {
-        toast.error("Failed to update stock deduction trigger");
-      }
-    } catch (error) {
-      toast.error("Error saving stock deduction trigger");
     }
   };
 
@@ -1602,54 +1573,6 @@ export default function OrganizationDetailPage() {
                   onClick={handleSaveUIConfig}
                 >
                   Save Feature Settings
-                </Button>
-              </CardActions>
-            </Card>
-
-            {/* Stock Deduction Settings */}
-            <Card>
-              <CardContent>
-                <Typography variant="subtitle1" gutterBottom>
-                  Stock Deduction Settings
-                </Typography>
-                <Divider sx={{ my: 2 }} />
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  Configure when stock quantities are deducted from inventory
-                </Typography>
-
-                <FormControl fullWidth sx={{ mb: 2 }}>
-                  <InputLabel>Stock Deduction Trigger</InputLabel>
-                  <Select
-                    value={stockDeductionTrigger}
-                    onChange={(e) => setStockDeductionTrigger(e.target.value)}
-                    label="Stock Deduction Trigger"
-                  >
-                    <MenuItem value="DO">Delivery Order (DO)</MenuItem>
-                    <MenuItem value="INVOICE">Invoice</MenuItem>
-                  </Select>
-                </FormControl>
-
-                <Alert severity="info" sx={{ mt: 2 }}>
-                  {stockDeductionTrigger === "DO" ? (
-                    <>
-                      <strong>Delivery Order:</strong> Stock will be deducted when a Delivery Order is confirmed.
-                      This is useful when physical goods are tracked at delivery time.
-                    </>
-                  ) : (
-                    <>
-                      <strong>Invoice:</strong> Stock will be deducted when an Invoice is confirmed.
-                      This is useful when stock should only be deducted after billing.
-                    </>
-                  )}
-                </Alert>
-              </CardContent>
-              <CardActions>
-                <Button
-                  variant="contained"
-                  startIcon={<SaveIcon />}
-                  onClick={handleSaveStockDeductionTrigger}
-                >
-                  Save Stock Settings
                 </Button>
               </CardActions>
             </Card>

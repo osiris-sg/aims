@@ -104,6 +104,7 @@ export default function EditDocumentPage() {
     address: customer.address || "",
     phone: customer.phone || "",
     email: customer.email || "",
+    salesman: customer.salesman || null,
   })) || [];
 
   const projectsList = projects?.map((project: any) => ({
@@ -140,9 +141,12 @@ export default function EditDocumentPage() {
     );
   }
 
+  // Use template's variant if available, otherwise fall back to URL type
+  const templateVariant = templateData?.templateVariant || templateData?.designName || type;
+
   return (
     <TabbedDocumentCreator
-      documentType={type as any}
+      documentType={templateVariant as any}
       documentId={id as string}
       existingData={templateData}
       onSave={handleSave}

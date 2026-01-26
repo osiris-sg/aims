@@ -1639,8 +1639,8 @@ export class DocumentsService {
   }
 
   /**
-   * Confirm a Delivery Order and optionally deduct stock based on organization settings
-   * Stock deduction occurs if organization.stockDeductionTrigger is set to "DO"
+   * Confirm a Delivery Order and always deduct stock
+   * DO confirmation always triggers stock deduction
    */
   async confirmDeliveryOrder(
     documentId: string,
@@ -1670,23 +1670,13 @@ export class DocumentsService {
         );
       }
 
-      // Get organization to check stockDeductionTrigger setting
-      const organization = await this.prisma.organization.findUnique({
-        where: { id: organizationId },
-        select: { stockDeductionTrigger: true },
-      });
-
-      const stockDeductionTrigger = organization?.stockDeductionTrigger || 'DO';
-      console.log('📦 DO CONFIRM: Organization stock deduction trigger:', stockDeductionTrigger);
-
       // Get items from document config
       const config: any = document.config;
       const items = config?.items || [];
       console.log('📦 DO CONFIRM: Processing', items.length, 'items');
 
-      // If stock deduction is triggered by DO, deduct stock
-      if (stockDeductionTrigger === 'DO') {
-        console.log('📦 DO CONFIRM: Deducting stock (trigger is DO)');
+      // Always deduct stock when DO is confirmed
+      console.log('📦 DO CONFIRM: Deducting stock');
 
         await Promise.all(
           items.map(async (item: any) => {
@@ -1752,9 +1742,6 @@ export class DocumentsService {
         );
 
         console.log('✅ DO CONFIRM: Stock deduction completed');
-      } else {
-        console.log('📦 DO CONFIRM: Skipping stock deduction (trigger is INVOICE)');
-      }
 
       // Update document with confirmation data and set status to confirmed
       const updatedConfig = {
@@ -1762,7 +1749,7 @@ export class DocumentsService {
         fromDONo: confirmData.fromDONo,
         toDONo: confirmData.toDONo,
         confirmedAt: new Date().toISOString(),
-        stockDeducted: stockDeductionTrigger === 'DO',
+        stockDeducted: true,
       };
 
       const updatedDocument = await this.prisma.document.update({
@@ -1781,10 +1768,8 @@ export class DocumentsService {
       return {
         success: true,
         document: updatedDocument,
-        stockDeducted: stockDeductionTrigger === 'DO',
-        message: stockDeductionTrigger === 'DO'
-          ? 'Delivery Order confirmed and stock deducted'
-          : 'Delivery Order confirmed (stock will be deducted on Invoice)',
+        stockDeducted: true,
+        message: 'Delivery Order confirmed and stock deducted',
       };
     } catch (error) {
       console.error('❌ DO CONFIRM: Error:', error);
@@ -1797,7 +1782,7 @@ export class DocumentsService {
 
   /**
    * Confirm an Invoice document.
-   * Stock deduction occurs if organization.stockDeductionTrigger is set to "INVOICE"
+   * Stock deduction occurs only if the invoice was NOT extracted from a DO (standalone invoice)
    */
   async confirmInvoice(
     documentId: string,
@@ -1828,23 +1813,23 @@ export class DocumentsService {
         );
       }
 
-      // Get organization to check stockDeductionTrigger setting
-      const organization = await this.prisma.organization.findUnique({
-        where: { id: organizationId },
-        select: { stockDeductionTrigger: true },
-      });
-
-      const stockDeductionTrigger = organization?.stockDeductionTrigger || 'DO';
-      console.log('🧾 INVOICE CONFIRM: Organization stock deduction trigger:', stockDeductionTrigger);
-
       // Get items from document config
       const config: any = document.config;
       const items = config?.items || [];
       console.log('🧾 INVOICE CONFIRM: Processing', items.length, 'items');
 
-      // If stock deduction is triggered by INVOICE, deduct stock
-      if (stockDeductionTrigger === 'INVOICE') {
-        console.log('🧾 INVOICE CONFIRM: Deducting stock (trigger is INVOICE)');
+      // Check if invoice was extracted from a DO (has sourceDocumentId in config or baseDocumentId)
+      const sourceDocumentId = config?.sourceDocumentId || document.baseDocumentId;
+      const isExtractedFromDO = !!sourceDocumentId;
+      console.log('🧾 INVOICE CONFIRM: Source document ID:', sourceDocumentId);
+      console.log('🧾 INVOICE CONFIRM: Is extracted from DO:', isExtractedFromDO);
+
+      // Only deduct stock if invoice was NOT extracted from a DO (standalone invoice)
+      // If extracted from DO, stock was already deducted when DO was confirmed
+      const shouldDeductStock = !isExtractedFromDO;
+
+      if (shouldDeductStock) {
+        console.log('🧾 INVOICE CONFIRM: Deducting stock (standalone invoice, not extracted from DO)');
 
         await Promise.all(
           items.map(async (item: any) => {
@@ -1911,7 +1896,7 @@ export class DocumentsService {
 
         console.log('✅ INVOICE CONFIRM: Stock deduction completed');
       } else {
-        console.log('🧾 INVOICE CONFIRM: Skipping stock deduction (trigger is DO, stock already deducted)');
+        console.log('🧾 INVOICE CONFIRM: Skipping stock deduction (invoice extracted from DO, stock already deducted)');
       }
 
       // Update document with confirmation data and set status to confirmed
@@ -1920,7 +1905,7 @@ export class DocumentsService {
         fromInvoiceNo: confirmData.fromInvoiceNo,
         toInvoiceNo: confirmData.toInvoiceNo,
         confirmedAt: new Date().toISOString(),
-        stockDeducted: stockDeductionTrigger === 'INVOICE',
+        stockDeducted: shouldDeductStock,
       };
 
       const updatedDocument = await this.prisma.document.update({
@@ -1939,8 +1924,8 @@ export class DocumentsService {
       return {
         success: true,
         document: updatedDocument,
-        stockDeducted: stockDeductionTrigger === 'INVOICE',
-        message: stockDeductionTrigger === 'INVOICE'
+        stockDeducted: shouldDeductStock,
+        message: shouldDeductStock
           ? 'Invoice confirmed and stock deducted'
           : 'Invoice confirmed (stock was already deducted on Delivery Order)',
       };

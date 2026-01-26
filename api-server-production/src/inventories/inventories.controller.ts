@@ -32,6 +32,28 @@ export class InventoriesController {
     return await this.inventoriesService.getInventories(getInventoryDto, organizationId);
   }
 
+  // NOTE: Specific routes like :id/documents must come BEFORE generic :id route
+  @Get(':id/stock-movements')
+  @Permissions('inventories:read')
+  async getStockMovements(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.inventoriesService.getStockMovementHistory(id, organizationId);
+  }
+
+  @Get(':id/documents')
+  @Permissions('inventories:read')
+  async getDocumentsForItem(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.inventoriesService.getDocumentsForItem(id, organizationId);
+  }
+
+  // Generic :id route must come AFTER specific :id/xxx routes
   @Get(':id')
   @Permissions('inventories:read-one')
   async getInventoryById(@Param('id') id: string, @Req() req: RequestWithOrganization) {
@@ -130,15 +152,5 @@ export class InventoriesController {
       throw new Error('User is not assigned to any organization');
     }
     return this.inventoriesService.getInventoriesByIds(getInventoriesByIdsDto, organizationId);
-  }
-
-  @Get(':id/stock-movements')
-  @Permissions('inventories:read')
-  async getStockMovements(@Param('id') id: string, @Req() req: RequestWithOrganization) {
-    const organizationId = req.userOrganization?.id;
-    if (!organizationId) {
-      throw new Error('User is not assigned to any organization');
-    }
-    return await this.inventoriesService.getStockMovementHistory(id, organizationId);
   }
 }

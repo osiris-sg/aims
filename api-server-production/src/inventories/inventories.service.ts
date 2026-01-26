@@ -436,4 +436,100 @@ export class InventoriesService {
       );
     }
   }
+
+  /**
+   * Get documents for an item grouped by document type
+   * Returns invoices, delivery orders, debit notes, and credit notes
+   */
+  async getDocumentsForItem(itemId: string, organizationId: string) {
+    try {
+      console.log('[getDocumentsForItem] Fetching documents for itemId:', itemId);
+
+      // Invoice types
+      const invoiceTypes = ['INVOICE', 'TI', 'TI2'];
+      // Delivery order types
+      const deliveryOrderTypes = ['DO', 'DELIVERY_ORDER'];
+      // Debit note types
+      const debitNoteTypes = ['DN', 'DEBIT_NOTE'];
+      // Credit note types
+      const creditNoteTypes = ['CN', 'CREDIT_NOTE'];
+
+      // Get all confirmed documents containing this item using DocumentItem junction table
+      const documentItems = await this.prisma.documentItem.findMany({
+        where: {
+          itemId,
+          document: {
+            organizationId,
+            status: 'confirmed',
+          },
+        },
+        include: {
+          document: true,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+
+      console.log('[getDocumentsForItem] Found', documentItems.length, 'DocumentItem records');
+
+      // Helper to format document data
+      const formatDocument = (docItem: any) => {
+        const doc = docItem.document;
+        const config = doc.config as any;
+        return {
+          documentId: doc.id,
+          documentTemplateId: doc.documentTemplateId,
+          documentType: doc.type,
+          reference: doc.name || '',
+          date: config?.date || config?.documentInfo?.date || doc.createdAt,
+          customerName: config?.customerName || config?.customer?.name || config?.customer?.customerName || '',
+          quantity: docItem.quantity || 0,
+        };
+      };
+
+      // Group documents by type
+      const invoices = documentItems
+        .filter((di) => invoiceTypes.includes(di.document.type?.toUpperCase() || ''))
+        .map(formatDocument);
+
+      const deliveryOrders = documentItems
+        .filter((di) => deliveryOrderTypes.includes(di.document.type?.toUpperCase() || ''))
+        .map(formatDocument);
+
+      const debitNotes = documentItems
+        .filter((di) => debitNoteTypes.includes(di.document.type?.toUpperCase() || ''))
+        .map(formatDocument);
+
+      const creditNotes = documentItems
+        .filter((di) => creditNoteTypes.includes(di.document.type?.toUpperCase() || ''))
+        .map(formatDocument);
+
+      // Calculate totals
+      const totalInvoiceQty = invoices.reduce((sum, d) => sum + d.quantity, 0);
+      const totalDeliveryOrderQty = deliveryOrders.reduce((sum, d) => sum + d.quantity, 0);
+      const totalDebitNoteQty = debitNotes.reduce((sum, d) => sum + d.quantity, 0);
+      const totalCreditNoteQty = creditNotes.reduce((sum, d) => sum + d.quantity, 0);
+
+      return {
+        invoices,
+        deliveryOrders,
+        debitNotes,
+        creditNotes,
+        totals: {
+          invoiceQty: totalInvoiceQty,
+          deliveryOrderQty: totalDeliveryOrderQty,
+          debitNoteQty: totalDebitNoteQty,
+          creditNoteQty: totalCreditNoteQty,
+          totalSalesQty: totalInvoiceQty + totalDeliveryOrderQty + totalDebitNoteQty - totalCreditNoteQty,
+        },
+      };
+    } catch (error) {
+      console.error('Error getting documents for item:', error);
+      throw new HttpException(
+        `Failed to get documents for item: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
 }

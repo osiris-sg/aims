@@ -55,20 +55,6 @@ const Drawer = styled(MuiDrawer)<{ collapsed: boolean }>(({ collapsed }) => ({
 // Sales document types
 const SALES_DOCUMENT_TYPES = [
   {
-    type: "TI",
-    label: "Invoice",
-    shortLabel: "INV",
-    icon: ReceiptIcon,
-    description: "Tax Invoice",
-  },
-  {
-    type: "DO",
-    label: "Delivery Order",
-    shortLabel: "DO",
-    icon: LocalShippingIcon,
-    description: "Delivery Order",
-  },
-  {
     type: "QO",
     label: "Quotation",
     shortLabel: "QO",
@@ -81,6 +67,20 @@ const SALES_DOCUMENT_TYPES = [
     shortLabel: "SO",
     icon: SellIcon,
     description: "Sales Order",
+  },
+  {
+    type: "DO",
+    label: "Delivery Order",
+    shortLabel: "DO",
+    icon: LocalShippingIcon,
+    description: "Delivery Order",
+  },
+  {
+    type: "TI",
+    label: "Invoice",
+    shortLabel: "INV",
+    icon: ReceiptIcon,
+    description: "Tax Invoice",
   },
   {
     type: "RDO",
@@ -115,20 +115,6 @@ const SALES_DOCUMENT_TYPES = [
 // Inventory document types
 const INVENTORY_DOCUMENT_TYPES = [
   {
-    type: "SAI",
-    label: "Stock Adjustment In",
-    shortLabel: "SAI",
-    icon: AddBoxIcon,
-    description: "Stock Adjustment In",
-  },
-  {
-    type: "SAO",
-    label: "Stock Adjustment Out",
-    shortLabel: "SAO",
-    icon: IndeterminateCheckBoxIcon,
-    description: "Stock Adjustment Out",
-  },
-  {
     type: "PO",
     label: "Purchase Order",
     shortLabel: "PO",
@@ -141,6 +127,20 @@ const INVENTORY_DOCUMENT_TYPES = [
     shortLabel: "PR",
     icon: AssignmentReturnIcon,
     description: "Purchase Return",
+  },
+  {
+    type: "SAI",
+    label: "Stock Adjustment In",
+    shortLabel: "SAI",
+    icon: AddBoxIcon,
+    description: "Stock Adjustment In",
+  },
+  {
+    type: "SAO",
+    label: "Stock Adjustment Out",
+    shortLabel: "SAO",
+    icon: IndeterminateCheckBoxIcon,
+    description: "Stock Adjustment Out",
   },
 ];
 

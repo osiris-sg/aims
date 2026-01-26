@@ -33,6 +33,11 @@ interface Customer {
   email?: string;
   phone?: string;
   address?: string;
+  salesman?: {
+    id: string;
+    salesmanCode: string;
+    userId: string;
+  } | null;
 }
 
 interface CustomerSelectDialogProps {
