@@ -445,7 +445,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               </Typography>
               {data.documentInfo?.contact && (
                 <Typography sx={{ fontSize: "0.75rem" }}>
-                  Contact: {data.documentInfo.contact}
+                  Attn: {data.documentInfo.contact}
                 </Typography>
               )}
             </Box>
