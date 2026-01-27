@@ -115,6 +115,8 @@ interface DocumentCreatorProps {
   documentType: "QO1" | "DO" | "RDO" | "TI" | "TI2" | "MSR" | "INVOICE" | string;
   actualDocumentType?: string; // The actual document type (INVOICE, QUOTATION, etc.) for creating documents
   documentId?: string;
+  templateId?: string; // Template ID for fetching custom field definitions
+  fieldDefinitions?: TemplateFieldConfig; // Optional pre-loaded field definitions
   onSave?: (data: any) => void;
   onPrint?: () => void;
   existingData?: any;
@@ -144,6 +146,8 @@ export default function TabbedDocumentCreator({
   siteOffices = [],
   salesmen = [],
   documentId,
+  templateId,
+  fieldDefinitions: propFieldDefinitions,
   onCustomerChange,
   organization,
   onPrevious,
@@ -396,6 +400,14 @@ export default function TabbedDocumentCreator({
   useEffect(() => {
     async function loadTemplateFields() {
       try {
+        // If field definitions are provided as props, use them directly
+        if (propFieldDefinitions) {
+          console.log('Using prop field definitions');
+          setTemplateFieldConfig(propFieldDefinitions);
+          setIsLoadingFieldConfig(false);
+          return;
+        }
+
         setIsLoadingFieldConfig(true);
         const token = await getToken();
         if (!token) {
@@ -403,11 +415,14 @@ export default function TabbedDocumentCreator({
           return;
         }
 
-        // Get field configuration for this template variant
-        // Pass documentType as the template variant
+        // Try to get template ID from various sources
+        const effectiveTemplateId = templateId || existingData?.documentTemplateId || existingData?.templateId;
+
+        // Get field configuration for this template
+        // Pass documentType as fallback for variant, and template ID if available
         const config = await getTemplateFormFields(
-          documentType,  // template variant (TI, TI2, DO, etc.)
-          undefined,      // template ID (not available yet)
+          documentType,        // template variant (TI, TI2, DO, etc.)
+          effectiveTemplateId, // template ID for fetching from database
           token
         );
 
@@ -422,7 +437,7 @@ export default function TabbedDocumentCreator({
     }
 
     loadTemplateFields();
-  }, [documentType, documentId, getToken]);
+  }, [documentType, templateId, existingData?.documentTemplateId, existingData?.templateId, propFieldDefinitions, getToken]);
 
   // Items management - normalize field names from old inventoryId to new inventoryItemId
   const [items, setItems] = useState(() => {

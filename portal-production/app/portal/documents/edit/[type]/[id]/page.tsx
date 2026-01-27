@@ -148,6 +148,7 @@ export default function EditDocumentPage() {
     <TabbedDocumentCreator
       documentType={templateVariant as any}
       documentId={id as string}
+      templateId={id as string}
       existingData={templateData}
       onSave={handleSave}
       onPrint={handlePrint}

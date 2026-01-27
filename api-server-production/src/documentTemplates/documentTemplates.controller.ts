@@ -1,12 +1,14 @@
-import { Controller, Post, Body, Delete, Get, Param, Req, UseGuards, Headers } from '@nestjs/common';
+import { Controller, Post, Body, Delete, Get, Param, Put, Req, UseGuards, Headers } from '@nestjs/common';
 import { DocumentTemplatesService } from './documentTemplates.service';
 import { GetDocumentTemplateDto } from './dto/get-documentTemplate.dto';
 import { CreateDocumentTemplateDto } from './dto/create-documentTemplate.dto';
 import { UpdateDocumentTemplateDto } from './dto/update-documentTemplate.dto';
 import { DeleteDocumentTemplateDto } from './dto/delete-documentTemplate.dto';
+import { UpdateFieldDefinitionsDto } from './dto/update-field-definitions.dto';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
+import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
 // Extend Request type to include userOrganization
 interface RequestWithOrganization extends Request {
@@ -16,6 +18,7 @@ interface RequestWithOrganization extends Request {
   };
 }
 
+@ApiTags('Document Templates')
 @Controller('documentTemplates')
 @UseGuards(ClerkAuthGuard)
 export class DocumentTemplatesController {
@@ -126,4 +129,67 @@ export class DocumentTemplatesController {
     return await this.documentTemplatesService.duplicateTemplateVariant(id, organizationId, body.designName, body.description);
   }
 
+  // ========================================
+  // Field Definitions Endpoints
+  // ========================================
+
+  @Get(':id/fields')
+  @Permissions('documentTemplates:read')
+  @ApiOperation({ summary: 'Get field definitions for a template' })
+  @ApiResponse({ status: 200, description: 'Returns field definitions for the template' })
+  async getTemplateFieldDefinitions(
+    @Param('id') id: string,
+    @Req() req: RequestWithOrganization,
+    @Headers('x-organization-id') headerOrgId?: string,
+  ) {
+    const organizationId = headerOrgId || req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentTemplatesService.getTemplateFieldDefinitions(id, organizationId);
+  }
+
+  @Put(':id/fields')
+  @Permissions('documentTemplates:update')
+  @ApiOperation({ summary: 'Update field definitions for a template' })
+  @ApiResponse({ status: 200, description: 'Field definitions updated successfully' })
+  async updateTemplateFieldDefinitions(
+    @Param('id') id: string,
+    @Body() updateDto: UpdateFieldDefinitionsDto,
+    @Req() req: RequestWithOrganization,
+    @Headers('x-organization-id') headerOrgId?: string,
+  ) {
+    const organizationId = headerOrgId || req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentTemplatesService.updateTemplateFieldDefinitions(
+      id,
+      organizationId,
+      updateDto.formFields,
+    );
+  }
+
+  @Get('defaults/:variant')
+  @Permissions('documentTemplates:read')
+  @ApiOperation({ summary: 'Get default field definitions for a template variant' })
+  @ApiResponse({ status: 200, description: 'Returns default field definitions for the variant' })
+  getDefaultFieldDefinitions(@Param('variant') variant: string) {
+    return this.documentTemplatesService.getDefaultFieldDefinitions(variant);
+  }
+
+  @Post('populate-fields')
+  @Permissions('documentTemplates:update')
+  @ApiOperation({ summary: 'Populate field definitions for all templates in the organization' })
+  @ApiResponse({ status: 200, description: 'Field definitions populated for all templates' })
+  async populateFieldDefinitions(
+    @Req() req: RequestWithOrganization,
+    @Headers('x-organization-id') headerOrgId?: string,
+  ) {
+    const organizationId = headerOrgId || req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentTemplatesService.populateFieldDefinitionsForOrganization(organizationId);
+  }
 }

@@ -4,6 +4,8 @@ import { GetDocumentTemplateDto } from './dto/get-documentTemplate.dto';
 import { CreateDocumentTemplateDto } from './dto/create-documentTemplate.dto';
 import { UpdateDocumentTemplateDto } from './dto/update-documentTemplate.dto';
 import { DeleteDocumentTemplateDto } from './dto/delete-documentTemplate.dto';
+import { TemplateFieldConfigDto } from './dto/update-field-definitions.dto';
+import { TEMPLATE_FIELD_DEFINITIONS, getTemplateFields } from './templateFieldDefinitions';
 
 @Injectable()
 export class DocumentTemplatesService {
@@ -312,6 +314,177 @@ export class DocumentTemplatesService {
       return duplicate;
     } catch (error) {
       console.error('Error duplicating template variant:', error);
+      throw new HttpException(error.message || 'Internal Server Error', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  /**
+   * Get field definitions for a template
+   * Returns config.formFields if available, otherwise returns default definitions
+   */
+  async getTemplateFieldDefinitions(id: string, organizationId: string) {
+    try {
+      const template = await this.prisma.documentTemplate.findFirst({
+        where: {
+          id,
+          organizationId,
+        },
+      });
+
+      if (!template) {
+        throw new HttpException('Document Template not found', HttpStatus.NOT_FOUND);
+      }
+
+      // Check if template has custom field definitions in config
+      const config = template.config as any;
+      if (config?.formFields) {
+        return {
+          formFields: config.formFields,
+          source: 'database',
+          templateId: template.id,
+          templateVariant: template.templateVariant || template.designName,
+        };
+      }
+
+      // Fall back to default definitions based on template variant
+      const variant = template.templateVariant || template.designName || template.type;
+      const defaultFields = getTemplateFields(variant);
+
+      return {
+        formFields: defaultFields,
+        source: 'default',
+        templateId: template.id,
+        templateVariant: variant,
+      };
+    } catch (error) {
+      console.error('Error fetching template field definitions:', error);
+      throw new HttpException(error.message || 'Internal Server Error', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  /**
+   * Update field definitions for a template
+   * Stores the field definitions in config.formFields
+   */
+  async updateTemplateFieldDefinitions(
+    id: string,
+    organizationId: string,
+    formFields: TemplateFieldConfigDto,
+  ) {
+    try {
+      const template = await this.prisma.documentTemplate.findFirst({
+        where: {
+          id,
+          organizationId,
+        },
+      });
+
+      if (!template) {
+        throw new HttpException('Document Template not found', HttpStatus.NOT_FOUND);
+      }
+
+      // Merge with existing config
+      const existingConfig = (template.config as any) || {};
+      const updatedConfig = {
+        ...existingConfig,
+        formFields,
+      };
+
+      const updated = await this.prisma.documentTemplate.update({
+        where: { id },
+        data: {
+          config: updatedConfig,
+        },
+      });
+
+      return {
+        success: true,
+        templateId: updated.id,
+        message: 'Field definitions updated successfully',
+      };
+    } catch (error) {
+      console.error('Error updating template field definitions:', error);
+      throw new HttpException(error.message || 'Internal Server Error', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  /**
+   * Get default field definitions for a template variant
+   * Useful for resetting to defaults or getting definitions without a template ID
+   */
+  getDefaultFieldDefinitions(templateVariant: string) {
+    const fields = getTemplateFields(templateVariant);
+    if (!fields) {
+      throw new HttpException(
+        `No default field definitions found for variant: ${templateVariant}`,
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    return {
+      formFields: fields,
+      source: 'default',
+      templateVariant,
+    };
+  }
+
+  /**
+   * Populate field definitions for all templates in an organization
+   * Copies default definitions to config.formFields for templates that don't have them
+   */
+  async populateFieldDefinitionsForOrganization(organizationId: string) {
+    try {
+      const templates = await this.prisma.documentTemplate.findMany({
+        where: { organizationId },
+      });
+
+      const results = {
+        total: templates.length,
+        populated: 0,
+        skipped: 0,
+        errors: 0,
+      };
+
+      for (const template of templates) {
+        try {
+          const config = template.config as any;
+
+          // Skip if already has formFields
+          if (config?.formFields) {
+            results.skipped++;
+            continue;
+          }
+
+          // Get default fields for this template's variant
+          const variant = template.templateVariant || template.designName || template.type;
+          const defaultFields = getTemplateFields(variant);
+
+          if (!defaultFields) {
+            console.log(`No default fields found for variant: ${variant}`);
+            results.skipped++;
+            continue;
+          }
+
+          // Update template with field definitions
+          const updatedConfig = {
+            ...config,
+            formFields: defaultFields,
+          };
+
+          await this.prisma.documentTemplate.update({
+            where: { id: template.id },
+            data: { config: updatedConfig },
+          });
+
+          results.populated++;
+        } catch (err) {
+          console.error(`Error populating fields for template ${template.id}:`, err);
+          results.errors++;
+        }
+      }
+
+      return results;
+    } catch (error) {
+      console.error('Error populating field definitions:', error);
       throw new HttpException(error.message || 'Internal Server Error', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }

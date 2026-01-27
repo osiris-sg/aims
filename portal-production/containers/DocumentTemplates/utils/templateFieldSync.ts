@@ -1,12 +1,11 @@
 /**
  * Template Field Synchronization Utility
  *
- * This utility syncs template field definitions to the database.
- * When a template is created or its variant is changed, this updates
- * the template's config.formFields in the database.
+ * This utility manages template field definitions between the database and frontend.
+ * Field definitions can be customized per-organization through the admin interface.
  */
 
-import { TEMPLATE_FIELD_DEFINITIONS, getTemplateFields } from '../config/templateFieldDefinitions';
+import { TEMPLATE_FIELD_DEFINITIONS, getTemplateFields, TemplateFieldConfig } from '../config/templateFieldDefinitions';
 import { request } from '@/helpers/request';
 
 /**
@@ -30,17 +29,14 @@ export async function syncTemplateFields(
       return null;
     }
 
-    // Update the template's config with form field definitions
+    // Update the template's field definitions via the dedicated endpoint
     const response = await request(
       {
-        path: `/documentTemplates/update`,
-        method: 'POST',
+        path: `/documentTemplates/${templateId}/fields`,
+        method: 'PUT',
       },
       {
-        id: templateId,
-        config: {
-          formFields: fieldConfig
-        }
+        formFields: fieldConfig
       },
       token
     );
@@ -64,72 +60,63 @@ export async function syncTemplateFields(
  */
 export async function syncAllTemplates(organizationId: string, token: string) {
   try {
-    // Fetch all templates for the organization
+    // Use the populate-fields endpoint for bulk sync
     const response = await request(
       {
-        path: `/documentTemplates?limit=100`,
-        method: 'GET',
+        path: `/documentTemplates/populate-fields`,
+        method: 'POST',
       },
       {},
       token
     );
 
-    if (!response.success || !response.data?.docs) {
-      console.error('Failed to fetch templates');
-      return;
+    if (response.success) {
+      console.log('✅ Template field sync complete:', response.data);
+      return response.data;
+    } else {
+      console.error('Failed to sync templates:', response.message);
+      return null;
     }
-
-    const templates = response.data.docs;
-    console.log(`Found ${templates.length} templates to sync`);
-
-    // Sync each template
-    for (const template of templates) {
-      const variant = template.templateVariant || template.designName || 'Default';
-
-      if (TEMPLATE_FIELD_DEFINITIONS[variant]) {
-        await syncTemplateFields(template.id, variant, token);
-      } else {
-        console.log(`⏭️  Skipping template ${template.id} - no field definitions for variant: ${variant}`);
-      }
-    }
-
-    console.log('✅ Template field sync complete');
   } catch (error) {
     console.error('Error in bulk template sync:', error);
+    return null;
   }
 }
 
 /**
- * Get form fields config for a template variant
- * Returns the default field definitions for the variant
- * In the future, this could fetch from database if template ID is available
+ * Get form fields config for a template
+ * Priority: Database fields > Default definitions
+ *
+ * @param templateVariant - The template variant (TI, TI2, DO, etc.)
+ * @param templateId - Optional template ID to fetch custom fields from database
+ * @param token - Auth token for API requests
+ * @returns Field configuration for the template
  */
 export async function getTemplateFormFields(
   templateVariant: string,
   templateId?: string,
   token?: string
-) {
+): Promise<TemplateFieldConfig | null> {
   try {
-    // If template ID is provided, try to fetch from database
+    // If template ID is provided, try to fetch from dedicated fields endpoint
     if (templateId && token) {
       const response = await request(
         {
-          path: `/documentTemplates/${templateId}`,
+          path: `/documentTemplates/${templateId}/fields`,
           method: 'GET',
         },
         {},
         token
       );
 
-      if (response.success && response.data?.config?.formFields) {
-        // Return fields from database
-        console.log(`Using database field definitions for template ${templateId}`);
-        return response.data.config.formFields;
+      if (response.success && response.data?.formFields) {
+        console.log(`Using ${response.data.source} field definitions for template ${templateId}`);
+        return response.data.formFields;
       }
     }
 
-    // Use default definitions for the variant
-    console.log(`Using default field definitions for ${templateVariant}`);
+    // Fallback: Use default definitions for the variant
+    console.log(`Using local default field definitions for ${templateVariant}`);
     const config = getTemplateFields(templateVariant);
     console.log(`getTemplateFields(${templateVariant}) returned:`, config);
     console.log(`Has tabs:`, config?.tabs?.length || 0);
@@ -139,4 +126,51 @@ export async function getTemplateFormFields(
     // Fallback to default definitions
     return getTemplateFields(templateVariant);
   }
+}
+
+/**
+ * Update field definitions for a template
+ * @param templateId - The template ID to update
+ * @param formFields - The new field configuration
+ * @param token - Auth token
+ * @returns Update result
+ */
+export async function updateTemplateFieldDefinitions(
+  templateId: string,
+  formFields: TemplateFieldConfig,
+  token: string
+) {
+  try {
+    const response = await request(
+      {
+        path: `/documentTemplates/${templateId}/fields`,
+        method: 'PUT',
+      },
+      {
+        formFields
+      },
+      token
+    );
+
+    if (response.success) {
+      console.log(`✅ Updated field definitions for template ${templateId}`);
+      return response.data;
+    } else {
+      console.error(`❌ Failed to update field definitions:`, response.message);
+      return null;
+    }
+  } catch (error) {
+    console.error('Error updating template fields:', error);
+    return null;
+  }
+}
+
+/**
+ * Get default field definitions for a template variant (from hardcoded defaults)
+ * Useful for resetting to defaults
+ * @param templateVariant - The template variant
+ * @returns Default field configuration
+ */
+export function getDefaultFieldDefinitions(templateVariant: string): TemplateFieldConfig | null {
+  return getTemplateFields(templateVariant);
 }

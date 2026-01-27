@@ -42,7 +42,8 @@
     "add-sao-templates": "ts-node scripts/add-stock-adjustment-out-templates.ts",
     "add-sao-templates:dry": "ts-node scripts/add-stock-adjustment-out-templates.ts --dry-run",
     "migrate-document-items": "ts-node scripts/migrate-document-items.ts",
-    "migrate-document-items:dry": "ts-node scripts/migrate-document-items.ts --dry-run"
+    "migrate-document-items:dry": "ts-node scripts/migrate-document-items.ts --dry-run",
+    "populate-template-fields": "ts-node scripts/populate-template-fields.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.779.0",

@@ -225,6 +225,7 @@ export default function page() {
       documentType={templateVariant as any}
       actualDocumentType={actualDocumentType as string}
       documentId={documentId as string}
+      templateId={documentMetadata?.documentTemplateId || id as string}
       existingData={existingData}
       onSave={handleSave}
       onPrint={handlePrint}
