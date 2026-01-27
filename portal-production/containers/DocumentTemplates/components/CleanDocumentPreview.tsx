@@ -118,14 +118,14 @@ export default function CleanDocumentPreview({ documentType, data, organization 
             {/* Customer Info */}
             <Box>
               <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>
-                {data.customer?.name || ""}
+                {data.customer?.name || data.customerName || ""}
               </Typography>
               <Typography sx={{ fontSize: "0.6875rem", mb: 0.3, whiteSpace: "pre-line" }}>
-                {data.customer?.address || ""}
+                {data.customer?.address || data.customerAddress || ""}
               </Typography>
-              {data.deliveryAddress?.attention && (
+              {(data.deliveryAddress?.attention || data.attention?.name) && (
                 <Typography sx={{ fontSize: "0.6875rem", mb: 0.3 }}>
-                  Attn: {data.deliveryAddress.attention}
+                  Attn: {data.deliveryAddress?.attention || data.attention?.name}
                 </Typography>
               )}
             </Box>
@@ -1047,19 +1047,19 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           {/* Customer Info */}
           <Box>
             <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>
-              {data.customer?.name || ""}
+              {data.customer?.name || data.customerName || ""}
             </Typography>
             <Typography sx={{ fontSize: "0.6875rem", mb: 0.3, whiteSpace: "pre-line" }}>
-              {data.customer?.address || ""}
+              {data.customer?.address || data.customerAddress || ""}
             </Typography>
-            {data.deliveryAddress?.attention && (
+            {(data.deliveryAddress?.attention || data.attention?.name) && (
               <Typography sx={{ fontSize: "0.6875rem", mb: 0.3 }}>
-                Attn: {data.deliveryAddress.attention}
+                Attn: {data.deliveryAddress?.attention || data.attention?.name}
               </Typography>
             )}
-            {data.deliveryAddress?.phone && (
+            {(data.deliveryAddress?.phone || data.attention?.phoneNumber) && (
               <Typography sx={{ fontSize: "0.6875rem", mb: 0.3 }}>
-                Tel: {data.deliveryAddress.phone}
+                Tel: {data.deliveryAddress?.phone || data.attention?.phoneNumber}
               </Typography>
             )}
           </Box>
