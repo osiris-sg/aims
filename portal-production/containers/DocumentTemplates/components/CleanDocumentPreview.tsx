@@ -423,30 +423,32 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         </Box>
 
         {/* Customer and Invoice Details Section */}
-        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1, alignItems: "flex-end" }}>
-          {/* Left - TO Section */}
+        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1, alignItems: "flex-start" }}>
+          {/* Left - Bill To and Deliver To Section */}
           <Box sx={{ width: "45%" }}>
-            <Box sx={{ display: "flex", mb: 2 }}>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, minWidth: "35px" }}>TO</Typography>
-              <Typography sx={{ fontSize: "0.75rem", mx: 0.5 }}>:</Typography>
-              <Box sx={{ flex: 1 }}>
-                <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.3 }}>
-                  {data.customer?.name || ""}
-                </Typography>
-                <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
-                  {data.customer?.address || ""}
-                </Typography>
-              </Box>
+            {/* Bill To */}
+            <Box sx={{ mb: 3 }}>
+              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>Bill To :</Typography>
+              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600 }}>
+                {data.customer?.name || ""}
+              </Typography>
+              <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
+                {data.billTo || data.customer?.address || ""}
+              </Typography>
             </Box>
-            {data.customer?.phone && (
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, minWidth: "35px" }}>TEL</Typography>
-                <Typography sx={{ fontSize: "0.75rem", mx: 0.5 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1 }}>
-                  {data.customer.phone}
+
+            {/* Deliver To */}
+            <Box>
+              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>Deliver To :</Typography>
+              <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
+                {data.deliveryTo || ""}
+              </Typography>
+              {data.documentInfo?.contact && (
+                <Typography sx={{ fontSize: "0.75rem" }}>
+                  Contact: {data.documentInfo.contact}
                 </Typography>
-              </Box>
-            )}
+              )}
+            </Box>
           </Box>
 
           {/* Right - Invoice Details with Tax Invoice Title */}
@@ -834,7 +836,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                 {data.customer?.name || ""}
               </Typography>
               <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
-                {data.customer?.address || ""}
+                {data.billTo || data.customer?.address || ""}
               </Typography>
             </Box>
 

@@ -190,6 +190,12 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
             required: false,
           },
           {
+            fieldName: "billTo",
+            displayLabel: "Bill to",
+            fieldType: "textarea",
+            required: false,
+          },
+          {
             fieldName: "deliveryTo",
             displayLabel: "Deliver to",
             fieldType: "textarea",
@@ -378,6 +384,12 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
             fieldName: "documentInfo.issueBy",
             displayLabel: "Issue By",
             fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "billTo",
+            displayLabel: "Bill to",
+            fieldType: "textarea",
             required: false,
           },
           {
