@@ -54,6 +54,7 @@ export function transformFormDataForBackend(
     result.customerId = formData.customer.id;
     result.customerName = formData.customer.name || '';
     result.customerCode = formData.customer.customerCode || '';
+    result.customerAddress = formData.customer.address || '';
   }
 
   // Handle items array - ensure we get the items from the formData
@@ -207,6 +208,25 @@ export function transformBackendDataForForm(
     result.documentInfo.documentNumber = backendData.name;
     result.name = backendData.name;
     result.documentNumber = backendData.name;
+  }
+
+  // Reconstruct customer object from flat fields
+  if (backendData.customerId || backendData.customerName) {
+    result.customer = {
+      id: backendData.customerId || '',
+      name: backendData.customerName || '',
+      customerCode: backendData.customerCode || '',
+      address: backendData.customerAddress || '',
+    };
+    console.log('Reconstructed customer object:', result.customer);
+  }
+
+  // Preserve billTo and deliveryTo fields
+  if (backendData.billTo) {
+    result.billTo = backendData.billTo;
+  }
+  if (backendData.deliveryTo) {
+    result.deliveryTo = backendData.deliveryTo;
   }
 
   return result;
