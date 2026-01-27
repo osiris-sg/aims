@@ -430,10 +430,10 @@ export default function CleanDocumentPreview({ documentType, data, organization 
             <Box sx={{ mb: 3 }}>
               <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>Bill To :</Typography>
               <Typography sx={{ fontSize: "0.75rem", fontWeight: 600 }}>
-                {data.customer?.name || ""}
+                {data.customer?.name || data.customerName || ""}
               </Typography>
               <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
-                {data.billTo || data.customer?.address || ""}
+                {data.billTo || data.customer?.address || data.customerAddress || ""}
               </Typography>
             </Box>
 
@@ -443,9 +443,9 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
                 {data.deliveryTo || ""}
               </Typography>
-              {data.documentInfo?.contact && (
+              {(data.documentInfo?.contact || data.contact) && (
                 <Typography sx={{ fontSize: "0.75rem" }}>
-                  Attn: {data.documentInfo.contact}
+                  Attn: {data.documentInfo?.contact || data.contact}
                 </Typography>
               )}
             </Box>
@@ -833,10 +833,10 @@ export default function CleanDocumentPreview({ documentType, data, organization 
             <Box sx={{ mb: 3 }}>
               <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>Bill To :</Typography>
               <Typography sx={{ fontSize: "0.75rem", fontWeight: 600 }}>
-                {data.customer?.name || ""}
+                {data.customer?.name || data.customerName || ""}
               </Typography>
               <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
-                {data.billTo || data.customer?.address || ""}
+                {data.billTo || data.customer?.address || data.customerAddress || ""}
               </Typography>
             </Box>
 
@@ -846,9 +846,9 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
                 {data.deliveryTo || ""}
               </Typography>
-              {data.documentInfo?.contact && (
+              {(data.documentInfo?.contact || data.contact) && (
                 <Typography sx={{ fontSize: "0.75rem" }}>
-                  Attn: {data.documentInfo.contact}
+                  Attn: {data.documentInfo?.contact || data.contact}
                 </Typography>
               )}
             </Box>
