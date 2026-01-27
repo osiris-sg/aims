@@ -39,6 +39,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { label: "Inventory", value: "/portal/admin/inventory", route: ROUTES.ADMIN_INVENTORY },
     { label: "Customers", value: "/portal/admin/customers", route: ROUTES.ADMIN_CUSTOMERS },
     { label: "Documents", value: "/portal/admin/documents", route: ROUTES.ADMIN_DOCUMENTS },
+    { label: "Document Templates", value: "/portal/admin/document-templates", route: "/portal/admin/document-templates" },
     { label: "Projects", value: "/portal/admin/projects", route: ROUTES.ADMIN_PROJECTS },
     { label: "Users", value: "/portal/admin/users", route: ROUTES.ADMIN_USERS },
     { label: "Roles", value: "/portal/admin/roles", route: ROUTES.ADMIN_ROLES },
@@ -49,8 +50,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     router.push(newValue);
   };
 
-  // Find current tab value
-  const currentTab = adminTabs.find((tab) => pathname === tab.route)?.value || "/portal/admin";
+  // Find current tab value - check for exact match first, then prefix match for nested routes
+  const currentTab = adminTabs.find((tab) => pathname === tab.route)?.value
+    || adminTabs.find((tab) => tab.route !== "/portal/admin" && pathname.startsWith(tab.route))?.value
+    || "/portal/admin";
 
   return (
     <Box sx={{ p: 8, height: "100%", width: "100%", display: "flex", flexDirection: "column" }}>
