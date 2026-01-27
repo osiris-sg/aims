@@ -800,8 +800,8 @@ export default function TabbedDocumentCreator({
       toast.success("Document confirmed successfully");
       setConfirmDialogOpen(false);
 
-      // Refresh the page to update the status
-      router.refresh();
+      // Full page reload to update the status
+      window.location.reload();
     } catch (error) {
       console.error("Error confirming document:", error);
       toast.error("Failed to confirm document");
@@ -843,8 +843,8 @@ export default function TabbedDocumentCreator({
       toast.success(`${docLabel} confirmed and stock updated`);
       setConfirmPODialogOpen(false);
 
-      // Refresh the page to update the status
-      router.refresh();
+      // Full page reload to update the status
+      window.location.reload();
     } catch (error) {
       console.error("Error confirming PO/PR:", error);
       const docLabel = isPurchaseReturn ? "Purchase Return" : "Purchase Order";
@@ -886,8 +886,8 @@ export default function TabbedDocumentCreator({
       toast.success(`${docLabel} confirmed and stock updated`);
       setConfirmAdjustmentDialogOpen(false);
 
-      // Refresh the page to update the status
-      router.refresh();
+      // Full page reload to update the status
+      window.location.reload();
     } catch (error) {
       console.error("Error confirming adjustment:", error);
       const docLabel = isStockAdjustmentIn ? "Stock Adjustment In" : "Stock Adjustment Out";
@@ -946,18 +946,15 @@ export default function TabbedDocumentCreator({
       );
 
       if (confirmResponse.success) {
-        const stockMessage = confirmResponse.stockDeducted
-          ? " Stock has been deducted."
-          : " Stock will be deducted on Invoice.";
-        toast.success("Delivery Order confirmed successfully." + stockMessage);
+        toast.success("Delivery Order confirmed successfully. Stock has been deducted.");
       } else {
         throw new Error(confirmResponse.message || "Confirmation failed");
       }
 
       setConfirmDODialogOpen(false);
 
-      // Refresh the page to update the status
-      router.refresh();
+      // Full page reload to update the status
+      window.location.reload();
     } catch (error) {
       console.error("Error confirming DO:", error);
       toast.error("Failed to confirm Delivery Order");
@@ -1017,7 +1014,7 @@ export default function TabbedDocumentCreator({
       if (confirmResponse.success) {
         const stockMessage = confirmResponse.stockDeducted
           ? " Stock has been deducted."
-          : " Stock was already deducted on Delivery Order.";
+          : "";
         toast.success("Invoice confirmed successfully." + stockMessage);
       } else {
         throw new Error(confirmResponse.message || "Confirmation failed");
@@ -1025,8 +1022,8 @@ export default function TabbedDocumentCreator({
 
       setConfirmInvoiceDialogOpen(false);
 
-      // Refresh the page to update the status
-      router.refresh();
+      // Full page reload to update the status
+      window.location.reload();
     } catch (error) {
       console.error("Error confirming Invoice:", error);
       toast.error("Failed to confirm Invoice");
@@ -1446,17 +1443,15 @@ export default function TabbedDocumentCreator({
               Create Revision
             </Button>
           )}
-          {!isDocumentConfirmed && !previewMode && (
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<InventoryIcon />}
-              onClick={() => setStockCardDialogOpen(true)}
-              color="secondary"
-            >
-              Stock Card
-            </Button>
-          )}
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<InventoryIcon />}
+            onClick={() => setStockCardDialogOpen(true)}
+            color="secondary"
+          >
+            Stock Card
+          </Button>
           <Button size="small" variant="outlined" startIcon={<PrintIcon />} onClick={handlePrint}>
             Print / PDF
           </Button>

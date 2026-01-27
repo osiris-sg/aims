@@ -1896,7 +1896,7 @@ export class DocumentsService {
 
         console.log('✅ INVOICE CONFIRM: Stock deduction completed');
       } else {
-        console.log('🧾 INVOICE CONFIRM: Skipping stock deduction (invoice extracted from DO, stock already deducted)');
+        console.log('🧾 INVOICE CONFIRM: Skipping stock deduction (invoice extracted from DO)');
       }
 
       // Update document with confirmation data and set status to confirmed
@@ -1927,7 +1927,7 @@ export class DocumentsService {
         stockDeducted: shouldDeductStock,
         message: shouldDeductStock
           ? 'Invoice confirmed and stock deducted'
-          : 'Invoice confirmed (stock was already deducted on Delivery Order)',
+          : 'Invoice confirmed',
       };
     } catch (error) {
       console.error('❌ INVOICE CONFIRM: Error:', error);
