@@ -328,10 +328,11 @@ export default function TabbedDocumentCreator({
       gstRegNo: existingData?.gstRegNo || organization?.registrationNumber || existingData?.config?.defaultValues?.gstRegNo || "",
     },
     customer: {
-      id: existingData?.customerId || "",
-      name: "",
-      address: "",
-      email: "",
+      id: existingData?.customer?.id || existingData?.customerId || "",
+      name: existingData?.customer?.name || existingData?.customerName || "",
+      address: existingData?.customer?.address || existingData?.customerAddress || "",
+      email: existingData?.customer?.email || "",
+      customerCode: existingData?.customer?.customerCode || existingData?.customerCode || "",
     },
     documentInfo: {
       date: existingData?.documentInfo?.date || existingData?.date || new Date().toISOString().split("T")[0],
@@ -380,6 +381,7 @@ export default function TabbedDocumentCreator({
       address: existingData?.deliveryTo || "",
       instructions: existingData?.deliveryInstructions || "",
     },
+    billTo: existingData?.billTo || "",
     deliveryTo: existingData?.deliveryTo || "",
     // Items data
     items: existingData?.items || [],

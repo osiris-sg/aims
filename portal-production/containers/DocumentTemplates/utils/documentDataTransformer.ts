@@ -117,6 +117,8 @@ export function transformFormDataForBackend(
   const flatFields = [
     'note', 'dueDate', 'collectFrom', 'startDate', 'endDate',
     'signature', 'gstRegNo', 'paymentTerms',
+    // Address fields
+    'billTo', 'deliveryTo',
     // Tracking fields
     'savedBy', 'savedAt', 'confirmedBy', 'confirmedAt', 'lastUsedBy', 'lastUsedAt',
     // PO confirmation fields (supplier D/O info)
