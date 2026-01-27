@@ -119,6 +119,8 @@ export function transformFormDataForBackend(
     'signature', 'gstRegNo', 'paymentTerms',
     // Address fields
     'billTo', 'deliveryTo',
+    // Source document tracking (for quotation/DO extraction)
+    'sourceDocumentId', 'sourceDocumentType', 'sourceDocumentNumber',
     // Tracking fields
     'savedBy', 'savedAt', 'confirmedBy', 'confirmedAt', 'lastUsedBy', 'lastUsedAt',
     // PO confirmation fields (supplier D/O info)
