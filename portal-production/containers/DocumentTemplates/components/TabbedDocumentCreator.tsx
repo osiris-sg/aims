@@ -82,7 +82,7 @@ import { usePastDescriptions } from "../hooks/usePastDescriptions";
 import { useGetInventoriesForItemTable } from "../hooks/useGetInventoriesForItemTable";
 import { getTemplateFormFields } from "../utils/templateFieldSync";
 import { useGetDocuments } from "@/app/portal/hooks/api";
-import { TemplateFieldConfig } from "../config/templateFieldDefinitions";
+import { TemplateFieldConfig } from "../types/templateFieldTypes";
 
 // Helper to determine the parent route based on document type
 const getParentRoute = (docType: string): string => {

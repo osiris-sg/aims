@@ -59,6 +59,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "react-toastify";
+import { useAuth } from "@clerk/nextjs";
 import {
   useGetDocumentTemplate,
   useGetTemplateFieldDefinitions,
@@ -178,6 +179,7 @@ export default function FieldEditorPage() {
   const router = useRouter();
   const id = params.id as string;
 
+  const { getToken } = useAuth();
   const { template, loading: templateLoading } = useGetDocumentTemplate(id);
   const { fieldDefinitions: initialFields, source, loading: fieldsLoading, refetch } = useGetTemplateFieldDefinitions(id);
   const { updateFieldDefinitions, loading: updateLoading } = useUpdateTemplateFieldDefinitions();
@@ -344,15 +346,25 @@ export default function FieldEditorPage() {
     }
   };
 
-  const handleRestoreDefaults = () => {
-    const variant = template?.templateVariant || template?.designName || template?.type || "TI";
-    const defaults = getDefaultFieldDefinitions(variant);
-    if (defaults?.tabs) {
-      setTabs(JSON.parse(JSON.stringify(defaults.tabs)));
-      setHasChanges(true);
-      toast.success("Restored default field definitions");
-    } else {
-      toast.error("No default definitions found for this template variant");
+  const handleRestoreDefaults = async () => {
+    try {
+      const token = await getToken();
+      if (!token) {
+        toast.error("Authentication required");
+        return;
+      }
+      const variant = template?.templateVariant || template?.designName || template?.type || "TI";
+      const defaults = await getDefaultFieldDefinitions(variant, token);
+      if (defaults?.tabs) {
+        setTabs(JSON.parse(JSON.stringify(defaults.tabs)));
+        setHasChanges(true);
+        toast.success("Restored default field definitions");
+      } else {
+        toast.error("No default definitions found for this template variant");
+      }
+    } catch (error) {
+      console.error("Error restoring defaults:", error);
+      toast.error("Failed to restore default definitions");
     }
     setRestoreDialogOpen(false);
   };

@@ -17,7 +17,7 @@ import {
   IconButton,
 } from '@mui/material';
 import { Search as SearchIcon } from '@mui/icons-material';
-import { FieldDefinition } from '../config/templateFieldDefinitions';
+import { FieldDefinition } from '../types/templateFieldTypes';
 
 // Salesman interface
 interface Salesman {

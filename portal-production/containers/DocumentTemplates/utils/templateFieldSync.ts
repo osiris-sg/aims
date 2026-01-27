@@ -2,11 +2,15 @@
  * Template Field Synchronization Utility
  *
  * This utility manages template field definitions between the database and frontend.
- * Field definitions can be customized per-organization through the admin interface.
+ * Field definitions are stored in the database and fetched via API.
+ * All field definitions are now database-driven - no local hardcoded fallbacks.
  */
 
-import { TEMPLATE_FIELD_DEFINITIONS, getTemplateFields, TemplateFieldConfig } from '../config/templateFieldDefinitions';
+import { TemplateFieldConfig } from '../types/templateFieldTypes';
 import { request } from '@/helpers/request';
+
+// Re-export types for convenience
+export type { TemplateFieldConfig, TabDefinition, FieldDefinition } from '../types/templateFieldTypes';
 
 /**
  * Sync field definitions for a template to the database
@@ -21,10 +25,10 @@ export async function syncTemplateFields(
   token: string
 ) {
   try {
-    // Get field definitions for this variant
-    const fieldConfig = getTemplateFields(templateVariant);
+    // Fetch default field definitions from API
+    const defaultFields = await fetchDefaultFieldDefinitions(templateVariant, token);
 
-    if (!fieldConfig) {
+    if (!defaultFields) {
       console.warn(`No field definitions found for template variant: ${templateVariant}`);
       return null;
     }
@@ -36,7 +40,7 @@ export async function syncTemplateFields(
         method: 'PUT',
       },
       {
-        formFields: fieldConfig
+        formFields: defaultFields
       },
       token
     );
@@ -84,11 +88,41 @@ export async function syncAllTemplates(organizationId: string, token: string) {
 }
 
 /**
+ * Fetch default field definitions for a template variant from the API
+ * @param templateVariant - The template variant (TI, TI2, DO, etc.)
+ * @param token - Auth token
+ * @returns Default field configuration or null
+ */
+export async function fetchDefaultFieldDefinitions(
+  templateVariant: string,
+  token: string
+): Promise<TemplateFieldConfig | null> {
+  try {
+    const response = await request(
+      {
+        path: `/documentTemplates/defaults/${templateVariant}`,
+        method: 'GET',
+      },
+      {},
+      token
+    );
+
+    if (response.success && response.data?.formFields) {
+      return response.data.formFields;
+    }
+    return null;
+  } catch (error) {
+    console.error('Error fetching default field definitions:', error);
+    return null;
+  }
+}
+
+/**
  * Get form fields config for a template
- * Priority: Database fields > Default definitions
+ * Fetches from database via API. No local fallback.
  *
  * @param templateVariant - The template variant (TI, TI2, DO, etc.)
- * @param templateId - Optional template ID to fetch custom fields from database
+ * @param templateId - Template ID to fetch custom fields from database
  * @param token - Auth token for API requests
  * @returns Field configuration for the template
  */
@@ -97,9 +131,14 @@ export async function getTemplateFormFields(
   templateId?: string,
   token?: string
 ): Promise<TemplateFieldConfig | null> {
+  if (!token) {
+    console.error('Token is required to fetch template form fields');
+    return null;
+  }
+
   try {
-    // If template ID is provided, try to fetch from dedicated fields endpoint
-    if (templateId && token) {
+    // If template ID is provided, fetch fields for that specific template
+    if (templateId) {
       const response = await request(
         {
           path: `/documentTemplates/${templateId}/fields`,
@@ -115,16 +154,12 @@ export async function getTemplateFormFields(
       }
     }
 
-    // Fallback: Use default definitions for the variant
-    console.log(`Using local default field definitions for ${templateVariant}`);
-    const config = getTemplateFields(templateVariant);
-    console.log(`getTemplateFields(${templateVariant}) returned:`, config);
-    console.log(`Has tabs:`, config?.tabs?.length || 0);
-    return config;
+    // Fallback: Fetch default definitions for the variant from API
+    console.log(`Fetching default field definitions for ${templateVariant} from API`);
+    return await fetchDefaultFieldDefinitions(templateVariant, token);
   } catch (error) {
     console.error('Error fetching template form fields:', error);
-    // Fallback to default definitions
-    return getTemplateFields(templateVariant);
+    return null;
   }
 }
 
@@ -166,11 +201,15 @@ export async function updateTemplateFieldDefinitions(
 }
 
 /**
- * Get default field definitions for a template variant (from hardcoded defaults)
+ * Get default field definitions for a template variant from the API
  * Useful for resetting to defaults
  * @param templateVariant - The template variant
+ * @param token - Auth token
  * @returns Default field configuration
  */
-export function getDefaultFieldDefinitions(templateVariant: string): TemplateFieldConfig | null {
-  return getTemplateFields(templateVariant);
+export async function getDefaultFieldDefinitions(
+  templateVariant: string,
+  token: string
+): Promise<TemplateFieldConfig | null> {
+  return fetchDefaultFieldDefinitions(templateVariant, token);
 }

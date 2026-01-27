@@ -5,7 +5,7 @@
  * based on template field definitions.
  */
 
-import { TemplateFieldConfig, FieldDefinition } from '../config/templateFieldDefinitions';
+import { TemplateFieldConfig, FieldDefinition } from '../types/templateFieldTypes';
 
 /**
  * Get nested value from object using dot notation

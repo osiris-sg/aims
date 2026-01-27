@@ -13,7 +13,7 @@ import { useGetProjects } from "@/containers/DocumentTemplates/hooks/useGetProje
 import { useGetDeliveryOrders } from "@/containers/DocumentTemplates/hooks/useGetDeliveryOrders";
 import { useGetSiteOffices } from "@/containers/DocumentTemplates/hooks/useGetSiteOffices";
 import { useGetSalesmen } from "@/containers/DocumentTemplates/hooks/useGetSalesmen";
-import { getTemplateFields } from "@/containers/DocumentTemplates/config/templateFieldDefinitions";
+import { getTemplateFormFields, TemplateFieldConfig } from "@/containers/DocumentTemplates/utils/templateFieldSync";
 import {
   transformFormDataForBackend,
   transformBackendDataForForm
@@ -31,6 +31,7 @@ export default function page() {
   const [existingData, setExistingData] = useState<any>(null);
   const [documentMetadata, setDocumentMetadata] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [fieldConfig, setFieldConfig] = useState<TemplateFieldConfig | null>(null);
 
   // Fetch all documents for navigation
   const { documents: allDocuments = [] } = useGetDocuments({});
@@ -159,12 +160,14 @@ export default function page() {
           console.log("Raw config from database:", config);
           console.log("Template variant being used:", templateVariant);
 
-          // Get field definitions for the template variant
-          const fieldConfig = getTemplateFields(templateVariant);
-          console.log("Field config for variant:", fieldConfig);
+          // Get field definitions for the template from API
+          const templateId = response.data.documentTemplateId;
+          const fetchedFieldConfig = await getTemplateFormFields(templateVariant, templateId, token);
+          console.log("Field config for variant:", fetchedFieldConfig);
+          setFieldConfig(fetchedFieldConfig);
 
           // Transform flat backend data to nested structure for form
-          const documentData = transformBackendDataForForm(config, fieldConfig);
+          const documentData = transformBackendDataForForm(config, fetchedFieldConfig);
 
           // Ensure document name is set
           documentData.name = response.data.name;
@@ -227,18 +230,22 @@ export default function page() {
         return;
       }
 
-      // Get field definitions for the template variant
-      // For quotation types, prefer the URL type to ensure correct template is used
-      const urlTypeForSave = Array.isArray(type) ? type[0] : type;
-      const quotationTypesForSave = ["QUOTATION", "QT", "QO"];
-      const templateVariant = quotationTypesForSave.includes(urlTypeForSave?.toUpperCase() || "")
-        ? urlTypeForSave
-        : (documentMetadata?.variant || type);
-      const fieldConfig = getTemplateFields(templateVariant);
+      // Use the field config that was loaded when the document was fetched
+      // If not available, fetch it now
+      let currentFieldConfig = fieldConfig;
+      if (!currentFieldConfig) {
+        const urlTypeForSave = Array.isArray(type) ? type[0] : type;
+        const quotationTypesForSave = ["QUOTATION", "QT", "QO"];
+        const templateVariant = quotationTypesForSave.includes(urlTypeForSave?.toUpperCase() || "")
+          ? urlTypeForSave
+          : (documentMetadata?.variant || type);
+        const templateId = documentMetadata?.documentTemplateId || params.id as string;
+        currentFieldConfig = await getTemplateFormFields(templateVariant, templateId, token);
+      }
 
       console.log("handleSave - Before transform - data.items:", data.items);
       // Transform form data dynamically based on field definitions
-      const configData = transformFormDataForBackend(data, fieldConfig, organization);
+      const configData = transformFormDataForBackend(data, currentFieldConfig, organization);
       console.log("handleSave - After transform - configData:", configData);
       console.log("handleSave - After transform - configData.items:", JSON.stringify(configData.items, null, 2));
 
