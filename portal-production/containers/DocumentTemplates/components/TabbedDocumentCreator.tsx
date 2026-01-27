@@ -3460,6 +3460,8 @@ export default function TabbedDocumentCreator({
             // For regular customer field: store full customer object
             // Also auto-fill salesman if customer has one assigned
             const salesmanCode = customer.salesman?.salesmanCode || "";
+            console.log("Customer selected:", customer);
+            console.log("Customer address:", customer.address);
             setFormData({
               ...formData,
               customer: {
@@ -3467,6 +3469,7 @@ export default function TabbedDocumentCreator({
                 name: customer.name || "",
                 address: customer.address || "",
                 email: customer.email || "",
+                customerCode: customer.customerCode || "",
               },
               // Auto-fill salesman from customer's assigned salesman
               ...(salesmanCode && {
