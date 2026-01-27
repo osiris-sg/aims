@@ -3199,14 +3199,20 @@ export default function TabbedDocumentCreator({
           // Populate DO with data from the selected quotation
           const quotationConfig = quotation.config || {};
 
+          // Look up customer address from customers list if not in quotation config
+          const customerId = quotationConfig.customerId || "";
+          const customerFromList = customers.find((c: any) => c.id === customerId);
+          const customerAddress = quotationConfig.customerAddress || customerFromList?.address || "";
+
           // Update form data with quotation info
           setFormData({
             ...formData,
             customer: {
-              id: quotationConfig.customerId || "",
-              name: quotationConfig.customerName || "",
-              address: quotationConfig.customerAddress || "",
-              email: quotationConfig.customerEmail || "",
+              id: customerId,
+              name: quotationConfig.customerName || customerFromList?.name || "",
+              address: customerAddress,
+              email: quotationConfig.customerEmail || customerFromList?.email || "",
+              customerCode: quotationConfig.customerCode || customerFromList?.customerCode || "",
             },
             documentInfo: {
               ...formData.documentInfo,
@@ -3252,6 +3258,11 @@ export default function TabbedDocumentCreator({
           const firstQuotation = quotations[0];
           const quotationConfig = firstQuotation.config || {};
 
+          // Look up customer address from customers list if not in quotation config
+          const customerId = quotationConfig.customerId || "";
+          const customerFromList = customers.find((c: any) => c.id === customerId);
+          const customerAddress = quotationConfig.customerAddress || customerFromList?.address || "";
+
           // Collect all source document references
           const sourceDocumentNumbers = quotations.map(q => q.name).join(", ");
           const sourceDocumentIds = quotations.map(q => q.id);
@@ -3260,10 +3271,11 @@ export default function TabbedDocumentCreator({
           setFormData({
             ...formData,
             customer: {
-              id: quotationConfig.customerId || "",
-              name: quotationConfig.customerName || "",
-              address: quotationConfig.customerAddress || "",
-              email: quotationConfig.customerEmail || "",
+              id: customerId,
+              name: quotationConfig.customerName || customerFromList?.name || "",
+              address: customerAddress,
+              email: quotationConfig.customerEmail || customerFromList?.email || "",
+              customerCode: quotationConfig.customerCode || customerFromList?.customerCode || "",
             },
             documentInfo: {
               ...formData.documentInfo,
@@ -3323,14 +3335,20 @@ export default function TabbedDocumentCreator({
           // Populate Invoice with data from the selected Delivery Order
           const doConfig = deliveryOrder.config || {};
 
+          // Look up customer address from customers list if not in DO config
+          const customerId = doConfig.customerId || "";
+          const customerFromList = customers.find((c: any) => c.id === customerId);
+          const customerAddress = doConfig.customerAddress || customerFromList?.address || "";
+
           // Update form data with DO info
           setFormData({
             ...formData,
             customer: {
-              id: doConfig.customerId || "",
-              name: doConfig.customerName || "",
-              address: doConfig.customerAddress || "",
-              email: doConfig.customerEmail || "",
+              id: customerId,
+              name: doConfig.customerName || customerFromList?.name || "",
+              address: customerAddress,
+              email: doConfig.customerEmail || customerFromList?.email || "",
+              customerCode: doConfig.customerCode || customerFromList?.customerCode || "",
             },
             documentInfo: {
               ...formData.documentInfo,
@@ -3376,6 +3394,11 @@ export default function TabbedDocumentCreator({
           const firstDO = deliveryOrders[0];
           const doConfig = firstDO.config || {};
 
+          // Look up customer address from customers list if not in DO config
+          const customerId = doConfig.customerId || "";
+          const customerFromList = customers.find((c: any) => c.id === customerId);
+          const customerAddress = doConfig.customerAddress || customerFromList?.address || "";
+
           // Collect all source document references
           const sourceDocumentNumbers = deliveryOrders.map(d => d.name).join(", ");
           const sourceDocumentIds = deliveryOrders.map(d => d.id);
@@ -3384,10 +3407,11 @@ export default function TabbedDocumentCreator({
           setFormData({
             ...formData,
             customer: {
-              id: doConfig.customerId || "",
-              name: doConfig.customerName || "",
-              address: doConfig.customerAddress || "",
-              email: doConfig.customerEmail || "",
+              id: customerId,
+              name: doConfig.customerName || customerFromList?.name || "",
+              address: customerAddress,
+              email: doConfig.customerEmail || customerFromList?.email || "",
+              customerCode: doConfig.customerCode || customerFromList?.customerCode || "",
             },
             documentInfo: {
               ...formData.documentInfo,
