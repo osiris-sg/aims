@@ -45,6 +45,13 @@ export default function OrganizationSettingsPage() {
     { code: "DO", label: "Delivery Order" },
     { code: "RDO", label: "Return Delivery Order" },
     { code: "MSR", label: "Maintenance Service Report" },
+    { code: "PO", label: "Purchase Order" },
+    { code: "PR", label: "Purchase Return" },
+    { code: "SO", label: "Sales Order" },
+    { code: "DN", label: "Debit Note" },
+    { code: "CN", label: "Credit Note" },
+    { code: "SAI", label: "Stock Adjustment In" },
+    { code: "SAO", label: "Stock Adjustment Out" },
   ];
 
   const addCustomDocumentType = (docType: string) => {

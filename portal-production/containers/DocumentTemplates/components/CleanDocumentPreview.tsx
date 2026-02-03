@@ -1262,18 +1262,6 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                   THANK YOU FOR YOUR RECENT PURCHASE
                 </Typography>
 
-                {/* Footer */}
-                <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2, borderTop: "1px solid #eee", pt: 1 }}>
-                  <Typography sx={{ fontSize: "0.5625rem", fontStyle: "italic" }}>
-                    Printed On {new Date().toLocaleDateString('en-GB')} {new Date().toLocaleTimeString()} SYS
-                  </Typography>
-                  <Typography sx={{ fontSize: "0.5625rem" }}>
-                    Page # 1
-                  </Typography>
-                  <Typography sx={{ fontSize: "0.5625rem" }}>
-                    E. & O.E
-                  </Typography>
-                </Box>
               </>
             );
           })()}

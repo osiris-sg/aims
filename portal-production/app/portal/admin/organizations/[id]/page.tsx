@@ -194,6 +194,13 @@ const DEFAULT_DOCUMENT_TYPES = [
   { code: "RETURN_DELIVERY_ORDER", name: "Return Delivery Order", description: "Document for return deliveries", variants: ["RDO"] },
   { code: "INVOICE", name: "Tax Invoice", description: "Invoice with tax details", variants: ["TI", "TI2"] },
   { code: "MAINTENANCE_SERVICE_REPORT", name: "Maintenance Service Report", description: "Service and maintenance reports", variants: ["MSR"] },
+  { code: "PURCHASE_ORDER", name: "Purchase Order", description: "Purchase order for suppliers", variants: ["PO"] },
+  { code: "PURCHASE_RETURN", name: "Purchase Return", description: "Return goods to suppliers", variants: ["PR"] },
+  { code: "SALES_ORDER", name: "Sales Order", description: "Sales order document", variants: ["SO"] },
+  { code: "DEBIT_NOTE", name: "Debit Note", description: "Debit note document", variants: ["DN"] },
+  { code: "CREDIT_NOTE", name: "Credit Note", description: "Credit note document", variants: ["CN"] },
+  { code: "STOCK_ADJUSTMENT_IN", name: "Stock Adjustment In", description: "Stock adjustment inward", variants: ["SAI"] },
+  { code: "STOCK_ADJUSTMENT_OUT", name: "Stock Adjustment Out", description: "Stock adjustment outward", variants: ["SAO"] },
 ];
 
 interface TabPanelProps {
@@ -840,13 +847,15 @@ export default function OrganizationDetailPage() {
 
         // If no templates exist, create a default one
         if (fetchedTemplates.length === 0) {
+          const docTypeInfo = DEFAULT_DOCUMENT_TYPES.find((dt) => dt.code === docType);
+          const defaultVariant = docTypeInfo?.variants?.[0] || "Default";
           const createResponse = await request(
             { path: `/documentTemplates/create`, method: "POST" },
             {
               type: docType,
-              name: `${docType} Template`,
+              name: docTypeInfo?.name || `${docType} Template`,
+              templateVariant: defaultVariant,
               designName: "Default",
-              isActive: true,
             },
             token,
             { "x-organization-id": organizationId }

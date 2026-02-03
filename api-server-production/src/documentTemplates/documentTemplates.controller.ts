@@ -76,8 +76,9 @@ export class DocumentTemplatesController {
 
   @Post('create')
   @Permissions('documentTemplates:create')
-  async createDocumentTemplates(@Body() createDocumentTemplateDto: CreateDocumentTemplateDto, @Req() req: RequestWithOrganization) {
-    const organizationId = req.userOrganization?.id;
+  async createDocumentTemplates(@Body() createDocumentTemplateDto: CreateDocumentTemplateDto, @Req() req: RequestWithOrganization, @Headers('x-organization-id') headerOrgId?: string) {
+    // For admin panel, use the header org ID if provided, otherwise use user's org
+    const organizationId = headerOrgId || req.userOrganization?.id;
     if (!organizationId) {
       throw new Error('User is not assigned to any organization');
     }

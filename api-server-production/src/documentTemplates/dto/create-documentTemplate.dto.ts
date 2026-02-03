@@ -32,6 +32,14 @@ export class CreateDocumentTemplateDto {
   @IsString()
   type: string;
 
+  @IsString()
+  @IsOptional()
+  templateVariant?: string;
+
+  @IsString()
+  @IsOptional()
+  designName?: string;
+
   @IsBoolean()
   @IsOptional()
   logo: boolean;

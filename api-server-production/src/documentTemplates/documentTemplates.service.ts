@@ -128,6 +128,8 @@ export class DocumentTemplatesService {
         data: {
           name: dto.name,
           type: dto.type,
+          templateVariant: dto.templateVariant || 'Default',
+          designName: dto.designName || 'Default',
           organizationId, // Automatically assign to user's organization
           isActive: false, // New templates start as inactive
         },
@@ -1045,6 +1047,22 @@ export class DocumentTemplatesService {
       },
     };
 
-    return mockData[type] || mockData.TI; // Default to invoice if type not found
+    // Map long-form type codes to short codes used as keys
+    const typeMap: Record<string, string> = {
+      INVOICE: 'TI',
+      QUOTATION: 'QO1',
+      DELIVERY_ORDER: 'DO',
+      RETURN_DELIVERY_ORDER: 'RDO',
+      MAINTENANCE_SERVICE_REPORT: 'MSR',
+      PURCHASE_ORDER: 'PO',
+      PURCHASE_RETURN: 'PR',
+      SALES_ORDER: 'SO',
+      DEBIT_NOTE: 'DN',
+      CREDIT_NOTE: 'CN',
+      STOCK_ADJUSTMENT_IN: 'SAI',
+      STOCK_ADJUSTMENT_OUT: 'SAO',
+    };
+    const mappedType = typeMap[type] || type;
+    return mockData[mappedType] || mockData.TI; // Default to invoice if type not found
   }
 }
