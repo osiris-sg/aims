@@ -1271,6 +1271,159 @@ export default function CleanDocumentPreview({ documentType, data, organization 
     );
   }
 
+  // SAI / SAO - Stock Adjustment In / Out Layout (same style as PO)
+  if (documentType === "SAI" || documentType === "STOCK_ADJUSTMENT_IN" || documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_OUT") {
+    const isOut = documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_OUT";
+    return (
+      <Paper
+        sx={{
+          width: "210mm",
+          minHeight: "297mm",
+          margin: "0 auto",
+          p: "20mm",
+          backgroundColor: "white",
+          fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
+          fontSize: "0.75rem",
+          lineHeight: 1.6,
+          color: "#000",
+          display: "flex",
+          flexDirection: "column",
+          "@media print": {
+            margin: 0,
+            padding: "20mm",
+            boxShadow: "none",
+          },
+        }}
+      >
+        {/* Company Header - Centered */}
+        <Box sx={{ textAlign: "center", mb: 2, mt: -6 }}>
+          <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
+            {data.company?.name || organization?.name || ""}
+          </Typography>
+          <Typography sx={{ fontSize: "0.75rem", mb: 0.2 }}>
+            Co. Reg No. : {data.company?.coRegNo || ""}
+            {" "}GST Reg No: {data.company?.gstRegNo || organization?.registrationNumber || ""}
+          </Typography>
+          <Typography sx={{ fontSize: "0.75rem" }}>
+            Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
+            {data.company?.fax && ` Fax: ${data.company.fax}`}
+          </Typography>
+        </Box>
+
+        {/* Details Section */}
+        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1, alignItems: "flex-start" }}>
+          {/* Left - Remarks / Reason */}
+          <Box sx={{ width: "45%" }}>
+            <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>Remarks :</Typography>
+            <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
+              {data.documentInfo?.remarks || data.remarks || ""}
+            </Typography>
+          </Box>
+
+          {/* Right - Document Details */}
+          <Box sx={{ width: "45%", display: "flex", justifyContent: "flex-end", pl: 4 }}>
+            <Box sx={{ lineHeight: 1.4 }}>
+              <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 1 }}>
+                {isOut ? "STOCK ADJUSTMENT OUT" : "STOCK ADJUSTMENT IN"}
+              </Typography>
+              <Box sx={{ display: "flex" }}>
+                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Doc No.</Typography>
+                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
+                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.documentNumber || data.name || ""}</Typography>
+              </Box>
+              <Box sx={{ display: "flex" }}>
+                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Date</Typography>
+                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
+                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{formatDate(data.documentInfo?.date)}</Typography>
+              </Box>
+              <Box sx={{ display: "flex" }}>
+                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Reference</Typography>
+                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
+                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.referenceNo || ""}</Typography>
+              </Box>
+            </Box>
+          </Box>
+        </Box>
+
+        {/* Items Table */}
+        <TableContainer sx={{ mb: 3, mt: 0.5 }}>
+          <Table
+            sx={{
+              "& .MuiTableCell-root": {
+                border: "none",
+                borderBottom: "none",
+                padding: "10px 8px",
+                fontSize: "0.6875rem",
+              },
+              "& .MuiTableHead-root .MuiTableCell-root": {
+                border: "none",
+                borderBottom: "2px solid #000",
+                fontWeight: 600,
+                fontSize: "0.6875rem",
+              },
+            }}
+          >
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ width: "5%" }}>Item</TableCell>
+                <TableCell sx={{ width: "40%" }}>Description</TableCell>
+                <TableCell sx={{ width: "15%", textAlign: "center" }}>Quantity</TableCell>
+                <TableCell sx={{ width: "10%", textAlign: "center" }}>UOM</TableCell>
+                <TableCell sx={{ width: "30%" }}>Remarks</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {items.map((item: any, index: number) => (
+                <TableRow key={index}>
+                  <TableCell>{index + 1}</TableCell>
+                  <TableCell>
+                    <Typography sx={{ fontSize: "0.6875rem" }}>
+                      {item.description}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={{ textAlign: "center" }}>{item.quantity?.toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "center" }}>{item.uom || ""}</TableCell>
+                  <TableCell>{item.remarks || ""}</TableCell>
+                </TableRow>
+              ))}
+
+              {items.length < 5 &&
+                Array.from({ length: 5 - items.length }).map((_, index) => (
+                  <TableRow key={`empty-${index}`} sx={{ height: 40 }}>
+                    <TableCell>&nbsp;</TableCell>
+                    <TableCell>&nbsp;</TableCell>
+                    <TableCell>&nbsp;</TableCell>
+                    <TableCell>&nbsp;</TableCell>
+                    <TableCell>&nbsp;</TableCell>
+                  </TableRow>
+                ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+
+        {/* Bottom Section - Pushed to bottom */}
+        <Box sx={{ mt: "auto" }}>
+          {/* Signature Section */}
+          <Box sx={{ display: "flex", justifyContent: "space-between", mt: 4, gap: 2, borderTop: "2px solid #000", pt: 2 }}>
+            <Box sx={{ flex: 1, textAlign: "center" }}>
+              <Typography sx={{ fontSize: "0.625rem", mb: 0.5 }}>PREPARE BY :</Typography>
+              <Box sx={{ borderBottom: "1px solid #000", mb: 0.5, minHeight: 40 }} />
+            </Box>
+            <Box sx={{ flex: 1, textAlign: "center" }}>
+              <Typography sx={{ fontSize: "0.625rem", mb: 0.5 }}>CHECKED BY :</Typography>
+              <Box sx={{ borderBottom: "1px solid #000", mb: 0.5, minHeight: 40 }} />
+            </Box>
+            <Box sx={{ flex: 1, textAlign: "center" }}>
+              <Typography sx={{ fontSize: "0.625rem", mb: 0.5 }}>APPROVED BY :</Typography>
+              <Box sx={{ borderBottom: "1px solid #000", mb: 0.5, minHeight: 40 }} />
+            </Box>
+          </Box>
+        </Box>
+
+      </Paper>
+    );
+  }
+
   // Default layout for other document types
   return (
     <Paper
