@@ -1310,14 +1310,24 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           </Typography>
         </Box>
 
-        {/* Details Section */}
+        {/* To and Document Details Section */}
         <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1, alignItems: "flex-start" }}>
-          {/* Left - Remarks / Reason */}
+          {/* Left - To Info */}
           <Box sx={{ width: "45%" }}>
-            <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>Remarks :</Typography>
-            <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
-              {data.documentInfo?.remarks || data.remarks || ""}
+            <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>To :</Typography>
+            <Typography sx={{ fontSize: "0.75rem", fontWeight: 600 }}>
+              {data.customer?.name || data.customerName || ""}{(data.customer?.customerCode || data.customerCode) ? ` (${data.customer?.customerCode || data.customerCode})` : ""}
             </Typography>
+            <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
+              {data.customer?.address || data.customerAddress || ""}
+            </Typography>
+            {(data.documentInfo?.contact || data.contact) && (
+              <Box sx={{ mt: 1 }}>
+                <Typography sx={{ fontSize: "0.75rem" }}>
+                  ATTN : {data.documentInfo?.contact || data.contact}
+                </Typography>
+              </Box>
+            )}
           </Box>
 
           {/* Right - Document Details */}
@@ -1337,9 +1347,24 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                 <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{formatDate(data.documentInfo?.date)}</Typography>
               </Box>
               <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Reference</Typography>
+                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Our Reference</Typography>
                 <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
                 <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.referenceNo || ""}</Typography>
+              </Box>
+              <Box sx={{ display: "flex" }}>
+                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Delivery Date</Typography>
+                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
+                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{formatDate(data.documentInfo?.deliveryDate)}</Typography>
+              </Box>
+              <Box sx={{ display: "flex" }}>
+                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Terms</Typography>
+                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
+                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.paymentTerms || ""}</Typography>
+              </Box>
+              <Box sx={{ display: "flex" }}>
+                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Currency</Typography>
+                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
+                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.currency || "SGD"}</Typography>
               </Box>
             </Box>
           </Box>
@@ -1367,9 +1392,10 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               <TableRow>
                 <TableCell sx={{ width: "5%" }}>Item</TableCell>
                 <TableCell sx={{ width: "40%" }}>Description</TableCell>
-                <TableCell sx={{ width: "15%", textAlign: "center" }}>Quantity</TableCell>
-                <TableCell sx={{ width: "10%", textAlign: "center" }}>UOM</TableCell>
-                <TableCell sx={{ width: "30%" }}>Remarks</TableCell>
+                <TableCell sx={{ width: "12%", textAlign: "center" }}>Quantity</TableCell>
+                <TableCell sx={{ width: "10%", textAlign: "center" }}>uom</TableCell>
+                <TableCell sx={{ width: "15%", textAlign: "right" }}>Unit-Price</TableCell>
+                <TableCell sx={{ width: "18%", textAlign: "right" }}>Amount</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -1383,7 +1409,8 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity?.toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.uom || ""}</TableCell>
-                  <TableCell>{item.remarks || ""}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.unitPrice?.toFixed(4)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{(item.amount || 0).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
 
@@ -1395,29 +1422,110 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                     <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
+                    <TableCell>&nbsp;</TableCell>
                   </TableRow>
                 ))}
             </TableBody>
           </Table>
         </TableContainer>
 
-        {/* Bottom Section - Pushed to bottom */}
+        {/* Bottom Section Container - Pushed to bottom of page */}
         <Box sx={{ mt: "auto" }}>
-          {/* Signature Section */}
-          <Box sx={{ display: "flex", justifyContent: "space-between", mt: 4, gap: 2, borderTop: "2px solid #000", pt: 2 }}>
-            <Box sx={{ flex: 1, textAlign: "center" }}>
-              <Typography sx={{ fontSize: "0.625rem", mb: 0.5 }}>PREPARE BY :</Typography>
-              <Box sx={{ borderBottom: "1px solid #000", mb: 0.5, minHeight: 40 }} />
-            </Box>
-            <Box sx={{ flex: 1, textAlign: "center" }}>
-              <Typography sx={{ fontSize: "0.625rem", mb: 0.5 }}>CHECKED BY :</Typography>
-              <Box sx={{ borderBottom: "1px solid #000", mb: 0.5, minHeight: 40 }} />
-            </Box>
-            <Box sx={{ flex: 1, textAlign: "center" }}>
-              <Typography sx={{ fontSize: "0.625rem", mb: 0.5 }}>APPROVED BY :</Typography>
-              <Box sx={{ borderBottom: "1px solid #000", mb: 0.5, minHeight: 40 }} />
-            </Box>
-          </Box>
+          {/* Totals - Right aligned */}
+          {(() => {
+            const currency = data.documentInfo?.currency || "SGD";
+            const gstPercent = data.documentInfo?.gstPercent || 9;
+            const grossTotal = subtotal;
+            const gstAmount = grossTotal * (gstPercent / 100);
+            const finalTotal = grossTotal + gstAmount;
+
+            return (
+              <>
+                <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+                  <Box sx={{ minWidth: 250 }}>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
+                      <Typography sx={{ fontSize: "0.6875rem" }}>SUB-TOTAL</Typography>
+                      <Typography sx={{ fontSize: "0.6875rem", textAlign: "right" }}>{grossTotal.toFixed(2)}</Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
+                      <Typography sx={{ fontSize: "0.6875rem" }}>GST</Typography>
+                      <Box sx={{ display: "flex", gap: 2 }}>
+                        <Typography sx={{ fontSize: "0.6875rem" }}>{gstPercent.toFixed(2)} %</Typography>
+                        <Typography sx={{ fontSize: "0.6875rem", textAlign: "right", minWidth: 60 }}>{gstAmount.toFixed(2)}</Typography>
+                      </Box>
+                    </Box>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3, borderTop: "1px solid #000", mt: 0.5, pt: 0.5 }}>
+                      <Typography sx={{ fontSize: "0.6875rem" }}>TOTAL</Typography>
+                      <Box sx={{ display: "flex", gap: 2 }}>
+                        <Typography sx={{ fontSize: "0.6875rem" }}>{currency}</Typography>
+                        <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600, textAlign: "right", minWidth: 60 }}>{finalTotal.toFixed(2)}</Typography>
+                      </Box>
+                    </Box>
+                  </Box>
+                </Box>
+
+                {/* Amount in Words */}
+                <Box sx={{ mt: 2, borderBottom: "2px solid #000", pb: 1 }}>
+                  <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500 }}>
+                    S'PORE DOLLAR {(() => {
+                      const numberToWords = (num: number): string => {
+                        const ones = ['', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE',
+                          'TEN', 'ELEVEN', 'TWELVE', 'THIRTEEN', 'FOURTEEN', 'FIFTEEN', 'SIXTEEN', 'SEVENTEEN', 'EIGHTEEN', 'NINETEEN'];
+                        const tens = ['', '', 'TWENTY', 'THIRTY', 'FORTY', 'FIFTY', 'SIXTY', 'SEVENTY', 'EIGHTY', 'NINETY'];
+                        if (num === 0) return 'ZERO';
+                        const convertHundreds = (n: number): string => {
+                          let str = '';
+                          if (n >= 100) { str += ones[Math.floor(n / 100)] + ' HUNDRED '; n %= 100; }
+                          if (n >= 20) { str += tens[Math.floor(n / 10)] + ' '; n %= 10; }
+                          if (n > 0) { str += ones[n] + ' '; }
+                          return str;
+                        };
+                        let result = '';
+                        const dollars = Math.floor(num);
+                        const cents = Math.round((num - dollars) * 100);
+                        if (dollars >= 1000000) { result += convertHundreds(Math.floor(dollars / 1000000)) + 'MILLION '; }
+                        if (dollars >= 1000) { result += convertHundreds(Math.floor((dollars % 1000000) / 1000)) + 'THOUSAND '; }
+                        result += convertHundreds(dollars % 1000);
+                        if (cents > 0) { result += 'AND CENTS ' + convertHundreds(cents); }
+                        return result.trim() + ' ONLY.';
+                      };
+                      return numberToWords(finalTotal);
+                    })()}
+                  </Typography>
+                </Box>
+
+                {/* Signature Section */}
+                <Box sx={{ display: "flex", justifyContent: "space-between", mt: 4, gap: 2 }}>
+                  <Box sx={{ flex: 1, textAlign: "center" }}>
+                    <Typography sx={{ fontSize: "0.625rem", mb: 0.5 }}>PREPARE BY :</Typography>
+                    <Box sx={{ borderBottom: "1px solid #000", mb: 0.5, minHeight: 40 }} />
+                    <Typography sx={{ fontSize: "0.625rem", fontWeight: 600 }}>PURCHASER</Typography>
+                  </Box>
+                  <Box sx={{ flex: 1, textAlign: "center" }}>
+                    <Typography sx={{ fontSize: "0.625rem", mb: 0.5 }}>CHECKED BY</Typography>
+                    <Box sx={{ borderBottom: "1px solid #000", mb: 0.5, minHeight: 40 }} />
+                    <Typography sx={{ fontSize: "0.625rem", fontWeight: 600 }}>SENIOR PURCHASER</Typography>
+                  </Box>
+                  <Box sx={{ flex: 1, textAlign: "center" }}>
+                    <Typography sx={{ fontSize: "0.625rem", mb: 0.5 }}>APPROVED BY</Typography>
+                    <Box sx={{ borderBottom: "1px solid #000", mb: 0.5, minHeight: 40 }} />
+                    <Typography sx={{ fontSize: "0.625rem", fontWeight: 600 }}>SENIOR OPERATIONAL MANAGER</Typography>
+                  </Box>
+                  <Box sx={{ flex: 1, textAlign: "center" }}>
+                    <Typography sx={{ fontSize: "0.625rem", mb: 0.5 }}>ACKNOWLEDGE BY :</Typography>
+                    <Box sx={{ borderBottom: "1px solid #000", mb: 0.5, minHeight: 40 }} />
+                    <Typography sx={{ fontSize: "0.625rem", fontWeight: 600 }}>VENDOR</Typography>
+                  </Box>
+                </Box>
+
+                {/* Thank You message */}
+                <Typography sx={{ fontSize: "0.625rem", mt: 1 }}>
+                  THANK YOU FOR YOUR RECENT PURCHASE
+                </Typography>
+
+              </>
+            );
+          })()}
         </Box>
 
       </Paper>
