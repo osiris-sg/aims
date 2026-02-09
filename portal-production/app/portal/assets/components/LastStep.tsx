@@ -6,6 +6,7 @@ import FormSelect from "@/form-components/FormSelect";
 import FormImage from "@/form-components/FormImage";
 import { useGetCategories } from "../hooks/useGetCategories";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { UOM_OPTIONS } from "../hooks/useAddAssetFormHandler";
 
 export default function LastStep() {
   const { control } = useFormContext();
@@ -20,6 +21,8 @@ export default function LastStep() {
       <FormInputBox control={control} name="skuKey" label="SKUKEY" placeHolder="Enter SKUKEY" disabled />
 
       <FormSelect control={control} name="categoryId" label="Category" placeHolder="Add a new category..." addItem={true} menuTitle="Choose a category" menuItems={categories.map((item) => ({ label: item.name, value: item.id }))} disabled />
+
+      <FormSelect control={control} name="uom" label="Unit of Measure" menuTitle="Select UOM" menuItems={UOM_OPTIONS} disabled />
 
       <FormInputBox control={control} name="description" label="Description" placeHolder={`Enter ${itemType} Description`} disabled />
 

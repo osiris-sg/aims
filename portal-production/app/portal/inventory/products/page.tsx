@@ -87,6 +87,11 @@ export default function ProductsPage() {
       cell: ({ row }: any) => <Typography variant="body2">{categories?.find((item: any) => item.id === row.original.categoryId)?.name}</Typography>,
     },
     {
+      accessorKey: "uom",
+      header: "UOM",
+      cell: ({ row }: any) => <Typography variant="body2">{row.original.uom || "PCS"}</Typography>,
+    },
+    {
       accessorKey: "stockCount",
       header: isAssetTrackingModeEnabled ? "In Stock" : "Quantity",
       cell: ({ row }: any) => {

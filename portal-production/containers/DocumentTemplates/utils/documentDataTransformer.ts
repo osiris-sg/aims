@@ -128,7 +128,9 @@ export function transformFormDataForBackend(
     // Stock Adjustment confirmation fields
     'fromReferenceNo', 'toReferenceNo', 'deleteConfirmedReference',
     // DO confirmation fields
-    'fromDONo', 'toDONo'
+    'fromDONo', 'toDONo',
+    // Delivery Order specific fields
+    'issueBy', 'issuedBy', 'receivedBy', 'checkedBy', 'approvedBy'
   ];
 
   flatFields.forEach(field => {

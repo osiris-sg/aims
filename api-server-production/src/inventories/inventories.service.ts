@@ -63,6 +63,23 @@ export class InventoriesService {
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
+        include: {
+          asset: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              uom: true,
+              price: true,
+              category: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          },
+        },
       });
 
       const totalDocs = await this.prisma.inventory.count({ where: whereClause });
@@ -91,6 +108,23 @@ export class InventoriesService {
           }),
         },
         orderBy: { createdAt: 'desc' },
+        include: {
+          asset: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              uom: true,
+              price: true,
+              category: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          },
+        },
       });
       return inventories;
     } catch (error) {
@@ -163,6 +197,23 @@ export class InventoriesService {
           organizationId,
         },
         orderBy: { createdAt: 'desc' },
+        include: {
+          asset: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              uom: true,
+              price: true,
+              category: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          },
+        },
       });
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);

@@ -1,4 +1,40 @@
-import { IsNotEmpty, IsOptional, IsString, IsUUID, IsBoolean, IsInt, IsNumber, Min, ValidateIf } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsUUID, IsBoolean, IsInt, IsNumber, Min, ValidateIf, IsIn } from 'class-validator';
+
+// Standard industry UOM codes
+export const UOM_OPTIONS = [
+  'PCS',   // Pieces
+  'EA',    // Each
+  'UNIT',  // Unit
+  'SET',   // Set
+  'PAIR',  // Pair
+  'DOZ',   // Dozen
+  'BOX',   // Box
+  'CTN',   // Carton
+  'PKG',   // Package
+  'PACK',  // Pack
+  'BAG',   // Bag
+  'ROLL',  // Roll
+  'SHEET', // Sheet
+  'BTL',   // Bottle
+  'CAN',   // Can
+  'KG',    // Kilogram
+  'G',     // Gram
+  'LB',    // Pound
+  'OZ',    // Ounce
+  'L',     // Liter
+  'ML',    // Milliliter
+  'GAL',   // Gallon
+  'M',     // Meter
+  'CM',    // Centimeter
+  'MM',    // Millimeter
+  'FT',    // Feet
+  'IN',    // Inch
+  'SQM',   // Square Meter
+  'SQF',   // Square Feet
+  'CBM',   // Cubic Meter
+] as const;
+
+export type UOMType = typeof UOM_OPTIONS[number];
 
 export class CreateAssetDto {
   @IsString()
@@ -24,6 +60,12 @@ export class CreateAssetDto {
   @IsUUID()
   @IsOptional()
   parentAssetId: string;
+
+  // Unit of Measure
+  @IsString()
+  @IsNotEmpty()
+  @IsIn(UOM_OPTIONS)
+  uom: string;
 
   // Unit price for the asset/product
   @IsNumber()

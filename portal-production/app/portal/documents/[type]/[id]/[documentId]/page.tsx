@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Box, CircularProgress } from "@mui/material";
 import TabbedDocumentCreator from "@/containers/DocumentTemplates/components/TabbedDocumentCreator";
@@ -19,6 +19,25 @@ import {
   transformBackendDataForForm
 } from "@/containers/DocumentTemplates/utils/documentDataTransformer";
 
+// Cache structure for prefetched documents
+interface CachedDocument {
+  existingData: any;
+  documentMetadata: any;
+  fieldConfig: TemplateFieldConfig | null;
+  customerId: string;
+}
+
+// Global cache that persists across navigations (but resets on page refresh)
+const documentCache = new Map<string, CachedDocument>();
+const fetchingDocs = new Set<string>();
+const templateCache = new Map<string, any>(); // Cache templates by ID
+
+// Prefetch configuration
+const PREFETCH_COUNT = 5; // How many documents to prefetch in each direction
+const PREFETCH_THRESHOLD = 3; // When buffer drops to this, prefetch more
+const MAX_CONCURRENT_FETCHES = 3; // Limit concurrent API calls
+let activeFetches = 0; // Track active fetches
+
 export default function page() {
   const params = useParams();
   const router = useRouter();
@@ -33,17 +52,15 @@ export default function page() {
   const [isLoading, setIsLoading] = useState(true);
   const [fieldConfig, setFieldConfig] = useState<TemplateFieldConfig | null>(null);
 
+  // Prevent rapid navigation clicks
+  const isNavigatingRef = useRef(false);
+
   // Fetch all documents for navigation
-  const { documents: allDocuments = [] } = useGetDocuments({});
+  const { documents: allDocuments = [], refetch: refetchDocuments } = useGetDocuments({});
 
   // Filter documents by the same template and sort by creation date (newest first)
-  // The 'id' in the URL is the documentTemplateId
-  // Backend returns 'templateId' field for each document
   const filteredDocuments = useMemo(() => {
     if (!allDocuments.length || !id) return [];
-
-    // Filter documents that use the same document template
-    // Backend returns templateId (not documentTemplateId)
     return allDocuments
       .filter((doc: any) => doc.templateId === id)
       .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -61,156 +78,318 @@ export default function page() {
   const hasPrevious = currentIndex >= 0 && currentIndex < filteredDocuments.length - 1;
   const hasNext = currentIndex > 0;
 
-  // Navigation handlers
-  const handlePrevious = useCallback(() => {
-    // Go to older document (higher index in newest-first array)
-    if (hasPrevious && filteredDocuments[currentIndex + 1]) {
-      const prevDoc = filteredDocuments[currentIndex + 1];
-      router.push(`/portal/documents/${type}/${id}/${prevDoc.id}`);
+  // Function to fetch and process a single document (used for both main load and prefetch)
+  const fetchDocumentData = useCallback(async (docId: string, token: string, urlType: string | string[]): Promise<CachedDocument | null> => {
+    try {
+      const response = await request(
+        { path: `/documents/${docId}`, method: "GET" },
+        {},
+        token
+      );
+
+      if (!response.success || !response.data) {
+        return null;
+      }
+
+      let templateVariant = Array.isArray(urlType) ? urlType[0] : urlType;
+      let templateData = null;
+
+      // Fetch template (with caching)
+      if (response.data.documentTemplateId) {
+        const templateId = response.data.documentTemplateId;
+
+        if (templateCache.has(templateId)) {
+          templateData = templateCache.get(templateId);
+        } else {
+          try {
+            const templateResponse = await request(
+              { path: `/documentTemplates/${templateId}`, method: "GET" },
+              {},
+              token
+            );
+            if (templateResponse.success && templateResponse.data) {
+              templateData = templateResponse.data;
+              templateCache.set(templateId, templateData);
+            }
+          } catch (error) {
+            console.error("Error fetching template:", error);
+          }
+        }
+
+        if (templateData) {
+          templateVariant = templateData.templateVariant || templateData.designName || "TI";
+        }
+      }
+
+      // Get field definitions
+      const templateId = response.data.documentTemplateId;
+      const fetchedFieldConfig = await getTemplateFormFields(templateVariant, templateId, token);
+
+      // Transform data
+      const config = response.data.config || {};
+      console.log("fetchDocumentData - config from backend:", config);
+      console.log("fetchDocumentData - config.deliveryTo:", config.deliveryTo);
+      console.log("fetchDocumentData - config.issueBy:", config.issueBy);
+      const documentData = transformBackendDataForForm(config, fetchedFieldConfig);
+      console.log("fetchDocumentData - documentData after transform:", documentData);
+      console.log("fetchDocumentData - documentData.deliveryTo:", documentData.deliveryTo);
+      documentData.name = response.data.name;
+      documentData.documentNumber = response.data.name;
+      documentData.status = response.data.status;
+
+      // Build metadata
+      const metadata = {
+        ...response.data,
+        variant: templateVariant,
+        actualDocumentType: templateData?.type,
+      };
+
+      // Get customer ID
+      const customerId = config.customerId || response.data.customerId || "";
+
+      return {
+        existingData: documentData,
+        documentMetadata: metadata,
+        fieldConfig: fetchedFieldConfig,
+        customerId,
+      };
+    } catch (error) {
+      console.error("Error fetching document:", docId, error);
+      return null;
     }
-  }, [hasPrevious, filteredDocuments, currentIndex, router, type, id]);
+  }, []);
+
+  // Prefetch documents silently in the background with rate limiting
+  const prefetchDocuments = useCallback(async (docIds: string[], token: string, urlType: string | string[]) => {
+    for (const docId of docIds) {
+      // Skip if already cached or being fetched
+      if (documentCache.has(docId) || fetchingDocs.has(docId)) {
+        continue;
+      }
+
+      // Wait if too many concurrent fetches
+      if (activeFetches >= MAX_CONCURRENT_FETCHES) {
+        continue; // Skip for now, will be picked up next time
+      }
+
+      // Mark as being fetched
+      fetchingDocs.add(docId);
+      activeFetches++;
+
+      // Fetch in background (don't await, let it run silently)
+      fetchDocumentData(docId, token, urlType)
+        .then((result) => {
+          if (result) {
+            documentCache.set(docId, result);
+            console.log(`Prefetched document: ${docId}`);
+          }
+        })
+        .catch((error) => {
+          console.error(`Failed to prefetch document: ${docId}`, error);
+        })
+        .finally(() => {
+          fetchingDocs.delete(docId);
+          activeFetches = Math.max(0, activeFetches - 1);
+        });
+    }
+  }, [fetchDocumentData]);
+
+  // Get document IDs to prefetch based on current position
+  const getDocumentsToPrefetch = useCallback((direction: 'both' | 'previous' | 'next', count: number = PREFETCH_COUNT): string[] => {
+    if (currentIndex < 0 || !filteredDocuments.length) return [];
+
+    const docIds: string[] = [];
+
+    if (direction === 'both' || direction === 'previous') {
+      // Previous = older = higher index
+      for (let i = 1; i <= count; i++) {
+        const idx = currentIndex + i;
+        if (idx < filteredDocuments.length) {
+          docIds.push(filteredDocuments[idx].id);
+        }
+      }
+    }
+
+    if (direction === 'both' || direction === 'next') {
+      // Next = newer = lower index
+      for (let i = 1; i <= count; i++) {
+        const idx = currentIndex - i;
+        if (idx >= 0) {
+          docIds.push(filteredDocuments[idx].id);
+        }
+      }
+    }
+
+    return docIds;
+  }, [currentIndex, filteredDocuments]);
+
+  // Check prefetch buffer and fetch more if needed
+  const checkAndPrefetchMore = useCallback(async (direction: 'previous' | 'next') => {
+    const token = await getToken();
+    if (!token || currentIndex < 0) return;
+
+    // Count how many documents are cached in the given direction
+    let cachedCount = 0;
+    const checkCount = PREFETCH_COUNT;
+
+    if (direction === 'previous') {
+      for (let i = 1; i <= checkCount; i++) {
+        const idx = currentIndex + i;
+        if (idx < filteredDocuments.length && documentCache.has(filteredDocuments[idx].id)) {
+          cachedCount++;
+        }
+      }
+
+      // If buffer is running low, prefetch more
+      if (cachedCount <= PREFETCH_THRESHOLD) {
+        const startIdx = currentIndex + cachedCount + 1;
+        const docsToFetch: string[] = [];
+        for (let i = 0; i < PREFETCH_COUNT; i++) {
+          const idx = startIdx + i;
+          if (idx < filteredDocuments.length) {
+            docsToFetch.push(filteredDocuments[idx].id);
+          }
+        }
+        if (docsToFetch.length > 0) {
+          console.log(`Buffer low for previous, prefetching ${docsToFetch.length} more documents`);
+          prefetchDocuments(docsToFetch, token, type as string);
+        }
+      }
+    } else {
+      for (let i = 1; i <= checkCount; i++) {
+        const idx = currentIndex - i;
+        if (idx >= 0 && documentCache.has(filteredDocuments[idx].id)) {
+          cachedCount++;
+        }
+      }
+
+      if (cachedCount <= PREFETCH_THRESHOLD) {
+        const startIdx = currentIndex - cachedCount - 1;
+        const docsToFetch: string[] = [];
+        for (let i = 0; i < PREFETCH_COUNT; i++) {
+          const idx = startIdx - i;
+          if (idx >= 0) {
+            docsToFetch.push(filteredDocuments[idx].id);
+          }
+        }
+        if (docsToFetch.length > 0) {
+          console.log(`Buffer low for next, prefetching ${docsToFetch.length} more documents`);
+          prefetchDocuments(docsToFetch, token, type as string);
+        }
+      }
+    }
+  }, [currentIndex, filteredDocuments, getToken, prefetchDocuments, type]);
+
+  // Navigation handlers with prefetch check and debounce
+  const handlePrevious = useCallback(() => {
+    // Prevent rapid clicks
+    if (isNavigatingRef.current) return;
+
+    if (hasPrevious && filteredDocuments[currentIndex + 1]) {
+      isNavigatingRef.current = true;
+      const prevDoc = filteredDocuments[currentIndex + 1];
+      // Check buffer after navigation
+      checkAndPrefetchMore('previous');
+      router.push(`/portal/documents/${type}/${id}/${prevDoc.id}`);
+      // Reset after a short delay
+      setTimeout(() => { isNavigatingRef.current = false; }, 500);
+    }
+  }, [hasPrevious, filteredDocuments, currentIndex, router, type, id, checkAndPrefetchMore]);
 
   const handleNext = useCallback(() => {
-    // Go to newer document (lower index in newest-first array)
+    // Prevent rapid clicks
+    if (isNavigatingRef.current) return;
+
     if (hasNext && filteredDocuments[currentIndex - 1]) {
+      isNavigatingRef.current = true;
       const nextDoc = filteredDocuments[currentIndex - 1];
+      // Check buffer after navigation
+      checkAndPrefetchMore('next');
       router.push(`/portal/documents/${type}/${id}/${nextDoc.id}`);
+      // Reset after a short delay
+      setTimeout(() => { isNavigatingRef.current = false; }, 500);
     }
-  }, [hasNext, filteredDocuments, currentIndex, router, type, id]);
+  }, [hasNext, filteredDocuments, currentIndex, router, type, id, checkAndPrefetchMore]);
 
-  // Fetch existing document data
+  // Main fetch effect - checks cache first, then fetches if needed
   useEffect(() => {
-    console.log("=== FETCH DOCUMENT EFFECT TRIGGERED ===");
-    console.log("documentId:", documentId);
-    console.log("type:", type);
-    console.log("All params:", params);
+    // Reset navigation lock when document changes
+    isNavigatingRef.current = false;
 
-    const fetchDocument = async () => {
+    const loadDocument = async () => {
+      if (!documentId) {
+        setIsLoading(false);
+        return;
+      }
+
+      const docIdStr = documentId as string;
+
+      // Check cache first
+      if (documentCache.has(docIdStr)) {
+        console.log("Loading document from cache:", docIdStr);
+        const cached = documentCache.get(docIdStr)!;
+        setExistingData(cached.existingData);
+        setDocumentMetadata(cached.documentMetadata);
+        setFieldConfig(cached.fieldConfig);
+        setSelectedCustomerId(cached.customerId);
+        setIsLoading(false);
+        return;
+      }
+
+      // Not in cache, fetch it
       try {
         const token = await getToken();
-        console.log("Token obtained:", !!token);
         if (!token) {
-          console.log("No token, returning early");
           setIsLoading(false);
           return;
         }
 
-        const url = `/documents/${documentId}`;
-        console.log("Fetching document from URL:", url);
+        console.log("Fetching document (not in cache):", docIdStr);
+        const result = await fetchDocumentData(docIdStr, token, type as string);
 
-        const response = await request(
-          {
-            path: url,
-            method: "GET",
-          },
-          {},
-          token
-        );
+        if (result) {
+          // Store in cache
+          documentCache.set(docIdStr, result);
 
-        console.log("Document API Response:", response);
-        console.log("Document Data:", response.data);
-        console.log("Response success:", response.success);
-
-        if (response.success && response.data) {
-          // Store full document metadata
-          setDocumentMetadata(response.data);
-
-          // Fetch the document template to get the variant
-          let templateVariant = Array.isArray(type) ? type[0] : type; // Default to type from URL
-
-          if (response.data.documentTemplateId) {
-            try {
-              console.log("Fetching template with ID:", response.data.documentTemplateId);
-              const templateResponse = await request(
-                {
-                  path: `/documentTemplates/${response.data.documentTemplateId}`,
-                  method: "GET",
-                },
-                {},
-                token
-              );
-
-              console.log("Template Response:", templateResponse);
-              console.log("Template Data:", templateResponse.data);
-
-              if (templateResponse.success && templateResponse.data) {
-                // Store variant from template
-                templateVariant = templateResponse.data.templateVariant || templateResponse.data.designName || "TI";
-                setDocumentMetadata((prev: any) => ({
-                  ...prev,
-                  variant: templateVariant,
-                  actualDocumentType: templateResponse.data.type, // Store the actual document type (INVOICE, QUOTATION, etc.)
-                }));
-                console.log("Template variant set to:", templateVariant);
-                console.log("Template full data:", {
-                  id: templateResponse.data.id,
-                  type: templateResponse.data.type,
-                  templateVariant: templateResponse.data.templateVariant,
-                  designName: templateResponse.data.designName,
-                });
-              }
-            } catch (error) {
-              console.error("Error fetching template:", error);
-            }
-          }
-
-          // Extract config data and transform for form display
-          const config = response.data.config || {};
-
-          console.log("Raw config from database:", config);
-          console.log("Template variant being used:", templateVariant);
-
-          // Get field definitions for the template from API
-          const templateId = response.data.documentTemplateId;
-          const fetchedFieldConfig = await getTemplateFormFields(templateVariant, templateId, token);
-          console.log("Field config for variant:", fetchedFieldConfig);
-          setFieldConfig(fetchedFieldConfig);
-
-          // Transform flat backend data to nested structure for form
-          const documentData = transformBackendDataForForm(config, fetchedFieldConfig);
-
-          // Ensure document name is set
-          documentData.name = response.data.name;
-          documentData.documentNumber = response.data.name;
-
-          // Include the document status
-          documentData.status = response.data.status;
-
-          console.log("Transformed document data:", documentData);
-          console.log("documentInfo after transform:", documentData.documentInfo);
-          console.log("Document status:", response.data.status);
-
-          setExistingData(documentData);
-
-          console.log("Document name from DB:", response.data?.name);
-          console.log("Extracted form data:", documentData);
-
-          // Set the selected customer ID if document has one
-          if (config.customerId) {
-            setSelectedCustomerId(config.customerId);
-          } else if (response.data.customerId) {
-            setSelectedCustomerId(response.data.customerId);
-          }
+          // Update state
+          setExistingData(result.existingData);
+          setDocumentMetadata(result.documentMetadata);
+          setFieldConfig(result.fieldConfig);
+          setSelectedCustomerId(result.customerId);
         } else {
-          console.error("Response was not successful:", response);
+          toast.error("Failed to load document");
         }
       } catch (error) {
-        console.error("Error fetching document:", error);
+        console.error("Error loading document:", error);
         toast.error("Failed to load document");
       } finally {
-        console.log("Setting isLoading to false");
         setIsLoading(false);
       }
     };
 
-    if (documentId) {
-      console.log("documentId exists, calling fetchDocument");
-      fetchDocument();
-    } else {
-      console.log("No documentId, setting isLoading to false");
-      setIsLoading(false);
-    }
-  }, [documentId, getToken]);
+    setIsLoading(true);
+    loadDocument();
+  }, [documentId, getToken, fetchDocumentData, type]);
+
+  // Initial prefetch effect - runs when filteredDocuments and currentIndex are ready
+  useEffect(() => {
+    const doInitialPrefetch = async () => {
+      if (currentIndex < 0 || !filteredDocuments.length) return;
+
+      const token = await getToken();
+      if (!token) return;
+
+      // Get documents to prefetch in both directions
+      const docsToPrefetch = getDocumentsToPrefetch('both', PREFETCH_COUNT);
+
+      if (docsToPrefetch.length > 0) {
+        console.log(`Initial prefetch: ${docsToPrefetch.length} documents`);
+        prefetchDocuments(docsToPrefetch, token, type as string);
+      }
+    };
+
+    doInitialPrefetch();
+  }, [currentIndex, filteredDocuments, getToken, getDocumentsToPrefetch, prefetchDocuments, type]);
 
   // Fetch data
   const { customers = [] } = useGetCustomers({ limit: 1000 });
@@ -221,6 +400,8 @@ export default function page() {
 
   const handleSave = async (data: any) => {
     console.log("handleSave - Received data from TabbedDocumentCreator:", data);
+    console.log("handleSave - deliveryTo in received data:", data.deliveryTo);
+    console.log("handleSave - issueBy in received data:", data.issueBy, "documentInfo.issueBy:", data.documentInfo?.issueBy);
     console.log("handleSave - Items in received data:", JSON.stringify(data.items, null, 2));
 
     try {
@@ -247,6 +428,8 @@ export default function page() {
       // Transform form data dynamically based on field definitions
       const configData = transformFormDataForBackend(data, currentFieldConfig, organization);
       console.log("handleSave - After transform - configData:", configData);
+      console.log("handleSave - After transform - configData.deliveryTo:", configData.deliveryTo);
+      console.log("handleSave - After transform - configData.issueBy:", configData.issueBy);
       console.log("handleSave - After transform - configData.items:", JSON.stringify(configData.items, null, 2));
 
       // Prepare update payload with transformed config
@@ -274,6 +457,9 @@ export default function page() {
       );
 
       if (response.success) {
+        // Clear this document from cache so fresh data is loaded on next access
+        documentCache.delete(documentId as string);
+        console.log(`Cache cleared for document: ${documentId}`);
         // Don't show toast or navigate here - let the caller handle it
         // (e.g., handleConfirmDocument will refresh the page)
         return;
@@ -388,6 +574,7 @@ export default function page() {
       onNext={handleNext}
       hasPrevious={hasPrevious}
       hasNext={hasNext}
+      onDocumentCreated={refetchDocuments}
     />
   );
 }

@@ -54,6 +54,8 @@ model Asset {
   organizationId  String?
   price           Float?
   parentAssetId   String?            @db.Uuid
+  // Unit of Measure (e.g., PCS, EA, SET, BOX, KG, etc.)
+  uom             String             @default("PCS")
   // Tracking mode: true = individual inventory items with SKUs, false = simple quantity
   isTracked       Boolean            @default(true)
   // Quantity for untracked products (only used when isTracked = false)
@@ -104,6 +106,7 @@ model Customer {
   email          String?
   phone          String?
   address        String?
+  gstRegNo       String?      // Customer's GST/Tax registration number
   salesmanId     String?      // Reference to UserOrganization.id for the assigned salesman
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt

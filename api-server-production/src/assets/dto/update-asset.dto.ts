@@ -1,6 +1,6 @@
 import { PartialType } from '@nestjs/mapped-types';
-import { CreateAssetDto } from './create-asset.dto';
-import { IsNotEmpty, IsString, IsOptional, IsUUID, IsBoolean, IsInt, IsNumber, Min } from 'class-validator';
+import { CreateAssetDto, UOM_OPTIONS } from './create-asset.dto';
+import { IsNotEmpty, IsString, IsOptional, IsUUID, IsBoolean, IsInt, IsNumber, Min, IsIn } from 'class-validator';
 
 export class UpdateAssetDto extends PartialType(CreateAssetDto) {
   @IsUUID()
@@ -30,6 +30,12 @@ export class UpdateAssetDto extends PartialType(CreateAssetDto) {
   @IsUUID()
   @IsOptional()
   parentAssetId?: string;
+
+  // Unit of Measure
+  @IsString()
+  @IsOptional()
+  @IsIn(UOM_OPTIONS)
+  uom?: string;
 
   // Unit price
   @IsNumber()

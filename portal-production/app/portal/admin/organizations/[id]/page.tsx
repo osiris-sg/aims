@@ -2084,7 +2084,7 @@ export default function OrganizationDetailPage() {
                 ) : (
                   // Fall back to default preview component
                   <CleanDocumentPreview
-                    documentType={(previewTemplate.templateVariant || previewTemplate.designName) as "QO1" | "DO" | "RDO" | "TI" | "TI2" | "MSR"}
+                    documentType={(previewTemplate.templateVariant || previewTemplate.designName) as "QO1" | "DO" | "RDO" | "TI" | "TI2" | "MSR" | "SO" | "CN" | "DN" | "PO" | "PR" | "SAI" | "SAO"}
                     data={mockData}
                     organization={organization}
                   />

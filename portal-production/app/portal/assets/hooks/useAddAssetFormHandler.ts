@@ -10,10 +10,47 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ROUTES } from "@/routes";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
+// Standard industry UOM options
+export const UOM_OPTIONS = [
+  { value: 'PCS', label: 'PCS - Pieces' },
+  { value: 'EA', label: 'EA - Each' },
+  { value: 'UNIT', label: 'UNIT - Unit' },
+  { value: 'SET', label: 'SET - Set' },
+  { value: 'PAIR', label: 'PAIR - Pair' },
+  { value: 'DOZ', label: 'DOZ - Dozen' },
+  { value: 'BOX', label: 'BOX - Box' },
+  { value: 'CTN', label: 'CTN - Carton' },
+  { value: 'PKG', label: 'PKG - Package' },
+  { value: 'PACK', label: 'PACK - Pack' },
+  { value: 'BAG', label: 'BAG - Bag' },
+  { value: 'ROLL', label: 'ROLL - Roll' },
+  { value: 'SHEET', label: 'SHEET - Sheet' },
+  { value: 'BTL', label: 'BTL - Bottle' },
+  { value: 'CAN', label: 'CAN - Can' },
+  { value: 'KG', label: 'KG - Kilogram' },
+  { value: 'G', label: 'G - Gram' },
+  { value: 'LB', label: 'LB - Pound' },
+  { value: 'OZ', label: 'OZ - Ounce' },
+  { value: 'L', label: 'L - Liter' },
+  { value: 'ML', label: 'ML - Milliliter' },
+  { value: 'GAL', label: 'GAL - Gallon' },
+  { value: 'M', label: 'M - Meter' },
+  { value: 'CM', label: 'CM - Centimeter' },
+  { value: 'MM', label: 'MM - Millimeter' },
+  { value: 'FT', label: 'FT - Feet' },
+  { value: 'IN', label: 'IN - Inch' },
+  { value: 'SQM', label: 'SQM - Square Meter' },
+  { value: 'SQF', label: 'SQF - Square Feet' },
+  { value: 'CBM', label: 'CBM - Cubic Meter' },
+];
+
+const UOM_VALUES = UOM_OPTIONS.map(o => o.value) as [string, ...string[]];
+
 const assetSchema = z.object({
   name: z.string().min(1, "Name is required"),
   skuKey: z.string().min(1, "SKU Key is required"),
   categoryId: z.string().min(1, "Category is required"),
+  uom: z.enum(UOM_VALUES, { required_error: "Unit of Measure is required" }),
   status: z.string().min(1, "Status is required"),
   image: z.any(),
   description: z.string().optional(),
@@ -39,6 +76,7 @@ const assetSchema = z.object({
 const updateAssetSchema = z.object({
   name: z.string().min(1, "Name is required"),
   skuKey: z.string().min(1, "SKU Key is required"),
+  uom: z.string().optional(),
   image: z.any().optional(),
   description: z.string().optional(),
   price: z.number().min(0).optional().nullable(),
@@ -71,6 +109,7 @@ export const useAddAssetFormHandler = () => {
       name: "",
       skuKey: "",
       categoryId: "",
+      uom: "PCS",
       status: "active",
       image: undefined,
       description: "",
@@ -117,6 +156,7 @@ export const useAddAssetFormHandler = () => {
           name: response.data.name,
           skuKey: response.data.skuKey,
           categoryId: response.data.categoryId,
+          uom: response.data.uom || "PCS",
           status: response.data.status || "active", // Provide default if missing
           description: response.data.description || "",
           location: response.data.location || "",
@@ -189,9 +229,9 @@ export const useAddAssetFormHandler = () => {
   const handleNext = async () => {
     if (activeStep === 0) {
       // Validate first step fields
-      const { name, skuKey, categoryId } = methods.getValues();
-      if (!name || !skuKey || !categoryId) {
-        await methods.trigger(["name", "skuKey", "categoryId"]);
+      const { name, skuKey, categoryId, uom } = methods.getValues();
+      if (!name || !skuKey || !categoryId || !uom) {
+        await methods.trigger(["name", "skuKey", "categoryId", "uom"]);
         return;
       }
     } else if (activeStep === 1) {
@@ -224,6 +264,7 @@ export const useAddAssetFormHandler = () => {
     const formDataWithStatus: {
       name: string;
       skuKey: string;
+      uom?: string;
       description?: string;
       image?: any;
       isTracked?: boolean;
@@ -234,6 +275,7 @@ export const useAddAssetFormHandler = () => {
     } = {
       name: data.name,
       skuKey: data.skuKey,
+      uom: data.uom,
       description: data.description,
       image: data.image || undefined, // Keep image as is, don't send if undefined
       isTracked: data.isTracked,

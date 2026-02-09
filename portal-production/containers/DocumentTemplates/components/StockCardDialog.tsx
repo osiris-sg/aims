@@ -41,12 +41,14 @@ interface InventoryItem {
   quantity?: number;
   minQuantity?: number;
   unitPrice?: number;
+  uom?: string;
   status?: string;
   assetId?: string;
   asset?: {
     id: string;
     name: string;
     description?: string;
+    uom?: string;
     category?: {
       id: string;
       name: string;

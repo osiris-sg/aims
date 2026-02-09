@@ -4,6 +4,7 @@ import { Stack } from "@mui/material";
 import React from "react";
 import { useFormContext } from "react-hook-form";
 import useAddCategoryHandler from "../hooks/useAddCategoryHandler";
+import { UOM_OPTIONS } from "../hooks/useAddAssetFormhandler";
 
 export default function AssetCreation() {
   const { control } = useFormContext();
@@ -30,6 +31,15 @@ export default function AssetCreation() {
         }}
         isAdding={categoriesLoading}
         isDeleting={deleteCategoryLoading}
+      />
+
+      <FormSelect
+        control={control}
+        name="uom"
+        label="Unit of Measure"
+        menuTitle="Select UOM"
+        menuItems={UOM_OPTIONS}
+        required
       />
     </Stack>
   );

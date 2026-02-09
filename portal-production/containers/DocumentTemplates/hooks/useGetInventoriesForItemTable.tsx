@@ -87,6 +87,7 @@ export const useGetInventoriesForItemTable = () => {
       quantity: asset.quantity ?? asset.stockCount ?? 0,
       minQuantity: asset.minQuantity,
       unitPrice: asset.price,
+      uom: asset.uom || "PCS",
       status: asset.quantity > 0 ? "available" : "out_of_stock",
       assetId: asset.id,
       asset: {
@@ -94,6 +95,7 @@ export const useGetInventoriesForItemTable = () => {
         name: asset.name,
         description: asset.description,
         category: asset.category,
+        uom: asset.uom || "PCS",
       },
     }));
   }, [organizationId, getToken]);

@@ -24,5 +24,9 @@ export class UpdateCustomerDto extends PartialType(CreateCustomerDto) {
 
   @IsString()
   @IsOptional()
+  gstRegNo?: string | null;
+
+  @IsString()
+  @IsOptional()
   salesmanId?: string | null;
 }

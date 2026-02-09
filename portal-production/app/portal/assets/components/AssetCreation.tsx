@@ -5,6 +5,7 @@ import React, { useEffect } from "react";
 import { useFormContext } from "react-hook-form";
 import { useAddCategoryHandler } from "../hooks/useAddCategoryHandler";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { UOM_OPTIONS } from "../hooks/useAddAssetFormHandler";
 
 export default function AssetCreation() {
   const { control, setValue } = useFormContext();
@@ -40,6 +41,15 @@ export default function AssetCreation() {
         }}
         isAdding={categoriesLoading}
         isDeleting={deleteCategoryLoading}
+      />
+
+      <FormSelect
+        control={control}
+        name="uom"
+        label="Unit of Measure"
+        menuTitle="Select UOM"
+        menuItems={UOM_OPTIONS}
+        required
       />
 
       {/* Quantity Field - Only shown for untracked products (when feature is OFF) */}

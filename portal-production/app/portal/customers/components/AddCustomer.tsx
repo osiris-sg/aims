@@ -28,6 +28,7 @@ const customerSchema = yup.object().shape({
   email: yup.string().email("Invalid email").notRequired(),
   phone: yup.string().notRequired(),
   address: yup.string().notRequired(),
+  gstRegNo: yup.string().notRequired(),
   salesmanId: yup.string().nullable().notRequired(),
 });
 
@@ -44,6 +45,7 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
       email: null,
       phone: null,
       address: null,
+      gstRegNo: null,
       salesmanId: null as string | null,
     },
     resolver: yupResolver(customerSchema),
@@ -104,6 +106,7 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
             setValue("email", customer.email);
             setValue("phone", customer.phone);
             setValue("address", customer.address);
+            setValue("gstRegNo", customer.gstRegNo);
             setValue("salesmanId", customer.salesmanId || null);
           }
         } catch (error) {
@@ -155,6 +158,7 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
             <FormInputBox control={control} name="email" label="Email" placeHolder="Enter customer email" type="email" />
             <FormInputBox control={control} name="phone" label="Phone" placeHolder="Enter customer phone number" />
             <FormInputBox control={control} name="address" label="Address" placeHolder="Enter customer address" />
+            <FormInputBox control={control} name="gstRegNo" label="GST Reg No." placeHolder="Enter GST registration number" />
             <Controller
               name="salesmanId"
               control={control}

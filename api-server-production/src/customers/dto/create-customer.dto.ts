@@ -19,6 +19,10 @@ export class CreateCustomerDto {
 
   @IsOptional()
   @IsString()
+  gstRegNo?: string | null;
+
+  @IsOptional()
+  @IsString()
   salesmanId?: string | null;
 
   @IsString()
