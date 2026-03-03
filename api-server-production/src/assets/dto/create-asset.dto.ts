@@ -63,9 +63,9 @@ export class CreateAssetDto {
 
   // Unit of Measure
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   @IsIn(UOM_OPTIONS)
-  uom: string;
+  uom?: string;
 
   // Unit price for the asset/product
   @IsNumber()

@@ -225,6 +225,27 @@ export class AdminController {
     return this.adminService.updateOrganizationDocumentTypes(organizationId, data.customDocumentTypes);
   }
 
+  // ===== ORGANIZATION UI CONFIG ENDPOINTS =====
+
+  @Get('organizations/:organizationId/ui-config')
+  async getOrganizationUIConfig(
+    @Param('organizationId') organizationId: string,
+    @Req() req: RequestWithOrganization
+  ) {
+    await this.checkOsirisAdmin(req);
+    return this.adminService.getOrganizationUIConfig(organizationId);
+  }
+
+  @Put('organizations/:organizationId/ui-config')
+  async updateOrganizationUIConfig(
+    @Param('organizationId') organizationId: string,
+    @Body() data: any,
+    @Req() req: RequestWithOrganization
+  ) {
+    await this.checkOsirisAdmin(req);
+    return this.adminService.updateOrganizationUIConfig(organizationId, data);
+  }
+
   // ===== DASHBOARD/STATS ADMIN ENDPOINTS =====
 
   @Get('dashboard/stats')

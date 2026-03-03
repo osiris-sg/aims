@@ -43,14 +43,24 @@ export class InventoriesService {
         }
       }
 
-      // Status filter
-      if (filters?.status !== undefined && filters.status !== null && filters.status !== '') {
-        whereClause.status = filters.status as InventoryStatus;
+      // Status filter (supports array or single value)
+      if (filters?.status) {
+        const statusValues = Array.isArray(filters.status) ? filters.status.filter(s => s !== '') : [filters.status].filter(s => s !== '');
+        if (statusValues.length === 1) {
+          whereClause.status = statusValues[0] as InventoryStatus;
+        } else if (statusValues.length > 1) {
+          whereClause.status = { in: statusValues as InventoryStatus[] };
+        }
       }
 
-      // Category filter
-      if (filters?.category && filters.category !== '') {
-        whereClause.category = filters.category;
+      // Category filter (supports array or single value)
+      if (filters?.category) {
+        const categoryValues = Array.isArray(filters.category) ? filters.category.filter(c => c !== '') : [filters.category].filter(c => c !== '');
+        if (categoryValues.length === 1) {
+          whereClause.category = categoryValues[0];
+        } else if (categoryValues.length > 1) {
+          whereClause.category = { in: categoryValues };
+        }
       }
 
       // Asset filter

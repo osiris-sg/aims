@@ -784,6 +784,26 @@ export class AdminService {
     };
   }
 
+  // ===== ORGANIZATION UI CONFIG SERVICES =====
+
+  async getOrganizationUIConfig(organizationId: string) {
+    const config = await this.prisma.organizationUIConfig.findUnique({
+      where: { organizationId },
+    });
+    return config || {};
+  }
+
+  async updateOrganizationUIConfig(organizationId: string, data: any) {
+    return this.prisma.organizationUIConfig.upsert({
+      where: { organizationId },
+      update: data,
+      create: {
+        organizationId,
+        ...data,
+      },
+    });
+  }
+
   // ===== ORGANIZATION DOCUMENT TYPES MANAGEMENT SERVICES =====
 
   async updateOrganizationDocumentTypes(organizationId: string, documentTypes: string[]) {

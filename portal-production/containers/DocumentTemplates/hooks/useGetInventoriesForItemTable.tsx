@@ -17,6 +17,7 @@ export const useGetInventoriesForItemTable = () => {
   const { document } = useGetDocument();
   const [inventoriesForDocument, setInventoriesForDocument] = useState<any[]>([]);
   const { isAssetTrackingModeEnabled } = useOrganizationFeatures();
+  console.log("🔍 useGetInventoriesForItemTable - orgId:", organizationId, "type:", type, "isAssetTrackingModeEnabled:", isAssetTrackingModeEnabled);
   const fetchInventoriesByStatus = useCallback(
     async (status: string) => {
       if (!organizationId) return [];
@@ -128,6 +129,7 @@ export const useGetInventoriesForItemTable = () => {
     let inventories: any[] = [];
 
     // In Products mode (tracking OFF), fetch assets/products instead of inventory items
+    console.log("useGetInventoriesForItemTable - isAssetTrackingModeEnabled:", isAssetTrackingModeEnabled);
     if (!isAssetTrackingModeEnabled) {
       inventories = await fetchAssets();
       setInventoriesForDocument(inventories);

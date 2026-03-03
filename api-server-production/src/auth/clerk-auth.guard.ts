@@ -122,6 +122,13 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
       return true;
     }
 
+    // OsirisAdmin bypasses all permission checks
+    if (isOsirisAdmin) {
+      const totalAuthDuration = Date.now() - authStart;
+      console.log(`✅ Auth completed in ${totalAuthDuration}ms (osiris-admin bypass)`);
+      return true;
+    }
+
     // Filter roles based on context (we already have all the data)
     let relevantUserRoles;
     if (isOsirisAdmin) {

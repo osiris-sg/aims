@@ -502,12 +502,11 @@ export default function OrganizationDetailPage() {
         setCustomFields(fieldsData);
       }
 
-      // Fetch UI config
+      // Fetch UI config for the specific organization
       const uiConfigResponse = await request(
-        { path: `/configuration/ui`, method: "GET" },
+        { path: `/admin/organizations/${organizationId}/ui-config`, method: "GET" },
         {},
-        token,
-        { "x-organization-id": organizationId }
+        token
       );
 
       if (uiConfigResponse.success) {
@@ -741,10 +740,9 @@ export default function OrganizationDetailPage() {
       if (!token) return;
 
       const response = await request(
-        { path: `/configuration/ui`, method: "PUT" },
+        { path: `/admin/organizations/${organizationId}/ui-config`, method: "PUT" },
         uiConfigForm,
-        token,
-        { "x-organization-id": organizationId }
+        token
       );
 
       if (response.success) {

@@ -126,6 +126,7 @@ export class AssetsService {
       const asset = await this.prisma.asset.create({
         data: {
           ...createAssetDto,
+          uom: createAssetDto.uom || 'PCS',
           organizationId: userOrganizationId, // Automatically set user's organization
         },
       });

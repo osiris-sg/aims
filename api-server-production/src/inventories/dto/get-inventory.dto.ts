@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber, IsString, IsOptional, ValidateNested, IsDateString, IsEnum, ValidateIf } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsString, IsOptional, ValidateNested, IsDateString, IsEnum, IsArray, ValidateIf } from 'class-validator';
 import { Type } from 'class-transformer';
 import { InventoryStatus } from '@prisma/client';
 
@@ -18,18 +18,17 @@ class FiltersDto {
   @IsOptional()
   createdOn: DateRangeDto;
 
-  @ValidateIf((o) => o.status !== '' && o.status !== undefined && o.status !== null)
-  @IsEnum(InventoryStatus, { message: 'status must be one of the following values: instock, rental, reserved, maintenance, sold' })
+  @IsArray()
   @IsOptional()
-  status?: InventoryStatus | string;
+  status?: string[];
+
+  @IsArray()
+  @IsOptional()
+  category?: string[];
 
   @IsString()
   @IsOptional()
-  category: string;
-
-  @IsString()
-  @IsOptional()
-  assetId: string; // Add assetId filter support
+  assetId?: string;
 }
 
 export class GetInventoryDto {
