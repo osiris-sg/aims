@@ -85,7 +85,6 @@ export class ConfigurationService {
           route: '/portal/inventory',
           subMenus: [
             { key: 'products', label: 'Products' },
-            { key: 'list', label: 'Inventory Items' },
             { key: 'purchases', label: 'Purchases' },
             { key: 'purchases-return', label: 'Purchases Return' },
             { key: 'adjustment-in', label: 'Stock Adjustment In' },
@@ -277,13 +276,17 @@ export class ConfigurationService {
       modules = await this.getOrganizationModules(organizationId);
     }
 
-    // Ensure INVENTORY module has 'Inventory Items' submenu (for existing orgs)
+    // Conditionally add/remove 'Inventory Items' submenu based on Asset Tracking Mode
+    const uiFeatures = (uiConfig as any)?.features || {};
+    const isAssetTrackingOn = uiFeatures.enableAssetTrackingMode === true;
     const inventoryModule = modules.find(m => m.moduleCode === 'INVENTORY');
     if (inventoryModule) {
       const config = inventoryModule.config as any;
       const subMenus = config?.subMenus || [];
       const hasListSubmenu = subMenus.some((s: any) => (typeof s === 'string' ? s : s.key) === 'list');
-      if (!hasListSubmenu) {
+
+      if (isAssetTrackingOn && !hasListSubmenu) {
+        // Add 'Inventory Items' submenu when tracking is ON
         const updatedSubMenus = [
           subMenus[0], // Products (first item)
           { key: 'list', label: 'Inventory Items' },
@@ -293,7 +296,14 @@ export class ConfigurationService {
           where: { organizationId_moduleCode: { organizationId, moduleCode: 'INVENTORY' } },
           data: { config: { ...config, subMenus: updatedSubMenus } },
         });
-        // Refresh modules after update
+        modules = await this.getOrganizationModules(organizationId);
+      } else if (!isAssetTrackingOn && hasListSubmenu) {
+        // Remove 'Inventory Items' submenu when tracking is OFF
+        const updatedSubMenus = subMenus.filter((s: any) => (typeof s === 'string' ? s : s.key) !== 'list');
+        await this.prisma.organizationModule.update({
+          where: { organizationId_moduleCode: { organizationId, moduleCode: 'INVENTORY' } },
+          data: { config: { ...config, subMenus: updatedSubMenus } },
+        });
         modules = await this.getOrganizationModules(organizationId);
       }
     }
