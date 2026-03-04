@@ -43,7 +43,8 @@
     "add-sao-templates:dry": "ts-node scripts/add-stock-adjustment-out-templates.ts --dry-run",
     "migrate-document-items": "ts-node scripts/migrate-document-items.ts",
     "migrate-document-items:dry": "ts-node scripts/migrate-document-items.ts --dry-run",
-    "populate-template-fields": "ts-node scripts/populate-template-fields.ts"
+    "populate-template-fields": "ts-node scripts/populate-template-fields.ts",
+    "biofuel-split-contact": "ts-node scripts/biofuel-split-contact-field.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.779.0",
