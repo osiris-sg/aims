@@ -279,13 +279,6 @@ export class InventoriesService {
         throw new HttpException('Asset not found', HttpStatus.NOT_FOUND);
       }
 
-      // Prevent creating inventory for untracked products
-      if (asset.isTracked === false) {
-        throw new HttpException(
-          'Cannot create inventory items for untracked products. Use quantity adjustment instead.',
-          HttpStatus.BAD_REQUEST,
-        );
-      }
 
       const skuRange = await this.generateSkuRange(assetId, quantity, organizationId);
 
