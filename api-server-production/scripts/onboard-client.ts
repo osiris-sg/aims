@@ -165,7 +165,11 @@ async function onboardClient() {
         address: address || null,
         phoneNumber: phoneNumber || null,
         registrationNumber: registrationNumber || null,
-        customDocumentTypes: Object.keys(customDocumentTypes).length > 0 ? customDocumentTypes : null,
+        customDocumentTypes: Object.keys(customDocumentTypes).length > 0 ? customDocumentTypes : [
+          'QUOTATION', 'DELIVERY_ORDER', 'RETURN_DELIVERY_ORDER', 'INVOICE',
+          'MAINTENANCE_SERVICE_REPORT', 'STOCK_ADJUSTMENT_IN', 'STOCK_ADJUSTMENT_OUT',
+          'PURCHASE_ORDER', 'PURCHASE_RETURN', 'SALES_ORDER', 'DEBIT_NOTE', 'CREDIT_NOTE',
+        ],
       },
     });
     console.log(`✅ Organization created with ID: ${organization.id}`);
