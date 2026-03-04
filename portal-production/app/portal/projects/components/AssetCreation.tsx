@@ -5,6 +5,7 @@ import { Stack, Typography, Box } from "@mui/material";
 import React, { useState, useEffect } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 import AddCustomer from "./AddCustomer";
+import AddSiteOffice from "./AddSiteOffice";
 import { useGetCustomers } from "../hooks/useGetCustomers";
 import { useGetSiteOffices } from "../hooks/useGetSiteOffices";
 
@@ -15,6 +16,7 @@ export default function ProjectCreation() {
     formState: { errors },
   } = useFormContext();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [siteOfficeDrawerOpen, setSiteOfficeDrawerOpen] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const { customers, refetch } = useGetCustomers();
   console.log("Customers:", customers);
@@ -55,7 +57,17 @@ export default function ProjectCreation() {
           </Box>
 
           <FormSelect control={control} name="customerId" label="" menuTitle="Choose a customer" menuItems={customers.map((item) => ({ label: item.name, value: String(item.id) }))} defaultValue={selectedCustomerId} required />
-          {watchedCustomerId && <FormSelect control={control} name="siteOfficeId" label="Site Office" menuTitle="Choose a site office" menuItems={siteOffices.map((item) => ({ label: item.name, value: item.id }))} required />}
+          {watchedCustomerId && (
+            <>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Typography variant="body1">Site Office *</Typography>
+                <Typography variant="body2" color="primary" sx={{ cursor: "pointer", textDecoration: "underline" }} onClick={() => setSiteOfficeDrawerOpen(true)}>
+                  Add New Site Office
+                </Typography>
+              </Box>
+              <FormSelect control={control} name="siteOfficeId" label="" menuTitle="Choose a site office" menuItems={siteOffices.map((item) => ({ label: item.name, value: item.id }))} required />
+            </>
+          )}
           <Box sx={{ mt: 2 }}>
             <DateRangePicker
               label="Project Duration *"
@@ -78,6 +90,20 @@ export default function ProjectCreation() {
       </Stack>
 
       <AddCustomer open={drawerOpen} onClose={() => handleCloseDrawer()} onSuccess={(id) => handleCloseDrawer(id)} />
+      {watchedCustomerId && (
+        <AddSiteOffice
+          open={siteOfficeDrawerOpen}
+          onClose={() => setSiteOfficeDrawerOpen(false)}
+          customerId={watchedCustomerId}
+          onSuccess={(siteOffice) => {
+            setSiteOfficeDrawerOpen(false);
+            fetchSiteOffices(watchedCustomerId);
+            if (siteOffice?.id) {
+              setValue("siteOfficeId", siteOffice.id);
+            }
+          }}
+        />
+      )}
     </>
   );
 }

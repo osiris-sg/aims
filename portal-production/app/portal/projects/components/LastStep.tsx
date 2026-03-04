@@ -33,13 +33,13 @@ export default function LastStep() {
         <Typography variant="body2" fontWeight={500}>
           Start Date
         </Typography>
-        <Typography variant="body1">{getValues("startDate")?.toString()}</Typography>
+        <Typography variant="body1">{getValues("startDate") ? new Date(getValues("startDate")).toLocaleDateString() : "-"}</Typography>
       </Box>
       <Box>
         <Typography variant="body2" fontWeight={500}>
           End Date
         </Typography>
-        <Typography variant="body1">{getValues("endDate")?.toString()}</Typography>
+        <Typography variant="body1">{getValues("endDate") ? new Date(getValues("endDate")).toLocaleDateString() : "-"}</Typography>
       </Box>
       <Box>
         <Typography variant="body2" fontWeight={500}>
@@ -48,15 +48,14 @@ export default function LastStep() {
         <Typography variant="body1">{getValues("status")}</Typography>
       </Box>
 
-      <Box>
+      <Box sx={{ overflowX: "auto" }}>
         <Typography variant="h6" gutterBottom>
           Assignments
         </Typography>
-        <Table>
+        <Table size="small">
           <TableHead>
             <TableRow>
               <TableCell>SKU Key</TableCell>
-              <TableCell>Inventory ID</TableCell>
               <TableCell>Start Date</TableCell>
               <TableCell>End Date</TableCell>
               <TableCell>Status</TableCell>
@@ -66,9 +65,8 @@ export default function LastStep() {
             {assignments.map((item: any, index: number) => (
               <TableRow key={index}>
                 <TableCell>{item.skuKey}</TableCell>
-                <TableCell>{item.inventoryId}</TableCell>
-                <TableCell>{item.startDate?.toString()}</TableCell>
-                <TableCell>{item.endDate?.toString()}</TableCell>
+                <TableCell>{item.startDate ? new Date(item.startDate).toLocaleDateString() : "-"}</TableCell>
+                <TableCell>{item.endDate ? new Date(item.endDate).toLocaleDateString() : "-"}</TableCell>
                 <TableCell>{item.status}</TableCell>
               </TableRow>
             ))}

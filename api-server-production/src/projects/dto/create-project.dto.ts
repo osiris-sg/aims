@@ -12,12 +12,12 @@ class AssignmentDto {
   inventoryId: string;
 
   @IsString()
-  @IsNotEmpty()
-  startDate: string;
+  @IsOptional()
+  startDate?: string;
 
   @IsString()
   @IsOptional()
-  endDate: string;
+  endDate?: string;
 
   @IsString()
   @IsNotEmpty()
