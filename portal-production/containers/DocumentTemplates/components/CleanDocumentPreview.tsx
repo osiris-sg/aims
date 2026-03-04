@@ -447,9 +447,10 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
                 {data.deliveryTo || ""}
               </Typography>
-              {(data.documentInfo?.contact || data.contact) && (
+              {(data.documentInfo?.contactName || data.documentInfo?.contact || data.contact) && (
                 <Typography sx={{ fontSize: "0.75rem" }}>
-                  Attn: {data.documentInfo?.contact || data.contact}
+                  Attn: {data.documentInfo?.contactName || data.documentInfo?.contact || data.contact}
+                  {data.documentInfo?.contactNumber ? ` (${data.documentInfo.contactNumber})` : ""}
                 </Typography>
               )}
             </Box>
@@ -493,9 +494,14 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{formatDate(data.documentInfo?.deliveryDate)}</Typography>
             </Box>
             <Box sx={{ display: "flex" }}>
-              <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>CONTACT</Typography>
+              <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>CONTACT NAME</Typography>
               <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.contact || data.contact || ""}</Typography>
+              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.contactName || data.documentInfo?.contact || data.contact || ""}</Typography>
+            </Box>
+            <Box sx={{ display: "flex" }}>
+              <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>CONTACT NO.</Typography>
+              <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
+              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.contactNumber || ""}</Typography>
             </Box>
             <Box sx={{ display: "flex" }}>
               <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>TERMS</Typography>
@@ -690,9 +696,10 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
                 {data.deliveryTo || ""}
               </Typography>
-              {(data.documentInfo?.contact || data.contact) && (
+              {(data.documentInfo?.contactName || data.documentInfo?.contact || data.contact) && (
                 <Typography sx={{ fontSize: "0.75rem" }}>
-                  Attn: {data.documentInfo?.contact || data.contact}
+                  Attn: {data.documentInfo?.contactName || data.documentInfo?.contact || data.contact}
+                  {data.documentInfo?.contactNumber ? ` (${data.documentInfo.contactNumber})` : ""}
                 </Typography>
               )}
             </Box>
@@ -1088,9 +1095,10 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
                 {data.deliveryTo || ""}
               </Typography>
-              {(data.documentInfo?.contact || data.contact) && (
+              {(data.documentInfo?.contactName || data.documentInfo?.contact || data.contact) && (
                 <Typography sx={{ fontSize: "0.75rem" }}>
-                  Attn: {data.documentInfo?.contact || data.contact}
+                  Attn: {data.documentInfo?.contactName || data.documentInfo?.contact || data.contact}
+                  {data.documentInfo?.contactNumber ? ` (${data.documentInfo.contactNumber})` : ""}
                 </Typography>
               )}
             </Box>
@@ -1309,9 +1317,10 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
                 {data.deliveryTo || ""}
               </Typography>
-              {(data.documentInfo?.contact || data.contact) && (
+              {(data.documentInfo?.contactName || data.documentInfo?.contact || data.contact) && (
                 <Typography sx={{ fontSize: "0.75rem" }}>
-                  Attn: {data.documentInfo?.contact || data.contact}
+                  Attn: {data.documentInfo?.contactName || data.documentInfo?.contact || data.contact}
+                  {data.documentInfo?.contactNumber ? ` (${data.documentInfo.contactNumber})` : ""}
                 </Typography>
               )}
             </Box>
@@ -1355,9 +1364,14 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                 <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.doNo || ""}</Typography>
               </Box>
               <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Contact</Typography>
+                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Contact Name</Typography>
                 <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.contact || data.contact || ""}</Typography>
+                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.contactName || data.documentInfo?.contact || data.contact || ""}</Typography>
+              </Box>
+              <Box sx={{ display: "flex" }}>
+                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Contact No.</Typography>
+                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
+                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.contactNumber || ""}</Typography>
               </Box>
               <Box sx={{ display: "flex" }}>
                 <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Terms</Typography>
@@ -1637,10 +1651,11 @@ export default function CleanDocumentPreview({ documentType, data, organization 
             <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
               {data.supplier?.address || data.documentInfo?.supplierAddress || data.customer?.address || data.customerAddress || ""}
             </Typography>
-            {(data.documentInfo?.contact || data.contact) && (
+            {(data.documentInfo?.contactName || data.documentInfo?.contact || data.contact) && (
               <Box sx={{ mt: 1 }}>
                 <Typography sx={{ fontSize: "0.75rem" }}>
-                  ATTN : {data.documentInfo?.contact || data.contact}
+                  ATTN : {data.documentInfo?.contactName || data.documentInfo?.contact || data.contact}
+                  {data.documentInfo?.contactNumber ? ` (${data.documentInfo.contactNumber})` : ""}
                 </Typography>
               </Box>
             )}
@@ -1900,10 +1915,11 @@ export default function CleanDocumentPreview({ documentType, data, organization 
             <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
               {data.customer?.address || data.customerAddress || ""}
             </Typography>
-            {(data.documentInfo?.contact || data.contact) && (
+            {(data.documentInfo?.contactName || data.documentInfo?.contact || data.contact) && (
               <Box sx={{ mt: 1 }}>
                 <Typography sx={{ fontSize: "0.75rem" }}>
-                  ATTN : {data.documentInfo?.contact || data.contact}
+                  ATTN : {data.documentInfo?.contactName || data.documentInfo?.contact || data.contact}
+                  {data.documentInfo?.contactNumber ? ` (${data.documentInfo.contactNumber})` : ""}
                 </Typography>
               </Box>
             )}
@@ -2255,10 +2271,11 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         </Box>
 
         {/* Attention Line */}
-        {(data.documentInfo?.contact || data.attention?.name) && (
+        {(data.documentInfo?.contactName || data.documentInfo?.contact || data.attention?.name) && (
           <Box sx={{ mb: 1 }}>
             <Typography sx={{ fontSize: "0.75rem", fontWeight: 600 }}>
-              Attn : {data.documentInfo?.contact || data.attention?.name}
+              Attn : {data.documentInfo?.contactName || data.documentInfo?.contact || data.attention?.name}
+              {data.documentInfo?.contactNumber ? ` (${data.documentInfo.contactNumber})` : ""}
             </Typography>
           </Box>
         )}
