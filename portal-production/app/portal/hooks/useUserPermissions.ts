@@ -16,6 +16,7 @@ interface Role {
   id: string;
   name: string;
   permissions: Permission[];
+  allowedModules?: string[];
 }
 
 export function useUserPermissions() {
@@ -43,7 +44,7 @@ export function useUserPermissions() {
 
         const response = await request(
           {
-            path: `/users/${user.id}/roles`,
+            path: `/users/me/roles`,
             method: "GET",
           },
           {},
@@ -74,11 +75,26 @@ export function useUserPermissions() {
     return userRoles.some((role) => role.permissions.some((permission) => (permission.resource === resource || permission.resource === "*") && (permission.action === action || permission.action === "*")));
   };
 
+  const isModuleAllowed = (moduleCode: string) => {
+    // If user has no roles, allow all (fallback)
+    if (userRoles.length === 0) return true;
+
+    // Collect allowedModules from all roles
+    const allAllowed = userRoles.flatMap((role) => role.allowedModules ?? []);
+
+    // If no role restricts modules (all empty arrays), allow everything
+    if (allAllowed.length === 0) return true;
+
+    // Module is allowed if any role grants it
+    return allAllowed.includes(moduleCode);
+  };
+
   return {
     userRoles,
     isLoading,
     error,
     canManageOrganizations,
     hasPermission,
+    isModuleAllowed,
   };
 }

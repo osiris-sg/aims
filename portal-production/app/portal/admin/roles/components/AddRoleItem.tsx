@@ -1,10 +1,11 @@
 import React, { useState } from "react";
-import { Box, Button, Drawer, Grid, Typography, FormControl, InputLabel, Select, MenuItem, Chip, Alert, Divider } from "@mui/material";
+import { Box, Button, Drawer, Grid, Typography, FormControl, InputLabel, Select, MenuItem, Chip, Alert, Divider, FormControlLabel, Checkbox } from "@mui/material";
 import { useForm } from "react-hook-form";
 import { useAuth } from "@clerk/nextjs";
 import FormInputBox from "@/form-components/FormInputBox";
 import FormTextarea from "@/form-components/FormTextArea";
 import { useGetPermissions } from "../hooks/useGetPermissions";
+import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import SecurityIcon from "@mui/icons-material/Security";
 
 interface Props {
@@ -28,7 +29,9 @@ interface GroupedPermissions {
 export default function AddRoleItem({ open, onClose, onRoleCreated }: Props) {
   const { getToken } = useAuth();
   const { permissions, loading: permissionsLoading } = useGetPermissions();
+  const { modules } = useConfiguration();
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
+  const [selectedModules, setSelectedModules] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string>("");
 
@@ -46,6 +49,12 @@ export default function AddRoleItem({ open, onClose, onRoleCreated }: Props) {
 
   const handlePermissionToggle = (permissionId: string) => {
     setSelectedPermissions((prev) => (prev.includes(permissionId) ? prev.filter((id) => id !== permissionId) : [...prev, permissionId]));
+  };
+
+  const handleModuleToggle = (moduleCode: string) => {
+    setSelectedModules((prev) =>
+      prev.includes(moduleCode) ? prev.filter((c) => c !== moduleCode) : [...prev, moduleCode]
+    );
   };
 
   const onSubmit = async (data: any) => {
@@ -67,6 +76,7 @@ export default function AddRoleItem({ open, onClose, onRoleCreated }: Props) {
         name: data.name,
         description: data.description,
         permissionIds: selectedPermissions,
+        allowedModules: selectedModules,
       };
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/roles`, {
@@ -92,6 +102,7 @@ export default function AddRoleItem({ open, onClose, onRoleCreated }: Props) {
           description: "",
         });
         setSelectedPermissions([]);
+        setSelectedModules([]);
         onClose();
 
         // Call the callback to refresh the roles list
@@ -307,6 +318,35 @@ export default function AddRoleItem({ open, onClose, onRoleCreated }: Props) {
                     </Select>
                   </FormControl>
                 </Grid>
+
+                {/* Module Access Section */}
+                <Grid item xs={12}>
+                  <Divider sx={{ mb: 1 }} />
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600, color: "#1a1a1a", mb: 0.5 }}>
+                    Module Access
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: "#666666", mb: 1.5 }}>
+                    Leave all unchecked to allow access to all modules.
+                  </Typography>
+                  <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+                    {modules
+                      .filter((m) => m.enabled)
+                      .sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999))
+                      .map((m) => (
+                        <FormControlLabel
+                          key={m.moduleCode}
+                          control={
+                            <Checkbox
+                              checked={selectedModules.includes(m.moduleCode)}
+                              onChange={() => handleModuleToggle(m.moduleCode)}
+                              disabled={isSubmitting}
+                            />
+                          }
+                          label={m.displayName || m.moduleCode}
+                        />
+                      ))}
+                  </Box>
+                </Grid>
               </Grid>
             </Box>
           </form>
@@ -329,6 +369,7 @@ export default function AddRoleItem({ open, onClose, onRoleCreated }: Props) {
                   description: "",
                 });
                 setSelectedPermissions([]);
+                setSelectedModules([]);
                 setError("");
                 onClose();
               }}

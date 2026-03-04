@@ -1,5 +1,5 @@
 // src/users/users.controller.ts
-import { Controller, Get, Post, Delete, Patch, Param, Body, UseGuards, Query } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Patch, Param, Body, UseGuards, Query, Req } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
@@ -13,6 +13,12 @@ import { UpdateUserDto } from './dto/update-user.dto';
 @UseGuards(ClerkAuthGuard)
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
+
+  // No permissions required — users can always read their own roles
+  @Get('me/roles')
+  getMyRoles(@Req() req: any, @UserOrganization() organization: { id: string; name: string }) {
+    return this.usersService.getUserRoles(req.user.id, organization.id);
+  }
 
   @Post(':userId/roles')
   @Permissions('users:assign-role')

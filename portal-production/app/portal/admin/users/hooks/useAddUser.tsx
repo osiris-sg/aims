@@ -4,7 +4,7 @@ import { useAuth } from "@clerk/nextjs";
 
 interface CreateUserData {
   firstName: string;
-  lastName: string;
+  lastName?: string;
   email: string;
   password: string;
   organizationId: string;

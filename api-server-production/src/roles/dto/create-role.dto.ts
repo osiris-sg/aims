@@ -13,4 +13,9 @@ export class CreateRoleDto {
   @IsArray()
   @IsOptional()
   permissionIds?: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  allowedModules?: string[];
 }

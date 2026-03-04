@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Drawer, Box, Typography, TextField, Button, CircularProgress, Divider, Alert } from "@mui/material";
+import { Drawer, Box, Typography, TextField, Button, CircularProgress, Divider, Alert, FormControlLabel, Checkbox } from "@mui/material";
 import { useAuth } from "@clerk/nextjs";
 import PermissionCheckbox from "./PermissionsCheckbox";
 import { useGetPermissions } from "../hooks/useGetPermissions";
+import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 
 interface Permission {
   id: string;
@@ -28,6 +29,7 @@ interface Props {
 export default function EditRole({ open, onClose, role, onRoleUpdated }: Props) {
   const { getToken } = useAuth();
   const { permissions, loading: permissionsLoading, error: permissionsError } = useGetPermissions();
+  const { modules } = useConfiguration();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,6 +37,7 @@ export default function EditRole({ open, onClose, role, onRoleUpdated }: Props) 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
+  const [selectedModules, setSelectedModules] = useState<string[]>([]);
 
   useEffect(() => {
     if (open && role) {
@@ -51,6 +54,9 @@ export default function EditRole({ open, onClose, role, onRoleUpdated }: Props) 
       } else {
         setSelectedPermissions([]);
       }
+
+      // Set selected modules based on the role
+      setSelectedModules(role.allowedModules || []);
     }
   }, [open, role]);
 
@@ -69,6 +75,12 @@ export default function EditRole({ open, onClose, role, onRoleUpdated }: Props) 
         return [...prev, permissionId];
       }
     });
+  };
+
+  const handleToggleModule = (moduleCode: string) => {
+    setSelectedModules((prev) =>
+      prev.includes(moduleCode) ? prev.filter((c) => c !== moduleCode) : [...prev, moduleCode]
+    );
   };
 
   const handleSave = async () => {
@@ -96,6 +108,7 @@ export default function EditRole({ open, onClose, role, onRoleUpdated }: Props) 
           name: name.trim(),
           description: description.trim() || undefined,
           permissionIds: selectedPermissions,
+          allowedModules: selectedModules,
         }),
       });
 
@@ -160,16 +173,16 @@ export default function EditRole({ open, onClose, role, onRoleUpdated }: Props) 
 
         <Divider sx={{ mb: 2 }} />
 
-        <Typography variant="h6" sx={{ mb: 2 }}>
-          Permissions
-        </Typography>
-
         {permissionsLoading ? (
           <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", flexGrow: 1 }}>
             <CircularProgress />
           </Box>
         ) : (
           <Box sx={{ flexGrow: 1, overflow: "auto", mb: 3 }}>
+            <Typography variant="h6" sx={{ mb: 2 }}>
+              Permissions
+            </Typography>
+
             {Object.keys(groupedPermissions).length === 0 ? (
               <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: 200, flexDirection: "column" }}>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -197,6 +210,35 @@ export default function EditRole({ open, onClose, role, onRoleUpdated }: Props) 
                 </Box>
               ))
             )}
+
+            <Divider sx={{ mb: 2 }} />
+
+            {/* Module Access Section */}
+            <Typography variant="h6" sx={{ mb: 1 }}>
+              Module Access
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Leave all unchecked to allow access to all modules.
+            </Typography>
+
+            <Box sx={{ mb: 3, display: "flex", flexDirection: "column", gap: 0.5 }}>
+              {modules
+                .filter((m) => m.enabled)
+                .sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999))
+                .map((m) => (
+                  <FormControlLabel
+                    key={m.moduleCode}
+                    control={
+                      <Checkbox
+                        checked={selectedModules.includes(m.moduleCode)}
+                        onChange={() => handleToggleModule(m.moduleCode)}
+                        disabled={saving}
+                      />
+                    }
+                    label={m.displayName || m.moduleCode}
+                  />
+                ))}
+            </Box>
           </Box>
         )}
 

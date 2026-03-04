@@ -32,6 +32,7 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
+import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useSidebar } from "./SidebarContext";
 
 // Material UI icon mapping
@@ -58,6 +59,7 @@ export default function DynamicSidebarContent() {
   const theme = useTheme();
   const pathname = usePathname();
   const { modules, loading, error, isModuleEnabled } = useConfiguration();
+  const { isModuleAllowed } = useUserPermissions();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
 
@@ -127,9 +129,10 @@ export default function DynamicSidebarContent() {
     );
   }
 
-  // Filter and sort enabled modules
+  // Filter and sort enabled modules, then filter by role-based module access
   const enabledModules = modules
     .filter(m => m.enabled)
+    .filter(m => isModuleAllowed(m.moduleCode))
     .sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999));
 
   const renderMenuItem = (module: any, index: number) => {

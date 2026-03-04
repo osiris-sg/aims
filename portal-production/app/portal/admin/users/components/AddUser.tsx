@@ -257,9 +257,6 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                     control={control}
                     name="lastName"
                     placeHolder="Enter last name"
-                    rules={{
-                      required: "Last name is required",
-                    }}
                     error={!!errors.lastName}
                     helperText={errors.lastName?.message as string}
                   />

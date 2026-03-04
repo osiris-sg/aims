@@ -9,7 +9,7 @@ export class RolesService {
   constructor(private prisma: PrismaService) {}
 
   async create(createRoleDto: CreateRoleDto, organizationId: string) {
-    const { permissionIds, ...roleData } = createRoleDto;
+    const { permissionIds, allowedModules, ...roleData } = createRoleDto;
 
     // Check if role with same name already exists in this organization
     const existingRole = await this.prisma.role.findUnique({
@@ -41,6 +41,7 @@ export class RolesService {
         data: {
           ...roleData,
           organizationId: organizationId,
+          allowedModules: allowedModules ?? [],
           permissions: permissionIds?.length
             ? {
                 connect: permissionIds.map((id) => ({ id })),
@@ -154,7 +155,7 @@ export class RolesService {
   }
 
   async update(id: string, updateRoleDto: UpdateRoleDto) {
-    const { permissionIds, ...roleData } = updateRoleDto;
+    const { permissionIds, allowedModules, ...roleData } = updateRoleDto;
 
     // Check if role exists
     const existingRole = await this.prisma.role.findUnique({
@@ -197,6 +198,7 @@ export class RolesService {
         where: { id },
         data: {
           ...roleData,
+          ...(allowedModules !== undefined && { allowedModules }),
           permissions:
             permissionIds !== undefined
               ? {
