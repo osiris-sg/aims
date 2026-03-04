@@ -9,6 +9,7 @@ interface CreateAssetData {
   name: string;
   skuKey: string;
   categoryId: string;
+  uom?: string;
   image?: File;
   description?: string;
   price?: number;
@@ -41,6 +42,7 @@ export const useCreateAsset = () => {
         skuKey: data.skuKey,
         categoryId: data.categoryId,
         description: data.description || "",
+        uom: data.uom || "PCS",
         isTracked: data.isTracked ?? true,
       };
 
