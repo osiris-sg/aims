@@ -719,7 +719,7 @@ export class DocumentsService {
       const namePrefix = `${documentPrefix}${year}${month}-`;
 
       // Find the highest serial number for this prefix to avoid duplicates
-      // This handles cases where documents are deleted (count would be wrong)
+      // Exclude revision documents (names containing "Rev-") so they don't interfere with serial lookup
       const existingDocs = await this.prisma.document.findMany({
         where: {
           organizationId,
@@ -727,6 +727,7 @@ export class DocumentsService {
           name: {
             startsWith: namePrefix,
           },
+          baseDocumentId: null,
         },
         select: { name: true },
         orderBy: { name: 'desc' },
