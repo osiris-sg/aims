@@ -65,10 +65,12 @@ export default function ProductsPage() {
     {
       accessorKey: "skuKey",
       header: "SKU-Key",
+      enableSorting: true,
     },
     {
       accessorKey: "name",
       header: "Name",
+      enableSorting: true,
     },
   ];
 
@@ -76,24 +78,30 @@ export default function ProductsPage() {
     {
       accessorKey: "image",
       header: "Image",
+      enableSorting: false,
       cell: ({ row }: any) => {
         const imageUrl = row.original.image;
         return <Avatar src={`${process.env.NEXT_PUBLIC_RESOURCE_URL}${imageUrl}`} alt="Image" sx={{ borderRadius: "0.4rem", width: 50, height: 50 }} />;
       },
     },
     {
-      accessorKey: "category",
+      id: "category",
+      accessorFn: (row: any) => categories?.find((item: any) => item.id === row.categoryId)?.name || "",
       header: "Category",
+      enableSorting: true,
       cell: ({ row }: any) => <Typography variant="body2">{categories?.find((item: any) => item.id === row.original.categoryId)?.name}</Typography>,
     },
     {
       accessorKey: "uom",
       header: "UOM",
+      enableSorting: true,
       cell: ({ row }: any) => <Typography variant="body2">{row.original.uom || "PCS"}</Typography>,
     },
     {
-      accessorKey: "stockCount",
+      id: "stockCount",
+      accessorFn: (row: any) => isAssetTrackingModeEnabled ? (row.instockInventoryCount ?? 0) : (row.quantity ?? 0),
       header: isAssetTrackingModeEnabled ? "In Stock" : "Quantity",
+      enableSorting: true,
       cell: ({ row }: any) => {
         const count = isAssetTrackingModeEnabled
           ? row.original.instockInventoryCount
@@ -108,6 +116,7 @@ export default function ProductsPage() {
     {
       accessorKey: "action",
       header: "Action",
+      enableSorting: false,
       cell: ({ row }: any) => (
         <Box sx={{ display: "flex", gap: "var(--default-gap)" }}>
           <IconButton
