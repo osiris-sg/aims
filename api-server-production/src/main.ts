@@ -58,6 +58,7 @@ async function bootstrap() {
   );
   app.useGlobalFilters(new CustomExceptionFilter());
   app.useGlobalInterceptors(new CustomResponseInterceptor());
-  await app.listen(4040, () => console.info('Api Server started on port 4040'));
+  const port = process.env.PORT || 4040;
+  await app.listen(port, '0.0.0.0', () => console.info(`Api Server started on port ${port}`));
 }
 bootstrap();
