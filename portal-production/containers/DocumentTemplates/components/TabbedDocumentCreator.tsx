@@ -76,6 +76,7 @@ import PriceHistoryPopup from "@/components/PriceHistory/PriceHistoryPopup";
 import SendInvoiceEmailDialog from "@/app/portal/invoices/components/SendInvoiceEmailDialog";
 import RecordPaymentDialog from "@/app/portal/invoices/components/RecordPaymentDialog";
 import { useAuth, useUser } from "@clerk/nextjs";
+import { useReactToPrint } from "react-to-print";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
 import { useForm, Controller } from "react-hook-form";
@@ -136,6 +137,8 @@ interface DocumentCreatorProps {
   hasNext?: boolean;
   // Callback when a new document is created (for refetching document list)
   onDocumentCreated?: () => void;
+  // Force preview mode on initial render (used by view/print page)
+  initialPreviewMode?: boolean;
 }
 
 export default function TabbedDocumentCreator({
@@ -159,6 +162,7 @@ export default function TabbedDocumentCreator({
   hasPrevious = false,
   hasNext = false,
   onDocumentCreated,
+  initialPreviewMode = false,
 }: DocumentCreatorProps) {
   // Check if we're in template edit mode
   const pathname = usePathname();
@@ -181,8 +185,8 @@ export default function TabbedDocumentCreator({
   const isDocumentConfirmed = documentStatus === "confirmed";
   const isDocumentEditable = !isDocumentConfirmed && !isTemplateEditMode;
 
-  // Force preview mode for confirmed documents
-  const [previewMode, setPreviewMode] = useState(isDocumentConfirmed);
+  // Force preview mode for confirmed documents or when initialPreviewMode is set
+  const [previewMode, setPreviewMode] = useState(isDocumentConfirmed || initialPreviewMode);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [confirmPODialogOpen, setConfirmPODialogOpen] = useState(false);
   const [confirmAdjustmentDialogOpen, setConfirmAdjustmentDialogOpen] = useState(false);
@@ -196,6 +200,20 @@ export default function TabbedDocumentCreator({
   const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+  // Browser print ref for CleanDocumentPreview
+  const printContentRef = useRef<HTMLDivElement>(null);
+  const printDocumentTitle = existingData?.documentNumber || existingData?.name || documentId || "Document";
+  const handleBrowserPrint = useReactToPrint({
+    contentRef: printContentRef,
+    documentTitle: printDocumentTitle,
+    pageStyle: `
+      @page { size: A4; margin: 0; }
+      @media print {
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0; padding: 0; }
+      }
+    `,
+  });
 
   // Back button confirmation dialog
   const [backConfirmDialogOpen, setBackConfirmDialogOpen] = useState(false);
@@ -776,8 +794,16 @@ export default function TabbedDocumentCreator({
   };
 
   const handlePrint = () => {
-    // Generate PDF instead of browser print
-    generatePdf();
+    // Switch to preview mode first if not already, then trigger browser print
+    if (!previewMode) {
+      setPreviewMode(true);
+      // Wait for preview to render before printing
+      setTimeout(() => {
+        handleBrowserPrint();
+      }, 500);
+    } else {
+      handleBrowserPrint();
+    }
   };
 
   // Prefetch price history for an asset
@@ -3132,15 +3158,17 @@ export default function TabbedDocumentCreator({
         ) : (
           // PREVIEW MODE - Show clean document layout
           <Box sx={{ flex: 1, overflow: "auto", p: 2, bgcolor: "grey.100" }}>
-            <CleanDocumentPreview
-              documentType={documentType}
-              data={{
-                ...formData,
-                items: items,
-                logo: organization?.logo, // Pass the logo from organization
-              }}
-              organization={organization}
-            />
+            <div ref={printContentRef}>
+              <CleanDocumentPreview
+                documentType={documentType}
+                data={{
+                  ...formData,
+                  items: items,
+                  logo: organization?.logo, // Pass the logo from organization
+                }}
+                organization={organization}
+              />
+            </div>
           </Box>
         )}
       </Box>
