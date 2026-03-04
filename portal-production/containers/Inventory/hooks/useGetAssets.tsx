@@ -20,16 +20,12 @@ export const useGetAssets = () => {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(100);
   const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState<any>({
-    // Only show tracked assets for inventory creation
-    // Untracked products cannot have individual inventory items
-    isTracked: true,
-  });
+  const [filters, setFilters] = useState<any>({});
 
   const getAssets = useCallback(async () => {
     if (organizationId) {
       const token = await getToken();
-      dispatch(inventoryActions.getAssets({ page, limit, search, filters: { ...filters, isTracked: true }, organizationId, token }));
+      dispatch(inventoryActions.getAssets({ page, limit, search, filters, organizationId, token }));
       dispatch(inventoryActions.getCategories({ organizationId, token }));
     }
   }, [organizationId]);
