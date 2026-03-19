@@ -1,0 +1,49 @@
+{
+  "BI202509041": {
+    "review_status": "confirmed",
+    "lineItems": [
+      {
+        "description": "1a). Rental of one unit Micro-Grid System\nBrand: BIOFUEL\nModel: LION375\nCapacity: 220kWh\nS/No. MG20250079",
+        "quantity": 1,
+        "unit_price": 6000,
+        "gross": 6540,
+        "is_reference_line": false,
+        "selectedAssetId": "f99ca93b-a899-4a8d-a200-1e273424682e",
+        "selectedAssetName": "LION-375",
+        "selectedSku": "LION375",
+        "serialNumber": "MG20250079",
+        "assetCategory": "BESS",
+        "assetCategoryId": "6aeb6bef-e4ff-4b90-8df2-777442a1ad20",
+        "assetUom": "UNIT",
+        "assetPrice": "1",
+        "assetDescription": "",
+        "confidence": "high",
+        "match_reason": "Micro-Grid matched",
+        "location": null,
+        "isNewAsset": false
+      },
+      {
+        "description": "1b). Rental of one unit Baifa 125kVA Genset\nModel: BF-C142RS\nS/No. 2311036",
+        "quantity": 1,
+        "unit_price": 0,
+        "gross": 0,
+        "is_reference_line": false,
+        "selectedAssetId": "69e4aea0-82b1-46c6-9890-5f4fd902d2ca",
+        "selectedAssetName": "Generator 125KVA",
+        "selectedSku": "GEN125",
+        "serialNumber": "2311036",
+        "assetCategory": "Generator",
+        "assetCategoryId": "d94577ca-1b23-4ede-b515-0d44b321cb75",
+        "assetUom": "PCS",
+        "assetPrice": "0",
+        "assetDescription": "",
+        "confidence": "high",
+        "match_reason": "Generator matched",
+        "location": null,
+        "isNewAsset": false
+      }
+    ],
+    "projectLocation": "Canberra Crescent Residences",
+    "confirmedAt": "2026-03-19T09:09:43.269Z"
+  }
+}

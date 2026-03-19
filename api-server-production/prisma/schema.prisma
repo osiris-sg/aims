@@ -23,6 +23,7 @@ model Organization {
   assets             Asset[]
   categories         Category[]
   customers          Customer[]
+  suppliers          Supplier[]
   documents          Document[]
   documentTemplates  DocumentTemplate[]
   inventories        Inventory[]
@@ -125,6 +126,24 @@ model Customer {
   @@index([salesmanId])
 }
 
+model Supplier {
+  id             String       @id @default(uuid()) @db.Uuid
+  supplierCode   String?
+  name           String
+  email          String?
+  phone          String?
+  address        String?
+  gstRegNo       String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([email, organizationId])
+  @@unique([id, organizationId])
+  @@unique([supplierCode, organizationId])
+}
+
 model DocumentTemplate {
   id             String             @id @default(uuid()) @db.Uuid
   name           String?
@@ -189,7 +208,11 @@ model Document {
   baseDocumentId     String?        @db.Uuid
   revisionNumber     Int?           @default(0)
 
+  // Project link
+  projectId          String?        @db.Uuid
+
   organization       Organization   @relation(fields: [organizationId], references: [id])
+  project            Project?       @relation(fields: [projectId], references: [id])
   timelineItems      TimelineItem[]
   priceHistories     PriceHistory[] // Track price history entries from this document
   payments           Payment[]      // Payments made against this document
@@ -203,6 +226,7 @@ model Document {
   @@index([baseDocumentId])
   @@index([organizationId, type])
   @@index([organizationId, status])
+  @@index([projectId])
   @@unique([name, organizationId, documentTemplateId])
 }
 
@@ -308,6 +332,7 @@ model Project {
   status         ProjectStatus @default(pending)
   siteOfficeId   String?       @db.Uuid
   assignments    Assignment[]
+  documents      Document[]
   organization   Organization? @relation(fields: [organizationId], references: [id])
   siteOffice     SiteOffice?   @relation("SiteOfficeProjects", fields: [siteOfficeId], references: [id])
 }

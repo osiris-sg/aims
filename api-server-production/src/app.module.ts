@@ -11,6 +11,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ClerkAuthGuard } from './auth/clerk-auth.guard';
 import { InventoriesModule } from './inventories/inventories.module';
 import { CustomersModule } from './customers/customers.module';
+import { SuppliersModule } from './suppliers/suppliers.module';
 import { PrismaService } from './common/prisma.service';
 import { DocumentTemplatesModule } from './documentTemplates/documentTemplates.module';
 import { UploadsModule } from './uploads/uploads.module';
@@ -31,6 +32,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { StatementsModule } from './statements/statements.module';
 import { EmailModule } from './email/email.module';
+import { ImportModule } from './import/import.module';
 
 @Module({
   imports: [
@@ -43,6 +45,7 @@ import { EmailModule } from './email/email.module';
     AuthModule,
     InventoriesModule,
     CustomersModule,
+    SuppliersModule,
     DocumentTemplatesModule,
     UploadsModule,
     DocumentsModule,
@@ -61,6 +64,7 @@ import { EmailModule } from './email/email.module';
     TransactionsModule,
     StatementsModule,
     EmailModule,
+    ImportModule,
   ],
   controllers: [AppController],
   providers: [
