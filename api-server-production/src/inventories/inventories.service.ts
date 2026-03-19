@@ -280,7 +280,10 @@ export class InventoriesService {
       }
 
 
-      const skuRange = await this.generateSkuRange(assetId, quantity, organizationId);
+      // Use custom SKU if provided, otherwise auto-generate
+      const skuRange = createInventoryDto.customSku
+        ? createInventoryDto.customSku.split(',').map(s => s.trim()).filter(Boolean)
+        : await this.generateSkuRange(assetId, quantity, organizationId);
 
       const inventoryItems = skuRange.map((sku) => ({
         ...createInventoryDto,

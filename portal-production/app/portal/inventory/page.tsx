@@ -7,11 +7,42 @@ import { Box, Dialog, DialogTitle, DialogContent, DialogActions, Button, Circula
 import { useRouter } from "next/navigation";
 import { ROUTES } from "@/routes";
 import AddInventoryItem from "./components/AddInventoryItem";
-import { useGetInventory, useGetAssets, useDeleteInventory, useGetQrCode } from "@/app/portal/hooks/api";
+import { useGetInventory, useGetAssets, useDeleteInventory, useGetQrCode, useUpdateInventory } from "@/app/portal/hooks/api";
 import QrCode2Icon from "@mui/icons-material/QrCode2";
 import ViewQRDialog from "./components/ViewQRDialog";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import DeleteIcon from "@mui/icons-material/Delete";
+import EditIcon from "@mui/icons-material/Edit";
+import CheckIcon from "@mui/icons-material/Check";
+import CloseIcon from "@mui/icons-material/Close";
+import { TextField } from "@mui/material";
+import { toast } from "react-toastify";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+
+function EditableSkuCell({ row, onSave, onCancel }: { row: any; onSave: (id: string, sku: string) => void; onCancel: () => void }) {
+  const [value, setValue] = useState(row.sku);
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+      <TextField
+        size="small"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") onSave(row.id, value);
+          if (e.key === "Escape") onCancel();
+        }}
+        autoFocus
+        sx={{ "& .MuiInputBase-input": { py: 0.5, px: 1, fontSize: "0.875rem" } }}
+      />
+      <IconButton size="small" onClick={() => onSave(row.id, value)} color="success">
+        <CheckIcon fontSize="small" />
+      </IconButton>
+      <IconButton size="small" onClick={onCancel} color="error">
+        <CloseIcon fontSize="small" />
+      </IconButton>
+    </Box>
+  );
+}
 
 interface Inventory {
   id: string;
@@ -28,6 +59,7 @@ interface Inventory {
 
 export default function InventoryPage() {
   const router = useRouter();
+  const { isEditInventorySkuEnabled } = useOrganizationFeatures();
   const [openDrawer, setOpenDrawer] = useState(false);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
@@ -44,6 +76,7 @@ export default function InventoryPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedInventory, setSelectedInventory] = useState<Inventory | null>(null);
   const [selectedSku, setSelectedSku] = useState<string | null>(null);
+  const [editingSkuId, setEditingSkuId] = useState<string | null>(null);
 
   // Fetch inventory with new hook
   const { inventories: inventory = [], total = 0, isLoading, refetch } = useGetInventory({ page, limit, search, filters });
@@ -54,6 +87,9 @@ export default function InventoryPage() {
   // Delete inventory mutation
   const deleteInventoryMutation = useDeleteInventory();
 
+  // Update inventory mutation
+  const updateInventoryMutation = useUpdateInventory();
+
   // QR code hook
   const getQrCodeMutation = useGetQrCode();
 
@@ -62,7 +98,26 @@ export default function InventoryPage() {
       id: "sku",
       accessorKey: "sku",
       header: "SKU",
-      cell: (info: any) => info.getValue(),
+      cell: (info: any) => {
+        const row = info.row.original;
+        if (isEditInventorySkuEnabled && editingSkuId === row.id) {
+          return <EditableSkuCell row={row} onSave={handleSaveSku} onCancel={() => setEditingSkuId(null)} />;
+        }
+        return (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+            <Typography variant="body2">{row.sku}</Typography>
+            {isEditInventorySkuEnabled && (
+              <IconButton
+                size="small"
+                onClick={() => setEditingSkuId(row.id)}
+                sx={{ opacity: 0.5, "&:hover": { opacity: 1 } }}
+              >
+                <EditIcon fontSize="small" />
+              </IconButton>
+            )}
+          </Box>
+        );
+      },
     },
     {
       id: "name",
@@ -146,6 +201,19 @@ export default function InventoryPage() {
       ),
     },
   ];
+
+  const handleSaveSku = async (inventoryId: string, newSku: string) => {
+    if (!newSku.trim()) return;
+    try {
+      await updateInventoryMutation.mutateAsync({ id: inventoryId, sku: newSku.trim() });
+      toast.success("SKU updated successfully");
+      setEditingSkuId(null);
+      refetch();
+    } catch (error) {
+      console.error("Error updating SKU:", error);
+      toast.error("Failed to update SKU");
+    }
+  };
 
   const handleOpenQRDialog = async (sku: string) => {
     setSelectedSku(sku);

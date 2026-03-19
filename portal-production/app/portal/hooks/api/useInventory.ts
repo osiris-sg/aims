@@ -330,7 +330,7 @@ export function useUpdateInventory() {
       const token = await getToken();
       if (!token) throw new Error("No authentication token available");
 
-      const response = await request({ path: "/inventories/update", method: "POST" }, inventoryData, token);
+      const response = await request({ path: "/inventories/update", method: "PUT" }, inventoryData, token);
 
       if (!response.success) {
         throw new Error(response.message || "Failed to update inventory");

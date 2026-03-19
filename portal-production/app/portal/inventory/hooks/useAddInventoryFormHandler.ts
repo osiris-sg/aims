@@ -87,6 +87,10 @@ export default function useAddInventoryFormHandler({ onSuccess }: UseAddInventor
       const token = await getToken();
       if (!token || !organizationId) throw new Error("No token or organization ID");
 
+      // If user edited the SKU (different from auto-generated), send as customSku
+      const autoSku = skuRange.join(",");
+      const userEditedSku = data.sku && data.sku !== autoSku ? data.sku : undefined;
+
       const response = await request(
         {
           path: "/inventories/create",
@@ -96,6 +100,7 @@ export default function useAddInventoryFormHandler({ onSuccess }: UseAddInventor
           ...data,
           organizationId,
           sku: skuRange,
+          ...(userEditedSku ? { customSku: userEditedSku } : {}),
         },
         token
       );
@@ -134,6 +139,7 @@ export default function useAddInventoryFormHandler({ onSuccess }: UseAddInventor
     assets,
     isSkuLoading,
     isInvetoryUpdating,
+    skuRange,
     reset,
   };
 }

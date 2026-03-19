@@ -24,4 +24,8 @@ export class CreateInventoryDto {
   @IsString()
   @IsOptional()
   createdAt?: Date | null;
+
+  @IsString()
+  @IsOptional()
+  customSku?: string;
 }

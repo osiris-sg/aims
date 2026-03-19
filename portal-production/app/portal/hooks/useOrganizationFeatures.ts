@@ -67,5 +67,6 @@ export function useOrganizationFeatures() {
     isAssetTrackingModeEnabled: features.enableAssetTrackingMode ?? false,
     isProjectsEnabled: features.enableProjects ?? true,
     isAnalyticsEnabled: features.enableAnalytics ?? true,
+    isEditInventorySkuEnabled: features.enableEditInventorySku ?? false,
   };
 }

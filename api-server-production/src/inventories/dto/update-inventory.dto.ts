@@ -27,4 +27,8 @@ export class UpdateInventoryDto extends PartialType(CreateInventoryDto) {
   @IsString()
   @IsOptional()
   location?: string;
+
+  @IsString()
+  @IsOptional()
+  sku?: string;
 }
