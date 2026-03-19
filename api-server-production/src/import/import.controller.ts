@@ -7,6 +7,24 @@ import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 export class ImportController {
   constructor(private readonly importService: ImportService) {}
 
+  @Post('seed')
+  async seed() {
+    try {
+      return await this.importService.seedFromJson();
+    } catch (error: any) {
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  @Post('reset/:invoiceNumber')
+  async resetInvoice(@Param('invoiceNumber') invoiceNumber: string) {
+    try {
+      return await this.importService.resetInvoice(invoiceNumber);
+    } catch (error: any) {
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
   @Get('invoices')
   async getInvoices(
     @Query('status') status?: 'pending' | 'confirmed' | 'skipped',

@@ -40,6 +40,7 @@ model Organization {
   transactions       Transaction[]
   customerBalances   CustomerBalance[]
   quantityAdjustments QuantityAdjustment[]
+  importInvoices     ImportInvoice[]
 }
 
 model Asset {
@@ -670,4 +671,41 @@ enum AdjustmentType {
   ADD
   SUBTRACT
   SET
+}
+
+// Import staging table for Xero invoice backfill
+model ImportInvoice {
+  id                String       @id @default(uuid()) @db.Uuid
+  organizationId    String
+  invoiceNumber     String
+  date              String?
+  customer          String?
+  customerMatched   Boolean      @default(false)
+  status            String?      // Xero status: Paid, Approved, Draft
+  source            String?      // Receivable Invoice or Credit Note
+  gross             Float?
+  balance           Float?
+  // AI-extracted metadata
+  projectName       String?
+  projectLocation   String?
+  siteOfficeName    String?
+  siteOfficeAddress String?
+  doDate            String?
+  doNumber          String?
+  contactName       String?
+  contactPhone      String?
+  // Line items stored as JSON array
+  lineItems         Json         // Array of line item objects with asset_match, serial_numbers, etc.
+  // Review status
+  reviewStatus      String       @default("pending") // pending, confirmed, skipped
+  skipReason        String?
+  confirmedAt       DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  organization      Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([invoiceNumber, organizationId])
+  @@index([organizationId, reviewStatus])
+  @@index([organizationId])
 }

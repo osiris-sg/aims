@@ -1,4 +1,4 @@
-import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/common/prisma.service';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -15,173 +15,242 @@ const STATUS_MAP: Record<string, string> = {
 export class ImportService {
   constructor(private prisma: PrismaService) {}
 
-  private getPrefilledPath(): string {
-    return path.join(process.cwd(), 'scripts/xero-import-prefilled.json');
-  }
-
-  private getConfirmedPath(): string {
-    return path.join(process.cwd(), 'scripts/import-tool/confirmed-invoices.json');
-  }
-
-  private loadPrefilled(): any {
-    const raw = fs.readFileSync(this.getPrefilledPath(), 'utf-8');
-    return JSON.parse(raw);
-  }
-
-  private loadConfirmed(): Record<string, any> {
-    const confirmedPath = this.getConfirmedPath();
-    if (!fs.existsSync(confirmedPath)) {
-      return {};
+  // ─── Load from JSON file into DB (one-time seed) ───
+  async seedFromJson() {
+    const filePath = path.join(process.cwd(), 'scripts/xero-import-prefilled.json');
+    if (!fs.existsSync(filePath)) {
+      throw new Error('Prefilled JSON file not found');
     }
-    const raw = fs.readFileSync(confirmedPath, 'utf-8');
-    return JSON.parse(raw);
-  }
 
-  private saveConfirmed(data: Record<string, any>): void {
-    const confirmedPath = this.getConfirmedPath();
-    const dir = path.dirname(confirmedPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const data = JSON.parse(raw);
+    const invoices = data.invoices || [];
+
+    let created = 0;
+    let skipped = 0;
+
+    for (const inv of invoices) {
+      // Check if already exists
+      const existing = await this.prisma.importInvoice.findUnique({
+        where: {
+          invoiceNumber_organizationId: {
+            invoiceNumber: inv.invoice_number,
+            organizationId: ORGANIZATION_ID,
+          },
+        },
+      });
+
+      if (existing) {
+        skipped++;
+        continue;
+      }
+
+      await this.prisma.importInvoice.create({
+        data: {
+          organizationId: ORGANIZATION_ID,
+          invoiceNumber: inv.invoice_number,
+          date: inv.date,
+          customer: inv.customer,
+          customerMatched: inv.customer_matched || false,
+          status: inv.status,
+          source: inv.source,
+          gross: inv.gross,
+          balance: inv.balance,
+          projectName: inv.project_name,
+          projectLocation: inv.project_location,
+          siteOfficeName: inv.site_office_name,
+          siteOfficeAddress: inv.site_office_address,
+          doDate: inv.do_date,
+          doNumber: inv.do_number,
+          contactName: inv.contact_name,
+          contactPhone: inv.contact_phone,
+          lineItems: inv.line_items,
+          reviewStatus: 'pending',
+        },
+      });
+      created++;
     }
-    fs.writeFileSync(confirmedPath, JSON.stringify(data, null, 2));
+
+    return { created, skipped, total: invoices.length };
   }
 
+  // ─── Get invoices from DB ───
   async getInvoices(
-    status?: 'pending' | 'confirmed' | 'skipped',
-    confidence?: 'high' | 'medium' | 'low' | 'unmatched',
+    status?: string,
+    confidence?: string,
     page: number = 1,
     limit: number = 20,
     search?: string,
   ) {
-    const prefilled = this.loadPrefilled();
-    const confirmed = this.loadConfirmed();
-
-    let invoices = prefilled.invoices.map((inv: any) => {
-      const confirmedData = confirmed[inv.invoice_number];
-      if (confirmedData) {
-        return {
-          ...inv,
-          review_status: confirmedData.review_status || 'confirmed',
-          confirmed_line_items: confirmedData.lineItems,
-          confirmed_project_location: confirmedData.projectLocation,
-          skip_reason: confirmedData.reason,
-        };
-      }
-      return inv;
-    });
+    const where: any = { organizationId: ORGANIZATION_ID };
 
     if (status) {
-      invoices = invoices.filter((inv: any) => inv.review_status === status);
-    }
-
-    if (confidence) {
-      invoices = invoices.filter((inv: any) => {
-        return inv.line_items.some((li: any) => {
-          if (confidence === 'unmatched') {
-            return !li.confidence || li.confidence === 'unmatched';
-          }
-          return li.confidence === confidence;
-        });
-      });
+      where.reviewStatus = status;
     }
 
     if (search) {
-      const searchLower = search.toLowerCase();
-      invoices = invoices.filter((inv: any) =>
-        inv.invoice_number?.toLowerCase().includes(searchLower) ||
-        inv.customer?.toLowerCase().includes(searchLower)
-      );
+      where.OR = [
+        { invoiceNumber: { contains: search, mode: 'insensitive' } },
+        { customer: { contains: search, mode: 'insensitive' } },
+      ];
     }
 
-    const total = invoices.length;
-    const totalPages = Math.ceil(total / limit);
-    const start = (page - 1) * limit;
-    const paginatedInvoices = invoices.slice(start, start + limit);
+    const [invoices, total] = await Promise.all([
+      this.prisma.importInvoice.findMany({
+        where,
+        orderBy: { date: 'asc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.importInvoice.count({ where }),
+    ]);
+
+    // Transform to match frontend expected format
+    const transformed = invoices.map((inv) => ({
+      invoice_number: inv.invoiceNumber,
+      date: inv.date,
+      customer: inv.customer,
+      customer_matched: inv.customerMatched,
+      status: inv.status,
+      source: inv.source,
+      gross: inv.gross,
+      balance: inv.balance,
+      project_name: inv.projectName,
+      project_location: inv.projectLocation,
+      site_office_name: inv.siteOfficeName,
+      site_office_address: inv.siteOfficeAddress,
+      do_date: inv.doDate,
+      do_number: inv.doNumber,
+      contact_name: inv.contactName,
+      contact_phone: inv.contactPhone,
+      line_items: inv.lineItems,
+      review_status: inv.reviewStatus,
+    }));
 
     return {
-      invoices: paginatedInvoices,
+      invoices: transformed,
       total,
-      totalPages,
+      totalPages: Math.ceil(total / limit),
       page,
       limit,
-      summary: prefilled.summary,
     };
   }
 
   async getStats() {
-    const prefilled = this.loadPrefilled();
-    const confirmed = this.loadConfirmed();
+    const [total, pending, confirmed, skipped] = await Promise.all([
+      this.prisma.importInvoice.count({ where: { organizationId: ORGANIZATION_ID } }),
+      this.prisma.importInvoice.count({ where: { organizationId: ORGANIZATION_ID, reviewStatus: 'pending' } }),
+      this.prisma.importInvoice.count({ where: { organizationId: ORGANIZATION_ID, reviewStatus: 'confirmed' } }),
+      this.prisma.importInvoice.count({ where: { organizationId: ORGANIZATION_ID, reviewStatus: 'skipped' } }),
+    ]);
 
-    let pending = 0;
-    let confirmedCount = 0;
-    let skipped = 0;
+    // Count matched items across all invoices
+    const allInvoices = await this.prisma.importInvoice.findMany({
+      where: { organizationId: ORGANIZATION_ID },
+      select: { lineItems: true },
+    });
 
-    for (const inv of prefilled.invoices) {
-      const confirmedData = confirmed[inv.invoice_number];
-      if (confirmedData) {
-        if (confirmedData.review_status === 'skipped') {
-          skipped++;
-        } else {
-          confirmedCount++;
-        }
-      } else {
-        pending++;
+    let totalItems = 0;
+    let refLines = 0;
+    let matched = 0;
+
+    for (const inv of allInvoices) {
+      const items = inv.lineItems as any[];
+      if (!Array.isArray(items)) continue;
+      for (const li of items) {
+        totalItems++;
+        if (li.is_reference_line) refLines++;
+        else if (li.asset_match?.sku) matched++;
       }
     }
 
     return {
-      total: prefilled.invoices.length,
+      total,
       pending,
-      confirmed: confirmedCount,
+      confirmed,
       skipped,
-      summary: prefilled.summary,
+      summary: {
+        total_invoices: total,
+        total_line_items: totalItems,
+        reference_lines: refLines,
+        product_lines: totalItems - refLines,
+        matched_high_confidence: matched,
+        matched_medium_confidence: 0,
+        matched_low_confidence: 0,
+        unmatched: totalItems - refLines - matched,
+        match_rate: `${((matched / Math.max(1, totalItems - refLines)) * 100).toFixed(1)}%`,
+        auto_confirmable: `${((matched / Math.max(1, totalItems - refLines)) * 100).toFixed(1)}%`,
+      },
     };
   }
 
   async confirmInvoice(invoiceNumber: string, lineItems: any[], projectLocation: string) {
-    const confirmed = this.loadConfirmed();
-    confirmed[invoiceNumber] = {
-      review_status: 'confirmed',
-      lineItems,
-      projectLocation,
-      confirmedAt: new Date().toISOString(),
-    };
-    this.saveConfirmed(confirmed);
+    await this.prisma.importInvoice.update({
+      where: {
+        invoiceNumber_organizationId: {
+          invoiceNumber,
+          organizationId: ORGANIZATION_ID,
+        },
+      },
+      data: {
+        reviewStatus: 'confirmed',
+        lineItems,
+        projectLocation,
+        confirmedAt: new Date(),
+      },
+    });
     return { success: true, invoiceNumber };
   }
 
   async bulkConfirm(invoiceNumbers: string[]) {
-    const prefilled = this.loadPrefilled();
-    const confirmed = this.loadConfirmed();
-
-    let count = 0;
-    for (const invNum of invoiceNumbers) {
-      const invoice = prefilled.invoices.find((inv: any) => inv.invoice_number === invNum);
-      if (invoice && !confirmed[invNum]) {
-        confirmed[invNum] = {
-          review_status: 'confirmed',
-          lineItems: invoice.line_items,
-          projectLocation: invoice.project_location,
-          confirmedAt: new Date().toISOString(),
-        };
-        count++;
-      }
-    }
-
-    this.saveConfirmed(confirmed);
-    return { success: true, confirmed: count, total: invoiceNumbers.length };
+    const result = await this.prisma.importInvoice.updateMany({
+      where: {
+        organizationId: ORGANIZATION_ID,
+        invoiceNumber: { in: invoiceNumbers },
+        reviewStatus: 'pending',
+      },
+      data: {
+        reviewStatus: 'confirmed',
+        confirmedAt: new Date(),
+      },
+    });
+    return { success: true, confirmed: result.count, total: invoiceNumbers.length };
   }
 
   async skipInvoice(invoiceNumber: string, reason: string) {
-    const confirmed = this.loadConfirmed();
-    confirmed[invoiceNumber] = {
-      review_status: 'skipped',
-      reason,
-      skippedAt: new Date().toISOString(),
-    };
-    this.saveConfirmed(confirmed);
+    await this.prisma.importInvoice.update({
+      where: {
+        invoiceNumber_organizationId: {
+          invoiceNumber,
+          organizationId: ORGANIZATION_ID,
+        },
+      },
+      data: {
+        reviewStatus: 'skipped',
+        skipReason: reason,
+      },
+    });
     return { success: true, invoiceNumber };
   }
+
+  async resetInvoice(invoiceNumber: string) {
+    await this.prisma.importInvoice.update({
+      where: {
+        invoiceNumber_organizationId: {
+          invoiceNumber,
+          organizationId: ORGANIZATION_ID,
+        },
+      },
+      data: {
+        reviewStatus: 'pending',
+        confirmedAt: null,
+        skipReason: null,
+      },
+    });
+    return { success: true, invoiceNumber };
+  }
+
+  // ─── Asset / Customer / Project / Category queries ───
 
   async createAsset(body: {
     name: string;
@@ -194,7 +263,6 @@ export class ImportService {
     description?: string;
     minQuantity?: number;
   }) {
-    // If no categoryId but categoryName provided, find or create the category
     let categoryId = body.categoryId;
     if (!categoryId && body.categoryName) {
       const existing = await this.prisma.category.findFirst({
@@ -214,7 +282,7 @@ export class ImportService {
       throw new Error('Category is required');
     }
 
-    const asset = await this.prisma.asset.create({
+    return this.prisma.asset.create({
       data: {
         name: body.name,
         skuKey: body.skuKey,
@@ -228,7 +296,6 @@ export class ImportService {
       },
       include: { category: { select: { name: true } } },
     });
-    return asset;
   }
 
   async getAssets() {
@@ -273,11 +340,7 @@ export class ImportService {
 
   async createSiteOffice(body: { name: string; address?: string; customerId: string }) {
     return this.prisma.siteOffice.create({
-      data: {
-        name: body.name,
-        address: body.address,
-        customerId: body.customerId,
-      },
+      data: { name: body.name, address: body.address, customerId: body.customerId },
     });
   }
 
@@ -299,6 +362,8 @@ export class ImportService {
       },
     });
   }
+
+  // ─── Import single invoice (create document + inventory + assignments) ───
 
   async importSingleInvoice(body: {
     invoiceNumber: string;
@@ -346,7 +411,7 @@ export class ImportService {
       configItems.push({
         inventoryItemId: assetId,
         sku: li.selectedSku || '',
-        serialNumber: li.serialNumber || '',
+        serialNumbers: li.serialNumbers || [],
         description: li.description || '',
         quantity: li.quantity || 1,
         unitPrice: li.unit_price || 0,
@@ -356,10 +421,8 @@ export class ImportService {
       });
     }
 
-    // Map status
     const documentStatus = STATUS_MAP[body.status] || 'draft';
 
-    // Build config
     const config = {
       customerId: customer.id,
       customer: { id: customer.id, name: customer.name },
@@ -413,7 +476,7 @@ export class ImportService {
       });
 
       // Create Inventory items for each serial number
-      const serials: string[] = item.serialNumbers || (item.serialNumber ? [item.serialNumber] : []);
+      const serials: string[] = item.serialNumbers || [];
       for (const serial of serials) {
         if (!serial) continue;
 
@@ -446,10 +509,9 @@ export class ImportService {
       }
     }
 
-    // Create project assignments for inventory items
+    // Create project assignments
     if (body.projectId && createdInventoryIds.length > 0) {
       for (const invId of createdInventoryIds) {
-        // Check if assignment already exists
         const existingAssignment = await this.prisma.assignment.findUnique({
           where: { projectId_inventoryId: { projectId: body.projectId, inventoryId: invId } },
         });
@@ -458,7 +520,7 @@ export class ImportService {
             data: {
               projectId: body.projectId,
               inventoryId: invId,
-              startDate: body.startDate ? new Date(body.startDate) : undefined,
+              startDate: body.startDate && body.startDate !== '' ? new Date(body.startDate) : undefined,
               endDate: body.endDate && body.endDate !== '' ? new Date(body.endDate) : undefined,
             },
           });
@@ -469,148 +531,35 @@ export class ImportService {
     return { success: true, documentId: document.id, invoiceNumber: body.invoiceNumber };
   }
 
+  // ─── Batch run import (legacy) ───
   async runImport() {
-    const prefilled = this.loadPrefilled();
-    const confirmed = this.loadConfirmed();
-
-    const confirmedInvoices = prefilled.invoices.filter(
-      (inv: any) => confirmed[inv.invoice_number]?.review_status === 'confirmed',
-    );
+    const confirmedInvoices = await this.prisma.importInvoice.findMany({
+      where: { organizationId: ORGANIZATION_ID, reviewStatus: 'confirmed' },
+    });
 
     const results = { imported: 0, skipped: 0, errors: [] as string[] };
 
-    for (const invoice of confirmedInvoices) {
+    for (const inv of confirmedInvoices) {
       try {
-        const confirmedData = confirmed[invoice.invoice_number];
-
-        // Check for duplicate by invoice number (stored in name field)
-        const existing = await this.prisma.document.findFirst({
-          where: {
-            organizationId: ORGANIZATION_ID,
-            name: invoice.invoice_number,
-          },
+        const result = await this.importSingleInvoice({
+          invoiceNumber: inv.invoiceNumber,
+          date: inv.date || '',
+          customer: inv.customer || '',
+          status: inv.status || 'Draft',
+          source: inv.source || 'Receivable Invoice',
+          gross: inv.gross || 0,
+          balance: inv.balance || 0,
+          lineItems: inv.lineItems as any[],
+          projectLocation: inv.projectLocation || '',
         });
 
-        if (existing) {
+        if (result.success) {
+          results.imported++;
+        } else {
           results.skipped++;
-          continue;
         }
-
-        // Find customer by name
-        const customer = await this.prisma.customer.findFirst({
-          where: {
-            organizationId: ORGANIZATION_ID,
-            name: { equals: invoice.customer, mode: 'insensitive' },
-          },
-        });
-
-        if (!customer) {
-          results.errors.push(`${invoice.invoice_number}: Customer "${invoice.customer}" not found`);
-          continue;
-        }
-
-        // Find document template for INVOICE type
-        const template = await this.prisma.documentTemplate.findFirst({
-          where: {
-            organizationId: ORGANIZATION_ID,
-            OR: [
-              { type: 'INVOICE' },
-              { type: 'TI' },
-            ],
-          },
-        });
-
-        if (!template) {
-          results.errors.push(`${invoice.invoice_number}: No INVOICE/TI template found`);
-          continue;
-        }
-
-        // Resolve line items to asset IDs
-        const lineItems = confirmedData.lineItems || invoice.line_items;
-        const configItems: any[] = [];
-
-        for (let i = 0; i < lineItems.length; i++) {
-          const li = lineItems[i];
-          const sku = li.asset_match?.sku || li.item_code;
-          let assetId: string | null = null;
-
-          if (sku) {
-            const asset = await this.prisma.asset.findFirst({
-              where: {
-                organizationId: ORGANIZATION_ID,
-                skuKey: sku,
-              },
-            });
-            if (asset) {
-              assetId = asset.id;
-            }
-          }
-
-          configItems.push({
-            inventoryItemId: assetId,
-            sku: sku || '',
-            description: li.description || li.full_description || '',
-            quantity: li.quantity || 1,
-            unitPrice: li.unit_price || 0,
-            discount: li.discount || 0,
-            amount: li.gross || (li.quantity || 1) * (li.unit_price || 0),
-            uom: li.uom || 'PCS',
-          });
-        }
-
-        // Map xero status to document status
-        const documentStatus = STATUS_MAP[invoice.status] || 'draft';
-
-        // Build config JSON
-        const config = {
-          customerId: customer.id,
-          customer: { id: customer.id, name: customer.name },
-          date: new Date(invoice.date).toISOString(),
-          items: configItems,
-          xeroImported: true,
-          xeroInvoiceNumber: invoice.invoice_number,
-          xeroStatus: invoice.status,
-          xeroGross: invoice.gross,
-          xeroBalance: invoice.balance,
-        };
-
-        // Create Document
-        const document = await this.prisma.document.create({
-          data: {
-            name: invoice.invoice_number,
-            type: template.type,
-            documentTemplateId: template.id,
-            organizationId: ORGANIZATION_ID,
-            status: documentStatus as any,
-            config: config as any,
-          },
-        });
-
-        // Create DocumentItem records
-        for (let i = 0; i < configItems.length; i++) {
-          const item = configItems[i];
-          if (item.inventoryItemId) {
-            await this.prisma.documentItem.create({
-              data: {
-                documentId: document.id,
-                itemId: item.inventoryItemId,
-                itemType: 'ASSET',
-                sku: item.sku,
-                description: item.description,
-                quantity: item.quantity,
-                unitPrice: item.unitPrice,
-                discount: item.discount,
-                amount: item.amount,
-                uom: item.uom,
-                lineNumber: i + 1,
-              },
-            });
-          }
-        }
-
-        results.imported++;
-      } catch (error) {
-        results.errors.push(`${invoice.invoice_number}: ${error.message}`);
+      } catch (error: any) {
+        results.errors.push(`${inv.invoiceNumber}: ${error.message}`);
       }
     }
 
