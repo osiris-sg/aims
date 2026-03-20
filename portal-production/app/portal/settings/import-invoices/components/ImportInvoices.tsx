@@ -704,15 +704,27 @@ export default function ImportInvoices() {
 
                 {/* ── Asset/Service Form Fields (inline, pre-filled by AI) ── */}
                 <Box sx={{ ml: 4 }}>
-                  {li.isService ? (
-                    /* ── Service Item: simple display, no asset/serial/inventory ── */
-                    <Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
-                      <Chip label="Service" size="small" color="secondary" sx={{ height: 22 }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {li.selectedAssetName || "Service Item"} ({li.selectedSku || "—"})
-                      </Typography>
+                  {/* Toggle between Service and Product */}
+                  <Box sx={{ mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
+                    <Chip
+                      label={li.isService ? "Service" : "Product"}
+                      size="small"
+                      color={li.isService ? "secondary" : "primary"}
+                      onClick={() => isPending && updateLineItem(idx, "isService", !li.isService)}
+                      sx={{ height: 22, cursor: isPending ? "pointer" : "default" }}
+                    />
+                    {isPending && (
                       <Typography variant="caption" color="text.secondary">
-                        — No inventory tracking
+                        Click to switch to {li.isService ? "product (with inventory)" : "service (no inventory)"}
+                      </Typography>
+                    )}
+                  </Box>
+
+                  {li.isService ? (
+                    /* ── Service Item: just show name, no asset/serial/inventory ── */
+                    <Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
+                      <Typography variant="body2" color="text.secondary">
+                        {li.selectedAssetName || "Service Item"} ({li.selectedSku || "—"}) — No inventory tracking
                       </Typography>
                     </Box>
                   ) : (
