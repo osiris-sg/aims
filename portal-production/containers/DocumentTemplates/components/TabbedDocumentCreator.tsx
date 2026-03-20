@@ -57,6 +57,7 @@ import {
   Search as SearchIcon,
   LocalShipping as ReceiveIcon,
 } from "@mui/icons-material";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import CleanDocumentPreview from "./CleanDocumentPreview";
 import DocumentCustomizer from "./DocumentCustomizer";
 import DynamicFormFields from "./DynamicFormFields";
@@ -124,6 +125,7 @@ interface DocumentCreatorProps {
   onPrint?: () => void;
   existingData?: any;
   customers?: any[];
+  suppliers?: any[];
   projects?: any[];
   deliveryOrders?: any[];
   siteOffices?: any[];
@@ -148,6 +150,7 @@ export default function TabbedDocumentCreator({
   onPrint,
   existingData,
   customers = [],
+  suppliers = [],
   projects = [],
   deliveryOrders = [],
   siteOffices = [],
@@ -164,6 +167,8 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
+  const { isServiceItemsEnabled } = useOrganizationFeatures();
+
   // Check if we're in template edit mode
   const pathname = usePathname();
   const router = useRouter();
@@ -257,6 +262,7 @@ export default function TabbedDocumentCreator({
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const [customerFieldName, setCustomerFieldName] = useState<string>("customer"); // Track which field opened the dialog
   const [customerStoreMode, setCustomerStoreMode] = useState<"object" | "code">("object"); // How to store the selected customer
+  const [isSupplierDialog, setIsSupplierDialog] = useState(false); // Whether the dialog is for supplier selection
 
   // Salesman select dialog state
   const [salesmanDialogOpen, setSalesmanDialogOpen] = useState(false);
@@ -1993,12 +1999,12 @@ export default function TabbedDocumentCreator({
                     formData={formData}
                     setFormData={setFormData}
                     customers={customers}
+                    suppliers={suppliers}
                     projects={projects}
                     deliveryOrders={deliveryOrders}
                     siteOffices={siteOffices}
                     salesmen={salesmen}
                     onOpenCustomerDialog={(fieldName?: string) => {
-                      // If fieldName is not 'customer', it's a supplier field that stores just the code
                       if (fieldName && fieldName !== 'customer') {
                         setCustomerFieldName(fieldName);
                         setCustomerStoreMode("code");
@@ -2006,6 +2012,13 @@ export default function TabbedDocumentCreator({
                         setCustomerFieldName("customer");
                         setCustomerStoreMode("object");
                       }
+                      setIsSupplierDialog(false);
+                      setCustomerDialogOpen(true);
+                    }}
+                    onOpenSupplierDialog={(fieldName?: string) => {
+                      setCustomerFieldName(fieldName || "documentInfo.supplierCode");
+                      setCustomerStoreMode("code");
+                      setIsSupplierDialog(true);
                       setCustomerDialogOpen(true);
                     }}
                     onOpenSalesmanDialog={(fieldName?: string) => {
@@ -2996,8 +3009,8 @@ export default function TabbedDocumentCreator({
                         </TableBody>
                       </Table>
                       </TableContainer>
-                      {/* Add Item button - positioned right below the last row */}
-                      <Box sx={{ pt: 1, pl: 1 }}>
+                      {/* Add Item / Add Service buttons */}
+                      <Box sx={{ pt: 1, pl: 1, display: "flex", gap: 1 }}>
                         <Button
                           variant="contained"
                           startIcon={<AddIcon />}
@@ -3006,6 +3019,44 @@ export default function TabbedDocumentCreator({
                         >
                           Add Item
                         </Button>
+                        {isServiceItemsEnabled && (
+                          <Button
+                            variant="outlined"
+                            startIcon={<AddIcon />}
+                            onClick={() => {
+                              const newItem: any = {
+                                id: Date.now(),
+                                itemCode: "",
+                                inventoryItemId: "",
+                                description: "",
+                                quantity: 1,
+                                unitPrice: 0,
+                                amount: 0,
+                                isService: true,
+                              };
+                              // Add fields based on document type
+                              const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
+                              const isQuotationType = documentType === "QT" || documentType === "QUOTATION" || documentType === "QO" || documentType === "QO1" || documentType === "QO2";
+                              const isStockAdjType = documentType === "SAI" || documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_IN" || documentType === "STOCK_ADJUSTMENT_OUT";
+                              const isPOType = documentType === "PO" || documentType === "PURCHASE_ORDER";
+                              const isPRType = documentType === "PR" || documentType === "PURCHASE_RETURN";
+                              const isDOType = documentType === "DO" || documentType === "DELIVERY_ORDER" || documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER";
+                              const isCDNType = documentType === "CN" || documentType === "CREDIT_NOTE" || documentType === "DN" || documentType === "DEBIT_NOTE";
+                              const needsUom = isStockAdjType || isPOType || isPRType || isDOType || isCDNType || isQuotationType;
+                              if (needsUom) {
+                                newItem.uom = "";
+                                if (isStockAdjType || isPOType || isPRType) newItem.discount = 0;
+                                if (isStockAdjType || isPRType) newItem.receivedQty = 0;
+                              } else if (!isInvoiceType) {
+                                newItem.tax = 9;
+                              }
+                              setItems([...items, newItem]);
+                            }}
+                            size="small"
+                          >
+                            Add Service
+                          </Button>
+                        )}
                       </Box>
                     </Box>
 
@@ -3878,15 +3929,13 @@ export default function TabbedDocumentCreator({
         }}
       />
 
-      {/* Customer Select Dialog */}
+      {/* Customer/Supplier Select Dialog */}
       <CustomerSelectDialog
         open={customerDialogOpen}
         onClose={() => setCustomerDialogOpen(false)}
-        customers={customers}
+        customers={isSupplierDialog ? suppliers : customers}
         onSelectCustomer={(customer) => {
           if (customerStoreMode === "code") {
-            // For supplier field: store the customer code at the specified field path
-            // Also store supplier name and address for preview display
             const setNestedValue = (obj: any, path: string, value: any) => {
               const newObj = JSON.parse(JSON.stringify(obj));
               const parts = path.split('.');
@@ -3898,8 +3947,9 @@ export default function TabbedDocumentCreator({
               current[parts[parts.length - 1]] = value;
               return newObj;
             };
-            // Store the code at the specified path
-            let updatedFormData = setNestedValue(formData, customerFieldName, customer.customerCode || "");
+            // Store the code at the specified path (supplierCode for suppliers, customerCode for customers)
+            const code = isSupplierDialog ? ((customer as any).supplierCode || customer.customerCode || "") : (customer.customerCode || "");
+            let updatedFormData = setNestedValue(formData, customerFieldName, code);
             // Also store supplier name and address for PO/PR preview
             updatedFormData = setNestedValue(updatedFormData, "documentInfo.supplierName", customer.name || "");
             updatedFormData = setNestedValue(updatedFormData, "documentInfo.supplierAddress", customer.address || "");

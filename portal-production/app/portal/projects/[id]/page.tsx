@@ -157,11 +157,7 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
     }
   };
 
-  // Mock data for documents
-  const [documents, setDocuments] = useState<any[]>([
-    { id: "doc_1", name: "Safety Checklist", doc_id: "doc_1" },
-    { id: "doc_2", name: "Site Agreement", doc_id: "doc_2" },
-  ]);
+  // Documents are now fetched from the project relation
 
   // Add dialog state for document templates
   const [addDialogOpen, setAddDialogOpen] = useState(false);
@@ -364,20 +360,31 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
             <Table
               columns={[
                 {
-                  id: "id",
-                  accessorKey: "id",
-                  header: "Document ID",
+                  id: "name",
+                  accessorKey: "name",
+                  header: "Document No.",
+                  cell: (info: any) => info.getValue() || "-",
+                },
+                {
+                  id: "type",
+                  accessorKey: "type",
+                  header: "Type",
                   cell: (info: any) => info.getValue(),
                 },
                 {
-                  id: "name",
-                  accessorKey: "name",
-                  header: "Name",
-                  cell: ({ row }: any) => (
-                    <Box sx={{ minWidth: 150 }}>
-                      <Typography variant="body2">{row.original.name}</Typography>
-                    </Box>
-                  ),
+                  id: "status",
+                  accessorKey: "status",
+                  header: "Status",
+                  cell: (info: any) => info.getValue(),
+                },
+                {
+                  id: "createdAt",
+                  accessorKey: "createdAt",
+                  header: "Created",
+                  cell: (info: any) => {
+                    const value = info.getValue();
+                    return value ? new Date(value).toLocaleDateString() : "";
+                  },
                 },
               ]}
               data={project.documents || []}

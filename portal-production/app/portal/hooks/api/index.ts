@@ -16,5 +16,8 @@ export * from './usePayments';
 // Statements
 export * from './useStatements';
 
+// Suppliers
+export * from './useSuppliers';
+
 // Categories
 export * from './useCategories';

@@ -277,11 +277,13 @@ interface DynamicFormFieldsProps {
   formData: any;
   setFormData: (data: any) => void;
   customers?: any[];
+  suppliers?: any[];
   projects?: any[];
   deliveryOrders?: any[];
   siteOffices?: any[];
   salesmen?: Salesman[];
   onOpenCustomerDialog?: (fieldName?: string) => void;
+  onOpenSupplierDialog?: (fieldName?: string) => void;
   onOpenSalesmanDialog?: (fieldName?: string) => void;
 }
 
@@ -333,11 +335,13 @@ export default function DynamicFormFields({
   formData,
   setFormData,
   customers = [],
+  suppliers = [],
   projects = [],
   deliveryOrders = [],
   siteOffices = [],
   salesmen = [],
   onOpenCustomerDialog,
+  onOpenSupplierDialog,
   onOpenSalesmanDialog,
 }: DynamicFormFieldsProps) {
 
@@ -385,13 +389,13 @@ export default function DynamicFormFields({
         );
 
       case 'supplier':
-        // Supplier uses the same customer data but stores just the code in a specific field
+        // Supplier uses supplier data and stores just the code
         return (
           <CustomerCodeField
-            customers={customers}
+            customers={suppliers}
             formData={formData}
             setFormData={setFormData}
-            onOpenDialog={onOpenCustomerDialog}
+            onOpenDialog={onOpenSupplierDialog}
             inputSx={inputSx}
             fieldName={field.fieldName}
             storeMode="code"

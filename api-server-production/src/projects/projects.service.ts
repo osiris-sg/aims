@@ -96,6 +96,18 @@ export class ProjectsService {
               },
             },
           },
+          documents: {
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              status: true,
+              createdAt: true,
+            },
+            orderBy: {
+              createdAt: 'desc',
+            },
+          },
         },
       });
       if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
@@ -261,20 +273,24 @@ export class ProjectsService {
     }
   }
 
-  //   async deleteProject(deleteProjectDto: DeleteProjectDto, organizationId: string) {
-  //     try {
-  //       const project = await this.prisma.project.update({
-  //         where: {
-  //           id: deleteProjectDto.id,
-  //           organizationId
-  //         },
-  //         data: { deletedAt: new Date() },
-  //       });
-  //       return project;
-  //     } catch (error) {
-  //       throw new HttpException(error.message, error.status || HttpStatus.INTERNAL_SERVER_ERROR);
-  //     }
-  //   }
+  async deleteProject(id: string, organizationId: string) {
+    try {
+      // Delete assignments first
+      await this.prisma.assignment.deleteMany({
+        where: { projectId: id },
+      });
+
+      const project = await this.prisma.project.delete({
+        where: {
+          id,
+          organizationId,
+        },
+      });
+      return project;
+    } catch (error) {
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
 
   async createProjectByName(name: string, organizationId: string) {
     try {

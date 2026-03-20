@@ -68,5 +68,6 @@ export function useOrganizationFeatures() {
     isProjectsEnabled: features.enableProjects ?? true,
     isAnalyticsEnabled: features.enableAnalytics ?? true,
     isEditInventorySkuEnabled: features.enableEditInventorySku ?? false,
+    isServiceItemsEnabled: features.enableServiceItems ?? false,
   };
 }

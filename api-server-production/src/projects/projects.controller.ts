@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post, Body, HttpException, HttpStatus, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Body, Delete, HttpException, HttpStatus, Req, UseGuards } from '@nestjs/common';
 import { ProjectsService } from './projects.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { GetProjectDto } from './dto/get-project.dto';
@@ -80,6 +80,21 @@ export class ProjectsController {
     } catch (error) {
       console.error('Error adding assignments to project:', error);
       throw new HttpException('Failed to add assignments to project.', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  @Delete(':id')
+  @Permissions('projects:delete')
+  async deleteProject(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    try {
+      const organizationId = req.userOrganization?.id;
+      if (!organizationId) {
+        throw new Error('User is not assigned to any organization');
+      }
+      return await this.projectsService.deleteProject(id, organizationId);
+    } catch (error) {
+      console.error('Error occurred in deleteProject:', error);
+      throw new HttpException('An unexpected error occurred while deleting the project.', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 

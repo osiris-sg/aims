@@ -749,6 +749,7 @@ export class AdminService {
       { moduleCode: 'INVENTORY', displayName: 'Inventory', icon: 'Inventory', sortOrder: 20, config: { route: '/portal/inventory' } },
       { moduleCode: 'SALES', displayName: 'Sales', icon: 'ShoppingCart', sortOrder: 25, config: { route: '/portal/sales' } },
       { moduleCode: 'CUSTOMERS', displayName: 'Customers', icon: 'PeopleRounded', sortOrder: 30, config: { route: '/portal/customers' } },
+      { moduleCode: 'SUPPLIERS', displayName: 'Suppliers', icon: 'LocalShipping', sortOrder: 35, config: { route: '/portal/suppliers' } },
       { moduleCode: 'DOCUMENTS', displayName: 'Documents', icon: 'Description', sortOrder: 40, config: { route: '/portal/documents' } },
       { moduleCode: 'INVOICES', displayName: 'Invoices', icon: 'Receipt', sortOrder: 50, config: { route: '/portal/invoices' } },
       { moduleCode: 'PROJECTS', displayName: 'Projects', icon: 'AccountTree', sortOrder: 60, config: { route: '/portal/projects' } },

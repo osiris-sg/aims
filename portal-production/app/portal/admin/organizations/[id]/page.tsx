@@ -178,6 +178,7 @@ const DEFAULT_MODULES = [
   { code: "ASSETS", name: "Assets", icon: "AnalyticsRounded", route: "/portal/assets" },
   { code: "INVENTORY", name: "Inventory", icon: "Inventory", route: "/portal/inventory" },
   { code: "CUSTOMERS", name: "Customers", icon: "PeopleRounded", route: "/portal/customers" },
+  { code: "SUPPLIERS", name: "Suppliers", icon: "LocalShipping", route: "/portal/suppliers" },
   { code: "DOCUMENTS", name: "Documents", icon: "Description", route: "/portal/documents", subMenus: ['list', 'templates', 'extraction'] },
   { code: "INVOICES", name: "Invoices", icon: "AssignmentRounded", route: "/portal/invoices" },
   { code: "PROJECTS", name: "Projects", icon: "AccountTree", route: "/portal/projects" },
@@ -1598,7 +1599,17 @@ export default function OrganizationDetailPage() {
                   </AccordionSummary>
                   <AccordionDetails>
                     <List>
-                      {Object.entries(uiConfigForm.features || {}).map(([key, value]) => (
+                      {Object.entries({
+                        enableAssetTrackingMode: false,
+                        enableProjects: true,
+                        enableDocumentAI: true,
+                        enableCustomFields: true,
+                        enableAnalytics: true,
+                        enableXeroIntegration: false,
+                        enableEditInventorySku: false,
+                        enableServiceItems: false,
+                        ...uiConfigForm.features,
+                      }).map(([key, value]) => (
                         <ListItem key={key}>
                           <ListItemText primary={key} />
                           <ListItemSecondaryAction>

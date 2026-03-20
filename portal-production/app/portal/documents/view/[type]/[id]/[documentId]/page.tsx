@@ -7,7 +7,7 @@ import TabbedDocumentCreator from "@/containers/DocumentTemplates/components/Tab
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
-import { useGetCustomers } from "@/app/portal/hooks/api";
+import { useGetCustomers, useGetSuppliers } from "@/app/portal/hooks/api";
 import { useGetProjects } from "@/containers/DocumentTemplates/hooks/useGetProjects";
 import { useGetDeliveryOrders } from "@/containers/DocumentTemplates/hooks/useGetDeliveryOrders";
 import { useGetSiteOffices } from "@/containers/DocumentTemplates/hooks/useGetSiteOffices";
@@ -106,6 +106,7 @@ export default function ViewDocumentPage() {
 
   // Fetch related data
   const { customers = [] } = useGetCustomers({ limit: 1000 });
+  const { suppliers = [] } = useGetSuppliers({ limit: 1000 });
   const { projects } = useGetProjects(selectedCustomerId);
   const { deliveryOrders } = useGetDeliveryOrders(selectedCustomerId);
   const { siteOffices, fetchSiteOffices } = useGetSiteOffices();
@@ -173,6 +174,7 @@ export default function ViewDocumentPage() {
       templateId={documentMetadata?.documentTemplateId || (id as string)}
       existingData={existingData}
       customers={customersList}
+      suppliers={suppliers?.map((s: any) => ({ id: s.id, customerCode: s.supplierCode || "", supplierCode: s.supplierCode || "", name: s.name, address: s.address || "", phone: s.phone || "", email: s.email || "" })) || []}
       projects={projectsList}
       deliveryOrders={deliveryOrdersList}
       siteOffices={siteOfficesList}

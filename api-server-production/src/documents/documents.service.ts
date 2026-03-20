@@ -254,6 +254,8 @@ export class DocumentsService {
           // Update document status if provided
           status: dto.status, // DocumentStatus enum
           name: dto.name, // Update document name if provided
+          // Link to project if projectId exists in config
+          projectId: projectId || undefined,
         },
       });
 

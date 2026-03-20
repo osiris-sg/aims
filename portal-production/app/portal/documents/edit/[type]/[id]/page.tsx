@@ -8,7 +8,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
-import { useGetCustomers } from "@/app/portal/hooks/api";
+import { useGetCustomers, useGetSuppliers } from "@/app/portal/hooks/api";
 import { useGetProjects } from "@/containers/DocumentTemplates/hooks/useGetProjects";
 import { useGetDeliveryOrders } from "@/containers/DocumentTemplates/hooks/useGetDeliveryOrders";
 import { useGetSiteOffices } from "@/containers/DocumentTemplates/hooks/useGetSiteOffices";
@@ -65,6 +65,7 @@ export default function EditDocumentPage() {
 
   // Fetch data
   const { customers = [] } = useGetCustomers({ limit: 1000 });
+  const { suppliers = [] } = useGetSuppliers({ limit: 1000 });
   const { projects } = useGetProjects(selectedCustomerId); // Filter by customer
   const { deliveryOrders } = useGetDeliveryOrders(selectedCustomerId); // Filter by customer
   const { siteOffices, fetchSiteOffices } = useGetSiteOffices();
@@ -153,6 +154,7 @@ export default function EditDocumentPage() {
       onSave={handleSave}
       onPrint={handlePrint}
       customers={customersList}
+      suppliers={suppliers?.map((s: any) => ({ id: s.id, customerCode: s.supplierCode || "", supplierCode: s.supplierCode || "", name: s.name, address: s.address || "", phone: s.phone || "", email: s.email || "" })) || []}
       projects={projectsList}
       deliveryOrders={deliveryOrdersList}
       siteOffices={siteOfficesList}

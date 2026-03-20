@@ -1016,7 +1016,7 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
             displayLabel: "Supplier code",
             fieldType: "supplier",
             required: false,
-            dataSource: "customers",
+            dataSource: "suppliers",
           },
           {
             fieldName: "documentInfo.purchaserCode",
@@ -1213,7 +1213,7 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
             displayLabel: "Supplier code",
             fieldType: "supplier",
             required: false,
-            dataSource: "customers",
+            dataSource: "suppliers",
           },
           {
             fieldName: "documentInfo.purchaserCode",
@@ -1346,7 +1346,7 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
             displayLabel: "Supplier code",
             fieldType: "supplier",
             required: false,
-            dataSource: "customers",
+            dataSource: "suppliers",
           },
           {
             fieldName: "documentInfo.prepareBy",
@@ -1429,7 +1429,7 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
             displayLabel: "Supplier code",
             fieldType: "supplier",
             required: false,
-            dataSource: "customers",
+            dataSource: "suppliers",
           },
           {
             fieldName: "documentInfo.purchaserCode",
