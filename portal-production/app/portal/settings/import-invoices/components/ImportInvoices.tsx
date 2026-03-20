@@ -660,7 +660,25 @@ export default function ImportInvoices() {
                     </Tooltip>
                     <Box sx={{ display: "flex", gap: 3, alignItems: "center" }}>
                       <Typography variant="caption" color="text.secondary">
-                        Qty: <strong>{li.quantity ?? "—"}</strong>
+                        Qty:{" "}
+                        {isPending ? (
+                          <input
+                            type="number"
+                            value={li.quantity ?? 0}
+                            onChange={(e) => {
+                              const newQty = parseInt(e.target.value) || 0;
+                              updateLineItem(idx, "quantity", newQty);
+                              // Trim serial numbers array if qty decreased
+                              if (newQty < li.serialNumbers.length) {
+                                updateLineItem(idx, "serialNumbers", li.serialNumbers.slice(0, newQty));
+                              }
+                            }}
+                            min={0}
+                            style={{ width: 50, fontWeight: 700, border: "1px solid #ccc", borderRadius: 4, padding: "1px 4px", fontSize: 12 }}
+                          />
+                        ) : (
+                          <strong>{li.quantity ?? "—"}</strong>
+                        )}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
                         Unit: <strong>${li.unit_price?.toLocaleString("en-SG", { minimumFractionDigits: 2 }) ?? "—"}</strong>
