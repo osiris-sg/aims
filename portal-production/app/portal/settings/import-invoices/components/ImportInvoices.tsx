@@ -66,6 +66,7 @@ interface EditableLineItem {
   match_reason: string;
   location: string | null;
   isNewAsset: boolean;
+  isService: boolean; // true for SVC-* items — no serial numbers, no inventory creation
 }
 
 // ─── Editable invoice form state ───
@@ -142,6 +143,7 @@ function buildFormState(invoice: Invoice, customers: Customer[], projects: Proje
           match_reason: li.match_reason,
           location: li.location,
           isNewAsset: !matchedAsset && !!li.asset_match?.name,
+          isService: li.asset_match?.sku?.startsWith('SVC-') || li.asset_match?.category === 'Service' || false,
         };
       }),
   };
@@ -276,10 +278,11 @@ export default function ImportInvoices() {
         }
       }
 
-      // 3. Auto-create any new assets that don't exist in DB
+      // 3. Auto-create any new assets that don't exist in DB (skip services)
       const updatedItems = [...formState.lineItems];
       for (let i = 0; i < updatedItems.length; i++) {
         const li = updatedItems[i];
+        if (li.isService) continue; // Services don't need assets
         if (!li.selectedAssetId && li.selectedAssetName && li.selectedSku) {
           const created = await createAsset({
             name: li.selectedAssetName,
@@ -681,8 +684,21 @@ export default function ImportInvoices() {
                   </Box>
                 </Box>
 
-                {/* ── Asset Form Fields (inline, pre-filled by AI) ── */}
+                {/* ── Asset/Service Form Fields (inline, pre-filled by AI) ── */}
                 <Box sx={{ ml: 4 }}>
+                  {li.isService ? (
+                    /* ── Service Item: simple display, no asset/serial/inventory ── */
+                    <Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
+                      <Chip label="Service" size="small" color="secondary" sx={{ height: 22 }} />
+                      <Typography variant="body2" color="text.secondary">
+                        {li.selectedAssetName || "Service Item"} ({li.selectedSku || "—"})
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        — No inventory tracking
+                      </Typography>
+                    </Box>
+                  ) : (
+                  /* ── Asset Item: full form with serial numbers ── */
                   <Grid container spacing={1.5}>
                     {/* Existing Asset Dropdown */}
                     <Grid item xs={12}>
@@ -796,6 +812,7 @@ export default function ImportInvoices() {
                       </FormControl>
                     </Grid>
                   </Grid>
+                  )}
                 </Box>
               </Paper>
             ))}
