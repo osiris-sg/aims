@@ -380,12 +380,13 @@ export class ImportService {
     startDate?: string;
     endDate?: string;
   }) {
-    // Check for duplicate
+    // Check if document already exists — if so, update it
     const existing = await this.prisma.document.findFirst({
       where: { organizationId: ORGANIZATION_ID, name: body.invoiceNumber },
     });
+
     if (existing) {
-      return { success: false, message: 'Invoice already exists', documentId: existing.id };
+      return this.updateExistingInvoice(existing.id, body);
     }
 
     // Find customer
@@ -529,6 +530,145 @@ export class ImportService {
     }
 
     return { success: true, documentId: document.id, invoiceNumber: body.invoiceNumber };
+  }
+
+  // ─── Update an existing imported invoice ───
+  private async updateExistingInvoice(documentId: string, body: any) {
+    // Find customer
+    const customer = await this.prisma.customer.findFirst({
+      where: { organizationId: ORGANIZATION_ID, name: { equals: body.customer, mode: 'insensitive' } },
+    });
+    if (!customer) {
+      throw new Error(`Customer "${body.customer}" not found`);
+    }
+
+    // Build config items
+    const configItems: any[] = [];
+    for (const li of body.lineItems) {
+      const assetId = li.selectedAssetId || null;
+      configItems.push({
+        inventoryItemId: assetId,
+        sku: li.selectedSku || '',
+        serialNumbers: li.serialNumbers || [],
+        description: li.description || '',
+        quantity: li.quantity || 1,
+        unitPrice: li.unit_price || 0,
+        discount: 0,
+        amount: li.gross || (li.quantity || 1) * (li.unit_price || 0),
+        uom: li.assetUom || 'PCS',
+      });
+    }
+
+    const documentStatus = STATUS_MAP[body.status] || 'draft';
+
+    const config = {
+      customerId: customer.id,
+      customer: { id: customer.id, name: customer.name },
+      date: new Date(body.date).toISOString(),
+      items: configItems,
+      projectId: body.projectId || undefined,
+      projectLocation: body.projectLocation || undefined,
+      siteOfficeId: body.siteOfficeId || undefined,
+      xeroImported: true,
+      xeroInvoiceNumber: body.invoiceNumber,
+      xeroStatus: body.status,
+      xeroGross: body.gross,
+      xeroBalance: body.balance,
+    };
+
+    // Update document
+    await this.prisma.document.update({
+      where: { id: documentId },
+      data: {
+        status: documentStatus as any,
+        config: config as any,
+        projectId: body.projectId || undefined,
+      },
+    });
+
+    // Delete old DocumentItems and recreate
+    await this.prisma.documentItem.deleteMany({ where: { documentId } });
+
+    const createdInventoryIds: string[] = [];
+
+    for (let i = 0; i < configItems.length; i++) {
+      const item = configItems[i];
+      if (!item.inventoryItemId) continue;
+
+      await this.prisma.documentItem.create({
+        data: {
+          documentId,
+          itemId: item.inventoryItemId,
+          itemType: 'ASSET',
+          sku: item.sku,
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          discount: item.discount,
+          amount: item.amount,
+          uom: item.uom,
+          lineNumber: i + 1,
+        },
+      });
+
+      // Create/find inventory items for each serial
+      const serials: string[] = item.serialNumbers || [];
+      for (const serial of serials) {
+        if (!serial) continue;
+
+        const existingInv = await this.prisma.inventory.findFirst({
+          where: { sku: serial, organizationId: ORGANIZATION_ID },
+        });
+
+        let inventoryId: string;
+        if (existingInv) {
+          // Update location if changed
+          await this.prisma.inventory.update({
+            where: { id: existingInv.id },
+            data: { location: body.projectLocation || existingInv.location },
+          });
+          inventoryId = existingInv.id;
+        } else {
+          const asset = await this.prisma.asset.findUnique({
+            where: { id: item.inventoryItemId },
+            include: { category: true },
+          });
+          const inventory = await this.prisma.inventory.create({
+            data: {
+              assetId: item.inventoryItemId,
+              sku: serial,
+              category: asset?.category?.name || 'General',
+              status: 'rental',
+              organizationId: ORGANIZATION_ID,
+              location: body.projectLocation || undefined,
+            },
+          });
+          inventoryId = inventory.id;
+        }
+        createdInventoryIds.push(inventoryId);
+      }
+    }
+
+    // Update project assignments
+    if (body.projectId && createdInventoryIds.length > 0) {
+      for (const invId of createdInventoryIds) {
+        const existingAssignment = await this.prisma.assignment.findUnique({
+          where: { projectId_inventoryId: { projectId: body.projectId, inventoryId: invId } },
+        });
+        if (!existingAssignment) {
+          await this.prisma.assignment.create({
+            data: {
+              projectId: body.projectId,
+              inventoryId: invId,
+              startDate: body.startDate && body.startDate !== '' ? new Date(body.startDate) : undefined,
+              endDate: body.endDate && body.endDate !== '' ? new Date(body.endDate) : undefined,
+            },
+          });
+        }
+      }
+    }
+
+    return { success: true, documentId, invoiceNumber: body.invoiceNumber, updated: true };
   }
 
   // ─── Batch run import (legacy) ───

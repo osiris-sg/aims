@@ -315,9 +315,9 @@ export default function ImportInvoices() {
         endDate: formState.endDate || undefined,
       });
 
-      if (importResult?.success === false && importResult?.message === 'Invoice already exists') {
-        // Already imported — just mark as confirmed, don't show error
-      } else if (importResult) {
+      if (importResult?.updated) {
+        toast.success(`Updated ${currentInvoice.invoice_number}`);
+      } else if (importResult?.success) {
         toast.success(`Imported ${currentInvoice.invoice_number}`);
       }
 
@@ -351,6 +351,8 @@ export default function ImportInvoices() {
 
 
   const isPending = currentInvoice?.review_status === "pending";
+  const isConfirmed = currentInvoice?.review_status === "confirmed";
+  const isEditable = isPending || isConfirmed; // Both pending and confirmed are editable
 
   return (
     <Box sx={{ p: 4, width: "100%" }}>
@@ -508,7 +510,7 @@ export default function ImportInvoices() {
                         error={!formState.customerId}
                       />
                     )}
-                    disabled={!isPending}
+                    disabled={!isEditable}
                   />
                 </Grid>
 
@@ -546,7 +548,7 @@ export default function ImportInvoices() {
                     renderInput={(params) => (
                       <TextField {...params} label="Project / Location" placeholder="Type or select" />
                     )}
-                    disabled={!isPending}
+                    disabled={!isEditable}
                   />
                 </Grid>
 
@@ -606,7 +608,7 @@ export default function ImportInvoices() {
                     value={formState.startDate}
                     onChange={(e) => setFormState({ ...formState, startDate: e.target.value })}
                     InputLabelProps={{ shrink: true }}
-                    disabled={!isPending}
+                    disabled={!isEditable}
                   />
                 </Grid>
 
@@ -620,7 +622,7 @@ export default function ImportInvoices() {
                     value={formState.endDate}
                     onChange={(e) => setFormState({ ...formState, endDate: e.target.value })}
                     InputLabelProps={{ shrink: true }}
-                    disabled={!isPending}
+                    disabled={!isEditable}
                   />
                 </Grid>
               </Grid>
@@ -710,10 +712,10 @@ export default function ImportInvoices() {
                       label={li.isService ? "Service" : "Product"}
                       size="small"
                       color={li.isService ? "secondary" : "primary"}
-                      onClick={() => isPending && updateLineItem(idx, "isService", !li.isService)}
+                      onClick={() => isEditable && updateLineItem(idx, "isService", !li.isService)}
                       sx={{ height: 22, cursor: isPending ? "pointer" : "default" }}
                     />
-                    {isPending && (
+                    {isEditable && (
                       <Typography variant="caption" color="text.secondary">
                         Click to switch to {li.isService ? "product (with inventory)" : "service (no inventory)"}
                       </Typography>
@@ -755,7 +757,7 @@ export default function ImportInvoices() {
                             placeholder="Search by name or SKU..."
                           />
                         )}
-                        disabled={!isPending}
+                        disabled={!isEditable}
                       />
                     </Grid>
 
@@ -797,7 +799,7 @@ export default function ImportInvoices() {
                             updated[i] = e.target.value.toUpperCase();
                             updateLineItem(idx, "serialNumbers", updated);
                           }}
-                          disabled={!isPending}
+                          disabled={!isEditable}
                           placeholder={li.selectedSku ? `e.g. ${li.selectedSku}-${String(i + 1).padStart(3, "0")}` : "e.g. MG20250079"}
                           required
                           error={!li.serialNumbers[i]}
@@ -872,13 +874,15 @@ export default function ImportInvoices() {
             )}
 
             {/* ─── Action Buttons ─── */}
-            {isPending && (
+            {isEditable && (
               <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end", mt: 3, pt: 2, borderTop: "1px solid #eee" }}>
-                <Button variant="outlined" color="inherit" startIcon={<SkipNextIcon />} onClick={handleSkip}>
-                  Skip
-                </Button>
+                {isPending && (
+                  <Button variant="outlined" color="inherit" startIcon={<SkipNextIcon />} onClick={handleSkip}>
+                    Skip
+                  </Button>
+                )}
                 <Button variant="contained" color="success" startIcon={<CheckCircleIcon />} onClick={handleConfirm}>
-                  Confirm Invoice
+                  {isConfirmed ? "Update Invoice" : "Confirm Invoice"}
                 </Button>
               </Box>
             )}
