@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 
@@ -97,6 +97,8 @@ export interface SiteOffice {
 
 export function useImportData() {
   const { getToken } = useAuth();
+  const getTokenRef = useRef(getToken);
+  getTokenRef.current = getToken;
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -112,7 +114,7 @@ export function useImportData() {
   const [search, setSearch] = useState("");
 
   const fetchStats = useCallback(async () => {
-    const token = await getToken();
+    const token = await getTokenRef.current();
     if (!token) return;
     const res = await request({ path: "/import/stats", method: "GET" }, {}, token);
     if (res.success) {
@@ -120,11 +122,11 @@ export function useImportData() {
     } else {
       console.error("Failed to fetch stats:", res);
     }
-  }, [getToken]);
+  }, []);
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
-    const token = await getToken();
+    const token = await getTokenRef.current();
     if (!token) return;
 
     let apiPath = "/import/invoices";
@@ -155,36 +157,36 @@ export function useImportData() {
   }, [getToken, statusFilter, confidenceFilter, page, search]);
 
   const fetchAssets = useCallback(async () => {
-    const token = await getToken();
+    const token = await getTokenRef.current();
     if (!token) return;
     const res = await request({ path: "/import/assets", method: "GET" }, {}, token);
     if (res.success) setAssets(res.data || []);
-  }, [getToken]);
+  }, []);
 
   const fetchCustomers = useCallback(async () => {
-    const token = await getToken();
+    const token = await getTokenRef.current();
     if (!token) return;
     const res = await request({ path: "/import/customers", method: "GET" }, {}, token);
     if (res.success) setCustomers(res.data || []);
-  }, [getToken]);
+  }, []);
 
   const fetchProjects = useCallback(async () => {
-    const token = await getToken();
+    const token = await getTokenRef.current();
     if (!token) return;
     const res = await request({ path: "/import/projects", method: "GET" }, {}, token);
     if (res.success) setProjects(res.data || []);
-  }, [getToken]);
+  }, []);
 
   const fetchCategories = useCallback(async () => {
-    const token = await getToken();
+    const token = await getTokenRef.current();
     if (!token) return;
     const res = await request({ path: "/import/categories", method: "GET" }, {}, token);
     if (res.success) setCategories(res.data || []);
-  }, [getToken]);
+  }, []);
 
   const confirmInvoice = useCallback(
     async (invoiceNumber: string, lineItems: any[], projectLocation: string) => {
-      const token = await getToken();
+      const token = await getTokenRef.current();
       if (!token) return false;
       const res = await request(
         { path: "/import/confirm", method: "POST" },
@@ -197,12 +199,12 @@ export function useImportData() {
       }
       return false;
     },
-    [getToken, fetchStats]
+    [fetchStats]
   );
 
   const skipInvoice = useCallback(
     async (invoiceNumber: string, reason: string) => {
-      const token = await getToken();
+      const token = await getTokenRef.current();
       if (!token) return false;
       const res = await request(
         { path: "/import/skip", method: "POST" },
@@ -215,12 +217,12 @@ export function useImportData() {
       }
       return false;
     },
-    [getToken, fetchStats]
+    [fetchStats]
   );
 
   const bulkConfirm = useCallback(
     async (invoiceNumbers: string[]) => {
-      const token = await getToken();
+      const token = await getTokenRef.current();
       if (!token) return null;
       const res = await request(
         { path: "/import/bulk-confirm", method: "POST" },
@@ -234,22 +236,22 @@ export function useImportData() {
       }
       return null;
     },
-    [getToken, fetchStats, fetchInvoices]
+    [fetchStats, fetchInvoices]
   );
 
   const importSingleInvoice = useCallback(
     async (data: any) => {
-      const token = await getToken();
+      const token = await getTokenRef.current();
       if (!token) return null;
       const res = await request({ path: "/import/import-single", method: "POST" }, data, token);
       if (res.success) return res.data;
       return null;
     },
-    [getToken]
+    []
   );
 
   const runImport = useCallback(async () => {
-    const token = await getToken();
+    const token = await getTokenRef.current();
     if (!token) return null;
     const res = await request({ path: "/import/run-import", method: "POST" }, {}, token);
     if (res.success) {
@@ -257,7 +259,7 @@ export function useImportData() {
       return res.data;
     }
     return null;
-  }, [getToken, fetchStats]);
+  }, [fetchStats]);
 
   const createAsset = useCallback(
     async (data: {
@@ -271,7 +273,7 @@ export function useImportData() {
       description?: string;
       minQuantity?: number;
     }) => {
-      const token = await getToken();
+      const token = await getTokenRef.current();
       if (!token) return null;
       const res = await request({ path: "/import/create-asset", method: "POST" }, data, token);
       if (res.success) {
@@ -281,34 +283,34 @@ export function useImportData() {
       }
       return null;
     },
-    [getToken, fetchAssets, fetchCategories]
+    [fetchAssets, fetchCategories]
   );
 
   const fetchSiteOffices = useCallback(
     async (customerId: string): Promise<SiteOffice[]> => {
-      const token = await getToken();
+      const token = await getTokenRef.current();
       if (!token) return [];
       const res = await request({ path: `/import/site-offices/${customerId}`, method: "GET" }, {}, token);
       if (res.success) return res.data || [];
       return [];
     },
-    [getToken]
+    []
   );
 
   const createSiteOffice = useCallback(
     async (data: { name: string; address?: string; customerId: string }) => {
-      const token = await getToken();
+      const token = await getTokenRef.current();
       if (!token) return null;
       const res = await request({ path: "/import/create-site-office", method: "POST" }, data, token);
       if (res.success) return res.data;
       return null;
     },
-    [getToken]
+    []
   );
 
   const createProject = useCallback(
     async (data: { name: string; customerId: string; siteOfficeId?: string; startDate?: string; endDate?: string }) => {
-      const token = await getToken();
+      const token = await getTokenRef.current();
       if (!token) return null;
       const res = await request({ path: "/import/create-project", method: "POST" }, data, token);
       if (res.success) {
@@ -317,20 +319,24 @@ export function useImportData() {
       }
       return null;
     },
-    [getToken, fetchProjects]
+    [fetchProjects]
   );
 
+  // Load reference data once
   useEffect(() => {
     fetchStats();
     fetchAssets();
     fetchCustomers();
     fetchProjects();
     fetchCategories();
-  }, [fetchStats, fetchAssets, fetchCustomers, fetchProjects, fetchCategories]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
+  // Fetch invoices when filters change
   useEffect(() => {
     fetchInvoices();
-  }, [fetchInvoices]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, confidenceFilter, page, search]);
 
   return {
     invoices,

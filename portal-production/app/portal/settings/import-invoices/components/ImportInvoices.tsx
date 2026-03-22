@@ -200,20 +200,29 @@ export default function ImportInvoices() {
 
   const currentInvoice = invoices[currentIndex];
 
-  // Build form state when invoice changes
+  // Build form state when invoice changes — only for pending invoices
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
-    if (currentInvoice && customers.length > 0) {
+    if (!currentInvoice) {
+      setFormState(null);
+      return;
+    }
+    // Only build editable form for pending invoices
+    if (currentInvoice.review_status !== "pending") {
+      setFormState(null);
+      setSiteOffices([]);
+      return;
+    }
+    if (customers.length > 0) {
       const state = buildFormState(currentInvoice, customers, projects, assets);
       setFormState(state);
-      // Load site offices for matched customer
+      setSiteOffices([]);
       if (state.customerId) {
         fetchSiteOffices(state.customerId).then(setSiteOffices);
-      } else {
-        setSiteOffices([]);
       }
     }
-  }, [currentIndex, currentInvoice?.invoice_number, customers.length, assets.length, projects.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex, currentInvoice?.invoice_number]);
 
   const referenceLines = currentInvoice?.line_items.filter((li) => li.is_reference_line) || [];
 
@@ -315,9 +324,9 @@ export default function ImportInvoices() {
         endDate: formState.endDate || undefined,
       });
 
-      if (importResult?.updated) {
-        toast.success(`Updated ${currentInvoice.invoice_number}`);
-      } else if (importResult?.success) {
+      if (importResult?.success === false && importResult?.message === 'Invoice already exists') {
+        // Already imported — just mark as confirmed, don't show error
+      } else if (importResult) {
         toast.success(`Imported ${currentInvoice.invoice_number}`);
       }
 
@@ -351,8 +360,6 @@ export default function ImportInvoices() {
 
 
   const isPending = currentInvoice?.review_status === "pending";
-  const isConfirmed = currentInvoice?.review_status === "confirmed";
-  const isEditable = isPending || isConfirmed; // Both pending and confirmed are editable
 
   return (
     <Box sx={{ p: 4, width: "100%" }}>
@@ -455,7 +462,48 @@ export default function ImportInvoices() {
         </Box>
       )}
 
-      {/* Current Invoice Form */}
+      {/* Current Invoice — Read-only view for confirmed/skipped */}
+      {currentInvoice && !formState ? (
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 2 }}>
+              <Box>
+                <Typography variant="h5" sx={{ fontWeight: 700 }}>{currentInvoice.invoice_number}</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {new Date(currentInvoice.date).toLocaleDateString("en-SG", { year: "numeric", month: "long", day: "numeric" })}
+                </Typography>
+              </Box>
+              <Box sx={{ display: "flex", gap: 1 }}>
+                <Chip label={currentInvoice.status} size="small" color={currentInvoice.status === "Paid" ? "success" : "primary"} />
+                <Chip label={currentInvoice.review_status} size="small" color={currentInvoice.review_status === "confirmed" ? "success" : "default"} />
+              </Box>
+            </Box>
+
+            <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 2, mb: 2 }}>
+              <Box><Typography variant="caption" color="text.secondary">Customer</Typography><Typography variant="body2" sx={{ fontWeight: 500 }}>{currentInvoice.customer}</Typography></Box>
+              <Box><Typography variant="caption" color="text.secondary">Gross</Typography><Typography variant="body2" sx={{ fontWeight: 500 }}>${currentInvoice.gross?.toLocaleString("en-SG", { minimumFractionDigits: 2 })}</Typography></Box>
+              <Box><Typography variant="caption" color="text.secondary">Balance</Typography><Typography variant="body2" sx={{ fontWeight: 500 }}>${currentInvoice.balance?.toLocaleString("en-SG", { minimumFractionDigits: 2 })}</Typography></Box>
+              <Box><Typography variant="caption" color="text.secondary">Project</Typography><Typography variant="body2" sx={{ fontWeight: 500 }}>{(currentInvoice as any).project_name || currentInvoice.project_location || "—"}</Typography></Box>
+            </Box>
+
+            <Divider sx={{ mb: 2 }} />
+
+            {/* Line items - simple list */}
+            {(currentInvoice.line_items as any[])?.filter((li: any) => !li.is_reference_line).map((li: any, idx: number) => (
+              <Box key={idx} sx={{ p: 1.5, mb: 1, borderLeft: "3px solid #2e7d32", bgcolor: "rgba(46,125,50,0.03)", borderRadius: 1 }}>
+                <Typography variant="body2" sx={{ fontSize: 13, mb: 0.5 }}>{li.description?.split("\n")[0]?.slice(0, 150)}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Qty: {li.quantity} | ${li.unit_price?.toLocaleString("en-SG", { minimumFractionDigits: 2 })} | Gross: ${li.gross?.toLocaleString("en-SG", { minimumFractionDigits: 2 })}
+                  {li.asset_match?.name ? ` | Asset: ${li.asset_match.name} (${li.asset_match.sku})` : ""}
+                  {li.serial_numbers?.length ? ` | S/N: ${li.serial_numbers.join(", ")}` : li.serialNumbers?.length ? ` | S/N: ${li.serialNumbers.join(", ")}` : ""}
+                </Typography>
+              </Box>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Current Invoice — Editable form for pending */}
       {currentInvoice && formState ? (
         <Card sx={{ mb: 3 }}>
           <CardContent>
@@ -510,7 +558,7 @@ export default function ImportInvoices() {
                         error={!formState.customerId}
                       />
                     )}
-                    disabled={!isEditable}
+                    disabled={!isPending}
                   />
                 </Grid>
 
@@ -548,7 +596,7 @@ export default function ImportInvoices() {
                     renderInput={(params) => (
                       <TextField {...params} label="Project / Location" placeholder="Type or select" />
                     )}
-                    disabled={!isEditable}
+                    disabled={!isPending}
                   />
                 </Grid>
 
@@ -608,7 +656,7 @@ export default function ImportInvoices() {
                     value={formState.startDate}
                     onChange={(e) => setFormState({ ...formState, startDate: e.target.value })}
                     InputLabelProps={{ shrink: true }}
-                    disabled={!isEditable}
+                    disabled={!isPending}
                   />
                 </Grid>
 
@@ -622,7 +670,7 @@ export default function ImportInvoices() {
                     value={formState.endDate}
                     onChange={(e) => setFormState({ ...formState, endDate: e.target.value })}
                     InputLabelProps={{ shrink: true }}
-                    disabled={!isEditable}
+                    disabled={!isPending}
                   />
                 </Grid>
               </Grid>
@@ -712,10 +760,10 @@ export default function ImportInvoices() {
                       label={li.isService ? "Service" : "Product"}
                       size="small"
                       color={li.isService ? "secondary" : "primary"}
-                      onClick={() => isEditable && updateLineItem(idx, "isService", !li.isService)}
+                      onClick={() => isPending && updateLineItem(idx, "isService", !li.isService)}
                       sx={{ height: 22, cursor: isPending ? "pointer" : "default" }}
                     />
-                    {isEditable && (
+                    {isPending && (
                       <Typography variant="caption" color="text.secondary">
                         Click to switch to {li.isService ? "product (with inventory)" : "service (no inventory)"}
                       </Typography>
@@ -757,7 +805,7 @@ export default function ImportInvoices() {
                             placeholder="Search by name or SKU..."
                           />
                         )}
-                        disabled={!isEditable}
+                        disabled={!isPending}
                       />
                     </Grid>
 
@@ -799,7 +847,7 @@ export default function ImportInvoices() {
                             updated[i] = e.target.value.toUpperCase();
                             updateLineItem(idx, "serialNumbers", updated);
                           }}
-                          disabled={!isEditable}
+                          disabled={!isPending}
                           placeholder={li.selectedSku ? `e.g. ${li.selectedSku}-${String(i + 1).padStart(3, "0")}` : "e.g. MG20250079"}
                           required
                           error={!li.serialNumbers[i]}
@@ -874,15 +922,13 @@ export default function ImportInvoices() {
             )}
 
             {/* ─── Action Buttons ─── */}
-            {isEditable && (
+            {isPending && (
               <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end", mt: 3, pt: 2, borderTop: "1px solid #eee" }}>
-                {isPending && (
-                  <Button variant="outlined" color="inherit" startIcon={<SkipNextIcon />} onClick={handleSkip}>
-                    Skip
-                  </Button>
-                )}
+                <Button variant="outlined" color="inherit" startIcon={<SkipNextIcon />} onClick={handleSkip}>
+                  Skip
+                </Button>
                 <Button variant="contained" color="success" startIcon={<CheckCircleIcon />} onClick={handleConfirm}>
-                  {isConfirmed ? "Update Invoice" : "Confirm Invoice"}
+                  Confirm Invoice
                 </Button>
               </Box>
             )}
