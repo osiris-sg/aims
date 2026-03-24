@@ -120,10 +120,21 @@ function buildFormState(invoice: Invoice, customers: Customer[], projects: Proje
     lineItems: invoice.line_items
       .filter((li) => !li.is_reference_line)
       .map((li) => {
-        // Try to find existing asset by SKU
-        const matchedAsset = li.asset_match?.sku
-          ? assets.find((a) => a.skuKey === li.asset_match!.sku)
+        // Try to find existing asset by SKU — verify it actually exists in current assets list
+        const sku = li.asset_match?.sku || (li as any).selectedSku || "";
+        const storedAssetId = (li as any).selectedAssetId || "";
+        // Only use storedAssetId if the asset actually exists in the current assets list
+        const matchedAsset = sku
+          ? assets.find((a) => a.skuKey === sku)
+          : storedAssetId
+          ? assets.find((a) => a.id === storedAssetId)
           : null;
+
+        const assetName = matchedAsset?.name || (li as any).selectedAssetName || li.asset_match?.name || "";
+        const assetSku = matchedAsset?.skuKey || (li as any).selectedSku || li.asset_match?.sku || "";
+        const category = matchedAsset?.category?.name || (li as any).assetCategory || li.asset_match?.category || "";
+        const serials = (li as any).serialNumbers || (li as any).serial_numbers || ((li as any).serial_number ? [(li as any).serial_number] : []);
+        const isService = assetSku.startsWith('SVC-') || category === 'Service' || (li as any).isService || false;
 
         return {
           description: li.description,
@@ -132,20 +143,20 @@ function buildFormState(invoice: Invoice, customers: Customer[], projects: Proje
           gross: li.gross,
           is_reference_line: false,
           selectedAssetId: matchedAsset?.id || "",
-          selectedAssetName: matchedAsset?.name || li.asset_match?.name || "",
-          selectedSku: matchedAsset?.skuKey || li.asset_match?.sku || "",
-          serialNumbers: (li as any).serial_numbers || ((li as any).serial_number ? [(li as any).serial_number] : []),
-          assetCategory: matchedAsset?.category?.name || li.asset_match?.category || "",
-          assetCategoryId: matchedAsset?.categoryId || "",
-          assetUom: matchedAsset?.uom || "PCS",
+          selectedAssetName: assetName,
+          selectedSku: assetSku,
+          serialNumbers: serials,
+          assetCategory: category,
+          assetCategoryId: matchedAsset?.categoryId || (li as any).assetCategoryId || "",
+          assetUom: matchedAsset?.uom || (li as any).assetUom || "PCS",
           assetPrice: matchedAsset?.price?.toString() || li.unit_price?.toString() || "",
           assetDescription: "",
           confidence: li.confidence,
           match_reason: li.match_reason,
           location: li.location,
-          isNewAsset: !matchedAsset && !!li.asset_match?.name,
-          isService: li.asset_match?.sku?.startsWith('SVC-') || li.asset_match?.category === 'Service' || false,
-          hasSerialNumber: !!((li as any).serial_numbers?.length || (li as any).serial_number),
+          isNewAsset: !matchedAsset && !!assetName,
+          isService,
+          hasSerialNumber: serials.length > 0,
         };
       }),
   };
@@ -447,16 +458,17 @@ export default function ImportInvoices() {
           <TextField
             size="small"
             sx={{ width: 300 }}
-            label="Search invoice or customer"
+            label="Search invoice or customer (press Enter)"
             placeholder="e.g. BI202509041"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-              setCurrentIndex(0);
-            }}
+            defaultValue={search}
             onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                setSearch((e.target as HTMLInputElement).value);
+                setPage(1);
+                setCurrentIndex(0);
+              }
               if (e.key === "Escape") {
+                (e.target as HTMLInputElement).value = "";
                 setSearch("");
                 setPage(1);
                 setCurrentIndex(0);
@@ -467,6 +479,11 @@ export default function ImportInvoices() {
             <Button size="small" onClick={() => { setSearch(""); setPage(1); setCurrentIndex(0); }}>
               Clear
             </Button>
+          )}
+          {!search && (
+            <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+              Press Enter to search
+            </Typography>
           )}
         </Box>
       )}

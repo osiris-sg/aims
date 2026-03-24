@@ -84,7 +84,8 @@ export class ImportService {
   ) {
     const where: any = { organizationId: ORGANIZATION_ID };
 
-    if (status) {
+    // When searching, ignore status filter to find across all tabs
+    if (status && !search) {
       where.reviewStatus = status;
     }
 
