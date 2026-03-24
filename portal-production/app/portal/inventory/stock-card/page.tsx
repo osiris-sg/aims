@@ -81,58 +81,46 @@ export default function InventoryStockCardPage() {
       const token = await getToken();
       if (!token) return;
 
-      if (isAssetTrackingModeEnabled) {
-        // Fetch inventory items
-        const response = await request(
-          {
-            path: "/inventories",
-            method: "POST",
-          },
-          {
-            status: "all",
-            page: 1,
-            limit: 500,
-          },
-          token
-        );
-
-        const items = response?.data?.docs || [];
-        setInventoryItems(items);
-      } else {
-        // Fetch assets/products
-        const response = await request(
-          {
-            path: "/assets",
-            method: "POST",
-          },
-          {
-            page: 1,
-            limit: 500,
-          },
-          token
-        );
-
-        const assets = response?.data?.docs || [];
-        // Map assets to inventory item format
-        const mappedAssets = assets.map((asset: any) => ({
+      // Fetch assets/products
+      const assetsResponse = await request(
+        { path: "/assets", method: "POST" },
+        { page: 1, limit: 500 },
+        token
+      );
+      const assets = assetsResponse?.data?.docs || [];
+      const mappedAssets = assets.map((asset: any) => ({
+        id: asset.id,
+        sku: asset.skuKey,
+        name: asset.name,
+        description: asset.description || asset.name,
+        category: asset.category?.name || "",
+        categoryName: asset.category?.name || "",
+        quantity: asset.quantity ?? asset.stockCount ?? 0,
+        minQuantity: asset.minQuantity,
+        unitPrice: asset.price,
+        status: asset.quantity > 0 ? "available" : "out_of_stock",
+        assetId: asset.id,
+        asset: {
           id: asset.id,
-          sku: asset.skuKey,
           name: asset.name,
-          description: asset.description || asset.name,
-          category: asset.category?.name || "",
-          categoryName: asset.category?.name || "",
-          quantity: asset.quantity ?? asset.stockCount ?? 0,
-          minQuantity: asset.minQuantity,
-          unitPrice: asset.price,
-          status: asset.quantity > 0 ? "available" : "out_of_stock",
-          assetId: asset.id,
-          asset: {
-            id: asset.id,
-            name: asset.name,
-            description: asset.description,
-            category: asset.category,
-          },
-        }));
+          description: asset.description,
+          category: asset.category,
+        },
+      }));
+
+      if (isAssetTrackingModeEnabled) {
+        // Also fetch tracked inventory items and merge
+        const invResponse = await request(
+          { path: "/inventories", method: "POST" },
+          { status: "all", page: 1, limit: 500 },
+          token
+        );
+        const trackedItems = invResponse?.data?.docs || [];
+        // Exclude untracked assets that have tracked inventory items
+        const trackedAssetIds = new Set(trackedItems.map((inv: any) => inv.assetId));
+        const untrackedAssets = mappedAssets.filter((a: any) => !trackedAssetIds.has(a.assetId));
+        setInventoryItems([...untrackedAssets, ...trackedItems]);
+      } else {
         setInventoryItems(mappedAssets);
       }
     } catch (error) {

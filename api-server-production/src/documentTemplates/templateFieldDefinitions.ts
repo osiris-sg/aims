@@ -226,7 +226,7 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
             displayLabel: "Currency",
             fieldType: "select",
             required: false,
-            defaultValue: "USD",
+            defaultValue: "SGD",
             dataSource: "currencies",
           },
           {

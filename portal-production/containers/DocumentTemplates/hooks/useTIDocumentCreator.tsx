@@ -141,6 +141,17 @@ export default function useTIDocumentCreator() {
           keepDefaultValues: false,
         }
       );
+      // For Xero imports, explicitly set documentInfo values that may be overridden by form defaults
+      console.log("=== IMPORT DEBUG ===");
+      console.log("document.config.documentInfo:", JSON.stringify(document.config.documentInfo));
+      console.log("document.config.xeroImported:", document.config.xeroImported);
+      if (document.config.documentInfo) {
+        const di = document.config.documentInfo;
+        console.log("Setting gstPercent:", di.gstPercent, "currency:", di.currency);
+        if (di.gstPercent !== undefined) setValue("documentInfo.gstPercent", di.gstPercent);
+        if (di.currency) setValue("documentInfo.currency", di.currency);
+      }
+
       // Also populate company and gstRegNo from document.organization
       if (document?.organization) {
         setValue("company.name", document.organization.name || "", { shouldDirty: true });

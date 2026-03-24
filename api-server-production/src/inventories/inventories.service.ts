@@ -298,6 +298,14 @@ export class InventoriesService {
         skipDuplicates: true,
       });
 
+      // Auto-upgrade asset to tracked mode when inventory items are created
+      if (!asset.isTracked) {
+        await this.prisma.asset.update({
+          where: { id: assetId },
+          data: { isTracked: true },
+        });
+      }
+
       return { createdItems, skuRange, inventoryItems };
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);

@@ -178,7 +178,11 @@ export function transformBackendDataForForm(
         // Determine where to read the value from in config
         // Use storagePath if specified, otherwise use the fieldName
         const storageKey = field.storagePath || field.fieldName.split('.').pop() || field.fieldName;
-        const value = backendData[storageKey];
+        // Check flat key first, then check nested path (e.g. documentInfo.gstPercent)
+        let value = backendData[storageKey];
+        if (value === undefined && field.fieldName.includes('.')) {
+          value = getNestedValue(backendData, field.fieldName);
+        }
 
         // Debug logging for all fields
         console.log(`Field: ${field.fieldName}`, {

@@ -99,16 +99,19 @@ export default function ProductsPage() {
     },
     {
       id: "stockCount",
-      accessorFn: (row: any) => isAssetTrackingModeEnabled ? (row.instockInventoryCount ?? 0) : (row.quantity ?? 0),
-      header: isAssetTrackingModeEnabled ? "In Stock" : "Quantity",
+      accessorFn: (row: any) => {
+        // If asset has inventory items, show instock count; otherwise show quantity
+        const hasInventory = (row.instockInventoryCount ?? 0) > 0 || row.isTracked === true;
+        return hasInventory ? (row.instockInventoryCount ?? 0) : (row.quantity ?? 0);
+      },
+      header: "Stock",
       enableSorting: true,
       cell: ({ row }: any) => {
-        const count = isAssetTrackingModeEnabled
-          ? row.original.instockInventoryCount
-          : row.original.quantity;
+        const hasInventory = (row.original.instockInventoryCount ?? 0) > 0 || row.original.isTracked === true;
+        const count = hasInventory ? (row.original.instockInventoryCount ?? 0) : (row.original.quantity ?? 0);
         return (
           <Typography variant="body2">
-            {count ?? 0} {isAssetTrackingModeEnabled ? "in stock" : "units"}
+            {count ?? 0} {hasInventory ? "in stock" : "units"}
           </Typography>
         );
       },

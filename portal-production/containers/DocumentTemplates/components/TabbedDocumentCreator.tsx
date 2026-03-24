@@ -378,7 +378,7 @@ export default function TabbedDocumentCreator({
       soNo: existingData?.documentInfo?.soNo || existingData?.soNo || "",
       page: existingData?.documentInfo?.page || existingData?.page || "1",
       paymentTerms: existingData?.documentInfo?.paymentTerms || existingData?.paymentTerms || "0 DAYS",
-      currency: existingData?.documentInfo?.currency || existingData?.currency || "USD",
+      currency: existingData?.documentInfo?.currency || existingData?.currency || "SGD",
       qinRef: existingData?.documentInfo?.qinRef || existingData?.qinRef || "",
       // Additional fields for quotation extraction
       contact: existingData?.documentInfo?.contact || existingData?.contact || "",
@@ -555,6 +555,27 @@ export default function TabbedDocumentCreator({
     }
   }, [organization, formData.company?.gstRegNo]);
 
+  // Sync documentInfo fields from existingData when it loads async
+  useEffect(() => {
+    if (existingData?.documentInfo) {
+      console.log("=== SYNC documentInfo from existingData ===");
+      console.log("existingData.documentInfo:", JSON.stringify(existingData.documentInfo));
+      console.log("existingData.documentInfo.gstPercent:", existingData.documentInfo.gstPercent);
+      console.log("existingData.documentInfo.currency:", existingData.documentInfo.currency);
+      setFormData((prev: any) => {
+        const merged = {
+          ...prev,
+          documentInfo: {
+            ...prev.documentInfo,
+            ...existingData.documentInfo,
+          },
+        };
+        console.log("merged documentInfo.gstPercent:", merged.documentInfo.gstPercent);
+        return merged;
+      });
+    }
+  }, [existingData?.documentInfo]);
+
   // Function to check if form has changes compared to initial state
   const hasFormChanges = useCallback((): boolean => {
     if (!initialFormStateRef.current) return false;
@@ -702,10 +723,11 @@ export default function TabbedDocumentCreator({
   const isCreditDebitNote = documentType === "CN" || documentType === "CREDIT_NOTE" || documentType === "DN" || documentType === "DEBIT_NOTE";
   const subtotal = items.reduce((acc: number, item: any) => acc + (item.amount || 0), 0);
 
-  // For invoices, use organization tax rate; for others, use item-level tax
-  const totalTax = isInvoiceType
+  // For invoices: use per-item tax if available (Xero imports), else org tax rate
+  const hasItemLevelTax = isInvoiceType && items.some((item: any) => item.tax !== undefined && item.tax !== null && item.tax !== "");
+  const totalTax = isInvoiceType && !hasItemLevelTax
     ? subtotal * ((organization?.taxRate || 9) / 100)
-    : items.reduce((acc: number, item: any) => acc + (item.amount || 0) * ((item.tax || 0) / 100), 0);
+    : items.reduce((acc: number, item: any) => acc + (item.amount || 0) * (parseFloat(item.tax || "0") / 100), 0);
 
   const total = subtotal + totalTax;
 
@@ -3088,7 +3110,7 @@ export default function TabbedDocumentCreator({
                                 </Box>
                                 <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
                                   <Typography variant="body2">
-                                    Tax{isInvoiceType ? ` (${organization?.taxRate || 9}%)` : ''}:
+                                    Tax{isInvoiceType ? ` (${hasItemLevelTax && items[0]?.tax ? `${items[0].tax}%` : `${organization?.taxRate || 9}%`})` : ''}:
                                   </Typography>
                                   <Typography variant="body2">SGD {totalTax.toFixed(2)}</Typography>
                                 </Box>

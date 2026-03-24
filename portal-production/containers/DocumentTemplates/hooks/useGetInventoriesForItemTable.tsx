@@ -128,7 +128,7 @@ export const useGetInventoriesForItemTable = () => {
 
     let inventories: any[] = [];
 
-    // In Products mode (tracking OFF), fetch assets/products instead of inventory items
+    // In Products mode (tracking OFF), fetch assets/products only
     console.log("useGetInventoriesForItemTable - isAssetTrackingModeEnabled:", isAssetTrackingModeEnabled);
     if (!isAssetTrackingModeEnabled) {
       inventories = await fetchAssets();
@@ -136,14 +136,24 @@ export const useGetInventoriesForItemTable = () => {
       return inventories;
     }
 
-    // In Assets mode (tracking ON), fetch inventory items as usual
+    // In Assets mode (tracking ON), fetch BOTH:
+    // 1. Untracked assets (products without inventory items)
+    // 2. Tracked inventory items
+    const untrackedAssets = (await fetchAssets()).filter((a: any) => a.quantity !== undefined);
+
+    let trackedInventories: any[] = [];
     if (type === "RDO") {
-      inventories = await fetchInventoriesByStatus("rental");
+      trackedInventories = await fetchInventoriesByStatus("rental");
     } else if (type === "DO") {
-      inventories = await fetchInventoriesByStatus("instock");
+      trackedInventories = await fetchInventoriesByStatus("instock");
     } else {
-      inventories = await fetchAllInventories();
+      trackedInventories = await fetchAllInventories();
     }
+
+    // Merge: exclude untracked assets that already have tracked inventory items
+    const trackedAssetIds = new Set(trackedInventories.map((inv: any) => inv.assetId));
+    const uniqueUntrackedAssets = untrackedAssets.filter((a: any) => !trackedAssetIds.has(a.assetId));
+    inventories = [...uniqueUntrackedAssets, ...trackedInventories];
 
     // Also fetch inventory items that are used in the current document
     // This ensures that items show up in dropdown even if their status has changed

@@ -865,6 +865,10 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           const currency = data.documentInfo?.currency || "SGD";
           const discountPercent = data.documentInfo?.discount || 0;
           const gstPercent = data.documentInfo?.gstPercent || 9;
+          console.log("=== CleanDocumentPreview GST DEBUG ===");
+          console.log("data.documentInfo:", JSON.stringify(data.documentInfo));
+          console.log("data.documentInfo?.gstPercent:", data.documentInfo?.gstPercent);
+          console.log("resolved gstPercent:", gstPercent);
 
           // Calculate values
           const grossTotal = subtotal;

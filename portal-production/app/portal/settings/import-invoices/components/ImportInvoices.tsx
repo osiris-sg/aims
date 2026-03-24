@@ -67,6 +67,7 @@ interface EditableLineItem {
   location: string | null;
   isNewAsset: boolean;
   isService: boolean; // true for SVC-* items — no serial numbers, no inventory creation
+  hasSerialNumber: boolean; // false = asset only, no inventory item created
 }
 
 // ─── Editable invoice form state ───
@@ -144,6 +145,7 @@ function buildFormState(invoice: Invoice, customers: Customer[], projects: Proje
           location: li.location,
           isNewAsset: !matchedAsset && !!li.asset_match?.name,
           isService: li.asset_match?.sku?.startsWith('SVC-') || li.asset_match?.category === 'Service' || false,
+          hasSerialNumber: !!((li as any).serial_numbers?.length || (li as any).serial_number),
         };
       }),
   };
@@ -291,6 +293,10 @@ export default function ImportInvoices() {
       const updatedItems = [...formState.lineItems];
       for (let i = 0; i < updatedItems.length; i++) {
         const li = updatedItems[i];
+        // Clear serial numbers if checkbox unchecked
+        if (!li.hasSerialNumber) {
+          updatedItems[i] = { ...updatedItems[i], serialNumbers: [] };
+        }
         if (li.isService) continue; // Services don't need assets
         if (!li.selectedAssetId && li.selectedAssetName && li.selectedSku) {
           const created = await createAsset({
@@ -337,10 +343,13 @@ export default function ImportInvoices() {
         formState.projectLocation
       );
 
-      if (currentIndex < invoices.length - 1) {
-        setCurrentIndex(currentIndex + 1);
+      // After refresh, the confirmed invoice disappears from pending list,
+      // so currentIndex will naturally point to the next invoice.
+      // Only adjust if we're at the end of the list.
+      await refreshInvoices();
+      if (currentIndex >= invoices.length - 1 && currentIndex > 0) {
+        setCurrentIndex(currentIndex - 1);
       }
-      refreshInvoices();
     } catch (err) {
       toast.error(`Error confirming: ${err}`);
     }
@@ -351,10 +360,10 @@ export default function ImportInvoices() {
     const success = await skipInvoice(currentInvoice.invoice_number, "Skipped by user");
     if (success) {
       toast.info(`Skipped ${currentInvoice.invoice_number}`);
-      if (currentIndex < invoices.length - 1) {
-        setCurrentIndex(currentIndex + 1);
+      await refreshInvoices();
+      if (currentIndex >= invoices.length - 1 && currentIndex > 0) {
+        setCurrentIndex(currentIndex - 1);
       }
-      refreshInvoices();
     }
   };
 
@@ -835,25 +844,37 @@ export default function ImportInvoices() {
                       />
                     </Grid>
                     <Grid item xs={6} md={2.5}>
-                      {(li.quantity && li.quantity > 1 ? Array.from({ length: li.quantity }, (_, i) => i) : [0]).map((i) => (
-                        <TextField
-                          key={i}
-                          size="small"
-                          fullWidth
-                          label={li.quantity && li.quantity > 1 ? `Serial No. ${i + 1}/${li.quantity}` : "Serial No. / Inventory SKU"}
-                          value={li.serialNumbers[i] || ""}
-                          onChange={(e) => {
-                            const updated = [...li.serialNumbers];
-                            updated[i] = e.target.value.toUpperCase();
-                            updateLineItem(idx, "serialNumbers", updated);
-                          }}
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 0.5 }}>
+                        <input
+                          type="checkbox"
+                          checked={li.hasSerialNumber}
+                          onChange={(e) => updateLineItem(idx, "hasSerialNumber", e.target.checked)}
                           disabled={!isPending}
-                          placeholder={li.selectedSku ? `e.g. ${li.selectedSku}-${String(i + 1).padStart(3, "0")}` : "e.g. MG20250079"}
-                          required
-                          error={!li.serialNumbers[i]}
-                          sx={{ mb: li.quantity && li.quantity > 1 && i < li.quantity - 1 ? 0.5 : 0 }}
+                          style={{ cursor: isPending ? "pointer" : "default" }}
                         />
-                      ))}
+                        <Typography variant="caption" color="text.secondary">Has Serial No.</Typography>
+                      </Box>
+                      {li.hasSerialNumber && (
+                        (li.quantity && li.quantity > 1 ? Array.from({ length: li.quantity }, (_, i) => i) : [0]).map((i) => (
+                          <TextField
+                            key={i}
+                            size="small"
+                            fullWidth
+                            label={li.quantity && li.quantity > 1 ? `Serial No. ${i + 1}/${li.quantity}` : "Serial No."}
+                            value={li.serialNumbers[i] || ""}
+                            onChange={(e) => {
+                              const updated = [...li.serialNumbers];
+                              updated[i] = e.target.value.toUpperCase();
+                              updateLineItem(idx, "serialNumbers", updated);
+                            }}
+                            disabled={!isPending}
+                            placeholder={li.selectedSku ? `e.g. ${li.selectedSku}-${String(i + 1).padStart(3, "0")}` : "e.g. MG20250079"}
+                            required
+                            error={!li.serialNumbers[i]}
+                            sx={{ mb: li.quantity && li.quantity > 1 && i < li.quantity - 1 ? 0.5 : 0 }}
+                          />
+                        ))
+                      )}
                     </Grid>
 
                     {/* Category + UOM */}

@@ -12,13 +12,13 @@ export default function AssetCreation() {
   const { handleAddCategory, handleDeleteCategory, categories, categoriesLoading, deleteCategoryLoading } = useAddCategoryHandler();
   const { isAssetTrackingModeEnabled, isLoading: featuresLoading } = useOrganizationFeatures();
 
-  // Set isTracked based on organization setting (not user choice)
-  // ON = tracked assets, OFF = untracked products
+  // Always create assets as untracked (product mode) initially.
+  // They become tracked when inventory items are added.
   useEffect(() => {
     if (!featuresLoading) {
-      setValue("isTracked", isAssetTrackingModeEnabled);
+      setValue("isTracked", false);
     }
-  }, [isAssetTrackingModeEnabled, featuresLoading, setValue]);
+  }, [featuresLoading, setValue]);
 
   return (
     <Stack direction="column" spacing="var(--default-gap)">
@@ -52,21 +52,17 @@ export default function AssetCreation() {
         required
       />
 
-      {/* Quantity Field - Only shown for untracked products (when feature is OFF) */}
-      {featuresLoading ? (
-        <Skeleton variant="rectangular" height={80} sx={{ borderRadius: 2 }} />
-      ) : !isAssetTrackingModeEnabled && (
-        <FormInputBox
-          control={control}
-          name="quantity"
-          label="Quantity"
-          placeHolder="Enter initial quantity"
-          bottomText="Set the starting stock quantity for this product"
-          type="number"
-          min={0}
-          required
-        />
-      )}
+      {/* Quantity Field - Always shown since assets start as products */}
+      <FormInputBox
+        control={control}
+        name="quantity"
+        label="Quantity"
+        placeHolder="Enter initial quantity"
+        bottomText="Set the starting stock quantity for this product"
+        type="number"
+        min={0}
+        required
+      />
     </Stack>
   );
 }

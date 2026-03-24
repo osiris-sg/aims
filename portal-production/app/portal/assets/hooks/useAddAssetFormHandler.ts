@@ -279,7 +279,7 @@ export const useAddAssetFormHandler = () => {
       description: data.description,
       image: data.image || undefined, // Keep image as is, don't send if undefined
       isTracked: data.isTracked,
-      quantity: data.isTracked === false ? data.quantity : undefined,
+      quantity: data.quantity,
       minQuantity: data.minQuantity,
       price: data.price,
       categoryId: data.categoryId || undefined,
@@ -355,12 +355,7 @@ export const useAddAssetFormHandler = () => {
         ...data,
       });
       if (success) {
-        // In Products mode (feature OFF), skip success page and go directly to products list
-        if (!isAssetTrackingModeEnabled) {
-          router.push(ROUTES.ASSETS);
-        } else {
-          setActiveStep(3); // Move to success step (for Assets mode)
-        }
+        router.push(ROUTES.ASSETS);
       }
     }
   };

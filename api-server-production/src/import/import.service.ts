@@ -6,7 +6,7 @@ import * as path from 'path';
 const ORGANIZATION_ID = '52e90ba8-bfbd-48b0-bb76-4f9667bf74f1'; // Biofuel
 
 const STATUS_MAP: Record<string, string> = {
-  Paid: 'paid',
+  Paid: 'confirmed',
   Approved: 'confirmed',
   Draft: 'draft',
 };
@@ -408,20 +408,36 @@ export class ImportService {
     const configItems: any[] = [];
     for (const li of body.lineItems) {
       const assetId = li.selectedAssetId || null;
+      const qty = li.quantity || 1;
+      const unitPrice = li.unit_price || 0;
+      const amount = qty * unitPrice;
+      const gross = li.gross || amount;
+      // Derive tax from Xero: gross includes tax, amount is pre-tax
+      const taxAmount = li.tax || (gross - amount);
+      // Derive per-item tax rate (e.g. 7%, 8%, 9%)
+      const taxRatePercent = amount > 0 ? Math.round((taxAmount / amount) * 100 * 100) / 100 : 0;
       configItems.push({
         inventoryItemId: assetId,
         sku: li.selectedSku || '',
         serialNumbers: li.serialNumbers || [],
         description: li.description || '',
-        quantity: li.quantity || 1,
-        unitPrice: li.unit_price || 0,
+        quantity: qty,
+        unitPrice,
+        price: unitPrice,
         discount: 0,
-        amount: li.gross || (li.quantity || 1) * (li.unit_price || 0),
+        amount,
+        tax: String(taxRatePercent), // Tax rate as string percentage for template
+        taxAmount,
+        gross,
         uom: li.assetUom || 'PCS',
       });
     }
 
     const documentStatus = STATUS_MAP[body.status] || 'draft';
+
+    // Get GST rate from first item with tax
+    const firstItemWithTax = configItems.find(item => parseFloat(item.tax) > 0);
+    const gstPercent = firstItemWithTax ? parseFloat(firstItemWithTax.tax) : 9;
 
     const config = {
       customerId: customer.id,
@@ -431,6 +447,10 @@ export class ImportService {
       projectId: body.projectId || undefined,
       projectLocation: body.projectLocation || undefined,
       siteOfficeId: body.siteOfficeId || undefined,
+      documentInfo: {
+        gstPercent,
+        currency: 'SGD',
+      },
       xeroImported: true,
       xeroInvoiceNumber: body.invoiceNumber,
       xeroStatus: body.status,
