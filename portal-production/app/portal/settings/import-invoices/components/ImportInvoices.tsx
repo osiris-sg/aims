@@ -912,6 +912,39 @@ export default function ImportInvoices() {
                         </Select>
                       </FormControl>
                     </Grid>
+
+                    {/* Create Asset Now button — creates asset immediately so other line items can use it */}
+                    {isPending && !li.selectedAssetId && li.selectedAssetName && li.selectedSku && (
+                      <Grid item xs={12}>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={<AddIcon />}
+                          onClick={async () => {
+                            const created = await createAsset({
+                              name: li.selectedAssetName,
+                              skuKey: li.selectedSku,
+                              categoryName: li.assetCategory || "General",
+                              uom: li.assetUom || "PCS",
+                              isTracked: false,
+                            });
+                            if (created && formState) {
+                              // Update ALL line items that have the same SKU to use this asset
+                              const updated = [...formState.lineItems];
+                              for (let j = 0; j < updated.length; j++) {
+                                if (updated[j].selectedSku === li.selectedSku && !updated[j].selectedAssetId) {
+                                  updated[j] = { ...updated[j], selectedAssetId: created.id, selectedAssetName: created.name, isNewAsset: false };
+                                }
+                              }
+                              setFormState({ ...formState, lineItems: updated });
+                              toast.success(`Created asset: ${created.name} (${created.skuKey})`);
+                            }
+                          }}
+                        >
+                          Create Asset Now
+                        </Button>
+                      </Grid>
+                    )}
                   </Grid>
                   )}
                 </Box>
