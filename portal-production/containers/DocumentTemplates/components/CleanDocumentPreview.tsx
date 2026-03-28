@@ -568,7 +568,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               <Typography sx={{ fontSize: "0.75rem" }}>Sub Total:</Typography>
               <Typography sx={{ fontSize: "0.75rem" }}>{subtotal.toFixed(2)}</Typography>
             </Box>
-            {data.documentInfo?.discount > 0 && (
+            {(data.documentInfo?.discountPercent || data.documentInfo?.discount) > 0 && (
               <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
                 <Typography sx={{ fontSize: "0.75rem" }}>Discount:</Typography>
                 <Typography sx={{ fontSize: "0.75rem" }}>-{(data.documentInfo?.discount || 0).toFixed(2)}</Typography>
@@ -804,19 +804,23 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         {(() => {
           const rate = data.documentInfo?.rate || 1;
           const currency = data.documentInfo?.currency || "SGD";
-          const discountPercent = data.documentInfo?.discount || 0;
-          const gstPercent = data.documentInfo?.gstPercent || 9;
+          const discountPercent = data.documentInfo?.discountPercent || data.documentInfo?.discount || 0;
+          const isTaxApplicable = data.documentInfo?.taxApplicable !== 'N' && data.documentInfo?.taxApplicable !== false;
+          const gstPercent = isTaxApplicable ? (data.documentInfo?.gstPercent || 9) : 0;
           console.log("=== CleanDocumentPreview GST DEBUG ===");
           console.log("data.documentInfo:", JSON.stringify(data.documentInfo));
           console.log("data.documentInfo?.gstPercent:", data.documentInfo?.gstPercent);
           console.log("resolved gstPercent:", gstPercent);
 
           // Calculate values
+          const isAbsorbTax = data.documentInfo?.absorbTax === 'Y' || data.documentInfo?.absorbTax === true;
           const grossTotal = subtotal;
           const discountAmount = grossTotal * (discountPercent / 100);
           const subtotalAfterDiscount = grossTotal - discountAmount;
-          const gstAmount = subtotalAfterDiscount * (gstPercent / 100);
-          const finalTotal = subtotalAfterDiscount + gstAmount;
+          const gstAmount = isAbsorbTax && gstPercent > 0
+            ? subtotalAfterDiscount * gstPercent / (100 + gstPercent)
+            : subtotalAfterDiscount * (gstPercent / 100);
+          const finalTotal = isAbsorbTax ? subtotalAfterDiscount : subtotalAfterDiscount + gstAmount;
 
           return (
             <Box sx={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid #000", pt: 1 }}>
@@ -880,8 +884,9 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         {/* Amount in Words */}
         {(() => {
           const rate = data.documentInfo?.rate || 1;
-          const discountPercent = data.documentInfo?.discount || 0;
-          const gstPercent = data.documentInfo?.gstPercent || 9;
+          const discountPercent = data.documentInfo?.discountPercent || data.documentInfo?.discount || 0;
+          const isTaxApplicable = data.documentInfo?.taxApplicable !== 'N' && data.documentInfo?.taxApplicable !== false;
+          const gstPercent = isTaxApplicable ? (data.documentInfo?.gstPercent || 9) : 0;
           const grossTotal = subtotal;
           const discountAmount = grossTotal * (discountPercent / 100);
           const subtotalAfterDiscount = grossTotal - discountAmount;
@@ -1353,8 +1358,9 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           {(() => {
             const rate = data.documentInfo?.rate || 1;
             const currency = data.documentInfo?.currency || "SGD";
-            const discountPercent = data.documentInfo?.discount || 0;
-            const gstPercent = data.documentInfo?.gstPercent || 9;
+            const discountPercent = data.documentInfo?.discountPercent || data.documentInfo?.discount || 0;
+            const isTaxApplicable = data.documentInfo?.taxApplicable !== 'N' && data.documentInfo?.taxApplicable !== false;
+          const gstPercent = isTaxApplicable ? (data.documentInfo?.gstPercent || 9) : 0;
 
             const grossTotal = subtotal;
             const discountAmount = grossTotal * (discountPercent / 100);
@@ -1423,8 +1429,9 @@ export default function CleanDocumentPreview({ documentType, data, organization 
 
           {/* Amount in Words */}
           {(() => {
-            const discountPercent = data.documentInfo?.discount || 0;
-            const gstPercent = data.documentInfo?.gstPercent || 9;
+            const discountPercent = data.documentInfo?.discountPercent || data.documentInfo?.discount || 0;
+            const isTaxApplicable = data.documentInfo?.taxApplicable !== 'N' && data.documentInfo?.taxApplicable !== false;
+          const gstPercent = isTaxApplicable ? (data.documentInfo?.gstPercent || 9) : 0;
             const grossTotal = subtotal;
             const discountAmount = grossTotal * (discountPercent / 100);
             const subtotalAfterDiscount = grossTotal - discountAmount;
@@ -1632,10 +1639,14 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           {/* Totals - Right aligned */}
           {(() => {
             const currency = data.documentInfo?.currency || "SGD";
-            const gstPercent = data.documentInfo?.gstPercent || 9;
+            const isTaxApplicable = data.documentInfo?.taxApplicable !== 'N' && data.documentInfo?.taxApplicable !== false;
+          const gstPercent = isTaxApplicable ? (data.documentInfo?.gstPercent || 9) : 0;
+            const isAbsorbTax = data.documentInfo?.absorbTax === 'Y' || data.documentInfo?.absorbTax === true;
             const grossTotal = subtotal;
-            const gstAmount = grossTotal * (gstPercent / 100);
-            const finalTotal = grossTotal + gstAmount;
+            const gstAmount = isAbsorbTax && gstPercent > 0
+              ? grossTotal * gstPercent / (100 + gstPercent)
+              : grossTotal * (gstPercent / 100);
+            const finalTotal = isAbsorbTax ? grossTotal : grossTotal + gstAmount;
 
             return (
               <>
@@ -1870,10 +1881,14 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           {/* Totals - Right aligned */}
           {(() => {
             const currency = data.documentInfo?.currency || "SGD";
-            const gstPercent = data.documentInfo?.gstPercent || 9;
+            const isTaxApplicable = data.documentInfo?.taxApplicable !== 'N' && data.documentInfo?.taxApplicable !== false;
+          const gstPercent = isTaxApplicable ? (data.documentInfo?.gstPercent || 9) : 0;
+            const isAbsorbTax = data.documentInfo?.absorbTax === 'Y' || data.documentInfo?.absorbTax === true;
             const grossTotal = subtotal;
-            const gstAmount = grossTotal * (gstPercent / 100);
-            const finalTotal = grossTotal + gstAmount;
+            const gstAmount = isAbsorbTax && gstPercent > 0
+              ? grossTotal * gstPercent / (100 + gstPercent)
+              : grossTotal * (gstPercent / 100);
+            const finalTotal = isAbsorbTax ? grossTotal : grossTotal + gstAmount;
 
             return (
               <>

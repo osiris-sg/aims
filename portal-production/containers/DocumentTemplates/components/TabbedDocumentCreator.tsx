@@ -723,13 +723,63 @@ export default function TabbedDocumentCreator({
   const isCreditDebitNote = documentType === "CN" || documentType === "CREDIT_NOTE" || documentType === "DN" || documentType === "DEBIT_NOTE";
   const subtotal = items.reduce((acc: number, item: any) => acc + (item.amount || 0), 0);
 
+  // Check if tax is applicable (from form Tax Y/N toggle)
+  const isTaxApplicable = formData?.documentInfo?.taxApplicable !== 'N' && formData?.documentInfo?.taxApplicable !== false;
+
   // For invoices: use per-item tax if available (Xero imports), else org tax rate
   const hasItemLevelTax = isInvoiceType && items.some((item: any) => item.tax !== undefined && item.tax !== null && item.tax !== "");
-  const totalTax = isInvoiceType && !hasItemLevelTax
-    ? subtotal * ((organization?.taxRate || 9) / 100)
-    : items.reduce((acc: number, item: any) => acc + (item.amount || 0) * (parseFloat(item.tax || "0") / 100), 0);
+  const isAbsorbTax = formData?.documentInfo?.absorbTax === 'Y' || formData?.documentInfo?.absorbTax === true;
+  const taxRate = isInvoiceType && !hasItemLevelTax
+    ? (organization?.taxRate || 9)
+    : 0;
+  const itemTaxTotal = items.reduce((acc: number, item: any) => acc + (item.amount || 0) * (parseFloat(item.tax || "0") / 100), 0);
 
-  const total = subtotal + totalTax;
+  const totalTax = !isTaxApplicable ? 0
+    : isAbsorbTax
+    ? subtotal * taxRate / (100 + taxRate) // back-calculate GST from within
+    : isInvoiceType && !hasItemLevelTax
+    ? subtotal * (taxRate / 100)
+    : itemTaxTotal;
+
+  const total = isAbsorbTax ? subtotal : subtotal + totalTax;
+
+  // Auto-calculate right-column summary fields when items/tax change
+  const isAbsorbTax = formData?.documentInfo?.absorbTax === 'Y' || formData?.documentInfo?.absorbTax === true;
+
+  useEffect(() => {
+    const discountPercent = parseFloat(formData?.documentInfo?.discountPercent) || 0;
+    const grossTotal = subtotal;
+    const discountAmount = grossTotal * (discountPercent / 100);
+    const subTotalAfterDiscount = grossTotal - discountAmount;
+    const gstPercent = isTaxApplicable ? (parseFloat(formData?.documentInfo?.gstPercent) || organization?.taxRate || 9) : 0;
+
+    let gstAmount: number;
+    let nettTotal: number;
+
+    if (isAbsorbTax && gstPercent > 0) {
+      // Absorb tax: total stays the same, GST is back-calculated from within
+      // nettTotal = subTotalAfterDiscount (the item total IS the final total)
+      // gstAmount = nettTotal × gstPercent / (100 + gstPercent)
+      nettTotal = subTotalAfterDiscount;
+      gstAmount = nettTotal * gstPercent / (100 + gstPercent);
+    } else {
+      // Normal: GST added on top
+      gstAmount = subTotalAfterDiscount * (gstPercent / 100);
+      nettTotal = subTotalAfterDiscount + gstAmount;
+    }
+
+    setFormData((prev: any) => ({
+      ...prev,
+      documentInfo: {
+        ...prev.documentInfo,
+        grossTotal: parseFloat(grossTotal.toFixed(2)),
+        discountAmount: parseFloat(discountAmount.toFixed(2)),
+        subTotal: isAbsorbTax ? parseFloat((subTotalAfterDiscount - gstAmount).toFixed(2)) : parseFloat(subTotalAfterDiscount.toFixed(2)),
+        gstAmount: parseFloat(gstAmount.toFixed(2)),
+        nettTotal: parseFloat(nettTotal.toFixed(2)),
+      },
+    }));
+  }, [subtotal, formData?.documentInfo?.discountPercent, formData?.documentInfo?.gstPercent, formData?.documentInfo?.taxApplicable, formData?.documentInfo?.absorbTax, isTaxApplicable, isAbsorbTax]);
 
   const handleMainTabChange = (_: React.SyntheticEvent, newValue: number) => {
     setMainTabValue(newValue);
@@ -3103,25 +3153,52 @@ export default function TabbedDocumentCreator({
                                 </Box>
                               </>
                             ) : (
-                              <>
-                                <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-                                  <Typography variant="body2">Subtotal:</Typography>
-                                  <Typography variant="body2" fontWeight="bold">SGD {subtotal.toFixed(2)}</Typography>
-                                </Box>
-                                <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-                                  <Typography variant="body2">
-                                    Tax{isInvoiceType ? ` (${hasItemLevelTax && items[0]?.tax ? `${items[0].tax}%` : `${organization?.taxRate || 9}%`})` : ''}:
-                                  </Typography>
-                                  <Typography variant="body2">SGD {totalTax.toFixed(2)}</Typography>
-                                </Box>
-                                <Divider sx={{ my: 0.5 }} />
-                                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                                  <Typography variant="body2" fontWeight="bold">Total:</Typography>
-                                  <Typography variant="body2" fontWeight="bold" color="primary">
-                                    SGD {total.toFixed(2)}
-                                  </Typography>
-                                </Box>
-                              </>
+                              {(() => {
+                                const currency = formData?.documentInfo?.currency || "SGD";
+                                const discPct = parseFloat(formData?.documentInfo?.discountPercent) || 0;
+                                const discAmt = subtotal * (discPct / 100);
+                                const afterDisc = subtotal - discAmt;
+                                const gstPct = isTaxApplicable ? (parseFloat(formData?.documentInfo?.gstPercent) || organization?.taxRate || 9) : 0;
+                                const gst = isAbsorbTax && gstPct > 0
+                                  ? afterDisc * gstPct / (100 + gstPct)
+                                  : afterDisc * (gstPct / 100);
+                                const nett = isAbsorbTax ? afterDisc : afterDisc + gst;
+                                const displaySubtotal = isAbsorbTax ? afterDisc - gst : afterDisc;
+
+                                return (
+                                  <>
+                                    <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                                      <Typography variant="body2">Gross Total:</Typography>
+                                      <Typography variant="body2">{currency} {subtotal.toFixed(2)}</Typography>
+                                    </Box>
+                                    {discPct > 0 && (
+                                      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                                        <Typography variant="body2">Discount ({discPct}%):</Typography>
+                                        <Typography variant="body2" color="error.main">-{currency} {discAmt.toFixed(2)}</Typography>
+                                      </Box>
+                                    )}
+                                    <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                                      <Typography variant="body2">Sub-total:</Typography>
+                                      <Typography variant="body2" fontWeight="bold">{currency} {displaySubtotal.toFixed(2)}</Typography>
+                                    </Box>
+                                    {isTaxApplicable && (
+                                      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                                        <Typography variant="body2">
+                                          GST ({gstPct}%){isAbsorbTax ? " (absorbed)" : ""}:
+                                        </Typography>
+                                        <Typography variant="body2">{currency} {gst.toFixed(2)}</Typography>
+                                      </Box>
+                                    )}
+                                    <Divider sx={{ my: 0.5 }} />
+                                    <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                      <Typography variant="body2" fontWeight="bold">Nett Total:</Typography>
+                                      <Typography variant="body2" fontWeight="bold" color="primary">
+                                        {currency} {nett.toFixed(2)}
+                                      </Typography>
+                                    </Box>
+                                  </>
+                                );
+                              })()}
                             )}
                           </CardContent>
                         </Card>
