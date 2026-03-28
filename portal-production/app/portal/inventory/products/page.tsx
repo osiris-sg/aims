@@ -4,17 +4,41 @@ import React, { useState } from "react";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import { useRouter } from "next/navigation";
-import { Avatar, IconButton, Typography, Box, ToggleButton, ToggleButtonGroup } from "@mui/material";
+import { Avatar, IconButton, Typography, Box, TextField, ToggleButton, ToggleButtonGroup } from "@mui/material";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import ModeEditIcon from "@mui/icons-material/ModeEdit";
 import DeleteIcon from "@mui/icons-material/Delete";
+import EditIcon from "@mui/icons-material/Edit";
+import CheckIcon from "@mui/icons-material/Check";
+import CloseIcon from "@mui/icons-material/Close";
 import DeleteItemDialog from "@/components/DeleteItemDialog";
-import { useGetAssets, useDeleteAsset, useGetCategories } from "@/app/portal/hooks/api";
+import { useGetAssets, useDeleteAsset, useUpdateAsset, useGetCategories } from "@/app/portal/hooks/api";
 import { ROUTES } from "@/routes";
 import AssetHierarchyTable from "@/app/portal/assets/components/AssetHierarchyTable";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import ViewListIcon from "@mui/icons-material/ViewList";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+
+function EditableSkuKeyCell({ row, onSave, onCancel }: { row: any; onSave: (id: string, skuKey: string) => void; onCancel: () => void }) {
+  const [value, setValue] = useState(row.skuKey);
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+      <TextField
+        size="small"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") onSave(row.id, value);
+          if (e.key === "Escape") onCancel();
+        }}
+        autoFocus
+        sx={{ "& .MuiInputBase-input": { py: 0.5, px: 1, fontSize: "0.875rem" } }}
+      />
+      <IconButton size="small" onClick={() => onSave(row.id, value)} color="success"><CheckIcon fontSize="small" /></IconButton>
+      <IconButton size="small" onClick={onCancel} color="error"><CloseIcon fontSize="small" /></IconButton>
+    </Box>
+  );
+}
 
 export default function ProductsPage() {
   const router = useRouter();
@@ -27,7 +51,19 @@ export default function ProductsPage() {
   const [assetToDelete, setAssetToDelete] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"table" | "hierarchy">("table");
 
-  const { isAssetTrackingModeEnabled } = useOrganizationFeatures();
+  const { isAssetTrackingModeEnabled, isEditInventorySkuEnabled } = useOrganizationFeatures();
+  const [editingSkuId, setEditingSkuId] = useState<string | null>(null);
+  const updateAssetMutation = useUpdateAsset();
+
+  const handleSaveSkuKey = async (id: string, skuKey: string) => {
+    try {
+      await updateAssetMutation.mutateAsync({ id, skuKey });
+      setEditingSkuId(null);
+      refetchAssets();
+    } catch (error) {
+      console.error("Error updating SKU key:", error);
+    }
+  };
 
   const apiFilters = {
     ...filters,
@@ -66,6 +102,22 @@ export default function ProductsPage() {
       accessorKey: "skuKey",
       header: "SKU-Key",
       enableSorting: true,
+      cell: ({ row }: any) => {
+        const asset = row.original;
+        if (isEditInventorySkuEnabled && editingSkuId === asset.id) {
+          return <EditableSkuKeyCell row={asset} onSave={handleSaveSkuKey} onCancel={() => setEditingSkuId(null)} />;
+        }
+        return (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+            <Typography variant="body2">{asset.skuKey}</Typography>
+            {isEditInventorySkuEnabled && (
+              <IconButton size="small" onClick={() => setEditingSkuId(asset.id)} sx={{ opacity: 0.5, "&:hover": { opacity: 1 } }}>
+                <EditIcon sx={{ fontSize: 14 }} />
+              </IconButton>
+            )}
+          </Box>
+        );
+      },
     },
     {
       accessorKey: "name",

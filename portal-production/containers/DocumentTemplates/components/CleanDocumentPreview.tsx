@@ -20,6 +20,19 @@ const getResourceUrl = (key: string | undefined | null): string | undefined => {
   return `${baseUrl}${key}`;
 };
 
+// Helper: renders a LABEL : VALUE row, hidden when value is empty
+function InfoRow({ label, value, minWidth = "100px" }: { label: string; value: any; minWidth?: string }) {
+  const displayValue = typeof value === "string" ? value.trim() : value;
+  if (!displayValue && displayValue !== 0) return null;
+  return (
+    <Box sx={{ display: "flex" }}>
+      <Typography sx={{ fontSize: "0.75rem", minWidth, lineHeight: 1.4 }}>{label}</Typography>
+      <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
+      <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{displayValue}</Typography>
+    </Box>
+  );
+}
+
 interface CleanDocumentPreviewProps {
   documentType: "QO1" | "DO" | "RDO" | "TI" | "TI2" | "MSR" | "INVOICE" | string;
   data: any;
@@ -441,11 +454,12 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               </Typography>
             </Box>
 
-            {/* Deliver To */}
+            {/* Deliver To - hidden when deliver to address is empty */}
+            {data.deliveryTo && (
             <Box>
               <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>Deliver To :</Typography>
               <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
-                {data.deliveryTo || ""}
+                {data.deliveryTo}
               </Typography>
               {(data.documentInfo?.contactName || data.documentInfo?.contact || data.contact) && (
                 <Typography sx={{ fontSize: "0.75rem" }}>
@@ -454,6 +468,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                 </Typography>
               )}
             </Box>
+            )}
           </Box>
 
           {/* Right - Sales Order Details */}
@@ -463,56 +478,16 @@ export default function CleanDocumentPreview({ documentType, data, organization 
             <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 1 }}>
               SALES ORDER
             </Typography>
-            <Box sx={{ display: "flex" }}>
-              <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>S/O NUMBER</Typography>
-              <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.documentNumber || ""}</Typography>
-            </Box>
-            <Box sx={{ display: "flex" }}>
-              <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>DATE</Typography>
-              <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{formatDate(data.documentInfo?.date)}</Typography>
-            </Box>
-            <Box sx={{ display: "flex" }}>
-              <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>CUSTOMER CODE</Typography>
-              <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.customer?.customerCode || ""}</Typography>
-            </Box>
-            <Box sx={{ display: "flex" }}>
-              <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>SALESMAN</Typography>
-              <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.salesPerson || data.documentInfo?.salesman || ""}</Typography>
-            </Box>
-            <Box sx={{ display: "flex" }}>
-              <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>P/O NUMBER</Typography>
-              <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.poNo || ""}</Typography>
-            </Box>
-            <Box sx={{ display: "flex" }}>
-              <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>DELIVERY DATE</Typography>
-              <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{formatDate(data.documentInfo?.deliveryDate)}</Typography>
-            </Box>
-            <Box sx={{ display: "flex" }}>
-              <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>CONTACT NAME</Typography>
-              <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.contactName || data.documentInfo?.contact || data.contact || ""}</Typography>
-            </Box>
-            <Box sx={{ display: "flex" }}>
-              <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>CONTACT NO.</Typography>
-              <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.contactNumber || ""}</Typography>
-            </Box>
-            <Box sx={{ display: "flex" }}>
-              <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>TERMS</Typography>
-              <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.paymentTerms || ""}</Typography>
-            </Box>
-            <Box sx={{ display: "flex" }}>
-              <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>CURRENCY</Typography>
-              <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.currency || "SGD"}</Typography>
-            </Box>
+            <InfoRow label="S/O NUMBER" value={data.documentInfo?.documentNumber} />
+            <InfoRow label="DATE" value={formatDate(data.documentInfo?.date)} />
+            <InfoRow label="CUSTOMER CODE" value={data.customer?.customerCode} />
+            <InfoRow label="SALESMAN" value={data.documentInfo?.salesPerson || data.documentInfo?.salesman} />
+            <InfoRow label="P/O NUMBER" value={data.documentInfo?.poNo} />
+            <InfoRow label="DELIVERY DATE" value={formatDate(data.documentInfo?.deliveryDate)} />
+            <InfoRow label="CONTACT NAME" value={data.documentInfo?.contactName || data.documentInfo?.contact || data.contact} />
+            <InfoRow label="CONTACT NO." value={data.documentInfo?.contactNumber} />
+            <InfoRow label="TERMS" value={data.documentInfo?.paymentTerms} />
+            <InfoRow label="CURRENCY" value={data.documentInfo?.currency} />
             </Box>
           </Box>
         </Box>
@@ -690,11 +665,12 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               </Typography>
             </Box>
 
-            {/* Deliver To */}
+            {/* Deliver To - hidden when deliver to address is empty */}
+            {data.deliveryTo && (
             <Box>
               <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>Deliver To :</Typography>
               <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
-                {data.deliveryTo || ""}
+                {data.deliveryTo}
               </Typography>
               {(data.documentInfo?.contactName || data.documentInfo?.contact || data.contact) && (
                 <Typography sx={{ fontSize: "0.75rem" }}>
@@ -703,6 +679,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                 </Typography>
               )}
             </Box>
+            )}
           </Box>
 
           {/* Right - Invoice Details with Tax Invoice Title */}
@@ -712,51 +689,15 @@ export default function CleanDocumentPreview({ documentType, data, organization 
             <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 1 }}>
               TAX INVOICE
             </Typography>
-            <Box sx={{ display: "flex" }}>
-              <Typography sx={{ fontSize: "0.75rem", minWidth: "85px", lineHeight: 1.4 }}>GST Reg No.</Typography>
-              <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.company?.gstRegNo || organization?.registrationNumber || ""}</Typography>
-            </Box>
-            <Box sx={{ display: "flex" }}>
-              <Typography sx={{ fontSize: "0.75rem", minWidth: "85px", lineHeight: 1.4 }}>INVOICE NO.</Typography>
-              <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.documentNumber || ""}</Typography>
-            </Box>
-            <Box sx={{ display: "flex" }}>
-              <Typography sx={{ fontSize: "0.75rem", minWidth: "85px", lineHeight: 1.4 }}>DATE</Typography>
-              <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{formatDate(data.documentInfo?.date)}</Typography>
-            </Box>
-            <Box sx={{ display: "flex" }}>
-              <Typography sx={{ fontSize: "0.75rem", minWidth: "85px", lineHeight: 1.4 }}>DO NO</Typography>
-              <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.doNo || ""}</Typography>
-            </Box>
-            <Box sx={{ display: "flex" }}>
-              <Typography sx={{ fontSize: "0.75rem", minWidth: "85px", lineHeight: 1.4 }}>P/O NO</Typography>
-              <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.poNo || ""}</Typography>
-            </Box>
-            <Box sx={{ display: "flex" }}>
-              <Typography sx={{ fontSize: "0.75rem", minWidth: "85px", lineHeight: 1.4 }}>SALESMAN</Typography>
-              <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.salesman || "JS"}</Typography>
-            </Box>
-            <Box sx={{ display: "flex" }}>
-              <Typography sx={{ fontSize: "0.75rem", minWidth: "85px", lineHeight: 1.4 }}>PAGE</Typography>
-              <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.page || "1"}</Typography>
-            </Box>
-            <Box sx={{ display: "flex" }}>
-              <Typography sx={{ fontSize: "0.75rem", minWidth: "85px", lineHeight: 1.4 }}>TERMS</Typography>
-              <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.paymentTerms || "0 DAYS"}</Typography>
-            </Box>
-            <Box sx={{ display: "flex" }}>
-              <Typography sx={{ fontSize: "0.75rem", minWidth: "85px", lineHeight: 1.4 }}>CURRENCY</Typography>
-              <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.currency || "USD"}</Typography>
-            </Box>
+            <InfoRow label="GST Reg No." value={data.company?.gstRegNo || organization?.registrationNumber} minWidth="85px" />
+            <InfoRow label="INVOICE NO." value={data.documentInfo?.documentNumber} minWidth="85px" />
+            <InfoRow label="DATE" value={formatDate(data.documentInfo?.date)} minWidth="85px" />
+            <InfoRow label="DO NO" value={data.documentInfo?.doNo} minWidth="85px" />
+            <InfoRow label="P/O NO" value={data.documentInfo?.poNo} minWidth="85px" />
+            <InfoRow label="SALESMAN" value={data.documentInfo?.salesPerson || data.documentInfo?.salesman} minWidth="85px" />
+            <InfoRow label="PAGE" value={data.documentInfo?.page || "1"} minWidth="85px" />
+            <InfoRow label="TERMS" value={data.documentInfo?.paymentTerms || "0 DAYS"} minWidth="85px" />
+            <InfoRow label="CURRENCY" value={data.documentInfo?.currency || "USD"} minWidth="85px" />
             </Box>
           </Box>
         </Box>
@@ -1093,11 +1034,12 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               </Typography>
             </Box>
 
-            {/* Deliver To */}
+            {/* Deliver To - hidden when deliver to address is empty */}
+            {data.deliveryTo && (
             <Box>
               <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>Deliver To :</Typography>
               <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
-                {data.deliveryTo || ""}
+                {data.deliveryTo}
               </Typography>
               {(data.documentInfo?.contactName || data.documentInfo?.contact || data.contact) && (
                 <Typography sx={{ fontSize: "0.75rem" }}>
@@ -1106,6 +1048,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                 </Typography>
               )}
             </Box>
+            )}
           </Box>
 
           {/* Right - DO Details */}
@@ -1115,41 +1058,17 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 0.5 }}>
                 DELIVERY ORDER
               </Typography>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>NPWP No.</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.customer?.gstRegNo || data.customer?.npwp || data.company?.gstRegNo || data.gstRegNo || ""}</Typography>
-              </Box>
+              <InfoRow label="NPWP No." value={data.customer?.gstRegNo || data.customer?.npwp || data.company?.gstRegNo || data.gstRegNo} />
               <Box sx={{ display: "flex" }}>
                 <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>DELIVERY ORDER</Typography>
                 <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}></Typography>
                 <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4, fontWeight: 600 }}>{data.documentInfo?.documentNumber || data.name || ""}</Typography>
               </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Date</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{formatDate(data.documentInfo?.date || data.date)}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>P/O No.</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.poNo || data.poNo || ""}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Terms</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.paymentTerms || data.paymentTerms || "CASH"}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Salesman</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.salesPerson || data.salesPerson || ""}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Customer</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.customerCode || data.customer?.customerCode || ""}</Typography>
-              </Box>
+              <InfoRow label="Date" value={formatDate(data.documentInfo?.date || data.date)} />
+              <InfoRow label="P/O No." value={data.documentInfo?.poNo || data.poNo} />
+              <InfoRow label="Terms" value={data.documentInfo?.paymentTerms || data.paymentTerms || "CASH"} />
+              <InfoRow label="Salesman" value={data.documentInfo?.salesPerson || data.salesPerson} />
+              <InfoRow label="Customer" value={data.customerCode || data.customer?.customerCode} />
             </Box>
           </Box>
         </Box>
@@ -1315,11 +1234,12 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               </Typography>
             </Box>
 
-            {/* Deliver To */}
+            {/* Deliver To - hidden when deliver to address is empty */}
+            {data.deliveryTo && (
             <Box>
               <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>Deliver To :</Typography>
               <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
-                {data.deliveryTo || ""}
+                {data.deliveryTo}
               </Typography>
               {(data.documentInfo?.contactName || data.documentInfo?.contact || data.contact) && (
                 <Typography sx={{ fontSize: "0.75rem" }}>
@@ -1328,6 +1248,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                 </Typography>
               )}
             </Box>
+            )}
           </Box>
 
           {/* Right - Note Details */}
@@ -1337,51 +1258,15 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 1 }}>
                 {isCreditNote ? "CREDIT NOTE" : "DEBIT NOTE"}
               </Typography>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>{isCreditNote ? "Credit Note No." : "Debit Note No."}</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.documentNumber || ""}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Date</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{formatDate(data.documentInfo?.date)}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Customer code</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.customer?.customerCode || ""}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Salesman code</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.salesPerson || data.documentInfo?.salesman || ""}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Invoice No.</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.invoiceNo || ""}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Delivery Order No.</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.doNo || ""}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Contact Name</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.contactName || data.documentInfo?.contact || data.contact || ""}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Contact No.</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.contactNumber || ""}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Terms</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.paymentTerms || "0 DAYS"}</Typography>
-              </Box>
+              <InfoRow label={isCreditNote ? "Credit Note No." : "Debit Note No."} value={data.documentInfo?.documentNumber} />
+              <InfoRow label="Date" value={formatDate(data.documentInfo?.date)} />
+              <InfoRow label="Customer code" value={data.customer?.customerCode} />
+              <InfoRow label="Salesman code" value={data.documentInfo?.salesPerson || data.documentInfo?.salesman} />
+              <InfoRow label="Invoice No." value={data.documentInfo?.invoiceNo} />
+              <InfoRow label="Delivery Order No." value={data.documentInfo?.doNo} />
+              <InfoRow label="Contact Name" value={data.documentInfo?.contactName || data.documentInfo?.contact || data.contact} />
+              <InfoRow label="Contact No." value={data.documentInfo?.contactNumber} />
+              <InfoRow label="Terms" value={data.documentInfo?.paymentTerms || "0 DAYS"} />
             </Box>
           </Box>
         </Box>
@@ -1672,36 +1557,12 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 1 }}>
                 {isPR ? "PURCHASE RETURN" : "PURCHASE ORDER"}
               </Typography>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>P/O NO.</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.documentNumber || data.name || ""}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Date</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{formatDate(data.documentInfo?.date)}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Our Reference</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.referenceNo || ""}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Delivery Date</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{formatDate(data.documentInfo?.deliveryDate)}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Terms</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.paymentTerms || "60 DAYS"}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Currency</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.currency || "SGD"}</Typography>
-              </Box>
+              <InfoRow label="P/O NO." value={data.documentInfo?.documentNumber || data.name} />
+              <InfoRow label="Date" value={formatDate(data.documentInfo?.date)} />
+              <InfoRow label="Our Reference" value={data.documentInfo?.referenceNo} />
+              <InfoRow label="Delivery Date" value={formatDate(data.documentInfo?.deliveryDate)} />
+              <InfoRow label="Terms" value={data.documentInfo?.paymentTerms || "60 DAYS"} />
+              <InfoRow label="Currency" value={data.documentInfo?.currency || "SGD"} />
             </Box>
           </Box>
         </Box>
@@ -1935,36 +1796,12 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 1 }}>
                 {isOut ? "STOCK ADJUSTMENT OUT" : "STOCK ADJUSTMENT IN"}
               </Typography>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Doc No.</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.documentNumber || data.name || ""}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Date</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{formatDate(data.documentInfo?.date)}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Our Reference</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.referenceNo || ""}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Delivery Date</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{formatDate(data.documentInfo?.deliveryDate)}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Terms</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.paymentTerms || ""}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>Currency</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.currency || "SGD"}</Typography>
-              </Box>
+              <InfoRow label="Doc No." value={data.documentInfo?.documentNumber || data.name} />
+              <InfoRow label="Date" value={formatDate(data.documentInfo?.date)} />
+              <InfoRow label="Our Reference" value={data.documentInfo?.referenceNo} />
+              <InfoRow label="Delivery Date" value={formatDate(data.documentInfo?.deliveryDate)} />
+              <InfoRow label="Terms" value={data.documentInfo?.paymentTerms} />
+              <InfoRow label="Currency" value={data.documentInfo?.currency || "SGD"} />
             </Box>
           </Box>
         </Box>
@@ -2240,36 +2077,16 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 1 }}>
                 QUOTATION
               </Typography>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "110px", lineHeight: 1.4 }}>NPWP No.</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.customer?.gstRegNo || data.company?.gstRegNo || organization?.registrationNumber || ""}</Typography>
-              </Box>
+              <InfoRow label="NPWP No." value={data.customer?.gstRegNo || data.company?.gstRegNo || organization?.registrationNumber} minWidth="110px" />
               <Box sx={{ display: "flex" }}>
                 <Typography sx={{ fontSize: "0.75rem", minWidth: "110px", lineHeight: 1.4, fontWeight: 600 }}>QUOTATION NO.</Typography>
                 <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}></Typography>
                 <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4, fontWeight: 600 }}>{data.documentInfo?.documentNumber || ""}</Typography>
               </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "110px", lineHeight: 1.4 }}>Date</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{formatDate(data.documentInfo?.date)}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "110px", lineHeight: 1.4 }}>Your Ref</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.referenceNo || ""}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "110px", lineHeight: 1.4 }}>Terms</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.documentInfo?.paymentTerms || ""}</Typography>
-              </Box>
-              <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "110px", lineHeight: 1.4 }}>Customer</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{data.customer?.customerCode || data.customerCode || ""}</Typography>
-              </Box>
+              <InfoRow label="Date" value={formatDate(data.documentInfo?.date)} minWidth="110px" />
+              <InfoRow label="Your Ref" value={data.documentInfo?.referenceNo} minWidth="110px" />
+              <InfoRow label="Terms" value={data.documentInfo?.paymentTerms} minWidth="110px" />
+              <InfoRow label="Customer" value={data.customer?.customerCode || data.customerCode} minWidth="110px" />
             </Box>
           </Box>
         </Box>

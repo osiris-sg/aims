@@ -20,6 +20,7 @@ import {
   Chip,
   Card,
   CardContent,
+  Button,
 } from "@mui/material";
 import {
   Search as SearchIcon,
@@ -59,11 +60,15 @@ type SearchMode = "code" | "description" | "category";
 
 export default function InventoryStockCardPage() {
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [searchMode, setSearchMode] = useState<SearchMode>("code");
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [selectedViewItem, setSelectedViewItem] = useState<InventoryItem | null>(null);
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+  const ITEMS_PER_PAGE = 50;
 
   const { isAssetTrackingModeEnabled } = useOrganizationFeatures();
   const { getToken } = useAuth();
@@ -72,7 +77,16 @@ export default function InventoryStockCardPage() {
 
   const itemType = isAssetTrackingModeEnabled ? "Item" : "Product";
 
-  // Fetch inventory items or assets based on tracking mode
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Fetch items with server-side search and pagination
   const fetchItems = useCallback(async () => {
     if (!organizationId) return;
     setLoading(true);
@@ -81,13 +95,13 @@ export default function InventoryStockCardPage() {
       const token = await getToken();
       if (!token) return;
 
-      // Fetch assets/products
       const assetsResponse = await request(
         { path: "/assets", method: "POST" },
-        { page: 1, limit: 500 },
+        { page, limit: ITEMS_PER_PAGE, search: debouncedSearch, searchMode },
         token
       );
       const assets = assetsResponse?.data?.docs || [];
+      const total = assetsResponse?.data?.totalDocuments || 0;
       const mappedAssets = assets.map((asset: any) => ({
         id: asset.id,
         sku: asset.skuKey,
@@ -108,27 +122,14 @@ export default function InventoryStockCardPage() {
         },
       }));
 
-      if (isAssetTrackingModeEnabled) {
-        // Also fetch tracked inventory items and merge
-        const invResponse = await request(
-          { path: "/inventories", method: "POST" },
-          { status: "all", page: 1, limit: 500 },
-          token
-        );
-        const trackedItems = invResponse?.data?.docs || [];
-        // Exclude untracked assets that have tracked inventory items
-        const trackedAssetIds = new Set(trackedItems.map((inv: any) => inv.assetId));
-        const untrackedAssets = mappedAssets.filter((a: any) => !trackedAssetIds.has(a.assetId));
-        setInventoryItems([...untrackedAssets, ...trackedItems]);
-      } else {
-        setInventoryItems(mappedAssets);
-      }
+      setInventoryItems(mappedAssets);
+      setTotalItems(total);
     } catch (error) {
       console.error("Error fetching items:", error);
     } finally {
       setLoading(false);
     }
-  }, [organizationId, getToken, isAssetTrackingModeEnabled]);
+  }, [organizationId, getToken, page, debouncedSearch, searchMode]);
 
   useEffect(() => {
     fetchItems();
@@ -139,29 +140,8 @@ export default function InventoryStockCardPage() {
     setViewDialogOpen(true);
   };
 
-  // Filter inventory items based on search term and mode
-  const filteredItems = useMemo(() => {
-    if (!searchTerm.trim()) {
-      return inventoryItems;
-    }
-
-    const term = searchTerm.toLowerCase();
-
-    return inventoryItems.filter((item) => {
-      switch (searchMode) {
-        case "code":
-          return item.sku?.toLowerCase().includes(term);
-        case "description":
-          const desc = item.description || item.name || item.asset?.name || item.asset?.description || "";
-          return desc.toLowerCase().includes(term);
-        case "category":
-          const cat = item.categoryName || item.category || item.asset?.category?.name || "";
-          return cat.toLowerCase().includes(term);
-        default:
-          return true;
-      }
-    });
-  }, [inventoryItems, searchTerm, searchMode]);
+  const filteredItems = inventoryItems;
+  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
 
   const getItemDescription = (item: InventoryItem) => {
     return item.description || item.name || item.asset?.name || item.asset?.description || "-";
@@ -436,7 +416,7 @@ export default function InventoryStockCardPage() {
         </Table>
       </TableContainer>
 
-      {/* Footer with count */}
+      {/* Footer with pagination */}
       <Box
         sx={{
           p: 1.5,
@@ -451,8 +431,19 @@ export default function InventoryStockCardPage() {
         }}
       >
         <Typography variant="body2" color="text.secondary">
-          Showing {filteredItems.length} of {inventoryItems.length} {itemType.toLowerCase()}s
+          Showing {(page - 1) * ITEMS_PER_PAGE + 1}-{Math.min(page * ITEMS_PER_PAGE, totalItems)} of {totalItems} {itemType.toLowerCase()}s
         </Typography>
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+          <Button size="small" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
+            Previous
+          </Button>
+          <Typography variant="body2">
+            Page {page} of {totalPages || 1}
+          </Typography>
+          <Button size="small" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>
+            Next
+          </Button>
+        </Box>
       </Box>
 
       {/* Product Detail Dialog */}

@@ -13,16 +13,31 @@ export class AssetsService {
 
   async getAssets(getAssetDto: GetAssetDto, userOrganizationId: string) {
     try {
-      const { page, limit, search, filters } = getAssetDto;
+      const { page, limit, search, filters, searchMode } = getAssetDto as any;
       const skip = (page - 1) * limit;
 
       const whereClause: any = {
-        organizationId: userOrganizationId, // Use user's organization
+        organizationId: userOrganizationId,
         deletedAt: null,
       };
 
       if (search) {
-        whereClause.OR = [{ name: { contains: search, mode: 'insensitive' } }, { skuKey: { contains: search, mode: 'insensitive' } }];
+        if (searchMode === 'code') {
+          whereClause.skuKey = { contains: search, mode: 'insensitive' };
+        } else if (searchMode === 'description') {
+          whereClause.OR = [
+            { name: { contains: search, mode: 'insensitive' } },
+            { description: { contains: search, mode: 'insensitive' } },
+          ];
+        } else if (searchMode === 'category') {
+          whereClause.category = { name: { contains: search, mode: 'insensitive' } };
+        } else {
+          whereClause.OR = [
+            { name: { contains: search, mode: 'insensitive' } },
+            { skuKey: { contains: search, mode: 'insensitive' } },
+            { description: { contains: search, mode: 'insensitive' } },
+          ];
+        }
       }
 
       // Category filter - handle both string and array

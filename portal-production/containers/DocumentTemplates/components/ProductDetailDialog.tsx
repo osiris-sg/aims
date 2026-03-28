@@ -1274,12 +1274,12 @@ export default function ProductDetailDialog({
                             <TableCell
                               align="right"
                               sx={{
-                                color: movement.qtyOut > 0 ? "error.main" : "text.disabled",
-                                fontWeight: movement.qtyOut > 0 ? 600 : 400,
-                                bgcolor: movement.qtyOut > 0 ? "error.50" : "transparent",
+                                color: movement.qtyOut < 0 ? "error.main" : "text.disabled",
+                                fontWeight: movement.qtyOut < 0 ? 600 : 400,
+                                bgcolor: movement.qtyOut < 0 ? "error.50" : "transparent",
                               }}
                             >
-                              {movement.qtyOut > 0 ? `-${movement.qtyOut.toLocaleString()}` : ""}
+                              {movement.qtyOut < 0 ? movement.qtyOut.toLocaleString() : ""}
                             </TableCell>
                             <TableCell align="right" sx={{ fontWeight: 600 }}>
                               {movement.balance.toLocaleString()}

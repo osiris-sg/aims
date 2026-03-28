@@ -451,22 +451,29 @@ export class InventoriesService {
 
         if (!isStockIn && !isStockOut) continue;
 
-        const qtyIn = isStockIn ? quantity : 0;
-        const qtyOut = isStockOut ? quantity : 0;
+        // quantity in DocumentItem is already signed (negative for out)
+        const qtyIn = quantity > 0 ? quantity : 0;
+        const qtyOut = quantity < 0 ? quantity : 0; // keep negative for display
 
         // Update running balance
-        runningBalance = runningBalance + qtyIn - qtyOut;
+        runningBalance = runningBalance + quantity;
+
+        // Read from nested config paths
+        const docDate = config?.documentInfo?.date || config?.date || doc.createdAt.toISOString().split('T')[0];
+        const poNo = config?.documentInfo?.poNo || config?.poNo || config?.documentInfo?.referenceNo || config?.referenceNo || '';
+        const customerName = config?.customer?.name || config?.customerName || config?.supplierName || '';
+        const currency = config?.documentInfo?.currency || config?.currency || 'SGD';
 
         movements.push({
           reference: doc.name || doc.id.substring(0, 8),
-          date: doc.createdAt.toISOString().split('T')[0],
-          poNo: config?.poNo || config?.referenceNo || '',
-          name: config?.customerName || config?.supplierName || '',
+          date: typeof docDate === 'string' ? docDate.split('T')[0] : docDate,
+          poNo,
+          name: customerName,
           qtyIn,
           qtyOut,
           balance: runningBalance,
           priceOrCost: docItem.unitPrice || 0,
-          currency: config?.currency || 'SGD',
+          currency,
           documentId: doc.id,
           documentType: doc.type,
         });

@@ -20,9 +20,9 @@ export class OrganizationsService {
     defaultStamp?: string;
     customDocumentTypes?: Record<string, string>;
   }) {
-    return this.prisma.organization.create({
+    const organization = await this.prisma.organization.create({
       data: {
-        id: data.id || undefined, // Let Prisma generate UUID if not provided
+        id: data.id || undefined,
         name: data.name,
         address: data.address,
         phoneNumber: data.phoneNumber,
@@ -32,6 +32,38 @@ export class OrganizationsService {
         customDocumentTypes: data.customDocumentTypes,
       },
     });
+
+    // Auto-create superadmin role with all permissions
+    await this.createSuperadminRole(organization.id);
+
+    return organization;
+  }
+
+  /**
+   * Create a superadmin role for a new organization with all available permissions
+   */
+  private async createSuperadminRole(organizationId: string) {
+    try {
+      // Get all permissions
+      const allPermissions = await this.prisma.permission.findMany({
+        select: { id: true },
+      });
+
+      // Create superadmin role connected to all permissions
+      await this.prisma.role.create({
+        data: {
+          name: 'superadmin',
+          organizationId,
+          permissions: {
+            connect: allPermissions.map(p => ({ id: p.id })),
+          },
+        },
+      });
+
+      console.log(`Created superadmin role for org ${organizationId} with ${allPermissions.length} permissions`);
+    } catch (error) {
+      console.error('Error creating superadmin role:', error);
+    }
   }
 
   async findAll() {

@@ -28,6 +28,8 @@ import {
   ExpandMore,
   ErrorOutline,
   ShoppingCart,
+  LocalShipping,
+  Storefront,
 } from "@mui/icons-material";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -47,6 +49,8 @@ const iconMap: Record<string, React.ComponentType> = {
   AdminPanelSettings,
   SettingsRounded,
   ShoppingCart,
+  LocalShipping,
+  Storefront,
 };
 
 const getIcon = (iconName?: string) => {
