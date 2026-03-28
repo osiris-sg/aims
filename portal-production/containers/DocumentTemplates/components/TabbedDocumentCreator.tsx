@@ -744,14 +744,13 @@ export default function TabbedDocumentCreator({
   const total = isAbsorbTax ? subtotal : subtotal + totalTax;
 
   // Auto-calculate right-column summary fields when items/tax change
-  const isAbsorbTax = formData?.documentInfo?.absorbTax === 'Y' || formData?.documentInfo?.absorbTax === true;
-
   useEffect(() => {
-    const discountPercent = parseFloat(formData?.documentInfo?.discountPercent) || 0;
+    const di = formData?.documentInfo as any;
+    const discountPercent = parseFloat(di?.discountPercent) || 0;
     const grossTotal = subtotal;
     const discountAmount = grossTotal * (discountPercent / 100);
     const subTotalAfterDiscount = grossTotal - discountAmount;
-    const gstPercent = isTaxApplicable ? (parseFloat(formData?.documentInfo?.gstPercent) || organization?.taxRate || 9) : 0;
+    const gstPercent = isTaxApplicable ? (parseFloat(di?.gstPercent) || organization?.taxRate || 9) : 0;
 
     let gstAmount: number;
     let nettTotal: number;
@@ -779,7 +778,7 @@ export default function TabbedDocumentCreator({
         nettTotal: parseFloat(nettTotal.toFixed(2)),
       },
     }));
-  }, [subtotal, formData?.documentInfo?.discountPercent, formData?.documentInfo?.gstPercent, formData?.documentInfo?.taxApplicable, formData?.documentInfo?.absorbTax, isTaxApplicable, isAbsorbTax]);
+  }, [subtotal, (formData?.documentInfo as any)?.discountPercent, (formData?.documentInfo as any)?.gstPercent, formData?.documentInfo?.taxApplicable, formData?.documentInfo?.absorbTax, isTaxApplicable, isAbsorbTax]);
 
   const handleMainTabChange = (_: React.SyntheticEvent, newValue: number) => {
     setMainTabValue(newValue);
@@ -3153,12 +3152,14 @@ export default function TabbedDocumentCreator({
                                 </Box>
                               </>
                             ) : (
+                              <>
                               {(() => {
-                                const currency = formData?.documentInfo?.currency || "SGD";
-                                const discPct = parseFloat(formData?.documentInfo?.discountPercent) || 0;
+                                const dInfo = formData?.documentInfo as any;
+                                const currency = dInfo?.currency || "SGD";
+                                const discPct = parseFloat(dInfo?.discountPercent) || 0;
                                 const discAmt = subtotal * (discPct / 100);
                                 const afterDisc = subtotal - discAmt;
-                                const gstPct = isTaxApplicable ? (parseFloat(formData?.documentInfo?.gstPercent) || organization?.taxRate || 9) : 0;
+                                const gstPct = isTaxApplicable ? (parseFloat(dInfo?.gstPercent) || organization?.taxRate || 9) : 0;
                                 const gst = isAbsorbTax && gstPct > 0
                                   ? afterDisc * gstPct / (100 + gstPct)
                                   : afterDisc * (gstPct / 100);
@@ -3199,6 +3200,7 @@ export default function TabbedDocumentCreator({
                                   </>
                                 );
                               })()}
+                              </>
                             )}
                           </CardContent>
                         </Card>
