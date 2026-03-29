@@ -3287,20 +3287,7 @@ export default function TabbedDocumentCreator({
                       </>
                     )}
 
-                    {/* Bank Details - for TI only */}
-                    {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE") && (
-                      <Grid item xs={12}>
-                        <TextField
-                          fullWidth
-                          label="Bank Details"
-                          value={formData.bankDetails}
-                          onChange={(e) => setFormData({ ...formData, bankDetails: e.target.value })}
-                          multiline
-                          rows={3}
-                          size="small"
-                        />
-                      </Grid>
-                    )}
+                    {/* Bank Details now managed in Organization Settings */}
                   </Grid>
                 </TabPanel>
               </CardContent>

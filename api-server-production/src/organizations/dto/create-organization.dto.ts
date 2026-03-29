@@ -62,4 +62,11 @@ export class CreateOrganizationDto {
   @Min(0)
   @Max(100)
   taxRate?: number;
+
+  @ApiProperty({
+    required: false,
+    description: 'Bank details for invoices (accountName, accountNumber, bankName, swiftCode, branchCode, bankCode, currencyCode)',
+  })
+  @IsOptional()
+  bankDetails?: Record<string, string>;
 }

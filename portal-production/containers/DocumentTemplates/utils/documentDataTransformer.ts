@@ -115,7 +115,8 @@ export function transformFormDataForBackend(
 
   // Add any additional flat fields that might exist in form
   const flatFields = [
-    'note', 'dueDate', 'collectFrom', 'startDate', 'endDate',
+    'note', 'termsAndConditions', 'remarks', 'agreementText',
+    'dueDate', 'collectFrom', 'startDate', 'endDate',
     'signature', 'gstRegNo', 'paymentTerms',
     // Address fields
     'billTo', 'deliveryTo',

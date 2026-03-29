@@ -942,19 +942,47 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           );
         })()}
 
-        {/* Terms, QR Code and Footer */}
-        <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2, gap: 2 }}>
-          {/* Left - Terms and Conditions */}
+        {/* Footer - Due Date, Bank Details, Notes & Computer Generated Notice */}
+        <Box sx={{ mt: 2, borderTop: "2px solid #000", pt: 1.5 }}>
+          {/* Due Date - calculated from invoice date + payment terms */}
+          {(() => {
+            const invoiceDate = data.documentInfo?.date;
+            const terms = data.documentInfo?.paymentTerms;
+            const termDays = parseInt(String(terms).replace(/\D/g, '')) || 0;
+            if (invoiceDate && termDays > 0) {
+              const due = new Date(invoiceDate);
+              due.setDate(due.getDate() + termDays);
+              const formatted = due.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+              return (
+                <Typography sx={{ fontSize: "0.6875rem", fontWeight: 700, mb: 0.5 }}>
+                  Due Date: {formatted}
+                </Typography>
+              );
+            }
+            return null;
+          })()}
+        <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>
+          {/* Left - Bank Details from Organization */}
           <Box sx={{ flex: 1, maxWidth: "55%" }}>
-            <Typography sx={{ fontSize: "0.5625rem", lineHeight: 1.4 }}>
-              The risk in the goods shall pass to the buyer upon delivery. The<br />
-              Ownership of the goods shall remain with the supplier<br />
-              until full<br />
-              payment has been made. This reservation of title is<br />
-              without prejudice to the supplier's other rights against<br />
-              Buyer's<br />
-              default in payment. Interest at 1% pr month will be
-            </Typography>
+            {(() => {
+              const bank = organization?.bankDetails;
+              const hasBank = bank && (bank.accountName || bank.accountNumber || bank.bankName);
+              return (
+                <>
+                  {hasBank && (
+                    <Box sx={{ fontSize: "0.5625rem", lineHeight: 1.6 }}>
+                      {bank.accountName && <Typography sx={{ fontSize: "0.5625rem" }}>All Cheque should be crossed and made payable to: {bank.accountName}</Typography>}
+                      {bank.bankName && <Typography sx={{ fontSize: "0.5625rem" }}>By Bank Transfer: {bank.bankName}</Typography>}
+                      {bank.branchCode && <Typography sx={{ fontSize: "0.5625rem" }}>Branch: {bank.branchCode}</Typography>}
+                      {(bank.bankCode || bank.swiftCode) && <Typography sx={{ fontSize: "0.5625rem" }}>Bank Branch No.: {bank.bankCode || ""}{bank.swiftCode ? ` Swift Code: ${bank.swiftCode}` : ""}</Typography>}
+                      {bank.accountNumber && <Typography sx={{ fontSize: "0.5625rem" }}>Bank Account No.: {bank.accountNumber}</Typography>}
+                      {organization?.registrationNumber && <Typography sx={{ fontSize: "0.5625rem" }}>PayNow to UEN: {organization.registrationNumber}</Typography>}
+                    </Box>
+                  )}
+                  {!hasBank && <Typography sx={{ fontSize: "0.5625rem" }}>&nbsp;</Typography>}
+                </>
+              );
+            })()}
           </Box>
 
           {/* Center - PayNow QR */}
@@ -973,6 +1001,25 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               No signature is required.
             </Typography>
           </Box>
+        </Box>
+
+        {/* Notes & T&C side by side */}
+        {(data.note || data.termsAndConditions) && (
+          <Box sx={{ display: "flex", gap: 3, mt: 1 }}>
+            {data.note && (
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography sx={{ fontSize: "0.5625rem", fontWeight: 600 }}>Note:</Typography>
+                <Typography sx={{ fontSize: "0.5625rem", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.note}</Typography>
+              </Box>
+            )}
+            {data.termsAndConditions && (
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography sx={{ fontSize: "0.5625rem", fontWeight: 600 }}>Terms & Conditions:</Typography>
+                <Typography sx={{ fontSize: "0.5625rem", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.termsAndConditions}</Typography>
+              </Box>
+            )}
+          </Box>
+        )}
         </Box>
         </Box>
 
@@ -1468,17 +1515,47 @@ export default function CleanDocumentPreview({ documentType, data, organization 
             );
           })()}
 
-          {/* Footer */}
-          <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2, gap: 2 }}>
-            {/* Left - Terms */}
+          {/* Footer - Due Date, Bank Details & Computer Generated Notice */}
+          <Box sx={{ mt: 2, borderTop: "2px solid #000", pt: 1.5 }}>
+            {/* Due Date */}
+            {(() => {
+              const invoiceDate = data.documentInfo?.date;
+              const terms = data.documentInfo?.paymentTerms;
+              const termDays = parseInt(String(terms).replace(/\D/g, '')) || 0;
+              if (invoiceDate && termDays > 0) {
+                const due = new Date(invoiceDate);
+                due.setDate(due.getDate() + termDays);
+                const formatted = due.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+                return (
+                  <Typography sx={{ fontSize: "0.6875rem", fontWeight: 700, mb: 0.5 }}>
+                    Due Date: {formatted}
+                  </Typography>
+                );
+              }
+              return null;
+            })()}
+          <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>
+            {/* Left - Bank Details from Organization */}
             <Box sx={{ flex: 1, maxWidth: "55%" }}>
-              <Typography sx={{ fontSize: "0.5625rem", lineHeight: 1.4 }}>
-                The risk in the goods shall pass to the buyer upon delivery. The<br />
-                Ownership of the goods shall remain with the supplier until full<br />
-                payment has been made. This reservation of title is<br />
-                without prejudice to the supplier's other rights against Buyer's<br />
-                default in payment. Interest at 1% pr month will be
-              </Typography>
+              {(() => {
+                const bank = organization?.bankDetails;
+                const hasBank = bank && (bank.accountName || bank.accountNumber || bank.bankName);
+                return (
+                  <>
+                    {hasBank && (
+                      <Box sx={{ fontSize: "0.5625rem", lineHeight: 1.6 }}>
+                        {bank.accountName && <Typography sx={{ fontSize: "0.5625rem" }}>All Cheque should be crossed and made payable to: {bank.accountName}</Typography>}
+                        {bank.bankName && <Typography sx={{ fontSize: "0.5625rem" }}>By Bank Transfer: {bank.bankName}</Typography>}
+                        {bank.branchCode && <Typography sx={{ fontSize: "0.5625rem" }}>Branch: {bank.branchCode}</Typography>}
+                        {(bank.bankCode || bank.swiftCode) && <Typography sx={{ fontSize: "0.5625rem" }}>Bank Branch No.: {bank.bankCode || ""}{bank.swiftCode ? ` Swift Code: ${bank.swiftCode}` : ""}</Typography>}
+                        {bank.accountNumber && <Typography sx={{ fontSize: "0.5625rem" }}>Bank Account No.: {bank.accountNumber}</Typography>}
+                        {organization?.registrationNumber && <Typography sx={{ fontSize: "0.5625rem" }}>PayNow to UEN: {organization.registrationNumber}</Typography>}
+                      </Box>
+                    )}
+                    {!hasBank && <Typography sx={{ fontSize: "0.5625rem" }}>&nbsp;</Typography>}
+                  </>
+                );
+              })()}
             </Box>
 
             {/* Right - Computer generated notice */}
@@ -1490,6 +1567,25 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                 No signature is required.
               </Typography>
             </Box>
+          </Box>
+
+          {/* Notes & T&C side by side */}
+          {(data.note || data.termsAndConditions) && (
+            <Box sx={{ display: "flex", gap: 2, mt: 1 }}>
+              {data.note && (
+                <Box sx={{ flex: 1 }}>
+                  <Typography sx={{ fontSize: "0.5625rem", fontWeight: 600 }}>Note:</Typography>
+                  <Typography sx={{ fontSize: "0.5625rem", lineHeight: 1.6, whiteSpace: "pre-line" }}>{data.note}</Typography>
+                </Box>
+              )}
+              {data.termsAndConditions && (
+                <Box sx={{ flex: 1 }}>
+                  <Typography sx={{ fontSize: "0.5625rem", fontWeight: 600 }}>Terms & Conditions:</Typography>
+                  <Typography sx={{ fontSize: "0.5625rem", lineHeight: 1.6, whiteSpace: "pre-line" }}>{data.termsAndConditions}</Typography>
+                </Box>
+              )}
+            </Box>
+          )}
           </Box>
         </Box>
 

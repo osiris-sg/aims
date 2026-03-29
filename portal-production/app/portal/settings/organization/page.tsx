@@ -22,6 +22,13 @@ export default function OrganizationSettingsPage() {
       phoneNumber: organization?.phoneNumber || "",
       registrationNumber: organization?.registrationNumber || "",
       taxRate: organization?.taxRate || 9,
+      bankAccountName: organization?.bankDetails?.accountName || "",
+      bankAccountNumber: organization?.bankDetails?.accountNumber || "",
+      bankName: organization?.bankDetails?.bankName || "",
+      bankSwiftCode: organization?.bankDetails?.swiftCode || "",
+      bankBranchCode: organization?.bankDetails?.branchCode || "",
+      bankCode: organization?.bankDetails?.bankCode || "",
+      bankCurrencyCode: organization?.bankDetails?.currencyCode || "SGD",
       logo: organization?.logo ? [{ data: organization.logo }] : undefined,
       defaultStamp: organization?.defaultStamp ? [{ data: organization.defaultStamp }] : undefined,
       customDocumentTypes: organization?.customDocumentTypes || {},
@@ -87,6 +94,15 @@ export default function OrganizationSettingsPage() {
       registrationNumber: data.registrationNumber,
       taxRate: parseFloat(data.taxRate) || 0,
       customDocumentTypes: data.customDocumentTypes,
+      bankDetails: {
+        accountName: data.bankAccountName || "",
+        accountNumber: data.bankAccountNumber || "",
+        bankName: data.bankName || "",
+        swiftCode: data.bankSwiftCode || "",
+        branchCode: data.bankBranchCode || "",
+        bankCode: data.bankCode || "",
+        currencyCode: data.bankCurrencyCode || "SGD",
+      },
     };
 
     const getFirstItem = (val: any) => (Array.isArray(val) && val[0]?.data ? val[0].data : undefined);
@@ -179,6 +195,32 @@ export default function OrganizationSettingsPage() {
           type="number"
           min={0}
         />
+
+        <Box>
+          <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>
+            Bank Details
+          </Typography>
+          <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
+            Bank details will appear on invoices and other documents.
+          </Typography>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+            <FormInputBox control={control} name="bankAccountName" label="Account Name" placeHolder="e.g., OSIRIS TECHNOLOGY PTE. LTD." />
+            <FormInputBox control={control} name="bankAccountNumber" label="Account Number" placeHolder="e.g., 885215591474" />
+            <FormInputBox control={control} name="bankName" label="Bank Name" placeHolder="e.g., DBS Bank Ltd" />
+            <FormInputBox control={control} name="bankSwiftCode" label="SWIFT/BIC Code" placeHolder="e.g., DBSSSGSG" />
+            <Box sx={{ display: "flex", gap: 2 }}>
+              <Box sx={{ flex: 1 }}>
+                <FormInputBox control={control} name="bankBranchCode" label="Branch Code" placeHolder="e.g., 001" />
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <FormInputBox control={control} name="bankCode" label="Bank Code" placeHolder="e.g., 7171" />
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <FormInputBox control={control} name="bankCurrencyCode" label="Currency Code" placeHolder="e.g., SGD" />
+              </Box>
+            </Box>
+          </Box>
+        </Box>
 
         <Box>
           <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>

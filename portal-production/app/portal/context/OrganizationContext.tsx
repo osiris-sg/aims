@@ -15,6 +15,15 @@ interface Organization {
   logo?: string | null;
   defaultStamp?: string | null;
   customDocumentTypes?: Record<string, string> | null;
+  bankDetails?: {
+    accountName?: string;
+    accountNumber?: string;
+    bankName?: string;
+    swiftCode?: string;
+    branchCode?: string;
+    bankCode?: string;
+    currencyCode?: string;
+  } | null;
 }
 
 interface OrganizationContextType {

@@ -19,6 +19,7 @@ model Organization {
   defaultStamp       String?
   customDocumentTypes Json?
   taxRate            Float?             @default(9)
+  bankDetails        Json?              // { accountName, accountNumber, bankName, swiftCode, branchCode, bankCode, currencyCode }
   stockDeductionTrigger String?         @default("DO") // Legacy field - no longer used. Stock deduction logic: DO always deducts, Invoice deducts only if not extracted from DO
   assets             Asset[]
   categories         Category[]
