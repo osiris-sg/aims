@@ -204,19 +204,19 @@ export default function OrganizationSettingsPage() {
             Bank details will appear on invoices and other documents.
           </Typography>
           <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-            <FormInputBox control={control} name="bankAccountName" label="Account Name" placeHolder="e.g., OSIRIS TECHNOLOGY PTE. LTD." />
-            <FormInputBox control={control} name="bankAccountNumber" label="Account Number" placeHolder="e.g., 885215591474" />
-            <FormInputBox control={control} name="bankName" label="Bank Name" placeHolder="e.g., DBS Bank Ltd" />
-            <FormInputBox control={control} name="bankSwiftCode" label="SWIFT/BIC Code" placeHolder="e.g., DBSSSGSG" />
+            <FormInputBox control={control} name="bankAccountName" label="Account Name" placeHolder="Enter account name" />
+            <FormInputBox control={control} name="bankAccountNumber" label="Account Number" placeHolder="Enter account number" />
+            <FormInputBox control={control} name="bankName" label="Bank Name" placeHolder="Enter bank name" />
+            <FormInputBox control={control} name="bankSwiftCode" label="SWIFT/BIC Code" placeHolder="Enter SWIFT/BIC code" />
             <Box sx={{ display: "flex", gap: 2 }}>
               <Box sx={{ flex: 1 }}>
-                <FormInputBox control={control} name="bankBranchCode" label="Branch Code" placeHolder="e.g., 001" />
+                <FormInputBox control={control} name="bankBranchCode" label="Branch Code" placeHolder="Enter branch code" />
               </Box>
               <Box sx={{ flex: 1 }}>
-                <FormInputBox control={control} name="bankCode" label="Bank Code" placeHolder="e.g., 7171" />
+                <FormInputBox control={control} name="bankCode" label="Bank Code" placeHolder="Enter bank code" />
               </Box>
               <Box sx={{ flex: 1 }}>
-                <FormInputBox control={control} name="bankCurrencyCode" label="Currency Code" placeHolder="e.g., SGD" />
+                <FormInputBox control={control} name="bankCurrencyCode" label="Currency Code" placeHolder="Enter currency" />
               </Box>
             </Box>
           </Box>
