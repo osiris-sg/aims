@@ -387,13 +387,13 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         {(data.note || data.remarks) && (
           <Box sx={{ display: "flex", gap: 3, mt: 2 }}>
             {data.note && (
-              <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
                 <Typography sx={{ fontSize: "11px", fontWeight: 600 }}>Note:</Typography>
                 <Typography sx={{ fontSize: "11px", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.note}</Typography>
               </Box>
             )}
             {data.remarks && (
-              <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
                 <Typography sx={{ fontSize: "11px", fontWeight: 600 }}>Remarks:</Typography>
                 <Typography sx={{ fontSize: "11px", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.remarks}</Typography>
               </Box>
@@ -608,7 +608,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         {/* Footer */}
         <Box sx={{ mt: "auto", pt: 4 }}>
           <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-            <Box sx={{ width: "45%" }}>
+            <Box sx={{ width: "45%", pageBreakInside: "avoid", breakInside: "avoid" }}>
               <Typography sx={{ fontSize: "0.6875rem", mb: 0.5 }}>Remarks:</Typography>
               <Typography sx={{ fontSize: "0.6875rem", whiteSpace: "pre-line" }}>{data.remarks || ""}</Typography>
             </Box>
@@ -1025,13 +1025,13 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         {(data.note || data.termsAndConditions) && (
           <Box sx={{ display: "flex", gap: 3, mt: 1 }}>
             {data.note && (
-              <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
                 <Typography sx={{ fontSize: "0.5625rem", fontWeight: 600 }}>Note:</Typography>
                 <Typography sx={{ fontSize: "0.5625rem", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.note}</Typography>
               </Box>
             )}
             {data.termsAndConditions && (
-              <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
                 <Typography sx={{ fontSize: "0.5625rem", fontWeight: 600 }}>Terms & Conditions:</Typography>
                 <Typography sx={{ fontSize: "0.5625rem", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.termsAndConditions}</Typography>
               </Box>
@@ -1591,13 +1591,13 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           {(data.note || data.termsAndConditions) && (
             <Box sx={{ display: "flex", gap: 2, mt: 1 }}>
               {data.note && (
-                <Box sx={{ flex: 1 }}>
+                <Box sx={{ flex: 1, pageBreakInside: "avoid", breakInside: "avoid" }}>
                   <Typography sx={{ fontSize: "0.5625rem", fontWeight: 600 }}>Note:</Typography>
                   <Typography sx={{ fontSize: "0.5625rem", lineHeight: 1.6, whiteSpace: "pre-line" }}>{data.note}</Typography>
                 </Box>
               )}
               {data.termsAndConditions && (
-                <Box sx={{ flex: 1 }}>
+                <Box sx={{ flex: 1, pageBreakInside: "avoid", breakInside: "avoid" }}>
                   <Typography sx={{ fontSize: "0.5625rem", fontWeight: 600 }}>Terms & Conditions:</Typography>
                   <Typography sx={{ fontSize: "0.5625rem", lineHeight: 1.6, whiteSpace: "pre-line" }}>{data.termsAndConditions}</Typography>
                 </Box>
@@ -2359,13 +2359,13 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           {(data.note || data.remarks) && (
             <Box sx={{ display: "flex", gap: 3, mb: 2 }}>
               {data.note && (
-                <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
                   <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600 }}>Note:</Typography>
                   <Typography sx={{ fontSize: "0.6875rem", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.note}</Typography>
                 </Box>
               )}
               {data.remarks && (
-                <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
                   <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600 }}>Remarks:</Typography>
                   <Typography sx={{ fontSize: "0.6875rem", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.remarks}</Typography>
                 </Box>
@@ -2375,7 +2375,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
 
           {/* Terms & Conditions */}
           {data.termsAndConditions && (
-            <Box sx={{ mb: 2 }}>
+            <Box sx={{ mb: 2, pageBreakInside: "avoid", breakInside: "avoid" }}>
               <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600 }}>Terms & Conditions:</Typography>
               <Typography sx={{ fontSize: "0.6875rem", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.termsAndConditions}</Typography>
             </Box>
@@ -2664,7 +2664,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
 
       {/* Terms & Conditions */}
       {data.termsAndConditions && (
-        <Box sx={{ mb: 2 }}>
+        <Box sx={{ mb: 2, pageBreakInside: "avoid", breakInside: "avoid" }}>
           <Typography variant="body2" sx={{ fontSize: "0.625rem", fontWeight: 600, mb: 0.5 }}>
             Terms & Conditions:
           </Typography>
