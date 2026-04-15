@@ -2342,21 +2342,6 @@ export default function CleanDocumentPreview({ documentType, data, organization 
             </Typography>
           </Box>
 
-          {/* Terms Section */}
-          <Box sx={{ mb: 2 }}>
-            <Box sx={{ display: "flex", mb: 0.3 }}>
-              <Typography sx={{ fontSize: "0.6875rem", minWidth: "120px" }}>Validity Period</Typography>
-              <Typography sx={{ fontSize: "0.6875rem" }}>{data.documentInfo?.validityPeriod || "Subject to factory final confirmation."}</Typography>
-            </Box>
-            <Box sx={{ display: "flex", mb: 0.3 }}>
-              <Typography sx={{ fontSize: "0.6875rem", minWidth: "120px" }}>Terms Of Payment</Typography>
-              <Typography sx={{ fontSize: "0.6875rem" }}>{data.documentInfo?.paymentTerms || "Cash"}</Typography>
-            </Box>
-            <Box sx={{ display: "flex", mb: 0.3 }}>
-              <Typography sx={{ fontSize: "0.6875rem", minWidth: "120px" }}>Delivery Time</Typography>
-              <Typography sx={{ fontSize: "0.6875rem" }}>{data.documentInfo?.deliveryTime || "Estimated 6 to 12 weeks upon confirmation of order."}</Typography>
-            </Box>
-          </Box>
 
           {/* Closing Message */}
           <Typography sx={{ fontSize: "0.6875rem", mb: 2 }}>
