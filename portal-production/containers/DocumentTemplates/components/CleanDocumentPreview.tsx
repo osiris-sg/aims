@@ -118,7 +118,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           {/* Left Column - Logo, Title and Customer */}
           <Box sx={{ width: "35%" }}>
             {(data.logo || organization?.logo) && (
-              <Box sx={{ mb: 2, mt: -6, maxWidth: 280, height: 120 }}>
+              <Box sx={{ mb: 2, maxWidth: 280, height: 120 }}>
                 <img src={getResourceUrl(data.logo || organization?.logo)} alt="Company Logo" style={{ maxWidth: "100%", maxHeight: "100%" }} />
               </Box>
             )}
@@ -437,7 +437,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         }}
       >
         {/* Company Header - Centered */}
-        <Box sx={{ textAlign: "center", mb: 2, mt: -6 }}>
+        <Box sx={{ textAlign: "center", mb: 2 }}>
           <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
             {data.company?.name || organization?.name || ""}
           </Typography>
@@ -649,7 +649,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         }}
       >
         {/* Company Header - Centered */}
-        <Box sx={{ textAlign: "center", mb: 2, mt: -6 }}>
+        <Box sx={{ textAlign: "center", mb: 2 }}>
           <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
             {data.company?.name || organization?.name || "ELSHIS INTERNATIONAL PTE LTD"}
           </Typography>
@@ -1073,7 +1073,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         }}
       >
         {/* Company Header - Centered */}
-        <Box sx={{ textAlign: "center", mb: 2, mt: -6 }}>
+        <Box sx={{ textAlign: "center", mb: 2 }}>
           <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
             {data.company?.name || organization?.name || ""}
           </Typography>
@@ -1082,7 +1082,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
             {data.company?.fax && `  Fax: ${data.company.fax}`}
           </Typography>
           <Typography sx={{ fontSize: "0.75rem" }}>
-            NPWP No: {data.company?.gstRegNo || organization?.registrationNumber || ""}
+            UEN: {data.company?.gstRegNo || organization?.registrationNumber || ""}
           </Typography>
         </Box>
 
@@ -1132,7 +1132,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 0.5 }}>
                 DELIVERY ORDER
               </Typography>
-              <InfoRow label="NPWP No." value={data.customer?.gstRegNo || data.customer?.npwp || data.company?.gstRegNo || data.gstRegNo} />
+              <InfoRow label="UEN" value={data.customer?.gstRegNo || data.customer?.npwp || data.company?.gstRegNo || data.gstRegNo} />
               <Box sx={{ display: "flex" }}>
                 <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>DELIVERY ORDER</Typography>
                 <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}></Typography>
@@ -1277,7 +1277,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         }}
       >
         {/* Company Header - Centered */}
-        <Box sx={{ textAlign: "center", mb: 2, mt: -6 }}>
+        <Box sx={{ textAlign: "center", mb: 2 }}>
           <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
             {data.company?.name || organization?.name || ""}
           </Typography>
@@ -1642,7 +1642,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         }}
       >
         {/* Company Header - Centered */}
-        <Box sx={{ textAlign: "center", mb: 2, mt: -6 }}>
+        <Box sx={{ textAlign: "center", mb: 2 }}>
           <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
             {data.company?.name || organization?.name || ""}
           </Typography>
@@ -1887,7 +1887,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         }}
       >
         {/* Company Header - Centered */}
-        <Box sx={{ textAlign: "center", mb: 2, mt: -6 }}>
+        <Box sx={{ textAlign: "center", mb: 2 }}>
           <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
             {data.company?.name || organization?.name || ""}
           </Typography>
@@ -2177,7 +2177,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         }}
       >
         {/* Company Header - Centered */}
-        <Box sx={{ textAlign: "center", mb: 2, mt: -6 }}>
+        <Box sx={{ textAlign: "center", mb: 2 }}>
           <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
             {data.company?.name || organization?.name || ""}
           </Typography>
@@ -2214,7 +2214,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
               <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 1 }}>
                 QUOTATION
               </Typography>
-              <InfoRow label="NPWP No." value={data.customer?.gstRegNo || data.company?.gstRegNo || organization?.registrationNumber} minWidth="110px" />
+              <InfoRow label="UEN" value={data.customer?.gstRegNo || data.company?.gstRegNo || organization?.registrationNumber} minWidth="110px" />
               <Box sx={{ display: "flex" }}>
                 <Typography sx={{ fontSize: "0.75rem", minWidth: "110px", lineHeight: 1.4, fontWeight: 600 }}>QUOTATION NO.</Typography>
                 <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}></Typography>
