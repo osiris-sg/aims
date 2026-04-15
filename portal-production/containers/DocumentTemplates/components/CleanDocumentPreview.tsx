@@ -2373,6 +2373,14 @@ export default function CleanDocumentPreview({ documentType, data, organization 
             </Box>
           )}
 
+          {/* Terms & Conditions */}
+          {data.termsAndConditions && (
+            <Box sx={{ mb: 2 }}>
+              <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600 }}>Terms & Conditions:</Typography>
+              <Typography sx={{ fontSize: "0.6875rem", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.termsAndConditions}</Typography>
+            </Box>
+          )}
+
           {/* Computer Generated Notice */}
           <Typography sx={{ fontSize: "0.6875rem", fontStyle: "italic", mb: 3 }}>
             This is a computer generated Quotation. No signature is required.
