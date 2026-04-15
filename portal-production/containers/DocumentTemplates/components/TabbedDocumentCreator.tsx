@@ -3308,59 +3308,18 @@ export default function TabbedDocumentCreator({
           </Box>
         ) : (
           // PREVIEW MODE - Show clean document layout
-          <Box
-            sx={{
-              flex: 1,
-              overflow: "auto",
-              p: 3,
-              bgcolor: "grey.300",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-            }}
-          >
-            <Box
-              sx={{
-                position: "relative",
-                width: "210mm",
-                boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
-                "& > div": { display: "block" },
-                // Visual page-break overlay: draws a grey gap (matching the
-                // surrounding background) every 297mm so the single tall
-                // Paper looks like a stack of A4 sheets in a PDF reader.
-                // The gap is ~16px and bordered by a thin shadow on each
-                // side to suggest page edges.
-                "&::after": {
-                  content: '""',
-                  position: "absolute",
-                  inset: 0,
-                  pointerEvents: "none",
-                  background: (theme) => `repeating-linear-gradient(
-                    to bottom,
-                    transparent 0,
-                    transparent calc(297mm - 1px),
-                    rgba(0,0,0,0.18) calc(297mm - 1px),
-                    rgba(0,0,0,0.18) 297mm,
-                    ${theme.palette.grey[300]} 297mm,
-                    ${theme.palette.grey[300]} calc(297mm + 16px),
-                    rgba(0,0,0,0.18) calc(297mm + 16px),
-                    rgba(0,0,0,0.18) calc(297mm + 17px)
-                  )`,
-                },
-              }}
-            >
-              <div ref={printContentRef}>
-                <CleanDocumentPreview
-                  documentType={documentType}
-                  data={{
-                    ...formData,
-                    items: items,
-                    logo: organization?.logo, // Pass the logo from organization
-                  }}
-                  organization={organization}
-                />
-              </div>
-            </Box>
+          <Box sx={{ flex: 1, overflow: "auto", p: 2, bgcolor: "grey.100" }}>
+            <div ref={printContentRef}>
+              <CleanDocumentPreview
+                documentType={documentType}
+                data={{
+                  ...formData,
+                  items: items,
+                  logo: organization?.logo, // Pass the logo from organization
+                }}
+                organization={organization}
+              />
+            </div>
           </Box>
         )}
       </Box>
