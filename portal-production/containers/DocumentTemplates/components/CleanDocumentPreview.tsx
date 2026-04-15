@@ -235,7 +235,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                 <TableRow key={index}>
                   <TableCell>
                     <Box>
-                      <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500, mb: 0.5 }}>
+                      <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500, mb: 0.5, whiteSpace: "pre-wrap" }}>
                         {item.description}
                       </Typography>
                       {item.details && (
@@ -541,7 +541,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                 <TableRow key={index}>
                   <TableCell>
                     <Box>
-                      <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500, mb: 0.5 }}>
+                      <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500, mb: 0.5, whiteSpace: "pre-wrap" }}>
                         {item.description}
                       </Typography>
                       {item.details && (
@@ -751,7 +751,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                 <TableRow key={index}>
                   <TableCell>
                     <Box>
-                      <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500, mb: 0.5 }}>
+                      <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500, mb: 0.5, whiteSpace: "pre-wrap" }}>
                         {item.description}
                       </Typography>
                       {item.details && (
@@ -1175,7 +1175,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                 <TableRow key={index}>
                   <TableCell>{item.itemCode || ""}</TableCell>
                   <TableCell>
-                    <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500 }}>
+                    <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500, whiteSpace: "pre-wrap" }}>
                       {item.description}
                     </Typography>
                   </TableCell>
@@ -1372,7 +1372,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                 <TableRow key={index}>
                   <TableCell>
                     <Box>
-                      <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500, mb: 0.5 }}>
+                      <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500, mb: 0.5, whiteSpace: "pre-wrap" }}>
                         {item.description}
                       </Typography>
                       {item.details && (
@@ -1721,7 +1721,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                 <TableRow key={index}>
                   <TableCell>{index + 1}</TableCell>
                   <TableCell>
-                    <Typography sx={{ fontSize: "0.6875rem" }}>
+                    <Typography sx={{ fontSize: "0.6875rem", whiteSpace: "pre-wrap" }}>
                       {item.description}
                     </Typography>
                   </TableCell>
@@ -1964,7 +1964,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                 <TableRow key={index}>
                   <TableCell>{index + 1}</TableCell>
                   <TableCell>
-                    <Typography sx={{ fontSize: "0.6875rem" }}>
+                    <Typography sx={{ fontSize: "0.6875rem", whiteSpace: "pre-wrap" }}>
                       {item.description}
                     </Typography>
                   </TableCell>
@@ -2271,7 +2271,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                     <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500 }}>
                       {item.itemCode || item.code || ""}
                     </Typography>
-                    <Typography sx={{ fontSize: "0.6875rem" }}>
+                    <Typography sx={{ fontSize: "0.6875rem", whiteSpace: "pre-wrap" }}>
                       {item.description}
                     </Typography>
                     {item.details && (
@@ -2600,7 +2600,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
             {items.map((item: any, index: number) => (
               <TableRow key={index}>
                 <TableCell>{index + 1}</TableCell>
-                <TableCell>{item.description}</TableCell>
+                <TableCell sx={{ whiteSpace: "pre-wrap" }}>{item.description}</TableCell>
                 <TableCell align="center">{item.quantity}</TableCell>
                 <TableCell align="right">{item.unitPrice?.toFixed(2)}</TableCell>
                 <TableCell align="right">{(item.amount || 0).toFixed(2)}</TableCell>
