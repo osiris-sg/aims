@@ -79,7 +79,7 @@ interface ConfigurationProviderProps {
 
 export const ConfigurationProvider: React.FC<ConfigurationProviderProps> = ({ children }) => {
   const { getToken } = useAuth();
-  const { organization } = useOrganization();
+  const { organization, isLoaded: isOrgLoaded, error: orgError } = useOrganization();
   const [modules, setModules] = useState<ModuleConfig[]>([]);
   const [uiConfig, setUIConfig] = useState<UIConfig>({});
   const [customFields, setCustomFields] = useState<Record<string, CustomField[]>>({});
@@ -87,12 +87,17 @@ export const ConfigurationProvider: React.FC<ConfigurationProviderProps> = ({ ch
   const [error, setError] = useState<string | null>(null);
 
   const fetchConfiguration = async () => {
-    console.log("=== ConfigurationContext fetchConfiguration ===");
-    console.log("organization:", organization);
-    console.log("organization?.id:", organization?.id);
+    // Wait for the organization fetch to settle before deciding what to render.
+    if (!isOrgLoaded) {
+      setLoading(true);
+      return;
+    }
 
     if (!organization?.id) {
-      console.log("No organization ID, skipping configuration fetch");
+      // Org failed to load (or user has none yet). Show default modules so the
+      // sidebar isn't blank — surface the org error so the user knows.
+      setError(orgError || "Unable to load your organization. Showing default navigation.");
+      setDefaultConfiguration();
       setLoading(false);
       return;
     }
@@ -185,7 +190,8 @@ export const ConfigurationProvider: React.FC<ConfigurationProviderProps> = ({ ch
 
   useEffect(() => {
     fetchConfiguration();
-  }, [organization?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [organization?.id, isOrgLoaded]);
 
   const refreshConfiguration = async () => {
     await fetchConfiguration();

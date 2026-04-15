@@ -383,6 +383,24 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           </Typography>
         </Box>
 
+        {/* Notes & Remarks side by side */}
+        {(data.note || data.remarks) && (
+          <Box sx={{ display: "flex", gap: 3, mt: 2 }}>
+            {data.note && (
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography sx={{ fontSize: "11px", fontWeight: 600 }}>Note:</Typography>
+                <Typography sx={{ fontSize: "11px", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.note}</Typography>
+              </Box>
+            )}
+            {data.remarks && (
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography sx={{ fontSize: "11px", fontWeight: 600 }}>Remarks:</Typography>
+                <Typography sx={{ fontSize: "11px", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.remarks}</Typography>
+              </Box>
+            )}
+          </Box>
+        )}
+
         {/* Footer */}
         <Box sx={{ mt: 4, pt: 2, textAlign: "center" }}>
           <Typography sx={{ fontSize: "0.625rem", fontStyle: "italic", color: "#666" }}>
@@ -2337,21 +2355,29 @@ export default function CleanDocumentPreview({ documentType, data, organization 
             Hope the above Quotation meets your requirement. Pls contact us if you have any doubt.
           </Typography>
 
+          {/* Notes & Remarks side by side */}
+          {(data.note || data.remarks) && (
+            <Box sx={{ display: "flex", gap: 3, mb: 2 }}>
+              {data.note && (
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600 }}>Note:</Typography>
+                  <Typography sx={{ fontSize: "0.6875rem", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.note}</Typography>
+                </Box>
+              )}
+              {data.remarks && (
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600 }}>Remarks:</Typography>
+                  <Typography sx={{ fontSize: "0.6875rem", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.remarks}</Typography>
+                </Box>
+              )}
+            </Box>
+          )}
+
           {/* Computer Generated Notice */}
           <Typography sx={{ fontSize: "0.6875rem", fontStyle: "italic", mb: 3 }}>
             This is a computer generated Quotation. No signature is required.
           </Typography>
 
-          {/* Signature Area */}
-          <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
-            <Box sx={{ textAlign: "center" }}>
-              <Box sx={{ borderTop: "1px solid #000", width: "200px", pt: 0.5 }}>
-                <Typography sx={{ fontSize: "0.6875rem" }}>
-                  Please Stamp & Sign for Confirmation
-                </Typography>
-              </Box>
-            </Box>
-          </Box>
         </Box>
 
       </Paper>

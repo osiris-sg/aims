@@ -12,7 +12,7 @@ export default function Page() {
         height: "100%",
       }}
     >
-      <SignIn />
+      <SignIn fallbackRedirectUrl="/portal" signUpFallbackRedirectUrl="/portal" />
     </Box>
   );
 }
