@@ -2389,8 +2389,12 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           )}
 
           {/* Terms & Conditions — long content allowed to flow across pages.
-              Heading uses breakAfter: avoid so it never gets orphaned at
-              the end of a page without its body. */}
+              Heading uses a phantom padding-bottom + negative margin so the
+              browser must reserve space for the heading PLUS the next ~3
+              lines of body. If they can't all fit, the heading is pushed to
+              the next page along with its content. breakAfter: avoid is
+              also set as a hint, but Chrome ignores it inconsistently —
+              the phantom padding is the reliable mechanism. */}
           {data.termsAndConditions && (
             <Box sx={{ mb: 2 }}>
               <Typography
@@ -2399,6 +2403,8 @@ export default function CleanDocumentPreview({ documentType, data, organization 
                   fontWeight: 600,
                   pageBreakAfter: "avoid",
                   breakAfter: "avoid",
+                  paddingBottom: "4em",
+                  marginBottom: "-4em",
                 }}
               >
                 Terms & Conditions:
