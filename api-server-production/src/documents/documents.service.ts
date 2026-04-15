@@ -782,6 +782,49 @@ export class DocumentsService {
     }
   }
 
+  async duplicateDocument(documentId: string, organizationId: string) {
+    try {
+      const original = await this.prisma.document.findFirst({
+        where: { id: documentId, organizationId },
+      });
+      if (!original) {
+        throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+      }
+
+      // Build a fresh config copy without identity/state fields that should
+      // not carry over to a new document.
+      const originalConfig = (original.config as any) || {};
+      const duplicatedConfig: any = { ...originalConfig };
+      // Strip fields tied to the source document's identity/state.
+      delete duplicatedConfig.id;
+      delete duplicatedConfig.documentNumber;
+      if (duplicatedConfig.documentInfo) {
+        duplicatedConfig.documentInfo = { ...duplicatedConfig.documentInfo };
+        delete duplicatedConfig.documentInfo.documentNumber;
+      }
+      // The duplicate is always a fresh draft.
+      delete duplicatedConfig.savedBy;
+      delete duplicatedConfig.savedAt;
+      delete duplicatedConfig.confirmedAt;
+      delete duplicatedConfig.confirmedBy;
+
+      // Reuse createBasicDocument so we get the standard document-number
+      // generation, organization defaults, and item junction sync.
+      return await this.createBasicDocument(
+        original.documentTemplateId,
+        original.type,
+        organizationId,
+        duplicatedConfig,
+      );
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        `Duplicate document failed: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   async createRevision(documentId: string, organizationId: string) {
     try {
       // Load the original document with its revisions

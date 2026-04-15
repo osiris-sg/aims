@@ -1294,6 +1294,41 @@ export default function TabbedDocumentCreator({
     }
   };
 
+  const handleDuplicateDocument = async () => {
+    try {
+      const token = await getToken();
+      if (!token) {
+        toast.error("Authentication required");
+        return;
+      }
+
+      const docId = existingData?.id || documentId;
+      if (!docId) {
+        toast.error("Save the document before duplicating");
+        return;
+      }
+
+      const response = await request(
+        { path: `/documents/${docId}/duplicate`, method: "POST" },
+        {},
+        token
+      );
+
+      if (response?.success && response?.data?.id) {
+        toast.success("Document duplicated");
+        onDocumentCreated?.();
+        const newDocType = response.data.type || documentType;
+        const templateId = response.data.documentTemplateId || documentId;
+        router.push(`/portal/documents/${newDocType}/${templateId}/${response.data.id}`);
+      } else {
+        toast.error(response?.message || "Failed to duplicate document");
+      }
+    } catch (error) {
+      console.error("Error duplicating document:", error);
+      toast.error("Failed to duplicate document");
+    }
+  };
+
   const handleCreateRevision = async () => {
     try {
       const token = await getToken();
@@ -1742,6 +1777,18 @@ export default function TabbedDocumentCreator({
           >
             Locate
           </Button>
+          {/* Duplicate Document Button — creates a fresh document with a new
+              document number, copying over all current data. */}
+          {(existingData?.id || documentId) && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<ContentCopyIcon />}
+              onClick={handleDuplicateDocument}
+            >
+              Duplicate
+            </Button>
+          )}
           <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
           {isDocumentConfirmed && (
             <Button
