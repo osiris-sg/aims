@@ -213,9 +213,12 @@ export default function TabbedDocumentCreator({
     contentRef: printContentRef,
     documentTitle: printDocumentTitle,
     pageStyle: `
-      @page { size: A4; margin: 0; }
+      @page { size: A4; margin: 20mm 15mm; }
       @media print {
         body { -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0; padding: 0; }
+        /* Templates that previously simulated page margins via Paper padding
+           should drop that padding when printing so margins aren't doubled. */
+        [data-print-paper] { padding: 0 !important; }
       }
     `,
   });

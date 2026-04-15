@@ -95,6 +95,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
   if (documentType === "TI") {
     return (
       <Paper
+        data-print-paper
         sx={{
           width: "210mm",
           minHeight: "297mm",
@@ -107,7 +108,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           color: "#000",
           "@media print": {
             margin: 0,
-            padding: "20mm",
+            padding: 0,
             boxShadow: "none",
           },
         }}
@@ -415,6 +416,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
   if (documentType === "SO" || documentType === "SALES_ORDER") {
     return (
       <Paper
+        data-print-paper
         sx={{
           width: "210mm",
           minHeight: "297mm",
@@ -429,7 +431,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           flexDirection: "column",
           "@media print": {
             margin: 0,
-            padding: "20mm",
+            padding: 0,
             boxShadow: "none",
           },
         }}
@@ -626,6 +628,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
   if (documentType === "TI2" || documentType === "INVOICE") {
     return (
       <Paper
+        data-print-paper
         sx={{
           width: "210mm",
           minHeight: "297mm",
@@ -640,7 +643,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           flexDirection: "column",
           "@media print": {
             margin: 0,
-            padding: "20mm",
+            padding: 0,
             boxShadow: "none",
           },
         }}
@@ -1049,6 +1052,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
   if (documentType === "DO") {
     return (
       <Paper
+        data-print-paper
         sx={{
           width: "210mm",
           minHeight: "297mm",
@@ -1063,7 +1067,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           flexDirection: "column",
           "@media print": {
             margin: 0,
-            padding: "20mm",
+            padding: 0,
             boxShadow: "none",
           },
         }}
@@ -1252,6 +1256,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
     const isCreditNote = documentType === "CN" || documentType === "CREDIT_NOTE";
     return (
       <Paper
+        data-print-paper
         sx={{
           width: "210mm",
           minHeight: "297mm",
@@ -1266,7 +1271,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           flexDirection: "column",
           "@media print": {
             margin: 0,
-            padding: "20mm",
+            padding: 0,
             boxShadow: "none",
           },
         }}
@@ -1616,6 +1621,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
     const isPR = documentType === "PR" || documentType === "PURCHASE_RETURN";
     return (
       <Paper
+        data-print-paper
         sx={{
           width: "210mm",
           minHeight: "297mm",
@@ -1630,7 +1636,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           flexDirection: "column",
           "@media print": {
             margin: 0,
-            padding: "20mm",
+            padding: 0,
             boxShadow: "none",
           },
         }}
@@ -1860,6 +1866,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
     const isOut = documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_OUT";
     return (
       <Paper
+        data-print-paper
         sx={{
           width: "210mm",
           minHeight: "297mm",
@@ -1874,7 +1881,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           flexDirection: "column",
           "@media print": {
             margin: 0,
-            padding: "20mm",
+            padding: 0,
             boxShadow: "none",
           },
         }}
@@ -2149,6 +2156,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
 
     return (
       <Paper
+        data-print-paper
         sx={{
           width: "210mm",
           minHeight: "297mm",
@@ -2163,7 +2171,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
           flexDirection: "column",
           "@media print": {
             margin: 0,
-            padding: "20mm",
+            padding: 0,
             boxShadow: "none",
           },
         }}
@@ -2355,6 +2363,13 @@ export default function CleanDocumentPreview({ documentType, data, organization 
             Hope the above Quotation meets your requirement. Pls contact us if you have any doubt.
           </Typography>
 
+          {/* Computer Generated Notice — placed before Notes/T&Cs so it stays
+              with the main quotation page rather than being pushed to the end
+              of long T&Cs. */}
+          <Typography sx={{ fontSize: "0.6875rem", fontStyle: "italic", mb: 3 }}>
+            This is a computer generated Quotation. No signature is required.
+          </Typography>
+
           {/* Notes & Remarks side by side */}
           {(data.note || data.remarks) && (
             <Box sx={{ display: "flex", gap: 3, mb: 2 }}>
@@ -2373,18 +2388,33 @@ export default function CleanDocumentPreview({ documentType, data, organization 
             </Box>
           )}
 
-          {/* Terms & Conditions */}
+          {/* Terms & Conditions — long content allowed to flow across pages.
+              Heading uses breakAfter: avoid so it never gets orphaned at
+              the end of a page without its body. */}
           {data.termsAndConditions && (
-            <Box sx={{ mb: 2, pageBreakInside: "avoid", breakInside: "avoid" }}>
-              <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600 }}>Terms & Conditions:</Typography>
-              <Typography sx={{ fontSize: "0.6875rem", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.termsAndConditions}</Typography>
+            <Box sx={{ mb: 2 }}>
+              <Typography
+                sx={{
+                  fontSize: "0.6875rem",
+                  fontWeight: 600,
+                  pageBreakAfter: "avoid",
+                  breakAfter: "avoid",
+                }}
+              >
+                Terms & Conditions:
+              </Typography>
+              <Typography
+                sx={{
+                  fontSize: "0.6875rem",
+                  lineHeight: 1.6,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                }}
+              >
+                {data.termsAndConditions}
+              </Typography>
             </Box>
           )}
-
-          {/* Computer Generated Notice */}
-          <Typography sx={{ fontSize: "0.6875rem", fontStyle: "italic", mb: 3 }}>
-            This is a computer generated Quotation. No signature is required.
-          </Typography>
 
         </Box>
 
@@ -2395,6 +2425,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
   // Default layout for other document types
   return (
     <Paper
+      data-print-paper
       sx={{
         width: "210mm",
         minHeight: "297mm",
@@ -2407,7 +2438,7 @@ export default function CleanDocumentPreview({ documentType, data, organization 
         color: "#000",
         "@media print": {
           margin: 0,
-          padding: "15mm",
+          padding: 0,
           boxShadow: "none",
         },
       }}
