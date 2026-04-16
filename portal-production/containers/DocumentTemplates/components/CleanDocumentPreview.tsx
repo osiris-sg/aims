@@ -2356,26 +2356,33 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           >
             {(() => {
               const hasUom = items.some((item: any) => item.uom && item.uom.trim() !== "");
+              const hasItemCode = items.some((item: any) => (item.itemCode || item.code || "").trim() !== "");
+              const descWidth = hasUom ? (hasItemCode ? "32%" : "40%") : (hasItemCode ? "40%" : "48%");
               return (
                 <>
                 <TableHead>
                   <TableRow>
-                    <TableCell sx={{ width: "5%" }}>Item</TableCell>
-                    <TableCell sx={{ width: hasUom ? "40%" : "48%" }}>Description</TableCell>
-                    <TableCell sx={{ width: "12%", textAlign: "center" }}>Quantity</TableCell>
+                    <TableCell sx={{ width: "4%" }}>No</TableCell>
+                    {hasItemCode && <TableCell sx={{ width: "12%" }}>Item</TableCell>}
+                    <TableCell sx={{ width: descWidth }}>Description</TableCell>
+                    <TableCell sx={{ width: "10%", textAlign: "center" }}>Quantity</TableCell>
                     {hasUom && <TableCell sx={{ width: "10%", textAlign: "center" }}>uom</TableCell>}
-                    <TableCell sx={{ width: "15%", textAlign: "right" }}>Unit-Price</TableCell>
-                    <TableCell sx={{ width: "18%", textAlign: "right" }}>Amount</TableCell>
+                    <TableCell sx={{ width: "14%", textAlign: "right" }}>Unit-Price</TableCell>
+                    <TableCell sx={{ width: "16%", textAlign: "right" }}>Amount</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {items.map((item: any, index: number) => (
                     <TableRow key={index} sx={{ verticalAlign: "top" }}>
                       <TableCell sx={{ verticalAlign: "top" }}>{index + 1}</TableCell>
+                      {hasItemCode && (
+                        <TableCell sx={{ verticalAlign: "top" }}>
+                          <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500 }}>
+                            {item.itemCode || item.code || ""}
+                          </Typography>
+                        </TableCell>
+                      )}
                       <TableCell sx={{ verticalAlign: "top" }}>
-                        <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500 }}>
-                          {item.itemCode || item.code || ""}
-                        </Typography>
                         <DescriptionText text={item.description || ""} />
                         {item.details && (
                           <Typography sx={{ fontSize: "0.625rem", color: "#666" }}>
@@ -2390,14 +2397,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                     </TableRow>
                   ))}
 
-                  {/* Only show filler rows for short quotations (≤ 3 items)
-                      to maintain a clean single-page look. For longer
-                      quotations the fillers waste space and push totals
-                      to an extra page. */}
                   {items.length <= 3 && items.length < 8 &&
                     Array.from({ length: 8 - items.length }).map((_, index) => (
                       <TableRow key={`empty-${index}`} sx={{ height: 35 }}>
                         <TableCell>&nbsp;</TableCell>
+                        {hasItemCode && <TableCell>&nbsp;</TableCell>}
                         <TableCell>&nbsp;</TableCell>
                         <TableCell>&nbsp;</TableCell>
                         {hasUom && <TableCell>&nbsp;</TableCell>}
