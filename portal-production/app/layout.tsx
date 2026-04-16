@@ -3,8 +3,7 @@ import type { Metadata } from "next";
 import { Roboto, Carlito } from "next/font/google";
 import "./globals.css";
 import { AppRouterCacheProvider } from "@mui/material-nextjs/v15-appRouter";
-import { CssBaseline, ThemeProvider } from "@mui/material";
-import theme from "@/themes/lightTheme";
+import { ThemeContextProvider } from "@/themes/ThemeContext";
 import Head from "next/head";
 import { ClerkProvider } from "@clerk/nextjs";
 import Portal from "@/containers/portal";
@@ -45,12 +44,11 @@ export default function RootLayout({
         </Head>
         <body className={`${roboto.variable} ${carlito.variable} ROOT_LAYOUT`}>
           <AppRouterCacheProvider>
-            <ThemeProvider theme={theme}>
-              <CssBaseline />
+            <ThemeContextProvider>
               <Providers>
                 <Portal>{children}</Portal>
               </Providers>
-            </ThemeProvider>
+            </ThemeContextProvider>
           </AppRouterCacheProvider>
         </body>
       </html>

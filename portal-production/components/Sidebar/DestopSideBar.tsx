@@ -15,6 +15,9 @@ import { UserButton, useUser } from "@clerk/nextjs";
 import { useSidebar } from "./SidebarContext";
 import MenuIcon from "@mui/icons-material/Menu";
 import MenuOpenIcon from "@mui/icons-material/MenuOpen";
+import DarkModeIcon from "@mui/icons-material/DarkMode";
+import LightModeIcon from "@mui/icons-material/LightMode";
+import { useThemeMode } from "@/themes/ThemeContext";
 // import SelectContent from './SelectContent';
 // import MenuContent from './MenuContent';
 // import CardAlert from './CardAlert';
@@ -40,6 +43,7 @@ export default function DesktopSideBar() {
   const theme = useTheme();
   const { user } = useUser();
   const { isCollapsed, toggleSidebar } = useSidebar();
+  const { mode, toggleTheme } = useThemeMode();
 
   return (
     <Drawer
@@ -161,7 +165,18 @@ export default function DesktopSideBar() {
             </Typography>
           </Box>
         )}
-        {/* <OptionsMenu /> */}
+        <Tooltip title={mode === "light" ? "Dark mode" : "Light mode"}>
+          <IconButton
+            onClick={toggleTheme}
+            size="small"
+            sx={{
+              color: theme.palette.primary.contrastText,
+              "&:hover": { backgroundColor: "rgba(255, 255, 255, 0.1)" },
+            }}
+          >
+            {mode === "light" ? <DarkModeIcon fontSize="small" /> : <LightModeIcon fontSize="small" />}
+          </IconButton>
+        </Tooltip>
       </Stack>
     </Drawer>
   );
