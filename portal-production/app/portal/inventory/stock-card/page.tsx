@@ -352,7 +352,7 @@ export default function InventoryStockCardPage() {
                     },
                   }}
                 >
-                  <TableCell sx={{ fontWeight: 500, color: "secondary.main" }}>
+                  <TableCell sx={{ fontWeight: 600, color: "text.primary" }}>
                     {item.sku || "-"}
                   </TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>{getItemDescription(item)}</TableCell>
