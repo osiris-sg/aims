@@ -2952,6 +2952,8 @@ export default function TabbedDocumentCreator({
                                         value={item.description || ""}
                                         onChange={(html) => updateItem(item.id, "description", html)}
                                         placeholder="Enter description"
+                                        pastDescriptions={pastDescriptions}
+                                        loadingDescriptions={isLoadingDescriptions}
                                       />
                                     </TableCell>
                                   );

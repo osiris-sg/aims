@@ -1,28 +1,42 @@
 "use client";
-import React, { useRef, useCallback } from "react";
-import { Box, IconButton, Tooltip, Divider } from "@mui/material";
+import React, { useRef, useCallback, useState } from "react";
+import {
+  Box,
+  IconButton,
+  Tooltip,
+  Divider,
+  Menu,
+  MenuItem,
+  CircularProgress,
+  Typography,
+} from "@mui/material";
 import {
   FormatBold,
   FormatUnderlined,
   FormatListBulleted,
+  History as HistoryIcon,
 } from "@mui/icons-material";
 
 interface RichTextDescriptionProps {
   value: string;
   onChange: (html: string) => void;
   placeholder?: string;
+  pastDescriptions?: string[];
+  loadingDescriptions?: boolean;
 }
 
 export default function RichTextDescription({
   value,
   onChange,
   placeholder = "Enter description",
+  pastDescriptions = [],
+  loadingDescriptions = false,
 }: RichTextDescriptionProps) {
   const editorRef = useRef<HTMLDivElement>(null);
+  const [historyAnchor, setHistoryAnchor] = useState<null | HTMLElement>(null);
 
   const exec = useCallback((command: string, arg?: string) => {
     document.execCommand(command, false, arg);
-    // After formatting, sync the HTML back
     if (editorRef.current) {
       onChange(editorRef.current.innerHTML);
     }
@@ -32,20 +46,23 @@ export default function RichTextDescription({
   const handleInput = useCallback(() => {
     if (editorRef.current) {
       const html = editorRef.current.innerHTML;
-      // Treat <br> only or empty tags as empty
       const isEmpty = html === "<br>" || html === "" || html === "<div><br></div>";
       onChange(isEmpty ? "" : html);
     }
   }, [onChange]);
 
+  const handleSelectPast = (desc: string) => {
+    if (editorRef.current) {
+      editorRef.current.innerHTML = desc;
+    }
+    onChange(desc);
+    setHistoryAnchor(null);
+  };
+
   // Only set innerHTML when value genuinely changes from outside
-  // (e.g., initial load or autocomplete selection). Avoid resetting
-  // on every keystroke which would move the cursor.
   const lastExternalValue = useRef(value);
   React.useEffect(() => {
     if (editorRef.current && value !== lastExternalValue.current) {
-      // Only update DOM if the editor doesn't currently have focus
-      // (to avoid cursor-jump while typing).
       if (document.activeElement !== editorRef.current) {
         editorRef.current.innerHTML = value || "";
       }
@@ -102,7 +119,55 @@ export default function RichTextDescription({
             <FormatListBulleted sx={{ fontSize: "1rem" }} />
           </IconButton>
         </Tooltip>
+        {pastDescriptions.length > 0 && (
+          <>
+            <Divider orientation="vertical" flexItem sx={{ mx: 0.25 }} />
+            <Tooltip title="Past descriptions">
+              <IconButton
+                size="small"
+                onClick={(e) => setHistoryAnchor(e.currentTarget)}
+              >
+                {loadingDescriptions ? (
+                  <CircularProgress size={14} />
+                ) : (
+                  <HistoryIcon sx={{ fontSize: "1rem" }} />
+                )}
+              </IconButton>
+            </Tooltip>
+          </>
+        )}
       </Box>
+
+      {/* Past descriptions menu */}
+      <Menu
+        anchorEl={historyAnchor}
+        open={Boolean(historyAnchor)}
+        onClose={() => setHistoryAnchor(null)}
+        slotProps={{
+          paper: {
+            sx: { maxHeight: 280, maxWidth: 400, overflow: "auto" },
+          },
+        }}
+      >
+        <Typography sx={{ px: 2, py: 0.5, fontSize: "0.65rem", color: "text.secondary", fontWeight: 600 }}>
+          Past Descriptions
+        </Typography>
+        {pastDescriptions.map((desc, idx) => (
+          <MenuItem
+            key={idx}
+            onClick={() => handleSelectPast(desc)}
+            sx={{
+              fontSize: "0.7rem",
+              whiteSpace: "normal",
+              maxWidth: 380,
+              lineHeight: 1.4,
+              py: 0.75,
+            }}
+          >
+            {desc.length > 120 ? desc.slice(0, 120) + "…" : desc}
+          </MenuItem>
+        ))}
+      </Menu>
 
       {/* Editable area */}
       <Box
@@ -123,13 +188,11 @@ export default function RichTextDescription({
           outline: "none",
           whiteSpace: "pre-wrap",
           wordBreak: "break-word",
-          // Placeholder via CSS
           "&:empty::before": {
             content: "attr(data-placeholder)",
             color: "text.disabled",
             pointerEvents: "none",
           },
-          // Style lists inside the editor
           "& ul": {
             pl: 2,
             m: 0,
