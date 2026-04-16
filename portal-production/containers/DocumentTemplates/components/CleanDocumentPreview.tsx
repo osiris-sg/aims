@@ -2390,7 +2390,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                     </TableRow>
                   ))}
 
-                  {items.length < 8 &&
+                  {/* Only show filler rows for short quotations (≤ 3 items)
+                      to maintain a clean single-page look. For longer
+                      quotations the fillers waste space and push totals
+                      to an extra page. */}
+                  {items.length <= 3 && items.length < 8 &&
                     Array.from({ length: 8 - items.length }).map((_, index) => (
                       <TableRow key={`empty-${index}`} sx={{ height: 35 }}>
                         <TableCell>&nbsp;</TableCell>
@@ -2408,10 +2412,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           </Table>
         </TableContainer>
 
-        {/* Bottom Section - Pushed to bottom */}
-        <Box sx={{ mt: "auto" }}>
-          {/* Totals - Right aligned */}
-          <Box sx={{ display: "flex", justifyContent: "flex-end", borderTop: "1px solid #000", pt: 1 }}>
+        {/* Bottom Section — follows directly after items so totals
+            don't get pushed to an empty page on long quotations. */}
+        <Box sx={{ mt: 2 }}>
+          {/* Totals - Right aligned, kept together on print */}
+          <Box sx={{ display: "flex", justifyContent: "flex-end", borderTop: "1px solid #000", pt: 1, pageBreakInside: "avoid", breakInside: "avoid" }}>
             <Box sx={{ minWidth: 200 }}>
               <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                 <Typography sx={{ fontSize: "0.6875rem" }}>Sub-Total</Typography>
