@@ -2800,7 +2800,7 @@ export default function TabbedDocumentCreator({
                                 if (isInvoiceType && columnId === "tax") return null;
                                 const isVisible = isTemplateEditMode ? templateWatch(`tableHeaders.${columnId}`) : true;
                               const label = isTemplateEditMode ? templateWatch(`columnLabels.${columnId}`) || columnId :
-                                columnId === "item" ? "Product Code" :
+                                columnId === "item" ? (items.some((i: any) => i.isService) ? "Item" : "Product Code") :
                                 columnId === "description" ? "Description" :
                                 columnId === "uom" ? "UOM" :
                                 columnId === "quantity" ? "Quantity" :
@@ -2879,12 +2879,27 @@ export default function TabbedDocumentCreator({
                                   if (!isVisible) return null;
 
                                 if (columnId === "item") {
+                                  // Service items get a plain free-text "Item" field
+                                  if (item.isService) {
+                                    return (
+                                      <TableCell key={columnId}>
+                                        <TextField
+                                          fullWidth
+                                          size="small"
+                                          placeholder="Item name"
+                                          value={item.itemCode || ""}
+                                          onChange={(e) => updateItem(item.id, "itemCode", e.target.value)}
+                                          sx={{ minWidth: 120 }}
+                                        />
+                                      </TableCell>
+                                    );
+                                  }
+                                  // Product items keep the SKU autocomplete
                                   return (
                                     <TableCell key={columnId}>
                                       <Autocomplete
                                         fullWidth
                                         freeSolo
-                                        // Display the SKU based on the inventoryItemId
                                         value={(() => {
                                           if (item.inventoryItemId) {
                                             const inv = inventoriesForDocument.find(i => i.id === item.inventoryItemId);
@@ -2893,45 +2908,29 @@ export default function TabbedDocumentCreator({
                                           return item.itemCode || "";
                                         })()}
                                         onChange={(event, newValue) => {
-                                          console.log("Item autocomplete onChange triggered");
-                                          console.log("Event:", event);
-                                          console.log("New value:", newValue);
-                                          console.log("Available inventories:", inventoriesForDocument);
-
                                           if (newValue === null || newValue === undefined) {
-                                            // Clear selection
                                             updateItem(item.id, "inventoryItemId", "");
                                             updateItem(item.id, "itemCode", "");
                                             return;
                                           }
 
-                                          // Check if the selected value matches an inventory SKU
                                           const selectedInventory = inventoriesForDocument.find(inv => inv.sku === newValue);
-                                          console.log("Selected inventory found:", selectedInventory);
 
                                           if (selectedInventory) {
-                                            // Save the inventory ID and display the SKU
-                                            console.log("Setting inventory ID to:", selectedInventory.id);
-                                            console.log("Setting item code to:", selectedInventory.sku);
                                             updateItem(item.id, "inventoryItemId", selectedInventory.id);
                                             updateItem(item.id, "itemCode", selectedInventory.sku);
                                             updateItem(item.id, "description", selectedInventory.name || selectedInventory.asset?.name || selectedInventory.description || "");
                                             updateItem(item.id, "unitPrice", selectedInventory.unitPrice || selectedInventory.asset?.price || 0);
-                                            // UOM can be at root level (Products mode) or nested under asset (Inventory mode)
                                             updateItem(item.id, "uom", selectedInventory.uom || selectedInventory.asset?.uom || "PCS");
 
-                                            // Prefetch price history for this asset
                                             if (selectedInventory.assetId) {
                                               prefetchPriceHistory(selectedInventory.assetId);
                                             }
                                           } else {
-                                            // For custom text entry (freeSolo), clear inventory ID but keep the text
-                                            console.log("Custom text entered:", newValue);
                                             updateItem(item.id, "inventoryItemId", "");
                                             updateItem(item.id, "itemCode", newValue || "");
                                           }
                                         }}
-                                        // Remove onInputChange to avoid conflicts
                                         options={inventoriesForDocument.map(inv => inv.sku)}
                                         getOptionLabel={(option) => option || ""}
                                         size="small"
