@@ -1,7 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import { Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from "@mui/material";
+import { createTheme, ThemeProvider, useTheme } from "@mui/material/styles";
 
 // Font handling:
 // - Using Carlito from Google Fonts (open-source, metric-compatible with Calibri)
@@ -39,7 +40,49 @@ interface CleanDocumentPreviewProps {
   organization?: any;
 }
 
-export default function CleanDocumentPreview({ documentType, data, organization }: CleanDocumentPreviewProps) {
+export default function CleanDocumentPreview(props: CleanDocumentPreviewProps) {
+  // Create a scoped theme that resets all typography weights back to normal
+  // so the global bold (fontWeight 600) theme doesn't leak into print output.
+  const parentTheme = useTheme();
+  const docTheme = useMemo(
+    () =>
+      createTheme({
+        ...parentTheme,
+        typography: {
+          ...parentTheme.typography,
+          fontWeightRegular: 400,
+          h1: { ...parentTheme.typography.h1, fontWeight: 700 },
+          h2: { ...parentTheme.typography.h2, fontWeight: 600 },
+          h3: { ...parentTheme.typography.h3, fontWeight: 500 },
+          h4: { ...parentTheme.typography.h4, fontWeight: 600 },
+          h5: { ...parentTheme.typography.h5, fontWeight: 500 },
+          h6: { ...parentTheme.typography.h6, fontWeight: 500 },
+          body1: { ...parentTheme.typography.body1, fontWeight: 400 },
+          body2: { ...parentTheme.typography.body2, fontWeight: 400 },
+          caption: { ...parentTheme.typography.caption, fontWeight: 400 },
+          button: { ...parentTheme.typography.button, fontWeight: 400 },
+        },
+        components: {
+          ...parentTheme.components,
+          MuiTableCell: {
+            styleOverrides: {
+              root: { fontWeight: 400 },
+              head: { fontWeight: 600 },
+            },
+          },
+        },
+      }),
+    [parentTheme]
+  );
+
+  return (
+    <ThemeProvider theme={docTheme}>
+      <CleanDocumentPreviewInner {...props} />
+    </ThemeProvider>
+  );
+}
+
+function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDocumentPreviewProps) {
   const getDocumentTitle = () => {
     const titles: Record<string, string> = {
       // Short codes
