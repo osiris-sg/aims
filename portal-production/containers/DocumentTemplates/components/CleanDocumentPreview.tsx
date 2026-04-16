@@ -34,6 +34,34 @@ function InfoRow({ label, value, minWidth = "100px" }: { label: string; value: a
   );
 }
 
+// Renders description text — supports both plain text and HTML (from rich
+// text editor). Plain text is rendered with whiteSpace: pre-wrap; HTML is
+// rendered via dangerouslySetInnerHTML.
+function DescriptionText({ text, sx = {} }: { text: string; sx?: any }) {
+  const isHtml = typeof text === "string" && /<[a-z][\s\S]*>/i.test(text);
+  if (isHtml) {
+    return (
+      <Box
+        component="span"
+        dangerouslySetInnerHTML={{ __html: text }}
+        sx={{
+          fontSize: "0.6875rem",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+          "& ul, & ol": { pl: 2, m: 0 },
+          "& li": { fontSize: "0.6875rem" },
+          ...sx,
+        }}
+      />
+    );
+  }
+  return (
+    <Typography sx={{ fontSize: "0.6875rem", whiteSpace: "pre-wrap", wordBreak: "break-word", ...sx }}>
+      {text}
+    </Typography>
+  );
+}
+
 interface CleanDocumentPreviewProps {
   documentType: "QO1" | "DO" | "RDO" | "TI" | "TI2" | "MSR" | "INVOICE" | string;
   data: any;
@@ -280,9 +308,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 <TableRow key={index}>
                   <TableCell>
                     <Box>
-                      <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500, mb: 0.5, whiteSpace: "pre-wrap" }}>
-                        {item.description}
-                      </Typography>
+                      <DescriptionText text={item.description || ""} sx={{ fontWeight: 500, mb: 0.5 }} />
                       {item.details && (
                         <Box sx={{ pl: 1 }}>
                           {typeof item.details === 'string'
@@ -588,9 +614,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 <TableRow key={index}>
                   <TableCell>
                     <Box>
-                      <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500, mb: 0.5, whiteSpace: "pre-wrap" }}>
-                        {item.description}
-                      </Typography>
+                      <DescriptionText text={item.description || ""} sx={{ fontWeight: 500, mb: 0.5 }} />
                       {item.details && (
                         <Box sx={{ pl: 1 }}>
                           {typeof item.details === 'string'
@@ -800,9 +824,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 <TableRow key={index}>
                   <TableCell>
                     <Box>
-                      <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500, mb: 0.5, whiteSpace: "pre-wrap" }}>
-                        {item.description}
-                      </Typography>
+                      <DescriptionText text={item.description || ""} sx={{ fontWeight: 500, mb: 0.5 }} />
                       {item.details && (
                         <Box sx={{ pl: 1 }}>
                           {typeof item.details === 'string'
@@ -1226,9 +1248,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 <TableRow key={index}>
                   <TableCell>{item.itemCode || ""}</TableCell>
                   <TableCell>
-                    <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500, whiteSpace: "pre-wrap" }}>
-                      {item.description}
-                    </Typography>
+                    <DescriptionText text={item.description || ""} sx={{ fontWeight: 500 }} />
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity?.toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.uom || ""}</TableCell>
@@ -1425,9 +1445,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 <TableRow key={index}>
                   <TableCell>
                     <Box>
-                      <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500, mb: 0.5, whiteSpace: "pre-wrap" }}>
-                        {item.description}
-                      </Typography>
+                      <DescriptionText text={item.description || ""} sx={{ fontWeight: 500, mb: 0.5 }} />
                       {item.details && (
                         <Box sx={{ pl: 1 }}>
                           {typeof item.details === 'string'
@@ -1776,9 +1794,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 <TableRow key={index}>
                   <TableCell>{index + 1}</TableCell>
                   <TableCell>
-                    <Typography sx={{ fontSize: "0.6875rem", whiteSpace: "pre-wrap" }}>
-                      {item.description}
-                    </Typography>
+                    <DescriptionText text={item.description || ""} />
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity?.toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.uom || ""}</TableCell>
@@ -2021,9 +2037,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 <TableRow key={index}>
                   <TableCell>{index + 1}</TableCell>
                   <TableCell>
-                    <Typography sx={{ fontSize: "0.6875rem", whiteSpace: "pre-wrap" }}>
-                      {item.description}
-                    </Typography>
+                    <DescriptionText text={item.description || ""} />
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity?.toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.uom || ""}</TableCell>
@@ -2334,9 +2348,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                         <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500 }}>
                           {item.itemCode || item.code || ""}
                         </Typography>
-                        <Typography sx={{ fontSize: "0.6875rem", whiteSpace: "pre-wrap" }}>
-                          {item.description}
-                        </Typography>
+                        <DescriptionText text={item.description || ""} />
                         {item.details && (
                           <Typography sx={{ fontSize: "0.625rem", color: "#666" }}>
                             {item.details}
@@ -2688,7 +2700,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
             {items.map((item: any, index: number) => (
               <TableRow key={index}>
                 <TableCell>{index + 1}</TableCell>
-                <TableCell sx={{ whiteSpace: "pre-wrap" }}>{item.description}</TableCell>
+                <TableCell><DescriptionText text={item.description || ""} /></TableCell>
                 <TableCell align="center">{item.quantity}</TableCell>
                 <TableCell align="right">{item.unitPrice?.toFixed(2)}</TableCell>
                 <TableCell align="right">{(item.amount || 0).toFixed(2)}</TableCell>

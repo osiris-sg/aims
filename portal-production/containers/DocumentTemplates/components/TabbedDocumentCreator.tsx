@@ -59,6 +59,7 @@ import {
 } from "@mui/icons-material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import CleanDocumentPreview from "./CleanDocumentPreview";
+import RichTextDescription from "./RichTextDescription";
 import DocumentCustomizer from "./DocumentCustomizer";
 import DynamicFormFields from "./DynamicFormFields";
 import StockCardDialog from "./StockCardDialog";
@@ -2947,52 +2948,10 @@ export default function TabbedDocumentCreator({
                                 } else if (columnId === "description") {
                                   return (
                                     <TableCell key={columnId} sx={{ verticalAlign: 'top', padding: '8px' }}>
-                                      <Autocomplete
-                                        fullWidth
-                                        freeSolo
+                                      <RichTextDescription
                                         value={item.description || ""}
-                                        onChange={(_, newValue) => updateItem(item.id, "description", newValue || "")}
-                                        onInputChange={(_, newInputValue) => updateItem(item.id, "description", newInputValue)}
-                                        options={pastDescriptions}
-                                        loading={isLoadingDescriptions}
-                                        size="small"
-                                        renderInput={(params) => (
-                                          <TextField
-                                            {...params}
-                                            placeholder="Enter or select description"
-                                            multiline
-                                            minRows={1}
-                                            maxRows={10}
-                                            sx={{
-                                              '& .MuiInputBase-root': {
-                                                alignItems: 'flex-start',
-                                                padding: '4px 0',
-                                              },
-                                              '& .MuiInputBase-input': {
-                                                overflow: 'auto !important',
-                                                textOverflow: 'initial !important',
-                                                whiteSpace: 'pre-wrap !important',
-                                                wordBreak: 'break-word !important',
-                                                minHeight: '24px',
-                                                lineHeight: '1.5',
-                                                padding: '4px 8px !important',
-                                              },
-                                              '& .MuiAutocomplete-endAdornment': {
-                                                alignSelf: 'flex-start',
-                                                marginTop: '4px',
-                                              },
-                                            }}
-                                            InputProps={{
-                                              ...params.InputProps,
-                                              endAdornment: (
-                                                <>
-                                                  {isLoadingDescriptions ? <CircularProgress color="inherit" size={20} /> : null}
-                                                  {params.InputProps.endAdornment}
-                                                </>
-                                              ),
-                                            }}
-                                          />
-                                        )}
+                                        onChange={(html) => updateItem(item.id, "description", html)}
+                                        placeholder="Enter description"
                                       />
                                     </TableCell>
                                   );
