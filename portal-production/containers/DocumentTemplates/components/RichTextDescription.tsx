@@ -33,8 +33,8 @@ export default function RichTextDescription({
 }: RichTextDescriptionProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [filteredSuggestions, setFilteredSuggestions] = useState<string[]>([]);
 
   const exec = useCallback((command: string, arg?: string) => {
     document.execCommand(command, false, arg);
@@ -44,29 +44,31 @@ export default function RichTextDescription({
     editorRef.current?.focus();
   }, [onChange]);
 
-  const getPlainText = () => {
-    return editorRef.current?.textContent || "";
-  };
+  const filterSuggestions = useCallback((text: string) => {
+    if (pastDescriptions.length === 0) return;
+    const query = text.trim().toLowerCase();
+    if (query.length === 0) {
+      // Show all when empty
+      setFilteredSuggestions(pastDescriptions.slice(0, 10));
+      setShowSuggestions(pastDescriptions.length > 0);
+    } else {
+      const matches = pastDescriptions.filter(
+        (d) => d.toLowerCase().includes(query)
+      ).slice(0, 10);
+      setFilteredSuggestions(matches);
+      setShowSuggestions(matches.length > 0);
+    }
+  }, [pastDescriptions]);
 
   const handleInput = useCallback(() => {
-    if (editorRef.current) {
-      const html = editorRef.current.innerHTML;
-      const isEmpty = html === "<br>" || html === "" || html === "<div><br></div>";
-      onChange(isEmpty ? "" : html);
+    if (!editorRef.current) return;
+    const html = editorRef.current.innerHTML;
+    const isEmpty = html === "<br>" || html === "" || html === "<div><br></div>";
+    onChange(isEmpty ? "" : html);
 
-      // Filter past descriptions based on what the user typed
-      const plainText = editorRef.current.textContent?.trim().toLowerCase() || "";
-      if (plainText.length >= 2 && pastDescriptions.length > 0) {
-        const matches = pastDescriptions.filter(
-          (d) => d.toLowerCase().includes(plainText)
-        );
-        setSuggestions(matches.slice(0, 8));
-        setShowSuggestions(matches.length > 0);
-      } else {
-        setShowSuggestions(false);
-      }
-    }
-  }, [onChange, pastDescriptions]);
+    const plainText = editorRef.current.textContent || "";
+    filterSuggestions(plainText);
+  }, [onChange, filterSuggestions]);
 
   const handleSelectSuggestion = (desc: string) => {
     if (editorRef.current) {
@@ -75,6 +77,11 @@ export default function RichTextDescription({
     onChange(desc);
     setShowSuggestions(false);
     editorRef.current?.focus();
+  };
+
+  const handleFocus = () => {
+    const plainText = editorRef.current?.textContent || "";
+    filterSuggestions(plainText);
   };
 
   // Only set innerHTML when value genuinely changes from outside
@@ -97,100 +104,83 @@ export default function RichTextDescription({
   }, []);
 
   return (
-    <Box ref={containerRef} sx={{ position: "relative" }}>
-      <Box
-        sx={{
-          border: "1px solid",
-          borderColor: "divider",
-          borderRadius: "0.5rem",
-          overflow: "hidden",
-          "&:focus-within": {
-            borderColor: "primary.main",
-          },
-        }}
-      >
-        {/* Toolbar */}
+    <ClickAwayListener onClickAway={() => setShowSuggestions(false)}>
+      <Box ref={containerRef} sx={{ position: "relative" }}>
         <Box
           sx={{
-            display: "flex",
-            alignItems: "center",
-            gap: 0.25,
-            px: 0.5,
-            py: 0.25,
-            borderBottom: "1px solid",
+            border: "1px solid",
             borderColor: "divider",
-            bgcolor: "action.hover",
+            borderRadius: "0.5rem",
+            overflow: "hidden",
+            "&:focus-within": {
+              borderColor: "primary.main",
+            },
           }}
         >
-          <Tooltip title="Bold (Ctrl+B)">
-            <IconButton size="small" onMouseDown={(e) => { e.preventDefault(); exec("bold"); }}>
-              <FormatBold sx={{ fontSize: "1rem" }} />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Underline (Ctrl+U)">
-            <IconButton size="small" onMouseDown={(e) => { e.preventDefault(); exec("underline"); }}>
-              <FormatUnderlined sx={{ fontSize: "1rem" }} />
-            </IconButton>
-          </Tooltip>
-          <Divider orientation="vertical" flexItem sx={{ mx: 0.25 }} />
-          <Tooltip title="Bullet List">
-            <IconButton size="small" onMouseDown={(e) => { e.preventDefault(); exec("insertUnorderedList"); }}>
-              <FormatListBulleted sx={{ fontSize: "1rem" }} />
-            </IconButton>
-          </Tooltip>
-        </Box>
+          {/* Toolbar */}
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 0.25,
+              px: 0.5,
+              py: 0.25,
+              borderBottom: "1px solid",
+              borderColor: "divider",
+              bgcolor: "action.hover",
+            }}
+          >
+            <Tooltip title="Bold (Ctrl+B)">
+              <IconButton size="small" onMouseDown={(e) => { e.preventDefault(); exec("bold"); }}>
+                <FormatBold sx={{ fontSize: "1rem" }} />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Underline (Ctrl+U)">
+              <IconButton size="small" onMouseDown={(e) => { e.preventDefault(); exec("underline"); }}>
+                <FormatUnderlined sx={{ fontSize: "1rem" }} />
+              </IconButton>
+            </Tooltip>
+            <Divider orientation="vertical" flexItem sx={{ mx: 0.25 }} />
+            <Tooltip title="Bullet List">
+              <IconButton size="small" onMouseDown={(e) => { e.preventDefault(); exec("insertUnorderedList"); }}>
+                <FormatListBulleted sx={{ fontSize: "1rem" }} />
+              </IconButton>
+            </Tooltip>
+          </Box>
 
-        {/* Editable area */}
-        <Box
-          ref={editorRef}
-          contentEditable
-          suppressContentEditableWarning
-          onInput={handleInput}
-          onFocus={() => {
-            // Show suggestions on focus if there's text matching
-            const plainText = getPlainText().trim().toLowerCase();
-            if (plainText.length >= 2 && pastDescriptions.length > 0) {
-              const matches = pastDescriptions.filter(
-                (d) => d.toLowerCase().includes(plainText)
-              );
-              setSuggestions(matches.slice(0, 8));
-              setShowSuggestions(matches.length > 0);
-            }
-          }}
-          data-placeholder={placeholder}
-          sx={{
-            minHeight: 60,
-            maxHeight: 300,
-            overflowY: "auto",
-            px: 1,
-            py: 0.75,
-            fontSize: "0.75rem",
-            lineHeight: 1.6,
-            fontWeight: 400,
-            outline: "none",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
-            "&:empty::before": {
-              content: "attr(data-placeholder)",
-              color: "text.disabled",
-              pointerEvents: "none",
-            },
-            "& ul": {
-              pl: 2,
-              m: 0,
-              listStyleType: "disc",
-            },
-            "& li": {
+          {/* Editable area */}
+          <Box
+            ref={editorRef}
+            contentEditable
+            suppressContentEditableWarning
+            onInput={handleInput}
+            onFocus={handleFocus}
+            data-placeholder={placeholder}
+            sx={{
+              minHeight: 60,
+              maxHeight: 300,
+              overflowY: "auto",
+              px: 1,
+              py: 0.75,
               fontSize: "0.75rem",
               lineHeight: 1.6,
-            },
-          }}
-        />
-      </Box>
+              fontWeight: 400,
+              outline: "none",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              "&:empty::before": {
+                content: "attr(data-placeholder)",
+                color: "text.disabled",
+                pointerEvents: "none",
+              },
+              "& ul": { pl: 2, m: 0, listStyleType: "disc" },
+              "& li": { fontSize: "0.75rem", lineHeight: 1.6 },
+            }}
+          />
+        </Box>
 
-      {/* Autocomplete-style suggestions dropdown */}
-      {showSuggestions && suggestions.length > 0 && (
-        <ClickAwayListener onClickAway={() => setShowSuggestions(false)}>
+        {/* Autocomplete-style suggestions dropdown */}
+        {showSuggestions && filteredSuggestions.length > 0 && (
           <Paper
             elevation={4}
             sx={{
@@ -213,7 +203,7 @@ export default function RichTextDescription({
                 <CloseIcon sx={{ fontSize: "0.85rem" }} />
               </IconButton>
             </Box>
-            {suggestions.map((desc, idx) => (
+            {filteredSuggestions.map((desc, idx) => (
               <MenuItem
                 key={idx}
                 onMouseDown={(e) => {
@@ -232,8 +222,8 @@ export default function RichTextDescription({
               </MenuItem>
             ))}
           </Paper>
-        </ClickAwayListener>
-      )}
-    </Box>
+        )}
+      </Box>
+    </ClickAwayListener>
   );
 }
