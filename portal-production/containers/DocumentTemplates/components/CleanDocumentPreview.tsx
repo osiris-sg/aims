@@ -34,6 +34,34 @@ function InfoRow({ label, value, minWidth = "100px" }: { label: string; value: a
   );
 }
 
+// Renders rich text content (notes, T&Cs, descriptions). Detects HTML and
+// renders via dangerouslySetInnerHTML; plain text uses whiteSpace: pre-wrap.
+function RichContent({ text, sx = {} }: { text: string; sx?: any }) {
+  const isHtml = typeof text === "string" && /<[a-z][\s\S]*>/i.test(text);
+  if (isHtml) {
+    return (
+      <Box
+        component="span"
+        dangerouslySetInnerHTML={{ __html: text }}
+        sx={{
+          display: "block",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+          "& ul, & ol": { pl: 2, m: 0 },
+          "& li": { lineHeight: 1.6 },
+          "& p": { m: 0 },
+          ...sx,
+        }}
+      />
+    );
+  }
+  return (
+    <Typography sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word", ...sx }}>
+      {text}
+    </Typography>
+  );
+}
+
 // Renders description text — supports both plain text and HTML (from rich
 // text editor). Plain text is rendered with whiteSpace: pre-wrap; HTML is
 // rendered via dangerouslySetInnerHTML.
@@ -460,13 +488,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
             {data.note && (
               <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
                 <Typography sx={{ fontSize: "11px", fontWeight: 600 }}>Note:</Typography>
-                <Typography sx={{ fontSize: "11px", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.note}</Typography>
+                <RichContent text={data.note} sx={{ fontSize: "11px", lineHeight: 1.6 }} />
               </Box>
             )}
             {data.remarks && (
               <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
                 <Typography sx={{ fontSize: "11px", fontWeight: 600 }}>Remarks:</Typography>
-                <Typography sx={{ fontSize: "11px", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.remarks}</Typography>
+                <RichContent text={data.remarks} sx={{ fontSize: "11px", lineHeight: 1.6 }} />
               </Box>
             )}
           </Box>
@@ -1098,13 +1126,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
             {data.note && (
               <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
                 <Typography sx={{ fontSize: "0.5625rem", fontWeight: 600 }}>Note:</Typography>
-                <Typography sx={{ fontSize: "0.5625rem", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.note}</Typography>
+                <RichContent text={data.note} sx={{ fontSize: "0.5625rem", lineHeight: 1.6 }} />
               </Box>
             )}
             {data.termsAndConditions && (
               <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
                 <Typography sx={{ fontSize: "0.5625rem", fontWeight: 600 }}>Terms & Conditions:</Typography>
-                <Typography sx={{ fontSize: "0.5625rem", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.termsAndConditions}</Typography>
+                <RichContent text={data.termsAndConditions} sx={{ fontSize: "0.5625rem", lineHeight: 1.6 }} />
               </Box>
             )}
           </Box>
@@ -1664,13 +1692,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
               {data.note && (
                 <Box sx={{ flex: 1, pageBreakInside: "avoid", breakInside: "avoid" }}>
                   <Typography sx={{ fontSize: "0.5625rem", fontWeight: 600 }}>Note:</Typography>
-                  <Typography sx={{ fontSize: "0.5625rem", lineHeight: 1.6, whiteSpace: "pre-line" }}>{data.note}</Typography>
+                  <RichContent text={data.note} sx={{ fontSize: "0.5625rem", lineHeight: 1.6 }} />
                 </Box>
               )}
               {data.termsAndConditions && (
                 <Box sx={{ flex: 1, pageBreakInside: "avoid", breakInside: "avoid" }}>
                   <Typography sx={{ fontSize: "0.5625rem", fontWeight: 600 }}>Terms & Conditions:</Typography>
-                  <Typography sx={{ fontSize: "0.5625rem", lineHeight: 1.6, whiteSpace: "pre-line" }}>{data.termsAndConditions}</Typography>
+                  <RichContent text={data.termsAndConditions} sx={{ fontSize: "0.5625rem", lineHeight: 1.6 }} />
                 </Box>
               )}
             </Box>
@@ -2431,13 +2459,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
               {data.note && (
                 <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
                   <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600 }}>Note:</Typography>
-                  <Typography sx={{ fontSize: "0.6875rem", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.note}</Typography>
+                  <RichContent text={data.note} sx={{ fontSize: "0.6875rem", lineHeight: 1.6 }} />
                 </Box>
               )}
               {data.remarks && (
                 <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
                   <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600 }}>Remarks:</Typography>
-                  <Typography sx={{ fontSize: "0.6875rem", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.remarks}</Typography>
+                  <RichContent text={data.remarks} sx={{ fontSize: "0.6875rem", lineHeight: 1.6 }} />
                 </Box>
               )}
             </Box>
@@ -2464,16 +2492,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
               >
                 Terms & Conditions:
               </Typography>
-              <Typography
-                sx={{
-                  fontSize: "0.6875rem",
-                  lineHeight: 1.6,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                }}
-              >
-                {data.termsAndConditions}
-              </Typography>
+              <RichContent text={data.termsAndConditions} sx={{ fontSize: "0.6875rem", lineHeight: 1.6 }} />
             </Box>
           )}
 
@@ -2748,9 +2767,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
       {/* Footer Notes */}
       {data.note && (
         <Box sx={{ mb: 2 }}>
-          <Typography variant="body2" sx={{ fontSize: "0.625rem", fontStyle: "italic" }}>
-            Notes: {data.note}
+          <Typography variant="body2" sx={{ fontSize: "0.625rem", fontStyle: "italic", fontWeight: 600 }}>
+            Notes:
           </Typography>
+          <RichContent text={data.note} sx={{ fontSize: "0.625rem" }} />
         </Box>
       )}
 
@@ -2760,9 +2780,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           <Typography variant="body2" sx={{ fontSize: "0.625rem", fontWeight: 600, mb: 0.5 }}>
             Terms & Conditions:
           </Typography>
-          <Typography variant="body2" sx={{ fontSize: "0.625rem", whiteSpace: "pre-wrap" }}>
-            {data.termsAndConditions}
-          </Typography>
+          <RichContent text={data.termsAndConditions} sx={{ fontSize: "0.625rem" }} />
         </Box>
       )}
 

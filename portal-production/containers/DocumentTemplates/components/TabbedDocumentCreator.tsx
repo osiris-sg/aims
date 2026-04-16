@@ -3232,35 +3232,23 @@ export default function TabbedDocumentCreator({
                 <TabPanel value={itemsTabValue} index={1}>
                   <Grid container spacing={2} sx={{ height: "100%" }}>
                     {/* Notes - for all types */}
-                    <Grid item xs={12} md={documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? 12 : 6} sx={{ display: "flex" }}>
-                      <TextField
-                        fullWidth
-                        label="Notes"
-                        value={formData.note}
-                        onChange={(e) => setFormData({ ...formData, note: e.target.value })}
-                        multiline
-                        minRows={6}
-                        maxRows={20}
-                        size="small"
-                        sx={{ flex: 1 }}
+                    <Grid item xs={12} md={documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? 12 : 6} sx={{ display: "flex", flexDirection: "column" }}>
+                      <Typography variant="caption" sx={{ mb: 0.5, color: "text.secondary" }}>Notes</Typography>
+                      <RichTextDescription
+                        value={formData.note || ""}
+                        onChange={(html) => setFormData({ ...formData, note: html })}
+                        placeholder="Enter notes"
                       />
                     </Grid>
 
                     {/* Terms & Conditions - for TI and QO1 */}
                     {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (
-                      <Grid item xs={12} md={documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? 12 : 6} sx={{ display: "flex" }}>
-                        <TextField
-                          fullWidth
-                          label="Terms & Conditions"
-                          value={formData.termsAndConditions}
-                          onChange={(e) =>
-                            setFormData({ ...formData, termsAndConditions: e.target.value })
-                          }
-                          multiline
-                          minRows={6}
-                          maxRows={20}
-                          size="small"
-                          sx={{ flex: 1 }}
+                      <Grid item xs={12} md={documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? 12 : 6} sx={{ display: "flex", flexDirection: "column" }}>
+                        <Typography variant="caption" sx={{ mb: 0.5, color: "text.secondary" }}>Terms & Conditions</Typography>
+                        <RichTextDescription
+                          value={formData.termsAndConditions || ""}
+                          onChange={(html) => setFormData({ ...formData, termsAndConditions: html })}
+                          placeholder="Enter terms & conditions"
                         />
                       </Grid>
                     )}
