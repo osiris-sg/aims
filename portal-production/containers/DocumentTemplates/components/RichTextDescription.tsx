@@ -8,7 +8,6 @@ import {
   Paper,
   MenuItem,
   Typography,
-  ClickAwayListener,
 } from "@mui/material";
 import {
   FormatBold,
@@ -103,8 +102,19 @@ export default function RichTextDescription({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Close suggestions on outside click
+  useEffect(() => {
+    if (!showSuggestions) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showSuggestions]);
+
   return (
-    <ClickAwayListener onClickAway={() => setShowSuggestions(false)}>
       <Box ref={containerRef} sx={{ position: "relative" }}>
         <Box
           sx={{
@@ -224,6 +234,5 @@ export default function RichTextDescription({
           </Paper>
         )}
       </Box>
-    </ClickAwayListener>
   );
 }
