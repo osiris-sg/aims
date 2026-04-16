@@ -66,17 +66,18 @@ const theme = createTheme({
   typography: {
     htmlFontSize: 16,
     fontSize: 12, // Base font size ~9pt
+    fontWeightRegular: 600,
     h1: {
       fontSize: '1.5rem',
       fontWeight: 700,
     },
     h2: {
       fontSize: '1.25rem',
-      fontWeight: 600,
+      fontWeight: 700,
     },
     h3: {
       fontSize: '1.1rem',
-      fontWeight: 500,
+      fontWeight: 600,
     },
     h4: {
       fontSize: '1rem',
@@ -84,24 +85,27 @@ const theme = createTheme({
     },
     h5: {
       fontSize: '0.9rem',
-      fontWeight: 500,
+      fontWeight: 600,
     },
     h6: {
       fontSize: '0.85rem',
-      fontWeight: 500,
+      fontWeight: 600,
     },
     body1: {
       fontSize: '0.75rem', // ~9pt
+      fontWeight: 600,
     },
     body2: {
       fontSize: '0.7rem',
-      fontWeight: 300,
+      fontWeight: 600,
     },
     caption: {
       fontSize: '0.65rem',
+      fontWeight: 600,
     },
     button: {
       fontSize: '0.75rem',
+      fontWeight: 600,
     },
   },
   components: {
