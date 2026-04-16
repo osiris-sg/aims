@@ -2324,9 +2324,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
             </TableHead>
             <TableBody>
               {items.map((item: any, index: number) => (
-                <TableRow key={index}>
-                  <TableCell>{index + 1}</TableCell>
-                  <TableCell>
+                <TableRow key={index} sx={{ verticalAlign: "top" }}>
+                  <TableCell sx={{ verticalAlign: "top" }}>{index + 1}</TableCell>
+                  <TableCell sx={{ verticalAlign: "top" }}>
                     <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500 }}>
                       {item.itemCode || item.code || ""}
                     </Typography>
@@ -2339,10 +2339,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                       </Typography>
                     )}
                   </TableCell>
-                  <TableCell sx={{ textAlign: "center" }}>{item.quantity?.toLocaleString()}</TableCell>
-                  <TableCell sx={{ textAlign: "center" }}>{item.uom || ""}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{item.unitPrice?.toFixed(2)}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{(item.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                  <TableCell sx={{ textAlign: "center", verticalAlign: "top" }}>{item.quantity?.toLocaleString()}</TableCell>
+                  <TableCell sx={{ textAlign: "center", verticalAlign: "top" }}>{item.uom || ""}</TableCell>
+                  <TableCell sx={{ textAlign: "right", verticalAlign: "top" }}>{item.unitPrice?.toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right", verticalAlign: "top" }}>{(item.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
                 </TableRow>
               ))}
 
