@@ -3270,23 +3270,25 @@ export default function TabbedDocumentCreator({
 
                 {/* ITEMS FOOTER TAB */}
                 <TabPanel value={itemsTabValue} index={1}>
-                  <Grid container spacing={2}>
+                  <Grid container spacing={2} sx={{ height: "100%" }}>
                     {/* Notes - for all types */}
-                    <Grid item xs={12} md={documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? 12 : 6}>
+                    <Grid item xs={12} md={documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? 12 : 6} sx={{ display: "flex" }}>
                       <TextField
                         fullWidth
                         label="Notes"
                         value={formData.note}
                         onChange={(e) => setFormData({ ...formData, note: e.target.value })}
                         multiline
-                        rows={documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? 3 : 4}
+                        minRows={6}
+                        maxRows={20}
                         size="small"
+                        sx={{ flex: 1 }}
                       />
                     </Grid>
 
                     {/* Terms & Conditions - for TI and QO1 */}
                     {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (
-                      <Grid item xs={12} md={documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? 12 : 6}>
+                      <Grid item xs={12} md={documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? 12 : 6} sx={{ display: "flex" }}>
                         <TextField
                           fullWidth
                           label="Terms & Conditions"
@@ -3295,8 +3297,10 @@ export default function TabbedDocumentCreator({
                             setFormData({ ...formData, termsAndConditions: e.target.value })
                           }
                           multiline
-                          rows={documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? 3 : 4}
+                          minRows={6}
+                          maxRows={20}
                           size="small"
+                          sx={{ flex: 1 }}
                         />
                       </Grid>
                     )}
