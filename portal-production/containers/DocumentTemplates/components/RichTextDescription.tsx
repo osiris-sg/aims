@@ -1,5 +1,6 @@
 "use client";
 import React, { useRef, useCallback, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   Box,
   IconButton,
@@ -34,6 +35,7 @@ export default function RichTextDescription({
   const containerRef = useRef<HTMLDivElement>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [filteredSuggestions, setFilteredSuggestions] = useState<string[]>([]);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
 
   const exec = useCallback((command: string, arg?: string) => {
     document.execCommand(command, false, arg);
@@ -43,11 +45,22 @@ export default function RichTextDescription({
     editorRef.current?.focus();
   }, [onChange]);
 
+  const updateDropdownPos = useCallback(() => {
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      setDropdownPos({
+        top: rect.bottom + window.scrollY + 4,
+        left: rect.left + window.scrollX,
+        width: rect.width,
+      });
+    }
+  }, []);
+
   const filterSuggestions = useCallback((text: string) => {
     if (pastDescriptions.length === 0) return;
+    updateDropdownPos();
     const query = text.trim().toLowerCase();
     if (query.length === 0) {
-      // Show all when empty
       setFilteredSuggestions(pastDescriptions.slice(0, 10));
       setShowSuggestions(pastDescriptions.length > 0);
     } else {
@@ -57,7 +70,7 @@ export default function RichTextDescription({
       setFilteredSuggestions(matches);
       setShowSuggestions(matches.length > 0);
     }
-  }, [pastDescriptions]);
+  }, [pastDescriptions, updateDropdownPos]);
 
   const handleInput = useCallback(() => {
     if (!editorRef.current) return;
@@ -189,19 +202,19 @@ export default function RichTextDescription({
           />
         </Box>
 
-        {/* Autocomplete-style suggestions dropdown */}
-        {showSuggestions && filteredSuggestions.length > 0 && (
+        {/* Autocomplete-style suggestions dropdown — rendered via Portal
+            to escape table overflow: hidden */}
+        {showSuggestions && filteredSuggestions.length > 0 && typeof document !== "undefined" && createPortal(
           <Paper
-            elevation={4}
+            elevation={8}
             sx={{
               position: "absolute",
-              left: 0,
-              right: 0,
-              top: "100%",
-              zIndex: 1300,
+              top: dropdownPos.top,
+              left: dropdownPos.left,
+              width: dropdownPos.width,
+              zIndex: 1400,
               maxHeight: 220,
               overflowY: "auto",
-              mt: 0.5,
               borderRadius: "0.5rem",
             }}
           >
@@ -231,7 +244,8 @@ export default function RichTextDescription({
                 {desc.length > 150 ? desc.slice(0, 150) + "…" : desc}
               </MenuItem>
             ))}
-          </Paper>
+          </Paper>,
+          document.body
         )}
       </Box>
   );
