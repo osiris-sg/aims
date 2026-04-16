@@ -321,6 +321,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 fontWeight: 600,
                 fontSize: "0.6875rem",
               },
+              "@media print": {
+                "& thead": { display: "table-row-group" },
+              },
             }}
           >
             <TableHead>
@@ -627,6 +630,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 fontWeight: 600,
                 fontSize: "0.6875rem",
               },
+              "@media print": {
+                "& thead": { display: "table-row-group" },
+              },
             }}
           >
             <TableHead>
@@ -836,6 +842,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 borderBottom: "2px solid #000",
                 fontWeight: 600,
                 fontSize: "0.6875rem",
+              },
+              "@media print": {
+                "& thead": { display: "table-row-group" },
               },
             }}
           >
@@ -1260,6 +1269,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 fontWeight: 600,
                 fontSize: "0.6875rem",
               },
+              "@media print": {
+                "& thead": { display: "table-row-group" },
+              },
             }}
           >
             <TableHead>
@@ -1457,6 +1469,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 borderBottom: "2px solid #000",
                 fontWeight: 600,
                 fontSize: "0.6875rem",
+              },
+              "@media print": {
+                "& thead": { display: "table-row-group" },
               },
             }}
           >
@@ -1805,6 +1820,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 fontWeight: 600,
                 fontSize: "0.6875rem",
               },
+              "@media print": {
+                "& thead": { display: "table-row-group" },
+              },
             }}
           >
             <TableHead>
@@ -2047,6 +2065,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 borderBottom: "2px solid #000",
                 fontWeight: 600,
                 fontSize: "0.6875rem",
+              },
+              "@media print": {
+                "& thead": { display: "table-row-group" },
               },
             }}
           >
@@ -2351,6 +2372,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 borderBottom: "2px solid #000",
                 fontWeight: 600,
                 fontSize: "0.6875rem",
+              },
+              "@media print": {
+                "& thead": { display: "table-row-group" },
               },
             }}
           >
