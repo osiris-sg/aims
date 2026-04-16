@@ -2312,52 +2312,59 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
               },
             }}
           >
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ width: "5%" }}>Item</TableCell>
-                <TableCell sx={{ width: "40%" }}>Description</TableCell>
-                <TableCell sx={{ width: "12%", textAlign: "center" }}>Quantity</TableCell>
-                <TableCell sx={{ width: "10%", textAlign: "center" }}>uom</TableCell>
-                <TableCell sx={{ width: "15%", textAlign: "right" }}>Unit-Price</TableCell>
-                <TableCell sx={{ width: "18%", textAlign: "right" }}>Amount</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {items.map((item: any, index: number) => (
-                <TableRow key={index} sx={{ verticalAlign: "top" }}>
-                  <TableCell sx={{ verticalAlign: "top" }}>{index + 1}</TableCell>
-                  <TableCell sx={{ verticalAlign: "top" }}>
-                    <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500 }}>
-                      {item.itemCode || item.code || ""}
-                    </Typography>
-                    <Typography sx={{ fontSize: "0.6875rem", whiteSpace: "pre-wrap" }}>
-                      {item.description}
-                    </Typography>
-                    {item.details && (
-                      <Typography sx={{ fontSize: "0.625rem", color: "#666" }}>
-                        {item.details}
-                      </Typography>
-                    )}
-                  </TableCell>
-                  <TableCell sx={{ textAlign: "center", verticalAlign: "top" }}>{item.quantity?.toLocaleString()}</TableCell>
-                  <TableCell sx={{ textAlign: "center", verticalAlign: "top" }}>{item.uom || ""}</TableCell>
-                  <TableCell sx={{ textAlign: "right", verticalAlign: "top" }}>{item.unitPrice?.toFixed(2)}</TableCell>
-                  <TableCell sx={{ textAlign: "right", verticalAlign: "top" }}>{(item.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
-                </TableRow>
-              ))}
-
-              {items.length < 8 &&
-                Array.from({ length: 8 - items.length }).map((_, index) => (
-                  <TableRow key={`empty-${index}`} sx={{ height: 35 }}>
-                    <TableCell>&nbsp;</TableCell>
-                    <TableCell>&nbsp;</TableCell>
-                    <TableCell>&nbsp;</TableCell>
-                    <TableCell>&nbsp;</TableCell>
-                    <TableCell>&nbsp;</TableCell>
-                    <TableCell>&nbsp;</TableCell>
+            {(() => {
+              const hasUom = items.some((item: any) => item.uom && item.uom.trim() !== "");
+              return (
+                <>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ width: "5%" }}>Item</TableCell>
+                    <TableCell sx={{ width: hasUom ? "40%" : "48%" }}>Description</TableCell>
+                    <TableCell sx={{ width: "12%", textAlign: "center" }}>Quantity</TableCell>
+                    {hasUom && <TableCell sx={{ width: "10%", textAlign: "center" }}>uom</TableCell>}
+                    <TableCell sx={{ width: "15%", textAlign: "right" }}>Unit-Price</TableCell>
+                    <TableCell sx={{ width: "18%", textAlign: "right" }}>Amount</TableCell>
                   </TableRow>
-                ))}
+                </TableHead>
+                <TableBody>
+                  {items.map((item: any, index: number) => (
+                    <TableRow key={index} sx={{ verticalAlign: "top" }}>
+                      <TableCell sx={{ verticalAlign: "top" }}>{index + 1}</TableCell>
+                      <TableCell sx={{ verticalAlign: "top" }}>
+                        <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500 }}>
+                          {item.itemCode || item.code || ""}
+                        </Typography>
+                        <Typography sx={{ fontSize: "0.6875rem", whiteSpace: "pre-wrap" }}>
+                          {item.description}
+                        </Typography>
+                        {item.details && (
+                          <Typography sx={{ fontSize: "0.625rem", color: "#666" }}>
+                            {item.details}
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell sx={{ textAlign: "center", verticalAlign: "top" }}>{item.quantity?.toLocaleString()}</TableCell>
+                      {hasUom && <TableCell sx={{ textAlign: "center", verticalAlign: "top" }}>{item.uom || ""}</TableCell>}
+                      <TableCell sx={{ textAlign: "right", verticalAlign: "top" }}>{item.unitPrice?.toFixed(2)}</TableCell>
+                      <TableCell sx={{ textAlign: "right", verticalAlign: "top" }}>{(item.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                    </TableRow>
+                  ))}
+
+                  {items.length < 8 &&
+                    Array.from({ length: 8 - items.length }).map((_, index) => (
+                      <TableRow key={`empty-${index}`} sx={{ height: 35 }}>
+                        <TableCell>&nbsp;</TableCell>
+                        <TableCell>&nbsp;</TableCell>
+                        <TableCell>&nbsp;</TableCell>
+                        {hasUom && <TableCell>&nbsp;</TableCell>}
+                        <TableCell>&nbsp;</TableCell>
+                        <TableCell>&nbsp;</TableCell>
+                      </TableRow>
+                    ))}
             </TableBody>
+                </>
+              );
+            })()}
           </Table>
         </TableContainer>
 
