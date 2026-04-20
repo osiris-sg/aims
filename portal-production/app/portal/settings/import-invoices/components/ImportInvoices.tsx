@@ -220,8 +220,8 @@ export default function ImportInvoices() {
       setFormState(null);
       return;
     }
-    // Only build editable form for pending invoices
-    if (currentInvoice.review_status !== "pending") {
+    // Build editable form for pending and skipped invoices
+    if (currentInvoice.review_status !== "pending" && currentInvoice.review_status !== "skipped") {
       setFormState(null);
       setSiteOffices([]);
       return;
@@ -379,7 +379,8 @@ export default function ImportInvoices() {
   };
 
 
-  const isPending = currentInvoice?.review_status === "pending";
+  // Skipped invoices are editable too (treat like new imports)
+  const isPending = currentInvoice?.review_status === "pending" || currentInvoice?.review_status === "skipped";
 
   return (
     <Box sx={{ p: 4, width: "100%" }}>
