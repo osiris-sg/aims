@@ -1724,7 +1724,7 @@ export default function TabbedDocumentCreator({
               Extract
             </Button>
           )}
-          {/* Extract from DO Button - Only for TI/TI2/INVOICE */}
+          {/* Extract Button - Invoices: Quotation if service items feature on, else DO */}
           {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || documentType?.toUpperCase() === "INVOICE") && (
             <Button
               size="small"
@@ -1737,76 +1737,40 @@ export default function TabbedDocumentCreator({
                     toast.error("Authentication required");
                     return;
                   }
-                  // Fetch delivery orders
-                  const doResponse = await request(
+                  const response = await request(
                     { path: "/documents", method: "POST" },
                     { organizationId: organization?.id },
                     token
                   );
-                  if (doResponse?.success) {
-                    // Filter to only delivery order types
-                    const doTypes = ["DELIVERY_ORDER", "DO"];
-                    const deliveryOrders = (doResponse.data || []).filter(
-                      (doc: any) => {
-                        const docType = doc.type || doc.documentType || "";
-                        return doTypes.includes(docType.toUpperCase());
-                      }
-                    );
-                    console.log("Fetched documents:", doResponse.data?.length);
-                    console.log("Filtered delivery orders:", deliveryOrders.length);
-                    setDeliveryOrdersForExtract(deliveryOrders);
-                    setExtractDODialogOpen(true);
-                  } else {
-                    toast.error("Failed to fetch delivery orders");
-                  }
-                } catch (error) {
-                  console.error("Error fetching delivery orders:", error);
-                  toast.error("Failed to fetch delivery orders");
-                }
-              }}
-              color="secondary"
-            >
-              Extract from DO
-            </Button>
-          )}
-          {/* Extract from Quotation Button - Only for Invoices when service items feature is on */}
-          {isServiceItemsEnabled && (documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || documentType?.toUpperCase() === "INVOICE") && (
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<ContentCopyIcon />}
-              onClick={async () => {
-                try {
-                  const token = await getToken();
-                  if (!token) {
-                    toast.error("Authentication required");
+                  if (!response?.success) {
+                    toast.error("Failed to fetch documents");
                     return;
                   }
-                  // Fetch quotations
-                  const quotationsResponse = await request(
-                    { path: "/documents", method: "POST" },
-                    { organizationId: organization?.id },
-                    token
-                  );
-                  if (quotationsResponse?.success) {
+                  if (isServiceItemsEnabled) {
                     const quotationTypes = ["QUOTATION", "QT", "QO", "QO1"];
-                    const quotations = (quotationsResponse.data || []).filter((doc: any) => {
+                    const quotations = (response.data || []).filter((doc: any) => {
                       const docType = doc.type || doc.documentType || "";
                       return quotationTypes.includes(docType.toUpperCase());
                     });
                     setQuotationsForExtract(quotations);
                     setExtractQuotationDialogOpen(true);
                   } else {
-                    toast.error("Failed to fetch quotations");
+                    const doTypes = ["DELIVERY_ORDER", "DO"];
+                    const deliveryOrders = (response.data || []).filter((doc: any) => {
+                      const docType = doc.type || doc.documentType || "";
+                      return doTypes.includes(docType.toUpperCase());
+                    });
+                    setDeliveryOrdersForExtract(deliveryOrders);
+                    setExtractDODialogOpen(true);
                   }
                 } catch (error) {
-                  console.error("Error fetching quotations:", error);
-                  toast.error("Failed to fetch quotations");
+                  console.error("Error fetching documents:", error);
+                  toast.error("Failed to fetch documents");
                 }
               }}
               color="secondary"
             >
-              Extract from Quotation
+              {isServiceItemsEnabled ? "Extract from Quotation" : "Extract from DO"}
             </Button>
           )}
           {/* Locate Document Button */}
