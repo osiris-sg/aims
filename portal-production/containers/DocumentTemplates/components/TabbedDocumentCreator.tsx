@@ -1766,7 +1766,47 @@ export default function TabbedDocumentCreator({
               }}
               color="secondary"
             >
-              Extract
+              Extract from DO
+            </Button>
+          )}
+          {/* Extract from Quotation Button - Only for Invoices when service items feature is on */}
+          {isServiceItemsEnabled && (documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || documentType?.toUpperCase() === "INVOICE") && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<ContentCopyIcon />}
+              onClick={async () => {
+                try {
+                  const token = await getToken();
+                  if (!token) {
+                    toast.error("Authentication required");
+                    return;
+                  }
+                  // Fetch quotations
+                  const quotationsResponse = await request(
+                    { path: "/documents", method: "POST" },
+                    { organizationId: organization?.id },
+                    token
+                  );
+                  if (quotationsResponse?.success) {
+                    const quotationTypes = ["QUOTATION", "QT", "QO", "QO1"];
+                    const quotations = (quotationsResponse.data || []).filter((doc: any) => {
+                      const docType = doc.type || doc.documentType || "";
+                      return quotationTypes.includes(docType.toUpperCase());
+                    });
+                    setQuotationsForExtract(quotations);
+                    setExtractQuotationDialogOpen(true);
+                  } else {
+                    toast.error("Failed to fetch quotations");
+                  }
+                } catch (error) {
+                  console.error("Error fetching quotations:", error);
+                  toast.error("Failed to fetch quotations");
+                }
+              }}
+              color="secondary"
+            >
+              Extract from Quotation
             </Button>
           )}
           {/* Locate Document Button */}
@@ -3673,7 +3713,7 @@ export default function TabbedDocumentCreator({
             setItems(newItems);
           }
 
-          toast.success(`Quotation ${quotation.name} extracted to Delivery Order`);
+          toast.success(`Quotation ${quotation.name} extracted to ${isInvoiceType ? "Invoice" : "Delivery Order"}`);
         }}
         onSelectMultipleQuotations={(quotations) => {
           // Merge multiple quotations into the delivery order
@@ -3746,7 +3786,7 @@ export default function TabbedDocumentCreator({
 
           setItems(allItems);
 
-          toast.success(`${quotations.length} Quotations extracted to Delivery Order`);
+          toast.success(`${quotations.length} Quotations extracted to ${isInvoiceType ? "Invoice" : "Delivery Order"}`);
         }}
       />
 
