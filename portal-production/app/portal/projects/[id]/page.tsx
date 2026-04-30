@@ -203,10 +203,10 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
                   Customer: {project.customer?.name}
                 </Typography>
                 <Typography variant="body1" color="text.secondary">
-                  Start Date: {new Date(project.startDate).toLocaleDateString()}
+                  Start Date: {project.startDate ? new Date(project.startDate).toLocaleDateString() : "Not set"}
                 </Typography>
                 <Typography variant="body1" color="text.secondary">
-                  End Date: {new Date(project.endDate).toLocaleDateString()}
+                  End Date: {project.endDate ? new Date(project.endDate).toLocaleDateString() : "Not set"}
                 </Typography>
               </Stack>
             </Stack>
@@ -311,12 +311,32 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
                   cell: (info: any) => info.getValue(),
                 },
                 {
+                  id: "quantity",
+                  accessorKey: "quantity",
+                  header: "Qty",
+                  cell: ({ row }: any) => (
+                    <Box sx={{ minWidth: 60 }}>
+                      <Typography variant="body2">{row.original.quantity ?? "—"}</Typography>
+                    </Box>
+                  ),
+                },
+                {
+                  id: "source",
+                  accessorKey: "source",
+                  header: "Source",
+                  cell: ({ row }: any) => (
+                    <Box sx={{ minWidth: 120 }}>
+                      <Typography variant="body2">{row.original.source ?? "—"}</Typography>
+                    </Box>
+                  ),
+                },
+                {
                   id: "startDate",
                   accessorKey: "startDate",
                   header: "Start Date",
                   cell: ({ row }: any) => (
                     <Box sx={{ minWidth: 150 }}>
-                      <Typography variant="body2">{row.original.startDate ?? "N/A"}</Typography>
+                      <Typography variant="body2">{row.original.startDate ? new Date(row.original.startDate).toLocaleDateString() : "—"}</Typography>
                     </Box>
                   ),
                 },
@@ -326,7 +346,7 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
                   header: "End Date",
                   cell: ({ row }: any) => (
                     <Box sx={{ minWidth: 150 }}>
-                      <Typography variant="body2">{row.original.endDate ?? "N/A"}</Typography>
+                      <Typography variant="body2">{row.original.endDate ? new Date(row.original.endDate).toLocaleDateString() : "—"}</Typography>
                     </Box>
                   ),
                 },
@@ -336,16 +356,18 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
                   header: "Status",
                   cell: ({ row }: any) => (
                     <Box sx={{ minWidth: 120 }}>
-                      <Typography variant="body2">{row.original.status ?? "reserved"}</Typography>
+                      <Typography variant="body2">{row.original.status ?? "Asset"}</Typography>
                     </Box>
                   ),
                 },
               ]}
-              data={project.assignments.map((a: any) => ({
-                id: a.inventory.sku,
+              data={(project.assignments ?? []).map((a: any) => ({
+                id: a.inventory?.sku ?? a.asset?.skuKey ?? "—",
+                quantity: a.inventory ? 1 : (a.quantity ?? "—"),
+                source: a.document?.name ?? "—",
                 startDate: a.startDate,
                 endDate: a.endDate,
-                status: "reserved",
+                status: a.inventory?.status ?? "Asset",
               }))}
               onRowSelect={() => {}}
             />

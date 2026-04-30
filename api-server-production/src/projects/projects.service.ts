@@ -43,7 +43,13 @@ export class ProjectsService {
               customer: true,
             },
           },
-          assignments: true,
+          assignments: {
+            include: {
+              inventory: { select: { sku: true, status: true } },
+              asset: { select: { id: true, name: true, skuKey: true, uom: true } },
+              document: { select: { id: true, name: true } },
+            },
+          },
         },
       });
 
@@ -89,11 +95,9 @@ export class ProjectsService {
           },
           assignments: {
             include: {
-              inventory: {
-                select: {
-                  sku: true,
-                },
-              },
+              inventory: { select: { sku: true, status: true } },
+              asset: { select: { id: true, name: true, skuKey: true, uom: true } },
+              document: { select: { id: true, name: true } },
             },
           },
           documents: {
@@ -137,7 +141,7 @@ export class ProjectsService {
           startDate: assignment.startDate ? new Date(assignment.startDate) : undefined,
           endDate: assignment.endDate ? new Date(assignment.endDate) : undefined,
           inventoryId: assignment.inventoryId,
-          documentId: assignment.documentId,
+          // TODO: support documentId from API when manual project flow is updated.
         })),
         skipDuplicates: true,
       });
@@ -179,12 +183,17 @@ export class ProjectsService {
                     connect: { id: assignment.inventoryId },
                   }
                 : undefined,
-              document: undefined,
             })),
           },
         },
         include: {
-          assignments: true,
+          assignments: {
+            include: {
+              inventory: { select: { sku: true, status: true } },
+              asset: { select: { id: true, name: true, skuKey: true, uom: true } },
+              document: { select: { id: true, name: true } },
+            },
+          },
           siteOffice: true,
         },
       });
@@ -241,13 +250,18 @@ export class ProjectsService {
                   startDate: assignment.startDate ? new Date(assignment.startDate) : undefined,
                   endDate: assignment.endDate ? new Date(assignment.endDate) : undefined,
                   inventory: assignment.inventoryId ? { connect: { id: assignment.inventoryId } } : undefined,
-                  document: undefined,
                 })),
               }
             : undefined,
         },
         include: {
-          assignments: true,
+          assignments: {
+            include: {
+              inventory: { select: { sku: true, status: true } },
+              asset: { select: { id: true, name: true, skuKey: true, uom: true } },
+              document: { select: { id: true, name: true } },
+            },
+          },
           siteOffice: true,
         },
       });

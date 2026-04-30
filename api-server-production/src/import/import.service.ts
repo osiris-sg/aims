@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/common/prisma.service';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -10,6 +10,23 @@ const STATUS_MAP: Record<string, string> = {
   Approved: 'confirmed',
   Draft: 'draft',
 };
+
+// Exactly one of inventoryId / assetId must be set on an Assignment.
+// quantity is required (and >= 1) for asset-based assignments.
+function validateAssignmentMode(input: {
+  inventoryId?: string | null;
+  assetId?: string | null;
+  quantity?: number | null;
+}) {
+  const hasInventory = !!input.inventoryId;
+  const hasAsset = !!input.assetId;
+  if (hasInventory === hasAsset) {
+    throw new BadRequestException('Assignment must have exactly one of inventoryId or assetId');
+  }
+  if (hasAsset && (!input.quantity || input.quantity < 1)) {
+    throw new BadRequestException('Asset-based assignment requires quantity >= 1');
+  }
+}
 
 @Injectable()
 export class ImportService {
@@ -472,8 +489,9 @@ export class ImportService {
       },
     });
 
-    // Create DocumentItem records + Inventory items + Project assignments
-    const createdInventoryIds: string[] = [];
+    // Create DocumentItem records + Inventory items + Project assignments per line
+    const startDate = body.startDate && body.startDate !== '' ? new Date(body.startDate) : undefined;
+    const endDate = body.endDate && body.endDate !== '' ? new Date(body.endDate) : undefined;
 
     for (let i = 0; i < configItems.length; i++) {
       const item = configItems[i];
@@ -496,8 +514,9 @@ export class ImportService {
         },
       });
 
-      // Create Inventory items for each serial number
+      // Resolve serial numbers into Inventory ids (idempotent per (sku, org))
       const serials: string[] = item.serialNumbers || [];
+      const inventoryIdsForLine: string[] = [];
       for (const serial of serials) {
         if (!serial) continue;
 
@@ -526,26 +545,55 @@ export class ImportService {
           });
           inventoryId = inventory.id;
         }
-        createdInventoryIds.push(inventoryId);
+        inventoryIdsForLine.push(inventoryId);
       }
-    }
 
-    // Create project assignments
-    if (body.projectId && createdInventoryIds.length > 0) {
-      for (const invId of createdInventoryIds) {
-        const existingAssignment = await this.prisma.assignment.findUnique({
-          where: { projectId_inventoryId: { projectId: body.projectId, inventoryId: invId } },
-        });
-        if (!existingAssignment) {
+      // Branch into the appropriate assignment mode.
+      if (!body.projectId) continue;
+
+      if (inventoryIdsForLine.length > 0) {
+        // Mode A: tracked, per-serial assignments
+        for (const invId of inventoryIdsForLine) {
+          const existing = await this.prisma.assignment.findUnique({
+            where: { projectId_inventoryId: { projectId: body.projectId, inventoryId: invId } },
+          });
+          if (existing) continue;
+
+          validateAssignmentMode({ inventoryId: invId });
           await this.prisma.assignment.create({
             data: {
               projectId: body.projectId,
               inventoryId: invId,
-              startDate: body.startDate && body.startDate !== '' ? new Date(body.startDate) : undefined,
-              endDate: body.endDate && body.endDate !== '' ? new Date(body.endDate) : undefined,
+              documentId: document.id,
+              startDate,
+              endDate,
             },
           });
         }
+      } else if (item.quantity > 0) {
+        // Mode B: asset-based assignment with quantity
+        const existing = await this.prisma.assignment.findUnique({
+          where: {
+            projectId_assetId_documentId: {
+              projectId: body.projectId,
+              assetId: item.inventoryItemId,
+              documentId: document.id,
+            },
+          },
+        });
+        if (existing) continue;
+
+        validateAssignmentMode({ assetId: item.inventoryItemId, quantity: item.quantity });
+        await this.prisma.assignment.create({
+          data: {
+            projectId: body.projectId,
+            assetId: item.inventoryItemId,
+            quantity: item.quantity,
+            documentId: document.id,
+            startDate,
+            endDate,
+          },
+        });
       }
     }
 

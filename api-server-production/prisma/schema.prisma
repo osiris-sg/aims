@@ -73,6 +73,7 @@ model Asset {
   inventories     Inventory[]
   priceHistories  PriceHistory[]
   quantityAdjustments QuantityAdjustment[]
+  assignments     Assignment[]
 
   @@unique([skuKey, organizationId, deletedAt])
 }
@@ -220,6 +221,7 @@ model Document {
   payments           Payment[]      // Payments made against this document
   transactions       Transaction[]  // Financial transactions from this document
   documentItems      DocumentItem[] // Junction table for efficient item queries
+  assignments        Assignment[]   // Source-of-truth link for assignments produced from this document
 
   // Self-relation for revisions: base document -> many revisions
   baseDocument       Document?      @relation("DocumentRevisions", fields: [baseDocumentId], references: [id])
@@ -342,14 +344,30 @@ model Project {
 model Assignment {
   id          String     @id @default(uuid()) @db.Uuid
   projectId   String     @db.Uuid
+
+  // Mode A: tracked inventory unit (existing)
   inventoryId String?    @db.Uuid
+
+  // Mode B: asset + quantity (new, for rentals without serials)
+  assetId     String?    @db.Uuid
+  quantity    Int?
+
+  // Source invoice (idempotency on asset-mode + audit trail)
+  documentId  String?    @db.Uuid
+
   startDate   DateTime?  @db.Timestamptz(6)
   endDate     DateTime?  @db.Timestamptz(6)
   createdAt   DateTime   @default(now())
+
   inventory   Inventory? @relation(fields: [inventoryId], references: [id])
+  asset       Asset?     @relation(fields: [assetId], references: [id])
+  document    Document?  @relation(fields: [documentId], references: [id])
   project     Project    @relation(fields: [projectId], references: [id])
 
   @@unique([projectId, inventoryId])
+  @@unique([projectId, assetId, documentId])
+  @@index([assetId])
+  @@index([documentId])
 }
 
 model SiteOffice {
