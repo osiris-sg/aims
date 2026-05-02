@@ -50,7 +50,9 @@
     "migrate-document-items": "ts-node scripts/migrate-document-items.ts",
     "migrate-document-items:dry": "ts-node scripts/migrate-document-items.ts --dry-run",
     "populate-template-fields": "ts-node scripts/populate-template-fields.ts",
-    "biofuel-split-contact": "ts-node scripts/biofuel-split-contact-field.ts"
+    "biofuel-split-contact": "ts-node scripts/biofuel-split-contact-field.ts",
+    "backfill-biofuel-deployments": "ts-node scripts/backfill-biofuel-deployments.ts",
+    "backfill-biofuel-deployments:dry": "ts-node scripts/backfill-biofuel-deployments.ts --dry-run"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.779.0",
