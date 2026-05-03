@@ -448,6 +448,7 @@ export class ImportService {
         taxAmount,
         gross,
         uom: li.assetUom || 'PCS',
+        isService: !!li.isService,
       });
     }
 
@@ -511,6 +512,7 @@ export class ImportService {
           amount: item.amount,
           uom: item.uom,
           lineNumber: i + 1,
+          isService: !!item.isService,
         },
       });
 

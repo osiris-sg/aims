@@ -35,8 +35,32 @@ import { toast } from "react-toastify";
 type DeploymentStatus = "ACTIVE" | "OFF_HIRED" | "COMPLETED" | "CANCELLED";
 type DeploymentType = "RENTAL" | "SALE" | "SERVICE";
 
+interface DocumentItemRow {
+  id: string;
+  itemId: string;
+  itemType: "INVENTORY" | "ASSET";
+  sku: string | null;
+  description: string | null;
+  quantity: number;
+  unitPrice: number | null;
+  uom: string | null;
+  lineNumber: number | null;
+  isService: boolean;
+}
+
+interface DeploymentDocument {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  createdAt: string;
+  documentItems: DocumentItemRow[];
+}
+
 interface Deployment {
   id: string;
+  deploymentNumber: number | null;
+  name: string;
   type: DeploymentType;
   status: DeploymentStatus;
   description: string | null;
@@ -45,8 +69,10 @@ interface Deployment {
   deployedDate: string | null;
   offHiredDate: string | null;
   notes: string | null;
+  isServiceOnly: boolean;
   sourceDocument: { id: string; name: string; type: string } | null;
   assignments: any[];
+  documents: DeploymentDocument[];
   invoices: { id: string; name: string; type: string; status: string; createdAt: string; amount: number; paid: number }[];
   totalBilled: number;
   totalPaid: number;
@@ -114,6 +140,7 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
   const [tab, setTab] = useState(0);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [addOpen, setAddOpen] = useState(false);
+  const [attachOpenFor, setAttachOpenFor] = useState<string | null>(null);
 
   const fetchProject = useCallback(async () => {
     if (!params?.id) return;
@@ -136,8 +163,21 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
     fetchProject();
   }, [fetchProject]);
 
-  const active = useMemo(() => (project?.deployments ?? []).filter((d) => d.status === "ACTIVE"), [project]);
-  const past = useMemo(() => (project?.deployments ?? []).filter((d) => d.status !== "ACTIVE"), [project]);
+  // Active on Site: only ACTIVE deployments AND not service-only.
+  // Off-hired/completed/cancelled live in the Past Deployments tab; service-only
+  // deployments are surfaced under Sales & Services regardless of status.
+  const active = useMemo(
+    () => (project?.deployments ?? []).filter((d) => d.status === "ACTIVE" && !d.isServiceOnly),
+    [project],
+  );
+  const past = useMemo(
+    () => (project?.deployments ?? []).filter((d) => d.status !== "ACTIVE"),
+    [project],
+  );
+  const serviceOnlyDeployments = useMemo(
+    () => (project?.deployments ?? []).filter((d) => d.isServiceOnly),
+    [project],
+  );
 
   const offHire = async (deploymentId: string) => {
     if (!organizationId) return;
@@ -244,7 +284,8 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
           <Tabs value={tab} onChange={(_, v) => setTab(v)}>
             <Tab label={`Active on Site (${active.length})`} />
-            <Tab label={`Sales & Services (${project.standaloneDocs.length})`} />
+            <Tab label={`Past Deployments (${past.length})`} />
+            <Tab label={`Sales & Services (${project.standaloneDocs.length + serviceOnlyDeployments.length})`} />
             <Tab label={`All Invoices (${project.allInvoices.length})`} />
           </Tabs>
           {tab === 0 && (
@@ -254,14 +295,14 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
           )}
         </Stack>
 
-        {/* Tab 1: Active on site */}
+        {/* Tab 0: Active on site (ACTIVE && !isServiceOnly) */}
         {tab === 0 && (
           <Box>
-            {active.length === 0 && past.length === 0 && (
+            {active.length === 0 && (
               <Box sx={{ p: 6, textAlign: "center", color: "text.secondary" }}>
-                <Typography variant="body2">No deployments yet.</Typography>
+                <Typography variant="body2">No active deployments.</Typography>
                 <Button variant="contained" sx={{ mt: 2 }} startIcon={<AddIcon />} onClick={() => setAddOpen(true)}>
-                  Add first deployment
+                  New Deployment
                 </Button>
               </Box>
             )}
@@ -274,63 +315,88 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
                   expanded={!!expanded[d.id]}
                   onToggle={() => setExpanded((s) => ({ ...s, [d.id]: !s[d.id] }))}
                   onOffHire={() => offHire(d.id)}
+                  onAttachDoc={() => setAttachOpenFor(d.id)}
                 />
               ))}
             </Stack>
+          </Box>
+        )}
 
-            {past.length > 0 && (
+        {/* Tab 1: Past Deployments (status !== ACTIVE) */}
+        {tab === 1 && (
+          <Box>
+            {past.length === 0 ? (
+              <Box sx={{ p: 6, textAlign: "center", color: "text.secondary" }}>
+                <Typography variant="body2">No past deployments.</Typography>
+              </Box>
+            ) : (
+              <Stack gap={1.5}>
+                {past.map((d) => (
+                  <DeploymentCard
+                    key={d.id}
+                    deployment={d}
+                    expanded={!!expanded[d.id]}
+                    onToggle={() => setExpanded((s) => ({ ...s, [d.id]: !s[d.id] }))}
+                    onAttachDoc={() => setAttachOpenFor(d.id)}
+                  />
+                ))}
+              </Stack>
+            )}
+          </Box>
+        )}
+
+        {/* Tab 2: Sales & Services — standaloneDocs + service-only deployments */}
+        {tab === 2 && (
+          <Box>
+            {serviceOnlyDeployments.length > 0 && (
               <>
-                <Typography variant="overline" color="text.secondary" sx={{ display: "block", mt: 4, mb: 1 }}>
-                  Past deployments ({past.length})
+                <Typography variant="overline" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+                  Service-only Deployments ({serviceOnlyDeployments.length})
                 </Typography>
-                <Stack gap={1.5}>
-                  {past.map((d) => (
+                <Stack gap={1.5} sx={{ mb: 3 }}>
+                  {serviceOnlyDeployments.map((d) => (
                     <DeploymentCard
                       key={d.id}
                       deployment={d}
                       expanded={!!expanded[d.id]}
                       onToggle={() => setExpanded((s) => ({ ...s, [d.id]: !s[d.id] }))}
+                      onAttachDoc={() => setAttachOpenFor(d.id)}
                     />
                   ))}
                 </Stack>
               </>
             )}
+
+            {project.standaloneDocs.length > 0 && (
+              <>
+                <Typography variant="overline" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+                  Standalone Documents ({project.standaloneDocs.length})
+                </Typography>
+                <Table
+                  columns={[
+                    { id: "name", accessorKey: "name", header: "Doc No.", cell: (i: any) => i.getValue() ?? "—" },
+                    { id: "type", accessorKey: "type", header: "Type", cell: (i: any) => i.getValue() },
+                    { id: "createdAt", accessorKey: "createdAt", header: "Date", cell: (i: any) => fmtDate(i.getValue()) },
+                    { id: "amount", accessorKey: "amount", header: "Amount", cell: (i: any) => fmtMoney(i.getValue()) },
+                    { id: "paid", accessorKey: "paid", header: "Paid", cell: (i: any) => fmtMoney(i.getValue()) },
+                    { id: "status", accessorKey: "status", header: "Status", cell: (i: any) => i.getValue() },
+                  ]}
+                  data={project.standaloneDocs}
+                  onRowSelect={() => {}}
+                />
+              </>
+            )}
+
+            {serviceOnlyDeployments.length === 0 && project.standaloneDocs.length === 0 && (
+              <Box sx={{ p: 6, textAlign: "center", color: "text.secondary" }}>
+                <Typography variant="body2">No services or standalone documents.</Typography>
+              </Box>
+            )}
           </Box>
         )}
 
-        {/* Tab 2: Sales & Services */}
-        {tab === 1 && (
-          <Table
-            columns={[
-              { id: "name", accessorKey: "name", header: "Doc No.", cell: (i: any) => i.getValue() ?? "—" },
-              { id: "type", accessorKey: "type", header: "Type", cell: (i: any) => i.getValue() },
-              {
-                id: "createdAt",
-                accessorKey: "createdAt",
-                header: "Date",
-                cell: (i: any) => fmtDate(i.getValue()),
-              },
-              {
-                id: "amount",
-                accessorKey: "amount",
-                header: "Amount",
-                cell: (i: any) => fmtMoney(i.getValue()),
-              },
-              {
-                id: "paid",
-                accessorKey: "paid",
-                header: "Paid",
-                cell: (i: any) => fmtMoney(i.getValue()),
-              },
-              { id: "status", accessorKey: "status", header: "Status", cell: (i: any) => i.getValue() },
-            ]}
-            data={project.standaloneDocs}
-            onRowSelect={() => {}}
-          />
-        )}
-
         {/* Tab 3: All Invoices */}
-        {tab === 2 && (
+        {tab === 3 && (
           <Table
             columns={[
               { id: "name", accessorKey: "name", header: "Doc No.", cell: (i: any) => i.getValue() ?? "—" },
@@ -364,6 +430,19 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
             fetchProject();
           }}
         />
+
+        <AttachDocumentDialog
+          open={!!attachOpenFor}
+          deploymentId={attachOpenFor}
+          candidates={(project.allInvoices ?? []).filter(
+            (d: any) => (d.type === "DO" || d.type === "DELIVERY_ORDER") && !d.projectDeploymentId,
+          )}
+          onClose={() => setAttachOpenFor(null)}
+          onAttached={() => {
+            setAttachOpenFor(null);
+            fetchProject();
+          }}
+        />
       </Box>
     </MainCard>
   );
@@ -387,11 +466,13 @@ function DeploymentCard({
   expanded,
   onToggle,
   onOffHire,
+  onAttachDoc,
 }: {
   deployment: Deployment;
   expanded: boolean;
   onToggle: () => void;
   onOffHire?: () => void;
+  onAttachDoc?: () => void;
 }) {
   const months = monthsBetween(deployment.deployedDate, deployment.offHiredDate);
   const ccy = deployment.currency ?? "SGD";
@@ -408,10 +489,15 @@ function DeploymentCard({
       <Stack direction={{ xs: "column", sm: "row" }} alignItems={{ sm: "flex-start" }} gap={2} sx={{ p: 2 }}>
         <Box sx={{ flex: 1 }}>
           <Stack direction="row" alignItems="center" gap={1} sx={{ mb: 0.5 }}>
-            <Typography variant="h5">{deployment.description ?? "(unnamed deployment)"}</Typography>
+            <Typography variant="h5">{deployment.name}</Typography>
             {statusChip(deployment.status)}
             <Chip size="small" variant="outlined" label={deployment.type} />
           </Stack>
+          {deployment.description && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+              {deployment.description}
+            </Typography>
+          )}
           <Stack direction="row" gap={2} flexWrap="wrap" sx={{ color: "text.secondary" }}>
             {deployment.sourceDocument && (
               <Typography variant="caption">Source: {deployment.sourceDocument.name}</Typography>
@@ -440,10 +526,17 @@ function DeploymentCard({
             </Typography>
           </Box>
 
-          <Stack direction="row" gap={0.5}>
-            <Tooltip title={expanded ? "Collapse invoices" : "View invoices"}>
+          <Stack direction="row" gap={0.5} alignItems="center">
+            {onAttachDoc && (
+              <Tooltip title="Attach a delivery order to this deployment">
+                <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={onAttachDoc}>
+                  Add DO
+                </Button>
+              </Tooltip>
+            )}
+            <Tooltip title={expanded ? "Collapse" : "Expand"}>
               <Button size="small" variant="text" onClick={onToggle}>
-                {expanded ? "Hide" : "View"} invoices
+                {expanded ? "Hide" : "View"} details
               </Button>
             </Tooltip>
             {onOffHire && (
@@ -464,31 +557,95 @@ function DeploymentCard({
 
       {expanded && (
         <Box sx={{ borderTop: 1, borderColor: "divider", bgcolor: "surfaceTones.low" }}>
+          {/* Delivery Orders section */}
+          {deployment.documents.length > 0 && (
+            <Box sx={{ p: 2, borderBottom: 1, borderColor: "divider" }}>
+              <Typography variant="overline" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+                Delivery Orders ({deployment.documents.length})
+              </Typography>
+              <Stack spacing={1.5}>
+                {deployment.documents.map((doc) => (
+                  <Box key={doc.id} sx={{ p: 1.5, border: 1, borderColor: "divider", borderRadius: 1, bgcolor: "background.paper" }}>
+                    <Stack direction="row" gap={1.5} alignItems="center" sx={{ mb: doc.documentItems.length ? 1 : 0 }}>
+                      <Typography variant="subtitle2">{doc.name}</Typography>
+                      <Chip size="small" variant="outlined" label={doc.type} />
+                      <Typography variant="caption" color="text.secondary">{fmtDate(doc.createdAt)}</Typography>
+                    </Stack>
+                    {doc.documentItems.length > 0 && (
+                      <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8125rem" }}>
+                        <Box component="thead">
+                          <Box component="tr" sx={{ "& th": { p: 0.75, textAlign: "left", color: "text.secondary", fontSize: "0.6875rem", textTransform: "uppercase", letterSpacing: 0.5 } }}>
+                            <th>Item</th>
+                            <th>SKU</th>
+                            <th>Qty</th>
+                            <th>UOM</th>
+                            <th>Type</th>
+                          </Box>
+                        </Box>
+                        <Box component="tbody">
+                          {doc.documentItems.map((it) => (
+                            <Box
+                              component="tr"
+                              key={it.id}
+                              sx={{
+                                "& td": { p: 0.75, borderTop: 1, borderColor: "divider", fontVariantNumeric: "tabular-nums" },
+                                opacity: it.isService ? 0.7 : 1,
+                              }}
+                            >
+                              <td>{it.description ?? "—"}</td>
+                              <td>{it.sku ?? "—"}</td>
+                              <td>{it.quantity}</td>
+                              <td>{it.uom ?? "—"}</td>
+                              <td>
+                                <Chip
+                                  size="small"
+                                  variant="outlined"
+                                  label={it.isService ? "Service" : "Product"}
+                                  color={it.isService ? "secondary" : "default"}
+                                />
+                              </td>
+                            </Box>
+                          ))}
+                        </Box>
+                      </Box>
+                    )}
+                  </Box>
+                ))}
+              </Stack>
+            </Box>
+          )}
+
+          {/* Invoices section */}
           {deployment.invoices.length === 0 ? (
             <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
               No invoices linked to this deployment yet.
             </Typography>
           ) : (
-            <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8125rem" }}>
-              <Box component="thead">
-                <Box component="tr" sx={{ "& th": { p: 1, textAlign: "left", color: "text.secondary", fontSize: "0.6875rem", textTransform: "uppercase", letterSpacing: 0.5 } }}>
-                  <th>Invoice</th>
-                  <th>Date</th>
-                  <th>Amount</th>
-                  <th>Paid</th>
-                  <th>Status</th>
-                </Box>
-              </Box>
-              <Box component="tbody">
-                {deployment.invoices.map((inv) => (
-                  <Box component="tr" key={inv.id} sx={{ "& td": { p: 1, borderTop: 1, borderColor: "divider", fontVariantNumeric: "tabular-nums" } }}>
-                    <td>{inv.name}</td>
-                    <td>{fmtDate(inv.createdAt)}</td>
-                    <td>{fmtMoney(inv.amount, ccy)}</td>
-                    <td>{fmtMoney(inv.paid, ccy)}</td>
-                    <td>{inv.status}</td>
+            <Box sx={{ p: 0 }}>
+              <Typography variant="overline" color="text.secondary" sx={{ display: "block", px: 2, pt: 2 }}>
+                Invoices ({deployment.invoices.length})
+              </Typography>
+              <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8125rem" }}>
+                <Box component="thead">
+                  <Box component="tr" sx={{ "& th": { p: 1, textAlign: "left", color: "text.secondary", fontSize: "0.6875rem", textTransform: "uppercase", letterSpacing: 0.5 } }}>
+                    <th>Invoice</th>
+                    <th>Date</th>
+                    <th>Amount</th>
+                    <th>Paid</th>
+                    <th>Status</th>
                   </Box>
-                ))}
+                </Box>
+                <Box component="tbody">
+                  {deployment.invoices.map((inv) => (
+                    <Box component="tr" key={inv.id} sx={{ "& td": { p: 1, borderTop: 1, borderColor: "divider", fontVariantNumeric: "tabular-nums" } }}>
+                      <td>{inv.name}</td>
+                      <td>{fmtDate(inv.createdAt)}</td>
+                      <td>{fmtMoney(inv.amount, ccy)}</td>
+                      <td>{fmtMoney(inv.paid, ccy)}</td>
+                      <td>{inv.status}</td>
+                    </Box>
+                  ))}
+                </Box>
               </Box>
             </Box>
           )}
@@ -518,10 +675,6 @@ function NewDeploymentDialog({
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {
-    if (!description.trim()) {
-      toast.error("Description required");
-      return;
-    }
     setSaving(true);
     try {
       const token = await getToken();
@@ -530,15 +683,15 @@ function NewDeploymentDialog({
         { path: `/projects/${projectId}/deployments`, method: "POST" },
         {
           type,
-          description,
+          description: description.trim() || undefined,
           monthlyRate: monthlyRate ? Number(monthlyRate) : undefined,
           deployedDate,
-          notes,
+          notes: notes.trim() || undefined,
         },
         token,
       );
       if (res.success) {
-        toast.success("Deployment created");
+        toast.success(`Deployment created (${res.data?.name ?? "Deployment N"})`);
         onCreated();
       } else {
         toast.error(res.message ?? "Failed to create");
@@ -555,6 +708,9 @@ function NewDeploymentDialog({
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
       <DialogTitle>New Deployment</DialogTitle>
       <DialogContent>
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+          Number is auto-assigned (Deployment 1, 2, 3, …).
+        </Typography>
         <Stack spacing={2} sx={{ mt: 1 }}>
           <TextField select label="Type" value={type} onChange={(e) => setType(e.target.value as DeploymentType)} fullWidth>
             <MenuItem value="RENTAL">Rental (recurring)</MenuItem>
@@ -562,7 +718,7 @@ function NewDeploymentDialog({
             <MenuItem value="SERVICE">Service</MenuItem>
           </TextField>
           <TextField
-            label="Description"
+            label="Description (optional notes)"
             placeholder="e.g. 1× AF-90, 2× APF60"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -590,6 +746,93 @@ function NewDeploymentDialog({
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="contained" onClick={submit} disabled={saving}>
           {saving ? <CircularProgress size={18} /> : "Create"}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function AttachDocumentDialog({
+  open,
+  deploymentId,
+  candidates,
+  onClose,
+  onAttached,
+}: {
+  open: boolean;
+  deploymentId: string | null;
+  candidates: Array<{ id: string; name: string | null; type: string; createdAt: string }>;
+  onClose: () => void;
+  onAttached: () => void;
+}) {
+  const { getToken } = useAuth();
+  const [selected, setSelected] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) setSelected("");
+  }, [open]);
+
+  const submit = async () => {
+    if (!deploymentId || !selected) {
+      toast.error("Pick a delivery order");
+      return;
+    }
+    setSaving(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await request(
+        { path: `/projects/deployments/${deploymentId}/attach-document`, method: "POST" },
+        { documentId: selected },
+        token,
+      );
+      if (res.success) {
+        toast.success("Delivery order attached");
+        onAttached();
+      } else {
+        toast.error(res.message ?? "Failed to attach");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Error attaching delivery order");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle>Attach Delivery Order</DialogTitle>
+      <DialogContent>
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+          Pick an unattached DO from this project. Already-attached DOs are not listed.
+        </Typography>
+        {candidates.length === 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: "center" }}>
+            No unattached delivery orders found for this project.
+          </Typography>
+        ) : (
+          <TextField
+            select
+            label="Delivery Order"
+            value={selected}
+            onChange={(e) => setSelected(e.target.value)}
+            fullWidth
+            sx={{ mt: 1 }}
+          >
+            {candidates.map((d) => (
+              <MenuItem key={d.id} value={d.id}>
+                {d.name ?? "(unnamed)"} — {d.type} — {fmtDate(d.createdAt)}
+              </MenuItem>
+            ))}
+          </TextField>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" onClick={submit} disabled={saving || !selected || candidates.length === 0}>
+          {saving ? <CircularProgress size={18} /> : "Attach"}
         </Button>
       </DialogActions>
     </Dialog>

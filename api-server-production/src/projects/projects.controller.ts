@@ -129,6 +129,18 @@ export class ProjectsController {
     return this.projectsService.offHireDeployment(deploymentId, organizationId, body?.offHiredDate);
   }
 
+  @Post('deployments/:deploymentId/attach-document')
+  @Permissions('projects:update')
+  async attachDocumentToDeployment(
+    @Param('deploymentId') deploymentId: string,
+    @Body() body: { documentId: string },
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.projectsService.attachDocumentToDeployment(deploymentId, body.documentId, organizationId);
+  }
+
   @Delete(':id')
   @Permissions('projects:delete')
   async deleteProject(@Param('id') id: string, @Req() req: RequestWithOrganization) {

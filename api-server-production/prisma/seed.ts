@@ -921,6 +921,21 @@ async function main() {
     },
   });
 
+  // Project update permission — used by deployment endpoints
+  // (createDeployment, updateDeployment, offHireDeployment, attachDocumentToDeployment).
+  // Was missing from earlier seed; before this fix only OsirisAdmin could
+  // hit those endpoints because they bypass permission checks.
+  const updateProjectPermission = await prisma.permission.upsert({
+    where: { name: 'projects:update' },
+    update: {},
+    create: {
+      name: 'projects:update',
+      description: 'Can update projects (incl. deployments, off-hire, attach documents)',
+      resource: 'projects',
+      action: 'update',
+    },
+  });
+
   // Create permissions for uploads
   const uploadImagePermission = await prisma.permission.upsert({
     where: { name: 'uploads:upload-image' },
@@ -1099,6 +1114,7 @@ async function main() {
           { id: createProjectPermission.id },
           { id: createProjectByNamePermission.id },
           { id: addProjectAssignmentsPermission.id },
+          { id: updateProjectPermission.id },
           // File uploads
           { id: uploadImagePermission.id },
         ],
@@ -1208,6 +1224,7 @@ async function main() {
           { id: createProjectPermission.id },
           { id: createProjectByNamePermission.id },
           { id: addProjectAssignmentsPermission.id },
+          { id: updateProjectPermission.id },
           // File uploads
           { id: uploadImagePermission.id },
           // Dashboard
@@ -1293,6 +1310,7 @@ async function main() {
           { id: createProjectPermission.id },
           { id: createProjectByNamePermission.id },
           { id: addProjectAssignmentsPermission.id },
+          { id: updateProjectPermission.id },
           // File uploads (organization-scoped)
           { id: uploadImagePermission.id },
           // Audit management (organization-scoped)
@@ -1373,6 +1391,7 @@ async function main() {
           { id: createProjectPermission.id },
           { id: createProjectByNamePermission.id },
           { id: addProjectAssignmentsPermission.id },
+          { id: updateProjectPermission.id },
           // File uploads (organization-scoped)
           { id: uploadImagePermission.id },
           // Audit management (organization-scoped)

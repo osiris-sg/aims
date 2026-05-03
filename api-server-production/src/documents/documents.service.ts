@@ -88,6 +88,7 @@ export class DocumentsService {
           amount: parseFloat(item.amount) || 0,
           uom: item.uom || null,
           lineNumber: i + 1,
+          isService: !!item.isService,
         });
       }
 

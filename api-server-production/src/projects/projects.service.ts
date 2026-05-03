@@ -23,6 +23,29 @@ function readDocAmount(config: any): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+// Document type buckets used to split a deployment's linked Documents into
+// "delivery orders" vs "invoices" for the project view. Verified against
+// existing usage in documents.service.ts and inventories.service.ts.
+const DEPLOYMENT_DO_TYPES = new Set(['DO', 'DELIVERY_ORDER']);
+const DEPLOYMENT_INVOICE_TYPES = new Set([
+  'INVOICE', 'TI', 'TI2',
+  'CN', 'CREDIT_NOTE',
+  'DN', 'DEBIT_NOTE',
+]);
+
+function classifyDeploymentDoc(type: string | null | undefined, id: string): 'document' | 'invoice' {
+  if (type && DEPLOYMENT_DO_TYPES.has(type)) return 'document';
+  if (type && DEPLOYMENT_INVOICE_TYPES.has(type)) return 'invoice';
+  console.warn(
+    `[deployments] Unknown document type "${type}" on document ${id} — defaulting to documents bucket. Add to DEPLOYMENT_DO_TYPES or DEPLOYMENT_INVOICE_TYPES if this is wrong.`,
+  );
+  return 'document';
+}
+
+function deploymentName(deploymentNumber: number | null | undefined): string {
+  return typeof deploymentNumber === 'number' ? `Deployment ${deploymentNumber}` : '(unnumbered)';
+}
+
 @Injectable()
 export class ProjectsService {
   constructor(private prisma: PrismaService) {}
@@ -110,7 +133,7 @@ export class ProjectsService {
             },
           },
           deployments: {
-            orderBy: [{ status: 'asc' }, { deployedDate: 'desc' }],
+            orderBy: [{ status: 'asc' }, { deployedDate: 'desc' }, { deploymentNumber: 'asc' }],
             include: {
               sourceDocument: { select: { id: true, name: true, type: true, createdAt: true } },
               assignments: {
@@ -119,6 +142,8 @@ export class ProjectsService {
                   inventory: { select: { id: true, sku: true, status: true } },
                 },
               },
+              // "invoices" relation is keyed by Document.projectDeploymentId — it actually
+              // contains BOTH DO Documents and invoice Documents now. Service splits below.
               invoices: {
                 select: {
                   id: true,
@@ -128,6 +153,21 @@ export class ProjectsService {
                   createdAt: true,
                   config: true,
                   payments: { select: { amount: true, paymentDate: true } },
+                  documentItems: {
+                    select: {
+                      id: true,
+                      itemId: true,
+                      itemType: true,
+                      sku: true,
+                      description: true,
+                      quantity: true,
+                      unitPrice: true,
+                      uom: true,
+                      lineNumber: true,
+                      isService: true,
+                    },
+                    orderBy: { lineNumber: 'asc' },
+                  },
                 },
                 orderBy: { createdAt: 'asc' },
               },
@@ -154,16 +194,37 @@ export class ProjectsService {
       const resolvedCustomer =
         project.customer ?? (project.siteOffice as any)?.customer ?? null;
 
-      // Per-deployment rollups
+      // Per-deployment rollups. The `invoices` Prisma relation now contains BOTH
+      // DO and invoice Documents (since DOs may be attached to a deployment via
+      // Document.projectDeploymentId in Phase 4). Split by allowlisted type.
       const deployments = project.deployments.map((d) => {
-        const totalBilled = d.invoices.reduce((s, inv) => s + readDocAmount(inv.config), 0);
-        const totalPaid = d.invoices.reduce(
+        const docsBucket: any[] = [];
+        const invoicesBucket: any[] = [];
+        for (const linked of d.invoices) {
+          const where = classifyDeploymentDoc(linked.type, linked.id);
+          if (where === 'document') docsBucket.push(linked);
+          else invoicesBucket.push(linked);
+        }
+
+        const totalBilled = invoicesBucket.reduce((s, inv) => s + readDocAmount(inv.config), 0);
+        const totalPaid = invoicesBucket.reduce(
           (s, inv) => s + inv.payments.reduce((p, pay) => p + (pay.amount ?? 0), 0),
           0,
         );
-        const lastInvoice = d.invoices[d.invoices.length - 1] ?? null;
+        const lastInvoice = invoicesBucket[invoicesBucket.length - 1] ?? null;
+
+        // isServiceOnly: every documentItem across all linked docs is a service.
+        // Empty-items defaults to false (don't hide deployments with no items).
+        const allItems = [
+          ...docsBucket.flatMap((doc: any) => (doc.documentItems ?? [])),
+          ...invoicesBucket.flatMap((inv: any) => (inv.documentItems ?? [])),
+        ];
+        const isServiceOnly = allItems.length > 0 && allItems.every((it: any) => it.isService === true);
+
         return {
           id: d.id,
+          deploymentNumber: d.deploymentNumber,
+          name: deploymentName(d.deploymentNumber),
           type: d.type,
           status: d.status,
           description: d.description,
@@ -172,9 +233,14 @@ export class ProjectsService {
           deployedDate: d.deployedDate,
           offHiredDate: d.offHiredDate,
           notes: d.notes,
+          isServiceOnly,
           sourceDocument: d.sourceDocument,
           assignments: d.assignments,
-          invoices: d.invoices.map(({ payments, config, ...rest }) => ({
+          documents: docsBucket.map(({ payments, config, ...rest }) => ({
+            ...rest,
+            // documentItems already in `rest`; payments/config dropped (DO docs aren't billed)
+          })),
+          invoices: invoicesBucket.map(({ payments, config, documentItems, ...rest }) => ({
             ...rest,
             amount: readDocAmount(config),
             paid: payments.reduce((p, pay) => p + (pay.amount ?? 0), 0),
@@ -182,7 +248,7 @@ export class ProjectsService {
           totalBilled,
           totalPaid,
           outstanding: totalBilled - totalPaid,
-          invoiceCount: d.invoices.length,
+          invoiceCount: invoicesBucket.length,
           lastInvoiceDate: lastInvoice?.createdAt ?? null,
           lastInvoiceName: lastInvoice?.name ?? null,
         };
@@ -247,9 +313,9 @@ export class ProjectsService {
   // ---- Deployment CRUD --------------------------------------------------
 
   async listDeployments(projectId: string, organizationId: string) {
-    return this.prisma.projectDeployment.findMany({
+    const rows = await this.prisma.projectDeployment.findMany({
       where: { projectId, organizationId },
-      orderBy: [{ status: 'asc' }, { deployedDate: 'desc' }],
+      orderBy: [{ status: 'asc' }, { deployedDate: 'desc' }, { deploymentNumber: 'asc' }],
       include: {
         sourceDocument: { select: { id: true, name: true } },
         assignments: {
@@ -258,9 +324,22 @@ export class ProjectsService {
             inventory: { select: { id: true, sku: true } },
           },
         },
-        _count: { select: { invoices: true } },
+        // Split _count by document type so invoice/document totals are accurate
+        // now that DOs may also live in the same back-relation.
+        _count: {
+          select: {
+            invoices: { where: { type: { in: Array.from(DEPLOYMENT_INVOICE_TYPES) } } },
+          },
+        },
       },
     });
+
+    return rows.map((d) => ({
+      ...d,
+      deploymentNumber: d.deploymentNumber,
+      name: deploymentName(d.deploymentNumber),
+      invoiceCount: d._count.invoices,
+    }));
   }
 
   async createDeployment(
@@ -282,19 +361,143 @@ export class ProjectsService {
     });
     if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
 
-    return this.prisma.projectDeployment.create({
+    // Auto-number per project: count existing deployments and use count+1.
+    // The unique constraint (projectId, deploymentNumber) is the correctness
+    // backstop for concurrent creates — catch P2002 and retry up to 3 times.
+    const baseData = {
+      projectId,
+      organizationId,
+      type: (data.type as DeploymentType) ?? DeploymentType.RENTAL,
+      description: data.description,
+      monthlyRate: data.monthlyRate,
+      currency: data.currency ?? 'SGD',
+      deployedDate: data.deployedDate ? new Date(data.deployedDate) : new Date(),
+      sourceDocumentId: data.sourceDocumentId,
+      notes: data.notes,
+    };
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const taken = await this.prisma.projectDeployment.count({ where: { projectId } });
+      try {
+        return await this.prisma.projectDeployment.create({
+          data: { ...baseData, deploymentNumber: taken + 1 },
+        });
+      } catch (err) {
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002' &&
+          (err.meta?.target as string[] | undefined)?.includes('deploymentNumber')
+        ) {
+          continue; // raced — recompute and retry
+        }
+        throw err;
+      }
+    }
+    throw new HttpException(
+      'Could not allocate a deployment number after 3 attempts',
+      HttpStatus.CONFLICT,
+    );
+  }
+
+  async attachDocumentToDeployment(
+    deploymentId: string,
+    documentId: string,
+    organizationId: string,
+  ) {
+    const deployment = await this.prisma.projectDeployment.findFirst({
+      where: { id: deploymentId, organizationId },
+      select: { id: true, projectId: true },
+    });
+    if (!deployment) throw new HttpException('Deployment not found', HttpStatus.NOT_FOUND);
+
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true, projectId: true, projectDeploymentId: true, type: true },
+    });
+    if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+
+    if (doc.projectDeploymentId && doc.projectDeploymentId !== deploymentId) {
+      throw new HttpException(
+        `Document is already attached to a different deployment (${doc.projectDeploymentId})`,
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    await this.prisma.document.update({
+      where: { id: documentId },
       data: {
-        projectId,
-        organizationId,
-        type: (data.type as DeploymentType) ?? DeploymentType.RENTAL,
-        description: data.description,
-        monthlyRate: data.monthlyRate,
-        currency: data.currency ?? 'SGD',
-        deployedDate: data.deployedDate ? new Date(data.deployedDate) : new Date(),
-        sourceDocumentId: data.sourceDocumentId,
-        notes: data.notes,
+        projectDeploymentId: deploymentId,
+        // Don't dangle: if the document had no project, inherit the deployment's project.
+        ...(doc.projectId ? {} : { projectId: deployment.projectId }),
       },
     });
+
+    // Return the deployment in the same shape getProjectById produces (single row).
+    const refreshed = await this.prisma.projectDeployment.findUnique({
+      where: { id: deploymentId },
+      include: {
+        sourceDocument: { select: { id: true, name: true, type: true, createdAt: true } },
+        assignments: {
+          include: {
+            asset: { select: { id: true, name: true, skuKey: true, uom: true } },
+            inventory: { select: { id: true, sku: true, status: true } },
+          },
+        },
+        invoices: {
+          select: {
+            id: true, name: true, type: true, status: true, createdAt: true,
+            config: true,
+            payments: { select: { amount: true, paymentDate: true } },
+            documentItems: {
+              select: {
+                id: true, itemId: true, itemType: true, sku: true, description: true,
+                quantity: true, unitPrice: true, uom: true, lineNumber: true, isService: true,
+              },
+              orderBy: { lineNumber: 'asc' },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+    if (!refreshed) throw new HttpException('Deployment vanished after update', HttpStatus.INTERNAL_SERVER_ERROR);
+
+    const docsBucket: any[] = [];
+    const invoicesBucket: any[] = [];
+    for (const linked of refreshed.invoices) {
+      const where = classifyDeploymentDoc(linked.type, linked.id);
+      if (where === 'document') docsBucket.push(linked);
+      else invoicesBucket.push(linked);
+    }
+
+    const allItems = [
+      ...docsBucket.flatMap((doc: any) => (doc.documentItems ?? [])),
+      ...invoicesBucket.flatMap((inv: any) => (inv.documentItems ?? [])),
+    ];
+    const isServiceOnly = allItems.length > 0 && allItems.every((it: any) => it.isService === true);
+
+    return {
+      id: refreshed.id,
+      deploymentNumber: refreshed.deploymentNumber,
+      name: deploymentName(refreshed.deploymentNumber),
+      type: refreshed.type,
+      status: refreshed.status,
+      description: refreshed.description,
+      monthlyRate: refreshed.monthlyRate,
+      currency: refreshed.currency,
+      deployedDate: refreshed.deployedDate,
+      offHiredDate: refreshed.offHiredDate,
+      notes: refreshed.notes,
+      isServiceOnly,
+      sourceDocument: refreshed.sourceDocument,
+      assignments: refreshed.assignments,
+      documents: docsBucket.map(({ payments, config, ...rest }) => ({ ...rest })),
+      invoices: invoicesBucket.map(({ payments, config, documentItems, ...rest }) => ({
+        ...rest,
+        amount: readDocAmount(config),
+        paid: payments.reduce((p: number, pay: any) => p + (pay.amount ?? 0), 0),
+      })),
+    };
   }
 
   async updateDeployment(

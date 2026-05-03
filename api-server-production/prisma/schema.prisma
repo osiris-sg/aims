@@ -254,6 +254,12 @@ model DocumentItem {
   amount          Float?    @default(0)
   uom             String?   // Unit of measure
   lineNumber      Int?      // Position in document
+  // True for service line items (labor, delivery fees, etc.).
+  // Per Phase 5 Option 1, services from the import flow do NOT create DocumentItem
+  // rows (they're skipped at the !inventoryItemId gate); this flag covers product
+  // rows misclassified post-hoc as service, plus any future paths that DO create
+  // service-row DocumentItems.
+  isService       Boolean   @default(false)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -363,9 +369,14 @@ model ProjectDeployment {
   id               String              @id @default(uuid()) @db.Uuid
   organizationId   String
   projectId        String              @db.Uuid
-  sourceDocumentId String?             @db.Uuid     // The DO/invoice that started it
+
+  // Auto-assigned per project (1, 2, 3, ...). Displayed name is "Deployment N".
+  // Nullable so existing rows aren't violated until the numbering pass runs.
+  deploymentNumber Int?
+
+  sourceDocumentId String?             @db.Uuid     // The DO/invoice that started it (audit). Additional DOs attach via Document.projectDeploymentId.
   type             DeploymentType      @default(RENTAL)
-  description      String?             // "1× AF-90", "2× APF60"
+  description      String?             // Free-form user notes — no longer the displayed name.
   monthlyRate      Float?              // for rentals; one-off price for sales
   currency         String?             @default("SGD")
   deployedDate     DateTime?
@@ -378,8 +389,9 @@ model ProjectDeployment {
   project          Project             @relation(fields: [projectId], references: [id])
   sourceDocument   Document?           @relation("DeploymentSource", fields: [sourceDocumentId], references: [id])
   assignments      Assignment[]
-  invoices         Document[]          @relation("DeploymentInvoices")
+  invoices         Document[]          @relation("DeploymentInvoices")  // back-relation; now contains DOs AND invoices, partitioned by service-layer.
 
+  @@unique([projectId, deploymentNumber])
   @@index([projectId, status])
   @@index([organizationId])
 }

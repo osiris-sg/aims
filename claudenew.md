@@ -669,3 +669,251 @@ This file was not modified in Phase 2 / 2.5 (`git status` shows `app/portal/proj
 - Use `marked.parse(value, { async: false })` which has a synchronous overload returning `string`.
 
 This should be addressed independently — flagging here so it isn't lost.
+
+## 16. Phase 4: deployments as parent containers (applied 2026-05-03)
+
+A `ProjectDeployment` is now a named parent container ("Deployment 1", "Deployment 2", …) that can hold one or more DOs and their derived invoices. The previous shape was effectively 1:1 with a single source DO.
+
+### Schema change
+
+`api-server-production/prisma/schema.prisma` — `ProjectDeployment`:
+- Added `deploymentNumber Int?` (nullable so the additive push doesn't break existing rows).
+- Added composite `@@unique([projectId, deploymentNumber])`.
+- `description` retained but demoted from "displayed name" to "free-form notes" (comment updated in schema).
+- `sourceDocumentId` retained as the originating DO for audit. Additional DOs attach via `Document.projectDeploymentId` (column already existed from the prior pull — no new column needed for multi-DO).
+
+The existing back-relation `invoices Document[] @relation("DeploymentInvoices")` on `ProjectDeployment` now carries BOTH DO Documents and invoice Documents. Service-layer partitioning by `type` is the only thing that prevents miscategorization.
+
+### Two-bucket allowlist (verified type strings)
+
+`api-server-production/src/projects/projects.service.ts` adds two `Set`s and a classifier:
+
+```ts
+const DEPLOYMENT_DO_TYPES = new Set(['DO', 'DELIVERY_ORDER']);
+const DEPLOYMENT_INVOICE_TYPES = new Set([
+  'INVOICE', 'TI', 'TI2',
+  'CN', 'CREDIT_NOTE',
+  'DN', 'DEBIT_NOTE',
+]);
+```
+
+`TI2` is treated as an invoice variant in `documents.service.ts:265` and `inventories.service.ts:379` — verified in source. Anything outside both sets (e.g. `RDO`, `QO`, `SO`, `PO`, `PR`, `SAI`, `SAO`) hits a `console.warn` and falls into the `documents` bucket as a default. The same allowlist powers `listDeployments`'s `_count.invoices` filter so the count is invoice-only.
+
+### Naming
+
+`Deployment N` is computed by the API (helper `deploymentName(n)` at the top of the service) and surfaced as `name` on `getProjectById`'s deployments and on `listDeployments` rows. Frontend just reads `deployment.name` — no string composition in the UI.
+
+### Auto-numbering on create (race-safe)
+
+`createDeployment` wraps the create in a `count + create` flow with a P2002 retry (max 3 attempts). The unique constraint `(projectId, deploymentNumber)` is the correctness backstop:
+
+```ts
+for (let attempt = 0; attempt < 3; attempt++) {
+  const taken = await this.prisma.projectDeployment.count({ where: { projectId } });
+  try {
+    return await this.prisma.projectDeployment.create({
+      data: { ...baseData, deploymentNumber: taken + 1 },
+    });
+  } catch (err) {
+    // catch P2002 on (projectId, deploymentNumber) and retry
+  }
+}
+```
+
+### New endpoint
+
+`POST /projects/deployments/:deploymentId/attach-document`, `@Permissions('projects:update')`, body `{ documentId: string }`. Service `attachDocumentToDeployment(deploymentId, documentId, organizationId)`:
+- Validates deployment + document belong to the org.
+- Refuses (`409`) if the document already points at a different deployment.
+- Updates `Document.projectDeploymentId = deploymentId`. If the document had no `projectId`, inherits the deployment's `projectId` so it doesn't dangle.
+- Returns the deployment in the same partitioned shape `getProjectById` produces (just the single deployment).
+
+### `getProjectById` reshape
+
+Per-deployment payload now exposes:
+```
+{ id, deploymentNumber, name, type, status, description, monthlyRate, currency,
+  deployedDate, offHiredDate, notes, sourceDocument,
+  documents,    // DO Documents — partitioned from the back-relation
+  invoices,     // INVOICE Documents — partitioned from the back-relation
+  assignments,
+  totalBilled, totalPaid, outstanding, invoiceCount, lastInvoiceDate, lastInvoiceName }
+```
+
+`documentItems` (with `sku`, `description`, `quantity`, `unitPrice`, `uom`, `lineNumber`, `itemId`, `itemType`) ride on each DO so the UI can render line items without a second round-trip. Rollups (`totalBilled` etc.) only count `invoices` — DOs don't contribute since they aren't billed.
+
+### Frontend (`portal-production/app/portal/projects/[id]/page.tsx`)
+
+- `Deployment` interface widened with `deploymentNumber`, `name`, `documents[]`. New `DocumentItemRow` and `DeploymentDocument` interfaces.
+- `DeploymentCard` title shows `deployment.name` (e.g. "Deployment 3"); `description` becomes a small subtitle.
+- New "Add DO" button on each deployment card opens `AttachDocumentDialog`.
+- Expanded body now has two sections:
+  1. **Delivery Orders** (above) — one card per DO with a nested line-items table.
+  2. **Invoices** (below) — the previous monthly invoice rollup table.
+- `NewDeploymentDialog`: required-description guard removed, label is "Description (optional notes)", helper text reads "Number is auto-assigned (Deployment 1, 2, 3, …).". Toast on success says "Deployment created (Deployment N)".
+- `AttachDocumentDialog`: candidates are filtered client-side from `project.allInvoices` to `type IN ('DO','DELIVERY_ORDER') && !projectDeploymentId`. On success → `fetchProject()` refresh.
+
+### One-time numbering pass
+
+`api-server-production/scripts/number-existing-deployments.ts` (new) was run after the schema push. Numbers existing deployments per project in `createdAt asc, id asc` order. Idempotent. Refuses on prod URLs. Output:
+
+```
+projects scanned          : 219
+projects already complete : 0
+projects updated          : 154
+deployments numbered      : 280
+```
+
+154 of 219 projects had at least one deployment. The largest was project `CR102` with 8 deployments.
+
+`npm run number-existing-deployments` was added as an npm script for re-running.
+
+### Bundled bug fix: `projects:update` permission seed
+
+**This is not a Phase 4 feature — it's a fix for a pull-introduced bug.** The four deployment endpoints added in the prior pull (`POST /projects/:id/deployments`, `POST /projects/deployments/:id/update`, `POST /projects/deployments/:id/off-hire`, plus the new `POST /projects/deployments/:id/attach-document` from Phase 4) all use `@Permissions('projects:update')`. That permission was never seeded.
+
+**Pre-fix behavior:** every one of those endpoints returned 403 for any user except OsirisAdmin (who bypasses all permission checks per `clerk-auth.guard.ts:128-131`). Anyone else attempting to create or modify a deployment hit `ForbiddenException('User does not have sufficient permissions')`.
+
+**Fix:** `prisma/seed.ts` now upserts `projects:update` and connects it to all four roles that already had `projects:add-assignments`:
+- `osirisadmin`
+- `superadmin` (update path)
+- `superadmin` (create path)
+- the third role block at line 1225
+
+`npm run seed` is `upsert`-based and idempotent — re-running it on existing rows is safe.
+
+### Files modified or created
+
+- `api-server-production/prisma/schema.prisma`
+- `api-server-production/prisma/seed.ts` — `projects:update` permission added and wired
+- `api-server-production/src/projects/projects.service.ts`
+- `api-server-production/src/projects/projects.controller.ts`
+- `api-server-production/scripts/number-existing-deployments.ts` (new)
+- `api-server-production/package.json` — `number-existing-deployments` script
+- `portal-production/app/portal/projects/[id]/page.tsx`
+
+### Rollout sequence used
+
+1. `npm run db:push -- --accept-data-loss` (additive: nullable column + unique).
+2. `npx prisma generate` (had to re-run manually after killing the api-server dev process holding the engine DLL).
+3. `npm run seed` (idempotent upsert of the new permission + role wiring).
+4. `npx ts-node scripts/number-existing-deployments.ts`.
+5. `npm run build` (api-server) — clean.
+6. `npm run build` (portal) — fails on the §15 pre-existing `FormAutocomplete.tsx` error only; Phase 4 code itself compiles.
+
+## 17. Phase 5: service flag on DocumentItem + 4-tab project view (applied 2026-05-04)
+
+Tracks whether each DocumentItem is a service line (labor, delivery, installation, discount) vs a product line, so the project view can keep services out of "Active on Site" and surface them under "Sales & Services" instead.
+
+### Schema change
+
+`api-server-production/prisma/schema.prisma` — `DocumentItem`:
+- Added `isService Boolean @default(false)`. Nullable-safe via the default.
+- No new constraints or indexes (premature for current query patterns).
+
+### Propagation through the import flow (Option 1)
+
+Phase 5 picked **Option 1** for service-line representation in `DocumentItem`: keep the existing `if (!item.inventoryItemId) continue;` skip in `importSingleInvoice` (`src/import/import.service.ts:498`). Service-only lines (no asset) still skip DocumentItem creation entirely. The `isService` column carries the flag for product rows AND for service rows that DO end up in DocumentItem via the asset path (see "Why isService is non-empty" below).
+
+Three code sites were updated to propagate the flag, all reading from the camelCase `isService` key (verified in audit — no `is_service` snake_case variant exists anywhere in the codebase):
+
+- `src/import/import.service.ts:425-452` — `configItems.push({ ..., isService: !!li.isService })`.
+- `src/import/import.service.ts:501-515` — `documentItem.create({ data: { ..., isService: !!item.isService } })`.
+- `src/documents/documents.service.ts:79-92` — `syncDocumentItems`'s pushed `documentItemsData` includes `isService: !!item.isService`.
+- `scripts/migrate-document-items.ts:84-96` — same one-line addition for parity.
+
+### `getProjectById` derivation
+
+`src/projects/projects.service.ts`:
+- The `documentItems` select on each deployment's linked Documents (both the main `getProjectById` include and the `attachDocumentToDeployment` refresh include) now pulls `isService: true`.
+- The per-deployment mapper computes a derived `isServiceOnly: boolean`: true when every linked DocumentItem (across DOs and invoices) has `isService === true`. Empty-items defaults to false (don't hide a deployment because we don't know).
+- `isServiceOnly` is added to the per-deployment return object.
+
+### Frontend tab restructure (4 tabs)
+
+`portal-production/app/portal/projects/[id]/page.tsx`:
+
+| Tab | Filter |
+|---|---|
+| Active on Site | `status === "ACTIVE" && !isServiceOnly` |
+| Past Deployments | `status !== "ACTIVE"` (covers OFF_HIRED / COMPLETED / CANCELLED) |
+| Sales & Services | `serviceOnlyDeployments` (subheading) + `standaloneDocs` (subheading) — both lists, separately labeled |
+| All Invoices | unchanged — flat list of every linked Document |
+
+Previously a single "Active on Site" tab rendered both ACTIVE and non-ACTIVE deployments inline (the latter under a "Past deployments" subheader). Now Past has its own tab; off-hired deployments no longer clutter the active view.
+
+A new "Type" column was added to the DO line-items table inside `DeploymentCard`. Cell value: a chip reading `Service` or `Product`, with service rows rendered at 0.7 opacity for visual de-emphasis.
+
+The `Deployment` and `DocumentItemRow` interfaces were widened to include `isServiceOnly: boolean` and `isService: boolean` respectively.
+
+### Backfill outcome
+
+`api-server-production/scripts/backfill-isservice-on-documentitems.ts` (new, `npm run backfill-isservice-on-documentitems`):
+
+| Metric | Value |
+|---|---:|
+| Scanned | 3351 |
+| Matched via `lineNumber - 1` index | 3351 (100%) |
+| Matched via sku/desc fallback | 0 |
+| Orphans (no matching ImportInvoice) | 0 |
+| Mismatches | 0 |
+| Services found | 726 |
+| Products (kept false) | 2625 |
+| **Net flips (false → true)** | **726** |
+| Errors | 0 |
+
+A follow-up read-only diagnostic verified the 726 flips correlate with service-y SKUs and categories:
+
+| Bucket | Count | % of flips |
+|---|---:|---:|
+| SKU starts with `SVC-` | 699 | 96.3% |
+| Asset.category = `"Service"` (case-insensitive exact) | 630 | 86.8% |
+| Both SKU prefix AND Service category | 622 | 85.7% |
+| Neither heuristic | 19 | 2.6% |
+
+The 19 "neither" rows were sampled and inspected — every row was a legitimate service line under a non-obvious shape (DISCOUNT adjustments, TIPPERLORRY overtime, "Installation Service" category that the strict equality check missed, supply-and-install services on equipment SKUs, rental-period billing pro-rate lines). None were misflagged products.
+
+### Why `DocumentItem.isService=true` is non-empty
+
+The Phase 5 audit assumed services don't reach DocumentItem because of the `!inventoryItemId` skip in `importSingleInvoice`. **That assumption was incomplete.** During Phase 2.5's backfill (`scripts/backfill-imports.ts:208`), `findOrCreateAsset` ran unconditionally for every non-metadata line — including service lines. Lines like `SVC-LABOUR`, `SVC-DELIVERY`, etc. got an Asset row created or matched (with category `"Service"`) and were passed into `importSingleInvoice` with `selectedAssetId` populated. The `!inventoryItemId` skip never fired (because `inventoryItemId` was the SVC asset's id, not null), so a DocumentItem WAS created with `itemType: 'ASSET'` pointing at the SVC asset.
+
+So Phase 5's column has real population: 726 of 3351 DocumentItems are service lines tied to SVC-prefixed Assets. The Option 1 decision still holds going forward (new imports won't create DocumentItems for service lines because the post-Phase-5 frontend gate at `ImportInvoices.tsx:311` skips asset auto-creation for services), but historical data from Phase 2.5 has the population this column was designed to mark.
+
+### Source flag verified reliable
+
+A second diagnostic compared `ImportInvoice.lineItems[i].isService` against five independent service-detection signals (SKU prefix, no-resolved-asset, Asset.isTracked, service-y category name, description phrases). Cross-tabbed using the four meaningful signals (signal C — `Asset.isTracked` — was dropped after surfacing as too noisy because Phase 2.5's backfill creates ALL new assets with `isTracked: false` by default, so it fires on 84% of all lines):
+
+| | signals=SERVICE | signals=PRODUCT |
+|---|---:|---:|
+| isService = true | 731 | 3 |
+| isService = false / missing | 636 | 1990 |
+
+The Y bucket (flag-says-yes, signals-say-no) is essentially zero — the source flag has no false positives. The 636 "untagged" rows turned out to be specific-asset rentals: lines like `"Rental of 1 unit APF-90 / S/No: 2022APF1"` with named equipment and serial numbers in the description. Under the user's definition (a service line is "generic, non-tracked, no specific asset identity"), these are correctly products — they're recurring billing for specific physical units, not generic services. The flag draws the right line.
+
+Conclusion: `ImportInvoice.lineItems[i].isService` is a reliable source of truth for the user's service definition. No re-derivation needed.
+
+### Files modified or created
+
+- `api-server-production/prisma/schema.prisma`
+- `api-server-production/src/import/import.service.ts`
+- `api-server-production/src/documents/documents.service.ts`
+- `api-server-production/src/projects/projects.service.ts`
+- `api-server-production/scripts/migrate-document-items.ts` — parity update
+- `api-server-production/scripts/backfill-isservice-on-documentitems.ts` (new)
+- `api-server-production/package.json` — `backfill-isservice-on-documentitems` script
+- `portal-production/app/portal/projects/[id]/page.tsx`
+
+### Rollout sequence used
+
+1. `npm run db:push -- --accept-data-loss` (additive: nullable column with default).
+2. Prisma client regenerated automatically during db:push (api-server dev process was stopped first to avoid the §16 EPERM issue).
+3. `npm run seed` — clean.
+4. `npx ts-node scripts/backfill-isservice-on-documentitems.ts` — 726 net flips.
+5. `npm run build` (api-server) — clean.
+6. `npm run build` (portal) — fails on the §15 pre-existing `FormAutocomplete.tsx` error only; Phase 5 code itself compiles.
+
+### Known unresolved
+
+- `scripts/import-tool/server.js:560-563` — alternate Node import path with its own `prisma.documentItem.createMany` call, NOT updated for `isService`. Left untouched per scope decision. If this path is still used in any environment, DocumentItems it creates will get `isService = false` regardless of the source line item. Verify whether this script is still active before relying on it for new imports.
+- Standalone documents (`project.documents` not bound to a deployment) don't have `documentItems` pulled in `getProjectById`, so the Sales & Services tab can't compute service-status on them. They're shown as a flat table under the "Standalone Documents" subheading. If standalone docs need a service indicator later, widen the include.
+- Existing 1126 asset-mode Assignments don't carry service info. They're created only when `inventoryItemId` is present, which excludes service-only lines, so this is correct by construction.
