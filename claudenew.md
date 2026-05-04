@@ -917,3 +917,104 @@ Conclusion: `ImportInvoice.lineItems[i].isService` is a reliable source of truth
 - `scripts/import-tool/server.js:560-563` — alternate Node import path with its own `prisma.documentItem.createMany` call, NOT updated for `isService`. Left untouched per scope decision. If this path is still used in any environment, DocumentItems it creates will get `isService = false` regardless of the source line item. Verify whether this script is still active before relying on it for new imports.
 - Standalone documents (`project.documents` not bound to a deployment) don't have `documentItems` pulled in `getProjectById`, so the Sales & Services tab can't compute service-status on them. They're shown as a flat table under the "Standalone Documents" subheading. If standalone docs need a service indicator later, widen the include.
 - Existing 1126 asset-mode Assignments don't carry service info. They're created only when `inventoryItemId` is present, which excludes service-only lines, so this is correct by construction.
+
+## 18. Phase 6: project deduplication + tightened import-time matcher (applied 2026-05-04)
+
+Cleans up duplicate Project rows that the loose substring-matching project-creation flow produced, then tightens the matcher so future imports don't recreate them.
+
+### Cluster diagnostic
+
+A read-only diagnostic clustered all 219 Biofuel projects by a normalized canonical name. Initial pass was too aggressive (stripped trailing standalone digits, which collapsed "Lim Chu Kang Lane 3" + "Lim Chu Kang Lane 4" into one cluster). Verified via cross-check on `ImportInvoice.projectLocation` that the two Lanes are distinct addresses (different MIR / DO numbers, different customers' work orders) — they are NOT duplicates. Tightened normalization to keep standalone digits but still strip `CC[N]`, `Phase N`, and Roman numerals as sub-identifiers.
+
+Final clusters (3 total, 6 deletions):
+
+| Cluster | Canonical kept | Absorbed | Reassign A / D / Dep |
+|---|---|---|---:|
+| `river peak` | `fabfae18…` "River Peaks CC7 & CC8" — QingJian Int'l (a=6, d=59, dep=13) | 3 projects | 50 / 3 / 1 |
+| `n112 pcy2` | `7a97d9be…` "N112/PCY2" — Wai Fong (a=35, d=34, dep=5) | 2 projects | 24 / 0 / 0 |
+| `6 mandai road track 16 singapore 739353` | `bfd9752c…` "6 Mandai Road - Track 16, Singapore 739353" — null customer (a=1, d=18, dep=0) | 1 project | 1 / 1 / 0 |
+
+Each cluster's reassign + delete ran in a `prisma.$transaction`. After all three committed, `npm run number-existing-deployments` filled the river-peaks canonical's nulled deployment number — final spread is `Deployment 1..14`.
+
+### Mandai Road collision (handled)
+
+The Mandai cluster initially failed mid-execute on a `(projectId, inventoryId)` unique violation. Both projects had an `Assignment` for the same physical inventory unit (AF 40 System, serial `2022AFS1138`) — the canonical's from invoice BI202410026, the absorbed's from BI202501021. Reassigning the absorbed Assignment to the canonical project would create a second row for the same `(projectId, inventoryId)`.
+
+**Resolution applied (Option 1):** the merge script was patched to detect and drop colliding inventory-mode Assignments before the bulk reassign. The drop is logged with both source `documentId`s. Outcome: 1 Assignment dropped (id `13eb116a…`, sourceDoc BI202501021); the BI202501021 Document itself still moves to the canonical project, so navigation `Document → Project` stays intact even though the Assignment row is gone. Mirrors what `importSingleInvoice`'s pre-existing idempotency check at `:540-548` would have done if the project hadn't been split in the first place.
+
+### Customer-promotion logic
+
+The merge script supports promoting `customerId = null` on the canonical to the real customerId of an absorbed project (so a no-customer canonical inherits the real customer when one exists in the cluster). **No clusters in this batch needed it** — every canonical either already had the right customer or all rows in the cluster were null. The code path is exercised for future merges; just a no-op here.
+
+### Schema gap to flag for Phase 7+ (Assignment uniques asymmetry)
+
+The `Assignment` model has two uniques:
+
+```prisma
+@@unique([projectId, inventoryId])              // inventory mode — too tight
+@@unique([projectId, assetId, documentId])      // asset mode — correctly includes documentId
+```
+
+The inventory-mode unique is tighter than the asset-mode one. Same physical unit re-rented across multiple invoices on the same project can't have multiple Assignment rows, even though logically each rental period (each source DO/invoice) should produce its own row for traceability. The Phase 6 merge surfaced this directly: the Mandai Road conflict was a legitimate "same serial, different invoices" relationship that the schema couldn't represent on a single project.
+
+**Recommended follow-up (future phase):** widen to `@@unique([projectId, inventoryId, documentId])` to mirror the asset-mode shape. Update `importSingleInvoice`'s idempotency check at `:540-548` to use `findUnique({ projectId_inventoryId_documentId })` for the new key. Document the migration's effect on existing rows (each existing row gets `documentId` non-null already from Phase 4's writes, so the new constraint is already satisfied).
+
+### Tightened matcher (Goal B)
+
+A canonical project-name normalizer now lives in three locations that must stay in sync:
+
+- `api-server-production/src/common/utils/normalize-project-name.ts` (backend, used by `ImportService.createProject`)
+- `portal-production/helpers/normalizeProjectName.ts` (frontend, used by `buildFormState` in `ImportInvoices.tsx`)
+- `api-server-production/scripts/merge-duplicate-projects.ts` (one-off dedup tool)
+
+The two `.ts` modules are byte-for-byte identical; the script's copy is allowed to drift only for diagnostic-mode-only changes. Each file carries a header comment naming the other two.
+
+**Frontend matcher** (`ImportInvoices.tsx:96-118`):
+- Old: `projects.find(p => p.name.toLowerCase().includes(project_location.toLowerCase()))` — case-insensitive substring match, no customer filter.
+- New: normalize both the search term and each project's name; require **exact normalized equality AND customerId equality** (`(p.customerId ?? null) === matchedCustomerId`). Treats `null === null` as a match (both customer-unresolved imports collapse onto one project), excludes `null vs real` and `real-A vs real-B` (each gets its own project row, surfaceable for human review).
+
+**Backend `ImportService.createProject` idempotency check** (new):
+Before `prisma.project.create`, fetch all org projects, normalize each name, and look for a candidate where `normalize(project.name) === normalize(body.name)` AND `project.customerId === body.customerId`. If found, return that project instead of creating a new row. Same null-vs-null match semantics as the frontend.
+
+While in `createProject`, also fixed a latent bug: the function accepted `customerId` in its body type but never wrote it to the `Project.customerId` column added in the recent pull (silently dropped, mirror of the §11 carry-forward). Now persisted.
+
+`getProjects` was widened to include `customerId` in the select so the frontend matcher can filter on it.
+
+### Verification (post-merge)
+
+| Check | Result |
+|---|---|
+| Total Biofuel projects | 213 (was 219; 6 deletions confirmed) |
+| Search "river peak" | 1 row — canonical "River Peaks CC7 & CC8" with a=56, d=62, dep=14 |
+| Search "n112" | 5 rows — dedup absorbed 3→1 correctly; the other 4 are distinct N112-related projects (P2101_N112, bare N112, N112/PCY2 Seletar North Link, N112 Seletar North Link) — different normalized names |
+| Search "mandai" | 3 rows — "Mandai Bird Park" (unrelated), the merged canonical, and **one likely-missed duplicate**: `"6 Mandai Road - Track 16"` (no postal-code suffix). Normalization missed it because trailing tokens differ ("track 16" vs "track 16 singapore 739353"). Documented as a known missed dup; can be merged manually if needed. |
+| Orphan-assignment count (assignments > 0, deployments = 0) | 60 (was 65 pre-Phase 6; 5 of the 6 deletions removed orphans; the 6th was a deployment-only-project with no assignments) |
+
+### Files modified or created
+
+- `api-server-production/src/common/utils/normalize-project-name.ts` (new, shared backend helper)
+- `api-server-production/src/import/import.service.ts` — `createProject` idempotency + customerId persistence + `getProjects` widening
+- `api-server-production/scripts/merge-duplicate-projects.ts` (new) — one-off dedup tool with collision-drop, dry-run by default, transactional per-cluster
+- `portal-production/helpers/normalizeProjectName.ts` (new, shared frontend helper)
+- `portal-production/app/portal/settings/import-invoices/components/ImportInvoices.tsx` — tightened matcher in `buildFormState`
+- `portal-production/app/portal/settings/import-invoices/hooks/useImportData.ts` — `Project.customerId` added to interface
+
+### Rollout sequence used
+
+1. Read-only diagnostic to find clusters; iterated normalization rule when Lim Chu Kang Lane 3/4 surfaced as a false positive.
+2. Dry-run merge plan; confirmed canonicals + counts.
+3. Execute merge — first attempt failed mid-Mandai on the inventory-mode unique conflict.
+4. Patched script to detect/drop colliding Assignments (with audit log).
+5. Re-execute (only Mandai cluster appears in the second run; clusters 1+2 already merged).
+6. `npm run number-existing-deployments` — renumbered river peaks canonical to 1..14.
+7. Tighten frontend + backend matcher; build both.
+8. Final verification.
+
+### Deferred to Phase 7
+
+The orphan-assignment scope check surfaced **60 projects with assignments > 0 but deployments = 0** post-merge (down from 65). These projects show "items related" counts in the project list view but render nothing on the deployment-centric project detail page because there's no deployment to group the assignments under. Phase 6's dedup work removed 5 of them; the remaining 60 are not duplicates — they're projects the import flow created assignments on without ever creating a deployment. Root cause likely lies in the import flow's path that runs `assignment.create` (per-line in `importSingleInvoice`) without a corresponding `projectDeployment.create`. Investigating and fixing this is **Phase 7**.
+
+Other Phase 7 candidates surfaced during Phase 6:
+- The Assignment unique-asymmetry above (widening `(projectId, inventoryId)` to `(projectId, inventoryId, documentId)`).
+- The missed-duplicate "6 Mandai Road - Track 16" (manual merge or a second-pass normalization that ignores trailing address-suffix tokens).
+- The 22 projects with deployments > 0 but assignments = 0 (the inverse case — deployments grouping invoices that didn't produce per-line Assignment rows).

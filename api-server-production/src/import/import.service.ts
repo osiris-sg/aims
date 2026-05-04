@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/common/prisma.service';
+import { normalizeProjectName } from 'src/common/utils/normalize-project-name';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -335,7 +336,7 @@ export class ImportService {
   async getProjects() {
     return this.prisma.project.findMany({
       where: { organizationId: ORGANIZATION_ID },
-      select: { id: true, name: true, status: true, siteOfficeId: true },
+      select: { id: true, name: true, status: true, siteOfficeId: true, customerId: true },
       orderBy: { name: 'asc' },
     });
   }
@@ -369,10 +370,34 @@ export class ImportService {
     startDate?: string;
     endDate?: string;
   }) {
+    // Idempotency check: if a project with the same normalized name AND the
+    // same customerId already exists in this org, return it instead of
+    // creating a new row. Prevents the duplicate-project drift that Phase 6
+    // had to merge. Treats null === null as a match (both unresolved-customer
+    // imports collapse onto one project) and excludes null vs real (different
+    // customer attribution → keep them separate, surface for human review).
+    const targetNormalized = normalizeProjectName(body.name);
+    if (targetNormalized) {
+      const candidates = await this.prisma.project.findMany({
+        where: { organizationId: ORGANIZATION_ID },
+        select: { id: true, name: true, customerId: true, siteOfficeId: true, startDate: true, endDate: true, status: true },
+      });
+      const incomingCustomerId = body.customerId || null;
+      const match = candidates.find(
+        (p) =>
+          normalizeProjectName(p.name) === targetNormalized &&
+          (p.customerId ?? null) === incomingCustomerId,
+      );
+      if (match) {
+        return match;
+      }
+    }
+
     return this.prisma.project.create({
       data: {
         name: body.name,
         organizationId: ORGANIZATION_ID,
+        customerId: body.customerId || undefined,
         siteOfficeId: body.siteOfficeId || undefined,
         startDate: body.startDate && body.startDate !== '' ? new Date(body.startDate) : undefined,
         endDate: body.endDate && body.endDate !== '' ? new Date(body.endDate) : undefined,

@@ -82,6 +82,7 @@ export interface Project {
   name: string;
   status: string;
   siteOfficeId?: string;
+  customerId?: string | null;
 }
 
 export interface Category {

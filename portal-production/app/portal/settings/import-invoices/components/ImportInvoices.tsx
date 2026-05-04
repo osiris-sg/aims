@@ -44,6 +44,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import { useImportData, Invoice, LineItem, Asset, Customer, Project, Category, SiteOffice } from "../hooks/useImportData";
 import { useOrganization } from "@hooks/useOrganization";
 import { toast } from "react-toastify";
+import { normalizeProjectName } from "@/helpers/normalizeProjectName";
 
 // ─── Editable line item form state ───
 interface EditableLineItem {
@@ -98,12 +99,23 @@ function buildFormState(invoice: Invoice, customers: Customer[], projects: Proje
     (c) => c.name.toLowerCase() === invoice.customer.toLowerCase()
   );
 
-  // Try to match project by location
-  const matchedProject = invoice.project_location
-    ? projects.find((p) => p.name.toLowerCase().includes(invoice.project_location!.toLowerCase()))
-    : undefined;
-
+  // Try to match project by normalized name + customerId.
+  // Phase 6: tightened from substring match. We only consider an existing
+  // project a match if the normalized canonical name is identical AND the
+  // existing project is bound to the same customer (or both are unresolved).
+  // Treats null === null as a match — both customer-unresolved imports
+  // collapse onto one project. Excludes null vs real and real-A vs real-B.
   const inv = invoice as any;
+  const searchTerm = inv.project_name || invoice.project_location;
+  const targetNormalized = searchTerm ? normalizeProjectName(searchTerm) : '';
+  const matchedCustomerId = matchedCustomer?.id ?? null;
+  const matchedProject = targetNormalized
+    ? projects.find(
+        (p) =>
+          normalizeProjectName(p.name) === targetNormalized &&
+          ((p.customerId ?? null) === matchedCustomerId),
+      )
+    : undefined;
 
   return {
     customerId: matchedCustomer?.id || "",
