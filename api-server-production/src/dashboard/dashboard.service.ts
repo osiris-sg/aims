@@ -31,32 +31,39 @@ export class DashboardService {
 
   async getAssetsOverview(organizationId: string) {
     try {
-      // Get assets with their inventories and categories
-      const assets = await this.prisma.asset.findMany({
-        where: {
-          organizationId,
-          deletedAt: null,
-        },
-        include: {
-          category: true,
-          inventories: {
-            where: {
-              status: 'instock',
-            },
-          },
-        },
+      // Count total instock inventory items
+      const totalInStock = await this.prisma.inventory.count({
+        where: { organizationId, status: 'instock' },
       });
 
-      // Calculate overview data
-      const totalInStock = assets.reduce((total, asset) => total + asset.inventories.length, 0);
+      // Count total assets
+      const totalAssets = await this.prisma.asset.count({
+        where: { organizationId, deletedAt: null },
+      });
 
-      // Calculate top categories
-      const categoryCount: { [key: string]: number } = {};
-      assets.forEach((asset) => {
-        if (asset.inventories.length > 0) {
-          const categoryName = asset.category?.name || 'Uncategorized';
-          categoryCount[categoryName] = (categoryCount[categoryName] || 0) + asset.inventories.length;
-        }
+      // Top categories by instock inventory count
+      const categoryStats = await this.prisma.inventory.groupBy({
+        by: ['assetId'],
+        where: { organizationId, status: 'instock' },
+        _count: { id: true },
+      });
+
+      // Get category names for top assets
+      const assetIds = categoryStats.map(s => s.assetId);
+      const assetsWithCats = assetIds.length > 0
+        ? await this.prisma.asset.findMany({
+            where: { id: { in: assetIds.slice(0, 1000) } },
+            select: { id: true, category: { select: { name: true } } },
+          })
+        : [];
+
+      const assetCatMap: Record<string, string> = {};
+      assetsWithCats.forEach(a => { assetCatMap[a.id] = a.category?.name || 'Uncategorized'; });
+
+      const categoryCount: Record<string, number> = {};
+      categoryStats.forEach(s => {
+        const catName = assetCatMap[s.assetId] || 'Uncategorized';
+        categoryCount[catName] = (categoryCount[catName] || 0) + s._count.id;
       });
 
       const topCategories = Object.entries(categoryCount)
@@ -64,27 +71,38 @@ export class DashboardService {
         .sort((a, b) => b.count - a.count)
         .slice(0, 5);
 
-      // Calculate low stock assets (assuming quantity < 10 is low stock)
-      const lowStockAssets = assets
-        .filter((asset) => {
-          const totalQuantity = asset.inventories.reduce((sum, inv) => sum + (inv.quantity || 0), 0);
-          return totalQuantity > 0 && totalQuantity < 10;
-        })
-        .map((asset) => ({
-          id: asset.id,
-          name: asset.name,
-          skuKey: asset.skuKey,
-          categoryName: asset.category?.name || 'Uncategorized',
-          totalQuantity: asset.inventories.reduce((sum, inv) => sum + (inv.quantity || 0), 0),
-        }));
+      // Low stock: assets with quantity > 0 and < 10 (for untracked products)
+      const lowStockAssets = await this.prisma.asset.findMany({
+        where: {
+          organizationId,
+          deletedAt: null,
+          quantity: { gt: 0, lt: 10 },
+        },
+        select: {
+          id: true,
+          name: true,
+          skuKey: true,
+          quantity: true,
+          category: { select: { name: true } },
+        },
+        take: 5,
+        orderBy: { quantity: 'asc' },
+      });
 
       return {
         success: true,
         data: {
+          totalAssets,
           totalInStock,
           topCategories,
           lowStockCount: lowStockAssets.length,
-          lowStockAssets: lowStockAssets.slice(0, 5), // Top 5 low stock assets
+          lowStockAssets: lowStockAssets.map(a => ({
+            id: a.id,
+            name: a.name,
+            skuKey: a.skuKey,
+            categoryName: a.category?.name || 'Uncategorized',
+            totalQuantity: a.quantity || 0,
+          })),
         },
       };
     } catch (error) {
