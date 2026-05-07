@@ -7,18 +7,20 @@ export class PriceHistoryService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Save price history when a document (invoice) is confirmed
+   * Save price history when a document (invoice) is confirmed.
+   *
+   * Handles both AIMS modes:
+   *   - Asset Tracking ON  → item.inventoryItemId points at an Inventory row whose assetId we use.
+   *   - Asset Tracking OFF → item.inventoryItemId points directly at an Asset row.
+   * Also tolerates two config shapes for customer/date (nested vs. top-level).
    */
   async savePriceHistoryFromDocument(documentId: string, organizationId: string) {
     try {
-      // Fetch the document with its config
       const document = await this.prisma.document.findFirst({
         where: {
           id: documentId,
           organizationId,
-          type: {
-            in: ['INVOICE', 'TI', 'TI2'] // Save price history for all invoice types
-          }
+          type: { in: ['INVOICE', 'TI', 'TI2'] },
         },
       });
 
@@ -26,56 +28,84 @@ export class PriceHistoryService {
         throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
       }
 
-      // Extract data from document config
       const config: any = document.config;
-      const items = config.items || [];
-      const customer = config.customer;
-      const documentDate = config.documentInfo?.date || new Date();
-      const documentNumber = document.name || config.documentInfo?.documentNumber;
+      const items = config?.items || [];
 
-      // Create price history entries for each item
+      // Customer can live at config.customer.{id,name} OR config.customerId/customerName.
+      const customerId: string | null = config?.customer?.id ?? config?.customerId ?? null;
+      const customerName: string | null = config?.customer?.name ?? config?.customerName ?? null;
+
+      // Date can live at config.documentInfo.date OR config.date OR config.invoiceDate.
+      const rawDate = config?.documentInfo?.date ?? config?.date ?? config?.invoiceDate ?? new Date();
+      const documentDate = new Date(rawDate);
+      const documentNumber = document.name || config?.documentInfo?.documentNumber || config?.documentNumber || '';
+
+      console.log('[priceHistory] savePriceHistoryFromDocument', {
+        documentId,
+        documentNumber,
+        itemCount: items.length,
+        customerId,
+        customerName,
+        documentDate,
+      });
+
       const priceHistoryEntries = await Promise.all(
         items
-          .filter((item: any) => item.inventoryItemId) // Only process items with inventory
+          .filter((item: any) => item.inventoryItemId || item.assetId)
           .map(async (item: any) => {
-            // Fetch the inventory item to get the assetId
-            const inventory = await this.prisma.inventory.findUnique({
-              where: { id: item.inventoryItemId },
-              select: {
-                assetId: true,
-              },
-            });
+            // Resolve the asset id, regardless of whether inventoryItemId points at
+            // an Inventory row (tracked mode) or an Asset row (products mode).
+            let assetId: string | null = item.assetId || null;
 
-            // Skip if inventory not found or no asset linked
-            if (!inventory || !inventory.assetId) {
-              console.warn(`Inventory ${item.inventoryItemId} not found or no asset linked`);
+            if (!assetId && item.inventoryItemId) {
+              const inv = await this.prisma.inventory.findUnique({
+                where: { id: item.inventoryItemId },
+                select: { assetId: true },
+              });
+              if (inv?.assetId) {
+                assetId = inv.assetId;
+              } else {
+                // Maybe inventoryItemId is actually an Asset id (products mode).
+                const asset = await this.prisma.asset.findUnique({
+                  where: { id: item.inventoryItemId },
+                  select: { id: true },
+                });
+                if (asset) assetId = asset.id;
+              }
+            }
+
+            if (!assetId) {
+              console.warn(`[priceHistory] could not resolve assetId for item`, {
+                inventoryItemId: item.inventoryItemId,
+                sku: item.sku,
+              });
               return null;
             }
 
+            const qty = parseFloat(item.quantity) || 0;
+            const unit = parseFloat(item.unitPrice) || 0;
+
             return {
-              assetId: inventory.assetId,
-              unitPrice: parseFloat(item.unitPrice) || 0,
-              quantity: parseFloat(item.quantity) || 0,
+              assetId,
+              unitPrice: unit,
+              quantity: qty,
               uom: item.uom || 'PC',
-              totalAmount: parseFloat(item.amount) || (parseFloat(item.unitPrice) * parseFloat(item.quantity)) || 0,
-              documentId: documentId,
-              documentNumber: documentNumber,
-              documentDate: new Date(documentDate),
-              customerId: customer?.id || null,
-              customerName: customer?.name || null,
-              organizationId: organizationId,
+              totalAmount: parseFloat(item.amount) || unit * qty || 0,
+              documentId,
+              documentNumber,
+              documentDate,
+              customerId,
+              customerName,
+              organizationId,
             };
-          })
+          }),
       );
 
-      // Filter out null entries (items without valid inventory/asset)
-      const validEntries = priceHistoryEntries.filter((entry) => entry !== null);
+      const validEntries = priceHistoryEntries.filter((e) => e !== null);
+      console.log(`[priceHistory] saving ${validEntries.length}/${items.length} entries`);
 
-      // Bulk create price history entries
       if (validEntries.length > 0) {
-        await this.prisma.priceHistory.createMany({
-          data: validEntries,
-        });
+        await this.prisma.priceHistory.createMany({ data: validEntries });
       }
 
       return {

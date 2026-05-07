@@ -50,7 +50,10 @@
     "migrate-document-items": "ts-node scripts/migrate-document-items.ts",
     "migrate-document-items:dry": "ts-node scripts/migrate-document-items.ts --dry-run",
     "populate-template-fields": "ts-node scripts/populate-template-fields.ts",
-    "biofuel-split-contact": "ts-node scripts/biofuel-split-contact-field.ts"
+    "biofuel-split-contact": "ts-node scripts/biofuel-split-contact-field.ts",
+    "add-accounting-permissions": "ts-node scripts/add-accounting-permissions.ts",
+    "apply-accounting-defaults": "ts-node scripts/apply-accounting-defaults-all-orgs.ts",
+    "add-accounting-module": "ts-node scripts/add-accounting-module.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.779.0",

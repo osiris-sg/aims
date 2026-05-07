@@ -27,9 +27,9 @@ function InfoRow({ label, value, minWidth = "100px" }: { label: string; value: a
   if (!displayValue && displayValue !== 0) return null;
   return (
     <Box sx={{ display: "flex" }}>
-      <Typography sx={{ fontSize: "0.75rem", minWidth, lineHeight: 1.4 }}>{label}</Typography>
-      <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-      <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4 }}>{displayValue}</Typography>
+      <Typography sx={{ fontSize: "0.8125rem", minWidth, lineHeight: 1.4 }}>{label}</Typography>
+      <Typography sx={{ fontSize: "0.8125rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
+      <Typography sx={{ fontSize: "0.8125rem", flex: 1, lineHeight: 1.4 }}>{displayValue}</Typography>
     </Box>
   );
 }
@@ -73,18 +73,18 @@ function DescriptionText({ text, sx = {} }: { text: string; sx?: any }) {
         component="span"
         dangerouslySetInnerHTML={{ __html: text }}
         sx={{
-          fontSize: "0.6875rem",
+          fontSize: "0.8125rem",
           whiteSpace: "pre-wrap",
           wordBreak: "break-word",
           "& ul, & ol": { pl: 2, m: 0 },
-          "& li": { fontSize: "0.6875rem" },
+          "& li": { fontSize: "0.8125rem" },
           ...sx,
         }}
       />
     );
   }
   return (
-    <Typography sx={{ fontSize: "0.6875rem", whiteSpace: "pre-wrap", wordBreak: "break-word", ...sx }}>
+    <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-wrap", wordBreak: "break-word", ...sx }}>
       {text}
     </Typography>
   );
@@ -203,7 +203,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           backgroundColor: "white",
           fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
           fontWeight: 400,
-          fontSize: "0.75rem",
+          fontSize: "0.8125rem",
           lineHeight: 1.6,
           color: "#000",
           "@media print": {
@@ -238,11 +238,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
               <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>
                 {data.customer?.name || data.customerName || ""}
               </Typography>
-              <Typography sx={{ fontSize: "0.6875rem", mb: 0.3, whiteSpace: "pre-line" }}>
+              <Typography sx={{ fontSize: "0.8125rem", mb: 0.3, whiteSpace: "pre-line" }}>
                 {data.customer?.address || data.customerAddress || ""}
               </Typography>
               {(data.deliveryAddress?.attention || data.attention?.name) && (
-                <Typography sx={{ fontSize: "0.6875rem", mb: 0.3 }}>
+                <Typography sx={{ fontSize: "0.8125rem", mb: 0.3 }}>
                   Attn: {data.deliveryAddress?.attention || data.attention?.name}
                 </Typography>
               )}
@@ -255,28 +255,28 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           {/* Center Column - Invoice Details */}
           <Box sx={{ width: "20%" }}>
             <Box sx={{ mb: 1.5 }}>
-              <Typography sx={{ fontSize: "0.625rem", color: "#666", mb: 0.3 }}>
+              <Typography sx={{ fontSize: "0.8125rem", color: "#666", mb: 0.3 }}>
                 Invoice Date
               </Typography>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 500 }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500 }}>
                 {formatDate(data.documentInfo?.date)}
               </Typography>
             </Box>
 
             <Box sx={{ mb: 1.5 }}>
-              <Typography sx={{ fontSize: "0.625rem", color: "#666", mb: 0.3 }}>
+              <Typography sx={{ fontSize: "0.8125rem", color: "#666", mb: 0.3 }}>
                 Invoice Number
               </Typography>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 500 }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500 }}>
                 {data.documentInfo?.documentNumber || ""}
               </Typography>
             </Box>
 
             <Box sx={{ mb: 1.5 }}>
-              <Typography sx={{ fontSize: "0.625rem", color: "#666", mb: 0.3 }}>
+              <Typography sx={{ fontSize: "0.8125rem", color: "#666", mb: 0.3 }}>
                 Reference
               </Typography>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 500, whiteSpace: "pre-line" }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500, whiteSpace: "pre-line" }}>
                 {data.documentInfo?.referenceNo || ""}
                 {data.documentInfo?.doNo && (
                   <>{'\n'}({data.documentInfo.doNo})</>
@@ -290,16 +290,16 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
             <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>
               {data.company?.name || organization?.name || ""}
             </Typography>
-            <Typography sx={{ fontSize: "0.6875rem", mb: 0.3, whiteSpace: "pre-line" }}>
+            <Typography sx={{ fontSize: "0.8125rem", mb: 0.3, whiteSpace: "pre-line" }}>
               {data.company?.address || organization?.address || ""}
             </Typography>
-            <Typography sx={{ fontSize: "0.6875rem", mb: 0.3 }}>
+            <Typography sx={{ fontSize: "0.8125rem", mb: 0.3 }}>
               Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
             </Typography>
-            <Typography sx={{ fontSize: "0.6875rem", mb: 0.3 }}>
+            <Typography sx={{ fontSize: "0.8125rem", mb: 0.3 }}>
               Company & GST Reg No:
             </Typography>
-            <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500 }}>
+            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500 }}>
               {data.company?.gstRegNo || organization?.registrationNumber || ""}
             </Typography>
           </Box>
@@ -313,13 +313,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 border: "none",
                 borderBottom: "none",
                 padding: "10px 8px",
-                fontSize: "0.6875rem",
+                fontSize: "0.8125rem",
               },
               "& .MuiTableHead-root .MuiTableCell-root": {
                 border: "none",
                 borderBottom: "2px solid #000",
                 fontWeight: 600,
-                fontSize: "0.6875rem",
+                fontSize: "0.8125rem",
               },
               "@media print": {
                 "& thead": { display: "table-row-group" },
@@ -344,11 +344,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                         <Box sx={{ pl: 1 }}>
                           {typeof item.details === 'string'
                             ? item.details.split("\n").map((detail: string, idx: number) => (
-                                <Typography key={idx} sx={{ fontSize: "0.625rem", color: "#666", lineHeight: 1.4 }}>
+                                <Typography key={idx} sx={{ fontSize: "0.8125rem", color: "#666", lineHeight: 1.4 }}>
                                   {detail}
                                 </Typography>
                               ))
-                            : <Typography sx={{ fontSize: "0.625rem", color: "#666", lineHeight: 1.4 }}>
+                            : <Typography sx={{ fontSize: "0.8125rem", color: "#666", lineHeight: 1.4 }}>
                                 {item.details}
                               </Typography>}
                         </Box>
@@ -378,7 +378,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
         {/* Additional Information */}
         {(data.documentInfo?.doNo || data.documentInfo?.qinRef || data.documentInfo?.woNo ||
           data.documentInfo?.location || data.documentInfo?.projectDept) && (
-          <Box sx={{ mb: 3, fontSize: "0.6875rem", lineHeight: 1.8 }}>
+          <Box sx={{ mb: 3, fontSize: "0.8125rem", lineHeight: 1.8 }}>
             {data.documentInfo?.doNo && (
               <Typography sx={{ mb: 0.5 }}>
                 Our DO No. {data.documentInfo.doNo} dated {formatDate(data.documentInfo.doDate)}
@@ -418,10 +418,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 borderTop: "1px solid #000",
               }}
             >
-              <Typography sx={{ fontSize: "0.75rem", textAlign: "right", width: "60%" }}>
+              <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", width: "60%" }}>
                 Subtotal
               </Typography>
-              <Typography sx={{ fontSize: "0.75rem", textAlign: "right", width: "40%" }}>
+              <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", width: "40%" }}>
                 {subtotal.toFixed(2)}
               </Typography>
             </Box>
@@ -434,10 +434,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 borderBottom: "1px solid #000",
               }}
             >
-              <Typography sx={{ fontSize: "0.6875rem", textAlign: "right", width: "60%" }}>
+              <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", width: "60%" }}>
                 TOTAL LOCAL SUPPLY OF GOODS<br />AND SERVICES 9%
               </Typography>
-              <Typography sx={{ fontSize: "0.75rem", textAlign: "right", width: "40%", alignSelf: "flex-end" }}>
+              <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", width: "40%", alignSelf: "flex-end" }}>
                 {totalTax.toFixed(2)}
               </Typography>
             </Box>
@@ -450,10 +450,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 borderBottom: "2px solid #000",
               }}
             >
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, textAlign: "right", width: "60%" }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right", width: "60%" }}>
                 TOTAL SGD
               </Typography>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, textAlign: "right", width: "40%" }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right", width: "40%" }}>
                 {total.toFixed(2)}
               </Typography>
             </Box>
@@ -462,25 +462,25 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
 
         {/* Due Date and Payment Info */}
         <Box sx={{ mt: 6, lineHeight: 1.8 }}>
-          <Typography sx={{ fontSize: "11px", fontWeight: 600, mb: 1 }}>
+          <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 1 }}>
             Due Date: {formatDate(data.dueDate) || "30 Nov 2024"}
           </Typography>
-          <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
+          <Typography sx={{ fontSize: "0.8125rem", mb: 0.3 }}>
             All Cheque should be crossed and made payable to: {data.company?.name || organization?.name || ""}
           </Typography>
-          <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
+          <Typography sx={{ fontSize: "0.8125rem", mb: 0.3 }}>
             By Bank Transfer: {data.bankDetails?.bankName || "Standard Chartered Bank"}
           </Typography>
-          <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
+          <Typography sx={{ fontSize: "0.8125rem", mb: 0.3 }}>
             Branch: {data.bankDetails?.branch || "12 Marina Boulevard, Marina Bay Financial Centre Tower 1"}
           </Typography>
-          <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
+          <Typography sx={{ fontSize: "0.8125rem", mb: 0.3 }}>
             Bank Branch No.: {data.bankDetails?.branchNo || "9496-007"} Swift Code: {data.bankDetails?.swiftCode || "SCBLSG22"}
           </Typography>
-          <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
+          <Typography sx={{ fontSize: "0.8125rem", mb: 0.3 }}>
             Bank Account No.: {data.bankDetails?.accountNo || "07-1-005302-9"}
           </Typography>
-          <Typography sx={{ fontSize: "11px", mb: 0.3 }}>
+          <Typography sx={{ fontSize: "0.8125rem", mb: 0.3 }}>
             PayNow to UEN: {data.company?.gstRegNo || "200303416N"}
           </Typography>
         </Box>
@@ -490,14 +490,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           <Box sx={{ display: "flex", gap: 3, mt: 2 }}>
             {data.note && (
               <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
-                <Typography sx={{ fontSize: "11px", fontWeight: 600 }}>Note:</Typography>
-                <RichContent text={data.note} sx={{ fontSize: "11px", lineHeight: 1.6 }} />
+                <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Note:</Typography>
+                <RichContent text={data.note} sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }} />
               </Box>
             )}
             {data.remarks && (
               <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
-                <Typography sx={{ fontSize: "11px", fontWeight: 600 }}>Remarks:</Typography>
-                <RichContent text={data.remarks} sx={{ fontSize: "11px", lineHeight: 1.6 }} />
+                <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Remarks:</Typography>
+                <RichContent text={data.remarks} sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }} />
               </Box>
             )}
           </Box>
@@ -505,7 +505,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
 
         {/* Footer */}
         <Box sx={{ mt: 4, pt: 2, textAlign: "center" }}>
-          <Typography sx={{ fontSize: "0.625rem", fontStyle: "italic", color: "#666" }}>
+          <Typography sx={{ fontSize: "0.8125rem", fontStyle: "italic", color: "#666" }}>
             This is a computer-generated document, no signature is required
           </Typography>
         </Box>
@@ -526,7 +526,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           backgroundColor: "white",
           fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
           fontWeight: 400,
-          fontSize: "0.75rem",
+          fontSize: "0.8125rem",
           lineHeight: 1.6,
           color: "#000",
           display: "flex",
@@ -543,19 +543,19 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
             {data.company?.name || organization?.name || ""}
           </Typography>
-          <Typography sx={{ fontSize: "0.75rem", mb: 0.2 }}>
+          <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
             GST Reg No: {data.company?.gstRegNo || organization?.registrationNumber || ""}
             {data.company?.coRegNo && ` Co. Reg No: ${data.company.coRegNo}`}
           </Typography>
-          <Typography sx={{ fontSize: "0.75rem", mb: 0.2 }}>
+          <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
             {data.company?.address || organization?.address || ""}
           </Typography>
           {data.company?.address2 && (
-            <Typography sx={{ fontSize: "0.75rem", mb: 0.2 }}>
+            <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
               {data.company.address2}
             </Typography>
           )}
-          <Typography sx={{ fontSize: "0.75rem" }}>
+          <Typography sx={{ fontSize: "0.8125rem" }}>
             Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
             {data.company?.fax && ` Fax: ${data.company.fax}`}
           </Typography>
@@ -567,11 +567,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           <Box sx={{ width: "45%" }}>
             {/* Bill To */}
             <Box sx={{ mb: 3 }}>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>Bill To :</Typography>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600 }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>Bill To :</Typography>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>
                 {data.customer?.name || data.customerName || ""}
               </Typography>
-              <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
+              <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
                 {data.billTo || data.customer?.address || data.customerAddress || ""}
               </Typography>
             </Box>
@@ -579,12 +579,12 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
             {/* Deliver To - hidden when deliver to address is empty */}
             {data.deliveryTo && (
             <Box>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>Deliver To :</Typography>
-              <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>Deliver To :</Typography>
+              <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
                 {data.deliveryTo}
               </Typography>
               {(data.documentInfo?.contactName || data.documentInfo?.contact || data.contact) && (
-                <Typography sx={{ fontSize: "0.75rem" }}>
+                <Typography sx={{ fontSize: "0.8125rem" }}>
                   Attn: {data.documentInfo?.contactName || data.documentInfo?.contact || data.contact}
                   {data.documentInfo?.contactNumber ? ` (${data.documentInfo.contactNumber})` : ""}
                 </Typography>
@@ -622,13 +622,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 border: "none",
                 borderBottom: "none",
                 padding: "10px 8px",
-                fontSize: "0.6875rem",
+                fontSize: "0.8125rem",
               },
               "& .MuiTableHead-root .MuiTableCell-root": {
                 border: "none",
                 borderBottom: "2px solid #000",
                 fontWeight: 600,
-                fontSize: "0.6875rem",
+                fontSize: "0.8125rem",
               },
               "@media print": {
                 "& thead": { display: "table-row-group" },
@@ -653,11 +653,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                         <Box sx={{ pl: 1 }}>
                           {typeof item.details === 'string'
                             ? item.details.split("\n").map((detail: string, idx: number) => (
-                                <Typography key={idx} sx={{ fontSize: "0.625rem", color: "#666", lineHeight: 1.4 }}>
+                                <Typography key={idx} sx={{ fontSize: "0.8125rem", color: "#666", lineHeight: 1.4 }}>
                                   {detail}
                                 </Typography>
                               ))
-                            : <Typography sx={{ fontSize: "0.625rem", color: "#666", lineHeight: 1.4 }}>
+                            : <Typography sx={{ fontSize: "0.8125rem", color: "#666", lineHeight: 1.4 }}>
                                 {item.details}
                               </Typography>}
                         </Box>
@@ -688,24 +688,24 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
         <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 3 }}>
           <Box sx={{ width: "250px" }}>
             <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-              <Typography sx={{ fontSize: "0.75rem" }}>Sub Total:</Typography>
-              <Typography sx={{ fontSize: "0.75rem" }}>{subtotal.toFixed(2)}</Typography>
+              <Typography sx={{ fontSize: "0.8125rem" }}>Sub Total:</Typography>
+              <Typography sx={{ fontSize: "0.8125rem" }}>{subtotal.toFixed(2)}</Typography>
             </Box>
             {(data.documentInfo?.discountPercent || data.documentInfo?.discount) > 0 && (
               <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-                <Typography sx={{ fontSize: "0.75rem" }}>Discount:</Typography>
-                <Typography sx={{ fontSize: "0.75rem" }}>-{(data.documentInfo?.discount || 0).toFixed(2)}</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>Discount:</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>-{(data.documentInfo?.discount || 0).toFixed(2)}</Typography>
               </Box>
             )}
             {totalTax > 0 && (
               <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-                <Typography sx={{ fontSize: "0.75rem" }}>GST ({data.documentInfo?.gstPercent || 9}%):</Typography>
-                <Typography sx={{ fontSize: "0.75rem" }}>{totalTax.toFixed(2)}</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>GST ({data.documentInfo?.gstPercent || 9}%):</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>{totalTax.toFixed(2)}</Typography>
               </Box>
             )}
             <Box sx={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid #000", pt: 0.5 }}>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600 }}>Total {data.documentInfo?.currency || "SGD"}:</Typography>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600 }}>{(total - (data.documentInfo?.discount || 0)).toFixed(2)}</Typography>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Total {data.documentInfo?.currency || "SGD"}:</Typography>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>{(total - (data.documentInfo?.discount || 0)).toFixed(2)}</Typography>
             </Box>
           </Box>
         </Box>
@@ -714,12 +714,12 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
         <Box sx={{ mt: "auto", pt: 4 }}>
           <Box sx={{ display: "flex", justifyContent: "space-between" }}>
             <Box sx={{ width: "45%", pageBreakInside: "avoid", breakInside: "avoid" }}>
-              <Typography sx={{ fontSize: "0.6875rem", mb: 0.5 }}>Remarks:</Typography>
-              <Typography sx={{ fontSize: "0.6875rem", whiteSpace: "pre-line" }}>{data.remarks || ""}</Typography>
+              <Typography sx={{ fontSize: "0.8125rem", mb: 0.5 }}>Remarks:</Typography>
+              <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>{data.remarks || ""}</Typography>
             </Box>
             <Box sx={{ width: "45%", textAlign: "center" }}>
               <Box sx={{ borderBottom: "1px solid #000", mb: 0.5, height: 60 }}></Box>
-              <Typography sx={{ fontSize: "0.6875rem" }}>Authorized Signature</Typography>
+              <Typography sx={{ fontSize: "0.8125rem" }}>Authorized Signature</Typography>
             </Box>
           </Box>
         </Box>
@@ -740,7 +740,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           backgroundColor: "white",
           fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
           fontWeight: 400,
-          fontSize: "0.75rem",
+          fontSize: "0.8125rem",
           lineHeight: 1.6,
           color: "#000",
           display: "flex",
@@ -757,19 +757,19 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
             {data.company?.name || organization?.name || "ELSHIS INTERNATIONAL PTE LTD"}
           </Typography>
-          <Typography sx={{ fontSize: "0.75rem", mb: 0.2 }}>
+          <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
             GST Reg No: {data.company?.gstRegNo || organization?.registrationNumber || "200303416N"}
             {data.company?.coRegNo && ` Co. Reg No: ${data.company.coRegNo}`}
           </Typography>
-          <Typography sx={{ fontSize: "0.75rem", mb: 0.2 }}>
+          <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
             {data.company?.address || organization?.address || "No. 2 Kelling Ave, 01-07 Kelling Beltra Complex,"}
           </Typography>
           {data.company?.address2 && (
-            <Typography sx={{ fontSize: "0.75rem", mb: 0.2 }}>
+            <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
               {data.company.address2}
             </Typography>
           )}
-          <Typography sx={{ fontSize: "0.75rem" }}>
+          <Typography sx={{ fontSize: "0.8125rem" }}>
             Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
             {data.company?.fax && ` Fax: ${data.company.fax}`}
           </Typography>
@@ -781,11 +781,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           <Box sx={{ width: "45%" }}>
             {/* Bill To */}
             <Box sx={{ mb: 3 }}>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>Bill To :</Typography>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600 }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>Bill To :</Typography>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>
                 {data.customer?.name || data.customerName || ""}
               </Typography>
-              <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
+              <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
                 {data.billTo || data.customer?.address || data.customerAddress || ""}
               </Typography>
             </Box>
@@ -793,12 +793,12 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
             {/* Deliver To - hidden when deliver to address is empty */}
             {data.deliveryTo && (
             <Box>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>Deliver To :</Typography>
-              <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>Deliver To :</Typography>
+              <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
                 {data.deliveryTo}
               </Typography>
               {(data.documentInfo?.contactName || data.documentInfo?.contact || data.contact) && (
-                <Typography sx={{ fontSize: "0.75rem" }}>
+                <Typography sx={{ fontSize: "0.8125rem" }}>
                   Attn: {data.documentInfo?.contactName || data.documentInfo?.contact || data.contact}
                   {data.documentInfo?.contactNumber ? ` (${data.documentInfo.contactNumber})` : ""}
                 </Typography>
@@ -835,13 +835,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 border: "none",
                 borderBottom: "none",
                 padding: "10px 8px",
-                fontSize: "0.6875rem",
+                fontSize: "0.8125rem",
               },
               "& .MuiTableHead-root .MuiTableCell-root": {
                 border: "none",
                 borderBottom: "2px solid #000",
                 fontWeight: 600,
-                fontSize: "0.6875rem",
+                fontSize: "0.8125rem",
               },
               "@media print": {
                 "& thead": { display: "table-row-group" },
@@ -866,11 +866,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                         <Box sx={{ pl: 1 }}>
                           {typeof item.details === 'string'
                             ? item.details.split("\n").map((detail: string, idx: number) => (
-                                <Typography key={idx} sx={{ fontSize: "0.625rem", color: "#666", lineHeight: 1.4 }}>
+                                <Typography key={idx} sx={{ fontSize: "0.8125rem", color: "#666", lineHeight: 1.4 }}>
                                   {detail}
                                 </Typography>
                               ))
-                            : <Typography sx={{ fontSize: "0.625rem", color: "#666", lineHeight: 1.4 }}>
+                            : <Typography sx={{ fontSize: "0.8125rem", color: "#666", lineHeight: 1.4 }}>
                                 {item.details}
                               </Typography>}
                         </Box>
@@ -900,7 +900,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
         {/* Additional Information */}
         {(data.documentInfo?.qinRef || data.documentInfo?.woNo ||
           data.documentInfo?.location || data.documentInfo?.projectDept) && (
-          <Box sx={{ mb: 3, fontSize: "0.6875rem", lineHeight: 1.8 }}>
+          <Box sx={{ mb: 3, fontSize: "0.8125rem", lineHeight: 1.8 }}>
             {data.documentInfo?.qinRef && (
               <Typography sx={{ mb: 0.5 }}>
                 Our Qtn Ref. {data.documentInfo.qinRef} dated {formatDate(data.documentInfo.qinDate)}
@@ -953,53 +953,53 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
               {/* Left Side - Rate, Sub-total, GST summary */}
               <Box sx={{ display: "flex", alignItems: "center", gap: 3 }}>
                 <Box sx={{ display: "flex", alignItems: "center" }}>
-                  <Typography sx={{ fontSize: "0.6875rem" }}>(Rate :</Typography>
-                  <Typography sx={{ fontSize: "0.6875rem", ml: 1, minWidth: 60 }}>{rate.toFixed(6)}</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem" }}>(Rate :</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 60 }}>{rate.toFixed(6)}</Typography>
                 </Box>
                 <Box sx={{ display: "flex", alignItems: "center" }}>
-                  <Typography sx={{ fontSize: "0.6875rem" }}>Sub-total:</Typography>
-                  <Typography sx={{ fontSize: "0.6875rem", ml: 1, minWidth: 50, textAlign: "right" }}>{subtotalAfterDiscount.toFixed(2)}</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem" }}>Sub-total:</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 50, textAlign: "right" }}>{subtotalAfterDiscount.toFixed(2)}</Typography>
                 </Box>
                 <Box sx={{ display: "flex", alignItems: "center" }}>
-                  <Typography sx={{ fontSize: "0.6875rem" }}>GST</Typography>
-                  <Typography sx={{ fontSize: "0.6875rem", ml: 1 }}>:</Typography>
-                  <Typography sx={{ fontSize: "0.6875rem", ml: 1, minWidth: 40, textAlign: "right" }}>{gstAmount.toFixed(2)})</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem" }}>GST</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem", ml: 1 }}>:</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 40, textAlign: "right" }}>{gstAmount.toFixed(2)})</Typography>
                 </Box>
               </Box>
 
               {/* Right Side - Detailed Totals */}
               <Box sx={{ minWidth: 200 }}>
                 <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
-                  <Typography sx={{ fontSize: "0.6875rem" }}>Sub-Total</Typography>
-                  <Typography sx={{ fontSize: "0.6875rem", textAlign: "right" }}>{grossTotal.toFixed(2)}</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem" }}>Sub-Total</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{grossTotal.toFixed(2)}</Typography>
                 </Box>
                 {discountPercent > 0 && (
                   <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
-                    <Typography sx={{ fontSize: "0.6875rem" }}>Discount</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem" }}>Discount</Typography>
                     <Box sx={{ display: "flex", gap: 2 }}>
-                      <Typography sx={{ fontSize: "0.6875rem" }}>{discountPercent.toFixed(2)}</Typography>
-                      <Typography sx={{ fontSize: "0.6875rem", textAlign: "right", minWidth: 50 }}>{discountAmount.toFixed(2)}</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem" }}>{discountPercent.toFixed(2)}</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", minWidth: 50 }}>{discountAmount.toFixed(2)}</Typography>
                     </Box>
                   </Box>
                 )}
                 {discountPercent > 0 && (
                   <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
-                    <Typography sx={{ fontSize: "0.6875rem" }}>Sub-Total</Typography>
-                    <Typography sx={{ fontSize: "0.6875rem", textAlign: "right" }}>{subtotalAfterDiscount.toFixed(2)}</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem" }}>Sub-Total</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{subtotalAfterDiscount.toFixed(2)}</Typography>
                   </Box>
                 )}
                 <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
-                  <Typography sx={{ fontSize: "0.6875rem" }}>GST</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem" }}>GST</Typography>
                   <Box sx={{ display: "flex", gap: 2 }}>
-                    <Typography sx={{ fontSize: "0.6875rem" }}>{gstPercent.toFixed(2)} %</Typography>
-                    <Typography sx={{ fontSize: "0.6875rem", textAlign: "right", minWidth: 50 }}>{gstAmount.toFixed(2)}</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem" }}>{gstPercent.toFixed(2)} %</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", minWidth: 50 }}>{gstAmount.toFixed(2)}</Typography>
                   </Box>
                 </Box>
                 <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3, borderTop: "1px solid #000", mt: 0.5, pt: 0.5 }}>
-                  <Typography sx={{ fontSize: "0.6875rem" }}>Total</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem" }}>Total</Typography>
                   <Box sx={{ display: "flex", gap: 2 }}>
-                    <Typography sx={{ fontSize: "0.6875rem" }}>{currency}</Typography>
-                    <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600, textAlign: "right", minWidth: 50 }}>{finalTotal.toFixed(2)}</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem" }}>{currency}</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right", minWidth: 50 }}>{finalTotal.toFixed(2)}</Typography>
                   </Box>
                 </Box>
               </Box>
@@ -1061,7 +1061,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
 
           return (
             <Box sx={{ mt: 2, borderBottom: "2px solid #000", pb: 1 }}>
-              <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500 }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500 }}>
                 S'PORE DOLLAR {numberToWords(finalTotal)}
               </Typography>
             </Box>
@@ -1080,7 +1080,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
               due.setDate(due.getDate() + termDays);
               const formatted = due.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
               return (
-                <Typography sx={{ fontSize: "0.6875rem", fontWeight: 700, mb: 0.5 }}>
+                <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, mb: 0.5 }}>
                   Due Date: {formatted}
                 </Typography>
               );
@@ -1096,16 +1096,16 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
               return (
                 <>
                   {hasBank && (
-                    <Box sx={{ fontSize: "0.5625rem", lineHeight: 1.6 }}>
-                      {bank.accountName && <Typography sx={{ fontSize: "0.5625rem" }}>All Cheque should be crossed and made payable to: {bank.accountName}</Typography>}
-                      {bank.bankName && <Typography sx={{ fontSize: "0.5625rem" }}>By Bank Transfer: {bank.bankName}</Typography>}
-                      {bank.branchCode && <Typography sx={{ fontSize: "0.5625rem" }}>Branch: {bank.branchCode}</Typography>}
-                      {(bank.bankCode || bank.swiftCode) && <Typography sx={{ fontSize: "0.5625rem" }}>Bank Branch No.: {bank.bankCode || ""}{bank.swiftCode ? ` Swift Code: ${bank.swiftCode}` : ""}</Typography>}
-                      {bank.accountNumber && <Typography sx={{ fontSize: "0.5625rem" }}>Bank Account No.: {bank.accountNumber}</Typography>}
-                      {organization?.registrationNumber && <Typography sx={{ fontSize: "0.5625rem" }}>PayNow to UEN: {organization.registrationNumber}</Typography>}
+                    <Box sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }}>
+                      {bank.accountName && <Typography sx={{ fontSize: "0.8125rem" }}>All Cheque should be crossed and made payable to: {bank.accountName}</Typography>}
+                      {bank.bankName && <Typography sx={{ fontSize: "0.8125rem" }}>By Bank Transfer: {bank.bankName}</Typography>}
+                      {bank.branchCode && <Typography sx={{ fontSize: "0.8125rem" }}>Branch: {bank.branchCode}</Typography>}
+                      {(bank.bankCode || bank.swiftCode) && <Typography sx={{ fontSize: "0.8125rem" }}>Bank Branch No.: {bank.bankCode || ""}{bank.swiftCode ? ` Swift Code: ${bank.swiftCode}` : ""}</Typography>}
+                      {bank.accountNumber && <Typography sx={{ fontSize: "0.8125rem" }}>Bank Account No.: {bank.accountNumber}</Typography>}
+                      {organization?.registrationNumber && <Typography sx={{ fontSize: "0.8125rem" }}>PayNow to UEN: {organization.registrationNumber}</Typography>}
                     </Box>
                   )}
-                  {!hasBank && <Typography sx={{ fontSize: "0.5625rem" }}>&nbsp;</Typography>}
+                  {!hasBank && <Typography sx={{ fontSize: "0.8125rem" }}>&nbsp;</Typography>}
                 </>
               );
             })()}
@@ -1120,10 +1120,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
 
           {/* Right - Computer generated notice */}
           <Box sx={{ textAlign: "right" }}>
-            <Typography sx={{ fontSize: "0.6875rem", fontStyle: "italic" }}>
+            <Typography sx={{ fontSize: "0.8125rem", fontStyle: "italic" }}>
               This is a computer generated Invoice.
             </Typography>
-            <Typography sx={{ fontSize: "0.6875rem", fontStyle: "italic" }}>
+            <Typography sx={{ fontSize: "0.8125rem", fontStyle: "italic" }}>
               No signature is required.
             </Typography>
           </Box>
@@ -1134,14 +1134,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           <Box sx={{ display: "flex", gap: 3, mt: 1 }}>
             {data.note && (
               <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
-                <Typography sx={{ fontSize: "0.5625rem", fontWeight: 600 }}>Note:</Typography>
-                <RichContent text={data.note} sx={{ fontSize: "0.5625rem", lineHeight: 1.6 }} />
+                <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Note:</Typography>
+                <RichContent text={data.note} sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }} />
               </Box>
             )}
             {data.termsAndConditions && (
               <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
-                <Typography sx={{ fontSize: "0.5625rem", fontWeight: 600 }}>Terms & Conditions:</Typography>
-                <RichContent text={data.termsAndConditions} sx={{ fontSize: "0.5625rem", lineHeight: 1.6 }} />
+                <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Terms & Conditions:</Typography>
+                <RichContent text={data.termsAndConditions} sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }} />
               </Box>
             )}
           </Box>
@@ -1166,7 +1166,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           backgroundColor: "white",
           fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
           fontWeight: 400,
-          fontSize: "0.75rem",
+          fontSize: "0.8125rem",
           lineHeight: 1.6,
           color: "#000",
           display: "flex",
@@ -1183,18 +1183,18 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
             {data.company?.name || organization?.name || ""}
           </Typography>
-          <Typography sx={{ fontSize: "0.75rem", mb: 0.2 }}>
+          <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
             Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
             {data.company?.fax && `  Fax: ${data.company.fax}`}
           </Typography>
-          <Typography sx={{ fontSize: "0.75rem" }}>
+          <Typography sx={{ fontSize: "0.8125rem" }}>
             UEN: {data.company?.gstRegNo || organization?.registrationNumber || ""}
           </Typography>
         </Box>
 
         {/* DO Reference Number - Top Right */}
         <Box sx={{ textAlign: "right", mb: 1 }}>
-          <Typography sx={{ fontSize: "0.75rem" }}>
+          <Typography sx={{ fontSize: "0.8125rem" }}>
             DO {data.documentInfo?.referenceNo || data.documentInfo?.documentNumber || ""}
           </Typography>
         </Box>
@@ -1205,11 +1205,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           <Box sx={{ width: "45%" }}>
             {/* Bill To */}
             <Box sx={{ mb: 3 }}>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>Bill To :</Typography>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600 }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>Bill To :</Typography>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>
                 {data.customer?.name || data.customerName || ""}
               </Typography>
-              <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
+              <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
                 {data.billTo || data.customer?.address || data.customerAddress || ""}
               </Typography>
             </Box>
@@ -1217,12 +1217,12 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
             {/* Deliver To - hidden when deliver to address is empty */}
             {data.deliveryTo && (
             <Box>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>Deliver To :</Typography>
-              <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>Deliver To :</Typography>
+              <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
                 {data.deliveryTo}
               </Typography>
               {(data.documentInfo?.contactName || data.documentInfo?.contact || data.contact) && (
-                <Typography sx={{ fontSize: "0.75rem" }}>
+                <Typography sx={{ fontSize: "0.8125rem" }}>
                   Attn: {data.documentInfo?.contactName || data.documentInfo?.contact || data.contact}
                   {data.documentInfo?.contactNumber ? ` (${data.documentInfo.contactNumber})` : ""}
                 </Typography>
@@ -1240,9 +1240,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
               </Typography>
               <InfoRow label="UEN" value={data.customer?.gstRegNo || data.customer?.npwp || data.company?.gstRegNo || data.gstRegNo} />
               <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "100px", lineHeight: 1.4 }}>DELIVERY ORDER</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}></Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4, fontWeight: 600 }}>{data.documentInfo?.documentNumber || data.name || ""}</Typography>
+                <Typography sx={{ fontSize: "0.8125rem", minWidth: "100px", lineHeight: 1.4 }}>DELIVERY ORDER</Typography>
+                <Typography sx={{ fontSize: "0.8125rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}></Typography>
+                <Typography sx={{ fontSize: "0.8125rem", flex: 1, lineHeight: 1.4, fontWeight: 600 }}>{data.documentInfo?.documentNumber || data.name || ""}</Typography>
               </Box>
               <InfoRow label="Date" value={formatDate(data.documentInfo?.date || data.date)} />
               <InfoRow label="P/O No." value={data.documentInfo?.poNo || data.poNo} />
@@ -1261,13 +1261,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 border: "none",
                 borderBottom: "none",
                 padding: "10px 8px",
-                fontSize: "0.6875rem",
+                fontSize: "0.8125rem",
               },
               "& .MuiTableHead-root .MuiTableCell-root": {
                 border: "none",
                 borderBottom: "2px solid #000",
                 fontWeight: 600,
-                fontSize: "0.6875rem",
+                fontSize: "0.8125rem",
               },
               "@media print": {
                 "& thead": { display: "table-row-group" },
@@ -1315,10 +1315,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
         <Box sx={{ mt: "auto", borderTop: "1px solid #000", pt: 2 }}>
           {/* Header Row - "Goods Received" on left, Company name on right */}
           <Box sx={{ display: "flex", justifyContent: "space-between", mb: 6 }}>
-            <Typography sx={{ fontSize: "0.6875rem" }}>
+            <Typography sx={{ fontSize: "0.8125rem" }}>
               Goods Received In Good Order & Condition
             </Typography>
-            <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600 }}>
+            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>
               {organization?.name || ""}
             </Typography>
           </Box>
@@ -1328,7 +1328,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
             {/* Chop & Sign */}
             <Box sx={{ textAlign: "center", flex: 1 }}>
               <Box sx={{ borderTop: "1px solid #000", width: "80%", mx: "auto", pt: 0.5 }}>
-                <Typography sx={{ fontSize: "0.6875rem" }}>
+                <Typography sx={{ fontSize: "0.8125rem" }}>
                   Chop & Sign
                 </Typography>
               </Box>
@@ -1337,7 +1337,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
             {/* Delivery By */}
             <Box sx={{ textAlign: "center", flex: 1 }}>
               <Box sx={{ borderTop: "1px solid #000", width: "80%", mx: "auto", pt: 0.5 }}>
-                <Typography sx={{ fontSize: "0.6875rem" }}>
+                <Typography sx={{ fontSize: "0.8125rem" }}>
                   Delivery By
                 </Typography>
               </Box>
@@ -1346,7 +1346,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
             {/* Issue By */}
             <Box sx={{ textAlign: "center", flex: 1 }}>
               <Box sx={{ borderTop: "1px solid #000", width: "80%", mx: "auto", pt: 0.5 }}>
-                <Typography sx={{ fontSize: "0.6875rem" }}>
+                <Typography sx={{ fontSize: "0.8125rem" }}>
                   Issue By : {data.documentInfo?.issueBy || data.issueBy || ""}
                 </Typography>
               </Box>
@@ -1372,7 +1372,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           backgroundColor: "white",
           fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
           fontWeight: 400,
-          fontSize: "0.75rem",
+          fontSize: "0.8125rem",
           lineHeight: 1.6,
           color: "#000",
           display: "flex",
@@ -1389,14 +1389,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
             {data.company?.name || organization?.name || ""}
           </Typography>
-          <Typography sx={{ fontSize: "0.75rem", mb: 0.2 }}>
+          <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
             GST Reg No: {data.company?.gstRegNo || organization?.registrationNumber || ""}
             {data.company?.coRegNo && ` Co. Reg No: ${data.company.coRegNo}`}
           </Typography>
-          <Typography sx={{ fontSize: "0.75rem", mb: 0.2 }}>
+          <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
             {data.company?.address || organization?.address || ""}
           </Typography>
-          <Typography sx={{ fontSize: "0.75rem" }}>
+          <Typography sx={{ fontSize: "0.8125rem" }}>
             Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
             {data.company?.fax && ` Fax: ${data.company.fax}`}
           </Typography>
@@ -1408,11 +1408,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           <Box sx={{ width: "45%" }}>
             {/* Bill To */}
             <Box sx={{ mb: 3 }}>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>Bill To :</Typography>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600 }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>Bill To :</Typography>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>
                 {data.customer?.name || data.customerName || ""}
               </Typography>
-              <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
+              <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
                 {data.billTo || data.customer?.address || data.customerAddress || ""}
               </Typography>
             </Box>
@@ -1420,12 +1420,12 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
             {/* Deliver To - hidden when deliver to address is empty */}
             {data.deliveryTo && (
             <Box>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>Deliver To :</Typography>
-              <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>Deliver To :</Typography>
+              <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
                 {data.deliveryTo}
               </Typography>
               {(data.documentInfo?.contactName || data.documentInfo?.contact || data.contact) && (
-                <Typography sx={{ fontSize: "0.75rem" }}>
+                <Typography sx={{ fontSize: "0.8125rem" }}>
                   Attn: {data.documentInfo?.contactName || data.documentInfo?.contact || data.contact}
                   {data.documentInfo?.contactNumber ? ` (${data.documentInfo.contactNumber})` : ""}
                 </Typography>
@@ -1462,13 +1462,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 border: "none",
                 borderBottom: "none",
                 padding: "10px 8px",
-                fontSize: "0.6875rem",
+                fontSize: "0.8125rem",
               },
               "& .MuiTableHead-root .MuiTableCell-root": {
                 border: "none",
                 borderBottom: "2px solid #000",
                 fontWeight: 600,
-                fontSize: "0.6875rem",
+                fontSize: "0.8125rem",
               },
               "@media print": {
                 "& thead": { display: "table-row-group" },
@@ -1493,11 +1493,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                         <Box sx={{ pl: 1 }}>
                           {typeof item.details === 'string'
                             ? item.details.split("\n").map((detail: string, idx: number) => (
-                                <Typography key={idx} sx={{ fontSize: "0.625rem", color: "#666", lineHeight: 1.4 }}>
+                                <Typography key={idx} sx={{ fontSize: "0.8125rem", color: "#666", lineHeight: 1.4 }}>
                                   {detail}
                                 </Typography>
                               ))
-                            : <Typography sx={{ fontSize: "0.625rem", color: "#666", lineHeight: 1.4 }}>
+                            : <Typography sx={{ fontSize: "0.8125rem", color: "#666", lineHeight: 1.4 }}>
                                 {item.details}
                               </Typography>}
                         </Box>
@@ -1525,7 +1525,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
 
         {/* Reason / Remarks */}
         {(data.documentInfo?.reason || data.remarks) && (
-          <Box sx={{ mb: 2, fontSize: "0.6875rem" }}>
+          <Box sx={{ mb: 2, fontSize: "0.8125rem" }}>
             <Typography sx={{ fontWeight: 600, mb: 0.5 }}>Reason:</Typography>
             <Typography>{data.documentInfo?.reason || data.remarks || ""}</Typography>
           </Box>
@@ -1552,53 +1552,53 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 {/* Left Side - Rate, Sub-total, GST summary */}
                 <Box sx={{ display: "flex", alignItems: "center", gap: 3 }}>
                   <Box sx={{ display: "flex", alignItems: "center" }}>
-                    <Typography sx={{ fontSize: "0.6875rem" }}>(Rate :</Typography>
-                    <Typography sx={{ fontSize: "0.6875rem", ml: 1, minWidth: 60 }}>{rate.toFixed(6)}</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem" }}>(Rate :</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 60 }}>{rate.toFixed(6)}</Typography>
                   </Box>
                   <Box sx={{ display: "flex", alignItems: "center" }}>
-                    <Typography sx={{ fontSize: "0.6875rem" }}>Sub-total:</Typography>
-                    <Typography sx={{ fontSize: "0.6875rem", ml: 1, minWidth: 50, textAlign: "right" }}>{subtotalAfterDiscount.toFixed(2)}</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem" }}>Sub-total:</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 50, textAlign: "right" }}>{subtotalAfterDiscount.toFixed(2)}</Typography>
                   </Box>
                   <Box sx={{ display: "flex", alignItems: "center" }}>
-                    <Typography sx={{ fontSize: "0.6875rem" }}>GST</Typography>
-                    <Typography sx={{ fontSize: "0.6875rem", ml: 1 }}>:</Typography>
-                    <Typography sx={{ fontSize: "0.6875rem", ml: 1, minWidth: 40, textAlign: "right" }}>{gstAmount.toFixed(2)})</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem" }}>GST</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", ml: 1 }}>:</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 40, textAlign: "right" }}>{gstAmount.toFixed(2)})</Typography>
                   </Box>
                 </Box>
 
                 {/* Right Side - Detailed Totals */}
                 <Box sx={{ minWidth: 200 }}>
                   <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
-                    <Typography sx={{ fontSize: "0.6875rem" }}>Sub-Total</Typography>
-                    <Typography sx={{ fontSize: "0.6875rem", textAlign: "right" }}>{grossTotal.toFixed(2)}</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem" }}>Sub-Total</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{grossTotal.toFixed(2)}</Typography>
                   </Box>
                   {discountPercent > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
-                      <Typography sx={{ fontSize: "0.6875rem" }}>Discount</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem" }}>Discount</Typography>
                       <Box sx={{ display: "flex", gap: 2 }}>
-                        <Typography sx={{ fontSize: "0.6875rem" }}>{discountPercent.toFixed(2)}</Typography>
-                        <Typography sx={{ fontSize: "0.6875rem", textAlign: "right", minWidth: 50 }}>{discountAmount.toFixed(2)}</Typography>
+                        <Typography sx={{ fontSize: "0.8125rem" }}>{discountPercent.toFixed(2)}</Typography>
+                        <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", minWidth: 50 }}>{discountAmount.toFixed(2)}</Typography>
                       </Box>
                     </Box>
                   )}
                   {discountPercent > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
-                      <Typography sx={{ fontSize: "0.6875rem" }}>Sub-Total</Typography>
-                      <Typography sx={{ fontSize: "0.6875rem", textAlign: "right" }}>{subtotalAfterDiscount.toFixed(2)}</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem" }}>Sub-Total</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{subtotalAfterDiscount.toFixed(2)}</Typography>
                     </Box>
                   )}
                   <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
-                    <Typography sx={{ fontSize: "0.6875rem" }}>GST</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem" }}>GST</Typography>
                     <Box sx={{ display: "flex", gap: 2 }}>
-                      <Typography sx={{ fontSize: "0.6875rem" }}>{gstPercent.toFixed(2)} %</Typography>
-                      <Typography sx={{ fontSize: "0.6875rem", textAlign: "right", minWidth: 50 }}>{gstAmount.toFixed(2)}</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem" }}>{gstPercent.toFixed(2)} %</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", minWidth: 50 }}>{gstAmount.toFixed(2)}</Typography>
                     </Box>
                   </Box>
                   <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3, borderTop: "1px solid #000", mt: 0.5, pt: 0.5 }}>
-                    <Typography sx={{ fontSize: "0.6875rem" }}>Total</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem" }}>Total</Typography>
                     <Box sx={{ display: "flex", gap: 2 }}>
-                      <Typography sx={{ fontSize: "0.6875rem" }}>{currency}</Typography>
-                      <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600, textAlign: "right", minWidth: 50 }}>{finalTotal.toFixed(2)}</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem" }}>{currency}</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right", minWidth: 50 }}>{finalTotal.toFixed(2)}</Typography>
                     </Box>
                   </Box>
                 </Box>
@@ -1640,7 +1640,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
 
             return (
               <Box sx={{ mt: 2, borderBottom: "2px solid #000", pb: 1 }}>
-                <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500 }}>
+                <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500 }}>
                   S'PORE DOLLAR {numberToWords(finalTotal)}
                 </Typography>
               </Box>
@@ -1659,7 +1659,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 due.setDate(due.getDate() + termDays);
                 const formatted = due.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
                 return (
-                  <Typography sx={{ fontSize: "0.6875rem", fontWeight: 700, mb: 0.5 }}>
+                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, mb: 0.5 }}>
                     Due Date: {formatted}
                   </Typography>
                 );
@@ -1675,16 +1675,16 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 return (
                   <>
                     {hasBank && (
-                      <Box sx={{ fontSize: "0.5625rem", lineHeight: 1.6 }}>
-                        {bank.accountName && <Typography sx={{ fontSize: "0.5625rem" }}>All Cheque should be crossed and made payable to: {bank.accountName}</Typography>}
-                        {bank.bankName && <Typography sx={{ fontSize: "0.5625rem" }}>By Bank Transfer: {bank.bankName}</Typography>}
-                        {bank.branchCode && <Typography sx={{ fontSize: "0.5625rem" }}>Branch: {bank.branchCode}</Typography>}
-                        {(bank.bankCode || bank.swiftCode) && <Typography sx={{ fontSize: "0.5625rem" }}>Bank Branch No.: {bank.bankCode || ""}{bank.swiftCode ? ` Swift Code: ${bank.swiftCode}` : ""}</Typography>}
-                        {bank.accountNumber && <Typography sx={{ fontSize: "0.5625rem" }}>Bank Account No.: {bank.accountNumber}</Typography>}
-                        {organization?.registrationNumber && <Typography sx={{ fontSize: "0.5625rem" }}>PayNow to UEN: {organization.registrationNumber}</Typography>}
+                      <Box sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }}>
+                        {bank.accountName && <Typography sx={{ fontSize: "0.8125rem" }}>All Cheque should be crossed and made payable to: {bank.accountName}</Typography>}
+                        {bank.bankName && <Typography sx={{ fontSize: "0.8125rem" }}>By Bank Transfer: {bank.bankName}</Typography>}
+                        {bank.branchCode && <Typography sx={{ fontSize: "0.8125rem" }}>Branch: {bank.branchCode}</Typography>}
+                        {(bank.bankCode || bank.swiftCode) && <Typography sx={{ fontSize: "0.8125rem" }}>Bank Branch No.: {bank.bankCode || ""}{bank.swiftCode ? ` Swift Code: ${bank.swiftCode}` : ""}</Typography>}
+                        {bank.accountNumber && <Typography sx={{ fontSize: "0.8125rem" }}>Bank Account No.: {bank.accountNumber}</Typography>}
+                        {organization?.registrationNumber && <Typography sx={{ fontSize: "0.8125rem" }}>PayNow to UEN: {organization.registrationNumber}</Typography>}
                       </Box>
                     )}
-                    {!hasBank && <Typography sx={{ fontSize: "0.5625rem" }}>&nbsp;</Typography>}
+                    {!hasBank && <Typography sx={{ fontSize: "0.8125rem" }}>&nbsp;</Typography>}
                   </>
                 );
               })()}
@@ -1692,10 +1692,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
 
             {/* Right - Computer generated notice */}
             <Box sx={{ textAlign: "right" }}>
-              <Typography sx={{ fontSize: "0.6875rem", fontStyle: "italic" }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontStyle: "italic" }}>
                 This is a computer generated {isCreditNote ? "Credit Note" : "Debit Note"}.
               </Typography>
-              <Typography sx={{ fontSize: "0.6875rem", fontStyle: "italic" }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontStyle: "italic" }}>
                 No signature is required.
               </Typography>
             </Box>
@@ -1706,14 +1706,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
             <Box sx={{ display: "flex", gap: 2, mt: 1 }}>
               {data.note && (
                 <Box sx={{ flex: 1, pageBreakInside: "avoid", breakInside: "avoid" }}>
-                  <Typography sx={{ fontSize: "0.5625rem", fontWeight: 600 }}>Note:</Typography>
-                  <RichContent text={data.note} sx={{ fontSize: "0.5625rem", lineHeight: 1.6 }} />
+                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Note:</Typography>
+                  <RichContent text={data.note} sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }} />
                 </Box>
               )}
               {data.termsAndConditions && (
                 <Box sx={{ flex: 1, pageBreakInside: "avoid", breakInside: "avoid" }}>
-                  <Typography sx={{ fontSize: "0.5625rem", fontWeight: 600 }}>Terms & Conditions:</Typography>
-                  <RichContent text={data.termsAndConditions} sx={{ fontSize: "0.5625rem", lineHeight: 1.6 }} />
+                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Terms & Conditions:</Typography>
+                  <RichContent text={data.termsAndConditions} sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }} />
                 </Box>
               )}
             </Box>
@@ -1739,7 +1739,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           backgroundColor: "white",
           fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
           fontWeight: 400,
-          fontSize: "0.75rem",
+          fontSize: "0.8125rem",
           lineHeight: 1.6,
           color: "#000",
           display: "flex",
@@ -1756,11 +1756,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
             {data.company?.name || organization?.name || ""}
           </Typography>
-          <Typography sx={{ fontSize: "0.75rem", mb: 0.2 }}>
+          <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
             Co. Reg No. : {data.company?.coRegNo || ""}
             {" "}GST Reg No: {data.company?.gstRegNo || organization?.registrationNumber || ""}
           </Typography>
-          <Typography sx={{ fontSize: "0.75rem" }}>
+          <Typography sx={{ fontSize: "0.8125rem" }}>
             Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
             {data.company?.fax && ` Fax: ${data.company.fax}`}
           </Typography>
@@ -1770,16 +1770,16 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
         <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1, alignItems: "flex-start" }}>
           {/* Left - Supplier Info */}
           <Box sx={{ width: "45%" }}>
-            <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>To :</Typography>
-            <Typography sx={{ fontSize: "0.75rem", fontWeight: 600 }}>
+            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>To :</Typography>
+            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>
               {data.supplier?.name || data.documentInfo?.supplierName || data.customer?.name || data.customerName || ""}
             </Typography>
-            <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
+            <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
               {data.supplier?.address || data.documentInfo?.supplierAddress || data.customer?.address || data.customerAddress || ""}
             </Typography>
             {(data.documentInfo?.contactName || data.documentInfo?.contact || data.contact) && (
               <Box sx={{ mt: 1 }}>
-                <Typography sx={{ fontSize: "0.75rem" }}>
+                <Typography sx={{ fontSize: "0.8125rem" }}>
                   ATTN : {data.documentInfo?.contactName || data.documentInfo?.contact || data.contact}
                   {data.documentInfo?.contactNumber ? ` (${data.documentInfo.contactNumber})` : ""}
                 </Typography>
@@ -1812,13 +1812,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 border: "none",
                 borderBottom: "none",
                 padding: "10px 8px",
-                fontSize: "0.6875rem",
+                fontSize: "0.8125rem",
               },
               "& .MuiTableHead-root .MuiTableCell-root": {
                 border: "none",
                 borderBottom: "2px solid #000",
                 fontWeight: 600,
-                fontSize: "0.6875rem",
+                fontSize: "0.8125rem",
               },
               "@media print": {
                 "& thead": { display: "table-row-group" },
@@ -1884,21 +1884,21 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
                   <Box sx={{ minWidth: 250 }}>
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
-                      <Typography sx={{ fontSize: "0.6875rem" }}>SUB-TOTAL</Typography>
-                      <Typography sx={{ fontSize: "0.6875rem", textAlign: "right" }}>{grossTotal.toFixed(2)}</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem" }}>SUB-TOTAL</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{grossTotal.toFixed(2)}</Typography>
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
-                      <Typography sx={{ fontSize: "0.6875rem" }}>GST</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem" }}>GST</Typography>
                       <Box sx={{ display: "flex", gap: 2 }}>
-                        <Typography sx={{ fontSize: "0.6875rem" }}>{gstPercent.toFixed(2)} %</Typography>
-                        <Typography sx={{ fontSize: "0.6875rem", textAlign: "right", minWidth: 60 }}>{gstAmount.toFixed(2)}</Typography>
+                        <Typography sx={{ fontSize: "0.8125rem" }}>{gstPercent.toFixed(2)} %</Typography>
+                        <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", minWidth: 60 }}>{gstAmount.toFixed(2)}</Typography>
                       </Box>
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3, borderTop: "1px solid #000", mt: 0.5, pt: 0.5 }}>
-                      <Typography sx={{ fontSize: "0.6875rem" }}>TOTAL</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem" }}>TOTAL</Typography>
                       <Box sx={{ display: "flex", gap: 2 }}>
-                        <Typography sx={{ fontSize: "0.6875rem" }}>{currency}</Typography>
-                        <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600, textAlign: "right", minWidth: 60 }}>{finalTotal.toFixed(2)}</Typography>
+                        <Typography sx={{ fontSize: "0.8125rem" }}>{currency}</Typography>
+                        <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right", minWidth: 60 }}>{finalTotal.toFixed(2)}</Typography>
                       </Box>
                     </Box>
                   </Box>
@@ -1906,7 +1906,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
 
                 {/* Amount in Words */}
                 <Box sx={{ mt: 2, borderBottom: "2px solid #000", pb: 1 }}>
-                  <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500 }}>
+                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500 }}>
                     S'PORE DOLLAR {(() => {
                       const numberToWords = (num: number): string => {
                         const ones = ['', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE',
@@ -1937,29 +1937,29 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 {/* Signature Section */}
                 <Box sx={{ display: "flex", justifyContent: "space-between", mt: 4, gap: 2 }}>
                   <Box sx={{ flex: 1, textAlign: "center" }}>
-                    <Typography sx={{ fontSize: "0.625rem", mb: 0.5 }}>PREPARE BY :</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", mb: 0.5 }}>PREPARE BY :</Typography>
                     <Box sx={{ borderBottom: "1px solid #000", mb: 0.5, minHeight: 40 }} />
-                    <Typography sx={{ fontSize: "0.625rem", fontWeight: 600 }}>PURCHASER</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>PURCHASER</Typography>
                   </Box>
                   <Box sx={{ flex: 1, textAlign: "center" }}>
-                    <Typography sx={{ fontSize: "0.625rem", mb: 0.5 }}>CHECKED BY</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", mb: 0.5 }}>CHECKED BY</Typography>
                     <Box sx={{ borderBottom: "1px solid #000", mb: 0.5, minHeight: 40 }} />
-                    <Typography sx={{ fontSize: "0.625rem", fontWeight: 600 }}>SENIOR PURCHASER</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>SENIOR PURCHASER</Typography>
                   </Box>
                   <Box sx={{ flex: 1, textAlign: "center" }}>
-                    <Typography sx={{ fontSize: "0.625rem", mb: 0.5 }}>APPROVED BY</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", mb: 0.5 }}>APPROVED BY</Typography>
                     <Box sx={{ borderBottom: "1px solid #000", mb: 0.5, minHeight: 40 }} />
-                    <Typography sx={{ fontSize: "0.625rem", fontWeight: 600 }}>SENIOR OPERATIONAL MANAGER</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>SENIOR OPERATIONAL MANAGER</Typography>
                   </Box>
                   <Box sx={{ flex: 1, textAlign: "center" }}>
-                    <Typography sx={{ fontSize: "0.625rem", mb: 0.5 }}>ACKNOWLEDGE BY :</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", mb: 0.5 }}>ACKNOWLEDGE BY :</Typography>
                     <Box sx={{ borderBottom: "1px solid #000", mb: 0.5, minHeight: 40 }} />
-                    <Typography sx={{ fontSize: "0.625rem", fontWeight: 600 }}>VENDOR</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>VENDOR</Typography>
                   </Box>
                 </Box>
 
                 {/* Thank You message */}
-                <Typography sx={{ fontSize: "0.625rem", mt: 1 }}>
+                <Typography sx={{ fontSize: "0.8125rem", mt: 1 }}>
                   THANK YOU FOR YOUR RECENT PURCHASE
                 </Typography>
 
@@ -1986,7 +1986,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           backgroundColor: "white",
           fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
           fontWeight: 400,
-          fontSize: "0.75rem",
+          fontSize: "0.8125rem",
           lineHeight: 1.6,
           color: "#000",
           display: "flex",
@@ -2003,11 +2003,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
             {data.company?.name || organization?.name || ""}
           </Typography>
-          <Typography sx={{ fontSize: "0.75rem", mb: 0.2 }}>
+          <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
             Co. Reg No. : {data.company?.coRegNo || ""}
             {" "}GST Reg No: {data.company?.gstRegNo || organization?.registrationNumber || ""}
           </Typography>
-          <Typography sx={{ fontSize: "0.75rem" }}>
+          <Typography sx={{ fontSize: "0.8125rem" }}>
             Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
             {data.company?.fax && ` Fax: ${data.company.fax}`}
           </Typography>
@@ -2017,16 +2017,16 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
         <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1, alignItems: "flex-start" }}>
           {/* Left - To Info */}
           <Box sx={{ width: "45%" }}>
-            <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>To :</Typography>
-            <Typography sx={{ fontSize: "0.75rem", fontWeight: 600 }}>
+            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>To :</Typography>
+            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>
               {data.customer?.name || data.customerName || ""}{(data.customer?.customerCode || data.customerCode) ? ` (${data.customer?.customerCode || data.customerCode})` : ""}
             </Typography>
-            <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
+            <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
               {data.customer?.address || data.customerAddress || ""}
             </Typography>
             {(data.documentInfo?.contactName || data.documentInfo?.contact || data.contact) && (
               <Box sx={{ mt: 1 }}>
-                <Typography sx={{ fontSize: "0.75rem" }}>
+                <Typography sx={{ fontSize: "0.8125rem" }}>
                   ATTN : {data.documentInfo?.contactName || data.documentInfo?.contact || data.contact}
                   {data.documentInfo?.contactNumber ? ` (${data.documentInfo.contactNumber})` : ""}
                 </Typography>
@@ -2058,13 +2058,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 border: "none",
                 borderBottom: "none",
                 padding: "10px 8px",
-                fontSize: "0.6875rem",
+                fontSize: "0.8125rem",
               },
               "& .MuiTableHead-root .MuiTableCell-root": {
                 border: "none",
                 borderBottom: "2px solid #000",
                 fontWeight: 600,
-                fontSize: "0.6875rem",
+                fontSize: "0.8125rem",
               },
               "@media print": {
                 "& thead": { display: "table-row-group" },
@@ -2129,21 +2129,21 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
                   <Box sx={{ minWidth: 250 }}>
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
-                      <Typography sx={{ fontSize: "0.6875rem" }}>SUB-TOTAL</Typography>
-                      <Typography sx={{ fontSize: "0.6875rem", textAlign: "right" }}>{grossTotal.toFixed(2)}</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem" }}>SUB-TOTAL</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{grossTotal.toFixed(2)}</Typography>
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
-                      <Typography sx={{ fontSize: "0.6875rem" }}>GST</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem" }}>GST</Typography>
                       <Box sx={{ display: "flex", gap: 2 }}>
-                        <Typography sx={{ fontSize: "0.6875rem" }}>{gstPercent.toFixed(2)} %</Typography>
-                        <Typography sx={{ fontSize: "0.6875rem", textAlign: "right", minWidth: 60 }}>{gstAmount.toFixed(2)}</Typography>
+                        <Typography sx={{ fontSize: "0.8125rem" }}>{gstPercent.toFixed(2)} %</Typography>
+                        <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", minWidth: 60 }}>{gstAmount.toFixed(2)}</Typography>
                       </Box>
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3, borderTop: "1px solid #000", mt: 0.5, pt: 0.5 }}>
-                      <Typography sx={{ fontSize: "0.6875rem" }}>TOTAL</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem" }}>TOTAL</Typography>
                       <Box sx={{ display: "flex", gap: 2 }}>
-                        <Typography sx={{ fontSize: "0.6875rem" }}>{currency}</Typography>
-                        <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600, textAlign: "right", minWidth: 60 }}>{finalTotal.toFixed(2)}</Typography>
+                        <Typography sx={{ fontSize: "0.8125rem" }}>{currency}</Typography>
+                        <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right", minWidth: 60 }}>{finalTotal.toFixed(2)}</Typography>
                       </Box>
                     </Box>
                   </Box>
@@ -2151,7 +2151,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
 
                 {/* Amount in Words */}
                 <Box sx={{ mt: 2, borderBottom: "2px solid #000", pb: 1 }}>
-                  <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500 }}>
+                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500 }}>
                     S'PORE DOLLAR {(() => {
                       const numberToWords = (num: number): string => {
                         const ones = ['', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE',
@@ -2182,29 +2182,29 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 {/* Signature Section */}
                 <Box sx={{ display: "flex", justifyContent: "space-between", mt: 4, gap: 2 }}>
                   <Box sx={{ flex: 1, textAlign: "center" }}>
-                    <Typography sx={{ fontSize: "0.625rem", mb: 0.5 }}>PREPARE BY :</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", mb: 0.5 }}>PREPARE BY :</Typography>
                     <Box sx={{ borderBottom: "1px solid #000", mb: 0.5, minHeight: 40 }} />
-                    <Typography sx={{ fontSize: "0.625rem", fontWeight: 600 }}>PURCHASER</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>PURCHASER</Typography>
                   </Box>
                   <Box sx={{ flex: 1, textAlign: "center" }}>
-                    <Typography sx={{ fontSize: "0.625rem", mb: 0.5 }}>CHECKED BY</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", mb: 0.5 }}>CHECKED BY</Typography>
                     <Box sx={{ borderBottom: "1px solid #000", mb: 0.5, minHeight: 40 }} />
-                    <Typography sx={{ fontSize: "0.625rem", fontWeight: 600 }}>SENIOR PURCHASER</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>SENIOR PURCHASER</Typography>
                   </Box>
                   <Box sx={{ flex: 1, textAlign: "center" }}>
-                    <Typography sx={{ fontSize: "0.625rem", mb: 0.5 }}>APPROVED BY</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", mb: 0.5 }}>APPROVED BY</Typography>
                     <Box sx={{ borderBottom: "1px solid #000", mb: 0.5, minHeight: 40 }} />
-                    <Typography sx={{ fontSize: "0.625rem", fontWeight: 600 }}>SENIOR OPERATIONAL MANAGER</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>SENIOR OPERATIONAL MANAGER</Typography>
                   </Box>
                   <Box sx={{ flex: 1, textAlign: "center" }}>
-                    <Typography sx={{ fontSize: "0.625rem", mb: 0.5 }}>ACKNOWLEDGE BY :</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", mb: 0.5 }}>ACKNOWLEDGE BY :</Typography>
                     <Box sx={{ borderBottom: "1px solid #000", mb: 0.5, minHeight: 40 }} />
-                    <Typography sx={{ fontSize: "0.625rem", fontWeight: 600 }}>VENDOR</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>VENDOR</Typography>
                   </Box>
                 </Box>
 
                 {/* Thank You message */}
-                <Typography sx={{ fontSize: "0.625rem", mt: 1 }}>
+                <Typography sx={{ fontSize: "0.8125rem", mt: 1 }}>
                   THANK YOU FOR YOUR RECENT PURCHASE
                 </Typography>
 
@@ -2278,7 +2278,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           backgroundColor: "white",
           fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
           fontWeight: 400,
-          fontSize: "0.75rem",
+          fontSize: "0.8125rem",
           lineHeight: 1.6,
           color: "#000",
           display: "flex",
@@ -2295,14 +2295,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
             {data.company?.name || organization?.name || ""}
           </Typography>
-          <Typography sx={{ fontSize: "0.75rem", mb: 0.2 }}>
+          <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
             GST Reg No: {data.company?.gstRegNo || organization?.registrationNumber || ""}
             {data.company?.coRegNo && ` Co. Reg No. : ${data.company.coRegNo}`}
           </Typography>
-          <Typography sx={{ fontSize: "0.75rem", mb: 0.2 }}>
+          <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
             {data.company?.address || organization?.address || ""}
           </Typography>
-          <Typography sx={{ fontSize: "0.75rem" }}>
+          <Typography sx={{ fontSize: "0.8125rem" }}>
             Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
             {data.company?.fax && ` Fax: ${data.company.fax}`}
           </Typography>
@@ -2312,11 +2312,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
         <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1, alignItems: "flex-start" }}>
           {/* Left - To Section */}
           <Box sx={{ width: "45%", border: "1px solid #000", p: 1.5 }}>
-            <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>To :</Typography>
-            <Typography sx={{ fontSize: "0.75rem", fontWeight: 600 }}>
+            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>To :</Typography>
+            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>
               {data.customer?.name || data.customerName || ""}
             </Typography>
-            <Typography sx={{ fontSize: "0.75rem", whiteSpace: "pre-line" }}>
+            <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
               {data.billTo || data.customer?.address || data.customerAddress || ""}
             </Typography>
           </Box>
@@ -2330,9 +2330,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
               </Typography>
               <InfoRow label="UEN" value={data.customer?.gstRegNo || data.company?.gstRegNo || organization?.registrationNumber} minWidth="110px" />
               <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.75rem", minWidth: "110px", lineHeight: 1.4, fontWeight: 600 }}>QUOTATION NO.</Typography>
-                <Typography sx={{ fontSize: "0.75rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}></Typography>
-                <Typography sx={{ fontSize: "0.75rem", flex: 1, lineHeight: 1.4, fontWeight: 600 }}>{data.documentInfo?.documentNumber || ""}</Typography>
+                <Typography sx={{ fontSize: "0.8125rem", minWidth: "110px", lineHeight: 1.4, fontWeight: 600 }}>QUOTATION NO.</Typography>
+                <Typography sx={{ fontSize: "0.8125rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}></Typography>
+                <Typography sx={{ fontSize: "0.8125rem", flex: 1, lineHeight: 1.4, fontWeight: 600 }}>{data.documentInfo?.documentNumber || ""}</Typography>
               </Box>
               <InfoRow label="Date" value={formatDate(data.documentInfo?.date)} minWidth="110px" />
               <InfoRow label="Your Ref" value={data.documentInfo?.referenceNo} minWidth="110px" />
@@ -2345,7 +2345,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
         {/* Attention Line */}
         {(data.documentInfo?.contactName || data.documentInfo?.contact || data.attention?.name) && (
           <Box sx={{ mb: 1 }}>
-            <Typography sx={{ fontSize: "0.75rem", fontWeight: 600 }}>
+            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>
               Attn : {data.documentInfo?.contactName || data.documentInfo?.contact || data.attention?.name}
               {data.documentInfo?.contactNumber ? ` (${data.documentInfo.contactNumber})` : ""}
             </Typography>
@@ -2353,7 +2353,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
         )}
 
         {/* Intro Text */}
-        <Typography sx={{ fontSize: "0.75rem", mb: 2 }}>
+        <Typography sx={{ fontSize: "0.8125rem", mb: 2 }}>
           We are pleased to quote you herewith the following items required by you. They are ;-
         </Typography>
 
@@ -2365,13 +2365,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 border: "none",
                 borderBottom: "none",
                 padding: "6px 8px",
-                fontSize: "0.6875rem",
+                fontSize: "0.8125rem",
               },
               "& .MuiTableHead-root .MuiTableCell-root": {
                 border: "none",
                 borderBottom: "2px solid #000",
                 fontWeight: 600,
-                fontSize: "0.6875rem",
+                fontSize: "0.8125rem",
               },
               "@media print": {
                 "& thead": { display: "table-row-group" },
@@ -2401,7 +2401,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                       <TableCell sx={{ verticalAlign: "top" }}>{index + 1}</TableCell>
                       {hasItemCode && (
                         <TableCell sx={{ verticalAlign: "top" }}>
-                          <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500 }}>
+                          <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500 }}>
                             {item.itemCode || item.code || ""}
                           </Typography>
                         </TableCell>
@@ -2409,7 +2409,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                       <TableCell sx={{ verticalAlign: "top" }}>
                         <DescriptionText text={item.description || ""} />
                         {item.details && (
-                          <Typography sx={{ fontSize: "0.625rem", color: "#666" }}>
+                          <Typography sx={{ fontSize: "0.8125rem", color: "#666" }}>
                             {item.details}
                           </Typography>
                         )}
@@ -2447,20 +2447,20 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           <Box sx={{ display: "flex", justifyContent: "flex-end", borderTop: "1px solid #000", pt: 1, pageBreakInside: "avoid", breakInside: "avoid" }}>
             <Box sx={{ minWidth: 200 }}>
               <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
-                <Typography sx={{ fontSize: "0.6875rem" }}>Sub-Total</Typography>
-                <Typography sx={{ fontSize: "0.6875rem", textAlign: "right" }}>{subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>Sub-Total</Typography>
+                <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
               </Box>
               {discountAmount > 0 && (
                 <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
-                  <Typography sx={{ fontSize: "0.6875rem" }}>Discount</Typography>
-                  <Typography sx={{ fontSize: "0.6875rem", textAlign: "right" }}>{discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem" }}>Discount</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
                 </Box>
               )}
               <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3, borderTop: "1px solid #000", mt: 0.5, pt: 0.5 }}>
-                <Typography sx={{ fontSize: "0.6875rem" }}>Total</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>Total</Typography>
                 <Box sx={{ display: "flex", gap: 1 }}>
-                  <Typography sx={{ fontSize: "0.6875rem" }}>{currency}</Typography>
-                  <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600, textAlign: "right" }}>{subtotalAfterDiscount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem" }}>{currency}</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right" }}>{subtotalAfterDiscount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
                 </Box>
               </Box>
             </Box>
@@ -2468,21 +2468,21 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
 
           {/* Amount in Words */}
           <Box sx={{ mt: 2, mb: 2 }}>
-            <Typography sx={{ fontSize: "0.6875rem" }}>
+            <Typography sx={{ fontSize: "0.8125rem" }}>
               {numberToWords(subtotalAfterDiscount)}
             </Typography>
           </Box>
 
 
           {/* Closing Message */}
-          <Typography sx={{ fontSize: "0.6875rem", mb: 2 }}>
+          <Typography sx={{ fontSize: "0.8125rem", mb: 2 }}>
             Hope the above Quotation meets your requirement. Pls contact us if you have any doubt.
           </Typography>
 
           {/* Computer Generated Notice — placed before Notes/T&Cs so it stays
               with the main quotation page rather than being pushed to the end
               of long T&Cs. */}
-          <Typography sx={{ fontSize: "0.6875rem", fontStyle: "italic", mb: 3 }}>
+          <Typography sx={{ fontSize: "0.8125rem", fontStyle: "italic", mb: 3 }}>
             This is a computer generated Quotation. No signature is required.
           </Typography>
 
@@ -2491,14 +2491,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
             <Box sx={{ display: "flex", gap: 3, mb: 2 }}>
               {data.note && (
                 <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
-                  <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600 }}>Note:</Typography>
-                  <RichContent text={data.note} sx={{ fontSize: "0.6875rem", lineHeight: 1.6 }} />
+                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Note:</Typography>
+                  <RichContent text={data.note} sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }} />
                 </Box>
               )}
               {data.remarks && (
                 <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
-                  <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600 }}>Remarks:</Typography>
-                  <RichContent text={data.remarks} sx={{ fontSize: "0.6875rem", lineHeight: 1.6 }} />
+                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Remarks:</Typography>
+                  <RichContent text={data.remarks} sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }} />
                 </Box>
               )}
             </Box>
@@ -2515,7 +2515,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
             <Box sx={{ mb: 2 }}>
               <Typography
                 sx={{
-                  fontSize: "0.6875rem",
+                  fontSize: "0.8125rem",
                   fontWeight: 600,
                   pageBreakAfter: "avoid",
                   breakAfter: "avoid",
@@ -2525,7 +2525,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
               >
                 Terms & Conditions:
               </Typography>
-              <RichContent text={data.termsAndConditions} sx={{ fontSize: "0.6875rem", lineHeight: 1.6 }} />
+              <RichContent text={data.termsAndConditions} sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }} />
             </Box>
           )}
 
@@ -2546,7 +2546,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
         p: "15mm",
         backgroundColor: "white",
         fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
-        fontSize: "0.75rem",
+        fontSize: "0.8125rem",
         lineHeight: 1.4,
         color: "#000",
         "@media print": {
@@ -2581,16 +2581,16 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
             <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>
               {data.customer?.name || data.customerName || ""}
             </Typography>
-            <Typography sx={{ fontSize: "0.6875rem", mb: 0.3, whiteSpace: "pre-line" }}>
+            <Typography sx={{ fontSize: "0.8125rem", mb: 0.3, whiteSpace: "pre-line" }}>
               {data.customer?.address || data.customerAddress || ""}
             </Typography>
             {(data.deliveryAddress?.attention || data.attention?.name) && (
-              <Typography sx={{ fontSize: "0.6875rem", mb: 0.3 }}>
+              <Typography sx={{ fontSize: "0.8125rem", mb: 0.3 }}>
                 Attn: {data.deliveryAddress?.attention || data.attention?.name}
               </Typography>
             )}
             {(data.deliveryAddress?.phone || data.attention?.phoneNumber) && (
-              <Typography sx={{ fontSize: "0.6875rem", mb: 0.3 }}>
+              <Typography sx={{ fontSize: "0.8125rem", mb: 0.3 }}>
                 Tel: {data.deliveryAddress?.phone || data.attention?.phoneNumber}
               </Typography>
             )}
@@ -2603,29 +2603,29 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
         {/* Center Column - Document Details */}
         <Box sx={{ width: "20%" }}>
           <Box sx={{ mb: 1.5 }}>
-            <Typography sx={{ fontSize: "0.625rem", color: "#666", mb: 0.3 }}>
+            <Typography sx={{ fontSize: "0.8125rem", color: "#666", mb: 0.3 }}>
               {getDocumentTitle()} Date
             </Typography>
-            <Typography sx={{ fontSize: "0.75rem", fontWeight: 500 }}>
+            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500 }}>
               {formatDate(data.documentInfo?.date)}
             </Typography>
           </Box>
 
           <Box sx={{ mb: 1.5 }}>
-            <Typography sx={{ fontSize: "0.625rem", color: "#666", mb: 0.3 }}>
+            <Typography sx={{ fontSize: "0.8125rem", color: "#666", mb: 0.3 }}>
               {getDocumentTitle()} Number
             </Typography>
-            <Typography sx={{ fontSize: "0.75rem", fontWeight: 500 }}>
+            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500 }}>
               {data.documentInfo?.documentNumber || ""}
             </Typography>
           </Box>
 
           {data.documentInfo?.referenceNo && (
             <Box sx={{ mb: 1.5 }}>
-              <Typography sx={{ fontSize: "0.625rem", color: "#666", mb: 0.3 }}>
+              <Typography sx={{ fontSize: "0.8125rem", color: "#666", mb: 0.3 }}>
                 Reference
               </Typography>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 500 }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500 }}>
                 {data.documentInfo.referenceNo}
               </Typography>
             </Box>
@@ -2633,10 +2633,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
 
           {data.documentInfo?.poNo && (
             <Box sx={{ mb: 1.5 }}>
-              <Typography sx={{ fontSize: "0.625rem", color: "#666", mb: 0.3 }}>
+              <Typography sx={{ fontSize: "0.8125rem", color: "#666", mb: 0.3 }}>
                 P.O. Number
               </Typography>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 500 }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500 }}>
                 {data.documentInfo.poNo}
               </Typography>
             </Box>
@@ -2644,10 +2644,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
 
           {data.documentInfo?.doNo && documentType === "RDO" && (
             <Box sx={{ mb: 1.5 }}>
-              <Typography sx={{ fontSize: "0.625rem", color: "#666", mb: 0.3 }}>
+              <Typography sx={{ fontSize: "0.8125rem", color: "#666", mb: 0.3 }}>
                 D.O. Number
               </Typography>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 500 }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500 }}>
                 {data.documentInfo.doNo}
               </Typography>
             </Box>
@@ -2655,10 +2655,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
 
           {data.documentInfo?.returnOrderNo && documentType === "RDO" && (
             <Box sx={{ mb: 1.5 }}>
-              <Typography sx={{ fontSize: "0.625rem", color: "#666", mb: 0.3 }}>
+              <Typography sx={{ fontSize: "0.8125rem", color: "#666", mb: 0.3 }}>
                 Return Order Number
               </Typography>
-              <Typography sx={{ fontSize: "0.75rem", fontWeight: 500 }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500 }}>
                 {data.documentInfo.returnOrderNo}
               </Typography>
             </Box>
@@ -2670,20 +2670,20 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>
             {data.company?.name || organization?.name || ""}
           </Typography>
-          <Typography sx={{ fontSize: "0.6875rem", mb: 0.3, whiteSpace: "pre-line" }}>
+          <Typography sx={{ fontSize: "0.8125rem", mb: 0.3, whiteSpace: "pre-line" }}>
             {data.company?.address || organization?.address || ""}
           </Typography>
           {(data.company?.phoneNumber || organization?.phoneNumber) && (
-            <Typography sx={{ fontSize: "0.6875rem", mb: 0.3 }}>
+            <Typography sx={{ fontSize: "0.8125rem", mb: 0.3 }}>
               Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
             </Typography>
           )}
           {(data.company?.gstRegNo || organization?.registrationNumber) && (
             <>
-              <Typography sx={{ fontSize: "0.6875rem", mb: 0.3 }}>
+              <Typography sx={{ fontSize: "0.8125rem", mb: 0.3 }}>
                 Company & GST Reg No:
               </Typography>
-              <Typography sx={{ fontSize: "0.6875rem", fontWeight: 500 }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500 }}>
                 {data.company?.gstRegNo || organization?.registrationNumber || ""}
               </Typography>
             </>
@@ -2694,10 +2694,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
       {/* Delivery Address if different and specified for DO/RDO */}
       {(documentType === "DO" || documentType === "RDO") && data.deliveryAddress?.address && (
         <Box sx={{ mb: 3 }}>
-          <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>
+          <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>
             Delivery To:
           </Typography>
-          <Typography sx={{ fontSize: "0.75rem" }}>
+          <Typography sx={{ fontSize: "0.8125rem" }}>
             {data.deliveryAddress.address}
           </Typography>
         </Box>
@@ -2706,10 +2706,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
       {/* Collect From for RDO */}
       {documentType === "RDO" && data.collectFrom && (
         <Box sx={{ mb: 3 }}>
-          <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, mb: 0.5 }}>
+          <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>
             Collect From:
           </Typography>
-          <Typography sx={{ fontSize: "0.75rem" }}>
+          <Typography sx={{ fontSize: "0.8125rem" }}>
             {data.collectFrom}
           </Typography>
         </Box>
@@ -2723,7 +2723,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
               border: "none",
               borderBottom: "none",
               padding: "8px",
-              fontSize: "0.6875rem",
+              fontSize: "0.8125rem",
             },
             "& .MuiTableHead-root .MuiTableCell-root": {
               borderBottom: "2px solid #000",
@@ -2778,19 +2778,19 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
       <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 3 }}>
         <Box sx={{ width: 250 }}>
           <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-            <Typography variant="body2" sx={{ fontSize: "0.6875rem" }}>
+            <Typography variant="body2" sx={{ fontSize: "0.8125rem" }}>
               Subtotal:
             </Typography>
-            <Typography variant="body2" sx={{ fontSize: "0.6875rem" }}>
+            <Typography variant="body2" sx={{ fontSize: "0.8125rem" }}>
               {subtotal.toFixed(2)}
             </Typography>
           </Box>
 
           <Box sx={{ display: "flex", justifyContent: "space-between", pt: 1, borderTop: "1px solid #000" }}>
-            <Typography variant="body1" sx={{ fontSize: "0.75rem", fontWeight: "bold" }}>
+            <Typography variant="body1" sx={{ fontSize: "0.8125rem", fontWeight: "bold" }}>
               TOTAL {data.company?.currency || "SGD"}:
             </Typography>
-            <Typography variant="body1" sx={{ fontSize: "0.75rem", fontWeight: "bold" }}>
+            <Typography variant="body1" sx={{ fontSize: "0.8125rem", fontWeight: "bold" }}>
               {subtotal.toFixed(2)}
             </Typography>
           </Box>
@@ -2800,26 +2800,26 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
       {/* Footer Notes */}
       {data.note && (
         <Box sx={{ mb: 2 }}>
-          <Typography variant="body2" sx={{ fontSize: "0.625rem", fontStyle: "italic", fontWeight: 600 }}>
+          <Typography variant="body2" sx={{ fontSize: "0.8125rem", fontStyle: "italic", fontWeight: 600 }}>
             Notes:
           </Typography>
-          <RichContent text={data.note} sx={{ fontSize: "0.625rem" }} />
+          <RichContent text={data.note} sx={{ fontSize: "0.8125rem" }} />
         </Box>
       )}
 
       {/* Terms & Conditions */}
       {data.termsAndConditions && (
         <Box sx={{ mb: 2, pageBreakInside: "avoid", breakInside: "avoid" }}>
-          <Typography variant="body2" sx={{ fontSize: "0.625rem", fontWeight: 600, mb: 0.5 }}>
+          <Typography variant="body2" sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>
             Terms & Conditions:
           </Typography>
-          <RichContent text={data.termsAndConditions} sx={{ fontSize: "0.625rem" }} />
+          <RichContent text={data.termsAndConditions} sx={{ fontSize: "0.8125rem" }} />
         </Box>
       )}
 
       {/* Computer Generated Notice */}
       <Box sx={{ position: "absolute", bottom: "15mm", left: "15mm", right: "15mm", textAlign: "center" }}>
-        <Typography variant="body2" sx={{ fontSize: "0.5625rem", fontStyle: "italic", color: "#666" }}>
+        <Typography variant="body2" sx={{ fontSize: "0.8125rem", fontStyle: "italic", color: "#666" }}>
           This is a computer-generated document. No signature is required.
         </Typography>
       </Box>

@@ -53,7 +53,10 @@ const getMainListItems = (isAdmin: boolean) => {
   return baseItems;
 };
 
-const secondaryListItems: any = [{ text: "Organization Settings", path: "/portal/settings/organization", icon: <SettingsRoundedIcon /> }];
+const secondaryListItems: any = [
+  { text: "Company Profile", path: "/portal/settings/company-profile", icon: <SettingsRoundedIcon /> },
+  { text: "Accounting Setup", path: "/portal/settings/accounting-setup", icon: <SettingsRoundedIcon /> },
+];
 
 export default function SideBarContent() {
   const theme = useTheme();

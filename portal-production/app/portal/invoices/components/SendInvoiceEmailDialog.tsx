@@ -14,6 +14,7 @@ import {
   Typography,
   Alert,
   CircularProgress,
+  Autocomplete,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
@@ -225,7 +226,7 @@ ${organizationName}`;
         {/* FROM field (read-only) */}
         <TextField
           label="FROM"
-          value="invoices@aspireapp.com"
+          value="admin@osiris.sg"
           fullWidth
           disabled
           margin="normal"
@@ -233,20 +234,49 @@ ${organizationName}`;
         />
 
         {/* TO field */}
-        <TextField
-          label="TO"
-          value={to.join(", ")}
-          onChange={(e) => setTo(e.target.value.split(",").map((email) => email.trim()))}
-          fullWidth
-          required
-          margin="normal"
-          disabled={loading}
-          error={to.length === 0 || !to[0]}
-          helperText={
-            to.length === 0 || !to[0]
-              ? "Recipient email is required"
-              : "Separate multiple emails with commas"
+        <Autocomplete
+          multiple
+          freeSolo
+          options={[]}
+          value={to}
+          onChange={(_, newValue) => {
+            const cleaned = (newValue as string[])
+              .flatMap((v) => v.split(/[,\s]+/))
+              .map((v) => v.trim())
+              .filter((v) => v.length > 0);
+            const unique = Array.from(new Set(cleaned));
+            const invalid = unique.filter((v) => !validateEmail(v));
+            if (invalid.length > 0) {
+              toast.error(`Invalid email: ${invalid.join(", ")}`);
+            }
+            setTo(unique.filter((v) => validateEmail(v)));
+          }}
+          renderTags={(value, getTagProps) =>
+            value.map((option, index) => (
+              <Chip
+                {...getTagProps({ index })}
+                key={option}
+                label={option}
+                size="small"
+              />
+            ))
           }
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label="TO"
+              required
+              margin="normal"
+              disabled={loading}
+              error={to.length === 0}
+              helperText={
+                to.length === 0
+                  ? "Recipient email is required"
+                  : "Press Enter or comma to add an email"
+              }
+            />
+          )}
+          disabled={loading}
           sx={{ mb: 2 }}
         />
 

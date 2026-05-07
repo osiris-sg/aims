@@ -178,7 +178,7 @@ export default function OrganizationSettingsPage() {
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
       <Typography variant="h5" sx={{ fontWeight: 700 }}>
-        Organization Settings
+        Company Profile
       </Typography>
       <Divider />
 

@@ -145,20 +145,33 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
         return;
       }
 
-      // Fetch price history with pagination
-      const queryParams = new URLSearchParams();
-      if (customerId) queryParams.append('customerId', customerId);
-      queryParams.append('limit', rowsPerPage.toString());
-      queryParams.append('offset', (page * rowsPerPage).toString());
+      const buildQuery = (withCustomer: boolean) => {
+        const p = new URLSearchParams();
+        if (withCustomer && customerId) p.append('customerId', customerId);
+        p.append('limit', rowsPerPage.toString());
+        p.append('offset', (page * rowsPerPage).toString());
+        return p.toString();
+      };
 
-      const historyResponse = await request(
-        {
-          path: `/price-history/asset/${assetId}?${queryParams.toString()}`,
-          method: 'GET',
-        },
+      // First try filtered by customer; if empty and we have a customer, retry org-wide.
+      let historyResponse = await request(
+        { path: `/price-history/asset/${assetId}?${buildQuery(true)}`, method: 'GET' },
         {},
-        token
+        token,
       );
+
+      const isEmpty =
+        !historyResponse?.success ||
+        !historyResponse?.data ||
+        !(historyResponse.data.data || []).length;
+      if (isEmpty && customerId) {
+        console.log('[PriceHistory] no per-customer history; falling back to org-wide');
+        historyResponse = await request(
+          { path: `/price-history/asset/${assetId}?${buildQuery(false)}`, method: 'GET' },
+          {},
+          token,
+        );
+      }
 
       console.log('History Response:', historyResponse);
 

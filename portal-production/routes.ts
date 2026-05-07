@@ -32,7 +32,9 @@ export const ROUTES = {
   SALES_STOCK_CARD: "/portal/sales/stock-card",
 
   PROJECTS: "/portal/projects",
-  ORG_SETTINGS: "/portal/settings/organization",
+  ORG_SETTINGS: "/portal/settings/company-profile",
+  COMPANY_PROFILE: "/portal/settings/company-profile",
+  ACCOUNTING_SETUP: "/portal/settings/accounting-setup",
   CREATE_PROJECT: "/portal/projects/create",
 
   DOCUMENTS: "/portal/documents",

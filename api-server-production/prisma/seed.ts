@@ -1511,6 +1511,46 @@ async function main() {
     },
   });
 
+  // General Ledger / Chart of Accounts / Accounting Setup permissions
+  const accountingActions: Array<{ action: string; description: string }> = [
+    { action: 'read', description: 'Can view chart of accounts and accounting settings' },
+    { action: 'create', description: 'Can create chart-of-account entries' },
+    { action: 'update', description: 'Can update chart-of-account entries and accounting settings' },
+    { action: 'delete', description: 'Can deactivate chart-of-account entries' },
+  ];
+  for (const { action, description } of accountingActions) {
+    await prisma.permission.upsert({
+      where: { name: `accounting:${action}` },
+      update: {},
+      create: {
+        name: `accounting:${action}`,
+        description,
+        resource: 'accounting',
+        action,
+      },
+    });
+  }
+
+  // Journal entries (General Ledger) permissions
+  const journalActions: Array<{ action: string; description: string }> = [
+    { action: 'read', description: 'Can view journal entries, trial balance, and general ledger' },
+    { action: 'create', description: 'Can create manual journal entries' },
+    { action: 'post', description: 'Can post journal entries' },
+    { action: 'void', description: 'Can void posted journal entries (creates reversing entry)' },
+  ];
+  for (const { action, description } of journalActions) {
+    await prisma.permission.upsert({
+      where: { name: `journal:${action}` },
+      update: {},
+      create: {
+        name: `journal:${action}`,
+        description,
+        resource: 'journal',
+        action,
+      },
+    });
+  }
+
   console.log('✅ Accounting permissions created successfully');
   console.log('Seed completed successfully');
 }

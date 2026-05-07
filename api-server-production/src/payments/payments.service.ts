@@ -3,10 +3,14 @@ import { PrismaService } from '../common/prisma.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { UpdatePaymentDto } from './dto/update-payment.dto';
 import { Prisma, TransactionType, DocumentStatus } from '@prisma/client';
+import { JournalAutoPostService } from '../journal/journal-auto-post.service';
 
 @Injectable()
 export class PaymentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly journalAutoPost: JournalAutoPostService,
+  ) {}
 
   /**
    * Create a new payment record and corresponding transaction
@@ -109,6 +113,25 @@ export class PaymentsService {
 
       // Auto-update invoice status based on payments
       await this.updateInvoiceStatusAfterPayment(createPaymentDto.documentId, organizationId);
+
+      // Auto-post the payment to the General Ledger (best-effort).
+      try {
+        await this.journalAutoPost.postFromPayment({
+          organizationId,
+          paymentId: result.payment.id,
+          documentId: createPaymentDto.documentId,
+          paymentReference: createPaymentDto.reference,
+          paymentMethod: createPaymentDto.paymentMethod,
+          paymentDate: new Date(createPaymentDto.paymentDate),
+          customerName: result.payment.customer?.name,
+          amount: createPaymentDto.amount,
+          userId,
+        });
+        console.log('✅ Journal entry auto-posted for payment:', result.payment.id);
+      } catch (e) {
+        console.error('Failed to auto-post journal entry for payment:', e);
+        // Never fail the payment on a posting failure.
+      }
 
       return {
         success: true,

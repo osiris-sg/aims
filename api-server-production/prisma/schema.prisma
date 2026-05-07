@@ -42,6 +42,9 @@ model Organization {
   customerBalances   CustomerBalance[]
   quantityAdjustments QuantityAdjustment[]
   importInvoices     ImportInvoice[]
+  chartOfAccounts    ChartOfAccount[]
+  accountingSetting  AccountingSetting?
+  journalEntries     JournalEntry[]
 }
 
 model Asset {
@@ -709,4 +712,146 @@ model ImportInvoice {
   @@unique([invoiceNumber, organizationId])
   @@index([organizationId, reviewStatus])
   @@index([organizationId])
+}
+
+// ============================================================
+// ACCOUNTING
+// ============================================================
+
+// Chart of Accounts — one row per GL account per organization.
+// Code prefixes follow the A's / Singapore SME convention:
+//   Sxxxx = Sales, Cxxxx = Purchase / Cost of Sales, Ixxxx = Income,
+//   Exxxx = Expenses, TXxxx = Tax, XIxxx = Extraordinary,
+//   FAxxx = Fixed Assets, IAxxx = Intangible, CAxxx = Current Assets,
+//   CLxxx = Current Liabilities, MTxxx/LTxxx = Medium/Long Term Liabilities,
+//   DVxxx = Dividends, PCxxx = Share Capital, PDxxx = Depreciation Provision,
+//   RPxxx = Retained Profit, CRxxx = Capital Reserve.
+model ChartOfAccount {
+  id               String   @id @default(uuid())
+  organizationId   String
+  code             String   // e.g., "S0001", "CA001", "CL300"
+  name             String   // e.g., "Credit Sales", "Trade Receivables"
+  description      String?
+  accountType      String   // High-level type — see AccountType enum-ish values in service
+  category         String   // 'PNL' | 'BALANCE_SHEET'
+  normalBalance    String   // 'DEBIT' | 'CREDIT'
+  isControlAccount Boolean  @default(false) // Debtor / Creditor / GST control accounts
+  isSystem         Boolean  @default(false) // Seeded by default; cannot be deleted
+  isActive         Boolean  @default(true)
+  parentAccountId  String?  // Optional sub-account hierarchy
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parent         ChartOfAccount? @relation("AccountHierarchy", fields: [parentAccountId], references: [id])
+  children       ChartOfAccount[] @relation("AccountHierarchy")
+  journalLines   JournalEntryLine[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, accountType])
+  @@index([organizationId, category])
+}
+
+// One-per-organization accounting configuration (A's "Installation" screen).
+model AccountingSetting {
+  id             String @id @default(uuid())
+  organizationId String @unique
+
+  // ---------- Operation Settings ----------
+  baseCurrency            String @default("SGD")
+  // Next-number counters per document type (e.g. { "invoice": 119, "quotation": 22, ... })
+  nextNumbers             Json?
+  // Per-doc-type prefix overrides (e.g. { "invoice": "INV", "quotation": "QO" })
+  numberPrefixes          Json?
+  activateLastSoldPrice   Boolean @default(true)
+  activateLastBuyPrice    Boolean @default(true)
+
+  // ---------- Accounts Settings ----------
+  yearOpeningDate   DateTime?
+  yearOpeningStock  Float?    @default(0)
+  monthOpeningDate  DateTime?
+  monthOpeningStock Float?    @default(0)
+  monthClosingStock Float?    @default(0)
+
+  // ---------- Tax Settings ----------
+  taxRegistrationNumber String?
+  taxDefaultPercentage  Float?  @default(9)
+  taxReference          String? @default("GST") // GST / VAT / etc.
+
+  // ---------- Accounts Definition ----------
+  // Code-range windows (e.g. { sales: { from: "S0001", to: "S9999" }, ... })
+  accountCodeRanges Json?
+  // Control-account code references (e.g. { debtorControl: "CA001", creditorControl: "CL001", taxLiabilities: "CL300", ... })
+  controlAccounts   Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// JOURNAL ENTRIES — General Ledger
+// ============================================================
+//
+// JournalEntry is the GL header (one transaction = many balanced lines).
+// Auto-created on invoice confirm + payment record, plus manual entries
+// (Journal Voucher). Posting locks the entry; voiding creates a reversing entry.
+
+model JournalEntry {
+  id             String   @id @default(uuid())
+  organizationId String
+  journalNumber  String   // e.g., "JV-000001"
+  entryDate      DateTime
+  type           String   // MANUAL | INVOICE | PAYMENT | CREDIT_NOTE | DEBIT_NOTE | OPENING_BALANCE | ADJUSTMENT
+  status         String   @default("DRAFT") // DRAFT | POSTED | VOID
+  reference      String?  // Source document number, payment reference, etc.
+  description    String?
+  totalDebit     Float    @default(0)
+  totalCredit    Float    @default(0)
+  currency       String   @default("SGD")
+
+  // Source linkage (only one is set depending on type)
+  sourceDocumentId String?
+  sourcePaymentId  String?
+
+  postedAt  DateTime?
+  postedBy  String?
+  voidedAt  DateTime?
+  voidedBy  String?
+  reversesEntryId String? // If this is a reversing entry, points to original
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String?
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lines        JournalEntryLine[]
+
+  @@unique([organizationId, journalNumber])
+  @@index([organizationId, entryDate])
+  @@index([organizationId, status])
+  @@index([organizationId, type])
+  @@index([sourceDocumentId])
+  @@index([sourcePaymentId])
+}
+
+model JournalEntryLine {
+  id             String  @id @default(uuid())
+  journalEntryId String
+  accountId      String  // FK to ChartOfAccount.id
+  lineNumber     Int
+  description    String?
+  debit          Float   @default(0)
+  credit         Float   @default(0)
+
+  // Multi-currency support — set when the org operates in multiple currencies
+  foreignAmount Float?
+  exchangeRate  Float?
+
+  journalEntry JournalEntry   @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account      ChartOfAccount @relation(fields: [accountId], references: [id])
+
+  @@index([journalEntryId])
+  @@index([accountId])
 }

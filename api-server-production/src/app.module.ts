@@ -33,6 +33,8 @@ import { TransactionsModule } from './transactions/transactions.module';
 import { StatementsModule } from './statements/statements.module';
 import { EmailModule } from './email/email.module';
 import { ImportModule } from './import/import.module';
+import { AccountingModule } from './accounting/accounting.module';
+import { JournalModule } from './journal/journal.module';
 
 @Module({
   imports: [
@@ -65,6 +67,8 @@ import { ImportModule } from './import/import.module';
     StatementsModule,
     EmailModule,
     ImportModule,
+    AccountingModule,
+    JournalModule,
   ],
   controllers: [AppController],
   providers: [

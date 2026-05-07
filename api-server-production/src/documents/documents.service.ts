@@ -7,6 +7,7 @@ import { XeroService } from 'src/common/xero.service';
 import { PriceHistoryService } from '../price-history/price-history.service';
 import { TransactionsService } from '../transactions/transactions.service';
 import { EmailService } from '../email/email.service';
+import { JournalAutoPostService } from '../journal/journal-auto-post.service';
 import { SendInvoiceEmailDto } from '../email/dto/send-invoice-email.dto';
 import { S3Service } from 'src/common/services/s3.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
@@ -20,6 +21,7 @@ export class DocumentsService {
     private priceHistoryService: PriceHistoryService,
     private transactionsService: TransactionsService,
     private emailService: EmailService,
+    private journalAutoPost: JournalAutoPostService,
     private s3Service: S3Service,
     private pdfGeneratorService: PdfGeneratorService,
   ) {}
@@ -259,10 +261,21 @@ export class DocumentsService {
         },
       });
 
-      // If document is being confirmed and is an invoice, save price history and create transaction
-      if (dto.status === 'confirmed' &&
-          existingDocument.status !== 'confirmed' &&
-          (dto.type === 'INVOICE' || dto.type === 'TI' || dto.type === 'TI2')) {
+      // ---- Invoice confirmation gate (price history + AR transaction) ----
+      // NOTE: GL auto-posting for invoices lives in confirmInvoice(); this generic
+      // update() path is for non-invoice document types or backwards-compat updates.
+      const isInvoiceType = dto.type === 'INVOICE' || dto.type === 'TI' || dto.type === 'TI2';
+      const becomingConfirmed = dto.status === 'confirmed' && existingDocument.status !== 'confirmed';
+      console.log('🧾 [INVOICE-CONFIRM gate]', {
+        docId: id,
+        dtoType: dto.type,
+        dtoStatus: dto.status,
+        existingStatus: existingDocument.status,
+        isInvoiceType,
+        becomingConfirmed,
+        willAutoPost: isInvoiceType && becomingConfirmed,
+      });
+      if (becomingConfirmed && isInvoiceType) {
         try {
           await this.priceHistoryService.savePriceHistoryFromDocument(id, organizationId);
           console.log('Price history saved for confirmed invoice:', id);
@@ -304,6 +317,8 @@ export class DocumentsService {
           console.error('Failed to create accounting transaction:', error);
           // Don't fail the document update if transaction creation fails
         }
+
+        // GL auto-post for invoices is handled by confirmInvoice(); not duplicated here.
       }
 
       // If document is being confirmed and is a Purchase Order, update inventory quantities
@@ -384,6 +399,79 @@ export class DocumentsService {
         } catch (error) {
           console.error('❌ PO RECEIVE: Failed to update inventory:', error);
           // Don't fail the document update if inventory update fails
+        }
+      }
+
+      // ---- GL auto-post for non-invoice transactional types ----
+      // Credit Note / Debit Note / Purchase Order / Purchase Return — when status flips to "confirmed".
+      const GL_TYPES: Record<string, 'CREDIT_NOTE' | 'DEBIT_NOTE' | 'PURCHASE_ORDER' | 'PURCHASE_RETURN'> = {
+        CN: 'CREDIT_NOTE',
+        CREDIT_NOTE: 'CREDIT_NOTE',
+        DN: 'DEBIT_NOTE',
+        DEBIT_NOTE: 'DEBIT_NOTE',
+        PO: 'PURCHASE_ORDER',
+        PURCHASE_ORDER: 'PURCHASE_ORDER',
+        PR: 'PURCHASE_RETURN',
+        PURCHASE_RETURN: 'PURCHASE_RETURN',
+      };
+      const glType = GL_TYPES[dto.type as keyof typeof GL_TYPES];
+      if (becomingConfirmed && glType) {
+        console.log('📒 [GL auto-post] entering for', dto.type, '→', glType);
+        try {
+          const existing = await this.journalAutoPost.alreadyPostedForDocument(organizationId, id, glType);
+          if (existing) {
+            console.log('📒 [GL auto-post] entry already exists — skipping', existing);
+          } else {
+            const cfg: any = configAsPlainObject || existingDocument.config;
+            const items = cfg?.items || [];
+            const partyName = cfg?.customer?.name || cfg?.customerName || cfg?.supplier?.name || cfg?.supplierName;
+
+            const explicitNet = parseFloat(cfg?.subTotal ?? cfg?.summary?.subTotal ?? 'NaN');
+            const explicitTax = parseFloat(cfg?.gstAmount ?? cfg?.summary?.taxAmount ?? cfg?.tax?.amount ?? 'NaN');
+            const explicitGross = parseFloat(cfg?.nettTotal ?? cfg?.summary?.grandTotal ?? 'NaN');
+
+            const fallbackNet = items.reduce((sum: number, item: any) => {
+              const amt = parseFloat(item.amount) || (parseFloat(item.quantity) * parseFloat(item.unitPrice)) || 0;
+              return sum + amt;
+            }, 0);
+            const org = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { taxRate: true } });
+            const orgRate = (org?.taxRate ?? 0) / 100;
+
+            const netAmount = !Number.isNaN(explicitNet) ? explicitNet : fallbackNet;
+            const taxAmount = !Number.isNaN(explicitTax) ? explicitTax : netAmount * orgRate;
+            const grossAmount = !Number.isNaN(explicitGross) ? explicitGross : netAmount + taxAmount;
+
+            console.log('📒 [GL auto-post] computed', { docId: id, type: glType, partyName, netAmount, taxAmount, grossAmount });
+
+            const baseArgs = {
+              organizationId,
+              documentId: id,
+              documentNumber: updatedDocument.name || cfg?.documentNumber,
+              entryDate: cfg?.date ? new Date(cfg.date) : new Date(),
+              netAmount,
+              taxAmount,
+              grossAmount,
+            };
+
+            let entry: any = null;
+            if (glType === 'CREDIT_NOTE') {
+              entry = await this.journalAutoPost.postFromCreditNote({ ...baseArgs, customerName: partyName });
+            } else if (glType === 'DEBIT_NOTE') {
+              entry = await this.journalAutoPost.postFromDebitNote({ ...baseArgs, customerName: partyName });
+            } else if (glType === 'PURCHASE_ORDER') {
+              entry = await this.journalAutoPost.postFromPurchaseOrder({ ...baseArgs, supplierName: partyName });
+            } else if (glType === 'PURCHASE_RETURN') {
+              entry = await this.journalAutoPost.postFromPurchaseReturn({ ...baseArgs, supplierName: partyName });
+            }
+
+            if (entry) {
+              console.log('✅ [GL auto-post] entry created', { journalNumber: entry.journalNumber, totalDebit: entry.totalDebit, totalCredit: entry.totalCredit });
+            } else {
+              console.warn('⚠️ [GL auto-post] post* returned null — see service warnings above');
+            }
+          }
+        } catch (error) {
+          console.error('❌ [GL auto-post] failed for', dto.type, id, error);
         }
       }
 
@@ -1966,6 +2054,91 @@ export class DocumentsService {
       });
 
       console.log('✅ INVOICE CONFIRM: Document confirmed successfully');
+
+      // Save price history (best-effort)
+      try {
+        await this.priceHistoryService.savePriceHistoryFromDocument(documentId, organizationId);
+        console.log('✅ INVOICE CONFIRM: Price history saved');
+      } catch (e) {
+        console.error('❌ INVOICE CONFIRM: Price history failed', e);
+      }
+
+      // Auto-post the invoice to the General Ledger (best-effort)
+      console.log('📒 [GL auto-post] entering auto-post block for invoice', documentId);
+      try {
+        // Idempotency: if a journal entry already exists for this invoice, skip.
+        const existingEntry = await this.prisma.journalEntry.findFirst({
+          where: { organizationId, sourceDocumentId: documentId, type: 'INVOICE', status: { not: 'VOID' } },
+          select: { id: true, journalNumber: true },
+        });
+        if (existingEntry) {
+          console.log('📒 [GL auto-post] entry already exists for this invoice — skipping', existingEntry);
+          return {
+            success: true,
+            document: updatedDocument,
+            stockDeducted: shouldDeductStock,
+            message: shouldDeductStock ? 'Invoice confirmed and stock deducted' : 'Invoice confirmed',
+          };
+        }
+
+        const customer = config?.customer;
+        const customerName = customer?.name || config?.customerName;
+        const itemsForTotal = config?.items || [];
+
+        // Prefer the explicit totals AIMS already computes on the document config.
+        const net = parseFloat(config?.subTotal ?? config?.summary?.subTotal ?? 'NaN');
+        const tax = parseFloat(config?.gstAmount ?? config?.summary?.taxAmount ?? config?.tax?.amount ?? 'NaN');
+        const gross = parseFloat(config?.nettTotal ?? config?.summary?.grandTotal ?? 'NaN');
+
+        // Fallbacks if those fields aren't set: compute from items + org tax rate.
+        const fallbackNet = itemsForTotal.reduce((sum: number, item: any) => {
+          const amt = parseFloat(item.amount) || (parseFloat(item.quantity) * parseFloat(item.unitPrice)) || 0;
+          return sum + amt;
+        }, 0);
+        const org = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { taxRate: true } });
+        const orgRate = (org?.taxRate ?? 0) / 100;
+
+        const netAmount = !Number.isNaN(net) ? net : fallbackNet;
+        const taxAmount = !Number.isNaN(tax) ? tax : netAmount * orgRate;
+        const grossAmount = !Number.isNaN(gross) ? gross : netAmount + taxAmount;
+
+        console.log('📒 [GL auto-post] computed amounts', {
+          docId: documentId,
+          invoiceNumber: updatedDocument.name,
+          customerName,
+          itemCount: itemsForTotal.length,
+          net: netAmount,
+          tax: taxAmount,
+          gross: grossAmount,
+        });
+
+        if (grossAmount <= 0) {
+          console.warn('📒 [GL auto-post] grossAmount <= 0, skipping');
+        } else {
+          const entry = await this.journalAutoPost.postFromInvoice({
+            organizationId,
+            documentId,
+            invoiceNumber: updatedDocument.name || config?.documentNumber,
+            entryDate: config?.date ? new Date(config.date) : new Date(),
+            customerName,
+            netAmount,
+            taxAmount,
+            grossAmount,
+          });
+          if (entry) {
+            console.log('✅ [GL auto-post] journal entry created', {
+              journalNumber: entry.journalNumber,
+              entryId: entry.id,
+              totalDebit: entry.totalDebit,
+              totalCredit: entry.totalCredit,
+            });
+          } else {
+            console.warn('⚠️ [GL auto-post] postFromInvoice returned null — see warnings above');
+          }
+        }
+      } catch (error) {
+        console.error('❌ [GL auto-post] failed for invoice', documentId, error);
+      }
 
       return {
         success: true,

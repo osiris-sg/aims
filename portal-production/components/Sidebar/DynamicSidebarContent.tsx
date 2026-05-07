@@ -31,6 +31,8 @@ import {
   ShoppingCart,
   LocalShipping,
   Storefront,
+  AccountBalance,
+  ReceiptLong,
 } from "@mui/icons-material";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -52,6 +54,8 @@ const iconMap: Record<string, React.ComponentType> = {
   ShoppingCart,
   LocalShipping,
   Storefront,
+  AccountBalance,
+  ReceiptLong,
 };
 
 const getIcon = (iconName?: string) => {
@@ -297,25 +301,175 @@ export default function DynamicSidebarContent() {
     return menuItem;
   };
 
-  // Secondary items (Settings, etc.)
-  const secondaryItems = [
+  // Secondary items (Settings, etc.) — supports nested submenus like main modules
+  const secondaryItems: Array<{
+    id: string;
+    text: string;
+    path?: string;
+    icon: string;
+    subMenus?: Array<{ key: string; label: string; path: string }>;
+  }> = [
     {
       id: 'settings',
       text: 'Organization Settings',
-      path: '/portal/settings/organization',
       icon: 'SettingsRounded',
+      subMenus: [
+        { key: 'company-profile', label: 'Company Profile', path: '/portal/settings/company-profile' },
+        { key: 'accounting-setup', label: 'Accounting Setup', path: '/portal/settings/accounting-setup' },
+      ],
     },
   ];
+
+  const renderSecondaryItem = (item: typeof secondaryItems[number]) => {
+    const hasSubMenus = !!item.subMenus && item.subMenus.length > 0;
+    const isOpen = openMenus[item.id] || false;
+    const isActive = hasSubMenus
+      ? item.subMenus!.some((s) => pathname === s.path || pathname.startsWith(s.path + '/'))
+      : !!item.path && (pathname === item.path || pathname.startsWith(item.path + '/'));
+
+    const mintAccent = "#6FFBBE";
+    const secondaryItem = (
+      <ListItem
+        key={item.id}
+        disablePadding
+        sx={{
+          display: "block",
+          position: "relative",
+          borderRadius: 1,
+          backgroundColor: isActive ? alpha(mintAccent, 0.08) : "transparent",
+          transition: "background-color 160ms ease",
+          ":hover": {
+            backgroundColor: isActive ? alpha(mintAccent, 0.12) : alpha("#ffffff", 0.05),
+          },
+          mb: 0.25,
+          "&::before": isActive
+            ? {
+                content: '""',
+                position: "absolute",
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: "4px",
+                backgroundColor: mintAccent,
+                borderRadius: "0 4px 4px 0",
+              }
+            : {},
+        }}
+      >
+        <ListItemButton
+          sx={{
+            justifyContent: "center",
+            minHeight: 40,
+            px: isCollapsed ? 1.5 : 1.5,
+            py: 1,
+            borderRadius: 1,
+            "&.Mui-selected": { backgroundColor: "transparent" },
+            "&.Mui-selected:hover": { backgroundColor: "transparent" },
+          }}
+          component={hasSubMenus && !isCollapsed ? "div" : Link}
+          href={hasSubMenus && !isCollapsed ? undefined : (item.path || "#")}
+          onClick={hasSubMenus ? () => handleMenuClick(item.id) : undefined}
+          selected={isActive}
+        >
+          <ListItemIcon
+            sx={{
+              minWidth: "fit-content!important",
+              marginRight: isCollapsed ? "0" : 1.5,
+              justifyContent: "center",
+              display: "flex",
+              color: isActive ? mintAccent : alpha("#ffffff", 0.78),
+              "& svg": { fontSize: "1.25rem" },
+            }}
+          >
+            {getIcon(item.icon)}
+          </ListItemIcon>
+          {!isCollapsed && (
+            <>
+              <ListItemText
+                primary={item.text}
+                primaryTypographyProps={{
+                  sx: {
+                    color: isActive ? "#FFFFFF" : alpha("#ffffff", 0.78),
+                    fontSize: "0.875rem",
+                    fontWeight: isActive ? 600 : 500,
+                  },
+                }}
+              />
+              {hasSubMenus && (
+                isOpen
+                  ? <ExpandLess sx={{ color: alpha("#ffffff", 0.7), fontSize: "1.1rem" }} />
+                  : <ExpandMore sx={{ color: alpha("#ffffff", 0.7), fontSize: "1.1rem" }} />
+              )}
+            </>
+          )}
+        </ListItemButton>
+      </ListItem>
+    );
+
+    if (isCollapsed) {
+      return (
+        <Tooltip key={item.id} title={item.text} placement="right">
+          {secondaryItem}
+        </Tooltip>
+      );
+    }
+
+    if (hasSubMenus && !isCollapsed) {
+      return (
+        <React.Fragment key={item.id}>
+          {secondaryItem}
+          <Collapse in={isOpen} timeout="auto" unmountOnExit>
+            <List component="div" disablePadding>
+              {item.subMenus!.map((submenu) => {
+                const isSubmenuActive = pathname === submenu.path || pathname.startsWith(submenu.path + '/');
+                return (
+                  <ListItemButton
+                    key={submenu.key}
+                    sx={{
+                      pl: 4.5,
+                      minHeight: 32,
+                      borderRadius: 1,
+                      ml: 1,
+                      mr: 0.5,
+                      my: 0.25,
+                      backgroundColor: isSubmenuActive ? alpha(mintAccent, 0.08) : "transparent",
+                      "&.Mui-selected": { backgroundColor: alpha(mintAccent, 0.08) },
+                      "&.Mui-selected:hover": { backgroundColor: alpha(mintAccent, 0.12) },
+                      "&:hover": { backgroundColor: alpha("#ffffff", 0.05) },
+                    }}
+                    component={Link}
+                    href={submenu.path}
+                    selected={isSubmenuActive}
+                  >
+                    <ListItemText
+                      primary={submenu.label}
+                      primaryTypographyProps={{
+                        sx: {
+                          color: isSubmenuActive ? "#FFFFFF" : alpha("#ffffff", 0.65),
+                          fontSize: "0.8125rem",
+                          fontWeight: isSubmenuActive ? 600 : 500,
+                        },
+                      }}
+                    />
+                  </ListItemButton>
+                );
+              })}
+            </List>
+          </Collapse>
+        </React.Fragment>
+      );
+    }
+
+    return secondaryItem;
+  };
 
   return (
     <Stack
       sx={{
         flexGrow: 1,
         p: isCollapsed ? 1 : "var(--default-gap)",
-        justifyContent: "space-between",
       }}
     >
-      {/* Main navigation items */}
       <List
         dense
         sx={{
@@ -325,100 +479,7 @@ export default function DynamicSidebarContent() {
         }}
       >
         {enabledModules.map((module, index) => renderMenuItem(module, index))}
-      </List>
-
-      {/* Secondary navigation items */}
-      <List
-        dense
-        sx={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--half-gap)",
-        }}
-      >
-        {secondaryItems.map((item) => {
-          const isActive = pathname === item.path || pathname.startsWith(item.path + '/');
-          const mintAccent = "#6FFBBE";
-          const secondaryItem = (
-            <ListItem
-              key={item.id}
-              disablePadding
-              sx={{
-                display: "block",
-                position: "relative",
-                borderRadius: 1,
-                backgroundColor: isActive ? alpha(mintAccent, 0.08) : "transparent",
-                transition: "background-color 160ms ease",
-                ":hover": {
-                  backgroundColor: isActive ? alpha(mintAccent, 0.12) : alpha("#ffffff", 0.05),
-                },
-                mb: 0.25,
-                "&::before": isActive
-                  ? {
-                      content: '""',
-                      position: "absolute",
-                      left: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: "4px",
-                      backgroundColor: mintAccent,
-                      borderRadius: "0 4px 4px 0",
-                    }
-                  : {},
-              }}
-            >
-              <ListItemButton
-                sx={{
-                  justifyContent: "center",
-                  minHeight: 40,
-                  px: isCollapsed ? 1.5 : 1.5,
-                  py: 1,
-                  borderRadius: 1,
-                  "&.Mui-selected": { backgroundColor: "transparent" },
-                  "&.Mui-selected:hover": { backgroundColor: "transparent" },
-                }}
-                component={Link}
-                href={item.path}
-                selected={isActive}
-              >
-                <ListItemIcon
-                  sx={{
-                    minWidth: "fit-content!important",
-                    marginRight: isCollapsed ? "0" : 1.5,
-                    justifyContent: "center",
-                    display: "flex",
-                    color: isActive ? mintAccent : alpha("#ffffff", 0.78),
-                    "& svg": { fontSize: "1.25rem" },
-                  }}
-                >
-                  {getIcon(item.icon)}
-                </ListItemIcon>
-                {!isCollapsed && (
-                  <ListItemText
-                    primary={item.text}
-                    primaryTypographyProps={{
-                      sx: {
-                        color: isActive ? "#FFFFFF" : alpha("#ffffff", 0.78),
-                        fontSize: "0.875rem",
-                        fontWeight: isActive ? 600 : 500,
-                      },
-                    }}
-                  />
-                )}
-              </ListItemButton>
-            </ListItem>
-          );
-
-          if (isCollapsed) {
-            return (
-              <Tooltip key={item.id} title={item.text} placement="right">
-                {secondaryItem}
-              </Tooltip>
-            );
-          }
-
-          return secondaryItem;
-        })}
+        {secondaryItems.map((item) => renderSecondaryItem(item))}
       </List>
     </Stack>
   );

@@ -116,6 +116,20 @@ export class ConfigurationService {
       { moduleCode: 'PROJECTS', displayName: 'Projects', icon: 'AccountTree', sortOrder: 4, config: { route: '/portal/projects' } },
       { moduleCode: 'USER_MANAGEMENT', displayName: 'User Management', icon: 'PeopleRounded', sortOrder: 5, config: { route: '/portal/user-management', subMenus: ['users', 'roles'] } },
       { moduleCode: 'AUDIT', displayName: 'Audit', icon: 'AnalyticsRounded', sortOrder: 6, config: { route: '/portal/audit' } },
+      {
+        moduleCode: 'ACCOUNTING',
+        displayName: 'Accounting',
+        icon: 'AccountBalance',
+        sortOrder: 7,
+        config: {
+          route: '/portal/accounting',
+          subMenus: [
+            { key: 'journal-entries', label: 'Journal Entries' },
+            { key: 'trial-balance', label: 'Trial Balance' },
+            { key: 'general-ledger', label: 'General Ledger' },
+          ],
+        },
+      },
     ];
 
     const modulePromises = defaultModules.map(module =>
