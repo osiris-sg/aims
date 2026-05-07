@@ -95,29 +95,29 @@ export default function InvoiceStatistics({ documents, loading }: InvoiceStatist
       title: "TOTAL OUTSTANDING",
       value: statistics.totalOutstanding,
       icon: <TrendingUpIcon />,
-      color: "#1976d2", // Blue
-      bgColor: "#e3f2fd",
+      color: "primary.main",
+      bgColor: "surfaceTones.high",
     },
     {
       title: "OVERDUE",
       value: statistics.overdue,
       icon: <WarningIcon />,
-      color: "#d32f2f", // Red
-      bgColor: "#ffebee",
+      color: "customRed.main",
+      bgColor: "customRed.light",
     },
     {
       title: "DUE",
       value: statistics.due,
       icon: <ScheduleIcon />,
-      color: "#f57c00", // Orange
-      bgColor: "#fff3e0",
+      color: "customYellow.dark",
+      bgColor: "customYellow.light",
     },
     {
       title: "PAID",
       value: statistics.paid,
       icon: <CheckCircleIcon />,
-      color: "#388e3c", // Green
-      bgColor: "#e8f5e9",
+      color: "success.main",
+      bgColor: "success.light",
     },
   ];
 
@@ -127,7 +127,7 @@ export default function InvoiceStatistics({ documents, loading }: InvoiceStatist
         <Grid container spacing={2}>
           {[1, 2, 3, 4].map((item) => (
             <Grid item xs={12} sm={6} md={3} key={item}>
-              <Card elevation={0} sx={{ border: "1px solid #e0e0e0" }}>
+              <Card elevation={0} sx={{ border: 1, borderColor: "divider" }}>
                 <CardContent>
                   <Skeleton variant="text" width="60%" height={20} />
                   <Skeleton variant="text" width="80%" height={40} />
@@ -148,11 +148,12 @@ export default function InvoiceStatistics({ documents, loading }: InvoiceStatist
             <Card
               elevation={0}
               sx={{
-                border: "1px solid #e0e0e0",
+                border: 1,
+                borderColor: "divider",
                 height: "100%",
                 transition: "all 0.3s ease",
                 "&:hover": {
-                  boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                  boxShadow: 2,
                   transform: "translateY(-2px)",
                 }
               }}

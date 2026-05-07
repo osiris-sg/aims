@@ -93,10 +93,8 @@ export default function SuppliersPage() {
             <IconButton
               onClick={() => handleEditSupplier(supplier.id)}
               sx={{
-                borderRadius: "8px",
-                color: "secondary.contrastText",
-                bgcolor: "secondary.main",
-                "&:hover": { bgcolor: "secondary.dark" },
+                color: "text.secondary",
+                "&:hover": { color: "info.main" },
               }}
             >
               <EditIcon />
@@ -104,10 +102,8 @@ export default function SuppliersPage() {
             <IconButton
               onClick={() => setSupplierToDelete(supplier.id)}
               sx={{
-                borderRadius: "8px",
-                color: "error.contrastText",
-                bgcolor: "error.main",
-                "&:hover": { bgcolor: "error.dark" },
+                color: "text.secondary",
+                "&:hover": { color: "error.main" },
               }}
             >
               <DeleteIcon />

@@ -36,7 +36,7 @@ const AssetRow: React.FC<AssetRowProps> = ({ asset, level, onView, onEdit, onDel
 
   return (
     <>
-      <TableRow sx={{ "&:hover": { backgroundColor: "grey.50" } }}>
+      <TableRow>
         {/* Hierarchy Indicator & Name */}
         <TableCell>
           <Box
@@ -92,12 +92,12 @@ const AssetRow: React.FC<AssetRowProps> = ({ asset, level, onView, onEdit, onDel
 
         {/* Stock Count */}
         <TableCell>
-          <Chip label={asset.instockInventoryCount || 0} size="small" color="primary" variant="outlined" />
+          <Chip label={asset.instockInventoryCount || 0} size="small" variant="outlined" />
         </TableCell>
 
         {/* Hierarchy Level */}
         <TableCell>
-          <Chip label={level === 0 ? "Root Asset" : `Level ${level} Part`} size="small" color={level === 0 ? "success" : "secondary"} variant="outlined" />
+          <Chip label={level === 0 ? "Root Asset" : `Level ${level} Part`} size="small" color={level === 0 ? "success" : "default"} variant="outlined" />
         </TableCell>
 
         {/* Actions */}

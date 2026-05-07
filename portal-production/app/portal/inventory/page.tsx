@@ -158,12 +158,8 @@ export default function InventoryPage() {
           <IconButton
             onClick={() => handleOpenQRDialog(info.row.original.sku)}
             sx={{
-              color: "customYellow.contrastText",
-              bgcolor: "tertiary.dark",
-              "&:hover": {
-                bgcolor: "gray",
-              },
-              borderRadius: "8px",
+              color: "text.secondary",
+              "&:hover": { color: "primary.main" },
             }}
           >
             <QrCode2Icon />
@@ -171,24 +167,16 @@ export default function InventoryPage() {
           <IconButton
             onClick={() => router.push(`${ROUTES.INVENTORY}/${info.row.original.sku}`)}
             sx={{
-              color: "customYellow.contrastText",
-              bgcolor: "customYellow.main",
-              "&:hover": {
-                bgcolor: "customYellow.dark",
-              },
-              borderRadius: "8px",
+              color: "text.secondary",
+              "&:hover": { color: "primary.main" },
             }}
           >
             <VisibilityIcon />
           </IconButton>
           <IconButton
             sx={{
-              color: "customRed.contrastText",
-              bgcolor: "customRed.main",
-              "&:hover": {
-                bgcolor: "customRed.dark",
-              },
-              borderRadius: "8px",
+              color: "text.secondary",
+              "&:hover": { color: "error.main" },
             }}
             onClick={() => {
               setSelectedInventory(info.row.original);

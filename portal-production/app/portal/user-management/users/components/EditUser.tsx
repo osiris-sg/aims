@@ -370,7 +370,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                       MenuProps={{
                         PaperProps: {
                           sx: {
-                            bgcolor: "#fff",
+                            bgcolor: "background.paper",
                             color: "#222",
                           },
                         },
@@ -385,7 +385,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                         "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
                           borderColor: "#1976d2",
                         },
-                        bgcolor: "#fff",
+                        bgcolor: "background.paper",
                       }}
                     >
                       {roles.map((role) => (

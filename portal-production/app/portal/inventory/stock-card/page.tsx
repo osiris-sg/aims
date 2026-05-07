@@ -168,7 +168,9 @@ export default function InventoryStockCardPage() {
       <Box
         sx={{
           p: 2,
-          bgcolor: "tertiary.light",
+          bgcolor: "background.paper",
+          border: 1,
+          borderColor: "divider",
           borderRadius: 1,
           mb: 2,
         }}
@@ -220,105 +222,20 @@ export default function InventoryStockCardPage() {
       </Box>
 
       {/* Results Table */}
-      <TableContainer component={Paper} sx={{ maxHeight: "calc(100vh - 400px)" }}>
+      <TableContainer component={Paper} elevation={0} sx={{ maxHeight: "calc(100vh - 400px)" }}>
         <Table stickyHeader size="small">
           <TableHead>
             <TableRow>
-              <TableCell
-                sx={{
-                  fontWeight: 600,
-                  bgcolor: "grey.100",
-                  borderBottom: 2,
-                  borderColor: "primary.main",
-                  width: "15%",
-                }}
-              >
-                Code
-              </TableCell>
-              <TableCell
-                sx={{
-                  fontWeight: 600,
-                  bgcolor: "grey.100",
-                  borderBottom: 2,
-                  borderColor: "primary.main",
-                  width: "35%",
-                }}
-              >
-                Description
-              </TableCell>
-              <TableCell
-                sx={{
-                  fontWeight: 600,
-                  bgcolor: "grey.100",
-                  borderBottom: 2,
-                  borderColor: "primary.main",
-                  width: "15%",
-                }}
-              >
-                Category
-              </TableCell>
-              <TableCell
-                align="center"
-                sx={{
-                  fontWeight: 600,
-                  bgcolor: "grey.100",
-                  borderBottom: 2,
-                  borderColor: "primary.main",
-                  width: "10%",
-                }}
-              >
-                Balance
-              </TableCell>
-              <TableCell
-                align="center"
-                sx={{
-                  fontWeight: 600,
-                  bgcolor: "grey.100",
-                  borderBottom: 2,
-                  borderColor: "primary.main",
-                  width: "10%",
-                }}
-              >
-                Min Qty
-              </TableCell>
-              <TableCell
-                align="right"
-                sx={{
-                  fontWeight: 600,
-                  bgcolor: "grey.100",
-                  borderBottom: 2,
-                  borderColor: "primary.main",
-                  width: "10%",
-                }}
-              >
-                Unit Price
-              </TableCell>
+              <TableCell sx={{ width: "15%" }}>Code</TableCell>
+              <TableCell sx={{ width: "35%" }}>Description</TableCell>
+              <TableCell sx={{ width: "15%" }}>Category</TableCell>
+              <TableCell align="center" sx={{ width: "10%" }}>Balance</TableCell>
+              <TableCell align="center" sx={{ width: "10%" }}>Min Qty</TableCell>
+              <TableCell align="right" sx={{ width: "10%" }}>Unit Price</TableCell>
               {isAssetTrackingModeEnabled && (
-                <TableCell
-                  align="center"
-                  sx={{
-                    fontWeight: 600,
-                    bgcolor: "grey.100",
-                    borderBottom: 2,
-                    borderColor: "primary.main",
-                    width: "10%",
-                  }}
-                >
-                  Status
-                </TableCell>
+                <TableCell align="center" sx={{ width: "10%" }}>Status</TableCell>
               )}
-              <TableCell
-                align="center"
-                sx={{
-                  fontWeight: 600,
-                  bgcolor: "grey.100",
-                  borderBottom: 2,
-                  borderColor: "primary.main",
-                  width: "8%",
-                }}
-              >
-                Actions
-              </TableCell>
+              <TableCell align="center" sx={{ width: "8%" }}>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -340,19 +257,8 @@ export default function InventoryStockCardPage() {
               </TableRow>
             ) : (
               filteredItems.map((item, index) => (
-                <TableRow
-                  key={item.id || index}
-                  hover
-                  sx={{
-                    "&:hover": {
-                      bgcolor: "secondary.light",
-                    },
-                    "&:nth-of-type(even)": {
-                      bgcolor: "tertiary.light",
-                    },
-                  }}
-                >
-                  <TableCell sx={{ fontWeight: 500, color: "secondary.main" }}>
+                <TableRow key={item.id || index} hover>
+                  <TableCell sx={{ fontWeight: 500, color: "text.primary" }}>
                     {item.sku || "-"}
                   </TableCell>
                   <TableCell>{getItemDescription(item)}</TableCell>
@@ -360,12 +266,7 @@ export default function InventoryStockCardPage() {
                     <Chip
                       label={getItemCategory(item)}
                       size="small"
-                      sx={{
-                        bgcolor: "tertiary.main",
-                        color: "text.primary",
-                        fontWeight: 500,
-                        fontSize: "0.75rem",
-                      }}
+                      variant="outlined"
                     />
                   </TableCell>
                   <TableCell align="center">
@@ -420,8 +321,8 @@ export default function InventoryStockCardPage() {
       <Box
         sx={{
           p: 1.5,
-          bgcolor: "tertiary.light",
-          borderTop: "1px solid",
+          bgcolor: "background.paper",
+          border: 1,
           borderColor: "divider",
           display: "flex",
           justifyContent: "space-between",

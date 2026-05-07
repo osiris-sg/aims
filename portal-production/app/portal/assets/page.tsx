@@ -118,12 +118,8 @@ export default function AssetsPage() {
           <IconButton
             onClick={() => router.push(`${ROUTES.ASSETS}/${row.original.skuKey}`)}
             sx={{
-              color: "customYellow.contrastText",
-              bgcolor: "customYellow.main",
-              "&:hover": {
-                bgcolor: "customYellow.dark",
-              },
-              borderRadius: "8px",
+              color: "text.secondary",
+              "&:hover": { color: "primary.main" },
             }}
           >
             <VisibilityIcon />
@@ -131,12 +127,8 @@ export default function AssetsPage() {
           <IconButton
             onClick={() => router.push(`${ROUTES.ADD_ASSET}?id=${row.original.id}`)}
             sx={{
-              borderRadius: "8px",
-              color: "secondary.contrastText",
-              bgcolor: "secondary.main",
-              "&:hover": {
-                bgcolor: "secondary.dark",
-              },
+              color: "text.secondary",
+              "&:hover": { color: "info.main" },
             }}
           >
             <ModeEditIcon />
@@ -148,12 +140,8 @@ export default function AssetsPage() {
               setConfirmOpen(true);
             }}
             sx={{
-              color: "customRed.contrastText",
-              bgcolor: "customRed.main",
-              "&:hover": {
-                bgcolor: "customRed.dark",
-              },
-              borderRadius: "8px",
+              color: "text.secondary",
+              "&:hover": { color: "error.main" },
             }}
           >
             <DeleteIcon />

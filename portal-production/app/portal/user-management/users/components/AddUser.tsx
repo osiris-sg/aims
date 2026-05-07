@@ -321,7 +321,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                       MenuProps={{
                         PaperProps: {
                           sx: {
-                            bgcolor: "#fff", // White background
+                            bgcolor: "background.paper",
                             color: "#222", // Dark text
                           },
                         },
@@ -336,7 +336,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                         "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
                           borderColor: "#1976d2",
                         },
-                        bgcolor: "#fff", // White background for the select input itself
+                        bgcolor: "background.paper",
                       }}
                     >
                       {roles.map((role) => (

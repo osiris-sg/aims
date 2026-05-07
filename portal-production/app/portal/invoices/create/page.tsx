@@ -167,7 +167,7 @@ export default function CreateDocument() {
                 </Typography>
                 <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
                   <Chip label={`${msrData.items?.length || 0} chargeable items`} size="small" color="success" />
-                  <Chip label={`Total: $${msrData.items?.reduce((sum: number, item: any) => sum + item.unitPrice * item.quantity + (item.laborHours || 0) * (item.laborRate || 0), 0).toFixed(2)}`} size="small" color="primary" />
+                  <Chip label={`Total: $${msrData.items?.reduce((sum: number, item: any) => sum + item.unitPrice * item.quantity + (item.laborHours || 0) * (item.laborRate || 0), 0).toFixed(2)}`} size="small" variant="outlined" />
                 </Box>
               </Alert>
             )}

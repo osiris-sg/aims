@@ -68,10 +68,10 @@ export default function AddAssetSuccess() {
             Your new product has been added successfully
           </Typography>
           <Stack direction="row" spacing={2} justifyContent="center">
-            <Button variant="contained" color="secondary" onClick={() => router.push(ROUTES.ASSETS)}>
+            <Button variant="contained" color="primary" onClick={() => router.push(ROUTES.ASSETS)}>
               Done
             </Button>
-            <Button variant="contained" color="secondary" onClick={() => router.push(ROUTES.INVENTORY)}>
+            <Button variant="contained" color="primary" onClick={() => router.push(ROUTES.INVENTORY)}>
               <Typography sx={{ lineHeight: "1.2" }}>
                 Add Item <br />
                 To Inventory

@@ -15,10 +15,11 @@ export default function MainCard(props: Props) {
     <Box
       sx={{
         flexGrow: 1,
-        padding: isXsScreen ? "var(--mobile-portal-content-padding)" : "var(--portal-content-padding)",
+        pt: isXsScreen ? "5rem" : 4,
+        pb: isXsScreen ? 2 : 4,
         display: "flex",
         justifyContent: "center",
-        alignItems: "center",
+        alignItems: "stretch",
         height: "100%",
         overflow: "hidden",
       }}
@@ -27,12 +28,11 @@ export default function MainCard(props: Props) {
         sx={{
           width: "100%",
           height: "100%",
-          px: "var(--default-padding)",
+          px: { xs: 2, md: 4 },
           overflowY: "auto",
           display: "flex",
           alignItems: "center",
           flexDirection: "column",
-          //
         }}
       >
         <Box sx={{ maxWidth: "var(--page-max-width)", width: "100%", height: "100%" }}>{children}</Box>

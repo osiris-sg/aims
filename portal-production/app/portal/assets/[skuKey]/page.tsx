@@ -319,10 +319,8 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
                 <IconButton
                   onClick={() => router.push(`${ROUTES.EDIT_ASSET}/${params.skuKey}`)}
                   sx={{
-                    borderRadius: "8px",
-                    color: "secondary.contrastText",
-                    bgcolor: "secondary.main",
-                    "&:hover": { bgcolor: "secondary.dark" },
+                color: "text.secondary",
+                "&:hover": { color: "info.main" },
                   }}
                 >
                   <EditIcon />

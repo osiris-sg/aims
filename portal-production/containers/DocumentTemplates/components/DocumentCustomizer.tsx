@@ -157,12 +157,8 @@ const IconWrapper = ({ children, onClick }: { children: React.ReactNode; onClick
   <IconButton
     onClick={onClick}
     sx={{
-      color: "customYellow.contrastText",
-      bgcolor: "customYellow.main",
-      "&:hover": {
-        bgcolor: "customYellow.dark",
-      },
-      borderRadius: "8px",
+      color: "text.secondary",
+      "&:hover": { color: "primary.main" },
     }}
   >
     {children}

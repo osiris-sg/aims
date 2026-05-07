@@ -1,170 +1,121 @@
 "use client";
 import { createTheme, alpha } from "@mui/material/styles";
 
-declare module "@mui/material/styles" {
-  interface Palette {
-    tertiary: Palette["primary"];
-    customYellow: Palette["primary"];
-    customRed: Palette["primary"];
-    customGray: Palette["primary"];
-    surfaceTones: {
-      base: string;
-      low: string;
-      lowest: string;
-      container: string;
-      high: string;
-      highest: string;
-      dim: string;
-    };
-    outlineVariant: string;
-    primaryFixedDim: string;
-  }
-  interface PaletteOptions {
-    tertiary?: PaletteOptions["primary"];
-    customYellow?: PaletteOptions["primary"];
-    customRed?: PaletteOptions["primary"];
-    customGray?: PaletteOptions["primary"];
-    surfaceTones?: {
-      base: string;
-      low: string;
-      lowest: string;
-      container: string;
-      high: string;
-      highest: string;
-      dim: string;
-    };
-    outlineVariant?: string;
-    primaryFixedDim?: string;
-  }
-}
-
-// Wholesale Food Co. design tokens
+// Editorial Ledger — Dark mode tokens (Material Design 3 conventions)
 const tokens = {
-  primary: "#00685f",
-  primaryContainer: "#008378",
-  onPrimary: "#ffffff",
-  onPrimaryContainer: "#f4fffc",
-  primaryFixed: "#89f5e7",
-  primaryFixedDim: "#6bd8cb",
-  onPrimaryFixed: "#00201d",
-  onPrimaryFixedVariant: "#005049",
-  secondary: "#515f74",
-  secondaryContainer: "#d5e3fc",
-  onSecondary: "#ffffff",
-  onSecondaryContainer: "#57657a",
-  onSecondaryFixed: "#0d1c2e",
-  onSecondaryFixedVariant: "#3a485b",
-  tertiary: "#545c72",
-  tertiaryContainer: "#6c748b",
-  onTertiary: "#ffffff",
-  onTertiaryContainer: "#fefcff",
-  tertiaryFixed: "#dae2fd",
-  onTertiaryFixed: "#131b2e",
-  onTertiaryFixedVariant: "#3f465c",
-  surface: "#f8f9ff",
-  surfaceContainerLowest: "#ffffff",
-  surfaceContainerLow: "#eff4ff",
-  surfaceContainer: "#e6eeff",
-  surfaceContainerHigh: "#dde9ff",
-  surfaceContainerHighest: "#d5e3fd",
-  surfaceDim: "#ccdbf4",
-  onSurface: "#0d1c2f",
-  onSurfaceVariant: "#3d4947",
-  outline: "#6d7a77",
-  outlineVariant: "#bcc9c6",
-  amber: "#F59E0B",
-  error: "#ba1a1a",
-  errorContainer: "#ffdad6",
-  onErrorContainer: "#93000a",
+  primary: "#A8C5F4",
+  primaryContainer: "#1A2B3C",
+  onPrimary: "#0E1B2E",
+  onPrimaryContainer: "#D9E3F3",
+  tertiary: "#6FFBBE",
+  tertiaryFixed: "#6FFBBE",
+  onTertiaryFixedVariant: "#00513A",
+  onTertiaryContainer: "#6FFBBE",
+  secondary: "#B5C7E5",
+  secondaryContainer: "#28394F",
+  onSecondaryContainer: "#D5E0F7",
+  surface: "#10141B",
+  surfaceContainerLow: "#161B23",
+  surfaceContainerLowest: "#0A0E14",
+  surfaceContainerHigh: "#1F252E",
+  surfaceContainerHighest: "#292F39",
+  surfaceDim: "#0A0E14",
+  onSurface: "#DFE3EE",
+  onSurfaceVariant: "#C2C7D0",
+  outlineVariant: "#43474E",
+  amber: "#FBBF24",
+  error: "#FFB4AB",
+  errorContainer: "#93000A",
+  onErrorContainer: "#FFDAD6",
 };
 
 const theme = createTheme({
   palette: {
-    mode: "light",
+    mode: "dark",
     primary: {
       main: tokens.primary,
-      light: tokens.primaryContainer,
-      dark: "#00504a",
+      light: "#C8DAF8",
+      dark: "#7AA0D8",
       contrastText: tokens.onPrimary,
     },
     secondary: {
       main: tokens.secondary,
       light: tokens.secondaryContainer,
-      dark: "#3a485b",
+      dark: "#8FA3C2",
       contrastText: tokens.onSecondaryContainer,
     },
     tertiary: {
-      main: tokens.primaryFixedDim,
-      light: tokens.primaryFixed,
-      dark: tokens.primary,
-      contrastText: tokens.onPrimaryFixed,
+      main: tokens.tertiary,
+      light: "#B7FDDD",
+      dark: "#00A572",
+      contrastText: tokens.onTertiaryFixedVariant,
     },
     customYellow: {
       light: "#FCD34D",
       main: tokens.amber,
-      dark: "#B45309",
+      dark: "#F59E0B",
       contrastText: "#3D2A00",
     },
     customRed: {
       light: tokens.errorContainer,
       main: tokens.error,
-      dark: "#8B0F14",
-      contrastText: "#FFFFFF",
+      dark: "#FF8A80",
+      contrastText: "#690005",
     },
     customGray: {
       main: tokens.onSurfaceVariant,
       light: tokens.outlineVariant,
       dark: tokens.onSurface,
-      contrastText: "#FFFFFF",
+      contrastText: tokens.onSurface,
     },
     success: {
-      main: tokens.primary,
-      light: tokens.primaryFixedDim,
-      dark: "#00504a",
-      contrastText: "#FFFFFF",
+      main: tokens.tertiary,
+      light: "#B7FDDD",
+      dark: "#00A572",
+      contrastText: tokens.onTertiaryFixedVariant,
     },
     warning: {
       main: tokens.amber,
       light: "#FCD34D",
-      dark: "#B45309",
+      dark: "#F59E0B",
       contrastText: "#3D2A00",
     },
     error: {
       main: tokens.error,
       light: tokens.errorContainer,
-      dark: "#8B0F14",
-      contrastText: "#FFFFFF",
+      dark: "#FF8A80",
+      contrastText: "#690005",
     },
     info: {
       main: tokens.secondary,
       light: tokens.surfaceContainerHigh,
-      dark: "#3a485b",
-      contrastText: "#FFFFFF",
+      dark: "#8FA3C2",
+      contrastText: tokens.onSecondaryContainer,
     },
     text: {
       primary: tokens.onSurface,
       secondary: tokens.onSurfaceVariant,
       disabled: alpha(tokens.onSurface, 0.38),
     },
-    divider: alpha(tokens.outlineVariant, 0.4),
+    divider: alpha(tokens.outlineVariant, 0.5),
     background: {
       default: tokens.surface,
-      paper: tokens.surfaceContainerLowest,
+      paper: tokens.surfaceContainerLow,
     },
     surfaceTones: {
       base: tokens.surface,
       low: tokens.surfaceContainerLow,
       lowest: tokens.surfaceContainerLowest,
-      container: tokens.surfaceContainer,
+      container: tokens.surfaceContainerLow,
       high: tokens.surfaceContainerHigh,
       highest: tokens.surfaceContainerHighest,
       dim: tokens.surfaceDim,
     },
     outlineVariant: tokens.outlineVariant,
-    primaryFixedDim: tokens.primaryFixedDim,
+    primaryFixedDim: tokens.tertiary,
   },
   shape: {
-    borderRadius: 8,
+    borderRadius: 10,
   },
   typography: {
     fontFamily:
@@ -173,42 +124,42 @@ const theme = createTheme({
     fontSize: 12,
     h1: {
       fontFamily: 'Manrope, Inter, sans-serif',
-      fontSize: "1.875rem",
-      fontWeight: 800,
+      fontSize: "1.75rem",
+      fontWeight: 700,
       letterSpacing: "-0.02em",
       lineHeight: 1.2,
     },
     h2: {
       fontFamily: 'Manrope, Inter, sans-serif',
-      fontSize: "1.5rem",
-      fontWeight: 800,
+      fontSize: "1.4rem",
+      fontWeight: 700,
       letterSpacing: "-0.015em",
       lineHeight: 1.25,
     },
     h3: {
       fontFamily: 'Manrope, Inter, sans-serif',
-      fontSize: "1.25rem",
-      fontWeight: 700,
+      fontSize: "1.2rem",
+      fontWeight: 600,
       letterSpacing: "-0.01em",
     },
     h4: {
       fontFamily: 'Manrope, Inter, sans-serif',
-      fontSize: "1.125rem",
-      fontWeight: 700,
+      fontSize: "1.05rem",
+      fontWeight: 600,
       letterSpacing: "-0.005em",
     },
     h5: {
       fontFamily: 'Manrope, Inter, sans-serif',
-      fontSize: "1rem",
-      fontWeight: 700,
+      fontSize: "0.95rem",
+      fontWeight: 600,
     },
     h6: {
       fontFamily: 'Manrope, Inter, sans-serif',
-      fontSize: "0.875rem",
-      fontWeight: 700,
+      fontSize: "0.85rem",
+      fontWeight: 600,
     },
     body1: {
-      fontSize: "0.875rem",
+      fontSize: "0.8125rem",
       lineHeight: 1.5,
     },
     body2: {
@@ -217,18 +168,18 @@ const theme = createTheme({
       color: tokens.onSurfaceVariant,
     },
     caption: {
-      fontSize: "0.75rem",
+      fontSize: "0.6875rem",
       letterSpacing: "0.02em",
     },
     button: {
-      fontSize: "0.875rem",
-      fontWeight: 600,
-      letterSpacing: "0.005em",
+      fontSize: "0.8125rem",
+      fontWeight: 500,
+      letterSpacing: "0.01em",
     },
     overline: {
-      fontSize: "0.625rem",
-      fontWeight: 700,
-      letterSpacing: "0.1em",
+      fontSize: "0.6875rem",
+      fontWeight: 600,
+      letterSpacing: "0.08em",
       textTransform: "uppercase",
     },
   },
@@ -248,7 +199,7 @@ const theme = createTheme({
     },
     MuiListItemText: {
       styleOverrides: {
-        primary: { fontSize: "0.875rem", fontWeight: 500 },
+        primary: { fontSize: "0.8125rem", fontWeight: 500 },
         secondary: { fontSize: "0.75rem", color: tokens.onSurfaceVariant },
       },
     },
@@ -257,27 +208,26 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           "& .MuiOutlinedInput-root": {
-            borderRadius: 6,
-            backgroundColor: tokens.surfaceContainer,
-            fontSize: "0.875rem",
-            transition: "background-color 160ms ease, box-shadow 160ms ease",
+            borderRadius: 10,
+            backgroundColor: alpha(tokens.surfaceContainerHigh, 0.6),
+            fontSize: "0.8125rem",
+            transition: "background-color 160ms ease, border-color 160ms ease",
             "& fieldset": {
-              borderColor: "transparent",
+              borderColor: alpha(tokens.outlineVariant, 0.7),
             },
             "&:hover fieldset": {
-              borderColor: alpha(tokens.primary, 0.2),
+              borderColor: alpha(tokens.primary, 0.4),
             },
             "&.Mui-focused": {
-              backgroundColor: tokens.surfaceContainerLowest,
-              boxShadow: `0 0 0 2px ${alpha(tokens.primary, 0.2)}`,
+              backgroundColor: tokens.surfaceContainerHigh,
             },
             "&.Mui-focused fieldset": {
-              borderColor: alpha(tokens.primary, 0.3),
+              borderColor: alpha(tokens.primary, 0.7),
               borderWidth: 1,
             },
           },
           "& .MuiInputLabel-root": {
-            fontSize: "0.875rem",
+            fontSize: "0.8125rem",
             color: tokens.onSurfaceVariant,
           },
         },
@@ -285,28 +235,28 @@ const theme = createTheme({
     },
     MuiInputBase: {
       styleOverrides: {
-        root: { fontSize: "0.875rem" },
-        input: { fontSize: "0.875rem", padding: "8px 12px" },
+        root: { fontSize: "0.8125rem" },
+        input: { fontSize: "0.8125rem", padding: "8px 12px" },
       },
     },
     MuiOutlinedInput: {
       styleOverrides: {
         root: {
-          borderRadius: 6,
+          borderRadius: 10,
         },
       },
     },
     MuiSelect: {
       defaultProps: { size: "small" },
       styleOverrides: {
-        select: { fontSize: "0.875rem", padding: "8px 12px" },
+        select: { fontSize: "0.8125rem", padding: "8px 12px" },
       },
     },
     MuiMenuItem: {
       styleOverrides: {
         root: {
-          fontSize: "0.875rem",
-          borderRadius: 4,
+          fontSize: "0.8125rem",
+          borderRadius: 6,
           margin: "2px 6px",
           "&.Mui-selected": {
             backgroundColor: tokens.secondaryContainer,
@@ -318,29 +268,29 @@ const theme = createTheme({
     MuiMenu: {
       styleOverrides: {
         paper: {
-          borderRadius: 8,
-          boxShadow: `0 16px 48px ${alpha(tokens.onSurface, 0.08)}`,
-          border: `1px solid ${alpha(tokens.outlineVariant, 0.15)}`,
+          borderRadius: 12,
+          boxShadow: `0 16px 48px ${alpha("#000000", 0.4)}`,
+          border: `1px solid ${alpha(tokens.outlineVariant, 0.4)}`,
+          backgroundColor: tokens.surfaceContainerHigh,
         },
       },
     },
     MuiTableCell: {
       styleOverrides: {
         root: {
-          fontSize: "0.875rem",
-          padding: "16px 24px",
-          borderBottom: `1px solid ${alpha(tokens.outlineVariant, 0.1)}`,
+          fontSize: "0.8125rem",
+          padding: "10px 16px",
+          borderBottom: `1px solid ${alpha(tokens.outlineVariant, 0.4)}`,
           color: tokens.onSurface,
         },
         head: {
-          fontSize: "0.625rem",
-          fontWeight: 700,
+          fontSize: "0.6875rem",
+          fontWeight: 600,
           textTransform: "uppercase",
-          letterSpacing: "0.1em",
+          letterSpacing: "0.08em",
           color: tokens.onSurfaceVariant,
-          backgroundColor: tokens.surfaceContainerLow,
-          borderBottom: `1px solid ${alpha(tokens.outlineVariant, 0.15)}`,
-          padding: "16px 24px",
+          backgroundColor: tokens.surfaceContainerHigh,
+          borderBottom: "none",
         },
       },
     },
@@ -349,7 +299,7 @@ const theme = createTheme({
         root: {
           transition: "background-color 140ms ease",
           "&:hover": {
-            backgroundColor: alpha(tokens.surfaceContainerLow, 0.5),
+            backgroundColor: tokens.surfaceContainerHigh,
           },
         },
       },
@@ -357,8 +307,8 @@ const theme = createTheme({
     MuiTab: {
       styleOverrides: {
         root: {
-          fontSize: "0.875rem",
-          fontWeight: 600,
+          fontSize: "0.8125rem",
+          fontWeight: 500,
           minHeight: 40,
           textTransform: "none",
           letterSpacing: 0,
@@ -377,24 +327,22 @@ const theme = createTheme({
     MuiChip: {
       styleOverrides: {
         root: {
-          fontSize: "0.625rem",
-          fontWeight: 700,
+          fontSize: "0.6875rem",
+          fontWeight: 500,
           height: 22,
-          borderRadius: 4,
-          letterSpacing: "0.02em",
-          textTransform: "uppercase",
+          borderRadius: 999,
         },
-        label: { fontSize: "0.625rem", padding: "0 8px" },
+        label: { fontSize: "0.6875rem", padding: "0 10px" },
         colorSuccess: {
-          backgroundColor: alpha(tokens.primary, 0.1),
-          color: tokens.primary,
+          backgroundColor: alpha(tokens.tertiary, 0.18),
+          color: tokens.tertiary,
         },
         colorWarning: {
-          backgroundColor: alpha(tokens.amber, 0.18),
-          color: "#8B5A00",
+          backgroundColor: alpha(tokens.amber, 0.2),
+          color: tokens.amber,
         },
         colorError: {
-          backgroundColor: alpha(tokens.errorContainer, 0.5),
+          backgroundColor: alpha(tokens.error, 0.2),
           color: tokens.error,
         },
       },
@@ -403,35 +351,34 @@ const theme = createTheme({
       defaultProps: { size: "small", disableElevation: true },
       styleOverrides: {
         root: {
-          borderRadius: 6,
-          fontWeight: 600,
+          borderRadius: 10,
+          fontWeight: 500,
           textTransform: "none",
-          fontSize: "0.875rem",
-          padding: "8px 16px",
+          fontSize: "0.8125rem",
+          padding: "6px 14px",
           letterSpacing: "0.005em",
         },
-        // Editorial Ledger primary CTA: dark navy gradient
         containedPrimary: {
-          background: "linear-gradient(135deg, #041627 0%, #1A2B3C 100%)",
-          color: "#FFFFFF",
+          background: `linear-gradient(135deg, ${tokens.primary} 0%, #C8DAF8 100%)`,
+          color: tokens.onPrimary,
           boxShadow: "none",
           "&:hover": {
-            background: "linear-gradient(135deg, #1A2B3C 0%, #041627 100%)",
-            boxShadow: `0 8px 24px ${alpha("#041627", 0.25)}`,
+            background: `linear-gradient(135deg, #C8DAF8 0%, ${tokens.primary} 100%)`,
+            boxShadow: `0 8px 24px ${alpha(tokens.primary, 0.35)}`,
           },
         },
         outlined: {
-          borderColor: alpha(tokens.outlineVariant, 0.4),
+          borderColor: alpha(tokens.outlineVariant, 0.6),
           color: tokens.onSurface,
-          backgroundColor: tokens.surfaceContainerLowest,
+          backgroundColor: tokens.surfaceContainerLow,
           "&:hover": {
-            borderColor: alpha(tokens.primary, 0.3),
-            backgroundColor: tokens.surfaceContainerLow,
+            borderColor: alpha(tokens.primary, 0.5),
+            backgroundColor: tokens.surfaceContainerHigh,
           },
         },
         text: {
           color: tokens.onSurface,
-          "&:hover": { backgroundColor: tokens.surfaceContainerLow },
+          "&:hover": { backgroundColor: tokens.surfaceContainerHigh },
         },
       },
     },
@@ -439,18 +386,19 @@ const theme = createTheme({
       defaultProps: { size: "small" },
       styleOverrides: {
         root: {
-          borderRadius: 6,
+          borderRadius: 10,
           "&:hover": { backgroundColor: tokens.surfaceContainerHigh },
         },
       },
     },
     MuiAutocomplete: {
       styleOverrides: {
-        input: { fontSize: "0.875rem" },
-        option: { fontSize: "0.875rem" },
+        input: { fontSize: "0.8125rem" },
+        option: { fontSize: "0.8125rem" },
         paper: {
-          borderRadius: 8,
-          boxShadow: `0 16px 48px ${alpha(tokens.onSurface, 0.08)}`,
+          borderRadius: 12,
+          boxShadow: `0 16px 48px ${alpha("#000000", 0.4)}`,
+          backgroundColor: tokens.surfaceContainerHigh,
         },
       },
     },
@@ -458,15 +406,11 @@ const theme = createTheme({
       defaultProps: { elevation: 0 },
       styleOverrides: {
         root: {
-          backgroundColor: tokens.surfaceContainerLowest,
-          borderRadius: 8,
+          backgroundColor: tokens.surfaceContainerLow,
+          borderRadius: 14,
           backgroundImage: "none",
-          border: `1px solid ${alpha(tokens.outlineVariant, 0.1)}`,
-          boxShadow: "none",
+          boxShadow: `0 0 0 1px ${alpha(tokens.outlineVariant, 0.3)}, 0 1px 2px ${alpha("#000000", 0.2)}`,
           transition: "box-shadow 180ms ease, transform 180ms ease",
-          "&:hover": {
-            boxShadow: `0 4px 12px ${alpha(tokens.onSurface, 0.04)}`,
-          },
         },
       },
     },
@@ -476,7 +420,7 @@ const theme = createTheme({
         root: {
           backgroundImage: "none",
         },
-        rounded: { borderRadius: 8 },
+        rounded: { borderRadius: 14 },
       },
     },
     MuiDrawer: {
@@ -491,36 +435,37 @@ const theme = createTheme({
       defaultProps: { elevation: 0 },
       styleOverrides: {
         root: {
-          backgroundColor: tokens.surfaceContainerLowest,
+          backgroundColor: tokens.surfaceContainerLow,
           color: tokens.onSurface,
-          borderBottom: `1px solid ${alpha(tokens.outlineVariant, 0.15)}`,
+          borderBottom: `1px solid ${alpha(tokens.outlineVariant, 0.4)}`,
         },
       },
     },
     MuiDialog: {
       styleOverrides: {
         paper: {
-          backgroundColor: tokens.surfaceContainerLowest,
-          borderRadius: 12,
-          boxShadow: `0 32px 80px ${alpha(tokens.onSurface, 0.18)}`,
+          backgroundColor: tokens.surfaceContainerHigh,
+          borderRadius: 16,
+          boxShadow: `0 32px 80px ${alpha("#000000", 0.6)}`,
         },
       },
     },
     MuiDivider: {
       styleOverrides: {
-        root: { borderColor: alpha(tokens.outlineVariant, 0.15) },
+        root: { borderColor: alpha(tokens.outlineVariant, 0.4) },
       },
     },
     MuiTooltip: {
       styleOverrides: {
         tooltip: {
-          backgroundColor: tokens.onSurface,
-          color: tokens.surfaceContainerLowest,
+          backgroundColor: tokens.surfaceContainerHighest,
+          color: tokens.onSurface,
           fontSize: "0.6875rem",
-          borderRadius: 4,
+          borderRadius: 6,
           padding: "6px 10px",
+          border: `1px solid ${alpha(tokens.outlineVariant, 0.4)}`,
         },
-        arrow: { color: tokens.onSurface },
+        arrow: { color: tokens.surfaceContainerHighest },
       },
     },
     MuiCheckbox: {
@@ -533,7 +478,7 @@ const theme = createTheme({
         root: {
           borderRadius: 999,
           height: 6,
-          backgroundColor: alpha(tokens.outlineVariant, 0.2),
+          backgroundColor: alpha(tokens.primary, 0.15),
         },
         bar: { borderRadius: 999 },
       },

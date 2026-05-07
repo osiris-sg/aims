@@ -1998,8 +1998,8 @@ export default function TabbedDocumentCreator({
                 gap: 4,
                 px: 2,
                 py: 0.75,
-                bgcolor: "grey.100",
-                borderBottom: "1px solid",
+                bgcolor: "surfaceTones.low",
+                borderBottom: 1,
                 borderColor: "divider",
               }}
             >
@@ -2135,7 +2135,7 @@ export default function TabbedDocumentCreator({
                       </Grid>
                       {formData.customer.name && (
                         <Grid item xs={12}>
-                          <Paper sx={{ p: 0.5, bgcolor: "grey.50" }}>
+                          <Paper sx={{ p: 0.5, bgcolor: "surfaceTones.low" }}>
                             <Typography variant="caption" fontWeight={500}>
                               {formData.customer.name}
                             </Typography>
@@ -3135,7 +3135,7 @@ export default function TabbedDocumentCreator({
                     <Box sx={{ flexShrink: 0, pt: 1 }}>
                       <Box sx={{ display: "flex", justifyContent: "flex-end", alignItems: "flex-start" }}>
                         {/* Totals */}
-                        <Card sx={{ minWidth: 250, bgcolor: "grey.50" }}>
+                        <Card sx={{ minWidth: 250, bgcolor: "surfaceTones.low" }}>
                           <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
                             {isCreditDebitNote || isPurchaseReturn ? (
                               <>

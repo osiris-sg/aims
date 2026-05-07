@@ -119,10 +119,8 @@ export default function CustomersPage() {
             <IconButton
               onClick={() => router.push(`${ROUTES.CUSTOMERS}/${customer.id}`)}
               sx={{
-                borderRadius: "8px",
-                color: "primary.contrastText",
-                bgcolor: "primary.main",
-                "&:hover": { bgcolor: "primary.dark" },
+                color: "text.secondary",
+                "&:hover": { color: "primary.main" },
               }}
             >
               <VisibilityIcon />
@@ -130,10 +128,8 @@ export default function CustomersPage() {
             <IconButton
               onClick={() => handleEditCustomer(customer.id)}
               sx={{
-                borderRadius: "8px",
-                color: "secondary.contrastText",
-                bgcolor: "secondary.main",
-                "&:hover": { bgcolor: "secondary.dark" },
+                color: "text.secondary",
+                "&:hover": { color: "info.main" },
               }}
             >
               <EditIcon />
@@ -141,10 +137,8 @@ export default function CustomersPage() {
             <IconButton
               onClick={() => setCustomerToDelete(customer.id)}
               sx={{
-                borderRadius: "8px",
-                color: "error.contrastText",
-                bgcolor: "error.main",
-                "&:hover": { bgcolor: "error.dark" },
+                color: "text.secondary",
+                "&:hover": { color: "error.main" },
               }}
             >
               <DeleteIcon />

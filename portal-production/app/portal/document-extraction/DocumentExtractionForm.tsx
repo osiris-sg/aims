@@ -466,7 +466,7 @@ export default function DocumentExtractionForm({
               <TableContainer component={Paper} variant="outlined">
                 <Table size="small">
                   <TableHead>
-                    <TableRow sx={{ backgroundColor: 'grey.100' }}>
+                    <TableRow>
                       <TableCell width="40%"><strong>Description</strong></TableCell>
                       <TableCell width="10%" align="center"><strong>Qty</strong></TableCell>
                       <TableCell width="10%" align="center"><strong>Unit</strong></TableCell>

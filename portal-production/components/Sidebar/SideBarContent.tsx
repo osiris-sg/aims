@@ -18,6 +18,7 @@ import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 // import InfoRoundedIcon from "@mui/icons-material/InfoRounded";
 import { useTheme } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import Link from "next/link";
 import { ROUTES } from "@/app/portal/routes";
 import { usePathname } from "next/navigation";
@@ -99,8 +100,8 @@ export default function SideBarContent() {
           sx={{
             display: "block",
             borderRadius: "var(--default-border-radius)",
-            backgroundColor: isItemActive(item) ? theme.palette.primary.contrastText : "transparent",
-            ":hover": { backgroundColor: theme.palette.primary.light },
+            backgroundColor: isItemActive(item) ? alpha("#6FFBBE", 0.08) : "transparent",
+            ":hover": { backgroundColor: "rgba(255,255,255,0.05)" },
             mb: 0.5,
           }}
           onClick={isCollapsed ? undefined : handleDocumentsClick}
@@ -118,7 +119,7 @@ export default function SideBarContent() {
           >
             <ListItemIcon
               sx={{
-                color: isItemActive(item) ? theme.palette.primary.main : "white",
+                color: isItemActive(item) ? "#6FFBBE" : "rgba(255,255,255,0.78)",
                 minWidth: "fit-content!important",
                 marginRight: isCollapsed ? "0" : "var(--default-gap)",
                 justifyContent: "center",
@@ -132,10 +133,10 @@ export default function SideBarContent() {
                 <ListItemText
                   primary={item.text}
                   sx={{
-                    color: isItemActive(item) ? theme.palette.primary.main : "white",
+                    color: isItemActive(item) ? "#6FFBBE" : "rgba(255,255,255,0.78)",
                   }}
                 />
-                {openDocuments ? <ExpandLess sx={{ color: "white" }} /> : <ExpandMore sx={{ color: "white" }} />}
+                {openDocuments ? <ExpandLess sx={{ color: "rgba(255,255,255,0.78)" }} /> : <ExpandMore sx={{ color: "rgba(255,255,255,0.78)" }} />}
               </>
             )}
           </ListItemButton>
@@ -156,13 +157,13 @@ export default function SideBarContent() {
           <Collapse in={openDocuments} timeout="auto" unmountOnExit>
             <List component="div" disablePadding>
               <ListItemButton sx={{ pl: 4 }} component={Link} href={ROUTES.DOCUMENTS}>
-                <ListItemText primary="All Documents" sx={{ color: "white" }} />
+                <ListItemText primary="All Documents" sx={{ color: "rgba(255,255,255,0.78)" }} />
               </ListItemButton>
               <ListItemButton sx={{ pl: 4 }} component={Link} href="/portal/documents/templates">
-                <ListItemText primary="All Document Templates" sx={{ color: "white" }} />
+                <ListItemText primary="All Document Templates" sx={{ color: "rgba(255,255,255,0.78)" }} />
               </ListItemButton>
               <ListItemButton sx={{ pl: 4 }} component={Link} href={ROUTES.DOCUMENT_EXTRACTION}>
-                <ListItemText primary="Document Extraction (AI)" sx={{ color: "white" }} />
+                <ListItemText primary="Document Extraction (AI)" sx={{ color: "rgba(255,255,255,0.78)" }} />
               </ListItemButton>
             </List>
           </Collapse>
@@ -175,8 +176,8 @@ export default function SideBarContent() {
           sx={{
             display: "block",
             borderRadius: "var(--default-border-radius)",
-            backgroundColor: isItemActive(item) ? theme.palette.primary.contrastText : "transparent",
-            ":hover": { backgroundColor: theme.palette.primary.light },
+            backgroundColor: isItemActive(item) ? alpha("#6FFBBE", 0.08) : "transparent",
+            ":hover": { backgroundColor: "rgba(255,255,255,0.05)" },
             mb: 0.5,
           }}
           onClick={isCollapsed ? undefined : handleUserManagementClick}
@@ -184,7 +185,7 @@ export default function SideBarContent() {
           <ListItemButton selected={isItemActive(item)} component={isCollapsed ? Link : "div"} href={isCollapsed ? ROUTES.PERMISSIONS : undefined} sx={{ justifyContent: isCollapsed ? "center" : "flex-start" }}>
             <ListItemIcon
               sx={{
-                color: isItemActive(item) ? theme.palette.primary.main : "white",
+                color: isItemActive(item) ? "#6FFBBE" : "rgba(255,255,255,0.78)",
                 minWidth: "fit-content!important",
                 marginRight: isCollapsed ? "0" : "var(--default-gap)",
                 justifyContent: "center",
@@ -198,10 +199,10 @@ export default function SideBarContent() {
                 <ListItemText
                   primary={item.text}
                   sx={{
-                    color: isItemActive(item) ? theme.palette.primary.main : "white",
+                    color: isItemActive(item) ? "#6FFBBE" : "rgba(255,255,255,0.78)",
                   }}
                 />
-                {openUserManagement ? <ExpandLess sx={{ color: "white" }} /> : <ExpandMore sx={{ color: "white" }} />}
+                {openUserManagement ? <ExpandLess sx={{ color: "rgba(255,255,255,0.78)" }} /> : <ExpandMore sx={{ color: "rgba(255,255,255,0.78)" }} />}
               </>
             )}
           </ListItemButton>
@@ -222,10 +223,10 @@ export default function SideBarContent() {
           <Collapse in={openUserManagement} timeout="auto" unmountOnExit>
             <List component="div" disablePadding>
               <ListItemButton sx={{ pl: 4 }} component={Link} href={ROUTES.PERMISSIONS}>
-                <ListItemText primary="Roles" sx={{ color: "white" }} />
+                <ListItemText primary="Roles" sx={{ color: "rgba(255,255,255,0.78)" }} />
               </ListItemButton>
               <ListItemButton sx={{ pl: 4 }} component={Link} href={ROUTES.USERS}>
-                <ListItemText primary="Users" sx={{ color: "white" }} />
+                <ListItemText primary="Users" sx={{ color: "rgba(255,255,255,0.78)" }} />
               </ListItemButton>
             </List>
           </Collapse>
@@ -239,8 +240,8 @@ export default function SideBarContent() {
           sx={{
             display: "block",
             borderRadius: "var(--default-border-radius)",
-            backgroundColor: isItemActive(item) ? theme.palette.primary.contrastText : "transparent",
-            ":hover": { backgroundColor: theme.palette.primary.light },
+            backgroundColor: isItemActive(item) ? alpha("#6FFBBE", 0.08) : "transparent",
+            ":hover": { backgroundColor: "rgba(255,255,255,0.05)" },
             mb: 0.5,
           }}
         >
@@ -256,7 +257,7 @@ export default function SideBarContent() {
             >
               <ListItemIcon
                 sx={{
-                  color: isItemActive(item) ? theme.palette.primary.main : "white",
+                  color: isItemActive(item) ? "#6FFBBE" : "rgba(255,255,255,0.78)",
                   minWidth: "fit-content!important",
                   marginRight: isCollapsed ? "0" : "var(--default-gap)",
                 }}
@@ -267,7 +268,7 @@ export default function SideBarContent() {
                 <ListItemText
                   primary={item.text}
                   sx={{
-                    color: isItemActive(item) ? theme.palette.primary.main : "white",
+                    color: isItemActive(item) ? "#6FFBBE" : "rgba(255,255,255,0.78)",
                   }}
                 />
               )}
@@ -323,8 +324,8 @@ export default function SideBarContent() {
               sx={{
                 display: "block",
                 borderRadius: "var(--default-border-radius)",
-                backgroundColor: isActive ? theme.palette.primary.contrastText : "transparent",
-                ":hover": { backgroundColor: theme.palette.primary.light },
+                backgroundColor: isActive ? alpha("#6FFBBE", 0.08) : "transparent",
+                ":hover": { backgroundColor: "rgba(255,255,255,0.05)" },
                 mb: 0.5,
               }}
             >
@@ -340,7 +341,7 @@ export default function SideBarContent() {
               >
                 <ListItemIcon
                   sx={{
-                    color: isActive ? theme.palette.primary.main : "white",
+                    color: isActive ? "#6FFBBE" : "rgba(255,255,255,0.78)",
                     minWidth: "fit-content!important",
                     marginRight: isCollapsed ? "0" : "var(--default-gap)",
                     justifyContent: "center",
@@ -353,7 +354,7 @@ export default function SideBarContent() {
                   <ListItemText
                     primary={item.text}
                     sx={{
-                      color: isActive ? theme.palette.primary.main : "white",
+                      color: isActive ? "#6FFBBE" : "rgba(255,255,255,0.78)",
                     }}
                   />
                 )}

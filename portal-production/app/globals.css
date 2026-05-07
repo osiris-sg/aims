@@ -15,10 +15,59 @@
   --default-padding: 1rem;
   --large-padding: 3rem;
   --half-padding: 0.5rem;
-  --default-border-radius: 0.4rem;
+  --default-border-radius: 0.625rem;
   --page-max-width: 1600px;
   --portal-content-padding: 4rem 0rem;
   --mobile-portal-content-padding: 5rem 0rem 1rem 0rem;
+
+  /* Wholesale Food Co. surface tones */
+  --surface: #f8f9ff;
+  --surface-container-low: #eff4ff;
+  --surface-container-lowest: #ffffff;
+  --surface-container: #e6eeff;
+  --surface-container-high: #dde9ff;
+  --surface-container-highest: #d5e3fd;
+  --surface-dim: #ccdbf4;
+
+  /* Brand tones */
+  --on-surface: #0d1c2f;
+  --on-surface-variant: #3d4947;
+  --primary-deep: #00685f;
+  --primary-container: #008378;
+  --primary-fixed-dim: #6bd8cb;
+  --tertiary-on: #00201d;
+  --outline-variant: #bcc9c6;
+}
+
+[data-theme="dark"] {
+  --surface: #10141b;
+  --surface-container-low: #161b23;
+  --surface-container-lowest: #0a0e14;
+  --surface-container-high: #1f252e;
+  --surface-container-highest: #292f39;
+  --surface-dim: #0a0e14;
+
+  --on-surface: #dfe3ee;
+  --on-surface-variant: #c2c7d0;
+  --primary-deep: #a8c5f4;
+  --primary-container: #1a2b3c;
+  --tertiary-mint: #6ffbbe;
+  --tertiary-on: #00513a;
+  --outline-variant: #43474e;
+}
+
+body {
+  background-color: var(--surface);
+  color: var(--on-surface);
+  font-feature-settings: "cv11", "ss01";
+}
+
+/* Tabular numbers utility for financial figures */
+.tabular-nums,
+.currency,
+[data-tabular] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
 }
 .truncate {
   white-space: nowrap;
@@ -41,22 +90,23 @@
 /* Scrollbar track */
 ::-webkit-scrollbar-track {
   border-radius: 4rem;
-  background: var(--grey-900, #edf1f5);
+  background: transparent;
 }
 
 /* Scrollbar thumb (draggable part) */
 ::-webkit-scrollbar-thumb {
   border-radius: 4rem;
-  background: var(--grey-500, #b3b6ba);
+  background: var(--outline-variant, #c4c6cd);
+  opacity: 0.4;
 }
 
 /* Scrollbar thumb for horizontal scrollbar */
 ::-webkit-scrollbar-thumb:horizontal {
   border-radius: 4rem;
-  background: var(--grey-500, #b3b6ba);
+  background: var(--outline-variant, #c4c6cd);
 }
 
 /* (Optional) Scrollbar thumb on hover */
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--grey-700, #999999);
+  background: var(--on-surface-variant, #43474e);
 }

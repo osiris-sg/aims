@@ -27,7 +27,6 @@ export default function ScanInventory() {
         alignItems: "center",
         height: "100%",
         overflow: "hidden",
-        bgcolor: "primary.main",
       }}
     >
       <Box

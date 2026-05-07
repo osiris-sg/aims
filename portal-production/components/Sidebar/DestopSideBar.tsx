@@ -1,6 +1,6 @@
 "use client";
 import * as React from "react";
-import { styled, useTheme } from "@mui/material/styles";
+import { styled, alpha } from "@mui/material/styles";
 import Avatar from "@mui/material/Avatar";
 import MuiDrawer, { drawerClasses } from "@mui/material/Drawer";
 import Box from "@mui/material/Box";
@@ -13,8 +13,11 @@ import DynamicSidebarContent from "./DynamicSidebarContent";
 // import SideBarContent from "./SideBarContent";
 import { UserButton, useUser } from "@clerk/nextjs";
 import { useSidebar } from "./SidebarContext";
+import { useThemeMode } from "@/contexts/ThemeModeContext";
 import MenuIcon from "@mui/icons-material/Menu";
 import MenuOpenIcon from "@mui/icons-material/MenuOpen";
+import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
+import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 // import SelectContent from './SelectContent';
 // import MenuContent from './MenuContent';
 // import CardAlert from './CardAlert';
@@ -37,9 +40,9 @@ const Drawer = styled(MuiDrawer)<{ collapsed: boolean }>(({ collapsed }) => ({
 }));
 
 export default function DesktopSideBar() {
-  const theme = useTheme();
   const { user } = useUser();
   const { isCollapsed, toggleSidebar } = useSidebar();
+  const { mode, toggleMode } = useThemeMode();
 
   return (
     <Drawer
@@ -48,8 +51,10 @@ export default function DesktopSideBar() {
       sx={{
         display: { xs: "none", md: "block" },
         [`& .${drawerClasses.paper}`]: {
-          backgroundColor: "primary.main", // Use purple background like the first image
+          backgroundColor: "#041627",
+          color: "#FFFFFF",
           overflow: "hidden",
+          borderRight: "none",
         },
       }}
     >
@@ -71,6 +76,7 @@ export default function DesktopSideBar() {
                 borderRadius: "var(--default-border-radius)",
                 width: "2rem",
                 height: "2rem",
+                backgroundColor: "transparent",
               }}
             />
             <Tooltip title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
@@ -78,9 +84,9 @@ export default function DesktopSideBar() {
                 onClick={toggleSidebar}
                 size="small"
                 sx={{
-                  color: theme.palette.primary.contrastText,
+                  color: "#FFFFFF",
                   "&:hover": {
-                    backgroundColor: "rgba(255, 255, 255, 0.1)",
+                    backgroundColor: "rgba(255, 255, 255, 0.08)",
                   },
                 }}
               >
@@ -90,27 +96,52 @@ export default function DesktopSideBar() {
           </Box>
         ) : (
           <>
-            <Box sx={{ display: "flex", alignItems: "center", gap: "var(--half-gap)" }}>
-              <Avatar
-                src="/asserts/aims-logo.png"
-                alt=""
+            <Box sx={{ display: "flex", alignItems: "center", gap: "var(--half-gap)", flexDirection: "column", alignSelf: "flex-start" }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: "var(--half-gap)" }}>
+                <Avatar
+                  src="/asserts/aims-logo.png"
+                  alt=""
+                  sx={{
+                    borderRadius: "var(--default-border-radius)",
+                    width: "1.75rem",
+                    height: "1.75rem",
+                    backgroundColor: "transparent",
+                  }}
+                />
+                <Typography
+                  sx={{
+                    color: "#FFFFFF",
+                    fontFamily: 'Manrope, Inter, sans-serif',
+                    fontWeight: 800,
+                    fontSize: "1.125rem",
+                    letterSpacing: "-0.01em",
+                  }}
+                >
+                  AIMS
+                </Typography>
+              </Box>
+              <Typography
                 sx={{
-                  borderRadius: "var(--default-border-radius)",
-                  width: "1.75rem",
-                  height: "1.75rem",
+                  color: "rgba(255, 255, 255, 0.6)",
+                  fontSize: "0.75rem",
+                  fontWeight: 500,
+                  letterSpacing: "0.05em",
+                  textTransform: "uppercase",
+                  pl: "2.25rem",
+                  mt: "-0.25rem",
                 }}
-              />
-              <Typography variant="h5" sx={{ color: theme.palette.primary.contrastText }}>
-                AIMS
+              >
+                Inventory Architect
               </Typography>
             </Box>
             <Tooltip title="Collapse sidebar">
               <IconButton
                 onClick={toggleSidebar}
                 sx={{
-                  color: theme.palette.primary.contrastText,
+                  color: "#FFFFFF",
+                  ml: "auto",
                   "&:hover": {
-                    backgroundColor: "rgba(255, 255, 255, 0.1)",
+                    backgroundColor: "rgba(255, 255, 255, 0.08)",
                   },
                 }}
               >
@@ -136,22 +167,22 @@ export default function DesktopSideBar() {
           p: 2,
           gap: 1,
           alignItems: "center",
-          borderTop: "1px solid",
-          borderColor: "divider",
+          backgroundColor: "rgba(255, 255, 255, 0.04)",
           justifyContent: isCollapsed ? "center" : "flex-start",
         }}
       >
         <UserButton afterSignOutUrl="/" />
         {!isCollapsed && (
-          <Box sx={{ mr: "auto" }}>
-            <Typography variant="body2" sx={{ fontWeight: 500, color: theme.palette.primary.contrastText }}>
+          <Box sx={{ mr: "auto", overflow: "hidden" }}>
+            <Typography variant="body2" sx={{ fontWeight: 700, color: "#FFFFFF", fontSize: "0.75rem", lineHeight: 1.2 }} className="truncate">
               {user?.fullName}
             </Typography>
             <Typography
               variant="body2"
               sx={{
-                width: 200,
-                color: theme.palette.primary.light,
+                width: 180,
+                color: "rgba(255, 255, 255, 0.6)",
+                fontSize: "0.625rem",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
@@ -161,7 +192,20 @@ export default function DesktopSideBar() {
             </Typography>
           </Box>
         )}
-        {/* <OptionsMenu /> */}
+        <Tooltip title={mode === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
+          <IconButton
+            onClick={toggleMode}
+            size="small"
+            sx={{
+              color: "#FFFFFF",
+              "&:hover": {
+                backgroundColor: "rgba(255, 255, 255, 0.08)",
+              },
+            }}
+          >
+            {mode === "dark" ? <LightModeOutlinedIcon fontSize="small" /> : <DarkModeOutlinedIcon fontSize="small" />}
+          </IconButton>
+        </Tooltip>
       </Stack>
     </Drawer>
   );

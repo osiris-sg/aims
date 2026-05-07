@@ -209,10 +209,10 @@ const AddPartDrawer: React.FC<AddPartDrawerProps> = ({ open, onClose, parentAsse
             <Box
               sx={{
                 p: 2,
-                border: "1px solid",
-                borderColor: "grey.300",
+                border: 1,
+                borderColor: "divider",
                 borderRadius: 1,
-                backgroundColor: "grey.50",
+                backgroundColor: "surfaceTones.low",
               }}
             >
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>

@@ -10,6 +10,7 @@ import "react-toastify/dist/ReactToastify.css";
 import { OrganizationProvider } from "./context/OrganizationContext";
 import { ConfigurationProvider } from "./context/ConfigurationContext";
 import { SidebarProvider } from "@/components/Sidebar/SidebarContext";
+import { useThemeMode } from "@/contexts/ThemeModeContext";
 import { usePathname } from "next/navigation";
 
 interface Props {
@@ -18,6 +19,7 @@ interface Props {
 export default function Layout(props: Props) {
   const { children } = props;
   const pathname = usePathname();
+  const { mode } = useThemeMode();
 
   // Debug logging
   console.log("Current pathname:", pathname);
@@ -54,11 +56,17 @@ export default function Layout(props: Props) {
     <OrganizationProvider>
       <ConfigurationProvider>
         <SidebarProvider>
-          <Box className={styles.PORTAL_LAYOUT} sx={isDocumentPage ? { bgcolor: "#f5f5f5", minHeight: "100vh" } : {}}>
+          <Box
+            className={styles.PORTAL_LAYOUT}
+            sx={{
+              bgcolor: "background.default",
+              minHeight: "100vh",
+            }}
+          >
             {isDocumentPage ? <DocumentSidebar /> : <DesktopSideBar />}
             {!isDocumentPage && <AppNavbar />}
             <Box sx={{ flexGrow: 1, height: "100%", width: "100%", display: "flex", flexDirection: "column" }}>{children}</Box>
-            <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick rtl={false} pauseOnFocusLoss draggable pauseOnHover theme="light" />
+            <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick rtl={false} pauseOnFocusLoss draggable pauseOnHover theme={mode} />
           </Box>
         </SidebarProvider>
       </ConfigurationProvider>

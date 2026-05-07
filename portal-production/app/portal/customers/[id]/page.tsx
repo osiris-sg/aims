@@ -147,8 +147,6 @@ export default function ViewCustomerPage({ params }: { params: { id: string } })
                 width: 120,
                 height: 120,
                 fontSize: "3rem",
-                bgcolor: "primary.main",
-                color: "white",
               }}
             >
               {customer?.name?.charAt(0)}

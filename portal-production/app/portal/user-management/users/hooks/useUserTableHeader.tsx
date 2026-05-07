@@ -73,7 +73,7 @@ export default function useUserTableHeader() {
         const user = info.row.original;
         return (
           <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-            <Avatar sx={{ width: 32, height: 32, bgcolor: "primary.main" }}>
+            <Avatar sx={{ width: 32, height: 32 }}>
               <PersonIcon fontSize="small" />
             </Avatar>
             <Box>
@@ -132,7 +132,7 @@ export default function useUserTableHeader() {
         header: "Permissions",
         cell: (info) => {
           const totalPermissions = info.getValue();
-          return <Chip label={`${totalPermissions} permissions`} size="small" color="secondary" sx={{ borderRadius: "4px" }} />;
+          return <Chip label={`${totalPermissions} permissions`} size="small" variant="outlined" sx={{ borderRadius: "4px" }} />;
         },
       }
     ),
@@ -153,8 +153,8 @@ export default function useUserTableHeader() {
               onClick={() => handleEditUser(user)}
               title="Edit user"
               sx={{
-                color: "secondary.main",
-                "&:hover": { bgcolor: "secondary.main", color: "secondary.contrastText" },
+                color: "text.secondary",
+                "&:hover": { color: "primary.main" },
               }}
             >
               <EditIcon fontSize="small" />
@@ -164,8 +164,8 @@ export default function useUserTableHeader() {
               onClick={() => handleDeleteUser(info.getValue())}
               title="Delete user"
               sx={{
-                color: "error.main",
-                "&:hover": { bgcolor: "error.main", color: "error.contrastText" },
+                color: "text.secondary",
+                "&:hover": { color: "error.main" },
               }}
             >
               <DeleteIcon fontSize="small" />

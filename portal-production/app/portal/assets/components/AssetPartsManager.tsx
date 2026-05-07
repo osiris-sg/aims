@@ -119,8 +119,8 @@ const AssetPartsManager: React.FC<AssetPartsManagerProps> = ({ assetId, assetNam
             </Typography>
             <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
               <Chip label={part.category?.name || "Unknown Category"} size="small" variant="outlined" />
-              <Chip label={`Stock: ${part.instockInventoryCount || 0}`} size="small" color="primary" variant="outlined" />
-              {level > 0 && <Chip label={`Level ${level} Part`} size="small" color="secondary" variant="outlined" />}
+              <Chip label={`Stock: ${part.instockInventoryCount || 0}`} size="small" variant="outlined" />
+              {level > 0 && <Chip label={`Level ${level} Part`} size="small" variant="outlined" />}
             </Box>
           </Box>
 

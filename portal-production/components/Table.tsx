@@ -3,6 +3,7 @@
 import React, { useMemo } from "react";
 import { useReactTable, getCoreRowModel, getPaginationRowModel, getSortedRowModel, flexRender, ExpandedState, getExpandedRowModel, SortingState, RowSelectionState } from "@tanstack/react-table";
 import { Checkbox, Table as MuiTable, Skeleton, useTheme, useMediaQuery, Box } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
@@ -113,15 +114,15 @@ export default function Table(props: Props) {
       }}
     >
       <MuiTable sx={{ width: "100%", maxWidth: "100%", tableLayout: "fixed", borderCollapse: "separate" }}>
-        <TableHead sx={{ backgroundColor: "tertiary.light", position: "sticky", top: 0, zIndex: 1000 }}>
+        <TableHead sx={{ backgroundColor: "surfaceTones.low", position: "sticky", top: 0, zIndex: 1000 }}>
           {table.getHeaderGroups().map((headerGroup: any) => (
-            <TableRow key={headerGroup.id}>
+            <TableRow key={headerGroup.id} sx={{ "&:hover": { backgroundColor: "surfaceTones.low" } }}>
               {headerGroup.headers.map((header: any) => (
                 <TableCell
                   key={header.id}
                   colSpan={header.colSpan}
-                  sx={{
-                    padding: isMobile ? "0.3rem 0.2rem" : "0.5rem 0.5rem",
+                  sx={(t) => ({
+                    padding: isMobile ? "12px 12px" : "16px 24px",
                     ...(header.id === "select"
                       ? {
                           width: "40px",
@@ -135,14 +136,14 @@ export default function Table(props: Props) {
                           maxWidth: header.column.columnDef.maxSize ? `${header.column.columnDef.maxSize}%` : undefined,
                         }
                       : {}),
-                    color: "tertiary.dark",
-                    borderRight: "0.1px solid", // Add vertical divider
-                    borderColor: "tertiary.main",
-                    "&:last-child": {
-                      borderRight: "none", // Remove border from last column
-                    },
-                    fontSize: isMobile ? "0.75rem" : "inherit",
-                  }}
+                    color: "text.secondary",
+                    borderRight: "none",
+                    borderBottom: `1px solid ${alpha(t.palette.outlineVariant, 0.15)}`,
+                    fontSize: "0.625rem",
+                    fontWeight: 700,
+                    letterSpacing: "0.1em",
+                    textTransform: "uppercase",
+                  })}
                 >
                   {header.isPlaceholder ? null : (
                     <TableSortLabel active={header.column.getIsSorted() !== false} direction={header.column.getIsSorted() || undefined} onClick={header.column.getToggleSortingHandler()}>
@@ -162,7 +163,7 @@ export default function Table(props: Props) {
                     <TableCell
                       key={`loading-${header.id}`}
                       sx={{
-                        padding: isMobile ? "0.3rem 0.2rem" : "0.5rem 0.3rem",
+                        padding: isMobile ? "10px 12px" : "16px 24px",
                         ...(header.id === "select"
                           ? {
                               width: "40px",
@@ -202,8 +203,8 @@ export default function Table(props: Props) {
                       <TableCell
                         key={cell.id}
                         sx={{
-                          padding: cell.column.id === "description" ? (isMobile ? "0.5rem 0.2rem" : "0.75rem 0.3rem") : isMobile ? "0.3rem 0.2rem" : "0.5rem 0.3rem",
-                          fontSize: isMobile ? "0.75rem" : "inherit",
+                          padding: isMobile ? "10px 12px" : "16px 24px",
+                          fontSize: isMobile ? "0.8125rem" : "0.875rem",
                           ...(cell.column.id === "select"
                             ? {
                                 width: "40px",

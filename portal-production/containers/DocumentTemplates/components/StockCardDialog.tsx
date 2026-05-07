@@ -152,25 +152,27 @@ export default function StockCardDialog({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          bgcolor: "primary.main",
-          color: "primary.contrastText",
-          py: 1.5,
+          bgcolor: "background.paper",
+          color: "text.primary",
+          borderBottom: "1px solid",
+          borderColor: "divider",
+          py: 1.75,
         }}
       >
-        <Typography variant="h6" fontWeight={500}>
-          Stock Card - Select {itemType}
+        <Typography variant="h6" fontWeight={600}>
+          Stock Card — Select {itemType}
         </Typography>
-        <IconButton onClick={handleClose} size="small" sx={{ color: "primary.contrastText" }}>
+        <IconButton onClick={handleClose} size="small" sx={{ color: "text.secondary" }}>
           <CloseIcon />
         </IconButton>
       </DialogTitle>
 
-      <DialogContent sx={{ p: 0 }}>
+      <DialogContent sx={{ p: 0, bgcolor: "background.paper" }}>
         {/* Search Section */}
         <Box
           sx={{
             p: 2,
-            bgcolor: "tertiary.light",
+            bgcolor: "background.paper",
             borderBottom: "1px solid",
             borderColor: "divider",
           }}
@@ -223,105 +225,20 @@ export default function StockCardDialog({
         </Box>
 
         {/* Results Table */}
-        <TableContainer component={Paper} sx={{ maxHeight: "calc(85vh - 220px)" }}>
+        <TableContainer component={Paper} elevation={0} sx={{ maxHeight: "calc(85vh - 220px)", bgcolor: "background.paper" }}>
           <Table stickyHeader size="small">
             <TableHead>
               <TableRow>
-                <TableCell
-                  sx={{
-                    fontWeight: 600,
-                    bgcolor: "grey.100",
-                    borderBottom: 2,
-                    borderColor: "primary.main",
-                    width: "18%",
-                  }}
-                >
-                  Code
-                </TableCell>
-                <TableCell
-                  sx={{
-                    fontWeight: 600,
-                    bgcolor: "grey.100",
-                    borderBottom: 2,
-                    borderColor: "primary.main",
-                    width: "40%",
-                  }}
-                >
-                  Description
-                </TableCell>
-                <TableCell
-                  sx={{
-                    fontWeight: 600,
-                    bgcolor: "grey.100",
-                    borderBottom: 2,
-                    borderColor: "primary.main",
-                    width: "15%",
-                  }}
-                >
-                  Category
-                </TableCell>
-                <TableCell
-                  align="center"
-                  sx={{
-                    fontWeight: 600,
-                    bgcolor: "grey.100",
-                    borderBottom: 2,
-                    borderColor: "primary.main",
-                    width: "10%",
-                  }}
-                >
-                  Balance
-                </TableCell>
-                <TableCell
-                  align="center"
-                  sx={{
-                    fontWeight: 600,
-                    bgcolor: "grey.100",
-                    borderBottom: 2,
-                    borderColor: "primary.main",
-                    width: "10%",
-                  }}
-                >
-                  Min Qty
-                </TableCell>
-                <TableCell
-                  align="right"
-                  sx={{
-                    fontWeight: 600,
-                    bgcolor: "grey.100",
-                    borderBottom: 2,
-                    borderColor: "primary.main",
-                    width: "12%",
-                  }}
-                >
-                  Unit Price
-                </TableCell>
+                <TableCell sx={{ width: "18%" }}>Code</TableCell>
+                <TableCell sx={{ width: "40%" }}>Description</TableCell>
+                <TableCell sx={{ width: "15%" }}>Category</TableCell>
+                <TableCell align="center" sx={{ width: "10%" }}>Balance</TableCell>
+                <TableCell align="center" sx={{ width: "10%" }}>Min Qty</TableCell>
+                <TableCell align="right" sx={{ width: "12%" }}>Unit Price</TableCell>
                 {isAssetTrackingModeEnabled && (
-                  <TableCell
-                    align="center"
-                    sx={{
-                      fontWeight: 600,
-                      bgcolor: "grey.100",
-                      borderBottom: 2,
-                      borderColor: "primary.main",
-                      width: "10%",
-                    }}
-                  >
-                    Status
-                  </TableCell>
+                  <TableCell align="center" sx={{ width: "10%" }}>Status</TableCell>
                 )}
-                <TableCell
-                  align="center"
-                  sx={{
-                    fontWeight: 600,
-                    bgcolor: "grey.100",
-                    borderBottom: 2,
-                    borderColor: "primary.main",
-                    width: "12%",
-                  }}
-                >
-                  Actions
-                </TableCell>
+                <TableCell align="center" sx={{ width: "12%" }}>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -339,47 +256,28 @@ export default function StockCardDialog({
                     key={item.id || index}
                     hover
                     onClick={() => handleRowClick(item)}
-                    sx={{
-                      cursor: "pointer",
-                      "&:hover": {
-                        bgcolor: "secondary.light",
-                      },
-                      "&:nth-of-type(even)": {
-                        bgcolor: "tertiary.light",
-                      },
-                    }}
+                    sx={{ cursor: "pointer" }}
                   >
-                    <TableCell sx={{ fontWeight: 500, color: "secondary.main" }}>
+                    <TableCell sx={{ fontWeight: 500, color: "text.primary" }}>
                       {item.sku || "-"}
                     </TableCell>
-                    <TableCell>{getItemDescription(item)}</TableCell>
-                    <TableCell>
-                      <Chip
-                        label={getItemCategory(item)}
-                        size="small"
-                        sx={{
-                          bgcolor: "tertiary.main",
-                          color: "text.primary",
-                          fontWeight: 500,
-                          fontSize: "0.75rem",
-                        }}
-                      />
+                    <TableCell sx={{ color: "text.primary" }}>{getItemDescription(item)}</TableCell>
+                    <TableCell sx={{ color: "text.secondary" }}>
+                      {getItemCategory(item)}
                     </TableCell>
-                    <TableCell align="center">
+                    <TableCell align="center" sx={{ color: "text.primary" }}>
                       {item.quantity !== undefined ? item.quantity : "-"}
                     </TableCell>
-                    <TableCell align="center">
+                    <TableCell align="center" sx={{ color: "text.secondary" }}>
                       {item.minQuantity !== undefined && item.minQuantity !== null ? item.minQuantity : "-"}
                     </TableCell>
-                    <TableCell align="right">
-                      {item.unitPrice != null
-                        ? `$${item.unitPrice.toFixed(2)}`
-                        : "-"}
+                    <TableCell align="right" className="tabular-nums" sx={{ color: "text.primary", fontWeight: 500 }}>
+                      {item.unitPrice != null ? `$${item.unitPrice.toFixed(2)}` : "-"}
                     </TableCell>
                     {isAssetTrackingModeEnabled && (
                       <TableCell align="center">
                         <Chip
-                          label={item.status || "N/A"}
+                          label={(item.status || "N/A").replace(/_/g, " ")}
                           size="small"
                           color={
                             item.status === "instock"
@@ -388,11 +286,7 @@ export default function StockCardDialog({
                               ? "warning"
                               : "default"
                           }
-                          sx={{
-                            fontWeight: 500,
-                            fontSize: "0.7rem",
-                            textTransform: "capitalize",
-                          }}
+                          sx={{ textTransform: "capitalize" }}
                         />
                       </TableCell>
                     )}
@@ -400,17 +294,17 @@ export default function StockCardDialog({
                       <Box sx={{ display: "flex", gap: 0.5, justifyContent: "center" }}>
                         <IconButton
                           size="small"
-                          color="primary"
                           onClick={(e) => handleAddItem(item, e)}
                           title="Add to document"
+                          sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}
                         >
                           <AddIcon fontSize="small" />
                         </IconButton>
                         <IconButton
                           size="small"
-                          color="secondary"
                           onClick={(e) => handleViewItem(item, e)}
                           title="View details"
+                          sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}
                         >
                           <ViewIcon fontSize="small" />
                         </IconButton>
@@ -427,7 +321,7 @@ export default function StockCardDialog({
         <Box
           sx={{
             p: 1.5,
-            bgcolor: "tertiary.light",
+            bgcolor: "background.paper",
             borderTop: "1px solid",
             borderColor: "divider",
             display: "flex",
