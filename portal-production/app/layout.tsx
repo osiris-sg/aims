@@ -1,23 +1,29 @@
 // "use client";
 import type { Metadata } from "next";
-import { Roboto, Carlito } from "next/font/google";
+import { Inter, Manrope, Carlito } from "next/font/google";
 import "./globals.css";
 import { AppRouterCacheProvider } from "@mui/material-nextjs/v15-appRouter";
-import { ThemeContextProvider } from "@/themes/ThemeContext";
+import { ThemeModeProvider } from "@/contexts/ThemeModeContext";
 import Head from "next/head";
 import { ClerkProvider } from "@clerk/nextjs";
 import Portal from "@/containers/portal";
 import Providers from "./providers";
 
-const roboto = Roboto({
-  weight: ["300", "400", "500", "700"],
+const inter = Inter({
+  weight: ["300", "400", "500", "600", "700"],
   subsets: ["latin"],
   display: "swap",
-  variable: "--font-roboto",
+  variable: "--font-inter",
 });
 
-// Carlito is an open-source, metric-compatible alternative to Calibri
-// It's available via Google Fonts and will work reliably on Vercel and all browsers
+const manrope = Manrope({
+  weight: ["400", "500", "600", "700", "800"],
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-manrope",
+});
+
+// Carlito is used for document templates (Calibri-compatible print output)
 const carlito = Carlito({
   weight: ["400", "700"],
   subsets: ["latin"],
@@ -42,13 +48,13 @@ export default function RootLayout({
         <Head>
           <link rel="icon" href="/favicon.png" type="image/png" />
         </Head>
-        <body className={`${roboto.variable} ${carlito.variable} ROOT_LAYOUT`}>
+        <body className={`${inter.variable} ${manrope.variable} ${carlito.variable} ROOT_LAYOUT`}>
           <AppRouterCacheProvider>
-            <ThemeContextProvider>
+            <ThemeModeProvider>
               <Providers>
                 <Portal>{children}</Portal>
               </Providers>
-            </ThemeContextProvider>
+            </ThemeModeProvider>
           </AppRouterCacheProvider>
         </body>
       </html>

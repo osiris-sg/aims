@@ -517,7 +517,7 @@ export default function ImportInvoices() {
 
             {/* Line items - simple list */}
             {(currentInvoice.line_items as any[])?.filter((li: any) => !li.is_reference_line).map((li: any, idx: number) => (
-              <Box key={idx} sx={{ p: 1.5, mb: 1, borderLeft: "3px solid #2e7d32", bgcolor: "rgba(46,125,50,0.03)", borderRadius: 1 }}>
+              <Box key={idx} sx={{ p: 1.5, mb: 1, borderLeft: 3, borderColor: "success.main", bgcolor: "surfaceTones.low", borderRadius: 1 }}>
                 <Typography variant="body2" sx={{ fontSize: 13, mb: 0.5 }}>{li.description?.split("\n")[0]?.slice(0, 150)}</Typography>
                 <Typography variant="caption" color="text.secondary">
                   Qty: {li.quantity} | ${li.unit_price?.toLocaleString("en-SG", { minimumFractionDigits: 2 })} | Gross: ${li.gross?.toLocaleString("en-SG", { minimumFractionDigits: 2 })}
@@ -556,7 +556,7 @@ export default function ImportInvoices() {
             </Box>
 
             {/* ─── Invoice Details Form ─── */}
-            <Paper variant="outlined" sx={{ p: 2.5, mb: 3, bgcolor: "#fafbfc" }}>
+            <Paper variant="outlined" sx={{ p: 2.5, mb: 3, bgcolor: "surfaceTones.low" }}>
               <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2 }}>Invoice Details</Typography>
               <Grid container spacing={2}>
                 {/* Customer */}
@@ -982,7 +982,7 @@ export default function ImportInvoices() {
                   Reference Lines ({referenceLines.length}) — auto-skipped
                 </Button>
                 <Collapse in={showRefLines}>
-                  <Box sx={{ bgcolor: "#fafafa", p: 1.5, borderRadius: 1, mt: 1, maxHeight: 200, overflow: "auto" }}>
+                  <Box sx={{ bgcolor: "surfaceTones.low", p: 1.5, borderRadius: 1, mt: 1, maxHeight: 200, overflow: "auto" }}>
                     {referenceLines.map((li, idx) => (
                       <Typography key={idx} variant="caption" display="block" color="text.secondary" sx={{ fontSize: 11, lineHeight: 1.6 }}>
                         {li.description.split("\n")[0].slice(0, 150)}
@@ -995,7 +995,7 @@ export default function ImportInvoices() {
 
             {/* ─── Action Buttons ─── */}
             {isPending && (
-              <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end", mt: 3, pt: 2, borderTop: "1px solid #eee" }}>
+              <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end", mt: 3, pt: 2, borderTop: 1, borderColor: "divider" }}>
                 <Button variant="outlined" color="inherit" startIcon={<SkipNextIcon />} onClick={handleSkip}>
                   Skip
                 </Button>

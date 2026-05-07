@@ -57,11 +57,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <Box sx={{ p: 8, height: "100%", width: "100%", display: "flex", flexDirection: "column" }}>
-      <Box sx={{ mb: 3, borderBottom: "2px solid #f0f0f0", pb: 2 }}>
-        <Typography variant="h4" sx={{ fontWeight: "bold", color: "#d32f2f" }}>
+      <Box sx={{ mb: 3, borderBottom: 1, borderColor: "divider", pb: 2 }}>
+        <Typography variant="h4" sx={{ fontWeight: "bold", color: "primary.main" }}>
           OsirisAdmin Control Panel
         </Typography>
-        <Typography variant="subtitle1" sx={{ color: "#666", mt: 1 }}>
+        <Typography variant="subtitle1" sx={{ color: "text.secondary", mt: 1 }}>
           Cross-Organization Management Dashboard
         </Typography>
       </Box>
@@ -80,10 +80,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               fontSize: "0.9rem",
             },
             "& .Mui-selected": {
-              color: "#d32f2f",
+              color: "primary.main",
             },
             "& .MuiTabs-indicator": {
-              backgroundColor: "#d32f2f",
+              backgroundColor: "primary.main",
             },
           }}
         >

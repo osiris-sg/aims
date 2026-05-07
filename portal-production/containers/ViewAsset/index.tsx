@@ -97,10 +97,8 @@ export default function ViewAsset() {
                   <IconButton
                     onClick={() => handleEdit(asset?.id)}
                     sx={{
-                      borderRadius: "8px",
-                      color: "secondary.contrastText",
-                      bgcolor: "secondary.main",
-                      "&:hover": { bgcolor: "secondary.dark" },
+                color: "text.secondary",
+                "&:hover": { color: "info.main" },
                     }}
                   >
                     <ModeEditIcon />

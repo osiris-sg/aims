@@ -63,12 +63,8 @@ export default function useAssetsTableHeader() {
           <IconButton
             onClick={() => handleView(row.original)}
             sx={{
-              color: "customYellow.contrastText",
-              bgcolor: "customYellow.main",
-              "&:hover": {
-                bgcolor: "customYellow.dark",
-              },
-              borderRadius: "8px",
+              color: "text.secondary",
+              "&:hover": { color: "primary.main" },
             }}
           >
             <VisibilityIcon />
@@ -76,12 +72,8 @@ export default function useAssetsTableHeader() {
           <IconButton
             onClick={() => handleEdit(row.original)}
             sx={{
-              borderRadius: "8px",
-              color: "secondary.contrastText",
-              bgcolor: "secondary.main",
-              "&:hover": {
-                bgcolor: "secondary.dark",
-              },
+              color: "text.secondary",
+              "&:hover": { color: "info.main" },
             }}
           >
             <ModeEditIcon />
@@ -93,12 +85,8 @@ export default function useAssetsTableHeader() {
               setConfirmOpen(true);
             }}
             sx={{
-              color: "customRed.contrastText",
-              bgcolor: "customRed.main",
-              "&:hover": {
-                bgcolor: "customRed.dark",
-              },
-              borderRadius: "8px",
+              color: "text.secondary",
+              "&:hover": { color: "error.main" },
             }}
           >
             <DeleteIcon />

@@ -115,10 +115,10 @@ const ParentAssetSelector: React.FC<ParentAssetSelectorProps> = ({ value, onChan
         <Box
           sx={{
             p: 2,
-            border: "1px solid",
+            border: 1,
             borderColor: "divider",
             borderRadius: 1,
-            backgroundColor: "grey.50",
+            backgroundColor: "surfaceTones.low",
           }}
         >
           <Typography variant="body2" color="text.secondary" gutterBottom>

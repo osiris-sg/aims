@@ -84,13 +84,13 @@ export default function AdminDashboard() {
   }
 
   const statsCards = [
-    { title: "Organizations", value: stats?.totalOrganizations || 0, icon: <OrganizationIcon />, color: "#1976d2", path: "organizations" },
-    { title: "Total Assets", value: stats?.totalAssets || 0, icon: <AssetIcon />, color: "#388e3c", path: "assets" },
-    { title: "Total Inventories", value: stats?.totalInventories || 0, icon: <InventoryIcon />, color: "#f57c00", path: "inventories" },
-    { title: "Total Customers", value: stats?.totalCustomers || 0, icon: <CustomersIcon />, color: "#7b1fa2", path: "customers" },
-    { title: "Total Documents", value: stats?.totalDocuments || 0, icon: <DocumentIcon />, color: "#d32f2f", path: "documents" },
-    { title: "Total Projects", value: stats?.totalProjects || 0, icon: <ProjectIcon />, color: "#455a64", path: "projects" },
-    { title: "Total Users", value: stats?.totalUsers || 0, icon: <PeopleIcon />, color: "#455a64", path: "users" },
+    { title: "Organizations", value: stats?.totalOrganizations || 0, icon: <OrganizationIcon />, color: "primary.main", path: "organizations" },
+    { title: "Total Assets", value: stats?.totalAssets || 0, icon: <AssetIcon />, color: "success.dark", path: "assets" },
+    { title: "Total Inventories", value: stats?.totalInventories || 0, icon: <InventoryIcon />, color: "customYellow.dark", path: "inventories" },
+    { title: "Total Customers", value: stats?.totalCustomers || 0, icon: <CustomersIcon />, color: "secondary.main", path: "customers" },
+    { title: "Total Documents", value: stats?.totalDocuments || 0, icon: <DocumentIcon />, color: "customRed.main", path: "documents" },
+    { title: "Total Projects", value: stats?.totalProjects || 0, icon: <ProjectIcon />, color: "text.primary", path: "projects" },
+    { title: "Total Users", value: stats?.totalUsers || 0, icon: <PeopleIcon />, color: "text.primary", path: "users" },
   ];
 
   return (

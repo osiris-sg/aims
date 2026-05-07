@@ -183,12 +183,8 @@ export default function SalesDocumentList({
                 router.push(`/portal/documents/${documentType}/${templateId}/${id}`)
               }
               sx={{
-                color: "customYellow.contrastText",
-                bgcolor: "customYellow.main",
-                "&:hover": {
-                  bgcolor: "customYellow.dark",
-                },
-                borderRadius: "8px",
+              color: "text.secondary",
+              "&:hover": { color: "primary.main" },
               }}
             >
               <VisibilityIcon />
@@ -196,12 +192,8 @@ export default function SalesDocumentList({
             <IconButton
               onClick={handleDownload}
               sx={{
-                color: "white",
-                bgcolor: "primary.main",
-                "&:hover": {
-                  bgcolor: "primary.dark",
-                },
-                borderRadius: "8px",
+              color: "text.secondary",
+              "&:hover": { color: "primary.main" },
               }}
             >
               <DownloadIcon />
@@ -210,12 +202,8 @@ export default function SalesDocumentList({
               <IconButton
                 onClick={() => handleDeleteClick(row.original)}
                 sx={{
-                  color: "customRed.contrastText",
-                  bgcolor: "customRed.main",
-                  "&:hover": {
-                    bgcolor: "customRed.dark",
-                  },
-                  borderRadius: "8px",
+              color: "text.secondary",
+              "&:hover": { color: "error.main" },
                 }}
               >
                 <DeleteIcon />

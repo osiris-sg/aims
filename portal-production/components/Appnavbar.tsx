@@ -37,10 +37,11 @@ export default function AppNavbar() {
       sx={{
         display: { xs: "auto", md: "none" },
         boxShadow: 0,
-        bgcolor: "primary.main", // Use purple background like the sidebar
+        bgcolor: "#041627",
+        color: "#FFFFFF",
         backgroundImage: "none",
-        borderBottom: "1px solid",
-        borderColor: "divider",
+        borderBottom: 1,
+        borderColor: "rgba(255, 255, 255, 0.15)",
         top: "var(--template-frame-height, 0px)",
       }}
     >
@@ -64,12 +65,12 @@ export default function AppNavbar() {
                 height: "2.5rem",
               }}
             />
-            <Typography variant="h4" component="h1" sx={{ color: "white" }}>
+            <Typography variant="h4" component="h1" sx={{ color: "#FFFFFF", fontWeight: 800 }}>
               AIMS
             </Typography>
           </Stack>
           <IconButton aria-label="menu" onClick={() => toggleDrawer(true)}>
-            <MenuRoundedIcon sx={{ color: "white" }} />
+            <MenuRoundedIcon sx={{ color: "#FFFFFF" }} />
           </IconButton>
           <MobileSideBar open={open} toggleDrawer={(state) => toggleDrawer(state)} />
         </Stack>

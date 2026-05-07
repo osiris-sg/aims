@@ -262,10 +262,10 @@ export default function DocumentExtractionPage() {
                   sx={{
                     p: 4,
                     textAlign: 'center',
-                    backgroundColor: 'grey.50',
+                    backgroundColor: 'surfaceTones.low',
                     cursor: 'pointer',
                     '&:hover': {
-                      backgroundColor: 'grey.100',
+                      backgroundColor: 'surfaceTones.high',
                     },
                   }}
                   onDrop={handleDrop}

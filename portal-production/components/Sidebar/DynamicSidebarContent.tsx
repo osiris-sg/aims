@@ -14,6 +14,7 @@ import {
   Box,
   Typography,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import {
   Dashboard,
   Inventory,
@@ -107,7 +108,7 @@ export default function DynamicSidebarContent() {
           alignItems: "center",
         }}
       >
-        <CircularProgress size={24} sx={{ color: "white" }} />
+        <CircularProgress size={24} sx={{ color: "#FFFFFF" }} />
       </Stack>
     );
   }
@@ -123,9 +124,9 @@ export default function DynamicSidebarContent() {
           alignItems: "center",
         }}
       >
-        <ErrorOutline sx={{ color: "white", mb: 1 }} />
+        <ErrorOutline sx={{ color: "#FFFFFF", mb: 1 }} />
         {!isCollapsed && (
-          <Typography variant="caption" sx={{ color: "white", textAlign: "center" }}>
+          <Typography variant="caption" sx={{ color: "rgba(255, 255, 255, 0.7)", textAlign: "center" }}>
             Failed to load navigation
           </Typography>
         )}
@@ -144,15 +145,32 @@ export default function DynamicSidebarContent() {
     const isOpen = openMenus[module.moduleCode] || false;
     const isActive = isItemActive(module);
 
+    const mintAccent = "#6FFBBE";
     const menuItem = (
       <ListItem
         disablePadding
         sx={{
           display: "block",
-          borderRadius: "var(--default-border-radius)",
-          backgroundColor: isActive ? theme.palette.primary.contrastText : "transparent",
-          ":hover": { backgroundColor: theme.palette.primary.light },
-          mb: 0.5,
+          position: "relative",
+          borderRadius: 1,
+          backgroundColor: isActive ? alpha(mintAccent, 0.08) : "transparent",
+          transition: "background-color 160ms ease",
+          ":hover": {
+            backgroundColor: isActive ? alpha(mintAccent, 0.12) : alpha("#ffffff", 0.05),
+          },
+          mb: 0.25,
+          "&::before": isActive
+            ? {
+                content: '""',
+                position: "absolute",
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: "4px",
+                backgroundColor: mintAccent,
+                borderRadius: "0 4px 4px 0",
+              }
+            : {},
         }}
       >
         <ListItemButton
@@ -162,18 +180,22 @@ export default function DynamicSidebarContent() {
           onClick={hasSubMenus ? () => handleMenuClick(module.moduleCode) : undefined}
           sx={{
             justifyContent: "center",
-            minHeight: 48,
-            px: isCollapsed ? 1.5 : 2,
-            borderRadius: "var(--default-border-radius)",
+            minHeight: 40,
+            px: isCollapsed ? 1.5 : 1.5,
+            py: 1,
+            borderRadius: 1,
+            "&.Mui-selected": { backgroundColor: "transparent" },
+            "&.Mui-selected:hover": { backgroundColor: "transparent" },
           }}
         >
           <ListItemIcon
             sx={{
-              color: isActive ? theme.palette.primary.main : "white",
+              color: isActive ? mintAccent : alpha("#ffffff", 0.78),
               minWidth: "fit-content!important",
-              marginRight: isCollapsed ? "0" : "var(--default-gap)",
+              marginRight: isCollapsed ? "0" : 1.5,
               justifyContent: "center",
               display: "flex",
+              "& svg": { fontSize: "1.25rem" },
             }}
           >
             {getIcon(module.icon)}
@@ -182,12 +204,16 @@ export default function DynamicSidebarContent() {
             <>
               <ListItemText
                 primary={module.displayName || module.moduleCode}
-                sx={{
-                  color: isActive ? theme.palette.primary.main : "white",
+                primaryTypographyProps={{
+                  sx: {
+                    color: isActive ? "#FFFFFF" : alpha("#ffffff", 0.78),
+                    fontSize: "0.875rem",
+                    fontWeight: isActive ? 600 : 500,
+                  },
                 }}
               />
               {hasSubMenus && (
-                isOpen ? <ExpandLess sx={{ color: "white" }} /> : <ExpandMore sx={{ color: "white" }} />
+                isOpen ? <ExpandLess sx={{ color: alpha("#ffffff", 0.7), fontSize: "1.1rem" }} /> : <ExpandMore sx={{ color: alpha("#ffffff", 0.7), fontSize: "1.1rem" }} />
               )}
             </>
           )}
@@ -234,8 +260,16 @@ export default function DynamicSidebarContent() {
                   <ListItemButton
                     key={submenuKey}
                     sx={{
-                      pl: 4,
-                      backgroundColor: isSubmenuActive ? theme.palette.primary.light : "transparent",
+                      pl: 4.5,
+                      minHeight: 32,
+                      borderRadius: 1,
+                      ml: 1,
+                      mr: 0.5,
+                      my: 0.25,
+                      backgroundColor: isSubmenuActive ? alpha("#6FFBBE", 0.08) : "transparent",
+                      "&.Mui-selected": { backgroundColor: alpha("#6FFBBE", 0.08) },
+                      "&.Mui-selected:hover": { backgroundColor: alpha("#6FFBBE", 0.12) },
+                      "&:hover": { backgroundColor: alpha("#ffffff", 0.05) },
                     }}
                     component={Link}
                     href={submenuRoute}
@@ -243,7 +277,13 @@ export default function DynamicSidebarContent() {
                   >
                     <ListItemText
                       primary={submenuLabel}
-                      sx={{ color: "white" }}
+                      primaryTypographyProps={{
+                        sx: {
+                          color: isSubmenuActive ? "#FFFFFF" : alpha("#ffffff", 0.65),
+                          fontSize: "0.8125rem",
+                          fontWeight: isSubmenuActive ? 600 : 500,
+                        },
+                      }}
                     />
                   </ListItemButton>
                 );
@@ -298,24 +338,44 @@ export default function DynamicSidebarContent() {
       >
         {secondaryItems.map((item) => {
           const isActive = pathname === item.path || pathname.startsWith(item.path + '/');
+          const mintAccent = "#6FFBBE";
           const secondaryItem = (
             <ListItem
               key={item.id}
               disablePadding
               sx={{
                 display: "block",
-                borderRadius: "var(--default-border-radius)",
-                backgroundColor: isActive ? theme.palette.primary.contrastText : "transparent",
-                ":hover": { backgroundColor: theme.palette.primary.light },
-                mb: 0.5,
+                position: "relative",
+                borderRadius: 1,
+                backgroundColor: isActive ? alpha(mintAccent, 0.08) : "transparent",
+                transition: "background-color 160ms ease",
+                ":hover": {
+                  backgroundColor: isActive ? alpha(mintAccent, 0.12) : alpha("#ffffff", 0.05),
+                },
+                mb: 0.25,
+                "&::before": isActive
+                  ? {
+                      content: '""',
+                      position: "absolute",
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: "4px",
+                      backgroundColor: mintAccent,
+                      borderRadius: "0 4px 4px 0",
+                    }
+                  : {},
               }}
             >
               <ListItemButton
                 sx={{
                   justifyContent: "center",
-                  minHeight: 48,
-                  px: isCollapsed ? 1.5 : 2,
-                  borderRadius: "var(--default-border-radius)",
+                  minHeight: 40,
+                  px: isCollapsed ? 1.5 : 1.5,
+                  py: 1,
+                  borderRadius: 1,
+                  "&.Mui-selected": { backgroundColor: "transparent" },
+                  "&.Mui-selected:hover": { backgroundColor: "transparent" },
                 }}
                 component={Link}
                 href={item.path}
@@ -324,10 +384,11 @@ export default function DynamicSidebarContent() {
                 <ListItemIcon
                   sx={{
                     minWidth: "fit-content!important",
-                    marginRight: isCollapsed ? "0" : "var(--default-gap)",
+                    marginRight: isCollapsed ? "0" : 1.5,
                     justifyContent: "center",
                     display: "flex",
-                    color: isActive ? theme.palette.primary.main : "white",
+                    color: isActive ? mintAccent : alpha("#ffffff", 0.78),
+                    "& svg": { fontSize: "1.25rem" },
                   }}
                 >
                   {getIcon(item.icon)}
@@ -335,8 +396,12 @@ export default function DynamicSidebarContent() {
                 {!isCollapsed && (
                   <ListItemText
                     primary={item.text}
-                    sx={{
-                      color: isActive ? theme.palette.primary.main : "white",
+                    primaryTypographyProps={{
+                      sx: {
+                        color: isActive ? "#FFFFFF" : alpha("#ffffff", 0.78),
+                        fontSize: "0.875rem",
+                        fontWeight: isActive ? 600 : 500,
+                      },
                     }}
                   />
                 )}

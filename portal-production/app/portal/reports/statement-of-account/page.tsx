@@ -321,12 +321,12 @@ export default function StatementOfAccountPage() {
               </Card>
             </Grid>
             <Grid item xs={6} md={3}>
-              <Card variant="outlined" sx={{ bgcolor: 'primary.main', color: 'white' }}>
+              <Card variant="outlined" sx={{ bgcolor: "surfaceTones.highest" }}>
                 <CardContent>
-                  <Typography variant="body2" sx={{ color: 'white', opacity: 0.9 }}>
+                  <Typography variant="body2" color="text.secondary">
                     Current Balance
                   </Typography>
-                  <Typography variant="h6" sx={{ color: 'white' }}>
+                  <Typography variant="h6" color="primary.main" fontWeight={600}>
                     {formatCurrency(statementData.statement.currentBalance)}
                   </Typography>
                 </CardContent>
@@ -338,7 +338,7 @@ export default function StatementOfAccountPage() {
           <TableContainer sx={{ mb: 3 }}>
             <Table size="small">
               <TableHead>
-                <TableRow sx={{ bgcolor: 'grey.100' }}>
+                <TableRow>
                   <TableCell>Date</TableCell>
                   <TableCell>Reference</TableCell>
                   <TableCell>Description</TableCell>

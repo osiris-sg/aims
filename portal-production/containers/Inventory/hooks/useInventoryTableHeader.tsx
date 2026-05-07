@@ -67,12 +67,8 @@ export default function useInventoryTableHeader() {
           <IconButton
             onClick={() => openQRDialog(row.original.sku)}
             sx={{
-              color: "customYellow.contrastText",
-              bgcolor: "tertiary.dark",
-              "&:hover": {
-                bgcolor: "gray",
-              },
-              borderRadius: "8px",
+              color: "text.secondary",
+              "&:hover": { color: "primary.main" },
             }}
           >
             <QrCode2Icon />
@@ -80,12 +76,8 @@ export default function useInventoryTableHeader() {
           <IconButton
             onClick={() => handleView(row.original)}
             sx={{
-              color: "customYellow.contrastText",
-              bgcolor: "customYellow.main",
-              "&:hover": {
-                bgcolor: "customYellow.dark",
-              },
-              borderRadius: "8px",
+              color: "text.secondary",
+              "&:hover": { color: "primary.main" },
             }}
           >
             <VisibilityIcon />
@@ -93,12 +85,8 @@ export default function useInventoryTableHeader() {
           {/* <IconButton
             onClick={() => {}}
             sx={{
-              borderRadius: "8px",
-              color: "secondary.contrastText",
-              bgcolor: "secondary.main",
-              "&:hover": {
-                bgcolor: "secondary.dark",
-              },
+              color: "text.secondary",
+              "&:hover": { color: "info.main" },
             }}
           >
             <ModeEditIcon />
@@ -110,12 +98,8 @@ export default function useInventoryTableHeader() {
               setConfirmOpen(true);
             }}
             sx={{
-              color: "customRed.contrastText",
-              bgcolor: "customRed.main",
-              "&:hover": {
-                bgcolor: "customRed.dark",
-              },
-              borderRadius: "8px",
+              color: "text.secondary",
+              "&:hover": { color: "error.main" },
             }}
           >
             <DeleteIcon />

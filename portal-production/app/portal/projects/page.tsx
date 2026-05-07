@@ -79,10 +79,10 @@ export default function ProjectsPage() {
       header: "Actions",
       cell: ({ row }: { row: any }) => (
         <Box sx={{ display: "flex", gap: 1 }}>
-          <IconButton onClick={() => router.push(`${ROUTES.PROJECTS}/${row.original.id}`)} sx={{ color: "primary.contrastText", bgcolor: "primary.main", "&:hover": { bgcolor: "primary.dark" }, borderRadius: "8px" }}>
+          <IconButton onClick={() => router.push(`${ROUTES.PROJECTS}/${row.original.id}`)} sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}>
             <VisibilityIcon />
           </IconButton>
-          <IconButton onClick={() => router.push(`${ROUTES.CREATE_PROJECT}?id=${row.original.id}`)} sx={{ color: "secondary.contrastText", bgcolor: "secondary.main", "&:hover": { bgcolor: "secondary.dark" }, borderRadius: "8px" }}>
+          <IconButton onClick={() => router.push(`${ROUTES.CREATE_PROJECT}?id=${row.original.id}`)} sx={{ color: "text.secondary", "&:hover": { color: "info.main" } }}>
             <EditIcon />
           </IconButton>
           <IconButton
@@ -90,7 +90,7 @@ export default function ProjectsPage() {
               setSelectedProject(row.original);
               setDeleteDialogOpen(true);
             }}
-            sx={{ color: "customRed.contrastText", bgcolor: "customRed.main", "&:hover": { bgcolor: "customRed.dark" }, borderRadius: "8px" }}
+            sx={{ color: "text.secondary", "&:hover": { color: "error.main" } }}
           >
             <DeleteIcon />
           </IconButton>

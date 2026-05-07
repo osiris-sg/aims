@@ -68,11 +68,11 @@ export default function AddAssetSuccess() {
             Your new project has been created successfully
           </Typography>
           <Stack direction="row" spacing={2} justifyContent="center">
-            <Button variant="contained" color="secondary" onClick={() => router.push(ROUTES.PROJECTS)}>
+            <Button variant="contained" color="primary" onClick={() => router.push(ROUTES.PROJECTS)}>
               Done
             </Button>
             {/* change when i do project detials page */}
-            <Button variant="contained" color="secondary" onClick={() => router.push(ROUTES.INVENTORY)}>
+            <Button variant="contained" color="primary" onClick={() => router.push(ROUTES.INVENTORY)}>
               <Typography sx={{ lineHeight: "1.2" }}>
                 Assign Items <br />
                 To Project

@@ -64,12 +64,8 @@ export default function useTemplateTableHeader(props: Props) {
                 <IconButton
                   onClick={() => remove(row.index)}
                   sx={{
-                    color: "customRed.contrastText",
-                    bgcolor: "customRed.main",
-                    "&:hover": {
-                      bgcolor: "customRed.dark",
-                    },
-                    borderRadius: "8px",
+              color: "text.secondary",
+              "&:hover": { color: "error.main" },
                   }}
                 >
                   <DeleteIcon />

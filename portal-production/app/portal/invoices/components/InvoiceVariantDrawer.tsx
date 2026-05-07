@@ -288,7 +288,8 @@ export default function InvoiceVariantDrawer({
                       <Box sx={{ display: "flex", alignItems: "flex-start", width: "100%", gap: 2 }}>
                         <Avatar
                           sx={{
-                            bgcolor: variant.isDefault ? "primary.main" : "grey.400",
+                            bgcolor: variant.isDefault ? "primary.main" : "surfaceTones.highest",
+                            color: variant.isDefault ? "primary.contrastText" : "text.secondary",
                             width: 48,
                             height: 48,
                           }}

@@ -203,12 +203,8 @@ export default function InvoicesPage() {
             <IconButton
               onClick={() => router.push(`/portal/documents/${documentType}/${templateId}/${id}`)}
               sx={{
-                color: "customYellow.contrastText",
-                bgcolor: "customYellow.main",
-                "&:hover": {
-                  bgcolor: "customYellow.dark",
-                },
-                borderRadius: "8px",
+              color: "text.secondary",
+              "&:hover": { color: "primary.main" },
               }}
             >
               <VisibilityIcon />
@@ -216,12 +212,8 @@ export default function InvoicesPage() {
             <IconButton
               onClick={handleDownload}
               sx={{
-                color: "white",
-                bgcolor: "primary.main",
-                "&:hover": {
-                  bgcolor: "primary.dark",
-                },
-                borderRadius: "8px",
+              color: "text.secondary",
+              "&:hover": { color: "primary.main" },
               }}
             >
               <DownloadIcon />

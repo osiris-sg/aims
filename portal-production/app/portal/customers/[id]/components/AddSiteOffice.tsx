@@ -66,7 +66,7 @@ export default function AddSiteOffice({ open, onClose, siteOffice }: AddSiteOffi
               Contact Person(s)
             </Typography>
             {fields.map((field, index) => (
-              <Stack key={field.id} direction="column" gap="var(--quarter-gap)" sx={{ border: "1px solid #ccc", p: 1, borderRadius: 2 }}>
+              <Stack key={field.id} direction="column" gap="var(--quarter-gap)" sx={{ border: 1, borderColor: "divider", p: 1, borderRadius: 2 }}>
                 <FormInputBox control={control} name={`contactDetails.${index}.name`} label="Name" placeHolder="Enter name" />
                 <FormInputBox control={control} name={`contactDetails.${index}.email`} label="Email" placeHolder="Enter email" />
                 <FormInputBox control={control} name={`contactDetails.${index}.phone`} label="Phone" placeHolder="Enter phone number" />

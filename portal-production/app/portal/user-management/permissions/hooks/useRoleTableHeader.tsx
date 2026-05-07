@@ -83,7 +83,7 @@ export default function useRoleTableHeader() {
       cell: (info) => {
         const permissions = info.getValue();
         const count = Array.isArray(permissions) ? permissions.length : 0;
-        return <Chip label={`${count} permissions`} size="small" color="secondary" sx={{ borderRadius: "4px" }} />;
+        return <Chip label={`${count} permissions`} size="small" variant="outlined" sx={{ borderRadius: "4px" }} />;
       },
     }),
     columnHelper.accessor("createdAt", {

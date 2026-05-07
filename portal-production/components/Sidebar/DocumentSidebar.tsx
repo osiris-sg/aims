@@ -1,6 +1,6 @@
 "use client";
 import * as React from "react";
-import { styled, useTheme } from "@mui/material/styles";
+import { styled, alpha } from "@mui/material/styles";
 import Avatar from "@mui/material/Avatar";
 import MuiDrawer, { drawerClasses } from "@mui/material/Drawer";
 import Box from "@mui/material/Box";
@@ -145,7 +145,6 @@ const INVENTORY_DOCUMENT_TYPES = [
 ];
 
 export default function DocumentSidebar() {
-  const theme = useTheme();
   const { user } = useUser();
   const { isCollapsed, toggleSidebar } = useSidebar();
   const pathname = usePathname();
@@ -204,7 +203,8 @@ export default function DocumentSidebar() {
       sx={{
         display: { xs: "none", md: "block" },
         [`& .${drawerClasses.paper}`]: {
-          backgroundColor: "primary.main",
+          backgroundColor: "#041627",
+          color: "#FFFFFF",
           overflow: "hidden",
         },
       }}
@@ -235,7 +235,7 @@ export default function DocumentSidebar() {
                 onClick={toggleSidebar}
                 size="small"
                 sx={{
-                  color: theme.palette.primary.contrastText,
+                  color: "#FFFFFF",
                   "&:hover": {
                     backgroundColor: "rgba(255, 255, 255, 0.1)",
                   },
@@ -257,7 +257,7 @@ export default function DocumentSidebar() {
                   height: "1.75rem",
                 }}
               />
-              <Typography variant="h5" sx={{ color: theme.palette.primary.contrastText }}>
+              <Typography variant="h5" sx={{ color: "#FFFFFF", fontWeight: 800 }}>
                 AIMS
               </Typography>
             </Box>
@@ -265,7 +265,7 @@ export default function DocumentSidebar() {
               <IconButton
                 onClick={toggleSidebar}
                 sx={{
-                  color: theme.palette.primary.contrastText,
+                  color: "#FFFFFF",
                   "&:hover": {
                     backgroundColor: "rgba(255, 255, 255, 0.1)",
                   },
@@ -304,10 +304,10 @@ export default function DocumentSidebar() {
                     color: "rgba(255, 255, 255, 0.7)",
                     minHeight: 36,
                     fontSize: "0.75rem",
-                    fontWeight: 600,
+                    fontWeight: 700,
                     textTransform: "uppercase",
                     "&.Mui-selected": {
-                      color: theme.palette.primary.contrastText,
+                      color: "#FFFFFF",
                       bgcolor: "rgba(255, 255, 255, 0.2)",
                     },
                   },
@@ -330,9 +330,9 @@ export default function DocumentSidebar() {
                   onClick={() => setActiveTab("sales")}
                   size="small"
                   sx={{
-                    color: activeTab === "sales" ? theme.palette.secondary.light : "rgba(255, 255, 255, 0.7)",
-                    bgcolor: activeTab === "sales" ? "rgba(255, 255, 255, 0.2)" : "transparent",
-                    "&:hover": { bgcolor: "rgba(255, 255, 255, 0.1)" },
+                    color: activeTab === "sales" ? "#6FFBBE" : "rgba(255, 255, 255, 0.7)",
+                    bgcolor: activeTab === "sales" ? alpha("#6FFBBE", 0.12) : "transparent",
+                    "&:hover": { bgcolor: alpha("#ffffff", 0.08) },
                   }}
                 >
                   <SellIcon fontSize="small" />
@@ -343,9 +343,9 @@ export default function DocumentSidebar() {
                   onClick={() => setActiveTab("inventory")}
                   size="small"
                   sx={{
-                    color: activeTab === "inventory" ? theme.palette.secondary.light : "rgba(255, 255, 255, 0.7)",
-                    bgcolor: activeTab === "inventory" ? "rgba(255, 255, 255, 0.2)" : "transparent",
-                    "&:hover": { bgcolor: "rgba(255, 255, 255, 0.1)" },
+                    color: activeTab === "inventory" ? "#6FFBBE" : "rgba(255, 255, 255, 0.7)",
+                    bgcolor: activeTab === "inventory" ? alpha("#6FFBBE", 0.12) : "transparent",
+                    "&:hover": { bgcolor: alpha("#ffffff", 0.08) },
                   }}
                 >
                   <InventoryIcon fontSize="small" />
@@ -363,7 +363,7 @@ export default function DocumentSidebar() {
                 px: 2,
                 py: 0.5,
                 display: "block",
-                fontWeight: 600,
+                fontWeight: 700,
               }}
             >
               {activeTab === "sales" ? "Sales Documents" : "Inventory Documents"}
@@ -374,31 +374,56 @@ export default function DocumentSidebar() {
           {currentDocTypes.map((docType) => {
             const Icon = docType.icon;
             const isActive = currentDocType.toUpperCase() === docType.type.toUpperCase();
+            const mintAccent = "#6FFBBE";
 
             return (
-              <ListItem key={docType.type} disablePadding sx={{ mb: 0.5 }}>
+              <ListItem
+                key={docType.type}
+                disablePadding
+                sx={{
+                  display: "block",
+                  position: "relative",
+                  borderRadius: 1,
+                  backgroundColor: isActive ? alpha(mintAccent, 0.08) : "transparent",
+                  transition: "background-color 160ms ease",
+                  ":hover": {
+                    backgroundColor: isActive ? alpha(mintAccent, 0.12) : alpha("#ffffff", 0.05),
+                  },
+                  mx: isCollapsed ? 0 : 1,
+                  mb: 0.25,
+                  "&::before": isActive
+                    ? {
+                        content: '""',
+                        position: "absolute",
+                        left: 0,
+                        top: 0,
+                        bottom: 0,
+                        width: "4px",
+                        backgroundColor: mintAccent,
+                        borderRadius: "0 4px 4px 0",
+                      }
+                    : {},
+                }}
+              >
                 <Tooltip title={isCollapsed ? docType.label : ""} placement="right">
                   <ListItemButton
                     onClick={() => handleDocTypeClick(docType.type)}
                     sx={{
                       borderRadius: 1,
-                      mx: isCollapsed ? 0 : 1,
                       justifyContent: isCollapsed ? "center" : "flex-start",
-                      backgroundColor: isActive ? "rgba(255, 255, 255, 0.2)" : "transparent",
-                      color: theme.palette.primary.contrastText,
-                      "&:hover": {
-                        backgroundColor: isActive
-                          ? "rgba(255, 255, 255, 0.25)"
-                          : "rgba(255, 255, 255, 0.1)",
+                      minHeight: 48,
+                      "&:hover": { backgroundColor: "transparent" },
+                      "& .MuiListItemText-secondary": {
+                        color: alpha("#ffffff", 0.55),
+                        fontSize: "0.6875rem",
                       },
                     }}
                   >
                     <ListItemIcon
                       sx={{
                         minWidth: isCollapsed ? 0 : 40,
-                        color: isActive
-                          ? theme.palette.secondary.light
-                          : theme.palette.primary.contrastText,
+                        color: isActive ? mintAccent : alpha("#ffffff", 0.78),
+                        "& svg": { fontSize: "1.25rem" },
                       }}
                     >
                       <Icon />
@@ -408,10 +433,18 @@ export default function DocumentSidebar() {
                         primary={docType.label}
                         secondary={docType.description}
                         primaryTypographyProps={{
-                          fontWeight: isActive ? 600 : 400,
+                          sx: {
+                            color: isActive ? "#FFFFFF" : alpha("#ffffff", 0.85),
+                            fontSize: "0.875rem",
+                            fontWeight: isActive ? 600 : 500,
+                          },
                         }}
                         secondaryTypographyProps={{
-                          sx: { color: "rgba(255, 255, 255, 0.6)", fontSize: "0.75rem" },
+                          sx: {
+                            color: alpha("#ffffff", 0.55),
+                            fontSize: "0.6875rem",
+                            mt: 0.125,
+                          },
                         }}
                       />
                     )}
@@ -431,21 +464,22 @@ export default function DocumentSidebar() {
           gap: 1,
           alignItems: "center",
           borderTop: "1px solid",
-          borderColor: "rgba(255, 255, 255, 0.2)",
+          borderColor: "rgba(255, 255, 255, 0.15)",
           justifyContent: isCollapsed ? "center" : "flex-start",
         }}
       >
         <UserButton afterSignOutUrl="/" />
         {!isCollapsed && (
-          <Box sx={{ mr: "auto" }}>
-            <Typography variant="body2" sx={{ fontWeight: 500, color: theme.palette.primary.contrastText }}>
+          <Box sx={{ mr: "auto", overflow: "hidden" }}>
+            <Typography variant="body2" sx={{ fontWeight: 700, color: "#FFFFFF", fontSize: "0.75rem", lineHeight: 1.2 }} className="truncate">
               {user?.fullName}
             </Typography>
             <Typography
               variant="body2"
               sx={{
-                width: 200,
-                color: theme.palette.primary.light,
+                width: 180,
+                color: "rgba(255, 255, 255, 0.6)",
+                fontSize: "0.625rem",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",

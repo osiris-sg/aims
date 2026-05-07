@@ -5,6 +5,7 @@ import React, { useEffect, useState } from "react";
 import Table from "./Table";
 import { ColumnDef } from "@tanstack/react-table";
 import { Box, Button, Typography, Pagination, Grid2, IconButton } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import { useForm } from "react-hook-form";
 import TuneIcon from "@mui/icons-material/Tune";
@@ -90,11 +91,11 @@ export default function PageTable(props: Props) {
   return (
     <form onSubmit={handleSubmit(onSubmit)} style={{ height: "100%" }}>
       <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--double-gap)", height: "100%" }}>
-        <Grid2 container spacing={2}>
+        <Grid2 container spacing={2} alignItems="center">
           <Grid2 size={{ xs: 12, md: 4 }}>
             <Box>
-              <Typography variant="h4">{tableName}</Typography>
-              <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              <Typography sx={{ fontFamily: "Manrope, Inter, sans-serif", fontSize: "1.875rem", fontWeight: 800, letterSpacing: "-0.025em", color: "text.primary", lineHeight: 1.2 }}>{tableName}</Typography>
+              <Typography sx={{ fontSize: "1rem", color: "text.secondary", mt: 0.5 }}>
                 {subTitle}
               </Typography>
             </Box>
@@ -139,7 +140,18 @@ export default function PageTable(props: Props) {
           </Box>
         )}
 
-        <Box sx={{ overflowX: "auto", width: "100%", border: "1px solid", borderColor: "tertiary.main", padding: "var(--default-padding)", borderRadius: "var(--default-border-radius)", flex: 1 }}>
+        <Box
+          sx={(t) => ({
+            overflowX: "auto",
+            width: "100%",
+            backgroundColor: "background.paper",
+            padding: 0,
+            borderRadius: "8px",
+            border: `1px solid ${alpha(t.palette.outlineVariant, 0.1)}`,
+            flex: 1,
+            overflow: "hidden",
+          })}
+        >
           <Table columns={columns} data={data} onRowSelect={() => {}} loading={loading} subRowAccessor={subRowAccessor} />
         </Box>
         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", overflowX: "hidden" }}>

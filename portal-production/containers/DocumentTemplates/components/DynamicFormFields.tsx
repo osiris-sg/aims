@@ -304,13 +304,17 @@ const YES_NO = [
   { value: 'N', label: 'N' },
 ];
 
-// Compact input styles - no borders, fields touch each other
+// Compact input styles - blend into the row, subtle focus state
 const inputSx = {
   '& .MuiInputBase-root': {
-    height: 26,
+    height: 28,
     fontSize: '0.75rem',
-    backgroundColor: 'white',
+    backgroundColor: 'background.paper',
     borderRadius: 0,
+    transition: 'background-color 140ms ease',
+  },
+  '& .MuiInputBase-root.Mui-focused': {
+    backgroundColor: 'surfaceTones.low',
   },
   '& .MuiOutlinedInput-notchedOutline': {
     border: 'none',
@@ -318,9 +322,9 @@ const inputSx = {
 };
 
 const selectSx = {
-  height: 26,
+  height: 28,
   fontSize: '0.75rem',
-  backgroundColor: 'white',
+  backgroundColor: 'background.paper',
   borderRadius: 0,
   '& .MuiSelect-select': {
     py: 0.25,
@@ -470,7 +474,7 @@ export default function DynamicFormFields({
               minWidth: 200,
               '& .MuiInputBase-root': {
                 fontSize: '0.8rem',
-                backgroundColor: 'white',
+                backgroundColor: 'background.paper',
               },
             }}
           />
@@ -519,22 +523,24 @@ export default function DynamicFormFields({
         display: 'flex',
         alignItems: 'center',
         gap: 1,
-        borderBottom: '1px solid',
-        borderColor: 'grey.200',
+        borderBottom: 1,
+        borderColor: 'divider',
       }}
     >
       <Typography
         sx={{
-          width: 100,
+          width: 110,
           flexShrink: 0,
-          fontSize: '0.75rem',
-          fontWeight: 500,
-          color: 'text.primary',
-          py: 0.5,
-          px: 1,
-          bgcolor: 'grey.100',
-          borderRight: '1px solid',
-          borderColor: 'grey.200',
+          fontSize: '0.6875rem',
+          fontWeight: 600,
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase',
+          color: 'text.secondary',
+          py: 0.75,
+          px: 1.25,
+          bgcolor: 'surfaceTones.low',
+          borderRight: 1,
+          borderColor: 'divider',
         }}
       >
         {field.displayLabel}
@@ -549,22 +555,25 @@ export default function DynamicFormFields({
   const rightRowSx = {
     display: 'flex',
     alignItems: 'center',
-    borderBottom: '1px solid',
-    borderColor: 'grey.200',
+    borderBottom: 1,
+    borderColor: 'divider',
     '&:last-child': {
       borderBottom: 'none',
     },
   };
 
   const rightLabelSx = {
-    width: 70,
+    width: 78,
     flexShrink: 0,
-    fontSize: '0.75rem',
-    fontWeight: 500,
+    fontSize: '0.6875rem',
+    fontWeight: 600,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase' as const,
+    color: 'text.secondary',
     textAlign: 'right' as const,
-    py: 0.5,
-    px: 1,
-    bgcolor: 'grey.100',
+    py: 0.75,
+    px: 1.25,
+    bgcolor: 'surfaceTones.low',
   };
 
   // Render right column row (summary fields)
@@ -672,15 +681,16 @@ export default function DynamicFormFields({
   };
 
   return (
-    <Box sx={{ display: 'flex', gap: 3 }}>
+    <Box sx={{ display: 'flex', gap: 2 }}>
       {/* Left Column - Form Fields */}
       <Box
         sx={{
           flex: 1,
-          border: '1px solid',
-          borderColor: 'grey.300',
-          borderRadius: 0,
+          border: 1,
+          borderColor: 'divider',
+          borderRadius: 1.25,
           overflow: 'hidden',
+          bgcolor: 'background.paper',
           '& > :last-child': {
             borderBottom: 'none',
           },
@@ -693,10 +703,11 @@ export default function DynamicFormFields({
       <Box
         sx={{
           minWidth: 260,
-          border: '1px solid',
-          borderColor: 'grey.300',
-          borderRadius: 0,
+          border: 1,
+          borderColor: 'divider',
+          borderRadius: 1.25,
           overflow: 'hidden',
+          bgcolor: 'background.paper',
         }}
       >
         {rightFields.map((field) => renderRightRow(field))}
