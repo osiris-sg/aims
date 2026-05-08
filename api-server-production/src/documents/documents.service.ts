@@ -90,6 +90,7 @@ export class DocumentsService {
           amount: parseFloat(item.amount) || 0,
           uom: item.uom || null,
           lineNumber: i + 1,
+          isService: !!item.isService,
         });
       }
 
@@ -2042,6 +2043,33 @@ export class DocumentsService {
         stockDeducted: shouldDeductStock,
       };
 
+      // Propagate project + deployment link from source DO when the invoice
+      // doesn't already carry one. Source DO is the authoritative anchor.
+      let inheritedProjectId: string | undefined;
+      let inheritedDeploymentId: string | undefined;
+      if (sourceDocumentId && (!document.projectId || !document.projectDeploymentId)) {
+        try {
+          const sourceDoc = await this.prisma.document.findFirst({
+            where: { id: sourceDocumentId, organizationId },
+            select: { projectId: true, projectDeploymentId: true },
+          });
+          if (sourceDoc) {
+            if (!document.projectId && sourceDoc.projectId) inheritedProjectId = sourceDoc.projectId;
+            if (!document.projectDeploymentId && sourceDoc.projectDeploymentId) {
+              inheritedDeploymentId = sourceDoc.projectDeploymentId;
+            }
+            if (inheritedProjectId || inheritedDeploymentId) {
+              console.log('🧾 INVOICE CONFIRM: Inheriting project/deployment from DO', {
+                projectId: inheritedProjectId,
+                projectDeploymentId: inheritedDeploymentId,
+              });
+            }
+          }
+        } catch (err) {
+          console.warn('🧾 INVOICE CONFIRM: Could not inherit project link from DO', err);
+        }
+      }
+
       const updatedDocument = await this.prisma.document.update({
         where: {
           id: documentId,
@@ -2050,6 +2078,8 @@ export class DocumentsService {
         data: {
           config: updatedConfig,
           status: 'confirmed',
+          ...(inheritedProjectId ? { projectId: inheritedProjectId } : {}),
+          ...(inheritedDeploymentId ? { projectDeploymentId: inheritedDeploymentId } : {}),
         },
       });
 

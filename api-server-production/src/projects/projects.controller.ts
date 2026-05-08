@@ -83,6 +83,64 @@ export class ProjectsController {
     }
   }
 
+  // ---- Deployments ----------------------------------------------------------
+
+  @Get(':id/deployments')
+  @Permissions('projects:read-one')
+  async listDeployments(@Param('id') projectId: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.projectsService.listDeployments(projectId, organizationId);
+  }
+
+  @Post(':id/deployments')
+  @Permissions('projects:update')
+  async createDeployment(
+    @Param('id') projectId: string,
+    @Body() body: any,
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.projectsService.createDeployment(projectId, organizationId, body);
+  }
+
+  @Post('deployments/:deploymentId/update')
+  @Permissions('projects:update')
+  async updateDeployment(
+    @Param('deploymentId') deploymentId: string,
+    @Body() body: any,
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.projectsService.updateDeployment(deploymentId, organizationId, body);
+  }
+
+  @Post('deployments/:deploymentId/off-hire')
+  @Permissions('projects:update')
+  async offHireDeployment(
+    @Param('deploymentId') deploymentId: string,
+    @Body() body: { offHiredDate?: string },
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.projectsService.offHireDeployment(deploymentId, organizationId, body?.offHiredDate);
+  }
+
+  @Post('deployments/:deploymentId/attach-document')
+  @Permissions('projects:update')
+  async attachDocumentToDeployment(
+    @Param('deploymentId') deploymentId: string,
+    @Body() body: { documentId: string },
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.projectsService.attachDocumentToDeployment(deploymentId, body.documentId, organizationId);
+  }
+
   @Delete(':id')
   @Permissions('projects:delete')
   async deleteProject(@Param('id') id: string, @Req() req: RequestWithOrganization) {

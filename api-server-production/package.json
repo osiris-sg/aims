@@ -53,7 +53,11 @@
     "biofuel-split-contact": "ts-node scripts/biofuel-split-contact-field.ts",
     "add-accounting-permissions": "ts-node scripts/add-accounting-permissions.ts",
     "apply-accounting-defaults": "ts-node scripts/apply-accounting-defaults-all-orgs.ts",
-    "add-accounting-module": "ts-node scripts/add-accounting-module.ts"
+    "add-accounting-module": "ts-node scripts/add-accounting-module.ts",
+    "backfill-biofuel-deployments": "ts-node scripts/backfill-biofuel-deployments.ts",
+    "backfill-biofuel-deployments:dry": "ts-node scripts/backfill-biofuel-deployments.ts --dry-run",
+    "number-existing-deployments": "ts-node scripts/number-existing-deployments.ts",
+    "backfill-isservice-on-documentitems": "ts-node scripts/backfill-isservice-on-documentitems.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.779.0",

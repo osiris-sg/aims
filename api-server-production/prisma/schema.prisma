@@ -76,6 +76,7 @@ model Asset {
   inventories     Inventory[]
   priceHistories  PriceHistory[]
   quantityAdjustments QuantityAdjustment[]
+  assignments     Assignment[]
 
   @@unique([skuKey, organizationId, deletedAt])
 }
@@ -124,6 +125,7 @@ model Customer {
   payments       Payment[]
   transactions   Transaction[]
   customerBalance CustomerBalance? @relation("CustomerToBalance")
+  projects       Project[]    @relation("CustomerProjects")
 
   @@unique([email, organizationId])
   @@unique([id, organizationId])
@@ -215,14 +217,19 @@ model Document {
 
   // Project link
   projectId          String?        @db.Uuid
+  // Deployment link — for invoices/DOs that belong to a specific rental/sale event
+  projectDeploymentId String?       @db.Uuid
 
   organization       Organization   @relation(fields: [organizationId], references: [id])
   project            Project?       @relation(fields: [projectId], references: [id])
+  projectDeployment  ProjectDeployment? @relation("DeploymentInvoices", fields: [projectDeploymentId], references: [id])
+  sourcedDeployments ProjectDeployment[] @relation("DeploymentSource")
   timelineItems      TimelineItem[]
   priceHistories     PriceHistory[] // Track price history entries from this document
   payments           Payment[]      // Payments made against this document
   transactions       Transaction[]  // Financial transactions from this document
   documentItems      DocumentItem[] // Junction table for efficient item queries
+  assignments        Assignment[]   // Source-of-truth link for assignments produced from this document
 
   // Self-relation for revisions: base document -> many revisions
   baseDocument       Document?      @relation("DocumentRevisions", fields: [baseDocumentId], references: [id])
@@ -232,6 +239,7 @@ model Document {
   @@index([organizationId, type])
   @@index([organizationId, status])
   @@index([projectId])
+  @@index([projectDeploymentId])
   @@unique([name, organizationId, documentTemplateId])
 }
 
@@ -249,6 +257,12 @@ model DocumentItem {
   amount          Float?    @default(0)
   uom             String?   // Unit of measure
   lineNumber      Int?      // Position in document
+  // True for service line items (labor, delivery fees, etc.).
+  // Per Phase 5 Option 1, services from the import flow do NOT create DocumentItem
+  // rows (they're skipped at the !inventoryItemId gate); this flag covers product
+  // rows misclassified post-hoc as service, plus any future paths that DO create
+  // service-row DocumentItems.
+  isService       Boolean   @default(false)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -326,33 +340,109 @@ model UserOrganization {
 }
 
 model Project {
-  id             String        @id @default(uuid()) @db.Uuid
-  name           String
-  description    String?
-  organizationId String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  startDate      DateTime?
-  endDate        DateTime?
-  status         ProjectStatus @default(pending)
-  siteOfficeId   String?       @db.Uuid
-  assignments    Assignment[]
-  documents      Document[]
-  organization   Organization? @relation(fields: [organizationId], references: [id])
-  siteOffice     SiteOffice?   @relation("SiteOfficeProjects", fields: [siteOfficeId], references: [id])
+  id               String        @id @default(uuid()) @db.Uuid
+  projectNumber    String?       // e.g. PRJ-2026-001
+  name             String
+  description      String?
+  organizationId   String?
+  customerId       String?       @db.Uuid           // direct FK; siteOffice still optional
+  customerPoNumber String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  startDate        DateTime?
+  endDate          DateTime?
+  status           ProjectStatus @default(pending)
+  siteOfficeId     String?       @db.Uuid
+  assignments      Assignment[]
+  documents        Document[]
+  deployments      ProjectDeployment[]
+  organization     Organization? @relation(fields: [organizationId], references: [id])
+  siteOffice       SiteOffice?   @relation("SiteOfficeProjects", fields: [siteOfficeId], references: [id])
+  customer         Customer?     @relation("CustomerProjects", fields: [customerId], references: [id])
+
+  @@unique([projectNumber, organizationId])
+  @@index([organizationId, status])
+  @@index([customerId])
+}
+
+// A deployment groups one rental/sale event under a project.
+// e.g. "DO202310-010 — 1× AF-90 monthly rental, deployed 2023-10-18"
+// Recurring monthly invoices for that rental all link to the same deployment.
+model ProjectDeployment {
+  id               String              @id @default(uuid()) @db.Uuid
+  organizationId   String
+  projectId        String              @db.Uuid
+
+  // Auto-assigned per project (1, 2, 3, ...). Displayed name is "Deployment N".
+  // Nullable so existing rows aren't violated until the numbering pass runs.
+  deploymentNumber Int?
+
+  sourceDocumentId String?             @db.Uuid     // The DO/invoice that started it (audit). Additional DOs attach via Document.projectDeploymentId.
+  type             DeploymentType      @default(RENTAL)
+  description      String?             // Free-form user notes — no longer the displayed name.
+  monthlyRate      Float?              // for rentals; one-off price for sales
+  currency         String?             @default("SGD")
+  deployedDate     DateTime?
+  offHiredDate     DateTime?
+  status           DeploymentStatus    @default(ACTIVE)
+  notes            String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  project          Project             @relation(fields: [projectId], references: [id])
+  sourceDocument   Document?           @relation("DeploymentSource", fields: [sourceDocumentId], references: [id])
+  assignments      Assignment[]
+  invoices         Document[]          @relation("DeploymentInvoices")  // back-relation; now contains DOs AND invoices, partitioned by service-layer.
+
+  @@unique([projectId, deploymentNumber])
+  @@index([projectId, status])
+  @@index([organizationId])
+}
+
+enum DeploymentType {
+  RENTAL
+  SALE
+  SERVICE
+}
+
+enum DeploymentStatus {
+  ACTIVE
+  OFF_HIRED
+  COMPLETED
+  CANCELLED
 }
 
 model Assignment {
   id          String     @id @default(uuid()) @db.Uuid
   projectId   String     @db.Uuid
+  // Optional deployment grouping — assignments under a single rental/sale event
+  projectDeploymentId String? @db.Uuid
+
+  // Mode A: tracked inventory unit (existing)
   inventoryId String?    @db.Uuid
+
+  // Mode B: asset + quantity (new, for rentals without serials)
+  assetId     String?    @db.Uuid
+  quantity    Int?
+
+  // Source invoice (idempotency on asset-mode + audit trail)
+  documentId  String?    @db.Uuid
+
   startDate   DateTime?  @db.Timestamptz(6)
   endDate     DateTime?  @db.Timestamptz(6)
   createdAt   DateTime   @default(now())
+
   inventory   Inventory? @relation(fields: [inventoryId], references: [id])
+  asset       Asset?     @relation(fields: [assetId], references: [id])
+  document    Document?  @relation(fields: [documentId], references: [id])
   project     Project    @relation(fields: [projectId], references: [id])
+  projectDeployment ProjectDeployment? @relation(fields: [projectDeploymentId], references: [id])
 
   @@unique([projectId, inventoryId])
+  @@unique([projectId, assetId, documentId])
+  @@index([assetId])
+  @@index([documentId])
+  @@index([projectDeploymentId])
 }
 
 model SiteOffice {
