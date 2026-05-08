@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 export default function AccountingIndexPage() {
   const router = useRouter();
   useEffect(() => {
-    router.replace("/portal/accounting/journal-entries");
+    router.replace("/portal/accounting/general-ledger");
   }, [router]);
   return null;
 }

@@ -6,8 +6,11 @@ import {
   Button,
   Chip,
   CircularProgress,
-  Divider,
+  Dialog,
+  DialogContent,
+  DialogTitle,
   IconButton,
+  InputAdornment,
   MenuItem,
   Paper,
   Stack,
@@ -20,12 +23,12 @@ import {
   TextField,
   Tooltip,
   Typography,
-  Dialog,
-  DialogContent,
-  DialogTitle,
 } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import PrintIcon from "@mui/icons-material/Print";
 import VisibilityIcon from "@mui/icons-material/Visibility";
+import SearchIcon from "@mui/icons-material/Search";
+import CloseIcon from "@mui/icons-material/Close";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 
@@ -52,14 +55,15 @@ type JournalEntry = {
   totalDebit: number;
   totalCredit: number;
   currency: string;
-  sourceDocumentId?: string | null;
-  sourcePaymentId?: string | null;
   postedAt?: string | null;
   lines: JournalLine[];
 };
 
 const TYPES = ["", "MANUAL", "INVOICE", "PAYMENT", "CREDIT_NOTE", "DEBIT_NOTE", "OPENING_BALANCE", "ADJUSTMENT"];
 const STATUSES = ["", "DRAFT", "POSTED", "VOID"];
+
+const fmt = (n: number) =>
+  n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function statusColor(s: string): "default" | "primary" | "success" | "error" {
   if (s === "POSTED") return "success";
@@ -68,11 +72,12 @@ function statusColor(s: string): "default" | "primary" | "success" | "error" {
   return "default";
 }
 
-export default function JournalEntriesPage() {
+export default function AuditTrailPage() {
   const { request } = useAccountingApi();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState({ type: "", status: "", startDate: "", endDate: "" });
+  const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<JournalEntry | null>(null);
 
   const queryString = useMemo(() => {
@@ -81,7 +86,7 @@ export default function JournalEntriesPage() {
     if (filters.status) p.set("status", filters.status);
     if (filters.startDate) p.set("startDate", filters.startDate);
     if (filters.endDate) p.set("endDate", filters.endDate);
-    p.set("limit", "100");
+    p.set("limit", "200");
     return p.toString();
   }, [filters]);
 
@@ -91,7 +96,7 @@ export default function JournalEntriesPage() {
       const res = await request<{ items: JournalEntry[]; total: number }>(`/journal/entries?${queryString}`);
       setEntries(res.items || []);
     } catch (e: any) {
-      toast.error(e?.message || "Failed to load journal entries");
+      toast.error(e?.message || "Failed to load audit trail");
     } finally {
       setLoading(false);
     }
@@ -122,25 +127,32 @@ export default function JournalEntriesPage() {
     }
   };
 
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return entries;
+    return entries.filter(
+      (e) =>
+        e.journalNumber.toLowerCase().includes(q) ||
+        (e.reference || "").toLowerCase().includes(q) ||
+        (e.description || "").toLowerCase().includes(q),
+    );
+  }, [entries, search]);
+
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 700 }}>
-            Journal Entries
+            Audit Trail
           </Typography>
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            Every posted invoice and payment writes a balanced entry here. Manual journal vouchers can be created from the API.
+            Chronological log of every journal entry — invoices, payments, manual vouchers, voids.
           </Typography>
         </Box>
-        <Button startIcon={<RefreshIcon />} onClick={load} variant="outlined">
-          Refresh
-        </Button>
       </Stack>
-      <Divider />
 
-      <Paper sx={{ p: 2 }}>
-        <Stack direction="row" gap={2} flexWrap="wrap">
+      <Paper variant="outlined" sx={{ p: 1.5 }}>
+        <Stack direction="row" gap={2} flexWrap="wrap" alignItems="center">
           <TextField
             select
             size="small"
@@ -185,22 +197,43 @@ export default function JournalEntriesPage() {
             value={filters.endDate}
             onChange={(e) => setFilters((f) => ({ ...f, endDate: e.target.value }))}
           />
+          <TextField
+            size="small"
+            label="Locate"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            sx={{ minWidth: 200 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+          />
+          <Box sx={{ flex: 1 }} />
+          <Button startIcon={<PrintIcon />} variant="outlined" size="small" onClick={() => window.print()}>
+            Print
+          </Button>
+          <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={load}>
+            Refresh
+          </Button>
         </Stack>
       </Paper>
 
-      <TableContainer component={Paper}>
-        <Table size="small">
+      <TableContainer component={Paper} variant="outlined">
+        <Table size="small" stickyHeader>
           <TableHead>
             <TableRow>
-              <TableCell sx={{ fontWeight: 600 }}>Entry #</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Date</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Type</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Reference</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Description</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 600 }}>Debit</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 600 }}>Credit</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 600 }}>Actions</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Entry #</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Type</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Reference</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700 }}>Debit</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700 }}>Credit</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700 }}>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -211,24 +244,24 @@ export default function JournalEntriesPage() {
                 </TableCell>
               </TableRow>
             )}
-            {!loading && entries.length === 0 && (
+            {!loading && visible.length === 0 && (
               <TableRow>
                 <TableCell colSpan={9} align="center" sx={{ py: 4, color: "text.secondary" }}>
-                  No journal entries yet — confirm an invoice or record a payment to populate the ledger.
+                  No entries match — confirm an invoice or record a payment to populate the audit trail.
                 </TableCell>
               </TableRow>
             )}
-            {entries.map((e) => (
+            {visible.map((e) => (
               <TableRow key={e.id} hover>
                 <TableCell sx={{ fontFamily: "monospace" }}>{e.journalNumber}</TableCell>
                 <TableCell>{new Date(e.entryDate).toLocaleDateString()}</TableCell>
                 <TableCell>{e.type}</TableCell>
                 <TableCell>{e.reference}</TableCell>
-                <TableCell sx={{ maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <TableCell sx={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {e.description}
                 </TableCell>
-                <TableCell align="right">{e.totalDebit.toFixed(2)}</TableCell>
-                <TableCell align="right">{e.totalCredit.toFixed(2)}</TableCell>
+                <TableCell align="right" sx={{ fontFamily: "monospace" }}>{fmt(e.totalDebit)}</TableCell>
+                <TableCell align="right" sx={{ fontFamily: "monospace" }}>{fmt(e.totalCredit)}</TableCell>
                 <TableCell>
                   <Chip size="small" label={e.status} color={statusColor(e.status)} variant="outlined" />
                 </TableCell>
@@ -266,8 +299,17 @@ function EntryDialog({ entry, onClose }: { entry: JournalEntry | null; onClose: 
       {entry && (
         <>
           <DialogTitle>
-            {entry.journalNumber}
-            <Chip size="small" label={entry.status} color={statusColor(entry.status)} sx={{ ml: 2 }} />
+            <Stack direction="row" alignItems="center" justifyContent="space-between">
+              <Stack direction="row" alignItems="center" gap={1}>
+                <Typography component="span" sx={{ fontFamily: "monospace", fontWeight: 700 }}>
+                  {entry.journalNumber}
+                </Typography>
+                <Chip size="small" label={entry.status} color={statusColor(entry.status)} />
+              </Stack>
+              <IconButton onClick={onClose} size="small">
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </Stack>
           </DialogTitle>
           <DialogContent dividers>
             <Stack gap={1} sx={{ mb: 2 }}>
@@ -292,24 +334,30 @@ function EntryDialog({ entry, onClose }: { entry: JournalEntry | null; onClose: 
                     <TableRow key={l.id}>
                       <TableCell>{l.lineNumber}</TableCell>
                       <TableCell>
-                        <Box>
-                          <Typography component="span" sx={{ fontFamily: "monospace", fontWeight: 600 }}>
-                            {l.account.code}
-                          </Typography>{" "}
-                          <Typography component="span">{l.account.name}</Typography>
-                        </Box>
+                        <Typography component="span" sx={{ fontFamily: "monospace", fontWeight: 600 }}>
+                          {l.account.code}
+                        </Typography>{" "}
+                        <Typography component="span">{l.account.name}</Typography>
                       </TableCell>
                       <TableCell>{l.description}</TableCell>
-                      <TableCell align="right">{l.debit ? l.debit.toFixed(2) : ""}</TableCell>
-                      <TableCell align="right">{l.credit ? l.credit.toFixed(2) : ""}</TableCell>
+                      <TableCell align="right" sx={{ fontFamily: "monospace" }}>
+                        {l.debit ? fmt(l.debit) : ""}
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontFamily: "monospace" }}>
+                        {l.credit ? fmt(l.credit) : ""}
+                      </TableCell>
                     </TableRow>
                   ))}
                   <TableRow>
                     <TableCell colSpan={3} align="right" sx={{ fontWeight: 700 }}>
                       Totals
                     </TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 700 }}>{entry.totalDebit.toFixed(2)}</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 700 }}>{entry.totalCredit.toFixed(2)}</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, fontFamily: "monospace" }}>
+                      {fmt(entry.totalDebit)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, fontFamily: "monospace" }}>
+                      {fmt(entry.totalCredit)}
+                    </TableCell>
                   </TableRow>
                 </TableBody>
               </Table>

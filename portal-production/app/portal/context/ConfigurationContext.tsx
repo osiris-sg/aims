@@ -162,6 +162,27 @@ export const ConfigurationProvider: React.FC<ConfigurationProviderProps> = ({ ch
       { id: '7', moduleCode: 'PROJECTS', enabled: true, displayName: 'Projects', icon: 'AccountTree', sortOrder: 6, config: { route: '/portal/projects' } },
       { id: '8', moduleCode: 'USER_MANAGEMENT', enabled: true, displayName: 'User Management', icon: 'PeopleRounded', sortOrder: 7, config: { route: '/portal/user-management', subMenus: ['users', 'roles'] } },
       { id: '9', moduleCode: 'AUDIT', enabled: true, displayName: 'Audit', icon: 'AnalyticsRounded', sortOrder: 8, config: { route: '/portal/audit' } },
+      {
+        id: '10',
+        moduleCode: 'ACCOUNTING',
+        enabled: true,
+        displayName: 'General Ledger',
+        icon: 'AccountBalance',
+        sortOrder: 9,
+        config: {
+          route: '/portal/accounting',
+          subMenus: [
+            { key: 'general-ledger', label: 'General Ledger' },
+            { key: 'trial-balance', label: 'Trial Balance' },
+            { key: 'audit-trail', label: 'Audit Trail' },
+            { key: 'gst', label: 'Goods & Services Tax' },
+            { key: 'profit-loss', label: 'Profit / Loss & BS' },
+            { key: 'expense-listing', label: 'Expense Listing' },
+            { key: 'bank-reconciliation', label: 'Bank Reconciliation' },
+            { key: 'foreign-bank', label: 'Foreign Bank Listing' },
+          ],
+        },
+      },
     ];
 
     setModules(defaultModules);

@@ -118,15 +118,20 @@ export class ConfigurationService {
       { moduleCode: 'AUDIT', displayName: 'Audit', icon: 'AnalyticsRounded', sortOrder: 6, config: { route: '/portal/audit' } },
       {
         moduleCode: 'ACCOUNTING',
-        displayName: 'Accounting',
+        displayName: 'General Ledger',
         icon: 'AccountBalance',
         sortOrder: 7,
         config: {
           route: '/portal/accounting',
           subMenus: [
-            { key: 'journal-entries', label: 'Journal Entries' },
-            { key: 'trial-balance', label: 'Trial Balance' },
             { key: 'general-ledger', label: 'General Ledger' },
+            { key: 'trial-balance', label: 'Trial Balance' },
+            { key: 'audit-trail', label: 'Audit Trail' },
+            { key: 'gst', label: 'Goods & Services Tax' },
+            { key: 'profit-loss', label: 'Profit / Loss & BS' },
+            { key: 'expense-listing', label: 'Expense Listing' },
+            { key: 'bank-reconciliation', label: 'Bank Reconciliation' },
+            { key: 'foreign-bank', label: 'Foreign Bank Listing' },
           ],
         },
       },
@@ -287,6 +292,34 @@ export class ConfigurationService {
     // Auto-initialize default modules if none exist for this organization
     if (!modules || modules.length === 0) {
       await this.initializeDefaultModules(organizationId);
+      modules = await this.getOrganizationModules(organizationId);
+    }
+
+    // Ensure the General Ledger module is present for orgs that were initialized
+    // before the accounting suite shipped. We only create it if missing — never
+    // overwrite an admin's customisations.
+    const accountingModule = modules.find((m) => m.moduleCode === 'ACCOUNTING');
+    if (!accountingModule) {
+      await this.createOrUpdateModule(organizationId, {
+        moduleCode: 'ACCOUNTING',
+        displayName: 'General Ledger',
+        icon: 'AccountBalance',
+        sortOrder: 7,
+        enabled: true,
+        config: {
+          route: '/portal/accounting',
+          subMenus: [
+            { key: 'general-ledger', label: 'General Ledger' },
+            { key: 'trial-balance', label: 'Trial Balance' },
+            { key: 'audit-trail', label: 'Audit Trail' },
+            { key: 'gst', label: 'Goods & Services Tax' },
+            { key: 'profit-loss', label: 'Profit / Loss & BS' },
+            { key: 'expense-listing', label: 'Expense Listing' },
+            { key: 'bank-reconciliation', label: 'Bank Reconciliation' },
+            { key: 'foreign-bank', label: 'Foreign Bank Listing' },
+          ],
+        },
+      } as any);
       modules = await this.getOrganizationModules(organizationId);
     }
 

@@ -1,6 +1,6 @@
 /**
- * Adds the accounting:* AND journal:* permissions and grants them to the
- * `superadmin` role of every organization only. Idempotent — safe to re-run.
+ * Adds the accounting:* AND journal:* permissions and grants them to both the
+ * `superadmin` role and any per-org `Admin` role. Idempotent — safe to re-run.
  *
  * Usage: npx ts-node scripts/add-accounting-permissions.ts
  */
@@ -42,35 +42,45 @@ async function main() {
   let rolesUpdated = 0;
 
   for (const org of organizations) {
-    const superadmin = await prisma.role.findFirst({
-      where: { organizationId: org.id, name: 'superadmin' },
+    // Grant to every role in this org whose name matches superadmin/Admin
+    // (case-insensitive) — covers `superadmin`, `Admin`, `admin`, etc.
+    const adminRoles = await prisma.role.findMany({
+      where: {
+        organizationId: org.id,
+        OR: [
+          { name: { equals: 'superadmin', mode: 'insensitive' } },
+          { name: { equals: 'admin', mode: 'insensitive' } },
+        ],
+      },
       include: { permissions: true },
     });
 
-    if (!superadmin) {
-      console.log(`   ⚠️  ${org.name}: no superadmin role — skipped`);
+    if (adminRoles.length === 0) {
+      console.log(`   ⚠️  ${org.name}: no superadmin/Admin role — skipped`);
       continue;
     }
 
-    const existingIds = new Set(superadmin.permissions.map((p) => p.id));
-    const toConnect = perms.filter((p) => !existingIds.has(p.id)).map((p) => ({ id: p.id }));
+    for (const role of adminRoles) {
+      const existingIds = new Set(role.permissions.map((p) => p.id));
+      const toConnect = perms.filter((p) => !existingIds.has(p.id)).map((p) => ({ id: p.id }));
 
-    if (toConnect.length === 0) {
-      console.log(`   ✅ ${org.name}: superadmin already has all accounting/journal permissions`);
-      continue;
+      if (toConnect.length === 0) {
+        console.log(`   ✅ ${org.name} / ${role.name}: already has all accounting/journal permissions`);
+        continue;
+      }
+
+      await prisma.role.update({
+        where: { id: role.id },
+        data: { permissions: { connect: toConnect } },
+      });
+
+      totalConnected += toConnect.length;
+      rolesUpdated += 1;
+      console.log(`   ✅ ${org.name} / ${role.name}: granted ${toConnect.length} permission(s)`);
     }
-
-    await prisma.role.update({
-      where: { id: superadmin.id },
-      data: { permissions: { connect: toConnect } },
-    });
-
-    totalConnected += toConnect.length;
-    rolesUpdated += 1;
-    console.log(`   ✅ ${org.name}: granted ${toConnect.length} permission(s) to superadmin`);
   }
 
-  console.log(`\n🎉 Done. Updated ${rolesUpdated} superadmin role(s), connected ${totalConnected} permission link(s).`);
+  console.log(`\n🎉 Done. Updated ${rolesUpdated} role(s), connected ${totalConnected} permission link(s).`);
 }
 
 main()

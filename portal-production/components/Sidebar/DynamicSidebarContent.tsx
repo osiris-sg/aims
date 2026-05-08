@@ -144,10 +144,30 @@ export default function DynamicSidebarContent() {
     .filter(m => isModuleAllowed(m.moduleCode))
     .sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999));
 
+  // Resolve the URL for a single submenu key — same rules used when rendering
+  // the expanded list, used here so the parent click can navigate to a valid
+  // sub-page even when the module's bare route doesn't have its own landing.
+  const resolveSubmenuRoute = (module: any, submenu: any): string => {
+    const submenuKey = typeof submenu === 'string' ? submenu : submenu.key;
+    if (submenuKey === 'list') return module.config.route;
+    if (submenuKey === 'extraction' && module.moduleCode === 'DOCUMENTS') {
+      return '/portal/document-extraction';
+    }
+    return `${module.config.route}/${submenuKey}`;
+  };
+
   const renderMenuItem = (module: any, index: number) => {
     const hasSubMenus = module.config?.subMenus && module.config.subMenus.length > 0;
     const isOpen = openMenus[module.moduleCode] || false;
     const isActive = isItemActive(module);
+
+    // Parent click navigates only for the GL module — other parents keep the
+    // legacy toggle-only behavior. Add module codes here to opt them in.
+    const NAVIGATE_ON_PARENT_CLICK = new Set(['ACCOUNTING']);
+    const parentNavigates = hasSubMenus && NAVIGATE_ON_PARENT_CLICK.has(module.moduleCode);
+    const parentHref = parentNavigates
+      ? resolveSubmenuRoute(module, module.config.subMenus[0])
+      : module.config?.route || "#";
 
     const mintAccent = "#6FFBBE";
     const menuItem = (
@@ -179,9 +199,9 @@ export default function DynamicSidebarContent() {
       >
         <ListItemButton
           selected={isActive}
-          component={hasSubMenus && !isCollapsed ? "div" : Link}
-          href={hasSubMenus && !isCollapsed ? undefined : module.config?.route || "#"}
-          onClick={hasSubMenus ? () => handleMenuClick(module.moduleCode) : undefined}
+          component={parentNavigates || !hasSubMenus || isCollapsed ? Link : "div"}
+          href={parentNavigates || !hasSubMenus || isCollapsed ? parentHref : undefined}
+          onClick={hasSubMenus && !isCollapsed ? () => handleMenuClick(module.moduleCode) : undefined}
           sx={{
             justifyContent: "center",
             minHeight: 40,
@@ -241,23 +261,11 @@ export default function DynamicSidebarContent() {
           <Collapse in={isOpen} timeout="auto" unmountOnExit>
             <List component="div" disablePadding>
               {module.config.subMenus.map((submenu: any) => {
-                // Handle both string and object format for submenus
                 const submenuKey = typeof submenu === 'string' ? submenu : submenu.key;
                 const submenuLabel = typeof submenu === 'string'
                   ? submenu.charAt(0).toUpperCase() + submenu.slice(1).replace(/-/g, ' ')
                   : submenu.label;
-
-                // Special cases:
-                // - 'list' submenu links to the main route
-                // - 'extraction' links to /portal/document-extraction (standalone route)
-                let submenuRoute;
-                if (submenuKey === 'list') {
-                  submenuRoute = module.config.route;
-                } else if (submenuKey === 'extraction' && module.moduleCode === 'DOCUMENTS') {
-                  submenuRoute = '/portal/document-extraction';
-                } else {
-                  submenuRoute = `${module.config.route}/${submenuKey}`;
-                }
+                const submenuRoute = resolveSubmenuRoute(module, submenu);
                 const isSubmenuActive = pathname === submenuRoute || pathname.startsWith(submenuRoute + '/');
 
                 return (

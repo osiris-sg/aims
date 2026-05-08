@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Box,
   Button,
+  Chip,
   CircularProgress,
-  Divider,
+  InputAdornment,
   Paper,
   Stack,
   Table,
@@ -18,6 +19,8 @@ import {
   Typography,
 } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import PrintIcon from "@mui/icons-material/Print";
+import SearchIcon from "@mui/icons-material/Search";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 
@@ -40,11 +43,15 @@ type TrialBalance = {
   isBalanced: boolean;
 };
 
+const fmt = (n: number) =>
+  n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 export default function TrialBalancePage() {
   const { request } = useAccountingApi();
   const [data, setData] = useState<TrialBalance | null>(null);
   const [loading, setLoading] = useState(false);
-  const [asOfDate, setAsOfDate] = useState("");
+  const [asOfDate, setAsOfDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [filter, setFilter] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -63,6 +70,14 @@ export default function TrialBalancePage() {
     load();
   }, [load]);
 
+  const visible = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return data?.rows || [];
+    return (data?.rows || []).filter(
+      (r) => r.code.toLowerCase().includes(q) || r.name.toLowerCase().includes(q),
+    );
+  }, [data, filter]);
+
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
@@ -74,83 +89,124 @@ export default function TrialBalancePage() {
             Net debit and credit per account from all posted journal entries.
           </Typography>
         </Box>
-        <Stack direction="row" gap={1} alignItems="center">
+      </Stack>
+
+      <Paper variant="outlined" sx={{ p: 1.5 }}>
+        <Stack direction="row" gap={2} flexWrap="wrap" alignItems="center">
           <TextField
             size="small"
             type="date"
-            label="As of"
+            label="As Of Date"
             InputLabelProps={{ shrink: true }}
             value={asOfDate}
             onChange={(e) => setAsOfDate(e.target.value)}
           />
-          <Button startIcon={<RefreshIcon />} onClick={load} variant="outlined">
+          <TextField
+            size="small"
+            label="Locate"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            sx={{ minWidth: 240 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+          />
+          <Box sx={{ flex: 1 }} />
+          {data && (
+            <Chip
+              size="small"
+              variant="outlined"
+              label={data.isBalanced ? "Balanced ✓" : "OUT OF BALANCE ✗"}
+              color={data.isBalanced ? "success" : "error"}
+              sx={{ fontWeight: 700 }}
+            />
+          )}
+          <Button startIcon={<PrintIcon />} variant="outlined" size="small" onClick={() => window.print()}>
+            Print
+          </Button>
+          <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={load}>
             Refresh
           </Button>
         </Stack>
-      </Stack>
-      <Divider />
+      </Paper>
 
-      {loading && (
-        <Box sx={{ display: "flex", justifyContent: "center", p: 6 }}>
-          <CircularProgress />
-        </Box>
-      )}
-
-      {!loading && data && (
-        <>
-          <Stack direction="row" gap={3}>
-            <Typography variant="body2">
-              <strong>Total Debit:</strong> {data.totalDebit.toFixed(2)}
-            </Typography>
-            <Typography variant="body2">
-              <strong>Total Credit:</strong> {data.totalCredit.toFixed(2)}
-            </Typography>
-            <Typography variant="body2" sx={{ color: data.isBalanced ? "success.main" : "error.main", fontWeight: 600 }}>
-              {data.isBalanced ? "Balanced ✓" : "OUT OF BALANCE ✗"}
-            </Typography>
-          </Stack>
-
-          <TableContainer component={Paper}>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell sx={{ fontWeight: 600 }}>Code</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>Name</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>Category</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600 }}>Debit</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600 }}>Credit</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600 }}>Balance</TableCell>
+      <TableContainer component={Paper} variant="outlined">
+        <Table size="small" stickyHeader>
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ fontWeight: 700, width: 120 }}>Code</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 140 }}>Category</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700, width: 140 }}>
+                Debit
+              </TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700, width: 140 }}>
+                Credit
+              </TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700, width: 140 }}>
+                Balance
+              </TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {loading && (
+              <TableRow>
+                <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                  <CircularProgress size={20} />
+                </TableCell>
+              </TableRow>
+            )}
+            {!loading && visible.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} align="center" sx={{ py: 4, color: "text.secondary" }}>
+                  No posted activity yet.
+                </TableCell>
+              </TableRow>
+            )}
+            {!loading &&
+              visible.map((r) => (
+                <TableRow key={r.accountId} hover>
+                  <TableCell sx={{ fontFamily: "monospace", fontWeight: 600 }}>{r.code}</TableCell>
+                  <TableCell>{r.name}</TableCell>
+                  <TableCell>
+                    <Chip
+                      size="small"
+                      variant="outlined"
+                      label={r.category === "PNL" ? "P&L" : "Balance Sheet"}
+                    />
+                  </TableCell>
+                  <TableCell align="right" sx={{ fontFamily: "monospace" }}>
+                    {fmt(r.debit)}
+                  </TableCell>
+                  <TableCell align="right" sx={{ fontFamily: "monospace" }}>
+                    {fmt(r.credit)}
+                  </TableCell>
+                  <TableCell align="right" sx={{ fontFamily: "monospace", fontWeight: 600 }}>
+                    {fmt(r.balance)}
+                  </TableCell>
                 </TableRow>
-              </TableHead>
-              <TableBody>
-                {data.rows.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={6} align="center" sx={{ py: 4, color: "text.secondary" }}>
-                      No posted activity yet.
-                    </TableCell>
-                  </TableRow>
-                )}
-                {data.rows.map((r) => (
-                  <TableRow key={r.accountId} hover>
-                    <TableCell sx={{ fontFamily: "monospace", fontWeight: 600 }}>{r.code}</TableCell>
-                    <TableCell>{r.name}</TableCell>
-                    <TableCell>{r.category === "PNL" ? "P&L" : "Balance Sheet"}</TableCell>
-                    <TableCell align="right">{r.debit.toFixed(2)}</TableCell>
-                    <TableCell align="right">{r.credit.toFixed(2)}</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 600 }}>{r.balance.toFixed(2)}</TableCell>
-                  </TableRow>
-                ))}
-                <TableRow>
-                  <TableCell colSpan={3} align="right" sx={{ fontWeight: 700 }}>Totals</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 700 }}>{data.totalDebit.toFixed(2)}</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 700 }}>{data.totalCredit.toFixed(2)}</TableCell>
-                  <TableCell />
-                </TableRow>
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </>
-      )}
+              ))}
+            {!loading && data && (
+              <TableRow>
+                <TableCell colSpan={3} align="right" sx={{ fontWeight: 700 }}>
+                  Totals
+                </TableCell>
+                <TableCell align="right" sx={{ fontWeight: 700, fontFamily: "monospace" }}>
+                  {fmt(data.totalDebit)}
+                </TableCell>
+                <TableCell align="right" sx={{ fontWeight: 700, fontFamily: "monospace" }}>
+                  {fmt(data.totalCredit)}
+                </TableCell>
+                <TableCell />
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
     </Box>
   );
 }
