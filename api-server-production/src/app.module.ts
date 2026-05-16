@@ -35,6 +35,7 @@ import { EmailModule } from './email/email.module';
 import { ImportModule } from './import/import.module';
 import { AccountingModule } from './accounting/accounting.module';
 import { JournalModule } from './journal/journal.module';
+import { MaintenanceReportsModule } from './maintenance-reports/maintenance-reports.module';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { JournalModule } from './journal/journal.module';
     ImportModule,
     AccountingModule,
     JournalModule,
+    MaintenanceReportsModule,
   ],
   controllers: [AppController],
   providers: [

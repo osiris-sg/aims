@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AIMS Field-Tech Flow</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    margin: 0;
+    padding: 24px;
+    background: #f6f8fa;
+    color: #1f2328;
+  }
+  header {
+    max-width: 1400px;
+    margin: 0 auto 16px;
+  }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  .sub { color: #57606a; font-size: 14px; margin-bottom: 16px; }
+  .legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+    font-size: 13px;
+  }
+  .legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .swatch {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 1px solid rgba(0,0,0,0.15);
+  }
+  .chart-wrap {
+    max-width: 1400px;
+    margin: 0 auto;
+    background: #fff;
+    border: 1px solid #d0d7de;
+    border-radius: 8px;
+    padding: 24px;
+    overflow-x: auto;
+  }
+  .mermaid { font-size: 14px; }
+  footer {
+    max-width: 1400px;
+    margin: 16px auto 0;
+    color: #57606a;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>AIMS Field-Tech PWA — End-to-End Flow</h1>
+  <div class="sub">Role-locked NFC scanning, first-tap binding, service report &amp; DO acknowledgement, signature capture.</div>
+  <div class="legend">
+    <span><span class="swatch" style="background:#d1f7c4"></span>Start / End</span>
+    <span><span class="swatch" style="background:#cfe4ff"></span>Page</span>
+    <span><span class="swatch" style="background:#fff3bf"></span>Decision</span>
+    <span><span class="swatch" style="background:#ffe2b5"></span>API call</span>
+    <span><span class="swatch" style="background:#ffd0d0"></span>Error / Guard</span>
+  </div>
+</header>
+
+<div class="chart-wrap">
+<pre class="mermaid">
+flowchart TD
+  %% =========================================
+  %% Entry & Lockout
+  %% =========================================
+  Start([User opens AIMS]):::startend --> SignIn[Clerk sign-in]:::page
+  SignIn --> Guard[/portal/* loads<br/>FieldOnlyGuard mounts/]:::page
+  Guard --> RolesApi[/"GET /users/me/roles"/]:::api
+  RolesApi --> OnlyFT{Only<br/>field-tech<br/>role?}:::decision
+  OnlyFT -- No --> Portal([Normal portal access]):::startend
+  OnlyFT -- Yes --> RedirScan[router.replace /scan]:::page
+
+  %% =========================================
+  %% Scan Landing
+  %% =========================================
+  RedirScan --> ScanLanding["/scan<br/>NFC landing page"]:::page
+  ScanLanding --> FlagCheck{enableField<br/>ScanApp<br/>!== false?}:::decision
+  FlagCheck -- No --> Blocked[Feature disabled message]:::error
+  FlagCheck -- Yes --> NfcSupport{NDEFReader<br/>available?}:::decision
+
+  NfcSupport -- No --> ManualEntry[Show manual SKU input]:::page
+  NfcSupport -- Yes --> TapBtn[Show 'Start scanning' button]:::page
+
+  %% Manual fallback path
+  ManualEntry --> SkuType[User types SKU]:::page
+  SkuType --> SkuApi[/"GET /assets/skuKey/:sku"/]:::api
+  SkuApi --> SkuFound{Found?}:::decision
+  SkuFound -- No --> SkuErr[Error: No asset with that SKU]:::error
+  SkuErr --> ManualEntry
+  SkuFound -- Yes --> Chooser
+
+  %% NFC path
+  TapBtn --> NfcTap[User taps NFC tag]:::page
+  NfcTap --> ReadUid[Read chip UID<br/>event.serialNumber]:::page
+  ReadUid --> UidApi[/"GET /assets/by-nfc-uid/:uid"/]:::api
+  UidApi --> UidStatus{Status?}:::decision
+  UidStatus -- 200 --> Chooser
+  UidStatus -- 404 --> BindPage
+
+  %% =========================================
+  %% First-tap Binding
+  %% =========================================
+  BindPage["/scan/bind?uid=...<br/>First-tap bind page"]:::page
+  BindPage --> EnterSku[User types SKU printed on item]:::page
+  EnterSku --> FindApi[/"GET /assets/skuKey/:sku"/]:::api
+  FindApi --> FindOk{Found?}:::decision
+  FindOk -- No --> BindErr[Error message]:::error
+  BindErr --> BindPage
+  FindOk -- Yes --> Confirm[Show asset card<br/>'Link this tag to this item']:::page
+  Confirm --> BindApi[/"POST /assets/:id/bind-nfc-tag<br/>body: { uid }"/]:::api
+  BindApi --> BindStatus{Status?}:::decision
+  BindStatus -- 409 conflict --> BindConflict[Tag already bound to<br/>another asset]:::error
+  BindConflict --> BindPage
+  BindStatus -- 200 --> Chooser
+
+  %% =========================================
+  %% Action Chooser
+  %% =========================================
+  Chooser["/scan/asset/:assetId<br/>Action chooser"]:::page
+  Chooser --> CtxApi[/"GET /maintenance-reports<br/>/scan-context/:assetId"/]:::api
+  CtxApi --> ShowAsset[Render asset header<br/>+ recent activity]:::page
+  ShowAsset --> HasDO{Latest DO<br/>on file?}:::decision
+  HasDO -- Yes --> DoCard[Card: Acknowledge latest DO<br/>enabled]:::page
+  HasDO -- No --> DoCardOff[Card: Acknowledge DO<br/>disabled]:::page
+  ShowAsset --> ServiceCard[Card: Maintenance<br/>service report]:::page
+
+  %% =========================================
+  %% Service Report Branch
+  %% =========================================
+  ServiceCard --> ServiceNew["/scan/asset/:id/service/new"]:::page
+  ServiceNew --> DescIn[User enters description]:::page
+  DescIn --> AddPhotos[Tap 'Add photos'<br/>camera or gallery]:::page
+  AddPhotos --> UploadApi[/"POST /uploads/image<br/>per photo, returns S3 key"/]:::api
+  UploadApi --> PhotosOk[Photos displayed<br/>removable thumbnails]:::page
+  PhotosOk --> ContSign1[Tap 'Continue to signature']:::page
+  ContSign1 --> CreateApi[/"POST /maintenance-reports<br/>creates draft, status=draft"/]:::api
+  CreateApi --> SignPage
+
+  %% =========================================
+  %% DO Acknowledgement Branch
+  %% =========================================
+  DoCard --> DoAck["/scan/asset/:id/do/:doId"]:::page
+  DoAck --> NotesIn[User adds optional notes]:::page
+  NotesIn --> DoPhotos[Add proof-of-delivery photos]:::page
+  DoPhotos --> UploadApi2[/"POST /uploads/image<br/>per photo"/]:::api
+  UploadApi2 --> ContSign2[Tap 'Continue to signature']:::page
+  ContSign2 --> CreateApi2[/"POST /maintenance-reports<br/>desc prefixed 'DO Ack (DO :id)'"/]:::api
+  CreateApi2 --> SignPage
+
+  %% =========================================
+  %% Signature
+  %% =========================================
+  SignPage["/scan/asset/:id/sign?reportId=..."]:::page
+  SignPage --> NameOpt[Optional recipient name]:::page
+  NameOpt --> DrawSig[Draw on SignatureCanvas<br/>react-signature-canvas]:::page
+  DrawSig --> SubmitSig[Tap 'Submit']:::page
+  SubmitSig --> SignApi[/"POST /maintenance-reports/:id/sign<br/>body: { signature, signedByName }"/]:::api
+  SignApi --> SignOk{Success?}:::decision
+  SignOk -- No --> SignErr[Error alert,<br/>stays on sign page]:::error
+  SignErr --> DrawSig
+  SignOk -- Yes --> Done
+
+  %% =========================================
+  %% Done
+  %% =========================================
+  Done["/scan/asset/:id/done<br/>Success screen"]:::page
+  Done --> Next{User<br/>choice}:::decision
+  Next -- Scan another --> ScanLanding
+  Next -- Back to asset --> Chooser
+
+  %% =========================================
+  %% Styling
+  %% =========================================
+  classDef startend fill:#d1f7c4,stroke:#2da44e,stroke-width:2px,color:#1a3d20
+  classDef page fill:#cfe4ff,stroke:#0969da,stroke-width:1.5px,color:#0a2540
+  classDef decision fill:#fff3bf,stroke:#bf8700,stroke-width:1.5px,color:#3b2f00
+  classDef api fill:#ffe2b5,stroke:#bc4c00,stroke-width:1.5px,color:#4d1f00,font-family:'SF Mono',Menlo,monospace,font-size:12px
+  classDef error fill:#ffd0d0,stroke:#cf222e,stroke-width:1.5px,color:#5a0a0a
+</pre>
+</div>
+
+<footer>
+  Backend permissions required for the field-tech role:<br>
+  <code>field-scan:access</code> · <code>maintenance-reports:create</code> · <code>maintenance-reports:read</code> · <code>maintenance-reports:sign</code> · <code>assets:read-id</code> · <code>assets:read-sku</code> · <code>assets:check-sku</code> · <code>assets:bind-nfc-tag</code>
+</footer>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      primaryColor: '#cfe4ff',
+      primaryBorderColor: '#0969da',
+      lineColor: '#57606a',
+      fontSize: '14px'
+    },
+    flowchart: {
+      htmlLabels: true,
+      curve: 'basis',
+      nodeSpacing: 50,
+      rankSpacing: 60
+    }
+  });
+</script>
+</body>
+</html>

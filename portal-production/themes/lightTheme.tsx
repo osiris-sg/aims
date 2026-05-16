@@ -38,44 +38,44 @@ declare module "@mui/material/styles" {
   }
 }
 
-// Wholesale Food Co. design tokens
+// PayLane (shadcn/new-york) design tokens — pure white surfaces, near-black primary, muted gray borders.
 const tokens = {
-  primary: "#00685f",
-  primaryContainer: "#008378",
-  onPrimary: "#ffffff",
-  onPrimaryContainer: "#f4fffc",
-  primaryFixed: "#89f5e7",
-  primaryFixedDim: "#6bd8cb",
-  onPrimaryFixed: "#00201d",
-  onPrimaryFixedVariant: "#005049",
-  secondary: "#515f74",
-  secondaryContainer: "#d5e3fc",
+  primary: "#171717",                  // hsl(0 0% 9%) — near-black CTA
+  primaryContainer: "#262626",         // hover/darker variant
+  onPrimary: "#fafafa",                // hsl(0 0% 98%) — white text on primary
+  onPrimaryContainer: "#fafafa",
+  primaryFixed: "#404040",
+  primaryFixedDim: "#525252",
+  onPrimaryFixed: "#ffffff",
+  onPrimaryFixedVariant: "#ffffff",
+  secondary: "#525252",                // muted gray
+  secondaryContainer: "#f5f5f5",       // hsl(0 0% 96.1%) — subtle gray surface
   onSecondary: "#ffffff",
-  onSecondaryContainer: "#57657a",
-  onSecondaryFixed: "#0d1c2e",
-  onSecondaryFixedVariant: "#3a485b",
-  tertiary: "#545c72",
-  tertiaryContainer: "#6c748b",
+  onSecondaryContainer: "#171717",
+  onSecondaryFixed: "#171717",
+  onSecondaryFixedVariant: "#171717",
+  tertiary: "#737373",                 // hsl(0 0% 45.1%) — muted-foreground
+  tertiaryContainer: "#f5f5f5",
   onTertiary: "#ffffff",
-  onTertiaryContainer: "#fefcff",
-  tertiaryFixed: "#dae2fd",
-  onTertiaryFixed: "#131b2e",
-  onTertiaryFixedVariant: "#3f465c",
-  surface: "#f8f9ff",
-  surfaceContainerLowest: "#ffffff",
-  surfaceContainerLow: "#eff4ff",
-  surfaceContainer: "#e6eeff",
-  surfaceContainerHigh: "#dde9ff",
-  surfaceContainerHighest: "#d5e3fd",
-  surfaceDim: "#ccdbf4",
-  onSurface: "#0d1c2f",
-  onSurfaceVariant: "#3d4947",
-  outline: "#6d7a77",
-  outlineVariant: "#bcc9c6",
+  onTertiaryContainer: "#171717",
+  tertiaryFixed: "#f5f5f5",
+  onTertiaryFixed: "#171717",
+  onTertiaryFixedVariant: "#171717",
+  surface: "#f7f8fa",                  // PayLane app background — subtle cool off-white
+  surfaceContainerLowest: "#ffffff",   // cards / panels — crisp white to pop against bg
+  surfaceContainerLow: "#fafafa",      // near-white for table head, subtle zones
+  surfaceContainer: "#f5f5f5",
+  surfaceContainerHigh: "#f5f5f5",
+  surfaceContainerHighest: "#f0f0f0",
+  surfaceDim: "#e5e5e5",
+  onSurface: "#0a0a0a",                // hsl(0 0% 3.9%) — body text
+  onSurfaceVariant: "#737373",         // muted gray
+  outline: "#a3a3a3",
+  outlineVariant: "#e5e5e5",           // hsl(0 0% 89.8%) — PayLane border
   amber: "#F59E0B",
-  error: "#ba1a1a",
-  errorContainer: "#ffdad6",
-  onErrorContainer: "#93000a",
+  error: "#ef4444",                    // hsl(0 84.2% 60.2%) — destructive
+  errorContainer: "#fee2e2",
+  onErrorContainer: "#7f1d1d",
 };
 
 const theme = createTheme({
@@ -348,7 +348,7 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           transition: "background-color 140ms ease",
-          "&:hover": {
+          "&.MuiTableRow-hover:hover": {
             backgroundColor: alpha(tokens.surfaceContainerLow, 0.5),
           },
         },
@@ -410,14 +410,14 @@ const theme = createTheme({
           padding: "8px 16px",
           letterSpacing: "0.005em",
         },
-        // Editorial Ledger primary CTA: dark navy gradient
+        // PayLane primary CTA: solid near-black, subtle hover lift
         containedPrimary: {
-          background: "linear-gradient(135deg, #041627 0%, #1A2B3C 100%)",
-          color: "#FFFFFF",
+          backgroundColor: tokens.primary,
+          color: tokens.onPrimary,
           boxShadow: "none",
           "&:hover": {
-            background: "linear-gradient(135deg, #1A2B3C 0%, #041627 100%)",
-            boxShadow: `0 8px 24px ${alpha("#041627", 0.25)}`,
+            backgroundColor: tokens.primaryContainer,
+            boxShadow: `0 1px 3px ${alpha("#000000", 0.1)}`,
           },
         },
         outlined: {

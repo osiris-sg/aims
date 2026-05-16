@@ -1,0 +1,19 @@
+{
+  "name": "AIMS Field",
+  "short_name": "AIMS Field",
+  "description": "Scan asset NFC tags, capture proof-of-service photos and signatures.",
+  "start_url": "/scan",
+  "scope": "/scan",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#1976d2",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

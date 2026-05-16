@@ -319,6 +319,10 @@ const inputSx = {
   '& .MuiOutlinedInput-notchedOutline': {
     border: 'none',
   },
+  // Hide browser-default number spinner arrows so they don't overlap the value at narrow widths
+  '& input[type=number]': { MozAppearance: 'textfield' },
+  '& input[type=number]::-webkit-outer-spin-button': { WebkitAppearance: 'none', margin: 0 },
+  '& input[type=number]::-webkit-inner-spin-button': { WebkitAppearance: 'none', margin: 0 },
 };
 
 const selectSx = {
@@ -587,14 +591,14 @@ export default function DynamicFormFields({
       return (
         <Box key={field.fieldName} sx={rightRowSx}>
           <Typography sx={rightLabelSx}>Tax</Typography>
-          <FormControl size="small" sx={{ width: 40 }}>
+          <FormControl size="small" sx={{ width: 56 }}>
             <Select value={value} onChange={(e) => setFormData(setNestedValue(formData, field.fieldName, e.target.value))} sx={selectSx}>
               <MenuItem value="Y" sx={{ fontSize: '0.75rem' }}>Y</MenuItem>
               <MenuItem value="N" sx={{ fontSize: '0.75rem' }}>N</MenuItem>
             </Select>
           </FormControl>
           <Typography sx={{ fontSize: '0.75rem', fontWeight: 500, px: 0.5 }}>Absorb Tax</Typography>
-          <FormControl size="small" sx={{ width: 40 }}>
+          <FormControl size="small" sx={{ width: 56 }}>
             <Select value={absorbTaxValue} onChange={(e) => setFormData(setNestedValue(formData, 'documentInfo.absorbTax', e.target.value))} sx={selectSx}>
               <MenuItem value="Y" sx={{ fontSize: '0.75rem' }}>Y</MenuItem>
               <MenuItem value="N" sx={{ fontSize: '0.75rem' }}>N</MenuItem>
@@ -621,7 +625,7 @@ export default function DynamicFormFields({
             value={value}
             onChange={(e) => setFormData(setNestedValue(formData, field.fieldName, parseFloat(e.target.value) || 0))}
             size="small"
-            sx={{ ...inputSx, width: 50 }}
+            sx={{ ...inputSx, width: 64 }}
           />
           <Typography sx={{ flex: 1, textAlign: 'right', fontSize: '0.75rem', px: 1 }}>
             {Number(discAmount).toFixed(2)}
@@ -645,7 +649,7 @@ export default function DynamicFormFields({
             value={value}
             onChange={(e) => setFormData(setNestedValue(formData, field.fieldName, parseFloat(e.target.value) || 0))}
             size="small"
-            sx={{ ...inputSx, width: 50 }}
+            sx={{ ...inputSx, width: 64 }}
           />
           <Typography sx={{ flex: 1, textAlign: 'right', fontSize: '0.75rem', px: 1 }}>
             {Number(gstAmount).toFixed(2)}

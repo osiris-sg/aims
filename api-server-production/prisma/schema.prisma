@@ -45,6 +45,7 @@ model Organization {
   chartOfAccounts    ChartOfAccount[]
   accountingSetting  AccountingSetting?
   journalEntries     JournalEntry[]
+  serviceReports     MaintenanceServiceReport[]
 }
 
 model Asset {
@@ -68,6 +69,9 @@ model Asset {
   quantity        Int?
   // Minimum quantity threshold for low stock alerts
   minQuantity     Int?
+  // Hardware UID of the NFC tag bound to this asset (chip serial number).
+  // Set on first scan via the field PWA. Globally unique.
+  nfcTagUid       String?            @unique
   category        Category           @relation(fields: [categoryId], references: [id])
   organization    Organization?      @relation(fields: [organizationId], references: [id])
   parentAsset     Asset?             @relation("AssetHierarchy", fields: [parentAssetId], references: [id])
@@ -77,6 +81,7 @@ model Asset {
   priceHistories  PriceHistory[]
   quantityAdjustments QuantityAdjustment[]
   assignments     Assignment[]
+  serviceReports  MaintenanceServiceReport[]
 
   @@unique([skuKey, organizationId, deletedAt])
 }
@@ -104,6 +109,7 @@ model Inventory {
   asset          Asset           @relation(fields: [assetId], references: [id])
   organization   Organization    @relation(fields: [organizationId], references: [id])
   timelineItems  TimelineItem[]
+  serviceReports MaintenanceServiceReport[]
 }
 
 model Customer {
@@ -944,4 +950,39 @@ model JournalEntryLine {
 
   @@index([journalEntryId])
   @@index([accountId])
+}
+
+// Field-service maintenance report captured via the NFC scan PWA.
+// One per service visit; tied to an asset, signed by the customer/recipient on-site.
+model MaintenanceServiceReport {
+  id               String                          @id @default(uuid()) @db.Uuid
+  organizationId   String
+  assetId          String                          @db.Uuid
+  // Optional link to a specific inventory unit (when isTracked assets have serials)
+  inventoryId      String?                         @db.Uuid
+  // Clerk user id of the technician who performed the work
+  technicianUserId String
+  technicianName   String?
+  description      String                          // What was serviced / issue / resolution
+  // S3 keys for proof-of-service photos
+  photos           String[]                        @default([])
+  // S3 key OR base64 PNG (matches Document signature handling)
+  signature        String?
+  signedByName     String?                         // Customer / recipient name
+  signedAt         DateTime?
+  status           MaintenanceServiceReportStatus  @default(draft)
+  createdAt        DateTime                        @default(now())
+  updatedAt        DateTime                        @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  asset        Asset        @relation(fields: [assetId], references: [id])
+  inventory    Inventory?   @relation(fields: [inventoryId], references: [id])
+
+  @@index([organizationId, assetId, createdAt])
+  @@index([assetId, status])
+}
+
+enum MaintenanceServiceReportStatus {
+  draft
+  completed
 }

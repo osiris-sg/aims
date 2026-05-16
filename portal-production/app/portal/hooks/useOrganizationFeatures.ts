@@ -10,6 +10,7 @@ interface OrganizationFeatures {
   enableProjects?: boolean;
   enableAnalytics?: boolean;
   enableDocumentAI?: boolean;
+  enableFieldScanApp?: boolean;
   [key: string]: boolean | undefined;
 }
 
@@ -69,5 +70,6 @@ export function useOrganizationFeatures() {
     isAnalyticsEnabled: features.enableAnalytics ?? true,
     isEditInventorySkuEnabled: features.enableEditInventorySku ?? false,
     isServiceItemsEnabled: features.enableServiceItems ?? false,
+    isFieldScanAppEnabled: features.enableFieldScanApp ?? false,
   };
 }

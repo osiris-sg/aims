@@ -223,6 +223,42 @@ export class AssetsService {
     }
   }
 
+  async getAssetByNfcUid(uid: string, userOrganizationId: string) {
+    const asset = await this.prisma.asset.findFirst({
+      where: { nfcTagUid: uid, organizationId: userOrganizationId, deletedAt: null },
+      include: { category: { select: { id: true, name: true } } },
+    });
+    if (!asset) {
+      throw new HttpException('No asset bound to this NFC tag', HttpStatus.NOT_FOUND);
+    }
+    return asset;
+  }
+
+  async bindNfcTag(assetId: string, uid: string, userOrganizationId: string) {
+    if (!uid?.trim()) {
+      throw new HttpException('NFC UID is required', HttpStatus.BAD_REQUEST);
+    }
+    const asset = await this.prisma.asset.findFirst({
+      where: { id: assetId, organizationId: userOrganizationId, deletedAt: null },
+    });
+    if (!asset) throw new HttpException('Asset not found', HttpStatus.NOT_FOUND);
+
+    if (asset.nfcTagUid === uid) return asset; // idempotent
+
+    const conflict = await this.prisma.asset.findUnique({ where: { nfcTagUid: uid } });
+    if (conflict && conflict.id !== assetId) {
+      throw new HttpException(
+        `NFC tag is already bound to asset ${conflict.skuKey}`,
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    return this.prisma.asset.update({
+      where: { id: assetId },
+      data: { nfcTagUid: uid },
+    });
+  }
+
   async checkSkuKey(skuKey: string, userOrganizationId: string): Promise<{ isAvailable: boolean }> {
     try {
       const asset = await this.prisma.asset.findFirst({

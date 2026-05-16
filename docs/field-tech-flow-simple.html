@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AIMS Field App — How It Works</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    margin: 0;
+    padding: 24px;
+    background: #f6f8fa;
+    color: #1f2328;
+  }
+  header {
+    max-width: 1400px;
+    margin: 0 auto 16px;
+  }
+  h1 { margin: 0 0 4px; font-size: 24px; }
+  .sub { color: #57606a; font-size: 15px; margin-bottom: 8px; }
+  .intro {
+    background: #fff;
+    border-left: 4px solid #0969da;
+    padding: 12px 16px;
+    border-radius: 4px;
+    font-size: 14px;
+    line-height: 1.55;
+    margin-bottom: 20px;
+    max-width: 1400px;
+  }
+  .intro strong { color: #0a2540; }
+  .lanes {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+    font-size: 14px;
+  }
+  .lane {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    background: #fff;
+    border: 1px solid #d0d7de;
+  }
+  .lane .ico { font-size: 16px; }
+  .chart-wrap {
+    max-width: 1400px;
+    margin: 0 auto;
+    background: #fff;
+    border: 1px solid #d0d7de;
+    border-radius: 8px;
+    padding: 24px;
+    overflow-x: auto;
+  }
+  .mermaid { font-size: 14px; }
+  footer {
+    max-width: 1400px;
+    margin: 16px auto 0;
+    color: #57606a;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>AIMS Field App — How It Works</h1>
+  <div class="sub">A technician's visit, from tapping the tag to a signed report.</div>
+</header>
+
+<div class="intro">
+  <strong>The idea in one paragraph.</strong>
+  A technician opens the app on their phone, taps it against the NFC sticker on a piece of equipment, and instantly sees that item's details. From there they can either confirm a recent delivery or write up a maintenance visit — adding photos, getting the customer to sign, and sending the report back to AIMS. The very first time a tag is tapped, the app asks the technician to type the item's SKU once, so it knows what the sticker belongs to from then on.
+</div>
+
+<div class="lanes">
+  <span class="lane"><span class="ico">👷</span>Field Technician</span>
+  <span class="lane"><span class="ico">📱</span>AIMS Field App</span>
+  <span class="lane"><span class="ico">🏢</span>AIMS Office (records)</span>
+</div>
+
+<div class="chart-wrap">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant T as 👷 Field Tech
+  participant A as 📱 Field App
+  participant B as 🏢 AIMS Office
+
+  Note over T,B: Arriving on site
+
+  T->>A: Opens AIMS and signs in
+  A->>B: Checks who this user is
+  B-->>A: "Field technician — show scan screen only"
+  A-->>T: Shows the "Tap an asset tag" screen
+
+  Note over T,B: Tapping the tag
+
+  T->>A: Holds phone against the NFC sticker
+  A->>A: Reads the tag's unique number
+  A->>B: "What item is this tag for?"
+
+  alt First time this tag has ever been tapped
+    B-->>A: "Unknown tag"
+    A-->>T: Shows "New tag — what item is this?"
+    T->>A: Types the SKU printed on the item
+    A->>B: "Find this item"
+    B-->>A: Returns the item details
+    A-->>T: Shows item card with a confirm button
+    T->>A: Taps "Link this tag to this item"
+    A->>B: Records that tag ↔ item link
+    B-->>A: Saved
+    Note over A: Future taps of this tag will skip<br/>this whole step and go straight in.
+  else Tag is already linked to an item
+    B-->>A: Returns the item details
+  end
+
+  A->>B: Loads item info + recent delivery + past service reports
+  B-->>A: Returns everything in one go
+  A-->>T: Shows the item and two big buttons
+
+  Note over T,B: Choosing what to do
+
+  alt Doing a maintenance visit
+    T->>A: Taps "Maintenance service report"
+    A-->>T: Opens the report form
+    T->>A: Types what was serviced / fixed
+    loop For each photo of the work
+      T->>A: Snaps a photo with the camera
+      A->>B: Uploads the photo
+      B-->>A: Stored
+    end
+    T->>A: Taps "Continue to signature"
+    A->>B: Saves a draft report
+    B-->>A: Draft saved
+  else Acknowledging a delivery
+    T->>A: Taps "Acknowledge latest Delivery Order"
+    A-->>T: Shows the delivery info + form
+    T->>A: Adds optional notes
+    loop For each proof-of-delivery photo
+      T->>A: Snaps a photo
+      A->>B: Uploads the photo
+      B-->>A: Stored
+    end
+    T->>A: Taps "Continue to signature"
+    A->>B: Saves a draft (marked as delivery acknowledgement)
+    B-->>A: Draft saved
+  end
+
+  Note over T,B: Getting the signature
+
+  A-->>T: Shows the signature pad
+  T->>A: Hands phone to customer / recipient
+  T->>A: Customer draws their signature on screen
+  T->>A: (Optional) Types the recipient's name
+  T->>A: Taps "Submit"
+  A->>B: Sends signature + finalises the report
+  B-->>A: Report locked, timestamp recorded
+  A-->>T: Shows the "Submitted" screen
+
+  Note over T,B: What's next
+
+  alt More items to handle
+    T->>A: Taps "Scan another asset"
+    A-->>T: Back to the tap screen
+  else Done for now
+    T->>A: Closes the app or signs out
+  end
+</pre>
+</div>
+
+<footer>
+  Read top to bottom. Arrows pointing right are <em>actions or requests</em>; arrows pointing back are <em>responses</em>.
+  Boxes labelled <em>alt / else</em> show branches — the flow goes through one side or the other depending on the situation.
+  Boxes labelled <em>loop</em> repeat for each photo the technician takes.
+</footer>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      primaryColor: '#cfe4ff',
+      primaryBorderColor: '#0969da',
+      actorBkg: '#e7f1ff',
+      actorBorder: '#0969da',
+      actorTextColor: '#0a2540',
+      noteBkgColor: '#fff8d6',
+      noteBorderColor: '#bf8700',
+      noteTextColor: '#3b2f00',
+      labelBoxBkgColor: '#fff3bf',
+      labelBoxBorderColor: '#bf8700',
+      sequenceNumberColor: '#fff',
+      fontSize: '14px'
+    },
+    sequence: {
+      actorMargin: 70,
+      boxMargin: 12,
+      messageMargin: 35,
+      mirrorActors: false,
+      wrap: true,
+      showSequenceNumbers: true
+    }
+  });
+</script>
+</body>
+</html>

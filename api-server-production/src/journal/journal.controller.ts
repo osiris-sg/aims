@@ -93,4 +93,44 @@ export class JournalController {
       endDate: q.endDate ? new Date(q.endDate) : undefined,
     });
   }
+
+  @Get('reports/profit-loss')
+  @Permissions('journal:read')
+  @ApiOperation({ summary: 'Profit & Loss with this-month / prev-month / YTD columns' })
+  @ApiQuery({ name: 'cutOffDate', required: true })
+  @ApiQuery({ name: 'closingStock', required: false, type: Number })
+  profitLoss(@Req() req: RequestWithOrganization, @Query() q: any) {
+    const cutOffDate = q.cutOffDate ? new Date(q.cutOffDate) : new Date();
+    const closingStock = q.closingStock !== undefined ? Number(q.closingStock) : undefined;
+    return this.service.profitLossReport(requireOrgId(req), { cutOffDate, closingStock });
+  }
+
+  @Get('reports/balance-sheet')
+  @Permissions('journal:read')
+  @ApiOperation({ summary: 'Balance Sheet as-of date' })
+  @ApiQuery({ name: 'asOfDate', required: true })
+  @ApiQuery({ name: 'closingStock', required: false, type: Number })
+  balanceSheet(@Req() req: RequestWithOrganization, @Query() q: any) {
+    const asOfDate = q.asOfDate ? new Date(q.asOfDate) : new Date();
+    const closingStock = q.closingStock !== undefined ? Number(q.closingStock) : undefined;
+    return this.service.balanceSheetReport(requireOrgId(req), { asOfDate, closingStock });
+  }
+
+  @Get('reports/gst')
+  @Permissions('journal:read')
+  @ApiOperation({ summary: 'GST F5-style report — output/input tax + per-document detail rows' })
+  @ApiQuery({ name: 'startDate', required: false })
+  @ApiQuery({ name: 'endDate', required: false })
+  @ApiQuery({
+    name: 'category',
+    required: false,
+    description: 'OUTPUT_STANDARD | OUTPUT_ZERO | OUTPUT_EXEMPT | INPUT_STANDARD | INPUT_ZERO | INPUT_EXEMPT',
+  })
+  gstReport(@Req() req: RequestWithOrganization, @Query() q: any) {
+    return this.service.gstReport(requireOrgId(req), {
+      startDate: q.startDate ? new Date(q.startDate) : undefined,
+      endDate: q.endDate ? new Date(q.endDate) : undefined,
+      category: q.category,
+    });
+  }
 }

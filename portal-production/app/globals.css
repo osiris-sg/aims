@@ -20,23 +20,23 @@
   --portal-content-padding: 4rem 0rem;
   --mobile-portal-content-padding: 5rem 0rem 1rem 0rem;
 
-  /* Wholesale Food Co. surface tones */
-  --surface: #f8f9ff;
-  --surface-container-low: #eff4ff;
+  /* PayLane surface tones — subtle cool off-white app bg, crisp white cards */
+  --surface: #f7f8fa;
+  --surface-container-low: #fafafa;
   --surface-container-lowest: #ffffff;
-  --surface-container: #e6eeff;
-  --surface-container-high: #dde9ff;
-  --surface-container-highest: #d5e3fd;
-  --surface-dim: #ccdbf4;
+  --surface-container: #f5f5f5;
+  --surface-container-high: #f5f5f5;
+  --surface-container-highest: #f0f0f0;
+  --surface-dim: #e5e5e5;
 
   /* Brand tones */
-  --on-surface: #0d1c2f;
-  --on-surface-variant: #3d4947;
-  --primary-deep: #00685f;
-  --primary-container: #008378;
-  --primary-fixed-dim: #6bd8cb;
-  --tertiary-on: #00201d;
-  --outline-variant: #bcc9c6;
+  --on-surface: #0a0a0a;
+  --on-surface-variant: #737373;
+  --primary-deep: #171717;
+  --primary-container: #262626;
+  --primary-fixed-dim: #525252;
+  --tertiary-on: #171717;
+  --outline-variant: #e5e5e5;
 }
 
 [data-theme="dark"] {

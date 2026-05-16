@@ -97,6 +97,24 @@ export class AssetsController {
     return this.assetsService.checkSkuKey(skuKey, userOrganization.id);
   }
 
+  @Get('by-nfc-uid/:uid')
+  @Permissions('field-scan:access')
+  @ApiOperation({ summary: 'Look up an asset by NFC tag hardware UID. 404 if no asset is bound to that UID yet.' })
+  async getAssetByNfcUid(@Param('uid') uid: string, @UserOrganization() userOrganization: any) {
+    return this.assetsService.getAssetByNfcUid(uid, userOrganization.id);
+  }
+
+  @Post(':id/bind-nfc-tag')
+  @Permissions('assets:bind-nfc-tag')
+  @ApiOperation({ summary: 'Bind an NFC tag (chip UID) to this asset. Idempotent if same UID; conflicts if UID already used.' })
+  async bindNfcTag(
+    @Param('id') assetId: string,
+    @Body() body: { uid: string },
+    @UserOrganization() userOrganization: any,
+  ) {
+    return this.assetsService.bindNfcTag(assetId, body.uid, userOrganization.id);
+  }
+
   @Get(':id/parts') 
   @Permissions('assets:read')
   @ApiOperation({ summary: 'Get all parts of a specific asset' })

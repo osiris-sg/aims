@@ -33,6 +33,8 @@ import {
   DialogContent,
   DialogActions,
   CircularProgress,
+  Tooltip,
+  Collapse,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -56,6 +58,8 @@ import {
   Inventory as InventoryIcon,
   Search as SearchIcon,
   LocalShipping as ReceiveIcon,
+  UnfoldLess as UnfoldLessIcon,
+  UnfoldMore as UnfoldMoreIcon,
 } from "@mui/icons-material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import CleanDocumentPreview from "./CleanDocumentPreview";
@@ -185,6 +189,8 @@ export default function TabbedDocumentCreator({
 
   // Main tabs
   const [mainTabValue, setMainTabValue] = useState(0);
+  // Collapse the General/Details fields panel to give the Items table more space.
+  const [isFieldsCollapsed, setIsFieldsCollapsed] = useState(false);
   // Items section tabs
   const [itemsTabValue, setItemsTabValue] = useState(0);
   const documentStatus = existingData?.status || "draft";
@@ -1543,23 +1549,40 @@ export default function TabbedDocumentCreator({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
+          gap: 2,
           bgcolor: "white",
+          // Uniform-height action row — every button & icon-button matches.
+          "& .MuiButton-root": {
+            height: 32,
+            whiteSpace: "nowrap",
+            textTransform: "none",
+            fontSize: "0.8125rem",
+            fontWeight: 500,
+            px: 1.25,
+            "& .MuiButton-startIcon": { mr: 0.5 },
+          },
+          "& .MuiIconButton-sizeSmall": { height: 32, width: 32 },
         }}
       >
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0, flex: "1 1 auto" }}>
           <IconButton
             onClick={handleBackClick}
             size="small"
           >
             <ArrowBackIcon />
           </IconButton>
-          <Typography variant="h6" fontWeight="500">
+          <Typography
+            variant="h6"
+            fontWeight="500"
+            noWrap
+            sx={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}
+          >
             {isTemplateEditMode
               ? existingData?.name || `${getDocumentTitle()} Template`
               : formData.name || formData.documentInfo.documentNumber || `${getDocumentTitle()} - New`}
           </Typography>
         </Box>
-        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+        <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexShrink: 0, flexWrap: "nowrap" }}>
           {/* Navigation & Add Buttons */}
           {(onPrevious || onNext) && (
             <>
@@ -2123,12 +2146,24 @@ export default function TabbedDocumentCreator({
           {/* Dynamic Tabs based on template config */}
           {templateFieldConfig?.tabs.map((tab, index) => (
             <TabPanel key={tab.tabId} value={mainTabValue} index={index}>
-              <Card sx={{ maxHeight: 350, overflow: 'auto' }}>
+              <Card sx={{ flexShrink: 0 }}>
                 <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
-                  <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25 }}>
-                    {tab.tabLabel}
-                  </Typography>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.25 }}>
+                    <Typography variant="body2" fontWeight={600}>
+                      {tab.tabLabel}
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => setIsFieldsCollapsed((prev) => !prev)}
+                      endIcon={isFieldsCollapsed ? <UnfoldMoreIcon /> : <UnfoldLessIcon />}
+                      sx={{ height: 24, py: 0, px: 1, minWidth: 0, fontSize: "0.75rem", textTransform: "none", lineHeight: 1 }}
+                    >
+                      {isFieldsCollapsed ? "Show fields" : "Hide fields"}
+                    </Button>
+                  </Box>
                   <Divider sx={{ mb: 0.5 }} />
+                  <Collapse in={!isFieldsCollapsed} timeout="auto" unmountOnExit>
                   <DynamicFormFields
                     fields={tab.fields}
                     formData={formData}
@@ -2161,6 +2196,7 @@ export default function TabbedDocumentCreator({
                       setSalesmanDialogOpen(true);
                     }}
                   />
+                  </Collapse>
                 </CardContent>
               </Card>
             </TabPanel>

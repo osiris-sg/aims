@@ -12,6 +12,7 @@ import { ConfigurationProvider } from "./context/ConfigurationContext";
 import { SidebarProvider } from "@/components/Sidebar/SidebarContext";
 import { useThemeMode } from "@/contexts/ThemeModeContext";
 import { usePathname } from "next/navigation";
+import FieldOnlyGuard from "./components/FieldOnlyGuard";
 
 interface Props {
   children: React.ReactNode;
@@ -54,22 +55,24 @@ export default function Layout(props: Props) {
 
   return (
     <OrganizationProvider>
-      <ConfigurationProvider>
-        <SidebarProvider>
-          <Box
-            className={styles.PORTAL_LAYOUT}
-            sx={{
-              bgcolor: "background.default",
-              minHeight: "100vh",
-            }}
-          >
-            {isDocumentPage ? <DocumentSidebar /> : <DesktopSideBar />}
-            {!isDocumentPage && <AppNavbar />}
-            <Box sx={{ flexGrow: 1, height: "100%", width: "100%", display: "flex", flexDirection: "column" }}>{children}</Box>
-            <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick rtl={false} pauseOnFocusLoss draggable pauseOnHover theme={mode} />
-          </Box>
-        </SidebarProvider>
-      </ConfigurationProvider>
+      <FieldOnlyGuard>
+        <ConfigurationProvider>
+          <SidebarProvider>
+            <Box
+              className={styles.PORTAL_LAYOUT}
+              sx={{
+                bgcolor: "background.default",
+                minHeight: "100vh",
+              }}
+            >
+              {isDocumentPage ? <DocumentSidebar /> : <DesktopSideBar />}
+              {!isDocumentPage && <AppNavbar />}
+              <Box sx={{ flexGrow: 1, height: "100%", width: "100%", display: "flex", flexDirection: "column" }}>{children}</Box>
+              <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick rtl={false} pauseOnFocusLoss draggable pauseOnHover theme={mode} />
+            </Box>
+          </SidebarProvider>
+        </ConfigurationProvider>
+      </FieldOnlyGuard>
     </OrganizationProvider>
   );
 }
