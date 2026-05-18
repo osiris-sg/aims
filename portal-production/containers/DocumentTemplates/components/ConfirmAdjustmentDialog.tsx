@@ -84,7 +84,7 @@ export default function ConfirmAdjustmentDialog({
       {/* Header */}
       <DialogTitle
         sx={{
-          bgcolor: "#f5f5f5",
+          bgcolor: "surfaceTones.low",
           borderBottom: "1px solid #ddd",
           py: 1,
           px: 2,
@@ -175,16 +175,16 @@ export default function ConfirmAdjustmentDialog({
         </Box>
       </DialogContent>
 
-      <DialogActions sx={{ px: 3, py: 2, bgcolor: "#f5f5f5" }}>
+      <DialogActions sx={{ px: 3, py: 2, bgcolor: "surfaceTones.low" }}>
         <Button
           variant="contained"
           onClick={handleConfirm}
           sx={{
             minWidth: 100,
-            bgcolor: "#f0f0f0",
+            bgcolor: "surfaceTones.high",
             color: "text.primary",
             border: "1px solid #ccc",
-            "&:hover": { bgcolor: "#e0e0e0" },
+            "&:hover": { bgcolor: "surfaceTones.highest" },
             textTransform: "none",
           }}
         >
@@ -195,10 +195,10 @@ export default function ConfirmAdjustmentDialog({
           onClick={handleClose}
           sx={{
             minWidth: 100,
-            bgcolor: "#f0f0f0",
+            bgcolor: "surfaceTones.high",
             color: "text.primary",
             border: "1px solid #ccc",
-            "&:hover": { bgcolor: "#e0e0e0" },
+            "&:hover": { bgcolor: "surfaceTones.highest" },
             textTransform: "none",
           }}
         >

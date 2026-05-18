@@ -186,9 +186,13 @@ export class DocumentsService {
         // Allow only status changes for confirmed documents
       }
 
-      // Extract projectId from config if it exists
-      const projectId = configAsPlainObject?.projectId;
-      console.log('Project ID from config:', projectId, 'Type:', typeof projectId);
+      // projectId can arrive either at the top level (frontend's update payload
+      // sets it there alongside customerId) or nested inside config. Prefer the
+      // top-level value so the doc picker actually persists; fall back to the
+      // legacy config.projectId for backwards-compat with older callers.
+      const projectId =
+        (dto as any).projectId ?? configAsPlainObject?.projectId ?? null;
+      console.log('Project ID resolved:', projectId, 'Type:', typeof projectId);
       console.log('dto', dto);
 
       // Handle captured images - ensure they are stored as URLs
@@ -400,6 +404,36 @@ export class DocumentsService {
         } catch (error) {
           console.error('❌ PO RECEIVE: Failed to update inventory:', error);
           // Don't fail the document update if inventory update fails
+        }
+
+        // ---- PO-as-Project auto-creation (feature-flagged) ----
+        // When enablePOAsProject is on, confirming a PO spins up a Project named
+        // after the PO and links it back so subsequent DOs/invoices can attach to it.
+        try {
+          const uiConfig = await this.prisma.organizationUIConfig.findUnique({
+            where: { organizationId },
+            select: { features: true },
+          });
+          const features = (uiConfig?.features as any) || {};
+          if (features.enablePOAsProject && !updatedDocument.projectId) {
+            const projectName = updatedDocument.name || `PO-${id.substring(0, 8)}`;
+            const newProject = await this.prisma.project.create({
+              data: {
+                name: projectName,
+                organizationId,
+                customerPoNumber: updatedDocument.name || null,
+              },
+              select: { id: true, name: true },
+            });
+            await this.prisma.document.update({
+              where: { id },
+              data: { projectId: newProject.id },
+            });
+            console.log(`✅ PO→PROJECT: created project ${newProject.id} ("${newProject.name}") and linked it to PO ${id}`);
+          }
+        } catch (err) {
+          console.error('❌ PO→PROJECT: failed to auto-create project from PO', err);
+          // Best-effort: don't fail the PO confirmation if project creation fails.
         }
       }
 
@@ -869,6 +903,135 @@ export class DocumentsService {
     } catch (error) {
       throw new HttpException(`Basic document creation failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
+  }
+
+  /**
+   * Create a draft document from extracted (AI-parsed) data.
+   * - Fuzzy-matches customer by name (case-insensitive contains, unique match wins).
+   * - Looks up an existing PO whose name == extracted poNumber; if found, the new
+   *   draft inherits that PO's projectId so it lands inside the PO-as-project.
+   * - Falls back to the type's default DocumentTemplate when no templateId is given.
+   * Returns { id, templateId, type, matched: { customerId, projectId, poDocumentId } }.
+   */
+  async createFromExtraction(
+    organizationId: string,
+    type: string,
+    extracted: any,
+    documentTemplateId?: string,
+    sourceFileUrl?: string | null,
+  ) {
+    // Resolve template: explicit > active variant > default > newest.
+    // The active/default flags reflect the variant the user normally picks via
+    // InvoiceVariantDrawer; without this ordering findFirst can return a legacy
+    // variant with a thinner fieldConfig and the upload draft would look sparse.
+    let templateId = documentTemplateId;
+    if (!templateId) {
+      const tmpl = await this.prisma.documentTemplate.findFirst({
+        where: { type, organizationId },
+        select: { id: true },
+        orderBy: [
+          { isActive: 'desc' },
+          { isDefault: 'desc' },
+          { createdAt: 'desc' },
+        ],
+      });
+      if (!tmpl) {
+        throw new HttpException(`No document template found for type ${type}`, HttpStatus.NOT_FOUND);
+      }
+      templateId = tmpl.id;
+    }
+
+    // Fuzzy customer match — case-insensitive contains, only auto-link if unique.
+    let matchedCustomerId: string | null = null;
+    const extractedCustomerName: string | undefined = extracted?.customer?.name?.trim();
+    if (extractedCustomerName) {
+      const candidates = await this.prisma.customer.findMany({
+        where: {
+          organizationId,
+          name: { contains: extractedCustomerName, mode: 'insensitive' },
+        },
+        select: { id: true, name: true },
+        take: 2,
+      });
+      if (candidates.length === 1) {
+        matchedCustomerId = candidates[0].id;
+      }
+    }
+
+    // PO match — exact match on Document.name among PO types.
+    let matchedProjectId: string | null = null;
+    let matchedPoDocumentId: string | null = null;
+    const extractedPoNumber: string | undefined =
+      extracted?.references?.poNumber?.trim() || undefined;
+    if (extractedPoNumber) {
+      const po = await this.prisma.document.findFirst({
+        where: {
+          organizationId,
+          type: { in: ['PO', 'PURCHASE_ORDER'] },
+          name: extractedPoNumber,
+        },
+        select: { id: true, projectId: true },
+      });
+      if (po) {
+        matchedPoDocumentId = po.id;
+        matchedProjectId = po.projectId || null;
+      }
+    }
+
+    // Map extracted → AIMS document config shape.
+    const config: any = {
+      customer: {
+        id: matchedCustomerId || undefined,
+        name: extracted?.customer?.name || undefined,
+        address: extracted?.customer?.address || undefined,
+        attention: extracted?.customer?.attention || undefined,
+      },
+      documentInfo: {
+        documentNumber: extracted?.document?.number || undefined,
+        date: extracted?.document?.date || undefined,
+        dueDate: extracted?.document?.dueDate || undefined,
+        reference: extracted?.document?.reference || undefined,
+      },
+      references: extracted?.references || {},
+      items: (Array.isArray(extracted?.items) ? extracted.items : []).map((it: any, idx: number) => ({
+        id: idx + 1,
+        description: it?.description || '',
+        quantity: typeof it?.quantity === 'number' ? it.quantity : parseFloat(it?.quantity) || 0,
+        unitPrice: typeof it?.unitPrice === 'number' ? it.unitPrice : parseFloat(it?.unitPrice) || 0,
+        amount: typeof it?.amount === 'number' ? it.amount : parseFloat(it?.amount) || 0,
+        uom: it?.unit || undefined,
+        tax: typeof it?.tax === 'number' ? it.tax : parseFloat(it?.tax) || undefined,
+      })),
+      totals: extracted?.totals || {},
+      notes: extracted?.notes || undefined,
+      source: {
+        extractedFrom: 'upload',
+        fileUrl: sourceFileUrl || undefined,
+      },
+      sourceFileUrl: sourceFileUrl || undefined,
+    };
+
+    // Create the draft via the existing helper so we get document numbering, defaults, etc.
+    const created = await this.createBasicDocument(templateId, type, organizationId, config);
+
+    // If we matched a project (via PO), link it on the created document.
+    if (matchedProjectId) {
+      await this.prisma.document.update({
+        where: { id: created.id },
+        data: { projectId: matchedProjectId },
+      });
+    }
+
+    return {
+      id: created.id,
+      templateId,
+      type,
+      matched: {
+        customerId: matchedCustomerId,
+        projectId: matchedProjectId,
+        poDocumentId: matchedPoDocumentId,
+      },
+    };
   }
 
   async duplicateDocument(documentId: string, organizationId: string) {

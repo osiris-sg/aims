@@ -226,15 +226,15 @@ export default function ExtractDOToInvoiceDialog({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          bgcolor: "primary.main",
-          color: "primary.contrastText",
+          bgcolor: "#0a0a0a",
+          color: "#fafafa",
           py: 1.5,
         }}
       >
         <Typography variant="h6" fontWeight={500}>
           Extract Delivery Order to Invoice
         </Typography>
-        <IconButton onClick={handleClose} size="small" sx={{ color: "primary.contrastText" }}>
+        <IconButton onClick={handleClose} size="small" sx={{ color: "#fafafa" }}>
           <CloseIcon />
         </IconButton>
       </DialogTitle>
@@ -244,7 +244,7 @@ export default function ExtractDOToInvoiceDialog({
         <Box
           sx={{
             p: 2,
-            bgcolor: "tertiary.light",
+            bgcolor: "surfaceTones.low",
             borderBottom: "1px solid",
             borderColor: "divider",
           }}
@@ -305,9 +305,9 @@ export default function ExtractDOToInvoiceDialog({
                 <TableCell
                   padding="checkbox"
                   sx={{
-                    bgcolor: "grey.100",
+                    bgcolor: "surfaceTones.low",
                     borderBottom: 2,
-                    borderColor: "primary.main",
+                    borderColor: "divider",
                     width: "5%",
                   }}
                 >
@@ -321,9 +321,9 @@ export default function ExtractDOToInvoiceDialog({
                 <TableCell
                   sx={{
                     fontWeight: 600,
-                    bgcolor: "grey.100",
+                    bgcolor: "surfaceTones.low",
                     borderBottom: 2,
-                    borderColor: "primary.main",
+                    borderColor: "divider",
                     width: "20%",
                   }}
                 >
@@ -332,9 +332,9 @@ export default function ExtractDOToInvoiceDialog({
                 <TableCell
                   sx={{
                     fontWeight: 600,
-                    bgcolor: "grey.100",
+                    bgcolor: "surfaceTones.low",
                     borderBottom: 2,
-                    borderColor: "primary.main",
+                    borderColor: "divider",
                     width: "15%",
                   }}
                 >
@@ -343,9 +343,9 @@ export default function ExtractDOToInvoiceDialog({
                 <TableCell
                   sx={{
                     fontWeight: 600,
-                    bgcolor: "grey.100",
+                    bgcolor: "surfaceTones.low",
                     borderBottom: 2,
-                    borderColor: "primary.main",
+                    borderColor: "divider",
                     width: "45%",
                   }}
                 >
@@ -354,9 +354,9 @@ export default function ExtractDOToInvoiceDialog({
                 <TableCell
                   sx={{
                     fontWeight: 600,
-                    bgcolor: "grey.100",
+                    bgcolor: "surfaceTones.low",
                     borderBottom: 2,
-                    borderColor: "primary.main",
+                    borderColor: "divider",
                     width: "20%",
                   }}
                 >
@@ -389,15 +389,15 @@ export default function ExtractDOToInvoiceDialog({
                       sx={{
                         cursor: "pointer",
                         "&:hover": {
-                          bgcolor: "secondary.light",
+                          bgcolor: "surfaceTones.high",
                         },
                         "&:nth-of-type(even)": {
-                          bgcolor: isSelected ? "primary.light" : "tertiary.light",
+                          bgcolor: isSelected ? "action.selected" : "surfaceTones.low",
                         },
                         "&.Mui-selected": {
-                          bgcolor: "primary.light",
+                          bgcolor: "action.selected",
                           "&:hover": {
-                            bgcolor: "primary.light",
+                            bgcolor: "action.selected",
                           },
                         },
                       }}
@@ -440,7 +440,7 @@ export default function ExtractDOToInvoiceDialog({
         <Box
           sx={{
             p: 1.5,
-            bgcolor: "tertiary.light",
+            bgcolor: "surfaceTones.low",
             borderTop: "1px solid",
             borderColor: "divider",
             display: "flex",

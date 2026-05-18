@@ -13,7 +13,7 @@ export default function ProjectsEndingCard() {
   }, [projectsData]);
 
   return (
-    <Card sx={{ height: "100%", display: "flex", flexDirection: "column", backgroundColor: "white" }}>
+    <Card sx={{ height: "100%", display: "flex", flexDirection: "column", backgroundColor: "background.paper" }}>
       <CardContent sx={{ flexGrow: 1 }}>
         <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
           <AccountTreeIcon sx={{ fontSize: "2rem", mr: 1, color: "info.main" }} />

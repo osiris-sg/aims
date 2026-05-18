@@ -116,7 +116,7 @@ export default function EditPermissions({ open, onClose, role, onPermissionsUpda
 
   return (
     <Drawer anchor="right" open={open} onClose={onClose}>
-      <Box sx={{ width: 500, p: 3, height: "100%", display: "flex", flexDirection: "column", backgroundColor: "white" }}>
+      <Box sx={{ width: 500, p: 3, height: "100%", display: "flex", flexDirection: "column", backgroundColor: "background.paper" }}>
         <Typography variant="h5" sx={{ mb: 2 }}>
           Edit Permissions: {role?.name}
         </Typography>

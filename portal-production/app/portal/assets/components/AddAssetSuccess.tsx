@@ -33,7 +33,7 @@ export default function AddAssetSuccess() {
           width: "100%",
           maxWidth: "700px",
           mx: "auto",
-          bgcolor: "white",
+          bgcolor: "background.paper",
           borderRadius: 1,
           p: 3,
           mt: 0,

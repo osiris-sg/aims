@@ -6,26 +6,35 @@ import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import { Box, CircularProgress } from "@mui/material";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import DocumentListView from "./DocumentListView";
 
 interface GoToLatestDocumentProps {
   documentTypes: string[]; // e.g., ["SO", "SALES_ORDER"] - types to filter by
   documentLabel: string; // e.g., "Sales Order", "Delivery Order"
   createDocumentType: string; // e.g., "SO" - the type to create if none exist
+  pluralLabel?: string; // e.g., "Sales Orders" — used by list view stat cards
 }
 
 export default function GoToLatestDocument({
   documentTypes,
   documentLabel,
   createDocumentType,
+  pluralLabel,
 }: GoToLatestDocumentProps) {
   const router = useRouter();
   const { getToken } = useAuth();
   const { organization } = useOrganization();
+  const { isDocumentListViewEnabled, isLoading: featuresLoading } = useOrganizationFeatures();
   const [, setError] = useState<string | null>(null);
   const hasRedirected = useRef(false);
 
   useEffect(() => {
     if (hasRedirected.current) return;
+    // Wait until the feature flag value is known before deciding.
+    if (featuresLoading) return;
+    // When list view is enabled, skip auto-redirect.
+    if (isDocumentListViewEnabled) return;
 
     const fetchAndRedirect = async () => {
       if (!organization?.id) return;
@@ -101,9 +110,30 @@ export default function GoToLatestDocument({
     };
 
     fetchAndRedirect();
-  }, [organization?.id, documentTypes, documentLabel, createDocumentType, getToken, router]);
+  }, [organization?.id, documentTypes, documentLabel, createDocumentType, getToken, router, isDocumentListViewEnabled, featuresLoading]);
 
-  // Always show loading spinner - auto-create handles no documents case
+  // Wait for feature flag to load before deciding which UI to render —
+  // otherwise we'd briefly redirect, then unmount and show the list view.
+  if (featuresLoading) {
+    return (
+      <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", height: "50vh" }}>
+        <CircularProgress size={32} />
+      </Box>
+    );
+  }
+
+  if (isDocumentListViewEnabled) {
+    return (
+      <DocumentListView
+        documentTypes={documentTypes}
+        documentLabel={documentLabel}
+        pluralLabel={pluralLabel}
+        createDocumentType={createDocumentType}
+      />
+    );
+  }
+
+  // Legacy behavior — auto-redirect to latest (or auto-create if none).
   return (
     <Box
       sx={{

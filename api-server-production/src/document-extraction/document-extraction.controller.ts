@@ -12,6 +12,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request } from 'express';
 import { DocumentExtractionService, DocumentType } from './document-extraction.service';
+import { S3Service } from '../common/services/s3.service';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 
@@ -35,7 +36,10 @@ interface ExtractFromUrlDto {
 @Controller('document-extraction')
 @UseGuards(ClerkAuthGuard)
 export class DocumentExtractionController {
-  constructor(private readonly documentExtractionService: DocumentExtractionService) {}
+  constructor(
+    private readonly documentExtractionService: DocumentExtractionService,
+    private readonly s3Service: S3Service,
+  ) {}
 
   @Post('extract')
   @Permissions('document-extraction:extract')
@@ -87,6 +91,20 @@ export class DocumentExtractionController {
         documentType
       );
 
+      // Stash the source file in S3 so users can later view the original they
+      // uploaded. Best-effort: a storage hiccup shouldn't sink the extraction.
+      let sourceFileUrl: string | null = null;
+      try {
+        const safeName = (file.originalname || 'upload')
+          .replace(/[^\w.\-]+/g, '_')
+          .slice(0, 80);
+        const ts = new Date().toISOString().replace(/[:.]/g, '-');
+        const key = `extracted-uploads/${organizationId}/${ts}_${safeName}`;
+        sourceFileUrl = await this.s3Service.uploadFile(key, file.buffer, file.mimetype);
+      } catch (s3Err) {
+        console.warn('⚠️ Could not stash source file to S3 (continuing):', s3Err?.message);
+      }
+
       return {
         success: true,
         data: extractedData,
@@ -97,6 +115,7 @@ export class DocumentExtractionController {
           mimeType: file.mimetype,
           documentType: documentType,
           organizationId: organizationId,
+          sourceFileUrl,
         }
       };
     } catch (error) {

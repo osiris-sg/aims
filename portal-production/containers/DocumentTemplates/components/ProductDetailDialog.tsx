@@ -165,9 +165,9 @@ function InformationTable({
 }) {
   const headerCellStyle = {
     fontWeight: 600,
-    bgcolor: "grey.100",
+    bgcolor: "surfaceTones.low",
     borderBottom: 2,
-    borderColor: "primary.main",
+    borderColor: "divider",
   };
 
   return (
@@ -176,7 +176,7 @@ function InformationTable({
         <Box
           sx={{
             p: 2,
-            bgcolor: "grey.50",
+            bgcolor: "surfaceTones.low",
             borderBottom: 1,
             borderColor: "divider",
             display: "flex",
@@ -258,7 +258,7 @@ function InformationTable({
                       bgcolor: "action.hover",
                     },
                     "&:nth-of-type(even)": {
-                      bgcolor: "grey.50",
+                      bgcolor: "surfaceTones.low",
                     },
                   }}
                 >
@@ -788,20 +788,20 @@ export default function ProductDetailDialog({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          bgcolor: "primary.main",
-          color: "primary.contrastText",
+          bgcolor: "#0a0a0a",
+          color: "#fafafa",
           py: 1.5,
         }}
       >
         <Typography variant="h6" fontWeight={500}>
           {itemType} Details - {item.sku}
         </Typography>
-        <IconButton onClick={handleClose} size="small" sx={{ color: "primary.contrastText" }}>
+        <IconButton onClick={handleClose} size="small" sx={{ color: "#fafafa" }}>
           <CloseIcon />
         </IconButton>
       </DialogTitle>
 
-      <Box sx={{ borderBottom: 1, borderColor: "divider", bgcolor: "grey.50" }}>
+      <Box sx={{ borderBottom: 1, borderColor: "divider", bgcolor: "surfaceTones.low" }}>
         <Tabs
           value={tabValue}
           onChange={handleTabChange}
@@ -864,7 +864,7 @@ export default function ProductDetailDialog({
                   sx={{
                     width: "100%",
                     height: 150,
-                    bgcolor: "grey.100",
+                    bgcolor: "surfaceTones.low",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -958,7 +958,7 @@ export default function ProductDetailDialog({
                 sx={{
                   p: 2,
                   textAlign: "center",
-                  bgcolor: "primary.50",
+                  bgcolor: "action.selected",
                   borderColor: "primary.200",
                 }}
               >
@@ -1018,7 +1018,7 @@ export default function ProductDetailDialog({
                 sx={{
                   p: 2,
                   textAlign: "center",
-                  bgcolor: "grey.50",
+                  bgcolor: "surfaceTones.low",
                   borderColor: "grey.300",
                 }}
               >
@@ -1036,7 +1036,7 @@ export default function ProductDetailDialog({
             <Box
               sx={{
                 p: 2,
-                bgcolor: "grey.50",
+                bgcolor: "surfaceTones.low",
                 borderBottom: 1,
                 borderColor: "divider",
                 display: "flex",
@@ -1084,9 +1084,9 @@ export default function ProductDetailDialog({
                       <TableCell
                         sx={{
                           fontWeight: 600,
-                          bgcolor: "grey.100",
+                          bgcolor: "surfaceTones.low",
                           borderBottom: 2,
-                          borderColor: "primary.main",
+                          borderColor: "divider",
                           minWidth: 130,
                         }}
                       >
@@ -1095,9 +1095,9 @@ export default function ProductDetailDialog({
                       <TableCell
                         sx={{
                           fontWeight: 600,
-                          bgcolor: "grey.100",
+                          bgcolor: "surfaceTones.low",
                           borderBottom: 2,
-                          borderColor: "primary.main",
+                          borderColor: "divider",
                           minWidth: 90,
                         }}
                       >
@@ -1106,9 +1106,9 @@ export default function ProductDetailDialog({
                       <TableCell
                         sx={{
                           fontWeight: 600,
-                          bgcolor: "grey.100",
+                          bgcolor: "surfaceTones.low",
                           borderBottom: 2,
-                          borderColor: "primary.main",
+                          borderColor: "divider",
                           minWidth: 100,
                         }}
                       >
@@ -1117,9 +1117,9 @@ export default function ProductDetailDialog({
                       <TableCell
                         sx={{
                           fontWeight: 600,
-                          bgcolor: "grey.100",
+                          bgcolor: "surfaceTones.low",
                           borderBottom: 2,
-                          borderColor: "primary.main",
+                          borderColor: "divider",
                           minWidth: 100,
                         }}
                       >
@@ -1128,9 +1128,9 @@ export default function ProductDetailDialog({
                       <TableCell
                         sx={{
                           fontWeight: 600,
-                          bgcolor: "grey.100",
+                          bgcolor: "surfaceTones.low",
                           borderBottom: 2,
-                          borderColor: "primary.main",
+                          borderColor: "divider",
                           minWidth: 180,
                         }}
                       >
@@ -1140,9 +1140,9 @@ export default function ProductDetailDialog({
                         align="right"
                         sx={{
                           fontWeight: 600,
-                          bgcolor: "grey.100",
+                          bgcolor: "surfaceTones.low",
                           borderBottom: 2,
-                          borderColor: "primary.main",
+                          borderColor: "divider",
                           minWidth: 80,
                         }}
                       >
@@ -1152,9 +1152,9 @@ export default function ProductDetailDialog({
                         align="right"
                         sx={{
                           fontWeight: 600,
-                          bgcolor: "grey.100",
+                          bgcolor: "surfaceTones.low",
                           borderBottom: 2,
-                          borderColor: "primary.main",
+                          borderColor: "divider",
                           minWidth: 80,
                         }}
                       >
@@ -1164,9 +1164,9 @@ export default function ProductDetailDialog({
                         align="right"
                         sx={{
                           fontWeight: 600,
-                          bgcolor: "grey.100",
+                          bgcolor: "surfaceTones.low",
                           borderBottom: 2,
-                          borderColor: "primary.main",
+                          borderColor: "divider",
                           minWidth: 80,
                         }}
                       >
@@ -1176,9 +1176,9 @@ export default function ProductDetailDialog({
                         align="right"
                         sx={{
                           fontWeight: 600,
-                          bgcolor: "grey.100",
+                          bgcolor: "surfaceTones.low",
                           borderBottom: 2,
-                          borderColor: "primary.main",
+                          borderColor: "divider",
                           minWidth: 100,
                         }}
                       >
@@ -1188,9 +1188,9 @@ export default function ProductDetailDialog({
                         align="center"
                         sx={{
                           fontWeight: 600,
-                          bgcolor: "grey.100",
+                          bgcolor: "surfaceTones.low",
                           borderBottom: 2,
-                          borderColor: "primary.main",
+                          borderColor: "divider",
                           minWidth: 60,
                         }}
                       >
@@ -1225,7 +1225,7 @@ export default function ProductDetailDialog({
                                 bgcolor: "action.hover",
                               },
                               "&:nth-of-type(even)": {
-                                bgcolor: "grey.50",
+                                bgcolor: "surfaceTones.low",
                               },
                             }}
                             onClick={() => handleDocumentClick(movement)}
@@ -1302,7 +1302,7 @@ export default function ProductDetailDialog({
               <Box
                 sx={{
                   p: 1.5,
-                  bgcolor: "grey.100",
+                  bgcolor: "surfaceTones.low",
                   borderTop: "1px solid",
                   borderColor: "divider",
                   display: "flex",

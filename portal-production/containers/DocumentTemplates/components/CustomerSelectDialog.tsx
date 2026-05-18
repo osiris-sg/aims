@@ -107,15 +107,15 @@ export default function CustomerSelectDialog({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          bgcolor: "primary.main",
-          color: "primary.contrastText",
+          bgcolor: "#0a0a0a",
+          color: "#fafafa",
           py: 1.5,
         }}
       >
         <Typography variant="h6" fontWeight={500}>
           Locate Customer
         </Typography>
-        <IconButton onClick={handleClose} size="small" sx={{ color: "primary.contrastText" }}>
+        <IconButton onClick={handleClose} size="small" sx={{ color: "#fafafa" }}>
           <CloseIcon />
         </IconButton>
       </DialogTitle>
@@ -125,7 +125,7 @@ export default function CustomerSelectDialog({
         <Box
           sx={{
             p: 2,
-            bgcolor: "tertiary.light",
+            bgcolor: "surfaceTones.low",
             borderBottom: "1px solid",
             borderColor: "divider",
           }}
@@ -183,9 +183,9 @@ export default function CustomerSelectDialog({
                 <TableCell
                   sx={{
                     fontWeight: 600,
-                    bgcolor: "grey.100",
+                    bgcolor: "surfaceTones.low",
                     borderBottom: 2,
-                    borderColor: "primary.main",
+                    borderColor: "divider",
                     width: "20%",
                   }}
                 >
@@ -194,9 +194,9 @@ export default function CustomerSelectDialog({
                 <TableCell
                   sx={{
                     fontWeight: 600,
-                    bgcolor: "grey.100",
+                    bgcolor: "surfaceTones.low",
                     borderBottom: 2,
-                    borderColor: "primary.main",
+                    borderColor: "divider",
                     width: "40%",
                   }}
                 >
@@ -205,9 +205,9 @@ export default function CustomerSelectDialog({
                 <TableCell
                   sx={{
                     fontWeight: 600,
-                    bgcolor: "grey.100",
+                    bgcolor: "surfaceTones.low",
                     borderBottom: 2,
-                    borderColor: "primary.main",
+                    borderColor: "divider",
                     width: "20%",
                   }}
                 >
@@ -216,9 +216,9 @@ export default function CustomerSelectDialog({
                 <TableCell
                   sx={{
                     fontWeight: 600,
-                    bgcolor: "grey.100",
+                    bgcolor: "surfaceTones.low",
                     borderBottom: 2,
-                    borderColor: "primary.main",
+                    borderColor: "divider",
                     width: "20%",
                   }}
                 >
@@ -244,14 +244,14 @@ export default function CustomerSelectDialog({
                     sx={{
                       cursor: "pointer",
                       "&:hover": {
-                        bgcolor: "secondary.light",
+                        bgcolor: "surfaceTones.high",
                       },
                       "&:nth-of-type(even)": {
-                        bgcolor: "tertiary.light",
+                        bgcolor: "surfaceTones.low",
                       },
                     }}
                   >
-                    <TableCell sx={{ fontWeight: 500, color: "secondary.main" }}>
+                    <TableCell sx={{ fontWeight: 500, color: "text.primary" }}>
                       {customer.customerCode || "-"}
                     </TableCell>
                     <TableCell>{customer.name || "-"}</TableCell>
@@ -268,7 +268,7 @@ export default function CustomerSelectDialog({
         <Box
           sx={{
             p: 1.5,
-            bgcolor: "tertiary.light",
+            bgcolor: "surfaceTones.low",
             borderTop: "1px solid",
             borderColor: "divider",
             display: "flex",

@@ -5,7 +5,12 @@
       "Bash(npm run *)",
       "Bash(git *)",
       "Bash(npx prisma *)",
-      "PowerShell(Get-Process *)"
+      "PowerShell(Get-Process *)",
+      "Read(//opt/homebrew/opt/**)",
+      "Read(//Applications/Postgres.app/Contents/**)",
+      "Read(//usr/local/opt/libpq/bin/**)",
+      "Read(//opt/homebrew/Cellar/libpq/17.5/bin/**)",
+      "Bash(brew list *)"
     ]
   }
 }

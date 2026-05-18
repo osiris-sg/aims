@@ -236,15 +236,15 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
           backgroundColor: 'rgba(0, 0, 0, 0.5)'
         },
         '& .MuiDialog-paper': {
-          backgroundColor: '#FFFFFF',
+          backgroundColor: 'background.paper',
           backgroundImage: 'none'
         }
       }}
     >
       <DialogTitle
         sx={{
-          bgcolor: '#1976d2',
-          color: 'white',
+          bgcolor: '#0a0a0a',
+          color: '#fafafa',
           py: 1,
           display: 'flex',
           alignItems: 'center',
@@ -252,7 +252,7 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
         }}
       >
         <Typography variant="h6">LAST SOLD PRICE</Typography>
-        <IconButton size="small" onClick={onClose} sx={{ color: 'white' }}>
+        <IconButton size="small" onClick={onClose} sx={{ color: '#fafafa' }}>
           <CloseIcon />
         </IconButton>
       </DialogTitle>
@@ -261,16 +261,14 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
         dividers
         sx={{
           p: 2,
-          bgcolor: '#FFFFFF',
-          backgroundColor: '#FFFFFF',
+          bgcolor: 'background.paper',
           backgroundImage: 'none',
           isolation: 'isolate'
         }}
       >
         <Box
           sx={{
-            bgcolor: '#FFFFFF',
-            backgroundColor: '#FFFFFF',
+            bgcolor: 'background.paper',
             backgroundImage: 'none'
           }}
         >
@@ -284,8 +282,9 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
               <Grid container spacing={2} mb={2}>
               <Grid item xs={12}>
                 <Box sx={{
-                  bgcolor: '#f5f5f5',
-                  border: '1px solid #e0e0e0',
+                  bgcolor: 'surfaceTones.low',
+                  border: '1px solid',
+                  borderColor: 'divider',
                   borderRadius: 1,
                   p: 1.5
                 }}>
@@ -314,8 +313,9 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
 
               <Grid item xs={6}>
                 <Box sx={{
-                  bgcolor: '#f5f5f5',
-                  border: '1px solid #e0e0e0',
+                  bgcolor: 'surfaceTones.low',
+                  border: '1px solid',
+                  borderColor: 'divider',
                   borderRadius: 1,
                   p: 1
                 }}>
@@ -325,10 +325,10 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
                     fullWidth
                     variant="outlined"
                     sx={{
-                      bgcolor: 'white',
+                      bgcolor: 'background.paper',
                       '& .MuiOutlinedInput-root': {
                         height: 30,
-                        bgcolor: 'white'
+                        bgcolor: 'background.paper'
                       }
                     }}
                   />
@@ -337,8 +337,9 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
 
               <Grid item xs={6}>
                 <Box sx={{
-                  bgcolor: '#f5f5f5',
-                  border: '1px solid #e0e0e0',
+                  bgcolor: 'surfaceTones.low',
+                  border: '1px solid',
+                  borderColor: 'divider',
                   borderRadius: 1,
                   p: 1
                 }}>
@@ -351,8 +352,8 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
             </Grid>
 
             {/* Price History Table */}
-            <TableContainer component={Paper} variant="outlined" sx={{ mb: 2, bgcolor: 'white' }}>
-              <Table size="small" sx={{ bgcolor: 'white' }}>
+            <TableContainer component={Paper} variant="outlined" sx={{ mb: 2, bgcolor: 'background.paper' }}>
+              <Table size="small" sx={{ bgcolor: 'background.paper' }}>
                 <TableHead>
                   <TableRow>
                     <TableCell>Reference</TableCell>
@@ -367,8 +368,8 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
                     <TableRow
                       key={index}
                       sx={{
-                        bgcolor: 'white',
-                        '&:hover': { bgcolor: 'rgba(0, 0, 0, 0.04)' }
+                        bgcolor: 'background.paper',
+                        '&:hover': { bgcolor: 'surfaceTones.high' }
                       }}
                     >
                       <TableCell sx={{ bgcolor: 'transparent' }}>{item.reference}</TableCell>
@@ -393,14 +394,15 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
                   setRowsPerPage(parseInt(event.target.value, 10));
                   setPage(0);
                 }}
-                sx={{ bgcolor: 'white' }}
+                sx={{ bgcolor: 'background.paper' }}
               />
             </TableContainer>
 
             {/* Last Sold Price Section */}
             <Box sx={{
-              bgcolor: '#f5f5f5',
-              border: '1px solid #e0e0e0',
+              bgcolor: 'surfaceTones.low',
+              border: '1px solid',
+              borderColor: 'divider',
               borderRadius: 1,
               p: 1.5,
               mb: 2
@@ -417,7 +419,7 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
                     variant="outlined"
                     InputProps={{ readOnly: true }}
                     sx={{
-                      bgcolor: 'white',
+                      bgcolor: 'background.paper',
                       '& .MuiOutlinedInput-root': { height: 35 },
                     }}
                   />
@@ -437,7 +439,7 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
                     variant="outlined"
                     InputProps={{ readOnly: true }}
                     sx={{
-                      bgcolor: 'white',
+                      bgcolor: 'background.paper',
                       '& .MuiOutlinedInput-root': { height: 35 },
                     }}
                   />
@@ -453,7 +455,7 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
                     variant="outlined"
                     InputProps={{ readOnly: true }}
                     sx={{
-                      bgcolor: 'white',
+                      bgcolor: 'background.paper',
                       '& .MuiOutlinedInput-root': { height: 35 },
                     }}
                   />
@@ -472,7 +474,7 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
                     type="number"
                     variant="outlined"
                     sx={{
-                      bgcolor: 'white',
+                      bgcolor: 'background.paper',
                       '& .MuiOutlinedInput-root': { height: 35 },
                     }}
                   />
@@ -488,7 +490,7 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
                     variant="outlined"
                     InputProps={{ readOnly: true }}
                     sx={{
-                      bgcolor: 'white',
+                      bgcolor: 'background.paper',
                       '& .MuiOutlinedInput-root': { height: 35 },
                     }}
                   />
@@ -508,7 +510,7 @@ const PriceHistoryPopup: React.FC<PriceHistoryPopupProps> = ({
                 variant="outlined"
                 placeholder="Enter remarks..."
                 sx={{
-                  bgcolor: 'white'
+                  bgcolor: 'background.paper'
                 }}
               />
             </Box>

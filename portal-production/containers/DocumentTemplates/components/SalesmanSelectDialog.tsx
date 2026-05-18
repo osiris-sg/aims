@@ -118,15 +118,15 @@ export default function SalesmanSelectDialog({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          bgcolor: "primary.main",
-          color: "primary.contrastText",
+          bgcolor: "#0a0a0a",
+          color: "#fafafa",
           py: 1.5,
         }}
       >
         <Typography variant="h6" fontWeight={500}>
           Locate Salesman
         </Typography>
-        <IconButton onClick={handleClose} size="small" sx={{ color: "primary.contrastText" }}>
+        <IconButton onClick={handleClose} size="small" sx={{ color: "#fafafa" }}>
           <CloseIcon />
         </IconButton>
       </DialogTitle>
@@ -136,7 +136,7 @@ export default function SalesmanSelectDialog({
         <Box
           sx={{
             p: 2,
-            bgcolor: "tertiary.light",
+            bgcolor: "surfaceTones.low",
             borderBottom: "1px solid",
             borderColor: "divider",
           }}
@@ -194,9 +194,9 @@ export default function SalesmanSelectDialog({
                 <TableCell
                   sx={{
                     fontWeight: 600,
-                    bgcolor: "grey.100",
+                    bgcolor: "surfaceTones.low",
                     borderBottom: 2,
-                    borderColor: "primary.main",
+                    borderColor: "divider",
                     width: "25%",
                   }}
                 >
@@ -205,9 +205,9 @@ export default function SalesmanSelectDialog({
                 <TableCell
                   sx={{
                     fontWeight: 600,
-                    bgcolor: "grey.100",
+                    bgcolor: "surfaceTones.low",
                     borderBottom: 2,
-                    borderColor: "primary.main",
+                    borderColor: "divider",
                     width: "45%",
                   }}
                 >
@@ -216,9 +216,9 @@ export default function SalesmanSelectDialog({
                 <TableCell
                   sx={{
                     fontWeight: 600,
-                    bgcolor: "grey.100",
+                    bgcolor: "surfaceTones.low",
                     borderBottom: 2,
-                    borderColor: "primary.main",
+                    borderColor: "divider",
                     width: "30%",
                   }}
                 >
@@ -244,10 +244,10 @@ export default function SalesmanSelectDialog({
                     sx={{
                       cursor: "pointer",
                       "&:hover": {
-                        bgcolor: "secondary.light",
+                        bgcolor: "surfaceTones.high",
                       },
                       "&:nth-of-type(even)": {
-                        bgcolor: "tertiary.light",
+                        bgcolor: "surfaceTones.low",
                       },
                     }}
                   >
@@ -267,7 +267,7 @@ export default function SalesmanSelectDialog({
         <Box
           sx={{
             p: 1.5,
-            bgcolor: "tertiary.light",
+            bgcolor: "surfaceTones.low",
             borderTop: "1px solid",
             borderColor: "divider",
             display: "flex",

@@ -49,6 +49,7 @@ import {
   ArrowBack as ArrowBackIcon,
   CheckCircle as CheckCircleIcon,
   ContentCopy as ContentCopyIcon,
+  OpenInNew as OpenInNewIcon,
   History as HistoryIcon,
   Close as CloseIcon,
   Email as EmailIcon,
@@ -1550,18 +1551,18 @@ export default function TabbedDocumentCreator({
           justifyContent: "space-between",
           alignItems: "center",
           gap: 2,
-          bgcolor: "white",
+          bgcolor: "background.paper",
           // Uniform-height action row — every button & icon-button matches.
           "& .MuiButton-root": {
-            height: 32,
+            height: 30,
             whiteSpace: "nowrap",
             textTransform: "none",
-            fontSize: "0.8125rem",
+            fontSize: "0.75rem",
             fontWeight: 500,
-            px: 1.25,
-            "& .MuiButton-startIcon": { mr: 0.5 },
+            px: 1,
+            "& .MuiButton-startIcon": { mr: 0.5, "& > svg": { fontSize: "1rem" } },
           },
-          "& .MuiIconButton-sizeSmall": { height: 32, width: 32 },
+          "& .MuiIconButton-sizeSmall": { height: 30, width: 30 },
         }}
       >
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0, flex: "1 1 auto" }}>
@@ -1582,7 +1583,7 @@ export default function TabbedDocumentCreator({
               : formData.name || formData.documentInfo.documentNumber || `${getDocumentTitle()} - New`}
           </Typography>
         </Box>
-        <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexShrink: 0, flexWrap: "nowrap" }}>
+        <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexShrink: 0, flexWrap: "nowrap" }}>
           {/* Navigation & Add Buttons */}
           {(onPrevious || onNext) && (
             <>
@@ -1815,6 +1816,24 @@ export default function TabbedDocumentCreator({
               onClick={handleDuplicateDocument}
             >
               Duplicate
+            </Button>
+          )}
+          {/* View Original — present when this doc was created from an upload
+              and we stashed the source PDF/image in S3. */}
+          {(existingData?.config?.sourceFileUrl || (existingData as any)?.sourceFileUrl) && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<OpenInNewIcon />}
+              onClick={() =>
+                window.open(
+                  existingData?.config?.sourceFileUrl || (existingData as any)?.sourceFileUrl,
+                  "_blank",
+                  "noopener,noreferrer",
+                )
+              }
+            >
+              View Original
             </Button>
           )}
           <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
@@ -2143,6 +2162,35 @@ export default function TabbedDocumentCreator({
               )}
             </Box>
 
+          {/* Project picker for template-driven DO/Invoice flows.
+              Lives outside the dynamic tabs so it's visible regardless of which
+              tab is active (the legacy Details tab has its own copy below). */}
+          {templateFieldConfig && (documentType === "DO" || documentType === "TI" || documentType === "TI2" || documentType === "INVOICE") && (
+            <Card sx={{ mb: 0.5 }}>
+              <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
+                <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25 }}>
+                  Linked Project
+                </Typography>
+                <Divider sx={{ mb: 0.5 }} />
+                <Autocomplete
+                  size="small"
+                  options={projects.filter((p) => !formData.customer.id || !p.customerId || p.customerId === formData.customer.id)}
+                  getOptionLabel={(option) => option.name}
+                  value={projects.find((p) => p.id === formData.projectId) || null}
+                  onChange={(_, newValue) =>
+                    setFormData({
+                      ...formData,
+                      projectId: newValue?.id || "",
+                    })
+                  }
+                  renderInput={(params) => (
+                    <TextField {...params} label="Project (optional)" size="small" />
+                  )}
+                />
+              </CardContent>
+            </Card>
+          )}
+
           {/* Dynamic Tabs based on template config */}
           {templateFieldConfig?.tabs.map((tab, index) => (
             <TabPanel key={tab.tabId} value={mainTabValue} index={index}>
@@ -2427,7 +2475,7 @@ export default function TabbedDocumentCreator({
                       {(documentType === "DO" || documentType === "TI") && (
                         <Grid item xs={12} md={6}>
                           <Autocomplete
-                            options={projects.filter((p) => !formData.customer.id || p.customerId === formData.customer.id)}
+                            options={projects.filter((p) => !formData.customer.id || !p.customerId || p.customerId === formData.customer.id)}
                             getOptionLabel={(option) => option.name}
                             value={projects.find((p) => p.id === formData.projectId) || null}
                             onChange={(_, newValue) =>

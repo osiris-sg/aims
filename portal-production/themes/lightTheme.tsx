@@ -44,10 +44,10 @@ const tokens = {
   primaryContainer: "#262626",         // hover/darker variant
   onPrimary: "#fafafa",                // hsl(0 0% 98%) — white text on primary
   onPrimaryContainer: "#fafafa",
-  primaryFixed: "#404040",
-  primaryFixedDim: "#525252",
-  onPrimaryFixed: "#ffffff",
-  onPrimaryFixedVariant: "#ffffff",
+  primaryFixed: "#f5f5f5",             // light surface for tertiary.light (zebra rows, subtle panels)
+  primaryFixedDim: "#e5e5e5",          // slightly darker tone for tertiary.main
+  onPrimaryFixed: "#171717",           // near-black text on light tertiary surfaces
+  onPrimaryFixedVariant: "#262626",
   secondary: "#525252",                // muted gray
   secondaryContainer: "#f5f5f5",       // hsl(0 0% 96.1%) — subtle gray surface
   onSecondary: "#ffffff",

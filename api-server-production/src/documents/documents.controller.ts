@@ -48,6 +48,31 @@ export class DocumentsController {
     return await this.documentsService.createBasicDocument(body.documentTemplateId, body.type, organizationId, body.config || {});
   }
 
+  @Post('from-extraction')
+  @Permissions('documents:create-basic')
+  async createFromExtraction(
+    @Body()
+    body: {
+      type: string;
+      extracted: any;
+      documentTemplateId?: string;
+      sourceFileUrl?: string | null;
+    },
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentsService.createFromExtraction(
+      organizationId,
+      body.type,
+      body.extracted,
+      body.documentTemplateId,
+      body.sourceFileUrl,
+    );
+  }
+
   @Post()
   @Permissions('documents:read')
   async getAllDocuments(@Req() req: RequestWithOrganization): Promise<GetDocumentDto[]> {

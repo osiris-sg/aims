@@ -139,15 +139,15 @@ export default function LocateDocumentDialog({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          bgcolor: "primary.main",
-          color: "primary.contrastText",
+          bgcolor: "#0a0a0a",
+          color: "#fafafa",
           py: 1.5,
         }}
       >
         <Typography variant="h6" fontWeight={500}>
           Locate {documentLabel}
         </Typography>
-        <IconButton onClick={handleClose} size="small" sx={{ color: "primary.contrastText" }}>
+        <IconButton onClick={handleClose} size="small" sx={{ color: "#fafafa" }}>
           <CloseIcon />
         </IconButton>
       </DialogTitle>
@@ -157,7 +157,7 @@ export default function LocateDocumentDialog({
         <Box
           sx={{
             p: 2,
-            bgcolor: "tertiary.light",
+            bgcolor: "surfaceTones.low",
             borderBottom: "1px solid",
             borderColor: "divider",
           }}
@@ -227,9 +227,9 @@ export default function LocateDocumentDialog({
                 <TableCell
                   sx={{
                     fontWeight: 600,
-                    bgcolor: "grey.100",
+                    bgcolor: "surfaceTones.low",
                     borderBottom: 2,
-                    borderColor: "primary.main",
+                    borderColor: "divider",
                     width: "15%",
                   }}
                 >
@@ -238,9 +238,9 @@ export default function LocateDocumentDialog({
                 <TableCell
                   sx={{
                     fontWeight: 600,
-                    bgcolor: "grey.100",
+                    bgcolor: "surfaceTones.low",
                     borderBottom: 2,
-                    borderColor: "primary.main",
+                    borderColor: "divider",
                     width: "12%",
                   }}
                 >
@@ -249,9 +249,9 @@ export default function LocateDocumentDialog({
                 <TableCell
                   sx={{
                     fontWeight: 600,
-                    bgcolor: "grey.100",
+                    bgcolor: "surfaceTones.low",
                     borderBottom: 2,
-                    borderColor: "primary.main",
+                    borderColor: "divider",
                     width: "25%",
                   }}
                 >
@@ -261,9 +261,9 @@ export default function LocateDocumentDialog({
                   align="right"
                   sx={{
                     fontWeight: 600,
-                    bgcolor: "grey.100",
+                    bgcolor: "surfaceTones.low",
                     borderBottom: 2,
-                    borderColor: "primary.main",
+                    borderColor: "divider",
                     width: "15%",
                   }}
                 >
@@ -272,9 +272,9 @@ export default function LocateDocumentDialog({
                 <TableCell
                   sx={{
                     fontWeight: 600,
-                    bgcolor: "grey.100",
+                    bgcolor: "surfaceTones.low",
                     borderBottom: 2,
-                    borderColor: "primary.main",
+                    borderColor: "divider",
                     width: "12%",
                   }}
                 >
@@ -283,9 +283,9 @@ export default function LocateDocumentDialog({
                 <TableCell
                   sx={{
                     fontWeight: 600,
-                    bgcolor: "grey.100",
+                    bgcolor: "surfaceTones.low",
                     borderBottom: 2,
-                    borderColor: "primary.main",
+                    borderColor: "divider",
                     width: "12%",
                   }}
                 >
@@ -295,9 +295,9 @@ export default function LocateDocumentDialog({
                   align="center"
                   sx={{
                     fontWeight: 600,
-                    bgcolor: "grey.100",
+                    bgcolor: "surfaceTones.low",
                     borderBottom: 2,
-                    borderColor: "primary.main",
+                    borderColor: "divider",
                     width: "10%",
                   }}
                 >
@@ -325,14 +325,14 @@ export default function LocateDocumentDialog({
                     sx={{
                       cursor: "pointer",
                       "&:hover": {
-                        bgcolor: "secondary.light",
+                        bgcolor: "surfaceTones.high",
                       },
                       "&:nth-of-type(even)": {
-                        bgcolor: "tertiary.light",
+                        bgcolor: "surfaceTones.low",
                       },
                     }}
                   >
-                    <TableCell sx={{ fontWeight: 500, color: "primary.main" }}>
+                    <TableCell sx={{ fontWeight: 500, color: "text.primary" }}>
                       {doc.name || "-"}
                     </TableCell>
                     <TableCell>
@@ -370,7 +370,7 @@ export default function LocateDocumentDialog({
         <Box
           sx={{
             p: 1.5,
-            bgcolor: "tertiary.light",
+            bgcolor: "surfaceTones.low",
             borderTop: "1px solid",
             borderColor: "divider",
             display: "flex",

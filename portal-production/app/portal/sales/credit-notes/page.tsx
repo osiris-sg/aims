@@ -10,6 +10,7 @@ export default function CreditNotesPage() {
     <GoToLatestDocument
       documentTypes={config.types}
       documentLabel={config.label}
+      pluralLabel={config.pluralLabel}
       createDocumentType={config.createDocumentType}
     />
   );
