@@ -30,6 +30,11 @@ const corsOptions: CorsOptions = {
       return callback(null, true);
     }
 
+    // Allow ai-ms.io and subdomains (production frontend)
+    if (origin.includes('ai-ms.io')) {
+      return callback(null, true);
+    }
+
     // Check if origin is in allowed list
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
