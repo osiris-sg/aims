@@ -13,6 +13,8 @@ import { SidebarProvider } from "@/components/Sidebar/SidebarContext";
 import { useThemeMode } from "@/contexts/ThemeModeContext";
 import { usePathname } from "next/navigation";
 import FieldOnlyGuard from "./components/FieldOnlyGuard";
+import OrgSwitcher from "@/components/OrgSwitcher";
+import ViewingAsBanner from "@/components/ViewingAsBanner";
 
 interface Props {
   children: React.ReactNode;
@@ -67,7 +69,14 @@ export default function Layout(props: Props) {
             >
               {isDocumentPage ? <DocumentSidebar /> : <DesktopSideBar />}
               {!isDocumentPage && <AppNavbar />}
-              <Box sx={{ flexGrow: 1, height: "100%", width: "100%", display: "flex", flexDirection: "column" }}>{children}</Box>
+              <Box sx={{ flexGrow: 1, height: "100%", width: "100%", display: "flex", flexDirection: "column" }}>
+                {/* Admin-only chrome — both components self-hide for non-admins. */}
+                <ViewingAsBanner />
+                <Box sx={{ display: "flex", justifyContent: "flex-end", px: 2, py: 1 }}>
+                  <OrgSwitcher />
+                </Box>
+                {children}
+              </Box>
               <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick rtl={false} pauseOnFocusLoss draggable pauseOnHover theme={mode} />
             </Box>
           </SidebarProvider>

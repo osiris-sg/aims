@@ -10,6 +10,10 @@ interface RequestWithOrganization extends Request {
     id: string;
     name: string;
   };
+  // Set by ClerkAuthGuard based on the user's roles, NOT on their currently
+  // active organization. Stays true even when an admin uses the org switcher
+  // to view another org's data.
+  isOsirisAdmin?: boolean;
 }
 
 @Controller('admin')
@@ -17,10 +21,13 @@ interface RequestWithOrganization extends Request {
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
-  // Check if user is OsirisAdmin
+  // Check if user is OsirisAdmin. Reads req.isOsirisAdmin (set by the guard
+  // from the user's roles) rather than comparing req.userOrganization.name,
+  // because the org switcher can override userOrganization to a non-platform
+  // org — but the user's admin status is determined by their role, not by
+  // whichever org they happen to be viewing.
   private async checkOsirisAdmin(req: RequestWithOrganization) {
-    const userOrganization = req.userOrganization;
-    if (!userOrganization || userOrganization.name !== 'osiris-platform') {
+    if (!req.isOsirisAdmin) {
       throw new ForbiddenException('Access denied. Only OsirisAdmin can access these endpoints.');
     }
   }

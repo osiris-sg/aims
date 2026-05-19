@@ -61,21 +61,18 @@ const secondaryListItems: any = [
 export default function SideBarContent() {
   const theme = useTheme();
   const pathname = usePathname();
-  const { organization } = useOrganization();
+  const { isOsirisAdmin } = useOrganization();
   const { isCollapsed } = useSidebar();
 
   const [openDocuments, setOpenDocuments] = React.useState(false);
   const [openUserManagement, setOpenUserManagement] = React.useState(false);
 
-  // Check if user is OsirisAdmin
-  const isOsirisAdmin = () => {
-    return organization?.name === "osiris-platform";
-  };
-
   const handleDocumentsClick = () => setOpenDocuments(!openDocuments);
   const handleUserManagementClick = () => setOpenUserManagement(!openUserManagement);
 
-  const mainListItems = getMainListItems(isOsirisAdmin());
+  // Use isOsirisAdmin from the context (derived from realOrganization), so
+  // the admin nav stays visible even when admin has switched to another org.
+  const mainListItems = getMainListItems(isOsirisAdmin);
 
   // Function to check if a nav item should be active - FIX THE HIGHLIGHTING ISSUE
   const isItemActive = (item: any) => {

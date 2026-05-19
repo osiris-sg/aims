@@ -57,6 +57,17 @@ export class RequestService {
         headers["Authorization"] = `Bearer ${token}`;
       }
 
+      // Auto-inject the admin org-switch header from sessionStorage. The
+      // backend (clerk-auth.guard.ts) only honors X-Active-Org-Id when the
+      // requesting user is osiris-admin; non-admins setting this client-side
+      // have no server effect. Custom headers (below) can still override —
+      // notably, OrganizationContext's bootstrap fetch passes
+      // X-Use-Real-Org: "1" to learn the user's actual membership org.
+      if (typeof window !== "undefined") {
+        const activeOrgId = window.sessionStorage.getItem("aims-admin-active-org");
+        if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
+      }
+
       // Merge custom headers
       if (customHeaders && typeof customHeaders === 'object') {
         Object.assign(headers, customHeaders);

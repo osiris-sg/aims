@@ -7,7 +7,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { ROUTES } from "@/routes";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { organization, isLoaded } = useOrganization();
+  const { isOsirisAdmin, isLoaded } = useOrganization();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -20,8 +20,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     );
   }
 
-  // Check if user is OsirisAdmin
-  const isOsirisAdmin = organization?.name === "osiris-platform";
+  // Admin gating reads isOsirisAdmin (derived from realOrganization, not the
+  // currently active org) so the panel stays accessible even when the admin
+  // has switched to view another org's data.
 
   if (!isOsirisAdmin) {
     return (

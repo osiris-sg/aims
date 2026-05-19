@@ -94,11 +94,44 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
     // Check if user has OsirisAdmin role
     const isOsirisAdmin = userRoles.some((userRole) => userRole.role.name === 'osirisadmin');
 
+    // Org-switch override (X-Active-Org-Id): admin-only. When an osiris-admin
+    // has selected a different organization in the org switcher, the frontend
+    // sends the chosen org id as a header. We swap request.userOrganization
+    // to that org so every downstream org-scoped query reads its data.
+    //
+    // The X-Use-Real-Org header is an opt-out used by OrganizationContext's
+    // bootstrap fetch so it can still learn the user's actual membership org
+    // even while a switch override is active.
+    //
+    // Non-admins: the header is silently ignored — no path overrides
+    // request.userOrganization for them.
+    let overrideOrg: { id: string; name: string; [k: string]: any } | null = null;
+    const rawActiveOrgId = request.headers['x-active-org-id'];
+    const rawUseRealOrg = request.headers['x-use-real-org'];
+    if (isOsirisAdmin && rawActiveOrgId && !rawUseRealOrg) {
+      const headerVal = Array.isArray(rawActiveOrgId) ? rawActiveOrgId[0] : rawActiveOrgId;
+      const target = await this.prisma.organization.findUnique({
+        where: { id: String(headerVal) },
+        select: {
+          id: true, name: true, address: true, phoneNumber: true,
+          registrationNumber: true, logo: true, defaultStamp: true,
+          customDocumentTypes: true, taxRate: true, bankDetails: true,
+        },
+      });
+      if (target) {
+        overrideOrg = target;
+        console.log(`🔀 Org switch: ${userOrg?.organization?.name ?? '(none)'} → ${target.name}`);
+      } else {
+        console.warn(`Org switch: org "${headerVal}" not found; falling back to membership org`);
+      }
+    }
+
     // For OsirisAdmin, allow access without organization constraint for platform operations
     if (isOsirisAdmin) {
       console.log('User is osiris-admin');
-      // Still attach organization if they have one (for mixed operations)
-      request.userOrganization = userOrg?.organization || null;
+      // Honor the switch override when present; otherwise fall back to the
+      // user's membership org (the original behavior).
+      request.userOrganization = overrideOrg ?? userOrg?.organization ?? null;
       request.isOsirisAdmin = true;
     } else {
       console.log('User is not osiris-admin');
