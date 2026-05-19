@@ -16,14 +16,16 @@ import EditIcon from "@mui/icons-material/Edit";
 interface Project {
   id: string;
   name: string;
-  customer: {
-    name: string;
-  };
-  itemsRelated: string[];
-  startDate: string;
-  endDate: string;
+  customer: { id: string; name: string } | null;
+  siteOffice: { id: string; name: string } | null;
+  itemsRelated: number;
+  startDate: string | null;
+  endDate: string | null;
   status: string;
 }
+
+const fmtDate = (d: string | null | undefined) =>
+  d ? new Date(d).toLocaleDateString() : "—";
 
 interface PaginatedResponse {
   docs: Project[];
@@ -70,9 +72,9 @@ export default function ProjectsPage() {
     { id: "name", accessorKey: "name", header: "Project Name", cell: (info: any) => info.getValue() },
     { id: "customer", accessorKey: "customer", header: "Customer", cell: ({ row }: { row: any }) => <Typography variant="body2">{row.original.customer?.name ?? "N/A"}</Typography> },
     { id: "siteOffice", accessorKey: "siteOffice", header: "Site Office", cell: ({ row }: { row: any }) => <Typography variant="body2">{row.original.siteOffice?.name ?? "N/A"}</Typography> },
-    { id: "itemsRelated", accessorKey: "itemsRelated", header: "Items Related", cell: ({ row }: { row: any }) => <Typography variant="body2">{row.original.itemsRelated?.length ?? 0}</Typography> },
-    { id: "startDate", accessorKey: "startDate", header: "Start Date", cell: (info: any) => new Date(info.getValue()).toLocaleDateString() },
-    { id: "endDate", accessorKey: "endDate", header: "End Date", cell: (info: any) => new Date(info.getValue()).toLocaleDateString() },
+    { id: "itemsRelated", accessorKey: "itemsRelated", header: "Items Related", cell: ({ row }: { row: any }) => <Typography variant="body2">{row.original.itemsRelated ?? 0}</Typography> },
+    { id: "startDate", accessorKey: "startDate", header: "Start Date", cell: (info: any) => fmtDate(info.getValue()) },
+    { id: "endDate", accessorKey: "endDate", header: "End Date", cell: (info: any) => fmtDate(info.getValue()) },
     { id: "status", accessorKey: "status", header: "Status", cell: (info: any) => info.getValue() },
     {
       id: "actions",

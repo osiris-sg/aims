@@ -50,7 +50,19 @@ export function useGetProjects() {
       if (!response.ok) throw new Error("Failed to fetch projects");
 
       const data = await response.json();
-      let projectsArray: Project[] = Array.isArray(data) ? data : [];
+
+      // Backend wraps every response via CustomResponseInterceptor as
+      // { success, data, message }. Accept both that shape and a bare array
+      // — same pattern as admin/assets, admin/inventory, admin/customers.
+      let projectsArray: Project[] = [];
+      if (Array.isArray(data)) {
+        projectsArray = data;
+      } else if (data && data.success && Array.isArray(data.data)) {
+        projectsArray = data.data;
+      } else {
+        console.error("Unexpected response format:", data);
+        throw new Error(`Invalid response format from admin projects endpoint. Got: ${JSON.stringify(data)}`);
+      }
 
       // Apply filtering and pagination
       let filtered = projectsArray;

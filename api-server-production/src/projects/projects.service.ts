@@ -8,10 +8,14 @@ import { Prisma, DeploymentType, DeploymentStatus } from '@prisma/client';
 import { ProjectStatus } from '@prisma/client';
 import { InventoryStatus } from '@prisma/client';
 
-// Try a few common JSON paths to extract the nett invoice total
+// Try a few common JSON paths to extract the invoice total. `xeroGross` comes
+// first because the Biofuel Xero historical import (which produced ~1.8k of
+// the org's invoices) stores the gross-with-GST there and uses none of the
+// other keys — without this priority, every "Billed" rollup renders as 0.
 function readDocAmount(config: any): number {
   if (!config || typeof config !== 'object') return 0;
   const cand =
+    config.xeroGross ??
     config.nettTotal ??
     config.netTotal ??
     config.grandTotal ??
@@ -76,34 +80,45 @@ export class ProjectsService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
+          // Direct customer FK (added with ProjectDeployment). getProjectById has
+          // had this since 3053bb5; getProjects was missed in that pass.
+          customer: { select: { id: true, name: true } },
+          // Keep the siteOffice→customer path for legacy projects whose customer
+          // attribution still transits through site office.
           siteOffice: {
-            include: {
-              customer: true,
-            },
+            include: { customer: { select: { id: true, name: true } } },
           },
-          assignments: {
-            include: {
-              inventory: { select: { sku: true, status: true } },
-              asset: { select: { id: true, name: true, skuKey: true, uom: true } },
-              document: { select: { id: true, name: true } },
-            },
-          },
+          // Count line items across the project's documents — Assignment rows
+          // are empty under the deployment-centric model, so counting them
+          // gave every Biofuel project "0 items".
+          documents: { select: { _count: { select: { documentItems: true } } } },
         },
       });
 
       const totalDocs = await this.prisma.project.count({ where: whereClause });
 
       return {
-        docs: projects.map((project) => ({
-          id: project.id,
-          name: project.name,
-          siteOffice: project.siteOffice ? { name: project.siteOffice.name } : null,
-          customer: project.siteOffice?.customer ? { name: project.siteOffice.customer.name, id: project.siteOffice.customer.id } : null,
-          itemsRelated: project.assignments || [],
-          startDate: project.startDate,
-          endDate: project.endDate,
-          status: project.status,
-        })),
+        docs: projects.map((project) => {
+          const resolvedCustomer = project.customer ?? project.siteOffice?.customer ?? null;
+          const itemCount = project.documents.reduce(
+            (s, d) => s + d._count.documentItems,
+            0,
+          );
+          return {
+            id: project.id,
+            name: project.name,
+            siteOffice: project.siteOffice
+              ? { id: project.siteOffice.id, name: project.siteOffice.name }
+              : null,
+            customer: resolvedCustomer
+              ? { id: resolvedCustomer.id, name: resolvedCustomer.name }
+              : null,
+            itemsRelated: itemCount,
+            startDate: project.startDate,
+            endDate: project.endDate,
+            status: project.status,
+          };
+        }),
         hasNextPage: skip + projects.length < totalDocs,
         hasPreviousPage: page > 1,
         page,
@@ -240,7 +255,10 @@ export class ProjectsService {
             ...rest,
             // documentItems already in `rest`; payments/config dropped (DO docs aren't billed)
           })),
-          invoices: invoicesBucket.map(({ payments, config, documentItems, ...rest }) => ({
+          // Keep documentItems on the invoice mapper too — the project detail
+          // page renders them inline under each invoice (since Biofuel has no
+          // DO Documents, this is the only line-item surface available).
+          invoices: invoicesBucket.map(({ payments, config, ...rest }) => ({
             ...rest,
             amount: readDocAmount(config),
             paid: payments.reduce((p, pay) => p + (pay.amount ?? 0), 0),
@@ -492,7 +510,9 @@ export class ProjectsService {
       sourceDocument: refreshed.sourceDocument,
       assignments: refreshed.assignments,
       documents: docsBucket.map(({ payments, config, ...rest }) => ({ ...rest })),
-      invoices: invoicesBucket.map(({ payments, config, documentItems, ...rest }) => ({
+      // Mirror getProjectById: keep documentItems so the invoice expansion
+      // can render line items the same way DOs do.
+      invoices: invoicesBucket.map(({ payments, config, ...rest }) => ({
         ...rest,
         amount: readDocAmount(config),
         paid: payments.reduce((p: number, pay: any) => p + (pay.amount ?? 0), 0),
