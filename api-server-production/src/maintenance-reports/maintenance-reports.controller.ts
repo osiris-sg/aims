@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
@@ -8,9 +8,10 @@ import { CreateMaintenanceReportDto } from './dto/create-maintenance-report.dto'
 import { SignMaintenanceReportDto } from './dto/sign-maintenance-report.dto';
 import { MaintenanceReportsService } from './maintenance-reports.service';
 
+// Clerk strategy attaches the resolved User row at request.user (see
+// src/auth/clerk.strategy.ts and the @Req() usage in users.controller.ts).
 interface ClerkRequest extends Request {
-  auth?: { userId?: string };
-  userId?: string;
+  user?: { id?: string };
 }
 
 @ApiTags('maintenance-reports')
@@ -26,7 +27,10 @@ export class MaintenanceReportsController {
     @UserOrganization() org: { id: string },
     @Req() req: ClerkRequest,
   ) {
-    const technicianUserId = req.auth?.userId ?? req.userId ?? 'unknown';
+    const technicianUserId = req.user?.id;
+    if (!technicianUserId) {
+      throw new UnauthorizedException('Missing authenticated user');
+    }
     return this.service.create(dto, org.id, technicianUserId);
   }
 

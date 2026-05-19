@@ -35,6 +35,7 @@ export const metadata: Metadata = {
   title: "AIMS",
   description: "AIMS provides a semaless flow for inventory managment",
   icons: { icon: "/favicon.png" },
+  manifest: "/manifest.json",
 };
 
 export default function RootLayout({
