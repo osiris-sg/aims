@@ -60,7 +60,7 @@ export default function OrgSwitcher() {
 
   if (!isOsirisAdmin) return null;
 
-  const value = orgs.find((o) => o.id === organization?.id) ?? null;
+  const value = orgs.find((o) => o.id === organization?.id) ?? undefined;
 
   return (
     <Box sx={{ minWidth: 260 }}>
