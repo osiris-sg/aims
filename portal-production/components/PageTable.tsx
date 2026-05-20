@@ -1,9 +1,11 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Table from "./Table";
 import { ColumnDef } from "@tanstack/react-table";
+import { INVENTORY_STATUS } from "@/containers/Inventory/slice/constants";
+import { useGetCategories } from "@/app/portal/hooks/api";
 import { Box, Button, Typography, Pagination, Grid2, IconButton } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
@@ -13,7 +15,7 @@ import FormInputBox from "@/form-components/FormInputBox";
 import SearchIcon from "@mui/icons-material/Search";
 import FormSelectBox from "@/form-components/FormSelect";
 import NotificationsNoneIcon from "@mui/icons-material/NotificationsNone";
-import FilterDrawer from "./FilterDrawer";
+import FilterDrawer, { FilterField } from "./FilterDrawer";
 import { IconX } from "@tabler/icons-react";
 
 interface Props {
@@ -34,16 +36,23 @@ interface Props {
   setFilters?: (filters: any) => void;
   onAddClick?: () => void;
   subRowAccessor?: string;
+  filterConfig?: FilterField[];
+  /**
+   * Deprecated: use `filterConfig` instead. Kept for back-compat with pages that
+   * haven't migrated yet. When provided without `filterConfig`, a default config
+   * is built from the legacy field names (createdOn/status/category/asset).
+   */
   availableFilters?: string[];
+  /** Legacy: dropdown source for the asset filter when using `availableFilters`. */
+  assetsData?: any[];
   pageCount?: number;
   totalDocs?: number;
   renderSubComponent?: (props: { row: any }) => React.ReactNode;
   actionButtons?: React.ReactNode[];
-  assetsData?: any[]; // Add assets data prop
   headerContent?: React.ReactNode; // Custom content to display between header and table
 }
 export default function PageTable(props: Props) {
-  const { columns, data, tableName, subTitle, loading, buttonName, buttonDisabled, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, availableFilters, totalDocs, renderSubComponent, actionButtons, assetsData, headerContent } = props;
+  const { columns, data, tableName, subTitle, loading, buttonName, buttonDisabled, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, filterConfig: incomingFilterConfig, availableFilters, assetsData, totalDocs, renderSubComponent, actionButtons, headerContent } = props;
   const { control, handleSubmit, watch } = useForm({ defaultValues: { limit, search } });
   const _limit = watch("limit");
   const _search = watch("search");
@@ -62,29 +71,32 @@ export default function PageTable(props: Props) {
 
   const [openFilters, setOpenFilters] = useState(false);
 
+  // Legacy fallback: if a caller still passes `availableFilters` (the old string-
+  // array API), build a config from the same hardcoded options the old drawer
+  // used. New callers should pass `filterConfig` directly.
+  const { categories: legacyCategories = [] } = useGetCategories();
+
+  const filterConfig: FilterField[] | undefined = useMemo(() => {
+    if (incomingFilterConfig) return incomingFilterConfig;
+    if (!availableFilters || availableFilters.length === 0) return undefined;
+    const result: FilterField[] = [];
+    availableFilters.forEach((key) => {
+      if (key === "createdOn") result.push({ type: "dateRange", key: "createdOn", label: "Created On" });
+      else if (key === "status") result.push({ type: "select", key: "status", label: "Status", options: INVENTORY_STATUS });
+      else if (key === "category") result.push({ type: "select", key: "category", label: "Category", options: (legacyCategories || []).map((c: any) => ({ value: c.id, label: c.name })) });
+      else if (key === "asset") result.push({ type: "select", key: "assetId", label: "Asset", options: (assetsData || []).map((a: any) => ({ value: a.id, label: a.name })) });
+    });
+    return result;
+  }, [incomingFilterConfig, availableFilters, legacyCategories, assetsData]);
+
   const hasActiveFilters = (filterObj: any) => {
-    // Check if createdOn has non-null dates
-    if (filterObj.createdOn?.startDate || filterObj.createdOn?.endDate) {
-      return true;
-    }
-
-    // Check if status is not empty
-    if (filterObj.status && filterObj.status !== "") {
-      return true;
-    }
-
-    // Check if category is not empty
-    if (filterObj.category && filterObj.category !== "") {
-      return true;
-    }
-
-    // Check if assetId is not empty
-    if (filterObj.assetId && filterObj.assetId !== "") {
-      return true;
-    }
-
-    // No active filters found
-    return false;
+    if (!filterObj || !filterConfig) return false;
+    return filterConfig.some((f) => {
+      const v = filterObj[f.key];
+      if (f.type === "dateRange") return Boolean(v?.startDate || v?.endDate);
+      if (f.type === "select") return v !== undefined && v !== null && v !== "";
+      return false;
+    });
   };
 
   const onSubmit = () => {};
@@ -110,7 +122,7 @@ export default function PageTable(props: Props) {
 
               {actionButtons && actionButtons.map((btn, idx) => <React.Fragment key={idx}>{btn}</React.Fragment>)}
 
-              {filters && (
+              {filters && filterConfig && filterConfig.length > 0 && (
                 <Button variant="outlined" color="primary" onClick={() => setOpenFilters(true)} sx={{ display: "flex", p: 0, minWidth: "100px" }}>
                   {hasActiveFilters(filters) ? (
                     <Box sx={{ display: "flex", alignItems: "center", p: 1, gap: 0.25 }}>
@@ -168,7 +180,15 @@ export default function PageTable(props: Props) {
           )}
           <Pagination page={page ?? 1} count={pageCount ?? 1} siblingCount={0} boundaryCount={0} onChange={(event, value) => setPage && setPage(value)} />
         </Box>
-        {filters && setFilters && <FilterDrawer openFilterDrawerStatus={openFilters} onClose={() => setOpenFilters(false)} onSetFilters={(filters) => setFilters(filters)} defaultFilters={filters} availableFilterTypes={availableFilters} assetsData={assetsData} />}
+        {filters && setFilters && filterConfig && (
+          <FilterDrawer
+            openFilterDrawerStatus={openFilters}
+            onClose={() => setOpenFilters(false)}
+            onSetFilters={(filters) => setFilters(filters)}
+            defaultFilters={filters}
+            filterConfig={filterConfig}
+          />
+        )}
       </Box>
     </form>
   );

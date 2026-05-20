@@ -81,6 +81,9 @@ export class InventoriesService {
               description: true,
               uom: true,
               price: true,
+              costPrice: true,
+              customPrices: true,
+              points: true,
               category: {
                 select: {
                   id: true,
@@ -126,6 +129,9 @@ export class InventoriesService {
               description: true,
               uom: true,
               price: true,
+              costPrice: true,
+              customPrices: true,
+              points: true,
               category: {
                 select: {
                   id: true,
@@ -215,6 +221,9 @@ export class InventoriesService {
               description: true,
               uom: true,
               price: true,
+              costPrice: true,
+              customPrices: true,
+              points: true,
               category: {
                 select: {
                   id: true,

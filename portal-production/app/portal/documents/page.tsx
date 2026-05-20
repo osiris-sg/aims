@@ -1,9 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useGetDocuments, useDeleteDocument } from "@/app/portal/hooks/api";
+import { useGetCustomers } from "@/app/portal/hooks/api/useCustomers";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import type { FilterField } from "@/components/FilterDrawer";
 import { Box, IconButton, Alert, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button } from "@mui/material";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import DownloadIcon from "@mui/icons-material/Download";
@@ -25,12 +27,35 @@ interface Document {
 
 interface Filters {
   status?: string;
-  category?: string;
+  documentType?: string;
+  customerId?: string;
   createdOn?: {
     startDate: string | null;
     endDate: string | null;
   };
 }
+
+// Mirrors api-server-production/prisma/schema.prisma DocumentStatus enum.
+const DOCUMENT_STATUS_OPTIONS = [
+  { value: "draft", label: "Draft" },
+  { value: "confirmed", label: "Confirmed" },
+  { value: "pending_delivery", label: "Pending Delivery" },
+  { value: "delivered_not_installed", label: "Delivered (Not Installed)" },
+  { value: "delivered_installed", label: "Delivered & Installed" },
+  { value: "pending_payment", label: "Pending Payment" },
+  { value: "paid", label: "Paid" },
+  { value: "pending_return", label: "Pending Return" },
+  { value: "returned", label: "Returned" },
+];
+
+const DOCUMENT_TYPE_OPTIONS = [
+  { value: "QUOTATION", label: "Quotation" },
+  { value: "DELIVERY_ORDER", label: "Delivery Order" },
+  { value: "PURCHASE_ORDER", label: "Purchase Order" },
+  { value: "RECEIVED_DELIVERY_ORDER", label: "Received DO" },
+  { value: "TAKE_IN", label: "Take In" },
+  { value: "MATERIAL_SERVICE_REPORT", label: "Material Service Report" },
+];
 
 export default function DocumentsPage() {
   const router = useRouter();
@@ -39,7 +64,8 @@ export default function DocumentsPage() {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<Filters>({
     status: "",
-    category: "",
+    documentType: "",
+    customerId: "",
     createdOn: {
       startDate: null,
       endDate: null,
@@ -51,8 +77,70 @@ export default function DocumentsPage() {
   // Fetch documents with new hook
   const { documents = [], isLoading, error, refetch } = useGetDocuments();
 
-  // Filter out INVOICE type documents (they have their own page)
-  const filteredDocuments = documents.filter((doc: any) => doc.documentType !== 'INVOICE');
+  // Customers for the Customer filter dropdown
+  const { customers = [] } = useGetCustomers({ limit: 1000 });
+
+  // Filter out INVOICE type documents (they have their own page) AND apply
+  // the user's search + status + documentType + customer + createdOn filters.
+  const filteredDocuments = useMemo(() => {
+    const term = (search || "").trim().toLowerCase();
+    const statusFilter = (filters?.status || "").trim();
+    const typeFilter = (filters?.documentType || "").trim();
+    const customerFilter = (filters?.customerId || "").trim();
+    const startDate = filters?.createdOn?.startDate ? new Date(filters.createdOn.startDate) : null;
+    const endDate = filters?.createdOn?.endDate ? new Date(filters.createdOn.endDate) : null;
+    if (endDate) endDate.setHours(23, 59, 59, 999);
+
+    const customerNameById = new Map<string, string>();
+    (customers || []).forEach((c: any) => customerNameById.set(c.id, c.name));
+    const selectedCustomerName = customerFilter ? customerNameById.get(customerFilter) : "";
+
+    return (documents || []).filter((doc: any) => {
+      if (doc.documentType === "INVOICE") return false;
+      if (statusFilter && (doc.status || "").toLowerCase() !== statusFilter.toLowerCase()) return false;
+      if (typeFilter && (doc.documentType || "") !== typeFilter) return false;
+      if (customerFilter) {
+        // documents API returns associated_customer as a string label, not an id.
+        // Fall back to comparing on customerId if present.
+        const docCustomerId = doc.customerId || doc.customer?.id;
+        const docCustomerName = doc.associated_customer || doc.customer?.name;
+        const matchesById = docCustomerId && docCustomerId === customerFilter;
+        const matchesByName = selectedCustomerName && docCustomerName === selectedCustomerName;
+        if (!matchesById && !matchesByName) return false;
+      }
+      if (startDate && new Date(doc.createdAt) < startDate) return false;
+      if (endDate && new Date(doc.createdAt) > endDate) return false;
+      if (term) {
+        const haystack = [
+          doc.name,
+          doc.associated_item,
+          doc.associated_customer,
+          doc.documentType,
+          doc.status,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(term)) return false;
+      }
+      return true;
+    });
+  }, [documents, customers, search, filters]);
+
+  const filterConfig: FilterField[] = useMemo(
+    () => [
+      { type: "dateRange", key: "createdOn", label: "Created On" },
+      { type: "select", key: "status", label: "Status", options: DOCUMENT_STATUS_OPTIONS },
+      { type: "select", key: "documentType", label: "Document Type", options: DOCUMENT_TYPE_OPTIONS },
+      {
+        type: "select",
+        key: "customerId",
+        label: "Customer",
+        options: (customers || []).map((c: any) => ({ value: c.id, label: c.name })),
+      },
+    ],
+    [customers],
+  );
 
   // Delete document mutation
   const deleteDocumentMutation = useDeleteDocument();
@@ -240,7 +328,7 @@ export default function DocumentsPage() {
         setLimit={setLimit}
         setSearch={setSearch}
         setFilters={handleSetFilters}
-        availableFilters={["status", "category", "createdOn"]}
+        filterConfig={filterConfig}
         pageCount={Math.ceil(filteredDocuments.length / limit)}
         totalDocs={filteredDocuments.length}
       />

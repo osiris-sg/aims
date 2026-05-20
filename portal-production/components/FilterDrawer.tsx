@@ -1,66 +1,74 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Box, Button, Drawer, Stack, useTheme } from "@mui/material";
+import { Box, Button, Drawer, Stack } from "@mui/material";
 import React, { useEffect, useState } from "react";
 
 import { useForm } from "react-hook-form";
 
 import DateRangePicker from "@/form-components/FormDateRangePicker";
 import FormSelect from "@/form-components/FormSelect";
-import { INVENTORY_STATUS } from "@/containers/Inventory/slice/constants";
-import { useGetCategories } from "@/app/portal/hooks/api";
+
+// Schema-driven filter config. Each page declares the filters it wants and
+// supplies the options. The drawer just renders.
+export type FilterOption = { label: string; value: string | number };
+
+export type FilterField =
+  | { type: "dateRange"; key: string; label: string }
+  | { type: "select"; key: string; label: string; options: FilterOption[] };
 
 interface FilterDrawerProps {
   openFilterDrawerStatus: boolean;
   defaultFilters: any;
+  filterConfig: FilterField[];
   onClose: () => void;
   onSetFilters: (filters: any) => void;
-  availableFilterTypes?: string[];
-  assetsData?: any[]; // Add assets data prop
 }
 
+const emptyDateRange = { startDate: null, endDate: null };
+
 export default function FilterDrawer(props: FilterDrawerProps) {
-  const { openFilterDrawerStatus = false, onClose, onSetFilters, defaultFilters, availableFilterTypes, assetsData = [] } = props;
-  const theme = useTheme();
+  const { openFilterDrawerStatus = false, onClose, onSetFilters, defaultFilters, filterConfig = [] } = props;
 
-  // Use React Query hook to fetch categories
-  const { categories = [] } = useGetCategories();
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [disableSubmit, setDisableSubmit] = useState(false);
-  const { watch, control, setValue } = useForm();
-  const [filters, setFilters] = useState(() => {
-    // Start with a copy of defaultFilters
-    const initialFilters = { ...defaultFilters };
-
-    // Only include createdOn if it exists in defaultFilters
-    if (defaultFilters.createdOn) {
-      initialFilters.createdOn = {
-        startDate: defaultFilters.createdOn.startDate,
-        endDate: defaultFilters.createdOn.endDate,
-      };
-    }
-
-    if (defaultFilters.status) {
-      initialFilters.status = defaultFilters.status;
-      setValue("status", defaultFilters.status);
-    }
-    if (defaultFilters.category) {
-      initialFilters.category = defaultFilters.category;
-      setValue("category", defaultFilters.category);
-    }
-    if (defaultFilters.assetId) {
-      initialFilters.assetId = defaultFilters.assetId;
-      setValue("assetId", defaultFilters.assetId);
-    }
-
-    return initialFilters;
+  const [disableSubmit] = useState(false);
+  const { watch, control, setValue } = useForm({
+    defaultValues: filterConfig.reduce((acc: any, f) => {
+      if (f.type === "select") acc[f.key] = defaultFilters?.[f.key] ?? "";
+      return acc;
+    }, {}),
   });
 
-  const categoryList = categories.map((category: any) => ({ value: category.id, label: category.name }));
-  const assetList = assetsData.map((asset: any) => ({ value: asset.id, label: asset.name }));
-  const selectedCategory = watch("category");
-  const selectedStatus = watch("status");
-  const selectedAsset = watch("assetId");
+  const [filters, setFilters] = useState<any>(() => ({ ...defaultFilters }));
+
+  // Seed react-hook-form when the drawer opens with new defaults (e.g. user
+  // applied filters elsewhere or navigated back).
+  useEffect(() => {
+    if (!openFilterDrawerStatus) return;
+    filterConfig.forEach((f) => {
+      if (f.type === "select") {
+        setValue(f.key, defaultFilters?.[f.key] ?? "");
+      }
+    });
+    setFilters({ ...defaultFilters });
+  }, [openFilterDrawerStatus]);
+
+  // Watch all select fields and sync into local filters state.
+  const watchedSelects: Record<string, any> = filterConfig.reduce((acc: any, f) => {
+    if (f.type === "select") acc[f.key] = watch(f.key);
+    return acc;
+  }, {});
+
+  useEffect(() => {
+    setFilters((prev: any) => {
+      const next = { ...prev };
+      filterConfig.forEach((f) => {
+        if (f.type === "select") {
+          next[f.key] = watchedSelects[f.key] ?? "";
+        }
+      });
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(watchedSelects)]);
+
   const handleApplyFilters = () => {
     onSetFilters(filters);
     onClose();
@@ -69,92 +77,98 @@ export default function FilterDrawer(props: FilterDrawerProps) {
   const [datePickerKey, setDatePickerKey] = useState(0);
 
   const handleResetAllFilters = () => {
-    // Reset the form values
-    setValue("status", "");
-    setValue("category", "");
-    setValue("assetId", "");
-
-    // Reset the filters state
-    const resetFilters = {
-      ...defaultFilters,
-      createdOn: { startDate: null, endDate: null },
-      status: "",
-      category: "",
-      assetId: "",
-    };
-
-    setFilters(resetFilters);
-
-    // Force re-render of the DateRangePicker by updating its key
-    // This is needed because the DateRangePicker might maintain internal state
+    const reset: any = { ...defaultFilters };
+    filterConfig.forEach((f) => {
+      if (f.type === "select") {
+        setValue(f.key, "");
+        reset[f.key] = "";
+      }
+      if (f.type === "dateRange") {
+        reset[f.key] = { ...emptyDateRange };
+      }
+    });
+    setFilters(reset);
     setDatePickerKey((prev) => prev + 1);
   };
 
-  useEffect(() => {
-    setFilters((prev: any) => ({
-      ...prev,
-      category: selectedCategory || "",
-      status: selectedStatus || "",
-      assetId: selectedAsset || "",
-    }));
-  }, [selectedCategory, selectedStatus, selectedAsset]);
-
   return (
-    <Drawer anchor="right" open={openFilterDrawerStatus} onClose={onClose} sx={{ "& .MuiDrawer-paper": { width: "450px", backgroundColor: theme.palette.tertiary.contrastText } }}>
-      <Stack direction="column" gap="var(--default-gap)" padding="var(--default-padding)" height="100%" width="100%" display="flex" alignItems="center" justifyContent="center">
-        <Box sx={{ width: "100%", color: theme.palette.text.primary, display: "flex", justifyContent: "space-between" }}>
+    <Drawer
+      anchor="right"
+      open={openFilterDrawerStatus}
+      onClose={onClose}
+      sx={{
+        "& .MuiDrawer-paper": {
+          width: "450px",
+          backgroundColor: "background.paper",
+          backgroundImage: "none",
+          borderLeft: 1,
+          borderColor: "divider",
+        },
+      }}
+    >
+      <Stack
+        direction="column"
+        gap="var(--default-gap)"
+        padding="var(--default-padding)"
+        width="100%"
+        display="flex"
+        alignItems="stretch"
+        justifyContent="flex-start"
+        sx={{ pt: 4 }}
+      >
+        <Box sx={{ width: "100%", color: "text.primary", display: "flex", justifyContent: "space-between", alignItems: "center", fontWeight: 600 }}>
           Filter data by:
-          {availableFilterTypes && availableFilterTypes.length > 1 ? (
-            <Button variant="text" onClick={handleResetAllFilters} sx={{ p: 0 }}>
+          {filterConfig.length > 1 ? (
+            <Button variant="text" onClick={handleResetAllFilters} sx={{ p: 0, color: "text.secondary", textTransform: "none", fontSize: "0.8rem", "&:hover": { color: "text.primary", backgroundColor: "transparent" } }}>
               Reset all
             </Button>
           ) : null}
         </Box>
-        {availableFilterTypes?.includes("createdOn") && (
-          <DateRangePicker key={datePickerKey} label="Created On" onConfirm={(value) => setFilters({ ...filters, createdOn: { startDate: value.startDate, endDate: value.endDate } })} value={{ startDate: filters.createdOn.startDate, endDate: filters.createdOn.endDate }} />
-        )}
 
-        {availableFilterTypes?.includes("status") && (
-          <Box width="100%" sx={{ position: "relative" }}>
-            <FormSelect control={control} menuItems={INVENTORY_STATUS} label="Status" name="status" menuTitle="Status" size="small" defaultValue={filters?.status} />
-            <Button
-              sx={{ position: "absolute", top: 0, right: 0, p: 0 }}
-              onClick={() => {
-                setValue("status", "");
-              }}
-            >
-              Reset filter
-            </Button>
-          </Box>
-        )}
-        {availableFilterTypes?.includes("category") && (
-          <Box width="100%" sx={{ position: "relative" }}>
-            <FormSelect control={control} menuItems={categoryList} label="Category" name="category" menuTitle="Category" size="small" defaultValue={filters.category} />
-            <Button
-              sx={{ position: "absolute", top: 0, right: 0, p: 0 }}
-              onClick={() => {
-                setValue("category", "");
-              }}
-            >
-              Reset filter
-            </Button>
-          </Box>
-        )}
-        {availableFilterTypes?.includes("asset") && (
-          <Box width="100%" sx={{ position: "relative" }}>
-            <FormSelect control={control} menuItems={assetList} label="Asset" name="assetId" menuTitle="Asset" size="small" defaultValue={filters.assetId} />
-            <Button
-              sx={{ position: "absolute", top: 0, right: 0, p: 0 }}
-              onClick={() => {
-                setValue("assetId", "");
-              }}
-            >
-              Reset filter
-            </Button>
-          </Box>
-        )}
+        {filterConfig.map((field) => {
+          if (field.type === "dateRange") {
+            const current = filters?.[field.key] ?? emptyDateRange;
+            return (
+              <DateRangePicker
+                key={`${field.key}-${datePickerKey}`}
+                label={field.label}
+                onConfirm={(value) =>
+                  setFilters({
+                    ...filters,
+                    [field.key]: { startDate: value.startDate, endDate: value.endDate },
+                  })
+                }
+                value={{ startDate: current.startDate, endDate: current.endDate }}
+              />
+            );
+          }
 
-        <Stack direction="row" width="100%" spacing={1}>
+          if (field.type === "select") {
+            return (
+              <Box key={field.key} width="100%" sx={{ position: "relative" }}>
+                <FormSelect
+                  control={control}
+                  menuItems={field.options}
+                  label={field.label}
+                  name={field.key}
+                  menuTitle={field.label}
+                  size="small"
+                  defaultValue={filters?.[field.key] ?? ""}
+                />
+                <Button
+                  sx={{ position: "absolute", top: 0, right: 0, p: 0, color: "text.secondary", textTransform: "none", fontSize: "0.8rem", "&:hover": { color: "text.primary", backgroundColor: "transparent" } }}
+                  onClick={() => setValue(field.key, "")}
+                >
+                  Reset filter
+                </Button>
+              </Box>
+            );
+          }
+
+          return null;
+        })}
+
+        <Stack direction="row" width="100%" spacing={1} sx={{ mt: 2 }}>
           <Button
             variant="outlined"
             type="button"
@@ -162,7 +176,12 @@ export default function FilterDrawer(props: FilterDrawerProps) {
               setFilters(defaultFilters);
               onClose();
             }}
-            sx={{ flex: 1 }}
+            sx={{
+              flex: 1,
+              borderColor: "divider",
+              color: "text.primary",
+              "&:hover": { borderColor: "text.primary", backgroundColor: "action.hover" },
+            }}
           >
             Cancel
           </Button>

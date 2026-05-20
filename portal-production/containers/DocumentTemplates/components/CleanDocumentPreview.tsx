@@ -2379,6 +2379,113 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
             }}
           >
             {(() => {
+              // If the doc carries a custom tableColumnOrder (e.g. FCU/CU System
+              // Quotation), render the table from that config. Otherwise keep the
+              // existing hardcoded QO layout.
+              const configColumns = (data as any)?.tableColumnOrder as string[] | undefined;
+              const configLabels = ((data as any)?.columnLabels || {}) as Record<string, string>;
+              if (configColumns && configColumns.length > 0) {
+                const labelFor = (col: string) =>
+                  configLabels[col] ||
+                  (col === "item" ? "Item" :
+                    col === "taggedAsset" ? "Tagged" :
+                    col === "location" ? "Location" :
+                    col === "remarks" ? "Remarks" :
+                    col === "quantity" ? "Quantity" :
+                    col === "unitPrice" ? "Unit-Price" :
+                    col === "amount" ? "Amount" :
+                    col === "description" ? "Description" :
+                    col === "uom" ? "uom" :
+                    col === "discount" ? "Disc %" :
+                    col === "tax" ? "Tax %" : col);
+                const alignFor = (col: string) =>
+                  col === "quantity" ? "center" :
+                  col === "unitPrice" || col === "amount" ? "right" : "left";
+                const valueFor = (col: string, item: any) => {
+                  switch (col) {
+                    case "item": return item.itemCode || item.code || "";
+                    case "taggedAsset": return item.taggedAssetCode || "";
+                    case "description":
+                      return <DescriptionText text={item.description || ""} />;
+                    case "quantity": return item.quantity?.toLocaleString() || "";
+                    case "unitPrice": return item.unitPrice != null ? Number(item.unitPrice).toFixed(2) : "";
+                    case "amount": return (item.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    case "discount": return item.discount != null ? `${item.discount}` : "";
+                    case "tax": return item.tax != null ? `${item.tax}` : "";
+                    case "uom": return item.uom || "";
+                    default: return item[col] || "";
+                  }
+                };
+                return (
+                  <>
+                    <TableHead>
+                      <TableRow>
+                        {configColumns.map((col) => (
+                          <TableCell key={col} sx={{ textAlign: alignFor(col) }}>{labelFor(col)}</TableCell>
+                        ))}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {items.filter((it: any) => !it.isTagGroup).map((item: any, index: number) => (
+                        <TableRow key={index} sx={{ verticalAlign: "top" }}>
+                          {configColumns.map((col) => (
+                            <TableCell key={col} sx={{ textAlign: alignFor(col), verticalAlign: "top" }}>
+                              {valueFor(col, item)}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))}
+                      {/* "Tagged CUs" sub-section — printed after FCU rows. Each
+                          unique CU appears once with its own qty + unit price
+                          and a small note showing how many FCU rows reference it. */}
+                      {items.some((it: any) => it.isTagGroup) && (
+                        <>
+                          <TableRow>
+                            <TableCell colSpan={configColumns.length} sx={{ pt: 2, pb: 0.5, fontWeight: 600, borderTop: "1px solid #000" }}>
+                              Tagged CUs
+                            </TableCell>
+                          </TableRow>
+                          {items.filter((it: any) => it.isTagGroup).map((tag: any, idx: number) => {
+                            const linkedCount = items.filter((row: any) => !row.isTagGroup && row.tagGroupId === tag.tagGroupId).length;
+                            return (
+                              <TableRow key={`tag-${idx}`} sx={{ verticalAlign: "top" }}>
+                                {configColumns.map((col) => (
+                                  <TableCell key={col} sx={{ textAlign: alignFor(col), verticalAlign: "top" }}>
+                                    {col === "item" || col === "taggedAsset" ? (tag.taggedAssetCode || tag.itemCode || "") :
+                                      col === "description" ? (
+                                        <>
+                                          {tag.taggedAssetName || tag.description || ""}
+                                          {linkedCount > 0 && (
+                                            <Typography component="span" sx={{ ml: 1, fontSize: "0.75rem", color: "#666" }}>
+                                              (shared by {linkedCount} FCU{linkedCount === 1 ? "" : "s"})
+                                            </Typography>
+                                          )}
+                                        </>
+                                      ) :
+                                      col === "quantity" ? (tag.quantity?.toLocaleString() || "") :
+                                      col === "unitPrice" ? (tag.unitPrice != null ? Number(tag.unitPrice).toFixed(2) : "") :
+                                      col === "amount" ? Number(tag.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) :
+                                      ""}
+                                  </TableCell>
+                                ))}
+                              </TableRow>
+                            );
+                          })}
+                        </>
+                      )}
+                      {items.filter((it: any) => !it.isTagGroup).length < 8 &&
+                        Array.from({ length: 8 - items.filter((it: any) => !it.isTagGroup).length }).map((_, index) => (
+                          <TableRow key={`empty-${index}`} sx={{ height: 35 }}>
+                            {configColumns.map((col) => (
+                              <TableCell key={col}>&nbsp;</TableCell>
+                            ))}
+                          </TableRow>
+                        ))}
+                    </TableBody>
+                  </>
+                );
+              }
+
               const hasUom = items.some((item: any) => item.uom && item.uom.trim() !== "");
               const hasItemCode = items.some((item: any) => (item.itemCode || item.code || "").trim() !== "");
               const descWidth = hasUom ? (hasItemCode ? "32%" : "40%") : (hasItemCode ? "40%" : "48%");

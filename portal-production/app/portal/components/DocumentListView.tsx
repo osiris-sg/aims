@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
@@ -224,6 +224,37 @@ export default function DocumentListView({
     }
   };
 
+  // Client-side filter: search + status + createdOn range. /documents returns
+  // all docs for the org so filtering here is cheap and avoids per-keystroke
+  // round-trips. Stat cards keep using the unfiltered totals.
+  const filteredDocs = useMemo(() => {
+    const term = (search || "").trim().toLowerCase();
+    const statusFilter = (filters?.status || "").trim();
+    const startDate = filters?.createdOn?.startDate ? new Date(filters.createdOn.startDate) : null;
+    const endDate = filters?.createdOn?.endDate ? new Date(filters.createdOn.endDate) : null;
+    if (endDate) endDate.setHours(23, 59, 59, 999);
+
+    return docs.filter((d) => {
+      if (statusFilter && (d.status || "").toLowerCase() !== statusFilter.toLowerCase()) return false;
+      if (startDate && new Date(d.createdAt) < startDate) return false;
+      if (endDate && new Date(d.createdAt) > endDate) return false;
+      if (term) {
+        const haystack = [
+          d.name,
+          d.associated_customer,
+          d.associated_item,
+          d.status,
+          d.documentType,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(term)) return false;
+      }
+      return true;
+    });
+  }, [docs, search, filters]);
+
   const stats = React.useMemo(() => {
     const monthStart = moment().startOf("month");
     let thisMonth = 0;
@@ -316,7 +347,7 @@ export default function DocumentListView({
     <MainCard>
       <PageTable
         columns={columns}
-        data={docs}
+        data={filteredDocs}
         tableName={`${pluralLabel || documentLabel + "s"} List`}
         subTitle={`All ${pluralLabel || documentLabel + "s"} for this organization`}
         buttonName={createDocumentType ? `Create ${documentLabel}` : undefined}
@@ -334,7 +365,7 @@ export default function DocumentListView({
         setFilters={handleSetFilters}
         availableFilters={["status", "createdOn"]}
         pageCount={1}
-        totalDocs={docs.length}
+        totalDocs={filteredDocs.length}
         headerContent={
           <Box sx={{ mb: 3 }}>
             <Grid container spacing={2}>

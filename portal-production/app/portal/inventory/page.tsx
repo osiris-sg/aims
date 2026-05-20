@@ -1,13 +1,15 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import type { FilterField } from "@/components/FilterDrawer";
+import { INVENTORY_STATUS } from "@/containers/Inventory/slice/constants";
 import { Box, Dialog, DialogTitle, DialogContent, DialogActions, Button, CircularProgress, Typography, IconButton } from "@mui/material";
 import { useRouter } from "next/navigation";
 import { ROUTES } from "@/routes";
 import AddInventoryItem from "./components/AddInventoryItem";
-import { useGetInventory, useGetAssets, useDeleteInventory, useGetQrCode, useUpdateInventory } from "@/app/portal/hooks/api";
+import { useGetInventory, useGetAssets, useDeleteInventory, useGetQrCode, useUpdateInventory, useGetCategories } from "@/app/portal/hooks/api";
 import QrCode2Icon from "@mui/icons-material/QrCode2";
 import ViewQRDialog from "./components/ViewQRDialog";
 import VisibilityIcon from "@mui/icons-material/Visibility";
@@ -64,25 +66,61 @@ export default function InventoryPage() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState({
-    status: [] as string[],
-    category: [] as string[],
+  const [filters, setFilters] = useState<{
+    status: string;
+    category: string;
+    assetId: string;
+    createdOn: { startDate: Date | string | null; endDate: Date | string | null };
+  }>({
+    status: "",
+    category: "",
     assetId: "",
-    createdOn: {
-      startDate: null as Date | null,
-      endDate: null as Date | null,
-    },
+    createdOn: { startDate: null, endDate: null },
   });
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedInventory, setSelectedInventory] = useState<Inventory | null>(null);
   const [selectedSku, setSelectedSku] = useState<string | null>(null);
   const [editingSkuId, setEditingSkuId] = useState<string | null>(null);
 
+  // Backend expects status/category as arrays; wrap single-select values.
+  const apiFilters = useMemo(
+    () => ({
+      status: filters.status ? [filters.status] : [],
+      category: filters.category ? [filters.category] : [],
+      assetId: filters.assetId,
+      createdOn: filters.createdOn,
+    }),
+    [filters],
+  );
+
   // Fetch inventory with new hook
-  const { inventories: inventory = [], total = 0, isLoading, refetch } = useGetInventory({ page, limit, search, filters });
+  const { inventories: inventory = [], total = 0, isLoading, refetch } = useGetInventory({ page, limit, search, filters: apiFilters });
 
   // Fetch assets for dropdown
   const { assets = [] } = useGetAssets({ limit: 1000 });
+
+  // Fetch categories for filter dropdown
+  const { categories = [] } = useGetCategories();
+
+  const filterConfig: FilterField[] = useMemo(
+    () => [
+      { type: "dateRange", key: "createdOn", label: "Created On" },
+      { type: "select", key: "status", label: "Status", options: INVENTORY_STATUS },
+      {
+        type: "select",
+        key: "category",
+        label: "Category",
+        options: (categories || []).map((c: any) => ({ value: c.id, label: c.name })),
+      },
+      {
+        type: "select",
+        key: "assetId",
+        label: "Asset",
+        options: (assets || []).map((a: any) => ({ value: a.id, label: a.name })),
+      },
+    ],
+    [categories, assets],
+  );
 
   // Delete inventory mutation
   const deleteInventoryMutation = useDeleteInventory();
@@ -255,10 +293,9 @@ export default function InventoryPage() {
         setLimit={setLimit}
         setSearch={setSearch}
         setFilters={setFilters}
-        availableFilters={["status", "category", "asset", "createdOn"]}
+        filterConfig={filterConfig}
         pageCount={Math.ceil(total / limit)}
         totalDocs={total}
-        assetsData={assets || []} // Pass assets data for filter dropdown
       />
 
       <AddInventoryItem open={openDrawer} onClose={handleCloseDrawer} />

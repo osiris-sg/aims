@@ -13,6 +13,9 @@ interface CreateAssetData {
   image?: File;
   description?: string;
   price?: number;
+  costPrice?: number;
+  customPrices?: { label: string; value: number }[];
+  points?: number;
   isTracked?: boolean;
   quantity?: number;
   minQuantity?: number;
@@ -49,6 +52,25 @@ export const useCreateAsset = () => {
       // Add price if provided
       if (data.price !== undefined && data.price !== null && !isNaN(Number(data.price))) {
         requestBody.price = Number(data.price);
+      }
+
+      // Cost price (what we paid for the asset)
+      if (data.costPrice !== undefined && data.costPrice !== null && !isNaN(Number(data.costPrice))) {
+        requestBody.costPrice = Number(data.costPrice);
+      }
+
+      // Custom named prices (e.g. Listing Price, Dealer Price). Filter incomplete rows.
+      if (Array.isArray(data.customPrices) && data.customPrices.length > 0) {
+        const cleaned = data.customPrices
+          .filter((cp) => cp && cp.label && cp.label.trim() && !isNaN(Number(cp.value)))
+          .map((cp) => ({ label: cp.label.trim(), value: Number(cp.value) }));
+        if (cleaned.length > 0) requestBody.customPrices = cleaned;
+      }
+
+      // Asset points (discount). Backend stores it regardless; UI gates exposure
+      // via the enableAssetPoints feature flag.
+      if (data.points !== undefined && data.points !== null && !isNaN(Number(data.points))) {
+        requestBody.points = Number(data.points);
       }
 
       // Add quantity for untracked products (ensure it's a number)

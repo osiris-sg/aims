@@ -7,9 +7,10 @@ import { PriceHistoryModule } from '../price-history/price-history.module';
 import { TransactionsModule } from '../transactions/transactions.module';
 import { EmailModule } from '../email/email.module';
 import { JournalModule } from '../journal/journal.module';
+import { OrdersModule } from '../orders/orders.module';
 
 @Module({
-  imports: [CommonModule, PriceHistoryModule, TransactionsModule, EmailModule, JournalModule],
+  imports: [CommonModule, PriceHistoryModule, TransactionsModule, EmailModule, JournalModule, OrdersModule],
   controllers: [DocumentsController],
   providers: [DocumentsService, PrismaService],
 })

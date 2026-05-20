@@ -8,6 +8,7 @@ import { PriceHistoryService } from '../price-history/price-history.service';
 import { TransactionsService } from '../transactions/transactions.service';
 import { EmailService } from '../email/email.service';
 import { JournalAutoPostService } from '../journal/journal-auto-post.service';
+import { OrdersService } from '../orders/orders.service';
 import { SendInvoiceEmailDto } from '../email/dto/send-invoice-email.dto';
 import { S3Service } from 'src/common/services/s3.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
@@ -24,6 +25,7 @@ export class DocumentsService {
     private journalAutoPost: JournalAutoPostService,
     private s3Service: S3Service,
     private pdfGeneratorService: PdfGeneratorService,
+    private ordersService: OrdersService,
   ) {}
 
   /**
@@ -437,6 +439,33 @@ export class DocumentsService {
         }
       }
 
+      // ---- Auto-create Order from confirmed quotation (gated by flag) ----
+      // When a quotation flips to confirmed and enableConfirmQuotation is on,
+      // spawn an Order so users can later spin off POs / DOs / Invoices for
+      // selected items without having to use the immediate-convert popup.
+      const isQuotationType =
+        dto.type === 'QUOTATION' ||
+        dto.type === 'QO' ||
+        dto.type === 'QO1' ||
+        dto.type === 'QO2' ||
+        dto.type === 'QT';
+      if (becomingConfirmed && isQuotationType) {
+        try {
+          const uiConfig = await this.prisma.organizationUIConfig.findUnique({
+            where: { organizationId },
+            select: { features: true },
+          });
+          const features = (uiConfig?.features as any) || {};
+          if (features.enableConfirmQuotation) {
+            const order = await this.ordersService.createFromQuotation(id, organizationId);
+            console.log(`✅ QUOTATION→ORDER: created order ${order.orderNumber} (${order.id})`);
+          }
+        } catch (err) {
+          console.error('❌ QUOTATION→ORDER: failed to auto-create order', err);
+          // Best-effort: don't fail the quotation confirmation if order creation fails.
+        }
+      }
+
       // ---- GL auto-post for non-invoice transactional types ----
       // Credit Note / Debit Note / Purchase Order / Purchase Return — when status flips to "confirmed".
       const GL_TYPES: Record<string, 'CREDIT_NOTE' | 'DEBIT_NOTE' | 'PURCHASE_ORDER' | 'PURCHASE_RETURN'> = {
@@ -827,10 +856,12 @@ export class DocumentsService {
         select: { customDocumentTypes: true, logo: true, defaultStamp: true },
       });
 
-      // Get document template to use templateVariant for naming
+      // Get document template to use templateVariant for naming + inherit
+      // column layout (tableColumnOrder/columnLabels) so per-template item
+      // table layouts (e.g. FCU/CU Quotation) take effect on new docs.
       const documentTemplate = await this.prisma.documentTemplate.findUnique({
         where: { id: documentTemplateId },
-        select: { templateVariant: true },
+        select: { templateVariant: true, config: true },
       });
 
       const now = new Date();
@@ -883,6 +914,15 @@ export class DocumentsService {
       }
       if (!initialConfig.stamp.company && organization?.defaultStamp) {
         initialConfig.stamp.company = organization.defaultStamp;
+      }
+      // Inherit the template's column layout so per-template variants
+      // (e.g. FCU/CU Quotation) render with their custom columns on new docs.
+      const templateConfig: any = (documentTemplate?.config as any) || {};
+      if (!initialConfig.tableColumnOrder && Array.isArray(templateConfig.tableColumnOrder)) {
+        initialConfig.tableColumnOrder = templateConfig.tableColumnOrder;
+      }
+      if (!initialConfig.columnLabels && templateConfig.columnLabels && typeof templateConfig.columnLabels === 'object') {
+        initialConfig.columnLabels = templateConfig.columnLabels;
       }
 
       const newDocument = await this.prisma.document.create({

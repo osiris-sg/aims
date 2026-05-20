@@ -56,4 +56,8 @@ export const ROUTES = {
 
   // Accounting
   PAYMENTS: "/portal/payments",
+
+  // Orders
+  ORDERS: "/portal/orders",
+  ORDER_DETAIL: "/portal/orders", // append /:id
 };

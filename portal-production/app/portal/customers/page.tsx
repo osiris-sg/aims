@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useGetCustomers, useDeleteCustomer } from "@/app/portal/hooks/api";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import type { FilterField } from "@/components/FilterDrawer";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import { Box, IconButton } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
@@ -34,6 +35,7 @@ interface Filters {
     startDate: string | null;
     endDate: string | null;
   };
+  salesmanId?: string;
   [key: string]: any;
 }
 
@@ -47,14 +49,44 @@ export default function CustomersPage() {
       startDate: null,
       endDate: null,
     },
+    salesmanId: "",
   });
   const [customerToDelete, setCustomerToDelete] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | undefined>();
   const [isEditMode, setIsEditMode] = useState(false);
 
+  // Backend understands createdOn; salesmanId is applied client-side below.
+  const apiFilters = useMemo(() => ({ createdOn: filters.createdOn }), [filters.createdOn]);
+
   // Fetch customers with new hook
-  const { customers = [], total = 0, isLoading, refetch } = useGetCustomers({ page, limit, search, filters });
+  const { customers: rawCustomers = [], total: rawTotal = 0, isLoading, refetch } = useGetCustomers({ page, limit, search, filters: apiFilters });
+
+  // Post-filter for salesmanId (backend doesn't filter on it yet).
+  const customers = useMemo(() => {
+    if (!filters.salesmanId) return rawCustomers;
+    return (rawCustomers || []).filter((c: any) => c.salesman?.id === filters.salesmanId);
+  }, [rawCustomers, filters.salesmanId]);
+  const total = filters.salesmanId ? customers.length : rawTotal;
+
+  // Derive unique salesman options from the fetched customers.
+  const salesmenOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    (rawCustomers || []).forEach((c: any) => {
+      if (c.salesman?.id && !seen.has(c.salesman.id)) {
+        seen.set(c.salesman.id, `${c.salesman.name}${c.salesman.salesmanCode ? ` (${c.salesman.salesmanCode})` : ""}`);
+      }
+    });
+    return Array.from(seen.entries()).map(([value, label]) => ({ value, label }));
+  }, [rawCustomers]);
+
+  const filterConfig: FilterField[] = useMemo(
+    () => [
+      { type: "dateRange", key: "createdOn", label: "Created On" },
+      { type: "select", key: "salesmanId", label: "Salesman", options: salesmenOptions },
+    ],
+    [salesmenOptions],
+  );
 
   // Delete customer mutation
   const deleteCustomerMutation = useDeleteCustomer();
@@ -197,7 +229,7 @@ export default function CustomersPage() {
         setLimit={setLimit}
         setSearch={setSearch}
         setFilters={setFilters}
-        availableFilters={["createdOn"]}
+        filterConfig={filterConfig}
         pageCount={Math.ceil(total / limit)}
         totalDocs={total}
       />

@@ -1,4 +1,15 @@
-import { IsNotEmpty, IsOptional, IsString, IsUUID, IsBoolean, IsInt, IsNumber, Min, ValidateIf, IsIn } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsUUID, IsBoolean, IsInt, IsNumber, Min, ValidateIf, IsIn, IsArray, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class CustomPriceDto {
+  @IsString()
+  @IsNotEmpty()
+  label: string;
+
+  @IsNumber()
+  @Min(0)
+  value: number;
+}
 
 // Standard industry UOM codes
 export const UOM_OPTIONS = [
@@ -67,11 +78,30 @@ export class CreateAssetDto {
   @IsIn(UOM_OPTIONS)
   uom?: string;
 
-  // Unit price for the asset/product
+  // Legacy unit price — semantically the selling price for backwards compatibility.
   @IsNumber()
   @IsOptional()
   @Min(0)
   price?: number;
+
+  // Cost price — what the org pays per unit to acquire/produce this asset.
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  costPrice?: number;
+
+  // Free-form named prices — e.g. Listing Price, Dealer Price, Wholesale Price.
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => CustomPriceDto)
+  customPrices?: CustomPriceDto[];
+
+  // Discount points (1 point = $1). Gated by enableAssetPoints feature flag.
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  points?: number;
 
   // Tracking mode: true = individual inventory items with SKUs (Asset), false = simple quantity (Product)
   @IsBoolean()

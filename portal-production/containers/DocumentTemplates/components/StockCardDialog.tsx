@@ -41,6 +41,7 @@ interface InventoryItem {
   quantity?: number;
   minQuantity?: number;
   unitPrice?: number;
+  costPrice?: number;
   uom?: string;
   status?: string;
   assetId?: string;
@@ -49,6 +50,8 @@ interface InventoryItem {
     name: string;
     description?: string;
     uom?: string;
+    price?: number;
+    costPrice?: number;
     category?: {
       id: string;
       name: string;
@@ -61,6 +64,9 @@ interface StockCardDialogProps {
   onClose: () => void;
   onSelectItem: (item: InventoryItem) => void;
   inventoryItems: InventoryItem[];
+  // "cost" for PO/PR — column reads asset.costPrice and is labeled "Cost Price".
+  // "selling" (default) — column reads unitPrice/asset.price labeled "Unit Price".
+  priceMode?: "cost" | "selling";
 }
 
 type SearchMode = "code" | "description" | "category";
@@ -70,7 +76,14 @@ export default function StockCardDialog({
   onClose,
   onSelectItem,
   inventoryItems,
+  priceMode = "selling",
 }: StockCardDialogProps) {
+  const showCost = priceMode === "cost";
+  const priceColumnLabel = showCost ? "Cost Price" : "Unit Price";
+  const getDisplayPrice = (it: InventoryItem) =>
+    showCost
+      ? (it.costPrice ?? it.asset?.costPrice ?? null)
+      : (it.unitPrice ?? it.asset?.price ?? null);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchMode, setSearchMode] = useState<SearchMode>("code");
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -234,7 +247,7 @@ export default function StockCardDialog({
                 <TableCell sx={{ width: "15%" }}>Category</TableCell>
                 <TableCell align="center" sx={{ width: "10%" }}>Balance</TableCell>
                 <TableCell align="center" sx={{ width: "10%" }}>Min Qty</TableCell>
-                <TableCell align="right" sx={{ width: "12%" }}>Unit Price</TableCell>
+                <TableCell align="right" sx={{ width: "12%" }}>{priceColumnLabel}</TableCell>
                 {isAssetTrackingModeEnabled && (
                   <TableCell align="center" sx={{ width: "10%" }}>Status</TableCell>
                 )}
@@ -272,7 +285,10 @@ export default function StockCardDialog({
                       {item.minQuantity !== undefined && item.minQuantity !== null ? item.minQuantity : "-"}
                     </TableCell>
                     <TableCell align="right" className="tabular-nums" sx={{ color: "text.primary", fontWeight: 500 }}>
-                      {item.unitPrice != null ? `$${item.unitPrice.toFixed(2)}` : "-"}
+                      {(() => {
+                        const v = getDisplayPrice(item);
+                        return v != null ? `$${Number(v).toFixed(2)}` : "-";
+                      })()}
                     </TableCell>
                     {isAssetTrackingModeEnabled && (
                       <TableCell align="center">

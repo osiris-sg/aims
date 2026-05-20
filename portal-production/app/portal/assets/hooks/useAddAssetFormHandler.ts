@@ -46,6 +46,11 @@ export const UOM_OPTIONS = [
 
 const UOM_VALUES = UOM_OPTIONS.map(o => o.value) as [string, ...string[]];
 
+const customPriceSchema = z.object({
+  label: z.string().min(1, "Label required"),
+  value: z.coerce.number().min(0),
+});
+
 const assetSchema = z.object({
   name: z.string().min(1, "Name is required"),
   skuKey: z.string().min(1, "SKU Key is required"),
@@ -56,7 +61,11 @@ const assetSchema = z.object({
   description: z.string().optional(),
   location: z.string().optional(),
   notes: z.string().optional(),
+  // `price` stays as the selling price for back-compat with existing data.
   price: z.coerce.number().min(0).optional(),
+  costPrice: z.coerce.number().min(0).optional(),
+  customPrices: z.array(customPriceSchema).optional(),
+  points: z.coerce.number().min(0).optional(),
   isTracked: z.boolean().default(true),
   // Use coerce to convert string input to number
   quantity: z.coerce.number().min(0).optional(),
@@ -80,6 +89,9 @@ const updateAssetSchema = z.object({
   image: z.any().optional(),
   description: z.string().optional(),
   price: z.number().min(0).optional().nullable(),
+  costPrice: z.number().min(0).optional().nullable(),
+  customPrices: z.array(customPriceSchema).optional().nullable(),
+  points: z.number().min(0).optional().nullable(),
   isTracked: z.boolean().optional(),
   quantity: z.number().min(0).optional().nullable(),
   minQuantity: z.number().min(0).optional().nullable(),
@@ -116,6 +128,9 @@ export const useAddAssetFormHandler = () => {
       location: "",
       notes: "",
       price: undefined,
+      costPrice: undefined,
+      customPrices: [],
+      points: undefined,
       isTracked: true,
       quantity: undefined,
       minQuantity: undefined,
@@ -162,6 +177,9 @@ export const useAddAssetFormHandler = () => {
           location: response.data.location || "",
           notes: response.data.notes || "",
           price: response.data.price ?? undefined,
+          costPrice: response.data.costPrice ?? undefined,
+          customPrices: Array.isArray(response.data.customPrices) ? response.data.customPrices : [],
+          points: response.data.points ?? undefined,
           image: response.data.image,
           isTracked: response.data.isTracked !== false, // Default to true
           quantity: response.data.quantity ?? undefined,
@@ -271,6 +289,9 @@ export const useAddAssetFormHandler = () => {
       quantity?: number;
       minQuantity?: number;
       price?: number;
+      costPrice?: number;
+      customPrices?: { label: string; value: number }[];
+      points?: number;
       categoryId?: string;
     } = {
       name: data.name,
@@ -282,6 +303,12 @@ export const useAddAssetFormHandler = () => {
       quantity: data.quantity,
       minQuantity: data.minQuantity,
       price: data.price,
+      costPrice: data.costPrice,
+      // Drop empty rows so we don't persist incomplete pricing entries.
+      customPrices: (data.customPrices || []).filter(
+        (cp: any) => cp && cp.label && cp.label.trim() && cp.value !== undefined && cp.value !== null,
+      ),
+      points: data.points,
       categoryId: data.categoryId || undefined,
     };
 

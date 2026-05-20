@@ -1,11 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import type { FilterField } from "@/components/FilterDrawer";
+import { useGetCustomers } from "@/app/portal/hooks/api/useCustomers";
 import { Box, Dialog, DialogTitle, DialogContent, DialogActions, Button, CircularProgress, Typography, IconButton } from "@mui/material";
 import { useRouter } from "next/navigation";
 import { ROUTES } from "@/routes";
@@ -54,12 +56,16 @@ export default function ProjectsPage() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState({
-    status: undefined,
-    startDate: {
-      startDate: null as Date | null,
-      endDate: null as Date | null,
-    },
+  const [filters, setFilters] = useState<{
+    status: string;
+    customerId: string;
+    startDate: { startDate: Date | string | null; endDate: Date | string | null };
+    endDate: { startDate: Date | string | null; endDate: Date | string | null };
+  }>({
+    status: "",
+    customerId: "",
+    startDate: { startDate: null, endDate: null },
+    endDate: { startDate: null, endDate: null },
   });
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -99,6 +105,16 @@ export default function ProjectsPage() {
     },
   ];
 
+  // Backend understands status + startDate (date range). customerId + endDate
+  // are applied client-side below so we don't depend on new backend filter keys.
+  const apiFilters = useMemo(
+    () => ({
+      status: filters.status || undefined,
+      startDate: filters.startDate,
+    }),
+    [filters.status, filters.startDate],
+  );
+
   const fetchProjects = async () => {
     if (!organizationId) return;
     setLoading(true);
@@ -107,7 +123,7 @@ export default function ProjectsPage() {
       const token = await getToken();
       if (!token) return;
 
-      const response = await request({ path: "/projects", method: "POST" }, { page, limit, search, filters, organizationId }, token);
+      const response = await request({ path: "/projects", method: "POST" }, { page, limit, search, filters: apiFilters, organizationId }, token);
 
       if (response.success) {
         console.log("Projects response:", response.data);
@@ -119,6 +135,55 @@ export default function ProjectsPage() {
       setLoading(false);
     }
   };
+
+  // Customers dropdown for the Customer filter
+  const { customers = [] } = useGetCustomers({ limit: 1000 });
+
+  // Client-side post-filter for customerId + endDate range.
+  const filteredProjects = useMemo(() => {
+    const customerFilter = filters.customerId || "";
+    const endStart = filters.endDate?.startDate ? new Date(filters.endDate.startDate) : null;
+    const endEnd = filters.endDate?.endDate ? new Date(filters.endDate.endDate) : null;
+    if (endEnd) endEnd.setHours(23, 59, 59, 999);
+    if (!customerFilter && !endStart && !endEnd) return projects.docs;
+    return (projects.docs || []).filter((p: any) => {
+      if (customerFilter) {
+        const pid = p.customerId || p.customer?.id;
+        if (pid !== customerFilter) return false;
+      }
+      if (endStart || endEnd) {
+        const projectEnd = p.endDate ? new Date(p.endDate) : null;
+        if (!projectEnd) return false;
+        if (endStart && projectEnd < endStart) return false;
+        if (endEnd && projectEnd > endEnd) return false;
+      }
+      return true;
+    });
+  }, [projects.docs, filters.customerId, filters.endDate]);
+
+  const filterConfig: FilterField[] = useMemo(
+    () => [
+      {
+        type: "select",
+        key: "status",
+        label: "Status",
+        options: [
+          { value: "pending", label: "Pending" },
+          { value: "ongoing", label: "Ongoing" },
+          { value: "completed", label: "Completed" },
+        ],
+      },
+      {
+        type: "select",
+        key: "customerId",
+        label: "Customer",
+        options: (customers || []).map((c: any) => ({ value: c.id, label: c.name })),
+      },
+      { type: "dateRange", key: "startDate", label: "Start Date" },
+      { type: "dateRange", key: "endDate", label: "End Date" },
+    ],
+    [customers],
+  );
 
   const handleDelete = async () => {
     if (!selectedProject || !organizationId) return;
@@ -145,7 +210,7 @@ export default function ProjectsPage() {
     <MainCard>
       <PageTable
         columns={columns}
-        data={projects.docs}
+        data={filteredProjects}
         tableName="Projects"
         subTitle="Items Detail Information"
         buttonName="Add Project"
@@ -159,9 +224,9 @@ export default function ProjectsPage() {
         setSearch={setSearch}
         setFilters={setFilters}
         onAddClick={() => router.push(ROUTES.CREATE_PROJECT)}
-        availableFilters={["status", "startDate"]}
+        filterConfig={filterConfig}
         pageCount={projects.totalPagesCount}
-        totalDocs={projects.totalDocuments}
+        totalDocs={filters.customerId || filters.endDate?.startDate || filters.endDate?.endDate ? filteredProjects.length : projects.totalDocuments}
       />
 
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>

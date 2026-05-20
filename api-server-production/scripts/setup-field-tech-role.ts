@@ -24,6 +24,8 @@ const PERMISSIONS_NEEDED = [
   { resource: 'assets', action: 'read-sku', description: 'Read an asset by SKU key' },
   { resource: 'assets', action: 'check-sku', description: 'Check if a SKU key exists' },
   { resource: 'assets', action: 'bind-nfc-tag', description: 'Bind an NFC tag UID to an asset' },
+  // Photo uploads for proof-of-service / proof-of-delivery
+  { resource: 'uploads', action: 'upload-image', description: 'Upload images to S3' },
 ];
 
 async function main() {

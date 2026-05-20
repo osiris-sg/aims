@@ -1,7 +1,8 @@
 "use client";
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import type { FilterField } from "@/components/FilterDrawer";
 import { useRouter } from "next/navigation";
 import { Avatar, IconButton, Typography, Box, ToggleButton, ToggleButtonGroup } from "@mui/material";
 import VisibilityIcon from "@mui/icons-material/Visibility";
@@ -20,7 +21,13 @@ export default function AssetsPage() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState({ category: [] as string[] });
+  const [filters, setFilters] = useState<{
+    category: string;
+    createdOn: { startDate: Date | string | null; endDate: Date | string | null };
+  }>({
+    category: "",
+    createdOn: { startDate: null, endDate: null },
+  });
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleteName, setDeleteName] = useState<string | null>(null);
   const [assetToDelete, setAssetToDelete] = useState<string | null>(null);
@@ -30,9 +37,10 @@ export default function AssetsPage() {
   // ON = tracked assets, OFF = untracked products (organization-wide setting)
   const { isAssetTrackingModeEnabled } = useOrganizationFeatures();
 
-  // No need to filter by tracking mode - all items in org have same mode
+  // Backend understands `category`; pass it along. createdOn is applied client-side
+  // below so we don't depend on a new backend filter key.
   const apiFilters = {
-    ...filters,
+    category: filters.category ? [filters.category] : [],
   };
 
   // Fetch assets with new hook (for table view)
@@ -42,6 +50,21 @@ export default function AssetsPage() {
     search,
     filters: apiFilters,
   });
+
+  // Post-filter for keys the backend doesn't know about (createdOn).
+  const filteredAssets = useMemo(() => {
+    const startDate = filters.createdOn?.startDate ? new Date(filters.createdOn.startDate) : null;
+    const endDate = filters.createdOn?.endDate ? new Date(filters.createdOn.endDate) : null;
+    if (endDate) endDate.setHours(23, 59, 59, 999);
+    if (!startDate && !endDate) return assets;
+    return (assets || []).filter((a: any) => {
+      const created = a.createdAt ? new Date(a.createdAt) : null;
+      if (!created) return false;
+      if (startDate && created < startDate) return false;
+      if (endDate && created > endDate) return false;
+      return true;
+    });
+  }, [assets, filters.createdOn]);
 
   // Fetch hierarchy assets (for hierarchy view) - we'll need to add this to the hook if not present
   // For now, using the table data
@@ -154,6 +177,19 @@ export default function AssetsPage() {
   // Combine all columns
   const columns = [...baseColumns, ...remainingColumns];
 
+  const filterConfig: FilterField[] = useMemo(
+    () => [
+      {
+        type: "select",
+        key: "category",
+        label: "Category",
+        options: (categories || []).map((c: any) => ({ value: c.id, label: c.name })),
+      },
+      { type: "dateRange", key: "createdOn", label: "Created On" },
+    ],
+    [categories],
+  );
+
   return (
     <MainCard>
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
@@ -177,7 +213,7 @@ export default function AssetsPage() {
         <PageTable
           loading={isLoading}
           columns={columns}
-          data={assets}
+          data={filteredAssets}
           tableName={isAssetTrackingModeEnabled ? "All Assets" : "All Products"}
           subTitle="Items Detail Information"
           buttonName={isAssetTrackingModeEnabled ? "Add Asset" : "Add Product"}
@@ -190,7 +226,7 @@ export default function AssetsPage() {
           setSearch={setSearch}
           setFilters={setFilters}
           onAddClick={() => router.push(ROUTES.ADD_ASSET)}
-          availableFilters={["category"]}
+          filterConfig={filterConfig}
           pageCount={Math.ceil(total / limit)}
           totalDocs={total}
         />

@@ -10,6 +10,7 @@ import {
   Typography,
   TextField,
   Select,
+  Menu,
   MenuItem,
   FormControl,
   InputLabel,
@@ -35,6 +36,7 @@ import {
   CircularProgress,
   Tooltip,
   Collapse,
+  Stack,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -61,6 +63,7 @@ import {
   LocalShipping as ReceiveIcon,
   UnfoldLess as UnfoldLessIcon,
   UnfoldMore as UnfoldMoreIcon,
+  LocalOffer as PriceTagIcon,
 } from "@mui/icons-material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import CleanDocumentPreview from "./CleanDocumentPreview";
@@ -173,7 +176,18 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isItemTaggingEnabled: isItemTaggingFlagOn, isConfirmQuotationEnabled } = useOrganizationFeatures();
+  // Item tagging (checkbox column + Tag Items button) is scoped to quotation
+  // doc types only — that's where the FCU/CU pairing makes sense. The flag
+  // still gates org-level availability; the doc type narrows where it shows.
+  const isItemTaggingEnabled =
+    isItemTaggingFlagOn && (
+      documentType === "QUOTATION" ||
+      documentType === "QO" ||
+      documentType === "QO1" ||
+      documentType === "QO2" ||
+      documentType === "QT"
+    );
 
   // Check if we're in template edit mode
   const pathname = usePathname();
@@ -207,6 +221,9 @@ export default function TabbedDocumentCreator({
   const [confirmPRDialogOpen, setConfirmPRDialogOpen] = useState(false);
   const [confirmInvoiceDialogOpen, setConfirmInvoiceDialogOpen] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
+  // Convert-after-confirm dialog state for quotations (gated by enableConfirmQuotation).
+  const [convertQuotationDialogOpen, setConvertQuotationDialogOpen] = useState(false);
+  const [isConverting, setIsConverting] = useState(false);
   const [isToolBarOpen, setToolBarOpen] = useState(false);
 
   // PDF generation states
@@ -255,8 +272,30 @@ export default function TabbedDocumentCreator({
   const [selectedAssetId, setSelectedAssetId] = useState<string>("");
   const [priceHistoryCache, setPriceHistoryCache] = useState<Record<string, any>>({});
 
+  // Per-line price-tier menu (selling vs each customPrice on the asset).
+  // Only opens for the row whose itemId matches; hidden entirely for PO/PR.
+  const [tierMenu, setTierMenu] = useState<{ anchorEl: HTMLElement; itemId: number } | null>(null);
+
   // Stock card dialog state
   const [stockCardDialogOpen, setStockCardDialogOpen] = useState(false);
+  // "add" = new line item, "tag" = attach picked asset to currently-checked rows.
+  const [stockCardMode, setStockCardMode] = useState<"add" | "tag">("add");
+
+  // Item-tagging: tracks which item ids are checked in the leftmost column.
+  // Cleared after a tagging round completes or all rows are deleted.
+  const [selectedItemIds, setSelectedItemIds] = useState<number[]>([]);
+  const toggleItemSelected = (id: number) =>
+    setSelectedItemIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  // Pending tag state — after a CU is picked from the Stock Card we open a
+  // small dialog asking the user for the CU's qty + price before committing
+  // the tag group. The CU has its own qty/price independent of the FCU rows.
+  const [pendingTag, setPendingTag] = useState<{
+    asset: any;
+    rows: number[];
+    qty: number;
+    unitPrice: number;
+  } | null>(null);
 
   // Locate document dialog state
   const [locateDialogOpen, setLocateDialogOpen] = useState(false);
@@ -682,7 +721,24 @@ export default function TabbedDocumentCreator({
     const needsUom = isStockAdjustmentType || isPurchaseOrderType || isPurchaseReturnType || isDeliveryOrderType || isCreditDebitNoteType;
     const needsDiscount = isStockAdjustmentType || isPurchaseOrderType || isPurchaseReturnType;
     const description = selectedItem.description || selectedItem.name || selectedItem.asset?.name || selectedItem.asset?.description || "";
-    const unitPrice = selectedItem.unitPrice || selectedItem.asset?.price || 0;
+    // For purchase docs (PO + PR) the default is asset.costPrice. In Products
+    // mode `selectedItem.unitPrice` is pre-flattened to selling price, so we
+    // can't fall back to it first — read costPrice explicitly and only drop to
+    // selling if cost is unset.
+    const isPurePurchaseType =
+      documentType === "PO" || documentType === "PURCHASE_ORDER" ||
+      documentType === "PR" || documentType === "PURCHASE_RETURN";
+    const sellingPriceFallback = selectedItem.unitPrice ?? selectedItem.asset?.price ?? 0;
+    const costPriceCandidate = selectedItem.costPrice ?? selectedItem.asset?.costPrice ?? null;
+    let unitPrice = isPurePurchaseType
+      ? (costPriceCandidate ?? sellingPriceFallback ?? 0)
+      : (sellingPriceFallback ?? 0);
+    // Apply asset points as a $1-per-point discount on sales-side docs (PO/PR
+    // skip this — they pay supplier cost, no customer discount applies).
+    if (!isPurePurchaseType && isAssetPointsEnabled) {
+      const pts = Number(selectedItem.asset?.points || 0);
+      if (pts > 0) unitPrice = Math.max(0, Number(unitPrice) - pts);
+    }
     const uom = selectedItem.uom || selectedItem.asset?.uom || "";
 
     const newItem: any = {
@@ -727,9 +783,17 @@ export default function TabbedDocumentCreator({
       const newItems = prevItems.map((item: any) => {
         if (item.id === id) {
           const updated = { ...item, [field]: value };
-          // Calculate amount (accounting for discount if present)
-          const discountMultiplier = updated.discount !== undefined ? (1 - (updated.discount || 0) / 100) : 1;
-          updated.amount = updated.quantity * updated.unitPrice * discountMultiplier;
+          // Calculate amount (accounting for discount if present). discountType
+          // is 'amount' for a flat $ discount, otherwise it's a % discount
+          // (default — preserves existing behavior for rows without the field).
+          const qty = Number(updated.quantity) || 0;
+          const unit = Number(updated.unitPrice) || 0;
+          const disc = Number(updated.discount) || 0;
+          const gross = qty * unit;
+          updated.amount =
+            updated.discountType === "amount"
+              ? Math.max(0, gross - disc)
+              : gross * (1 - disc / 100);
           return updated;
         }
         return item;
@@ -997,6 +1061,152 @@ export default function TabbedDocumentCreator({
       toast.error("Failed to confirm document");
     } finally {
       setIsConfirming(false);
+    }
+  };
+
+  // Quotation-specific confirm flow: save with status=confirmed, then prompt the
+  // user to optionally convert the quotation into a PO / DO / Invoice via the
+  // ConvertQuotation dialog. Does NOT reload — the dialog handles next steps.
+  const handleConfirmQuotation = async () => {
+    setIsConfirming(true);
+    try {
+      const currentUserName = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || 'SYS';
+      const currentTimestamp = new Date().toISOString();
+      const saveData = {
+        ...formData,
+        items: items,
+        name: formData.name || formData.documentInfo.documentNumber,
+        status: "confirmed",
+        confirmedBy: currentUserName,
+        confirmedAt: currentTimestamp,
+        lastUsedBy: currentUserName,
+        lastUsedAt: currentTimestamp,
+      };
+      await onSave?.(saveData);
+      toast.success("Quotation confirmed");
+      setConvertQuotationDialogOpen(true);
+    } catch (error) {
+      console.error("Error confirming quotation:", error);
+      toast.error("Failed to confirm quotation");
+    } finally {
+      setIsConfirming(false);
+    }
+  };
+
+  // Convert the just-confirmed quotation into a new draft of the chosen type.
+  // Looks up the active template for that type, pre-fills customer + items,
+  // creates the new draft, and navigates to it.
+  const handleConvertQuotation = async (targetType: "PO" | "DO" | "INVOICE") => {
+    setIsConverting(true);
+    try {
+      const token = await getToken();
+      if (!token) {
+        toast.error("Not authenticated");
+        return;
+      }
+      // DocumentTemplate.type stores canonical long names: DELIVERY_ORDER (not
+      // DO), INVOICE, PO (sometimes PURCHASE_ORDER). Try the long form first,
+      // then fall back so we don't 404 in orgs that still have legacy rows.
+      const candidateTypes =
+        targetType === "DO"
+          ? ["DELIVERY_ORDER", "DO"]
+          : targetType === "PO"
+          ? ["PO", "PURCHASE_ORDER"]
+          : ["INVOICE"];
+      let newTemplateId: string | undefined;
+      let resolvedType: string | undefined;
+      for (const t of candidateTypes) {
+        try {
+          const r = await request(
+            { path: `/documentTemplates/type/${t}`, method: "GET" },
+            {},
+            token,
+          );
+          if (r?.success && r?.data?.id) {
+            newTemplateId = r.data.id;
+            resolvedType = t;
+            break;
+          }
+        } catch {
+          // 404 → next candidate.
+        }
+      }
+      if (!newTemplateId || !resolvedType) {
+        toast.error(`No ${targetType} template found for this organization`);
+        return;
+      }
+
+      // PO conversion: flatten any tag groups into independent line items and
+      // swap each unit price for the asset's costPrice (since a PO is what we
+      // pay the supplier, not what we quote the customer). The FCU/CU grouping
+      // is intentionally dropped — every item gets its own row.
+      // DO / Invoice: keep items as-is (customer-facing pricing stays).
+      const lookupCost = (it: any): number => {
+        const inv = inventoriesForDocument.find((i: any) =>
+          i.id === it.inventoryItemId ||
+          i.assetId === it.inventoryItemId ||
+          i.asset?.id === it.inventoryItemId ||
+          i.assetId === it.taggedAssetId ||
+          i.asset?.id === it.taggedAssetId,
+        );
+        const cost = inv?.asset?.costPrice;
+        if (cost != null) return Number(cost);
+        return Number(inv?.asset?.price ?? it.unitPrice ?? 0);
+      };
+      const buildPOItems = () =>
+        items.map((it: any, idx: number) => {
+          const qty = Number(it.quantity || 1);
+          const cost = lookupCost(it);
+          // For tag-group items the FCU/CU asset info already lives on the row;
+          // for FCU rows we use their own itemCode/description.
+          return {
+            id: Date.now() + idx,
+            itemCode: it.itemCode || it.taggedAssetCode || "",
+            inventoryItemId: it.inventoryItemId || it.taggedAssetId || "",
+            description: it.description || it.taggedAssetName || "",
+            uom: it.uom || "PCS",
+            quantity: qty,
+            unitPrice: cost,
+            discount: 0,
+            amount: qty * cost,
+          };
+        });
+
+      const isPoTarget = targetType === "PO";
+      const sourceConfig = {
+        customer: formData.customer,
+        customerId: formData.customer?.id,
+        customerName: formData.customer?.name,
+        items: isPoTarget ? buildPOItems() : items.map((it: any) => ({ ...it })),
+        documentInfo: {
+          ...formData.documentInfo,
+        },
+        sourceDocumentId: existingData?.id || documentId,
+        sourceDocumentType: "QUOTATION",
+        sourceDocumentNumber: formData.name || formData.documentInfo?.documentNumber,
+      };
+
+      const created = await request(
+        { path: "/documents/basic", method: "POST" },
+        {
+          type: resolvedType,
+          documentTemplateId: newTemplateId,
+          config: sourceConfig,
+        },
+        token,
+      );
+      if (!created?.success || !created?.data?.id) {
+        toast.error(`Failed to create ${targetType}`);
+        return;
+      }
+      toast.success(`Created ${targetType} from quotation`);
+      setConvertQuotationDialogOpen(false);
+      router.push(`/portal/documents/${resolvedType}/${newTemplateId}/${created.data.id}`);
+    } catch (err: any) {
+      console.error("Convert quotation failed:", err);
+      toast.error(err?.message || "Conversion failed");
+    } finally {
+      setIsConverting(false);
     }
   };
 
@@ -1955,6 +2165,22 @@ export default function TabbedDocumentCreator({
               Confirm Invoice
             </Button>
           )}
+          {/* Confirm button for Quotations — only when enableConfirmQuotation is on.
+              After confirm saves, a popup asks if the user wants to convert the
+              quotation into a PO / DO / Invoice. */}
+          {!isDocumentConfirmed && !isTemplateEditMode && isConfirmQuotationEnabled &&
+           (documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" || documentType === "QO2") && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<CheckCircleIcon />}
+              onClick={handleConfirmQuotation}
+              disabled={isConfirming}
+              color="success"
+            >
+              {isConfirming ? "Confirming..." : "Confirm Quotation"}
+            </Button>
+          )}
           {/* Confirm button for non-Purchase Order/Return, non-Quotation, non-Stock Adjustment, non-DO, and non-Invoice documents */}
           {!isDocumentConfirmed && !isTemplateEditMode && !isPurchaseDocument && !isStockAdjustment && !isDeliveryOrder && !isInvoiceType &&
            !(documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (
@@ -2864,6 +3090,9 @@ export default function TabbedDocumentCreator({
                         <Table sx={{ tableLayout: 'fixed' }} stickyHeader>
                         <TableHead>
                           <TableRow>
+                            {isItemTaggingEnabled && !isTemplateEditMode && (
+                              <TableCell sx={{ width: 40, p: 0 }} />
+                            )}
                             {/* Render columns based on configuration - exclude tax for invoices */}
                             {(() => {
                               const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
@@ -2874,7 +3103,10 @@ export default function TabbedDocumentCreator({
                               const isPurchaseReturnType = documentType === "PR" || documentType === "PURCHASE_RETURN";
                               const isDeliveryOrderType = documentType === "DO" || documentType === "DELIVERY_ORDER" || documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER";
                               const isCreditDebitNote = documentType === "CN" || documentType === "CREDIT_NOTE" || documentType === "DN" || documentType === "DEBIT_NOTE";
-                              const defaultColumns = isInvoiceType
+                              // Allow the doc/template to override the default column layout
+                              // (e.g. the FCU/CU Quotation variant uses location/taggedAsset/remarks).
+                              const configuredColumns = (existingData?.tableColumnOrder ?? existingData?.config?.tableColumnOrder) as string[] | undefined;
+                              const baseDefaultColumns = isInvoiceType
                                 ? ["item", "description", "quantity", "unitPrice", "amount"]
                                 : isStockAdjustmentIn || isPurchaseReturnType
                                 ? ["item", "description", "uom", "quantity", "unitPrice", "discount", "amount", "receivedQty"]
@@ -2883,20 +3115,31 @@ export default function TabbedDocumentCreator({
                                 : isDeliveryOrderType || isCreditDebitNote
                                 ? ["item", "description", "uom", "quantity", "unitPrice", "amount"]
                                 : ["item", "description", "quantity", "unitPrice", "tax", "amount"];
+                              const defaultColumns = (configuredColumns && configuredColumns.length > 0)
+                                ? configuredColumns
+                                : baseDefaultColumns;
                               return (isTemplateEditMode ? templateWatch("tableColumnOrder") : defaultColumns).map((columnId: string) => {
                                 // Skip tax column for invoices
                                 if (isInvoiceType && columnId === "tax") return null;
                                 const isVisible = isTemplateEditMode ? templateWatch(`tableHeaders.${columnId}`) : true;
+                              const isPurePurchaseDoc =
+                                documentType === "PO" || documentType === "PURCHASE_ORDER" ||
+                                documentType === "PR" || documentType === "PURCHASE_RETURN";
+                              const configLabel = existingData?.columnLabels?.[columnId] ?? existingData?.config?.columnLabels?.[columnId];
                               const label = isTemplateEditMode ? templateWatch(`columnLabels.${columnId}`) || columnId :
+                                configLabel ? configLabel :
                                 columnId === "item" ? (items.some((i: any) => i.isService) ? "Item" : "Product Code") :
                                 columnId === "description" ? "Description" :
                                 columnId === "uom" ? "UOM" :
                                 columnId === "quantity" ? "Quantity" :
-                                columnId === "unitPrice" ? "Unit Price" :
+                                columnId === "unitPrice" ? (isPurePurchaseDoc ? "Cost Price" : "Unit Price") :
                                 columnId === "tax" ? "Tax %" :
-                                columnId === "discount" ? "Disc %" :
+                                columnId === "discount" ? "Discount" :
                                 columnId === "amount" ? "Amount" :
-                                columnId === "receivedQty" ? "Received Qty" : columnId;
+                                columnId === "receivedQty" ? "Received Qty" :
+                                columnId === "location" ? "Location" :
+                                columnId === "taggedAsset" ? "Tagged Item" :
+                                columnId === "remarks" ? "Remarks" : columnId;
 
                               if (!isVisible) return null;
 
@@ -2914,7 +3157,7 @@ export default function TabbedDocumentCreator({
                                            columnId === "quantity" ? "8%" :
                                            columnId === "unitPrice" ? "10%" :
                                            columnId === "tax" ? "8%" :
-                                           columnId === "discount" ? "6%" :
+                                           columnId === "discount" ? "11%" :
                                            columnId === "amount" ? "10%" :
                                            columnId === "receivedQty" ? "10%" : "auto"
                                   }}
@@ -2939,8 +3182,17 @@ export default function TabbedDocumentCreator({
                           </TableRow>
                         </TableHead>
                         <TableBody>
-                          {items.map((item: any, index: number) => (
+                          {items.filter((it: any) => !it.isTagGroup).map((item: any, index: number) => (
                             <TableRow key={item.id}>
+                              {isItemTaggingEnabled && !isTemplateEditMode && (
+                                <TableCell sx={{ width: 40, p: 0, textAlign: 'center' }}>
+                                  <Checkbox
+                                    size="small"
+                                    checked={selectedItemIds.includes(item.id)}
+                                    onChange={() => toggleItemSelected(item.id)}
+                                  />
+                                </TableCell>
+                              )}
                               {/* Render cells based on configuration - exclude tax for invoices */}
                               {(() => {
                                 const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
@@ -2951,7 +3203,8 @@ export default function TabbedDocumentCreator({
                                 const isPurchaseReturnType = documentType === "PR" || documentType === "PURCHASE_RETURN";
                                 const isDeliveryOrderType = documentType === "DO" || documentType === "DELIVERY_ORDER" || documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER";
                                 const isCreditDebitNote = documentType === "CN" || documentType === "CREDIT_NOTE" || documentType === "DN" || documentType === "DEBIT_NOTE";
-                                const defaultColumns = isInvoiceType
+                                const configuredColumns = (existingData?.tableColumnOrder ?? existingData?.config?.tableColumnOrder) as string[] | undefined;
+                                const baseDefaultColumns = isInvoiceType
                                   ? ["item", "description", "quantity", "unitPrice", "amount"]
                                   : isStockAdjustmentIn || isPurchaseReturnType
                                   ? ["item", "description", "uom", "quantity", "unitPrice", "discount", "amount", "receivedQty"]
@@ -2960,6 +3213,9 @@ export default function TabbedDocumentCreator({
                                   : isDeliveryOrderType || isCreditDebitNote
                                   ? ["item", "description", "uom", "quantity", "unitPrice", "amount"]
                                   : ["item", "description", "quantity", "unitPrice", "tax", "amount"];
+                                const defaultColumns = (configuredColumns && configuredColumns.length > 0)
+                                  ? configuredColumns
+                                  : baseDefaultColumns;
                                 return (isTemplateEditMode ? templateWatch("tableColumnOrder") : defaultColumns).map((columnId: string) => {
                                   // Skip tax column for invoices
                                   if (isInvoiceType && columnId === "tax") return null;
@@ -3008,7 +3264,21 @@ export default function TabbedDocumentCreator({
                                             updateItem(item.id, "inventoryItemId", selectedInventory.id);
                                             updateItem(item.id, "itemCode", selectedInventory.sku);
                                             updateItem(item.id, "description", selectedInventory.name || selectedInventory.asset?.name || selectedInventory.description || "");
-                                            updateItem(item.id, "unitPrice", selectedInventory.unitPrice || selectedInventory.asset?.price || 0);
+                                            // Purchase docs (PO + PR) default to cost price. `unitPrice` may already be
+                                            // flattened to selling price (Products mode), so check costPrice first.
+                                            const isPurePurchaseTypeRow =
+                                              documentType === "PO" || documentType === "PURCHASE_ORDER" ||
+                                              documentType === "PR" || documentType === "PURCHASE_RETURN";
+                                            const sellingFallback = selectedInventory.unitPrice ?? selectedInventory.asset?.price ?? 0;
+                                            const costCandidate = selectedInventory.costPrice ?? selectedInventory.asset?.costPrice ?? null;
+                                            let resolvedPrice = isPurePurchaseTypeRow
+                                              ? (costCandidate ?? sellingFallback ?? 0)
+                                              : (sellingFallback ?? 0);
+                                            if (!isPurePurchaseTypeRow && isAssetPointsEnabled) {
+                                              const pts = Number(selectedInventory.asset?.points || 0);
+                                              if (pts > 0) resolvedPrice = Math.max(0, Number(resolvedPrice) - pts);
+                                            }
+                                            updateItem(item.id, "unitPrice", resolvedPrice);
                                             updateItem(item.id, "uom", selectedInventory.uom || selectedInventory.asset?.uom || "PCS");
 
                                             if (selectedInventory.assetId) {
@@ -3057,6 +3327,19 @@ export default function TabbedDocumentCreator({
                                     </TableCell>
                                   );
                                 } else if (columnId === "unitPrice") {
+                                  // Per-line tier picker — only on sales-side docs and only
+                                  // when the linked asset actually has custom prices defined.
+                                  const isPurePurchaseRow =
+                                    documentType === "PO" || documentType === "PURCHASE_ORDER" ||
+                                    documentType === "PR" || documentType === "PURCHASE_RETURN";
+                                  const linkedInv = item.inventoryItemId
+                                    ? inventoriesForDocument.find((inv: any) => inv.id === item.inventoryItemId)
+                                    : null;
+                                  const linkedCustomPrices = Array.isArray(linkedInv?.asset?.customPrices)
+                                    ? linkedInv.asset.customPrices
+                                    : [];
+                                  const tierPickerVisible = !isPurePurchaseRow && linkedCustomPrices.length > 0;
+
                                   return (
                                     <TableCell key={columnId} align="center">
                                       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
@@ -3067,6 +3350,20 @@ export default function TabbedDocumentCreator({
                                           size="small"
                                           sx={{ width: 100 }}
                                         />
+                                        {tierPickerVisible && (
+                                          <IconButton
+                                            size="small"
+                                            onClick={(e) => setTierMenu({ anchorEl: e.currentTarget, itemId: item.id })}
+                                            sx={{
+                                              padding: 0.5,
+                                              color: 'success.main',
+                                              '&:hover': { bgcolor: 'success.lighter' },
+                                            }}
+                                            title="Switch price tier"
+                                          >
+                                            <PriceTagIcon fontSize="small" />
+                                          </IconButton>
+                                        )}
                                         {item.itemCode && (
                                           <IconButton
                                             size="small"
@@ -3096,15 +3393,36 @@ export default function TabbedDocumentCreator({
                                     </TableCell>
                                   );
                                 } else if (columnId === "discount") {
+                                  const isAmountMode = item.discountType === "amount";
                                   return (
                                     <TableCell key={columnId} align="center">
-                                      <TextField
-                                        type="number"
-                                        value={item.discount || 0}
-                                        onChange={(e) => updateItem(item.id, "discount", parseFloat(e.target.value) || 0)}
-                                        size="small"
-                                        sx={{ width: 60 }}
-                                      />
+                                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0.25 }}>
+                                        <TextField
+                                          type="number"
+                                          value={item.discount || 0}
+                                          onChange={(e) => updateItem(item.id, "discount", parseFloat(e.target.value) || 0)}
+                                          size="small"
+                                          sx={{ width: 56 }}
+                                        />
+                                        <Tooltip title={isAmountMode ? "Discount by amount ($) — click to switch to %" : "Discount by percent (%) — click to switch to $"}>
+                                          <IconButton
+                                            size="small"
+                                            onClick={() => updateItem(item.id, "discountType", isAmountMode ? "percent" : "amount")}
+                                            sx={{
+                                              width: 24,
+                                              height: 24,
+                                              fontSize: "0.8rem",
+                                              fontWeight: 700,
+                                              border: "1px solid",
+                                              borderColor: "divider",
+                                              borderRadius: 1,
+                                              color: "primary.main",
+                                            }}
+                                          >
+                                            {isAmountMode ? "$" : "%"}
+                                          </IconButton>
+                                        </Tooltip>
+                                      </Box>
                                     </TableCell>
                                   );
                                 } else if (columnId === "receivedQty") {
@@ -3135,6 +3453,44 @@ export default function TabbedDocumentCreator({
                                   return (
                                     <TableCell key={columnId} align="right">
                                       {(item.amount || 0).toFixed(2)}
+                                    </TableCell>
+                                  );
+                                } else if (columnId === "taggedAsset") {
+                                  // Read-only display of the CU tagged onto this FCU row. The
+                                  // CU itself lives as a separate isTagGroup item with its own
+                                  // qty + price; the chip just references it. Untag → remove
+                                  // this row's tagGroupId; if no rows reference the group
+                                  // anymore, drop the group line item too.
+                                  return (
+                                    <TableCell key={columnId} align="center">
+                                      {item.taggedAssetCode ? (
+                                        <Chip
+                                          size="small"
+                                          label={item.taggedAssetCode}
+                                          onDelete={() => {
+                                            const droppedTagGroupId = item.tagGroupId;
+                                            setItems((prev: any[]) => {
+                                              const cleared = prev.map((it: any) =>
+                                                it.id === item.id
+                                                  ? { ...it, tagGroupId: "", taggedAssetId: "", taggedAssetCode: "", taggedAssetName: "" }
+                                                  : it,
+                                              );
+                                              // Prune the shared CU line if no FCU rows reference it anymore.
+                                              if (!droppedTagGroupId) return cleared;
+                                              const stillUsed = cleared.some(
+                                                (it: any) => !it.isTagGroup && it.tagGroupId === droppedTagGroupId,
+                                              );
+                                              if (stillUsed) return cleared;
+                                              return cleared.filter(
+                                                (it: any) => !(it.isTagGroup && it.tagGroupId === droppedTagGroupId),
+                                              );
+                                            });
+                                          }}
+                                          sx={{ maxWidth: "100%" }}
+                                        />
+                                      ) : (
+                                        <Typography variant="caption" color="text.disabled">—</Typography>
+                                      )}
                                     </TableCell>
                                   );
                                 } else {
@@ -3187,16 +3543,34 @@ export default function TabbedDocumentCreator({
                         </TableBody>
                       </Table>
                       </TableContainer>
-                      {/* Add Item / Add Service buttons */}
+
+                      {/* Add Item / Add Service / Tag Items buttons */}
                       <Box sx={{ pt: 1, pl: 1, display: "flex", gap: 1 }}>
                         <Button
                           variant="contained"
                           startIcon={<AddIcon />}
-                          onClick={() => setStockCardDialogOpen(true)}
+                          onClick={() => {
+                            setStockCardMode("add");
+                            setStockCardDialogOpen(true);
+                          }}
                           size="small"
                         >
                           Add Item
                         </Button>
+                        {isItemTaggingEnabled && selectedItemIds.length > 0 && (
+                          <Button
+                            variant="outlined"
+                            color="success"
+                            startIcon={<PriceTagIcon />}
+                            onClick={() => {
+                              setStockCardMode("tag");
+                              setStockCardDialogOpen(true);
+                            }}
+                            size="small"
+                          >
+                            Tag Items ({selectedItemIds.length})
+                          </Button>
+                        )}
                         {isServiceItemsEnabled && (
                           <Button
                             variant="outlined"
@@ -3403,6 +3777,12 @@ export default function TabbedDocumentCreator({
                   ...formData,
                   items: items,
                   logo: organization?.logo, // Pass the logo from organization
+                  // Forward the per-template column layout so the preview
+                  // renders the configured columns (e.g. FCU/CU Quotation).
+                  tableColumnOrder:
+                    (existingData as any)?.tableColumnOrder ?? existingData?.config?.tableColumnOrder,
+                  columnLabels:
+                    (existingData as any)?.columnLabels ?? existingData?.config?.columnLabels,
                 }}
                 organization={organization}
               />
@@ -3679,12 +4059,227 @@ export default function TabbedDocumentCreator({
         />
       )}
 
-      {/* Stock Card Dialog for item selection */}
+      {/* Per-line price tier menu — populated from the active row's asset.customPrices */}
+      <Menu
+        open={!!tierMenu}
+        anchorEl={tierMenu?.anchorEl}
+        onClose={() => setTierMenu(null)}
+      >
+        {(() => {
+          const activeItem = tierMenu ? items.find((it: any) => it.id === tierMenu.itemId) : null;
+          const linkedInv = activeItem?.inventoryItemId
+            ? inventoriesForDocument.find((inv: any) => inv.id === activeItem.inventoryItemId)
+            : null;
+          const sellingPrice = linkedInv?.asset?.price ?? linkedInv?.unitPrice ?? 0;
+          const tiers: { label: string; value: number }[] = [
+            { label: "Selling Price", value: Number(sellingPrice || 0) },
+            ...(Array.isArray(linkedInv?.asset?.customPrices) ? linkedInv.asset.customPrices : [])
+              .filter((cp: any) => cp && cp.label)
+              .map((cp: any) => ({ label: String(cp.label), value: Number(cp.value) || 0 })),
+          ];
+          return tiers.map((tier, idx) => (
+            <MenuItem
+              key={`${tier.label}-${idx}`}
+              onClick={() => {
+                if (activeItem) updateItem(activeItem.id, "unitPrice", tier.value);
+                setTierMenu(null);
+              }}
+            >
+              <Box sx={{ display: "flex", justifyContent: "space-between", width: 220 }}>
+                <Typography variant="body2">{tier.label}</Typography>
+                <Typography variant="body2" sx={{ ml: 2, fontWeight: 500 }}>
+                  ${tier.value.toFixed(2)}
+                </Typography>
+              </Box>
+            </MenuItem>
+          ));
+        })()}
+      </Menu>
+
+      {/* Tag CU confirmation dialog — opens after a CU is picked from the Stock
+          Card in tag mode. The CU is its own billed entity with its own qty
+          and price (independent of the FCU rows). On confirm we create one
+          tag-group line item (isTagGroup=true) and link each checked FCU row
+          to it via tagGroupId. */}
+      <Dialog
+        open={!!pendingTag}
+        onClose={() => setPendingTag(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Tag {pendingTag?.rows.length || 0} item(s) with {pendingTag?.asset?.sku || pendingTag?.asset?.asset?.skuKey || ""}</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Typography variant="caption" color="text.secondary">
+              {pendingTag?.asset?.name || pendingTag?.asset?.asset?.name || ""}
+            </Typography>
+            <TextField
+              label="CU Quantity"
+              type="number"
+              size="small"
+              value={pendingTag?.qty ?? 1}
+              onChange={(e) =>
+                setPendingTag((prev) => prev ? { ...prev, qty: parseFloat(e.target.value) || 0 } : prev)
+              }
+              inputProps={{ min: 0, step: 1 }}
+            />
+            <TextField
+              label="CU Unit Price"
+              type="number"
+              size="small"
+              value={pendingTag?.unitPrice ?? 0}
+              onChange={(e) =>
+                setPendingTag((prev) => prev ? { ...prev, unitPrice: parseFloat(e.target.value) || 0 } : prev)
+              }
+              inputProps={{ min: 0, step: "0.01" }}
+              helperText="Defaults to the CU's selling price"
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPendingTag(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              if (!pendingTag) return;
+              const picked = pendingTag.asset;
+              const taggedAssetId = picked.assetId || picked.asset?.id || picked.id || "";
+              const taggedAssetCode = picked.sku || picked.asset?.skuKey || "";
+              const taggedAssetName = picked.name || picked.asset?.name || picked.description || "";
+              const tagGroupId = `tg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+              const qty = Number(pendingTag.qty || 0);
+              const unitPrice = Number(pendingTag.unitPrice || 0);
+              const newTagGroupItem = {
+                id: Date.now(),
+                isTagGroup: true,
+                tagGroupId,
+                itemCode: taggedAssetCode,
+                inventoryItemId: taggedAssetId,
+                description: taggedAssetName,
+                quantity: qty,
+                unitPrice,
+                amount: qty * unitPrice,
+                taggedAssetId,
+                taggedAssetCode,
+                taggedAssetName,
+              };
+              const checkedIds = pendingTag.rows;
+              setItems((prev: any[]) => {
+                // Remove any existing tag groups orphaned by re-tagging these rows.
+                const oldTagGroupIds = prev
+                  .filter((it: any) => !it.isTagGroup && checkedIds.includes(it.id) && it.tagGroupId)
+                  .map((it: any) => it.tagGroupId);
+                const updatedFcus = prev.map((it: any) =>
+                  checkedIds.includes(it.id) && !it.isTagGroup
+                    ? { ...it, tagGroupId, taggedAssetId, taggedAssetCode, taggedAssetName }
+                    : it,
+                );
+                // After re-pointing, drop any tag groups no longer referenced.
+                const surviving = updatedFcus.filter((it: any) =>
+                  !(it.isTagGroup && oldTagGroupIds.includes(it.tagGroupId) &&
+                    !updatedFcus.some((row: any) => !row.isTagGroup && row.tagGroupId === it.tagGroupId)),
+                );
+                return [...surviving, newTagGroupItem];
+              });
+              setSelectedItemIds([]);
+              setPendingTag(null);
+            }}
+            disabled={!pendingTag || (pendingTag.qty || 0) <= 0}
+          >
+            Tag Items
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Convert Quotation Dialog — opens after a quotation is confirmed.
+          Lets the user spin off a PO / DO / Invoice with the quotation's items
+          pre-filled, or close the dialog and extract later via the existing
+          extract flows on the target doc. */}
+      <Dialog
+        open={convertQuotationDialogOpen}
+        onClose={() => !isConverting && setConvertQuotationDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Quotation Confirmed — Convert?</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            The quotation has been confirmed. Would you like to convert it into another document now?
+            The customer and line items will be copied into the new draft.
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            You can also do this later via the Extract button on a new PO / DO / Invoice.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, gap: 1 }}>
+          <Button
+            onClick={() => {
+              setConvertQuotationDialogOpen(false);
+              window.location.reload();
+            }}
+            disabled={isConverting}
+          >
+            Leave for now
+          </Button>
+          <Button
+            variant="outlined"
+            onClick={() => handleConvertQuotation("PO")}
+            disabled={isConverting}
+          >
+            Convert to PO
+          </Button>
+          <Button
+            variant="outlined"
+            onClick={() => handleConvertQuotation("DO")}
+            disabled={isConverting}
+          >
+            Convert to DO
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => handleConvertQuotation("INVOICE")}
+            disabled={isConverting}
+          >
+            Convert to Invoice
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Stock Card Dialog for item selection. In "tag" mode the dialog re-uses
+          the same picker but writes the chosen asset onto every checked row
+          rather than appending a new line. */}
       <StockCardDialog
         open={stockCardDialogOpen}
-        onClose={() => setStockCardDialogOpen(false)}
-        onSelectItem={handleStockCardItemSelect}
+        onClose={() => {
+          setStockCardDialogOpen(false);
+          setStockCardMode("add");
+        }}
+        onSelectItem={(picked: any) => {
+          if (stockCardMode === "tag") {
+            // Don't commit yet — open the pending-tag dialog so the user can
+            // set the CU's own qty + price before the tag group is created.
+            const defaultPrice = Number(
+              picked.unitPrice ?? picked.asset?.price ?? picked.price ?? 0,
+            );
+            setPendingTag({
+              asset: picked,
+              rows: [...selectedItemIds],
+              qty: 1,
+              unitPrice: defaultPrice,
+            });
+            setStockCardMode("add");
+            setStockCardDialogOpen(false);
+            return;
+          }
+          handleStockCardItemSelect(picked);
+        }}
         inventoryItems={inventoriesForDocument}
+        priceMode={
+          documentType === "PO" || documentType === "PURCHASE_ORDER" ||
+          documentType === "PR" || documentType === "PURCHASE_RETURN"
+            ? "cost"
+            : "selling"
+        }
       />
 
       {/* Locate Document Dialog */}

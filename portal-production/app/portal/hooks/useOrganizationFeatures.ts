@@ -13,6 +13,9 @@ interface OrganizationFeatures {
   enableFieldScanApp?: boolean;
   enableDocumentListView?: boolean;
   enablePOAsProject?: boolean;
+  enableAssetPoints?: boolean;
+  enableItemTagging?: boolean;
+  enableConfirmQuotation?: boolean;
   [key: string]: boolean | undefined;
 }
 
@@ -75,5 +78,8 @@ export function useOrganizationFeatures() {
     isFieldScanAppEnabled: features.enableFieldScanApp ?? false,
     isDocumentListViewEnabled: features.enableDocumentListView ?? false,
     isPOAsProjectEnabled: features.enablePOAsProject ?? false,
+    isAssetPointsEnabled: features.enableAssetPoints ?? false,
+    isItemTaggingEnabled: features.enableItemTagging ?? false,
+    isConfirmQuotationEnabled: features.enableConfirmQuotation ?? false,
   };
 }

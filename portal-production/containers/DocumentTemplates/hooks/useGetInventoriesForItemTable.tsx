@@ -88,6 +88,9 @@ export const useGetInventoriesForItemTable = () => {
       quantity: asset.quantity ?? asset.stockCount ?? 0,
       minQuantity: asset.minQuantity,
       unitPrice: asset.price,
+      // Surface costPrice both at the top level (for StockCardDialog display)
+      // and inside the asset sub-object (for the picker's per-doc-type pricing).
+      costPrice: asset.costPrice,
       uom: asset.uom || "PCS",
       status: asset.quantity > 0 ? "available" : "out_of_stock",
       assetId: asset.id,
@@ -97,6 +100,10 @@ export const useGetInventoriesForItemTable = () => {
         description: asset.description,
         category: asset.category,
         uom: asset.uom || "PCS",
+        price: asset.price,
+        costPrice: asset.costPrice,
+        customPrices: asset.customPrices,
+        points: asset.points,
       },
     }));
   }, [organizationId, getToken]);

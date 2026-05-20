@@ -138,11 +138,18 @@ export class AssetsService {
 
   async createAssets(createAssetDto: CreateAssetDto, userOrganizationId: string) {
     try {
+      // Split customPrices out so we can hand it to Prisma as a Json value
+      // (CustomPriceDto[] doesn't structurally match `InputJsonValue` and
+      // collapses the XOR union, masking the real fields with FK errors).
+      const { customPrices, ...rest } = createAssetDto;
       const asset = await this.prisma.asset.create({
         data: {
-          ...createAssetDto,
+          ...rest,
           uom: createAssetDto.uom || 'PCS',
           organizationId: userOrganizationId, // Automatically set user's organization
+          ...(customPrices !== undefined
+            ? { customPrices: customPrices as unknown as Prisma.InputJsonValue }
+            : {}),
         },
       });
 
@@ -180,7 +187,7 @@ export class AssetsService {
 
   async updateAssets(updateAssetDto: UpdateAssetDto, userOrganizationId: string) {
     try {
-      const { id, ...updateData } = updateAssetDto;
+      const { id, customPrices, ...updateData } = updateAssetDto;
 
       if (!id) {
         throw new HttpException('Asset ID is required', HttpStatus.BAD_REQUEST);
@@ -191,7 +198,12 @@ export class AssetsService {
           id,
           organizationId: userOrganizationId, // Ensure user can only update their organization's assets
         },
-        data: updateData,
+        data: {
+          ...updateData,
+          ...(customPrices !== undefined
+            ? { customPrices: customPrices as unknown as Prisma.InputJsonValue }
+            : {}),
+        },
       });
 
       return asset;

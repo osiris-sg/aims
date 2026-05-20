@@ -35,7 +35,6 @@ export default function AddAssetPage() {
     <FormProvider {...methods}>
       <Box
         sx={{
-          height: "100%",
           display: "flex",
           flexDirection: "column",
           gap: "var(--double-gap)",
@@ -43,6 +42,7 @@ export default function AddAssetPage() {
           mx: "auto",
           px: 3,
           pt: 8,
+          pb: 4,
         }}
       >
         <Stack direction="row" spacing="var(--default-gap)" alignItems="center">
@@ -55,7 +55,6 @@ export default function AddAssetPage() {
 
         <Box
           sx={{
-            height: "100%",
             display: "flex",
             flexDirection: "column",
             gap: "2rem",
@@ -111,9 +110,9 @@ export default function AddAssetPage() {
                 const result = handleSubmit(onSubmit)(e);
                 console.log("handleSubmit result:", result);
               }}
-              style={{ height: "100%", display: "flex", flexDirection: "column" }}
+              style={{ display: "flex", flexDirection: "column" }}
             >
-              <div style={{ flex: 1 }}>
+              <div>
                 {activeStep === 0 && <AssetCreation />}
                 {activeStep === 1 && <AdditionalDetails />}
                 {activeStep === 2 && <LastStep />}
@@ -123,8 +122,8 @@ export default function AddAssetPage() {
                 direction="row"
                 sx={{
                   justifyContent: "space-between",
-                  py: "var(--quarter-gap)",
-                  mt: "auto",
+                  pt: 3,
+                  pb: 1,
                 }}
               >
                 {activeStep === 0 && (

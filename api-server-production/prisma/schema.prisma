@@ -40,6 +40,7 @@ model Organization {
   payments           Payment[]
   transactions       Transaction[]
   customerBalances   CustomerBalance[]
+  orders             Order[]
   quantityAdjustments QuantityAdjustment[]
   importInvoices     ImportInvoice[]
   chartOfAccounts    ChartOfAccount[]
@@ -59,7 +60,10 @@ model Asset {
   updatedAt       DateTime           @updatedAt
   deletedAt       DateTime?          @db.Timestamptz(6)
   organizationId  String?
-  price           Float?
+  price           Float?             // Legacy: treated as the selling price for backwards compatibility
+  costPrice       Float?             // What we pay to acquire/produce one unit (for margin tracking)
+  customPrices    Json?              // Optional [{ label: string, value: number }] — e.g. Listing Price, Dealer Price
+  points          Float?             // Asset-level discount (1 point = $1). Gated by enableAssetPoints flag.
   parentAssetId   String?            @db.Uuid
   // Unit of Measure (e.g., PCS, EA, SET, BOX, KG, etc.)
   uom             String             @default("PCS")
@@ -132,6 +136,7 @@ model Customer {
   transactions   Transaction[]
   customerBalance CustomerBalance? @relation("CustomerToBalance")
   projects       Project[]    @relation("CustomerProjects")
+  orders         Order[]      @relation("CustomerOrders")
 
   @@unique([email, organizationId])
   @@unique([id, organizationId])
@@ -236,6 +241,7 @@ model Document {
   transactions       Transaction[]  // Financial transactions from this document
   documentItems      DocumentItem[] // Junction table for efficient item queries
   assignments        Assignment[]   // Source-of-truth link for assignments produced from this document
+  orderSources       Order[]        @relation("OrderSourceQuotation") // Orders auto-created when this quotation was confirmed
 
   // Self-relation for revisions: base document -> many revisions
   baseDocument       Document?      @relation("DocumentRevisions", fields: [baseDocumentId], references: [id])
@@ -550,6 +556,32 @@ model XeroConnection {
 }
 
 // Module configuration per organization
+// Orders — auto-created when a quotation is confirmed. Acts as the parent
+// container from which POs / DOs / Invoices can be spun off for the items.
+// Status is intentionally a free-form string for v1 (no auto-advance).
+model Order {
+  id                String       @id @default(uuid()) @db.Uuid
+  orderNumber       String       // e.g. ORD202605-001
+  organizationId    String
+  customerId        String?      @db.Uuid
+  sourceQuotationId String?      @db.Uuid  // Document.id of the originating quotation
+  status            String       @default("DRAFT") // DRAFT / IN_PROGRESS / COMPLETED / CANCELLED (free-form)
+  items             Json         // Snapshot at order-creation time: [{ itemCode, description, quantity, unitPrice, costPrice?, taggedAssetCode?, ... }]
+  linkedDocuments   Json?        // { po: [{id,name}], do: [{id,name}], invoice: [{id,name}] }
+  notes             String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  organization      Organization @relation(fields: [organizationId], references: [id])
+  customer          Customer?    @relation("CustomerOrders", fields: [customerId], references: [id])
+  sourceQuotation   Document?    @relation("OrderSourceQuotation", fields: [sourceQuotationId], references: [id])
+
+  @@unique([orderNumber, organizationId])
+  @@index([organizationId, status])
+  @@index([customerId])
+  @@index([sourceQuotationId])
+}
+
 model OrganizationModule {
   id             String       @id @default(uuid())
   organizationId String

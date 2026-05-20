@@ -1,6 +1,7 @@
 import { PartialType } from '@nestjs/mapped-types';
-import { CreateAssetDto, UOM_OPTIONS } from './create-asset.dto';
-import { IsNotEmpty, IsString, IsOptional, IsUUID, IsBoolean, IsInt, IsNumber, Min, IsIn } from 'class-validator';
+import { CreateAssetDto, CustomPriceDto, UOM_OPTIONS } from './create-asset.dto';
+import { IsNotEmpty, IsString, IsOptional, IsUUID, IsBoolean, IsInt, IsNumber, Min, IsIn, IsArray, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class UpdateAssetDto extends PartialType(CreateAssetDto) {
   @IsUUID()
@@ -37,11 +38,27 @@ export class UpdateAssetDto extends PartialType(CreateAssetDto) {
   @IsIn(UOM_OPTIONS)
   uom?: string;
 
-  // Unit price
+  // Legacy unit price — selling price.
   @IsNumber()
   @IsOptional()
   @Min(0)
   price?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  costPrice?: number;
+
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => CustomPriceDto)
+  customPrices?: CustomPriceDto[];
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  points?: number;
 
   // Tracking mode toggle
   @IsBoolean()
