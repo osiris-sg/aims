@@ -8,6 +8,8 @@ import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
+import { useGeolocation } from "../../../../../hooks/useGeolocation";
+import { GeoStatus } from "../../delivery-start/page";
 
 interface UploadedPhoto {
   key: string;
@@ -15,9 +17,11 @@ interface UploadedPhoto {
 }
 
 /**
- * DO acknowledgement: technician/driver confirms delivery on-site.
- * For v1 we record this as a MaintenanceServiceReport with a "DO ack" prefix
- * and the DO id in the description, so we don't need a separate model. The
+ * Acknowledge Delivery — second step of the two-step delivery flow. Enabled
+ * only when a DO_START MSR exists for this DO and no DO_ACK has been
+ * submitted yet (see canAckDelivery in getScanContext).
+ *
+ * For v1 we record this as a MaintenanceServiceReport with kind=DO_ACK and a
  * backend stores it against the asset and the existing report list shows it.
  */
 export default function DeliveryOrderAckPage() {
@@ -56,16 +60,31 @@ export default function DeliveryOrderAckPage() {
     setPhotos((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const geo = useGeolocation();
+
   const continueToSign = async () => {
     setError(null);
     setSubmitting(true);
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const description = `DO Acknowledgement (DO ${doId})${notes.trim() ? ` — ${notes.trim()}` : ""}`;
+      // Description now holds just the technician's notes; the activity kind
+      // is discriminated by MSR.kind = DO_ACK rather than a description prefix.
+      // Fallback string when no notes are entered so the row isn't blank in
+      // the office-side Field Reports view.
+      const description = notes.trim() || "Delivery acknowledged";
       const res = await request(
         { path: "/maintenance-reports", method: "POST" },
-        { assetId, description, photos: photos.map((p) => p.key) },
+        {
+          assetId,
+          description,
+          photos: photos.map((p) => p.key),
+          kind: "DO_ACK",
+          documentId: doId,
+          ...(geo.coords
+            ? { latitude: geo.coords.latitude, longitude: geo.coords.longitude }
+            : {}),
+        },
         token,
       );
       const reportId = res.data?.id ?? res.id;
@@ -80,8 +99,10 @@ export default function DeliveryOrderAckPage() {
 
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 3 }}>
-      <Typography variant="h6" fontWeight={700}>Acknowledge Delivery Order</Typography>
+      <Typography variant="h6" fontWeight={700}>Acknowledge Delivery</Typography>
       <Typography variant="body2" color="text.secondary">DO {doId}</Typography>
+
+      <GeoStatus geo={geo} />
 
       <TextField
         label="Notes (optional)"

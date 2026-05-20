@@ -57,6 +57,20 @@ export class MaintenanceReportsController {
   }
 
   /**
+   * Every field-tech report (service + DO start + DO ack) for any asset
+   * associated with the given project. Asset membership is resolved through
+   * both Assignments AND DocumentItems — see service.listByProject for why.
+   */
+  @Get('project/:projectId')
+  @Permissions('maintenance-reports:read')
+  listByProject(
+    @Param('projectId') projectId: string,
+    @UserOrganization() org: { id: string },
+  ) {
+    return this.service.listByProject(projectId, org.id);
+  }
+
+  /**
    * Single round-trip after an NFC scan: returns asset + latest DO + recent reports.
    */
   @Get('scan-context/:assetId')

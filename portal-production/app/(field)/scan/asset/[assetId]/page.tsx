@@ -6,11 +6,15 @@ import { useAuth } from "@clerk/nextjs";
 import { Avatar, Box, Button, Card, CardActionArea, CardContent, CircularProgress, Stack, Typography, Alert } from "@mui/material";
 import BuildIcon from "@mui/icons-material/Build";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
+import AddBoxIcon from "@mui/icons-material/AddBox";
 import { request } from "@/helpers/request";
 
 interface ScanContext {
   asset: { id: string; name: string; skuKey: string; image?: string | null; description?: string | null };
   latestDeliveryOrder: { id: string; name?: string | null; createdAt: string; status: string } | null;
+  canStartDelivery: boolean;
+  canAckDelivery: boolean;
+  activeDeliveryStart: { id: string; createdAt: string; technicianName: string | null } | null;
   recentServiceReports: Array<{ id: string; createdAt: string; status: string }>;
 }
 
@@ -93,21 +97,53 @@ export default function AssetActionChooser() {
 
       <Card variant="outlined">
         <CardActionArea
-          onClick={() => latestDeliveryOrder && router.push(`/scan/asset/${assetId}/do/${latestDeliveryOrder.id}`)}
-          disabled={!latestDeliveryOrder}
+          onClick={() => data.canStartDelivery && router.push(`/scan/asset/${assetId}/delivery-start`)}
+          disabled={!data.canStartDelivery}
         >
           <CardContent sx={{ display: "flex", gap: 2, alignItems: "center" }}>
-            <LocalShippingIcon color={latestDeliveryOrder ? "primary" : "disabled"} sx={{ fontSize: 40 }} />
+            <AddBoxIcon color={data.canStartDelivery ? "primary" : "disabled"} sx={{ fontSize: 40 }} />
             <Box>
               <Typography variant="subtitle1" fontWeight={600}>
-                Acknowledge latest Delivery Order
+                Start Delivery
               </Typography>
-              {latestDeliveryOrder ? (
+              {!latestDeliveryOrder ? (
+                <Typography variant="body2" color="text.secondary">No open DO for this asset</Typography>
+              ) : data.canStartDelivery ? (
                 <Typography variant="body2" color="text.secondary">
                   {latestDeliveryOrder.name ?? latestDeliveryOrder.id} · {new Date(latestDeliveryOrder.createdAt).toLocaleDateString()}
                 </Typography>
               ) : (
-                <Typography variant="body2" color="text.secondary">No DO on file for this asset</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Already started{data.activeDeliveryStart?.technicianName ? ` by ${data.activeDeliveryStart.technicianName}` : ""}
+                </Typography>
+              )}
+            </Box>
+          </CardContent>
+        </CardActionArea>
+      </Card>
+
+      <Card variant="outlined">
+        <CardActionArea
+          onClick={() => data.canAckDelivery && latestDeliveryOrder && router.push(`/scan/asset/${assetId}/do/${latestDeliveryOrder.id}`)}
+          disabled={!data.canAckDelivery}
+        >
+          <CardContent sx={{ display: "flex", gap: 2, alignItems: "center" }}>
+            <LocalShippingIcon color={data.canAckDelivery ? "primary" : "disabled"} sx={{ fontSize: 40 }} />
+            <Box>
+              <Typography variant="subtitle1" fontWeight={600}>
+                Acknowledge Delivery
+              </Typography>
+              {!latestDeliveryOrder ? (
+                <Typography variant="body2" color="text.secondary">No open DO for this asset</Typography>
+              ) : data.canAckDelivery ? (
+                <Typography variant="body2" color="text.secondary">
+                  {latestDeliveryOrder.name ?? latestDeliveryOrder.id}
+                  {data.activeDeliveryStart ? ` · started ${new Date(data.activeDeliveryStart.createdAt).toLocaleDateString()}` : ""}
+                </Typography>
+              ) : data.canStartDelivery ? (
+                <Typography variant="body2" color="text.secondary">Delivery not started yet</Typography>
+              ) : (
+                <Typography variant="body2" color="text.secondary">Delivery already acknowledged</Typography>
               )}
             </Box>
           </CardContent>
@@ -120,7 +156,7 @@ export default function AssetActionChooser() {
             <BuildIcon color="primary" sx={{ fontSize: 40 }} />
             <Box>
               <Typography variant="subtitle1" fontWeight={600}>
-                Maintenance service report
+                Maintenance Service Report
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 Capture photos and customer signature for work performed

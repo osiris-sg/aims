@@ -120,6 +120,58 @@ interface ProjectDetail {
   };
 }
 
+type FieldReportKind = "SERVICE" | "DO_START" | "DO_ACK";
+
+interface FieldReport {
+  id: string;
+  kind: FieldReportKind;
+  description: string;
+  status: "draft" | "completed";
+  createdAt: string;
+  technicianUserId: string;
+  technicianName: string | null;
+  signedByName: string | null;
+  signedAt: string | null;
+  photos: string[];
+  signature: string | null;
+  documentId: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  locationLabel: string | null;
+  asset: { id: string; name: string; skuKey: string; image: string | null } | null;
+}
+
+const RESOURCE_URL =
+  process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/";
+
+// Photo keys may already be data URLs or full URLs — render those as-is and
+// only prefix the S3 base for bare keys.
+const resolveImageSrc = (keyOrUrl: string) => {
+  if (!keyOrUrl) return "";
+  if (keyOrUrl.startsWith("data:") || keyOrUrl.startsWith("http://") || keyOrUrl.startsWith("https://")) {
+    return keyOrUrl;
+  }
+  return `${RESOURCE_URL}${keyOrUrl}`;
+};
+
+const FIELD_REPORT_KIND_LABEL: Record<FieldReportKind, string> = {
+  SERVICE: "Service",
+  DO_START: "Delivery Started",
+  DO_ACK: "Delivery Acknowledged",
+};
+
+const FIELD_REPORT_KIND_COLOR: Record<FieldReportKind, "default" | "primary" | "info" | "success" | "warning"> = {
+  SERVICE: "primary",
+  DO_START: "info",
+  DO_ACK: "success",
+};
+
+const formatCoordsForDisplay = (lat: number, lng: number) => {
+  const la = `${Math.abs(lat).toFixed(4)}° ${lat >= 0 ? "N" : "S"}`;
+  const ln = `${Math.abs(lng).toFixed(4)}° ${lng >= 0 ? "E" : "W"}`;
+  return `${la}, ${ln}`;
+};
+
 const fmtMoney = (n: number, ccy = "SGD") =>
   `${ccy} ${(n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -156,6 +208,9 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
   const [addOpen, setAddOpen] = useState(false);
   const [attachOpenFor, setAttachOpenFor] = useState<string | null>(null);
   const [previewDocId, setPreviewDocId] = useState<string | null>(null);
+  const [fieldReports, setFieldReports] = useState<FieldReport[] | null>(null);
+  const [fieldReportsLoading, setFieldReportsLoading] = useState(false);
+  const [photoDialogSrc, setPhotoDialogSrc] = useState<string | null>(null);
 
   const fetchProject = useCallback(async () => {
     if (!params?.id) return;
@@ -177,6 +232,42 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
   useEffect(() => {
     fetchProject();
   }, [fetchProject]);
+
+  // Lazy-load field reports the first time the user opens that tab. Refetches
+  // when the project id changes (i.e. navigating to a different project).
+  useEffect(() => {
+    if (tab !== 4 || fieldReports !== null) return;
+    if (!params?.id) return;
+    let cancelled = false;
+    (async () => {
+      setFieldReportsLoading(true);
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request(
+          { path: `/maintenance-reports/project/${params.id}`, method: "GET" },
+          {},
+          token,
+        );
+        if (cancelled) return;
+        if (res.success) setFieldReports(res.data?.reports ?? []);
+        else toast.error(res.message ?? "Failed to load field reports");
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) toast.error("Failed to load field reports");
+      } finally {
+        if (!cancelled) setFieldReportsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, params?.id, getToken, fieldReports]);
+
+  // Reset cached reports whenever the project id changes so a fresh fetch fires.
+  useEffect(() => {
+    setFieldReports(null);
+  }, [params?.id]);
 
   // Active on Site: only ACTIVE deployments AND not service-only.
   // Off-hired/completed/cancelled live in the Past Deployments tab; service-only
@@ -302,6 +393,7 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
             <Tab label={`Past Deployments (${past.length})`} />
             <Tab label={`Sales & Services (${project.standaloneDocs.length + serviceOnlyDeployments.length})`} />
             <Tab label={`All Invoices (${project.allInvoices.length})`} />
+            <Tab label={fieldReports === null ? "Field Reports" : `Field Reports (${fieldReports.length})`} />
           </Tabs>
           {tab === 0 && (
             <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => setAddOpen(true)}>
@@ -412,6 +504,17 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
           </Box>
         )}
 
+        {/* Tab 4: Field Reports — service reports + DO starts + DO acks
+            captured by techs in the NFC scan PWA. Lazy-fetched on first
+            visit via the useEffect above. */}
+        {tab === 4 && (
+          <FieldReportsList
+            reports={fieldReports}
+            loading={fieldReportsLoading}
+            onPhotoClick={setPhotoDialogSrc}
+          />
+        )}
+
         {/* Tab 3: All Invoices */}
         {tab === 3 && (
           <Table
@@ -466,8 +569,194 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
           open={!!previewDocId}
           onClose={() => setPreviewDocId(null)}
         />
+
+        <PhotoViewerDialog
+          src={photoDialogSrc}
+          open={!!photoDialogSrc}
+          onClose={() => setPhotoDialogSrc(null)}
+        />
       </Box>
     </MainCard>
+  );
+}
+
+function FieldReportsList({
+  reports,
+  loading,
+  onPhotoClick,
+}: {
+  reports: FieldReport[] | null;
+  loading: boolean;
+  onPhotoClick: (src: string) => void;
+}) {
+  if (loading || reports === null) {
+    return (
+      <Box sx={{ p: 6, display: "flex", justifyContent: "center" }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+  if (reports.length === 0) {
+    return (
+      <Box sx={{ p: 6, textAlign: "center", color: "text.secondary" }}>
+        <Typography variant="body2">No field reports for this project yet.</Typography>
+        <Typography variant="caption" color="text.secondary">
+          Reports captured by techs via the NFC scan app will appear here.
+        </Typography>
+      </Box>
+    );
+  }
+  return (
+    <Stack spacing={1.5}>
+      {reports.map((r) => (
+        <FieldReportCard key={r.id} report={r} onPhotoClick={onPhotoClick} />
+      ))}
+    </Stack>
+  );
+}
+
+function FieldReportCard({
+  report,
+  onPhotoClick,
+}: {
+  report: FieldReport;
+  onPhotoClick: (src: string) => void;
+}) {
+  const kindLabel = FIELD_REPORT_KIND_LABEL[report.kind] ?? report.kind;
+  const kindColor = FIELD_REPORT_KIND_COLOR[report.kind] ?? "default";
+  const sigSrc = report.signature ? resolveImageSrc(report.signature) : null;
+
+  return (
+    <Box sx={{ p: 2, border: 1, borderColor: "divider", borderRadius: 2, bgcolor: "background.paper" }}>
+      <Stack direction="row" gap={1.5} alignItems="center" flexWrap="wrap" sx={{ mb: 1 }}>
+        <Chip size="small" label={kindLabel} color={kindColor} />
+        <Typography variant="caption" color="text.secondary">
+          {fmtDate(report.createdAt)}
+        </Typography>
+        {report.asset && (
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+            {report.asset.name} <Typography component="span" variant="caption" color="text.secondary">({report.asset.skuKey})</Typography>
+          </Typography>
+        )}
+        <Box sx={{ flexGrow: 1 }} />
+        <Chip size="small" variant="outlined" label={report.status} />
+      </Stack>
+
+      <Stack direction="row" gap={3} flexWrap="wrap" sx={{ color: "text.secondary", mb: 1 }}>
+        <Typography variant="caption">
+          <strong>Tech:</strong> {report.technicianName ?? report.technicianUserId ?? "—"}
+        </Typography>
+        {report.signedByName && (
+          <Typography variant="caption">
+            <strong>Signed by:</strong> {report.signedByName}
+            {report.signedAt ? ` · ${fmtDate(report.signedAt)}` : ""}
+          </Typography>
+        )}
+        {report.latitude !== null && report.longitude !== null && (
+          <Typography variant="caption">
+            <strong>Location:</strong>{" "}
+            <a
+              href={`https://www.google.com/maps?q=${report.latitude},${report.longitude}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "inherit", textDecoration: "underline" }}
+            >
+              {formatCoordsForDisplay(report.latitude, report.longitude)}
+            </a>
+            {report.locationLabel ? (
+              <Typography component="span" variant="caption" sx={{ ml: 0.5, opacity: 0.7 }}>
+                ({report.locationLabel})
+              </Typography>
+            ) : null}
+          </Typography>
+        )}
+      </Stack>
+
+      <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", mb: report.photos.length || sigSrc ? 1.5 : 0 }}>
+        {report.description || "—"}
+      </Typography>
+
+      {report.photos.length > 0 && (
+        <Box sx={{ mb: sigSrc ? 1.5 : 0 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+            Photos ({report.photos.length})
+          </Typography>
+          <Stack direction="row" gap={1} flexWrap="wrap">
+            {report.photos.map((p) => {
+              const src = resolveImageSrc(p);
+              return (
+                <Box
+                  key={p}
+                  onClick={() => onPhotoClick(src)}
+                  sx={{
+                    width: 96,
+                    height: 96,
+                    borderRadius: 1,
+                    overflow: "hidden",
+                    cursor: "pointer",
+                    border: 1,
+                    borderColor: "divider",
+                    "&:hover": { borderColor: "primary.main" },
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                </Box>
+              );
+            })}
+          </Stack>
+        </Box>
+      )}
+
+      {sigSrc && (
+        <Box>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+            Signature
+          </Typography>
+          <Box
+            sx={{
+              display: "inline-block",
+              p: 0.5,
+              border: 1,
+              borderColor: "divider",
+              borderRadius: 1,
+              bgcolor: "background.paper",
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={sigSrc} alt="Signature" style={{ maxHeight: 80, display: "block" }} />
+          </Box>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+function PhotoViewerDialog({
+  src,
+  open,
+  onClose,
+}: {
+  src: string | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md" fullScreen={fullScreen}>
+      <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", py: 1 }}>
+        <IconButton onClick={onClose} size="small" aria-label="close">
+          <CloseIcon />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent sx={{ display: "flex", justifyContent: "center", bgcolor: "surfaceTones.low" }}>
+        {src && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={src} alt="" style={{ maxWidth: "100%", maxHeight: "80vh", objectFit: "contain" }} />
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

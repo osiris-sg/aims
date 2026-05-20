@@ -23,6 +23,16 @@ export class MaintenanceReportsService {
         technicianName: dto.technicianName,
         description: dto.description,
         photos: dto.photos ?? [],
+        // Defaults to SERVICE in the schema; explicit pass-through for DO_START
+        // and DO_ACK from the field PWA action cards.
+        ...(dto.kind ? { kind: dto.kind } : {}),
+        // FK to the Document being delivered (DO_START / DO_ACK). Null for SERVICE.
+        ...(dto.documentId ? { documentId: dto.documentId } : {}),
+        // Geolocation captured at submission. Submission proceeds even if these
+        // are absent (browser denial / no signal); just write null.
+        ...(typeof dto.latitude === 'number' ? { latitude: dto.latitude } : {}),
+        ...(typeof dto.longitude === 'number' ? { longitude: dto.longitude } : {}),
+        ...(dto.locationLabel ? { locationLabel: dto.locationLabel } : {}),
       },
     });
   }
@@ -65,8 +75,70 @@ export class MaintenanceReportsService {
   }
 
   /**
+   * Returns every MaintenanceServiceReport for any asset associated with this
+   * project. Asset membership is resolved via the union of two paths:
+   *   A. Assignment.assetId where Assignment.projectId = projectId
+   *   B. DocumentItem.itemId (itemType=ASSET) where Document.projectId = projectId
+   *
+   * Path B is critical for orgs that imported their projects via the document
+   * route (e.g. Biofuel, where 0/213 projects have Assignment rows but every
+   * project has Documents whose items reference the assets). Path A covers
+   * manually created projects + future imports that populate Assignments.
+   */
+  async listByProject(projectId: string, organizationId: string) {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, organizationId },
+      select: { id: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+
+    const [assignmentAssets, docItemAssets] = await Promise.all([
+      this.prisma.assignment.findMany({
+        where: { projectId, assetId: { not: null } },
+        select: { assetId: true },
+      }),
+      this.prisma.documentItem.findMany({
+        where: {
+          itemType: 'ASSET',
+          document: { projectId, organizationId },
+        },
+        select: { itemId: true },
+      }),
+    ]);
+
+    const assetIds = Array.from(
+      new Set([
+        ...assignmentAssets.map((a) => a.assetId!).filter(Boolean),
+        ...docItemAssets.map((d) => d.itemId).filter(Boolean),
+      ]),
+    );
+
+    if (assetIds.length === 0) return { reports: [] };
+
+    const reports = await this.prisma.maintenanceServiceReport.findMany({
+      where: { assetId: { in: assetIds }, organizationId },
+      include: {
+        asset: { select: { id: true, name: true, skuKey: true, image: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return { reports };
+  }
+
+  /**
    * Bundle everything the field-scan PWA needs for an asset in one call:
-   * asset details, latest delivery order, and recent service reports.
+   * asset details, latest DO, gating booleans for the action chooser, and
+   * recent reports.
+   *
+   * Two-step delivery flow gating:
+   *   canStartDelivery  = a DO exists AND no DO_START MSR is linked to it yet.
+   *   canAckDelivery    = a DO_START MSR exists for the DO AND no DO_ACK yet.
+   *
+   * Linkage is via MaintenanceServiceReport.documentId — added so that an
+   * asset with multiple DOs over time can have unambiguous delivery state per
+   * DO. Historic DO_ACK rows with null documentId are intentionally ignored
+   * by this gating (they're audit trail only).
    */
   async getScanContext(assetId: string, organizationId: string) {
     const asset = await this.prisma.asset.findFirst({
@@ -84,6 +156,44 @@ export class MaintenanceReportsService {
       orderBy: { document: { createdAt: 'desc' } },
       include: { document: true },
     });
+    const latestDeliveryOrder = latestDoItem?.document ?? null;
+
+    let canStartDelivery = false;
+    let canAckDelivery = false;
+    let activeDeliveryStart: {
+      id: string;
+      createdAt: Date;
+      technicianName: string | null;
+    } | null = null;
+
+    if (latestDeliveryOrder) {
+      const startMsr = await this.prisma.maintenanceServiceReport.findFirst({
+        where: {
+          documentId: latestDeliveryOrder.id,
+          kind: 'DO_START',
+          organizationId,
+        },
+        select: { id: true, createdAt: true, technicianName: true },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (!startMsr) {
+        // DO exists, never started. Start enabled, Ack disabled.
+        canStartDelivery = true;
+      } else {
+        // DO started — Ack enabled iff no matching DO_ACK yet.
+        const ackMsr = await this.prisma.maintenanceServiceReport.findFirst({
+          where: {
+            documentId: latestDeliveryOrder.id,
+            kind: 'DO_ACK',
+            organizationId,
+          },
+          select: { id: true },
+        });
+        activeDeliveryStart = ackMsr ? null : startMsr;
+        canAckDelivery = !ackMsr;
+      }
+    }
 
     const recentReports = await this.prisma.maintenanceServiceReport.findMany({
       where: { assetId, organizationId },
@@ -93,7 +203,10 @@ export class MaintenanceReportsService {
 
     return {
       asset,
-      latestDeliveryOrder: latestDoItem?.document ?? null,
+      latestDeliveryOrder,
+      canStartDelivery,
+      canAckDelivery,
+      activeDeliveryStart,
       recentServiceReports: recentReports,
     };
   }

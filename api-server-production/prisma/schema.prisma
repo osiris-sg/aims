@@ -241,6 +241,7 @@ model Document {
   transactions       Transaction[]  // Financial transactions from this document
   documentItems      DocumentItem[] // Junction table for efficient item queries
   assignments        Assignment[]   // Source-of-truth link for assignments produced from this document
+  maintenanceReports MaintenanceServiceReport[]    // Field-side reports (DO_START / DO_ACK) linked to this document
   orderSources       Order[]        @relation("OrderSourceQuotation") // Orders auto-created when this quotation was confirmed
 
   // Self-relation for revisions: base document -> many revisions
@@ -1003,6 +1004,25 @@ model MaintenanceServiceReport {
   signedByName     String?                         // Customer / recipient name
   signedAt         DateTime?
   status           MaintenanceServiceReportStatus  @default(draft)
+  // Discriminator for what kind of field activity this row represents.
+  // SERVICE   — traditional maintenance/repair visit (default).
+  // DO_START  — technician started delivery of an existing DO (label: "Delivery Started").
+  // DO_ACK    — technician confirmed final handover/installation of a DO (label: "Delivery Acknowledged").
+  kind             MaintenanceReportKind           @default(SERVICE)
+  // FK to the Document this report relates to.
+  //   DO_START / DO_ACK → the DO being delivered.
+  //   SERVICE           → null.
+  // Historic DO_ACK rows backfilled from the description-prefix scheme may
+  // have null documentId; gating logic only considers MSRs with non-null FK.
+  documentId       String?                         @db.Uuid
+  document         Document?                       @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  // GPS captured at submission time. Optional — submission proceeds without
+  // GPS if browser geolocation is denied or unavailable.
+  latitude         Float?
+  longitude        Float?
+  // Reverse-geocoded human-readable label (e.g. "12 Tuas South Ave 3").
+  // Schema-ready for future enablement; v1 of the field flow leaves it null.
+  locationLabel    String?
   createdAt        DateTime                        @default(now())
   updatedAt        DateTime                        @updatedAt
 
@@ -1012,9 +1032,17 @@ model MaintenanceServiceReport {
 
   @@index([organizationId, assetId, createdAt])
   @@index([assetId, status])
+  @@index([organizationId, kind, createdAt])
+  @@index([documentId, kind])
 }
 
 enum MaintenanceServiceReportStatus {
   draft
   completed
+}
+
+enum MaintenanceReportKind {
+  SERVICE
+  DO_START
+  DO_ACK
 }
