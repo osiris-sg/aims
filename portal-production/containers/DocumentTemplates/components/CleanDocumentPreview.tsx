@@ -314,6 +314,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 borderBottom: "none",
                 padding: "10px 8px",
                 fontSize: "0.8125rem",
+                verticalAlign: "top",
               },
               "& .MuiTableHead-root .MuiTableCell-root": {
                 border: "none",
@@ -623,6 +624,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 borderBottom: "none",
                 padding: "10px 8px",
                 fontSize: "0.8125rem",
+                verticalAlign: "top",
               },
               "& .MuiTableHead-root .MuiTableCell-root": {
                 border: "none",
@@ -836,6 +838,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 borderBottom: "none",
                 padding: "10px 8px",
                 fontSize: "0.8125rem",
+                verticalAlign: "top",
               },
               "& .MuiTableHead-root .MuiTableCell-root": {
                 border: "none",
@@ -1262,6 +1265,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 borderBottom: "none",
                 padding: "10px 8px",
                 fontSize: "0.8125rem",
+                verticalAlign: "top",
               },
               "& .MuiTableHead-root .MuiTableCell-root": {
                 border: "none",
@@ -1463,6 +1467,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 borderBottom: "none",
                 padding: "10px 8px",
                 fontSize: "0.8125rem",
+                verticalAlign: "top",
               },
               "& .MuiTableHead-root .MuiTableCell-root": {
                 border: "none",
@@ -1813,6 +1818,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 borderBottom: "none",
                 padding: "10px 8px",
                 fontSize: "0.8125rem",
+                verticalAlign: "top",
               },
               "& .MuiTableHead-root .MuiTableCell-root": {
                 border: "none",
@@ -2059,6 +2065,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 borderBottom: "none",
                 padding: "10px 8px",
                 fontSize: "0.8125rem",
+                verticalAlign: "top",
               },
               "& .MuiTableHead-root .MuiTableCell-root": {
                 border: "none",
@@ -2366,6 +2373,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
                 borderBottom: "none",
                 padding: "6px 8px",
                 fontSize: "0.8125rem",
+                verticalAlign: "top",
               },
               "& .MuiTableHead-root .MuiTableCell-root": {
                 border: "none",
@@ -2831,6 +2839,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
               borderBottom: "none",
               padding: "8px",
               fontSize: "0.8125rem",
+              verticalAlign: "top",
             },
             "& .MuiTableHead-root .MuiTableCell-root": {
               borderBottom: "2px solid #000",
