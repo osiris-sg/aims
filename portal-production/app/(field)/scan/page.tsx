@@ -141,7 +141,7 @@ export default function ScanLandingPage() {
 
       {nfcStatus === "unsupported" && (
         <Alert severity="warning" sx={{ width: "100%", maxWidth: 360 }}>
-          NFC is not available on this device. Use the AIMS Field native app, or enter an asset SKU below.
+          NFC scanning requires Chrome on Android. You can enter the SKU manually below.
         </Alert>
       )}
 

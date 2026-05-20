@@ -28,9 +28,14 @@ import {
 import EditIcon from "@mui/icons-material/Edit";
 import StopCircleIcon from "@mui/icons-material/StopCircle";
 import AddIcon from "@mui/icons-material/Add";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import CloseIcon from "@mui/icons-material/Close";
+import { useTheme } from "@mui/material/styles";
+import useMediaQuery from "@mui/material/useMediaQuery";
 import { ROUTES } from "@/routes";
 import Table from "@/components/Table";
 import { toast } from "react-toastify";
+import CleanDocumentPreview from "@/containers/DocumentTemplates/components/CleanDocumentPreview";
 
 type DeploymentStatus = "ACTIVE" | "OFF_HIRED" | "COMPLETED" | "CANCELLED";
 type DeploymentType = "RENTAL" | "SALE" | "SERVICE";
@@ -73,7 +78,16 @@ interface Deployment {
   sourceDocument: { id: string; name: string; type: string } | null;
   assignments: any[];
   documents: DeploymentDocument[];
-  invoices: { id: string; name: string; type: string; status: string; createdAt: string; amount: number; paid: number }[];
+  invoices: {
+    id: string;
+    name: string;
+    type: string;
+    status: string;
+    createdAt: string;
+    amount: number;
+    paid: number;
+    documentItems: DocumentItemRow[];
+  }[];
   totalBilled: number;
   totalPaid: number;
   outstanding: number;
@@ -141,6 +155,7 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [addOpen, setAddOpen] = useState(false);
   const [attachOpenFor, setAttachOpenFor] = useState<string | null>(null);
+  const [previewDocId, setPreviewDocId] = useState<string | null>(null);
 
   const fetchProject = useCallback(async () => {
     if (!params?.id) return;
@@ -316,6 +331,7 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
                   onToggle={() => setExpanded((s) => ({ ...s, [d.id]: !s[d.id] }))}
                   onOffHire={() => offHire(d.id)}
                   onAttachDoc={() => setAttachOpenFor(d.id)}
+                  onPreview={(id) => setPreviewDocId(id)}
                 />
               ))}
             </Stack>
@@ -338,6 +354,7 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
                     expanded={!!expanded[d.id]}
                     onToggle={() => setExpanded((s) => ({ ...s, [d.id]: !s[d.id] }))}
                     onAttachDoc={() => setAttachOpenFor(d.id)}
+                    onPreview={(id) => setPreviewDocId(id)}
                   />
                 ))}
               </Stack>
@@ -443,6 +460,12 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
             fetchProject();
           }}
         />
+
+        <DocumentPreviewDialog
+          documentId={previewDocId}
+          open={!!previewDocId}
+          onClose={() => setPreviewDocId(null)}
+        />
       </Box>
     </MainCard>
   );
@@ -467,12 +490,14 @@ function DeploymentCard({
   onToggle,
   onOffHire,
   onAttachDoc,
+  onPreview,
 }: {
   deployment: Deployment;
   expanded: boolean;
   onToggle: () => void;
   onOffHire?: () => void;
   onAttachDoc?: () => void;
+  onPreview?: (documentId: string) => void;
 }) {
   const months = monthsBetween(deployment.deployedDate, deployment.offHiredDate);
   const ccy = deployment.currency ?? "SGD";
@@ -570,6 +595,14 @@ function DeploymentCard({
                       <Typography variant="subtitle2">{doc.name}</Typography>
                       <Chip size="small" variant="outlined" label={doc.type} />
                       <Typography variant="caption" color="text.secondary">{fmtDate(doc.createdAt)}</Typography>
+                      <Box sx={{ flexGrow: 1 }} />
+                      {onPreview && (
+                        <Tooltip title="View document">
+                          <Button size="small" variant="text" startIcon={<VisibilityIcon fontSize="small" />} onClick={() => onPreview(doc.id)}>
+                            View
+                          </Button>
+                        </Tooltip>
+                      )}
                     </Stack>
                     {doc.documentItems.length > 0 && (
                       <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8125rem" }}>
@@ -615,38 +648,80 @@ function DeploymentCard({
             </Box>
           )}
 
-          {/* Invoices section */}
+          {/* Invoices section — per-invoice cards mirroring the DO render so line
+              items are visible. For Biofuel rows this is the only line-item surface
+              available (DO Documents don't exist for Xero-imported invoices). */}
           {deployment.invoices.length === 0 ? (
             <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
               No invoices linked to this deployment yet.
             </Typography>
           ) : (
-            <Box sx={{ p: 0 }}>
-              <Typography variant="overline" color="text.secondary" sx={{ display: "block", px: 2, pt: 2 }}>
+            <Box sx={{ p: 2 }}>
+              <Typography variant="overline" color="text.secondary" sx={{ display: "block", mb: 1 }}>
                 Invoices ({deployment.invoices.length})
               </Typography>
-              <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8125rem" }}>
-                <Box component="thead">
-                  <Box component="tr" sx={{ "& th": { p: 1, textAlign: "left", color: "text.secondary", fontSize: "0.6875rem", textTransform: "uppercase", letterSpacing: 0.5 } }}>
-                    <th>Invoice</th>
-                    <th>Date</th>
-                    <th>Amount</th>
-                    <th>Paid</th>
-                    <th>Status</th>
+              <Stack spacing={1.5}>
+                {deployment.invoices.map((inv) => (
+                  <Box key={inv.id} sx={{ p: 1.5, border: 1, borderColor: "divider", borderRadius: 1, bgcolor: "background.paper" }}>
+                    <Stack direction="row" gap={1.5} alignItems="center" flexWrap="wrap" sx={{ mb: inv.documentItems.length ? 1 : 0 }}>
+                      <Typography variant="subtitle2">{inv.name}</Typography>
+                      <Chip size="small" variant="outlined" label={inv.type} />
+                      <Typography variant="caption" color="text.secondary">{fmtDate(inv.createdAt)}</Typography>
+                      <Box sx={{ flexGrow: 1 }} />
+                      <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums" }}>
+                        <strong>{fmtMoney(inv.amount, ccy)}</strong>
+                        {" · paid "}{fmtMoney(inv.paid, ccy)}
+                      </Typography>
+                      <Chip size="small" label={inv.status} />
+                      {onPreview && (
+                        <Tooltip title="View invoice">
+                          <Button size="small" variant="text" startIcon={<VisibilityIcon fontSize="small" />} onClick={() => onPreview(inv.id)}>
+                            View
+                          </Button>
+                        </Tooltip>
+                      )}
+                    </Stack>
+                    {inv.documentItems.length > 0 && (
+                      <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8125rem" }}>
+                        <Box component="thead">
+                          <Box component="tr" sx={{ "& th": { p: 0.75, textAlign: "left", color: "text.secondary", fontSize: "0.6875rem", textTransform: "uppercase", letterSpacing: 0.5 } }}>
+                            <th>Item</th>
+                            <th>SKU</th>
+                            <th>Qty</th>
+                            <th>UOM</th>
+                            <th>Type</th>
+                          </Box>
+                        </Box>
+                        <Box component="tbody">
+                          {inv.documentItems.map((it) => (
+                            <Box
+                              component="tr"
+                              key={it.id}
+                              sx={{
+                                "& td": { p: 0.75, borderTop: 1, borderColor: "divider", fontVariantNumeric: "tabular-nums" },
+                                opacity: it.isService ? 0.7 : 1,
+                              }}
+                            >
+                              <td>{it.description ?? "—"}</td>
+                              <td>{it.sku ?? "—"}</td>
+                              <td>{it.quantity}</td>
+                              <td>{it.uom ?? "—"}</td>
+                              <td>
+                                <Chip
+                                  size="small"
+                                  variant="outlined"
+                                  label={it.isService ? "Service" : "Product"}
+                                  color={it.isService ? "secondary" : "default"}
+                                />
+                              </td>
+                            </Box>
+                          ))}
+                        </Box>
+                      </Box>
+                    )}
                   </Box>
-                </Box>
-                <Box component="tbody">
-                  {deployment.invoices.map((inv) => (
-                    <Box component="tr" key={inv.id} sx={{ "& td": { p: 1, borderTop: 1, borderColor: "divider", fontVariantNumeric: "tabular-nums" } }}>
-                      <td>{inv.name}</td>
-                      <td>{fmtDate(inv.createdAt)}</td>
-                      <td>{fmtMoney(inv.amount, ccy)}</td>
-                      <td>{fmtMoney(inv.paid, ccy)}</td>
-                      <td>{inv.status}</td>
-                    </Box>
-                  ))}
-                </Box>
-              </Box>
+                ))}
+              </Stack>
             </Box>
           )}
         </Box>
@@ -747,6 +822,84 @@ function NewDeploymentDialog({
         <Button variant="contained" onClick={submit} disabled={saving}>
           {saving ? <CircularProgress size={18} /> : "Create"}
         </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function DocumentPreviewDialog({
+  documentId,
+  open,
+  onClose,
+}: {
+  documentId: string | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { getToken } = useAuth();
+  const { organization } = useOrganization();
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
+  const [doc, setDoc] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || !documentId) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      setDoc(null);
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request({ path: `/documents/${documentId}`, method: "GET" }, {}, token);
+        if (cancelled) return;
+        if (res.success) setDoc(res.data);
+        else setError(res.message ?? "Failed to load document");
+      } catch (err: any) {
+        if (!cancelled) setError(err?.message ?? "Failed to load document");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, documentId, getToken]);
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg" fullScreen={fullScreen}>
+      <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1, pr: 1 }}>
+        <Box sx={{ flex: 1 }}>
+          {doc?.name ?? "Document"}{doc?.type ? <Chip size="small" variant="outlined" sx={{ ml: 1 }} label={doc.type} /> : null}
+        </Box>
+        <IconButton onClick={onClose} size="small" aria-label="close">
+          <CloseIcon />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent dividers sx={{ bgcolor: "surfaceTones.low" }}>
+        {loading && (
+          <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}>
+            <CircularProgress />
+          </Box>
+        )}
+        {error && !loading && (
+          <Typography color="error" sx={{ py: 6, textAlign: "center" }}>
+            {error}
+          </Typography>
+        )}
+        {doc && !loading && !error && (
+          <CleanDocumentPreview
+            documentType={doc.type}
+            data={doc.config ?? {}}
+            organization={organization}
+          />
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
       </DialogActions>
     </Dialog>
   );

@@ -50,7 +50,19 @@ export function useGetDocuments() {
       if (!response.ok) throw new Error("Failed to fetch documents");
 
       const data = await response.json();
-      let documentsArray: Document[] = Array.isArray(data) ? data : [];
+
+      // Backend wraps every response via CustomResponseInterceptor as
+      // { success, data, message }. Accept both that shape and a bare array
+      // — same pattern as admin/assets, admin/inventory, admin/customers.
+      let documentsArray: Document[] = [];
+      if (Array.isArray(data)) {
+        documentsArray = data;
+      } else if (data && data.success && Array.isArray(data.data)) {
+        documentsArray = data.data;
+      } else {
+        console.error("Unexpected response format:", data);
+        throw new Error(`Invalid response format from admin documents endpoint. Got: ${JSON.stringify(data)}`);
+      }
 
       // Apply filtering and pagination
       let filtered = documentsArray;

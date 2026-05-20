@@ -28,6 +28,7 @@ import {
   DeploymentType,
   DeploymentStatus,
 } from '@prisma/client';
+import { classifyDeployment } from '../src/projects/deployment-type-classifier';
 
 const DEFAULT_ORG_ID = '52e90ba8-bfbd-48b0-bb76-4f9667bf74f1'; // Biofuel
 const args = process.argv.slice(2);
@@ -222,6 +223,11 @@ async function main() {
             description: proj.siteOfficeNames.size
               ? `Site: ${[...proj.siteOfficeNames].join(' / ')}`
               : undefined,
+            // Match the import flow (import.service.ts createProject); without
+            // this, the Prisma schema default ('pending') makes backfill-born
+            // projects look "not started" in the UI even though they already
+            // have deployments and invoices.
+            status: 'ongoing',
           },
         });
         projectId = created.id;
@@ -233,6 +239,7 @@ async function main() {
     for (const [doNum, bucket] of proj.byDo) {
       // Try to find the source DO Document — biofuel DO numbers look like DO202310-010
       let sourceDocumentId: string | null = null;
+      let sourceDocType: string | null = null;
       if (!doNum.startsWith('_NO_DO_')) {
         const doDoc = await prisma.document.findFirst({
           where: {
@@ -240,9 +247,34 @@ async function main() {
             type: { in: ['DELIVERY_ORDER', 'DO'] },
             name: { contains: doNum, mode: Prisma.QueryMode.insensitive },
           },
-          select: { id: true },
+          select: { id: true, type: true },
         });
-        if (doDoc) sourceDocumentId = doDoc.id;
+        if (doDoc) {
+          sourceDocumentId = doDoc.id;
+          sourceDocType = doDoc.type;
+        }
+      }
+
+      // Pull invoice line-item descriptions for the classifier. Each bucket row
+      // corresponds to a Document.name match; we look up the doc to read the
+      // descriptions stored in config.items[].description.
+      const descriptionsForBucket: string[] = [];
+      for (const inv of bucket.rows) {
+        const invDoc = await prisma.document.findFirst({
+          where: {
+            organizationId: ORG_ID,
+            name: { contains: inv.invoiceNumber, mode: Prisma.QueryMode.insensitive },
+          },
+          select: { config: true },
+        });
+        const cfg = (invDoc?.config ?? {}) as any;
+        if (Array.isArray(cfg.items)) {
+          for (const item of cfg.items) {
+            if (typeof item?.description === 'string') {
+              descriptionsForBucket.push(item.description);
+            }
+          }
+        }
       }
 
       // Determine deployment shape from the rows
@@ -258,9 +290,17 @@ async function main() {
       const status: DeploymentStatus = offHiredDate
         ? DeploymentStatus.OFF_HIRED
         : DeploymentStatus.ACTIVE;
-      const type: DeploymentType = isRecurring
-        ? DeploymentType.RENTAL
-        : DeploymentType.SALE;
+
+      // Classify via shared module — see src/projects/deployment-type-classifier.ts.
+      // Replaces the prior "isRecurring ? RENTAL : SALE" heuristic which
+      // mis-classified single-invoice rentals as one-off sales.
+      const classification = classifyDeployment({
+        descriptions: descriptionsForBucket,
+        invoiceCount: bucket.rows.length,
+        sourceDocType,
+      });
+      const type: DeploymentType =
+        classification.type === 'RENTAL' ? DeploymentType.RENTAL : DeploymentType.SALE;
 
       const description = doNum.startsWith('_NO_DO_')
         ? `One-off (${bucket.rows.length} doc${bucket.rows.length > 1 ? 's' : ''})`
