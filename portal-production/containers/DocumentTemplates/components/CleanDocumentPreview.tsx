@@ -1374,47 +1374,97 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             </Typography>
           </Box>
 
-          {/* Signature Lines Row */}
-          <Box sx={{ display: "flex", justifyContent: "space-between", mt: 4 }}>
-            {/* Chop & Sign */}
-            <Box sx={{ textAlign: "center", flex: 1 }}>
-              <Box sx={{ borderTop: "1px solid #000", width: "80%", mx: "auto", pt: 0.5 }}>
-                <Typography sx={{ fontSize: "0.8125rem" }}>
-                  Chop & Sign
-                </Typography>
-              </Box>
-            </Box>
+          {/* Signature Lines Row. The DO_ACK report's signature populates
+              "Chop & Sign" (the customer who received the equipment); the
+              DO_START report's technician populates "Delivery By" (the field
+              tech who took the equipment out). Both render above their
+              respective ruled lines when present; otherwise the lines stay
+              blank as a fillable paper form. */}
+          {(() => {
+            const doStart = maintenanceReports?.find((r) => r.kind === "DO_START") ?? null;
+            const doAck = maintenanceReports?.find((r) => r.kind === "DO_ACK") ?? null;
+            const deliveryByName = doStart?.technicianName ?? doStart?.signedByName ?? null;
+            // Shared box style for the content-above-the-ruled-line area.
+            // Fixed height keeps the three ruled lines aligned horizontally
+            // regardless of which columns have content; flex bottom-alignment
+            // makes the signature image / name sit just above the line.
+            const slotSx = {
+              height: 70,
+              display: "flex",
+              alignItems: "flex-end",
+              justifyContent: "center",
+              mb: 0.5,
+            } as const;
+            return (
+              <Box sx={{ display: "flex", justifyContent: "space-between", mt: 4 }}>
+                {/* Chop & Sign — customer signature from DO_ACK */}
+                <Box sx={{ textAlign: "center", flex: 1 }}>
+                  <Box sx={slotSx}>
+                    {doAck?.signature && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={resolvePhotoSrc(doAck.signature)}
+                        alt="Customer signature"
+                        style={{ maxHeight: 64, maxWidth: "80%", objectFit: "contain" }}
+                      />
+                    )}
+                  </Box>
+                  <Box sx={{ borderTop: "1px solid #000", width: "80%", mx: "auto", pt: 0.5 }}>
+                    <Typography sx={{ fontSize: "0.8125rem" }}>
+                      Chop & Sign
+                    </Typography>
+                    {doAck?.signedByName && (
+                      <Typography sx={{ fontSize: "0.6875rem", color: "#444", mt: 0.25 }}>
+                        {doAck.signedByName}
+                      </Typography>
+                    )}
+                  </Box>
+                </Box>
 
-            {/* Delivery By */}
-            <Box sx={{ textAlign: "center", flex: 1 }}>
-              <Box sx={{ borderTop: "1px solid #000", width: "80%", mx: "auto", pt: 0.5 }}>
-                <Typography sx={{ fontSize: "0.8125rem" }}>
-                  Delivery By
-                </Typography>
-              </Box>
-            </Box>
+                {/* Delivery By — technician name from DO_START */}
+                <Box sx={{ textAlign: "center", flex: 1 }}>
+                  <Box sx={slotSx}>
+                    {deliveryByName && (
+                      <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500 }}>
+                        {deliveryByName}
+                      </Typography>
+                    )}
+                  </Box>
+                  <Box sx={{ borderTop: "1px solid #000", width: "80%", mx: "auto", pt: 0.5 }}>
+                    <Typography sx={{ fontSize: "0.8125rem" }}>
+                      Delivery By
+                    </Typography>
+                  </Box>
+                </Box>
 
-            {/* Issue By */}
-            <Box sx={{ textAlign: "center", flex: 1 }}>
-              <Box sx={{ borderTop: "1px solid #000", width: "80%", mx: "auto", pt: 0.5 }}>
-                <Typography sx={{ fontSize: "0.8125rem" }}>
-                  Issue By : {data.documentInfo?.issueBy || data.issueBy || ""}
-                </Typography>
+                {/* Issue By — unchanged, comes from document config */}
+                <Box sx={{ textAlign: "center", flex: 1 }}>
+                  <Box sx={slotSx} />
+                  <Box sx={{ borderTop: "1px solid #000", width: "80%", mx: "auto", pt: 0.5 }}>
+                    <Typography sx={{ fontSize: "0.8125rem" }}>
+                      Issue By : {data.documentInfo?.issueBy || data.issueBy || ""}
+                    </Typography>
+                  </Box>
+                </Box>
               </Box>
-            </Box>
-          </Box>
+            );
+          })()}
         </Box>
 
         </Box>
         {/* End of page-1 wrapper. PROOF OF DELIVERY follows as a sibling so
             its content height doesn't compress the page-1 layout. */}
 
-        {/* PROOF OF DELIVERY — field-tech delivery reports linked to this DO via
-            documentId. Suppressed entirely when no reports are linked (older
-            callers omit the prop, the office-side template designer mock-preview
-            passes nothing, etc.). Forces a fresh page when printed so the DO
-            line items aren't visually mixed with delivery proof. */}
-        {maintenanceReports && maintenanceReports.length > 0 && (
+        {/* PROOF OF DELIVERY — field-tech reports linked to this DO via
+            documentId. DO_START is filtered out: the simplified Start
+            Delivery flow captures no photos or signature, and the tech's
+            identity is already shown on page 1's "Delivery By" line — so
+            including a DO_START stub here would just be visual noise. Only
+            DO_ACK rows (and any future kinds like off-hire reports) render.
+            Section is suppressed entirely when nothing remains after the
+            filter, so a DO with only a DO_START gets a clean one-page print. */}
+        {maintenanceReports &&
+          maintenanceReports.filter((r) => r.kind !== "DO_START").length > 0 && (
           <Box
             sx={{
               mt: 4,
@@ -1436,7 +1486,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               PROOF OF DELIVERY
             </Typography>
 
-            {maintenanceReports.map((report, idx) => (
+            {maintenanceReports
+              .filter((r) => r.kind !== "DO_START")
+              .map((report, idx) => (
               <Box
                 key={report.id}
                 sx={{
@@ -1474,8 +1526,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 </Box>
 
                 {/* Photos — 2-column grid, ~85mm wide each at A4 margins, fixed
-                    4:3 aspect so the print engine doesn't fight the layout. */}
-                {report.photos && report.photos.length > 0 && (
+                    4:3 aspect so the print engine doesn't fight the layout.
+                    Gated to DO_ACK only: the simplified Start Delivery flow
+                    is a one-tap confirmation that captures no media, so
+                    DO_START rows have nothing to show here. */}
+                {report.kind !== "DO_START" && report.photos && report.photos.length > 0 && (
                   <Box
                     sx={{
                       display: "grid",
@@ -1505,10 +1560,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   </Box>
                 )}
 
-                {/* Signature with signed-by name + timestamp. Skipped entirely
-                    when null — DO_START in future flow variations may be
-                    unsigned, and we'd rather render nothing than an empty box. */}
-                {report.signature && (
+                {/* Signature with signed-by name + timestamp. Gated to DO_ACK
+                    only — DO_START is now a tap-to-confirm with no signature. */}
+                {report.kind !== "DO_START" && report.signature && (
                   <Box sx={{ mt: 2 }}>
                     <Typography sx={{ fontSize: "0.75rem", color: "#444", mb: 0.5 }}>
                       Signed by: {report.signedByName ?? "—"}
