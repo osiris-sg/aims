@@ -64,9 +64,14 @@ import {
   UnfoldLess as UnfoldLessIcon,
   UnfoldMore as UnfoldMoreIcon,
   LocalOffer as PriceTagIcon,
+  Route as RouteIcon,
 } from "@mui/icons-material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import CleanDocumentPreview from "./CleanDocumentPreview";
+// Shared dialog — same component used by the Field Reports tab on the
+// project detail page. Renders a Leaflet map of the live delivery route
+// from /maintenance-reports/:reportId/location-track.
+import DeliveryRouteDialog from "@/components/DeliveryRouteDialog";
 import RichTextDescription from "./RichTextDescription";
 import DocumentCustomizer from "./DocumentCustomizer";
 import DynamicFormFields from "./DynamicFormFields";
@@ -316,6 +321,20 @@ export default function TabbedDocumentCreator({
   const isStockAdjustmentOut = documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_OUT";
   const isStockAdjustment = isStockAdjustmentIn || isStockAdjustmentOut;
   const isDeliveryOrder = documentType === "DO" || documentType === "DELIVERY_ORDER";
+
+  // Delivery route dialog state (DO-only). Opens with the linked DO_START
+  // MaintenanceServiceReport's id; the shared DeliveryRouteDialog handles
+  // the fetch + polling internally. Must be declared AFTER isDeliveryOrder
+  // — the useMemo's dep array references it, and a TDZ access here would
+  // throw "Cannot access 'isDeliveryOrder' before initialization".
+  const [routeDialogReportId, setRouteDialogReportId] = useState<string | null>(null);
+  const doStartReportId = useMemo<string | null>(() => {
+    if (!isDeliveryOrder) return null;
+    const reports = (existingData as any)?.maintenanceReports as
+      | Array<{ id: string; kind: string }>
+      | undefined;
+    return reports?.find((r) => r.kind === "DO_START")?.id ?? null;
+  }, [isDeliveryOrder, existingData]);
 
   // Customer select dialog state
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
@@ -1794,6 +1813,31 @@ export default function TabbedDocumentCreator({
           </Typography>
         </Box>
         <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexShrink: 0, flexWrap: "nowrap" }}>
+          {/* Show Route — DO-only. Disabled with tooltip when no delivery has
+              been started yet (no DO_START MaintenanceServiceReport linked).
+              Tooltip wrapper needs the <span> because MUI Tooltip won't fire
+              on a disabled child otherwise. */}
+          {isDeliveryOrder && (
+            <Tooltip
+              title={
+                doStartReportId
+                  ? "Show delivery route on map"
+                  : "No delivery started yet"
+              }
+            >
+              <span>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<RouteIcon />}
+                  onClick={() => doStartReportId && setRouteDialogReportId(doStartReportId)}
+                  disabled={!doStartReportId}
+                >
+                  Show Route
+                </Button>
+              </span>
+            </Tooltip>
+          )}
           {/* Navigation & Add Buttons */}
           {(onPrevious || onNext) && (
             <>
@@ -3785,6 +3829,13 @@ export default function TabbedDocumentCreator({
                     (existingData as any)?.columnLabels ?? existingData?.config?.columnLabels,
                 }}
                 organization={organization}
+                // Field-tech delivery reports linked to this document. When
+                // present and non-empty AND documentType === 'DO', the preview
+                // renders a Proof of Delivery section at the bottom (photos +
+                // signatures). The data is loaded by the parent page via
+                // GET /documents/:id (which now includes the relation) and
+                // forwarded onto existingData by fetchDocumentData.
+                maintenanceReports={(existingData as any)?.maintenanceReports ?? []}
               />
             </div>
           </Box>
@@ -4280,6 +4331,16 @@ export default function TabbedDocumentCreator({
             ? "cost"
             : "selling"
         }
+      />
+
+      {/* Delivery Route dialog — triggered by the Show Route button at the
+          top of the editor header. Mounted regardless of doc type because
+          the gate is reportId presence (null when no DO_START exists, which
+          keeps the dialog closed and the button disabled). */}
+      <DeliveryRouteDialog
+        reportId={routeDialogReportId}
+        open={!!routeDialogReportId}
+        onClose={() => setRouteDialogReportId(null)}
       />
 
       {/* Locate Document Dialog */}

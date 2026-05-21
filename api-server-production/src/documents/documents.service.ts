@@ -121,6 +121,25 @@ export class DocumentsService {
           organization: true,
           baseDocument: true,
           revisions: true,
+          // Field-tech delivery reports linked to this document. CleanDocumentPreview
+          // renders these into a "Proof of Delivery" section at the bottom of the
+          // DO print/preview. Restricted to DO_START / DO_ACK so unrelated service
+          // reports never leak into print output, even if some future flow sets
+          // documentId on a kind=SERVICE row.
+          maintenanceReports: {
+            where: { kind: { in: ['DO_START', 'DO_ACK'] } },
+            orderBy: { createdAt: 'asc' },
+            select: {
+              id: true,
+              kind: true,
+              photos: true,
+              signature: true,
+              signedByName: true,
+              signedAt: true,
+              technicianName: true,
+              createdAt: true,
+            },
+          },
         },
       });
     } catch (error) {

@@ -6,11 +6,8 @@ import { useAuth } from "@clerk/nextjs";
 import { Alert, Box, Button, CircularProgress, IconButton, ImageList, ImageListItem, Stack, TextField, Typography } from "@mui/material";
 import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
 import DeleteIcon from "@mui/icons-material/Delete";
-import LocationOnIcon from "@mui/icons-material/LocationOn";
-import LocationOffIcon from "@mui/icons-material/LocationOff";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
-import { useGeolocation, formatCoords } from "../../../../hooks/useGeolocation";
 
 interface UploadedPhoto {
   key: string;
@@ -66,8 +63,6 @@ export default function StartDeliveryPage() {
     };
   }, [assetId, getToken]);
 
-  const geo = useGeolocation();
-
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setError(null);
@@ -103,6 +98,8 @@ export default function StartDeliveryPage() {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const description = notes.trim() || "Delivery started";
+      // Location is no longer captured inline — the background tracking hook
+      // starts after signature submission and pings the backend every ~10s.
       const res = await request(
         { path: "/maintenance-reports", method: "POST" },
         {
@@ -111,14 +108,17 @@ export default function StartDeliveryPage() {
           photos: photos.map((p) => p.key),
           kind: "DO_START",
           documentId: doId,
-          ...(geo.coords
-            ? { latitude: geo.coords.latitude, longitude: geo.coords.longitude }
-            : {}),
         },
         token,
       );
       const reportId = res.data?.id ?? res.id;
       if (!reportId) throw new Error("No report id returned");
+      // eslint-disable-next-line no-console
+      console.log("[delivery-start] POST OK, navigating to sign", {
+        reportId,
+        assetId,
+        nextUrl: `/scan/asset/${assetId}/sign?reportId=${reportId}&kind=delivery-start`,
+      });
       router.push(`/scan/asset/${assetId}/sign?reportId=${reportId}&kind=delivery-start`);
     } catch (e: any) {
       setError(e?.message ?? "Failed to save delivery start");
@@ -131,10 +131,10 @@ export default function StartDeliveryPage() {
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 3 }}>
       <Typography variant="h6" fontWeight={700}>Start Delivery</Typography>
       <Typography variant="body2" color="text.secondary">
-        Record the start of delivery for this equipment. Capture notes, photos, GPS, and a recipient signature.
+        Record the start of delivery for this equipment. Capture notes, photos,
+        and a recipient signature. GPS tracking begins automatically after you
+        sign and continues until you acknowledge delivery.
       </Typography>
-
-      <GeoStatus geo={geo} />
 
       <TextField
         label="Notes (optional)"
@@ -188,41 +188,3 @@ export default function StartDeliveryPage() {
   );
 }
 
-/**
- * Shared GPS status block — also used by the DO Ack page. Kept inline rather
- * than a separate component file because it carries no state of its own.
- */
-export function GeoStatus({ geo }: { geo: ReturnType<typeof useGeolocation> }) {
-  if (geo.state === "capturing") {
-    return (
-      <Stack direction="row" gap={1} alignItems="center" sx={{ color: "text.secondary" }}>
-        <CircularProgress size={14} />
-        <Typography variant="caption">Getting location…</Typography>
-      </Stack>
-    );
-  }
-  if (geo.state === "captured" && geo.coords) {
-    return (
-      <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap" sx={{ color: "success.main" }}>
-        <LocationOnIcon fontSize="small" />
-        <Typography variant="caption">Location: {formatCoords(geo.coords)}</Typography>
-        <Button size="small" variant="text" onClick={geo.retry} sx={{ minWidth: 0, py: 0, fontSize: "0.7rem" }}>
-          Re-capture
-        </Button>
-      </Stack>
-    );
-  }
-  // failed | unavailable
-  return (
-    <Alert severity="warning" icon={<LocationOffIcon fontSize="small" />} sx={{ py: 0.5 }}>
-      <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
-        <Typography variant="caption">
-          {geo.errorMessage ?? "Could not get location."} Submission will proceed without GPS.
-        </Typography>
-        <Button size="small" variant="text" color="inherit" onClick={geo.retry} sx={{ minWidth: 0, py: 0, fontSize: "0.7rem" }}>
-          Try again
-        </Button>
-      </Stack>
-    </Alert>
-  );
-}

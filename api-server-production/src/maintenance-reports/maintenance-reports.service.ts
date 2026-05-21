@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from 'src/common/prisma.service';
 import { CreateMaintenanceReportDto } from './dto/create-maintenance-report.dto';
 import { SignMaintenanceReportDto } from './dto/sign-maintenance-report.dto';
+import { CreateLocationPingsDto } from './dto/location-ping.dto';
 
 @Injectable()
 export class MaintenanceReportsService {
@@ -208,6 +209,142 @@ export class MaintenanceReportsService {
       canAckDelivery,
       activeDeliveryStart,
       recentServiceReports: recentReports,
+    };
+  }
+
+  /**
+   * Record a batch of GPS pings against a DO_START report. Accepts arrays so
+   * the field app can queue + flush during poor connectivity. Idempotent via
+   * the (reportId, timestamp) unique constraint — retried batches don't
+   * double-insert.
+   *
+   * Rejects pings against:
+   *   - non-existent reports / reports in a different org
+   *   - reports whose kind isn't DO_START
+   *   - reports whose delivery is already acknowledged (DO_ACK sibling exists)
+   */
+  async recordLocationPings(
+    reportId: string,
+    organizationId: string,
+    dto: CreateLocationPingsDto,
+  ) {
+    const report = await this.prisma.maintenanceServiceReport.findFirst({
+      where: { id: reportId, organizationId },
+      select: { id: true, kind: true, documentId: true },
+    });
+    if (!report) throw new NotFoundException('Report not found');
+    if (report.kind !== 'DO_START') {
+      throw new BadRequestException(
+        'Location pings only apply to DO_START reports',
+      );
+    }
+
+    if (report.documentId) {
+      const ack = await this.prisma.maintenanceServiceReport.findFirst({
+        where: {
+          documentId: report.documentId,
+          kind: 'DO_ACK',
+          organizationId,
+        },
+        select: { id: true },
+      });
+      if (ack) {
+        throw new BadRequestException(
+          'Delivery already acknowledged — pings rejected',
+        );
+      }
+    }
+
+    const data = dto.pings.map((p) => ({
+      reportId,
+      latitude: p.latitude,
+      longitude: p.longitude,
+      accuracy: p.accuracy ?? null,
+      speed: p.speed ?? null,
+      heading: p.heading ?? null,
+      timestamp: new Date(p.timestamp),
+    }));
+
+    const result = await this.prisma.deliveryLocationPing.createMany({
+      data,
+      skipDuplicates: true, // (reportId, timestamp) collisions become no-ops
+    });
+
+    return {
+      accepted: result.count,
+      skipped: data.length - result.count,
+    };
+  }
+
+  /**
+   * Return the route for a DO_START report — every ping ordered chronologically,
+   * plus convenience start/end markers and an isActive flag for the office
+   * map view.
+   *
+   * Supports incremental polling via the `since` cursor: callers pass the
+   * timestamp of their last-known ping; backend returns only newer pings.
+   */
+  async getLocationTrack(
+    reportId: string,
+    organizationId: string,
+    since?: string,
+  ) {
+    const report = await this.prisma.maintenanceServiceReport.findFirst({
+      where: { id: reportId, organizationId },
+      select: { id: true, kind: true, documentId: true },
+    });
+    if (!report) throw new NotFoundException('Report not found');
+
+    let isActive = true;
+    if (report.documentId) {
+      const ack = await this.prisma.maintenanceServiceReport.findFirst({
+        where: {
+          documentId: report.documentId,
+          kind: 'DO_ACK',
+          organizationId,
+        },
+        select: { id: true },
+      });
+      isActive = !ack;
+    }
+
+    const whereClause: any = { reportId };
+    if (since) whereClause.timestamp = { gt: new Date(since) };
+
+    const pings = await this.prisma.deliveryLocationPing.findMany({
+      where: whereClause,
+      orderBy: { timestamp: 'asc' },
+      select: {
+        id: true,
+        latitude: true,
+        longitude: true,
+        accuracy: true,
+        speed: true,
+        heading: true,
+        timestamp: true,
+      },
+    });
+
+    // Start/end markers come from the global first/last regardless of cursor.
+    const [startPing, lastPing] = await Promise.all([
+      this.prisma.deliveryLocationPing.findFirst({
+        where: { reportId },
+        orderBy: { timestamp: 'asc' },
+        select: { latitude: true, longitude: true, timestamp: true },
+      }),
+      this.prisma.deliveryLocationPing.findFirst({
+        where: { reportId },
+        orderBy: { timestamp: 'desc' },
+        select: { latitude: true, longitude: true, timestamp: true },
+      }),
+    ]);
+
+    return {
+      reportId,
+      isActive,
+      startPing,
+      lastPing,
+      pings,
     };
   }
 }

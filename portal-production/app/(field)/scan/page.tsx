@@ -1,86 +1,79 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { Box, Button, Stack, TextField, Typography, Alert, CircularProgress } from "@mui/material";
 import NfcIcon from "@mui/icons-material/Nfc";
 import { request } from "@/helpers/request";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
-
-type NfcCapability = "checking" | "supported" | "unsupported";
+import { useNfcScan } from "../hooks/useNfcScan";
 
 /**
  * Scan landing.
  *
- * On NFC tap we read the chip's hardware UID (serialNumber). Every NFC tag
- * has one — no tag-writing tool needed. We hit /assets/by-nfc-uid/:uid:
+ * On NFC tap we read the chip's hardware UID. Every NFC tag has one — no
+ * tag-writing tool needed. We hit /assets/by-nfc-uid/:uid:
  *   - 200 → asset is already bound, jump to the action chooser
  *   - 404 → unbound tag, jump to /scan/bind to attach it to a SKU
+ *
+ * NFC implementation is platform-abstracted by useNfcScan — native (Capacitor +
+ * Capgo plugin) when running in the Android shell, Web NFC (NDEFReader) on
+ * Chrome-Android browsers, unsupported elsewhere.
  */
 export default function ScanLandingPage() {
   const router = useRouter();
   const { getToken } = useAuth();
   const { features, isLoading } = useOrganizationFeatures();
-  const [nfcStatus, setNfcStatus] = useState<NfcCapability>("checking");
+  const nfc = useNfcScan();
   const [scanError, setScanError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [manualSku, setManualSku] = useState("");
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    setNfcStatus("NDEFReader" in window ? "supported" : "unsupported");
-  }, []);
-
-  const resolveTag = async (uid: string) => {
-    setBusy(true);
-    setScanError(null);
-    try {
-      const token = await getToken();
-      if (!token) throw new Error("Not signed in");
-      const res = await request(
-        { path: `/assets/by-nfc-uid/${encodeURIComponent(uid)}`, method: "GET" },
-        {},
-        token,
-      );
-      const asset = res.data ?? res;
-      if (asset?.id) {
-        router.push(`/scan/asset/${asset.id}`);
-        return;
-      }
-      router.push(`/scan/bind?uid=${encodeURIComponent(uid)}`);
-    } catch (e: any) {
-      // The request helper surfaces 404 as a thrown error in many setups.
-      // Treat any non-success as "unbound tag" and push to bind.
-      const status = e?.response?.status ?? e?.status;
-      if (status === 404) {
-        router.push(`/scan/bind?uid=${encodeURIComponent(uid)}`);
-        return;
-      }
-      setScanError(e?.message ?? "Lookup failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const startScan = async () => {
-    setScanError(null);
-    try {
-      const NDEFReader = (window as unknown as { NDEFReader: new () => any }).NDEFReader;
-      const reader = new NDEFReader();
-      await reader.scan();
-      reader.onreading = (event: any) => {
-        const uid = event.serialNumber as string | undefined;
-        if (!uid) {
-          setScanError("Tag has no readable serial number.");
+  const resolveTag = useCallback(
+    async (uid: string) => {
+      setBusy(true);
+      setScanError(null);
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const res = await request(
+          { path: `/assets/by-nfc-uid/${encodeURIComponent(uid)}`, method: "GET" },
+          {},
+          token,
+        );
+        const asset = res.data ?? res;
+        if (asset?.id) {
+          router.push(`/scan/asset/${asset.id}`);
           return;
         }
-        resolveTag(uid);
-      };
-    } catch (err: any) {
-      setScanError(err?.message ?? "Failed to start NFC scan.");
-    }
-  };
+        router.push(`/scan/bind?uid=${encodeURIComponent(uid)}`);
+      } catch (e: any) {
+        // The request helper surfaces 404 as a thrown error in many setups.
+        // Treat any non-success as "unbound tag" and push to bind.
+        const status = e?.response?.status ?? e?.status;
+        if (status === 404) {
+          router.push(`/scan/bind?uid=${encodeURIComponent(uid)}`);
+          return;
+        }
+        setScanError(e?.message ?? "Lookup failed");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [getToken, router],
+  );
+
+  // React to a scanned tag. The hook auto-stops after a successful read, so
+  // we just observe `uid` and dispatch the lookup.
+  useEffect(() => {
+    if (nfc.uid) resolveTag(nfc.uid);
+  }, [nfc.uid, resolveTag]);
+
+  // Surface scan-side errors into the same UI element as manual-flow errors.
+  useEffect(() => {
+    if (nfc.error) setScanError(nfc.error);
+  }, [nfc.error]);
 
   const goManual = async () => {
     if (!manualSku.trim()) return;
@@ -133,15 +126,25 @@ export default function ScanLandingPage() {
         Hold your phone close to the NFC sticker on the asset.
       </Typography>
 
-      {nfcStatus === "supported" && (
-        <Button variant="contained" size="large" onClick={startScan} disabled={busy} sx={{ minWidth: 220 }}>
-          {busy ? "Looking up..." : "Start scanning"}
+      {nfc.isSupported === undefined && (
+        <CircularProgress size={24} />
+      )}
+
+      {nfc.isSupported === true && (
+        <Button
+          variant="contained"
+          size="large"
+          onClick={nfc.startScan}
+          disabled={busy || nfc.isScanning}
+          sx={{ minWidth: 220 }}
+        >
+          {busy ? "Looking up..." : nfc.isScanning ? "Scanning…" : "Start scanning"}
         </Button>
       )}
 
-      {nfcStatus === "unsupported" && (
+      {nfc.isSupported === false && (
         <Alert severity="warning" sx={{ width: "100%", maxWidth: 360 }}>
-          NFC scanning requires Chrome on Android. You can enter the SKU manually below.
+          NFC scanning isn&apos;t available on this device. Use the AIMS Field native app on an NFC-capable phone, or enter the SKU manually below.
         </Alert>
       )}
 

@@ -136,6 +136,9 @@ export default function page() {
       documentData.name = response.data.name;
       documentData.documentNumber = response.data.name;
       documentData.status = response.data.status;
+      // Forward linked field-tech delivery reports so the DO preview/print can
+      // render the Proof of Delivery section (see CleanDocumentPreview DO block).
+      documentData.maintenanceReports = response.data.maintenanceReports;
 
       // Build metadata
       const metadata = {

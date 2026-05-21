@@ -95,55 +95,44 @@ export default function AssetActionChooser() {
         What are you doing?
       </Typography>
 
+      {/* Smart delivery card — single button that morphs between Start and
+          Acknowledge based on the DO's current state. Disabled (with an
+          explanatory caption) when neither action is available: no open DO
+          on this asset, or the delivery cycle is already complete. */}
       <Card variant="outlined">
         <CardActionArea
-          onClick={() => data.canStartDelivery && router.push(`/scan/asset/${assetId}/delivery-start`)}
-          disabled={!data.canStartDelivery}
+          onClick={() => {
+            if (data.canStartDelivery) {
+              router.push(`/scan/asset/${assetId}/delivery-start`);
+            } else if (data.canAckDelivery && latestDeliveryOrder) {
+              router.push(`/scan/asset/${assetId}/do/${latestDeliveryOrder.id}`);
+            }
+          }}
+          disabled={!data.canStartDelivery && !data.canAckDelivery}
         >
           <CardContent sx={{ display: "flex", gap: 2, alignItems: "center" }}>
-            <AddBoxIcon color={data.canStartDelivery ? "primary" : "disabled"} sx={{ fontSize: 40 }} />
+            {data.canAckDelivery ? (
+              <LocalShippingIcon color="primary" sx={{ fontSize: 40 }} />
+            ) : (
+              <AddBoxIcon color={data.canStartDelivery ? "primary" : "disabled"} sx={{ fontSize: 40 }} />
+            )}
             <Box>
               <Typography variant="subtitle1" fontWeight={600}>
-                Start Delivery
+                {data.canAckDelivery ? "Acknowledge Delivery" : "Start Delivery"}
               </Typography>
-              {!latestDeliveryOrder ? (
-                <Typography variant="body2" color="text.secondary">No open DO for this asset</Typography>
-              ) : data.canStartDelivery ? (
+              {data.canStartDelivery ? (
                 <Typography variant="body2" color="text.secondary">
-                  {latestDeliveryOrder.name ?? latestDeliveryOrder.id} · {new Date(latestDeliveryOrder.createdAt).toLocaleDateString()}
+                  {latestDeliveryOrder?.name ?? latestDeliveryOrder?.id} · {latestDeliveryOrder ? new Date(latestDeliveryOrder.createdAt).toLocaleDateString() : ""}
                 </Typography>
-              ) : (
-                <Typography variant="body2" color="text.secondary">
-                  Already started{data.activeDeliveryStart?.technicianName ? ` by ${data.activeDeliveryStart.technicianName}` : ""}
-                </Typography>
-              )}
-            </Box>
-          </CardContent>
-        </CardActionArea>
-      </Card>
-
-      <Card variant="outlined">
-        <CardActionArea
-          onClick={() => data.canAckDelivery && latestDeliveryOrder && router.push(`/scan/asset/${assetId}/do/${latestDeliveryOrder.id}`)}
-          disabled={!data.canAckDelivery}
-        >
-          <CardContent sx={{ display: "flex", gap: 2, alignItems: "center" }}>
-            <LocalShippingIcon color={data.canAckDelivery ? "primary" : "disabled"} sx={{ fontSize: 40 }} />
-            <Box>
-              <Typography variant="subtitle1" fontWeight={600}>
-                Acknowledge Delivery
-              </Typography>
-              {!latestDeliveryOrder ? (
-                <Typography variant="body2" color="text.secondary">No open DO for this asset</Typography>
               ) : data.canAckDelivery ? (
                 <Typography variant="body2" color="text.secondary">
-                  {latestDeliveryOrder.name ?? latestDeliveryOrder.id}
-                  {data.activeDeliveryStart ? ` · started ${new Date(data.activeDeliveryStart.createdAt).toLocaleDateString()}` : ""}
+                  {latestDeliveryOrder?.name ?? latestDeliveryOrder?.id}
+                  {data.activeDeliveryStart?.technicianName ? ` · started by ${data.activeDeliveryStart.technicianName}` : data.activeDeliveryStart ? ` · started ${new Date(data.activeDeliveryStart.createdAt).toLocaleDateString()}` : ""}
                 </Typography>
-              ) : data.canStartDelivery ? (
-                <Typography variant="body2" color="text.secondary">Delivery not started yet</Typography>
+              ) : !latestDeliveryOrder ? (
+                <Typography variant="body2" color="text.secondary">No open DO for this asset</Typography>
               ) : (
-                <Typography variant="body2" color="text.secondary">Delivery already acknowledged</Typography>
+                <Typography variant="body2" color="text.secondary">Delivery complete</Typography>
               )}
             </Box>
           </CardContent>

@@ -30,12 +30,27 @@ import StopCircleIcon from "@mui/icons-material/StopCircle";
 import AddIcon from "@mui/icons-material/Add";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import CloseIcon from "@mui/icons-material/Close";
+import RouteIcon from "@mui/icons-material/Route";
 import { useTheme } from "@mui/material/styles";
 import useMediaQuery from "@mui/material/useMediaQuery";
+import dynamic from "next/dynamic";
 import { ROUTES } from "@/routes";
 import Table from "@/components/Table";
 import { toast } from "react-toastify";
 import CleanDocumentPreview from "@/containers/DocumentTemplates/components/CleanDocumentPreview";
+// Shared dialog — also consumed by the DO editor header's "Show Route" button
+// in TabbedDocumentCreator. Extracted from a previously-inline definition.
+import DeliveryRouteDialog from "@/components/DeliveryRouteDialog";
+
+// Leaflet hits `window` at import time; load the map client-side only.
+const DeliveryRouteMap = dynamic(() => import("@/components/DeliveryRouteMap"), {
+  ssr: false,
+  loading: () => (
+    <Box sx={{ p: 6, display: "flex", justifyContent: "center" }}>
+      <CircularProgress />
+    </Box>
+  ),
+});
 
 type DeploymentStatus = "ACTIVE" | "OFF_HIRED" | "COMPLETED" | "CANCELLED";
 type DeploymentType = "RENTAL" | "SALE" | "SERVICE";
@@ -211,6 +226,8 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
   const [fieldReports, setFieldReports] = useState<FieldReport[] | null>(null);
   const [fieldReportsLoading, setFieldReportsLoading] = useState(false);
   const [photoDialogSrc, setPhotoDialogSrc] = useState<string | null>(null);
+  // Open delivery-route dialog, keyed by the DO_START report id. null = closed.
+  const [routeDialogReportId, setRouteDialogReportId] = useState<string | null>(null);
 
   const fetchProject = useCallback(async () => {
     if (!params?.id) return;
@@ -512,6 +529,7 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
             reports={fieldReports}
             loading={fieldReportsLoading}
             onPhotoClick={setPhotoDialogSrc}
+            onViewRoute={setRouteDialogReportId}
           />
         )}
 
@@ -575,6 +593,12 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
           open={!!photoDialogSrc}
           onClose={() => setPhotoDialogSrc(null)}
         />
+
+        <DeliveryRouteDialog
+          reportId={routeDialogReportId}
+          open={!!routeDialogReportId}
+          onClose={() => setRouteDialogReportId(null)}
+        />
       </Box>
     </MainCard>
   );
@@ -584,10 +608,12 @@ function FieldReportsList({
   reports,
   loading,
   onPhotoClick,
+  onViewRoute,
 }: {
   reports: FieldReport[] | null;
   loading: boolean;
   onPhotoClick: (src: string) => void;
+  onViewRoute: (reportId: string) => void;
 }) {
   if (loading || reports === null) {
     return (
@@ -609,7 +635,12 @@ function FieldReportsList({
   return (
     <Stack spacing={1.5}>
       {reports.map((r) => (
-        <FieldReportCard key={r.id} report={r} onPhotoClick={onPhotoClick} />
+        <FieldReportCard
+          key={r.id}
+          report={r}
+          onPhotoClick={onPhotoClick}
+          onViewRoute={onViewRoute}
+        />
       ))}
     </Stack>
   );
@@ -618,9 +649,11 @@ function FieldReportsList({
 function FieldReportCard({
   report,
   onPhotoClick,
+  onViewRoute,
 }: {
   report: FieldReport;
   onPhotoClick: (src: string) => void;
+  onViewRoute: (reportId: string) => void;
 }) {
   const kindLabel = FIELD_REPORT_KIND_LABEL[report.kind] ?? report.kind;
   const kindColor = FIELD_REPORT_KIND_COLOR[report.kind] ?? "default";
@@ -639,6 +672,19 @@ function FieldReportCard({
           </Typography>
         )}
         <Box sx={{ flexGrow: 1 }} />
+        {report.kind === "DO_START" && (
+          <Tooltip title="See the delivery route on a map">
+            <Button
+              size="small"
+              variant="text"
+              startIcon={<RouteIcon fontSize="small" />}
+              onClick={() => onViewRoute(report.id)}
+              sx={{ minWidth: 0 }}
+            >
+              View Route
+            </Button>
+          </Tooltip>
+        )}
         <Chip size="small" variant="outlined" label={report.status} />
       </Stack>
 
@@ -732,6 +778,11 @@ function FieldReportCard({
   );
 }
 
+/**
+ * Polls /maintenance-reports/:reportId/location-track every 10 s while the
+ * delivery is active (no DO_ACK yet) and renders the route on a Leaflet map.
+ * Polling stops automatically when isActive flips false.
+ */
 function PhotoViewerDialog({
   src,
   open,
@@ -1184,6 +1235,7 @@ function DocumentPreviewDialog({
             documentType={doc.type}
             data={doc.config ?? {}}
             organization={organization}
+            maintenanceReports={doc.maintenanceReports ?? []}
           />
         )}
       </DialogContent>
