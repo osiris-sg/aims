@@ -8,8 +8,6 @@ import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
-import { useGeolocation } from "../../../../../hooks/useGeolocation";
-import { GeoStatus } from "../../delivery-start/page";
 
 interface UploadedPhoto {
   key: string;
@@ -60,8 +58,6 @@ export default function DeliveryOrderAckPage() {
     setPhotos((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const geo = useGeolocation();
-
   const continueToSign = async () => {
     setError(null);
     setSubmitting(true);
@@ -73,6 +69,8 @@ export default function DeliveryOrderAckPage() {
       // Fallback string when no notes are entered so the row isn't blank in
       // the office-side Field Reports view.
       const description = notes.trim() || "Delivery acknowledged";
+      // Location for the acknowledge point comes from the last background
+      // ping recorded against the parent DO_START — no inline GPS needed.
       const res = await request(
         { path: "/maintenance-reports", method: "POST" },
         {
@@ -81,9 +79,6 @@ export default function DeliveryOrderAckPage() {
           photos: photos.map((p) => p.key),
           kind: "DO_ACK",
           documentId: doId,
-          ...(geo.coords
-            ? { latitude: geo.coords.latitude, longitude: geo.coords.longitude }
-            : {}),
         },
         token,
       );
@@ -101,8 +96,6 @@ export default function DeliveryOrderAckPage() {
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 3 }}>
       <Typography variant="h6" fontWeight={700}>Acknowledge Delivery</Typography>
       <Typography variant="body2" color="text.secondary">DO {doId}</Typography>
-
-      <GeoStatus geo={geo} />
 
       <TextField
         label="Notes (optional)"

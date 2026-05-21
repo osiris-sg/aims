@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">AIMS Field</string>
+    <string name="title_activity_main">AIMS Field</string>
+    <string name="package_name">so.osiris.aims.field</string>
+    <string name="custom_url_scheme">so.osiris.aims.field</string>
+</resources>

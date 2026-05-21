@@ -1029,11 +1029,40 @@ model MaintenanceServiceReport {
   organization Organization @relation(fields: [organizationId], references: [id])
   asset        Asset        @relation(fields: [assetId], references: [id])
   inventory    Inventory?   @relation(fields: [inventoryId], references: [id])
+  // Background-tracked GPS pings collected during this delivery. Populated
+  // only for kind=DO_START rows — DO_ACK and SERVICE rows have none.
+  locationPings DeliveryLocationPing[]
 
   @@index([organizationId, assetId, createdAt])
   @@index([assetId, status])
   @@index([organizationId, kind, createdAt])
   @@index([documentId, kind])
+}
+
+// Live-tracked GPS pings emitted by the field-tech app between Start Delivery
+// and Acknowledge Delivery. Linked to the DO_START MaintenanceServiceReport;
+// the office portal renders these as a polyline on a Leaflet map.
+//
+// Cardinality: 1 DO_START → N pings (typically 1 every 10s while delivery
+// active). Cascade-deleted with the parent report.
+model DeliveryLocationPing {
+  id          String   @id @default(uuid()) @db.Uuid
+  reportId    String   @db.Uuid
+  latitude    Float
+  longitude   Float
+  accuracy    Float?                                     // metres of horizontal uncertainty (68% confidence)
+  speed       Float?                                     // metres per second
+  heading     Float?                                     // degrees from true north (0..360)
+  timestamp   DateTime                                   // capture time from the phone
+  createdAt   DateTime @default(now())                   // server-side receive time
+
+  report      MaintenanceServiceReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  // Lookups are always "all pings for report X, ordered by time" → composite
+  // index covers both filter and order.
+  @@index([reportId, timestamp])
+  // Idempotency anchor — duplicate batch retries don't double-insert.
+  @@unique([reportId, timestamp])
 }
 
 enum MaintenanceServiceReportStatus {

@@ -6,6 +6,7 @@ import { useAuth } from "@clerk/nextjs";
 import SignatureCanvas from "react-signature-canvas";
 import { Alert, Box, Button, Stack, TextField, Typography } from "@mui/material";
 import { request } from "@/helpers/request";
+import { useBackgroundLocationContext } from "../../../../context/BackgroundLocationContext";
 
 export default function SignPage() {
   const params = useParams();
@@ -14,10 +15,20 @@ export default function SignPage() {
   const { getToken } = useAuth();
   const assetId = params?.assetId as string;
   const reportId = search?.get("reportId");
+  // Differentiates which flow the signature is for. Set by the upstream page:
+  //   delivery-start → start background tracking after successful sign
+  //   do             → stop background tracking after successful sign
+  //   (omitted)      → service-report flow, no tracking change
+  const flowKind = search?.get("kind");
   const sigRef = useRef<SignatureCanvas>(null);
   const [signedByName, setSignedByName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Read from the layout-level provider. start/stop dispatch through the
+  // long-lived provider so the native callback closure isn't destroyed
+  // when this page unmounts on router.replace(/done).
+  const bgLocation = useBackgroundLocationContext();
 
   const clear = () => sigRef.current?.clear();
 
@@ -41,6 +52,32 @@ export default function SignPage() {
         { signature, signedByName: signedByName.trim() || undefined },
         token,
       );
+
+      // Background location tracking — only acts on delivery flows. The
+      // service-report flow (no kind param) is unaffected.
+      // eslint-disable-next-line no-console
+      console.log("[sign] post-signature dispatch", {
+        flowKind,
+        reportId,
+        isAvailable: bgLocation.isAvailable,
+        isTracking: bgLocation.isTracking,
+      });
+      if (flowKind === "delivery-start") {
+        // eslint-disable-next-line no-console
+        console.log("[sign] calling bgLocation.start", { reportId });
+        // Fire-and-forget — failure to start tracking shouldn't block
+        // navigation to /done. The hook surfaces its own errors via state
+        // visible on the next mount.
+        void bgLocation.start(reportId);
+      } else if (flowKind === "do") {
+        // eslint-disable-next-line no-console
+        console.log("[sign] calling bgLocation.stop");
+        void bgLocation.stop();
+      } else {
+        // eslint-disable-next-line no-console
+        console.log("[sign] no flowKind match — service-report flow, no tracking change");
+      }
+
       router.replace(`/scan/asset/${assetId}/done`);
     } catch (e: any) {
       setError(e?.message ?? "Failed to submit signature");

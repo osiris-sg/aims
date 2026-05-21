@@ -90,10 +90,38 @@ function DescriptionText({ text, sx = {} }: { text: string; sx?: any }) {
   );
 }
 
+interface FieldDeliveryReport {
+  id: string;
+  kind: "DO_START" | "DO_ACK" | "SERVICE";
+  photos: string[];
+  signature: string | null;
+  signedByName: string | null;
+  signedAt: string | null;
+  technicianName: string | null;
+  createdAt: string;
+}
+
 interface CleanDocumentPreviewProps {
   documentType: "QO1" | "DO" | "RDO" | "TI" | "TI2" | "MSR" | "INVOICE" | string;
   data: any;
   organization?: any;
+  // Field-tech delivery reports linked to this document via documentId. When
+  // present and non-empty, the DO layout renders a "Proof of Delivery" section
+  // (photos + signature per report). Optional — older callers (template
+  // designer, mock previews) omit it and the section is suppressed.
+  maintenanceReports?: FieldDeliveryReport[];
+}
+
+// Resolve an S3 key or a data URL to a renderable img src. Mirrors the helper
+// used in app/portal/projects/[id]/page.tsx for the Field Reports tab.
+function resolvePhotoSrc(key: string | null | undefined): string {
+  if (!key) return "";
+  if (key.startsWith("data:") || key.startsWith("http://") || key.startsWith("https://")) {
+    return key;
+  }
+  const base =
+    process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/";
+  return `${base}${key}`;
 }
 
 export default function CleanDocumentPreview(props: CleanDocumentPreviewProps) {
@@ -138,7 +166,7 @@ export default function CleanDocumentPreview(props: CleanDocumentPreviewProps) {
   );
 }
 
-function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDocumentPreviewProps) {
+function CleanDocumentPreviewInner({ documentType, data, organization, maintenanceReports }: CleanDocumentPreviewProps) {
   const getDocumentTitle = () => {
     const titles: Record<string, string> = {
       // Short codes
@@ -1181,6 +1209,21 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           },
         }}
       >
+        {/* Page-1 wrapper: pins the signature lines to the bottom of the
+            first printed page regardless of how few items the DO has. The
+            wrapper's minHeight is A4 minus the Paper's 20mm padding so it
+            fills the content area on screen; on print [data-print-paper]
+            strips the padding, so the wrapper expands to a full 297mm.
+            PROOF OF DELIVERY sits OUTSIDE this wrapper so its size never
+            pulls into the page-1 flex layout. */}
+        <Box
+          sx={{
+            minHeight: "calc(297mm - 40mm)",
+            display: "flex",
+            flexDirection: "column",
+            "@media print": { minHeight: "297mm" },
+          }}
+        >
         {/* Company Header - Centered */}
         <Box sx={{ textAlign: "center", mb: 2 }}>
           <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
@@ -1315,8 +1358,12 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
           </Table>
         </TableContainer>
 
-        {/* Bottom Signature Section - DO Style - Pushed to bottom of page */}
-        <Box sx={{ mt: "auto", borderTop: "1px solid #000", pt: 2 }}>
+        {/* Flex spacer — fills available height inside the page-1 wrapper so
+            the signature block below pins to the bottom of the printed page. */}
+        <Box sx={{ flex: 1 }} />
+
+        {/* Bottom Signature Section - DO Style */}
+        <Box sx={{ borderTop: "1px solid #000", pt: 2 }}>
           {/* Header Row - "Goods Received" on left, Company name on right */}
           <Box sx={{ display: "flex", justifyContent: "space-between", mb: 6 }}>
             <Typography sx={{ fontSize: "0.8125rem" }}>
@@ -1327,36 +1374,219 @@ function CleanDocumentPreviewInner({ documentType, data, organization }: CleanDo
             </Typography>
           </Box>
 
-          {/* Signature Lines Row */}
-          <Box sx={{ display: "flex", justifyContent: "space-between", mt: 4 }}>
-            {/* Chop & Sign */}
-            <Box sx={{ textAlign: "center", flex: 1 }}>
-              <Box sx={{ borderTop: "1px solid #000", width: "80%", mx: "auto", pt: 0.5 }}>
-                <Typography sx={{ fontSize: "0.8125rem" }}>
-                  Chop & Sign
-                </Typography>
-              </Box>
-            </Box>
+          {/* Signature Lines Row. The DO_ACK report's signature populates
+              "Chop & Sign" (the customer who received the equipment); the
+              DO_START report's technician populates "Delivery By" (the field
+              tech who took the equipment out). Both render above their
+              respective ruled lines when present; otherwise the lines stay
+              blank as a fillable paper form. */}
+          {(() => {
+            const doStart = maintenanceReports?.find((r) => r.kind === "DO_START") ?? null;
+            const doAck = maintenanceReports?.find((r) => r.kind === "DO_ACK") ?? null;
+            const deliveryByName = doStart?.technicianName ?? doStart?.signedByName ?? null;
+            // Shared box style for the content-above-the-ruled-line area.
+            // Fixed height keeps the three ruled lines aligned horizontally
+            // regardless of which columns have content; flex bottom-alignment
+            // makes the signature image / name sit just above the line.
+            const slotSx = {
+              height: 70,
+              display: "flex",
+              alignItems: "flex-end",
+              justifyContent: "center",
+              mb: 0.5,
+            } as const;
+            return (
+              <Box sx={{ display: "flex", justifyContent: "space-between", mt: 4 }}>
+                {/* Chop & Sign — customer signature from DO_ACK */}
+                <Box sx={{ textAlign: "center", flex: 1 }}>
+                  <Box sx={slotSx}>
+                    {doAck?.signature && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={resolvePhotoSrc(doAck.signature)}
+                        alt="Customer signature"
+                        style={{ maxHeight: 64, maxWidth: "80%", objectFit: "contain" }}
+                      />
+                    )}
+                  </Box>
+                  <Box sx={{ borderTop: "1px solid #000", width: "80%", mx: "auto", pt: 0.5 }}>
+                    <Typography sx={{ fontSize: "0.8125rem" }}>
+                      Chop & Sign
+                    </Typography>
+                    {doAck?.signedByName && (
+                      <Typography sx={{ fontSize: "0.6875rem", color: "#444", mt: 0.25 }}>
+                        {doAck.signedByName}
+                      </Typography>
+                    )}
+                  </Box>
+                </Box>
 
-            {/* Delivery By */}
-            <Box sx={{ textAlign: "center", flex: 1 }}>
-              <Box sx={{ borderTop: "1px solid #000", width: "80%", mx: "auto", pt: 0.5 }}>
-                <Typography sx={{ fontSize: "0.8125rem" }}>
-                  Delivery By
-                </Typography>
-              </Box>
-            </Box>
+                {/* Delivery By — technician name from DO_START */}
+                <Box sx={{ textAlign: "center", flex: 1 }}>
+                  <Box sx={slotSx}>
+                    {deliveryByName && (
+                      <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500 }}>
+                        {deliveryByName}
+                      </Typography>
+                    )}
+                  </Box>
+                  <Box sx={{ borderTop: "1px solid #000", width: "80%", mx: "auto", pt: 0.5 }}>
+                    <Typography sx={{ fontSize: "0.8125rem" }}>
+                      Delivery By
+                    </Typography>
+                  </Box>
+                </Box>
 
-            {/* Issue By */}
-            <Box sx={{ textAlign: "center", flex: 1 }}>
-              <Box sx={{ borderTop: "1px solid #000", width: "80%", mx: "auto", pt: 0.5 }}>
-                <Typography sx={{ fontSize: "0.8125rem" }}>
-                  Issue By : {data.documentInfo?.issueBy || data.issueBy || ""}
-                </Typography>
+                {/* Issue By — unchanged, comes from document config */}
+                <Box sx={{ textAlign: "center", flex: 1 }}>
+                  <Box sx={slotSx} />
+                  <Box sx={{ borderTop: "1px solid #000", width: "80%", mx: "auto", pt: 0.5 }}>
+                    <Typography sx={{ fontSize: "0.8125rem" }}>
+                      Issue By : {data.documentInfo?.issueBy || data.issueBy || ""}
+                    </Typography>
+                  </Box>
+                </Box>
               </Box>
-            </Box>
-          </Box>
+            );
+          })()}
         </Box>
+
+        </Box>
+        {/* End of page-1 wrapper. PROOF OF DELIVERY follows as a sibling so
+            its content height doesn't compress the page-1 layout. */}
+
+        {/* PROOF OF DELIVERY — field-tech reports linked to this DO via
+            documentId. DO_START is filtered out: the simplified Start
+            Delivery flow captures no photos or signature, and the tech's
+            identity is already shown on page 1's "Delivery By" line — so
+            including a DO_START stub here would just be visual noise. Only
+            DO_ACK rows (and any future kinds like off-hire reports) render.
+            Section is suppressed entirely when nothing remains after the
+            filter, so a DO with only a DO_START gets a clean one-page print. */}
+        {maintenanceReports &&
+          maintenanceReports.filter((r) => r.kind !== "DO_START").length > 0 && (
+          <Box
+            sx={{
+              mt: 4,
+              pt: 3,
+              borderTop: "2px solid #000",
+              pageBreakBefore: "always",
+              "@media print": { pageBreakBefore: "always" },
+            }}
+          >
+            <Typography
+              sx={{
+                fontSize: "0.9375rem",
+                fontWeight: 700,
+                textAlign: "center",
+                mb: 2,
+                letterSpacing: "1px",
+              }}
+            >
+              PROOF OF DELIVERY
+            </Typography>
+
+            {maintenanceReports
+              .filter((r) => r.kind !== "DO_START")
+              .map((report, idx) => (
+              <Box
+                key={report.id}
+                sx={{
+                  mb: 3,
+                  pb: 2,
+                  // Reports flow together on the same page when they fit. The
+                  // browser's natural page break kicks in only if the content
+                  // overflows — saves paper when a report is just a header +
+                  // a few photos + a signature. A thin top border + extra top
+                  // padding visually separates subsequent reports without
+                  // forcing a fresh page.
+                  ...(idx > 0 && {
+                    mt: 3,
+                    pt: 3,
+                    borderTop: "1px solid #ddd",
+                  }),
+                }}
+              >
+                {/* Header row: kind label + ISO timestamp + technician */}
+                <Box sx={{ display: "flex", gap: 2, alignItems: "baseline", mb: 1.5, flexWrap: "wrap" }}>
+                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700 }}>
+                    {report.kind === "DO_START" ? "Delivery Started" : "Delivery Acknowledged"}
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.75rem", color: "#444" }}>
+                    {new Date(report.createdAt).toLocaleString("en-GB", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </Typography>
+                  {report.technicianName && (
+                    <Typography sx={{ fontSize: "0.75rem", color: "#444" }}>
+                      By: {report.technicianName}
+                    </Typography>
+                  )}
+                </Box>
+
+                {/* Photos — 2-column grid, ~85mm wide each at A4 margins, fixed
+                    4:3 aspect so the print engine doesn't fight the layout.
+                    Gated to DO_ACK only: the simplified Start Delivery flow
+                    is a one-tap confirmation that captures no media, so
+                    DO_START rows have nothing to show here. */}
+                {report.kind !== "DO_START" && report.photos && report.photos.length > 0 && (
+                  <Box
+                    sx={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: 1.5,
+                      my: 1.5,
+                    }}
+                  >
+                    {report.photos.map((key) => (
+                      <Box
+                        key={key}
+                        sx={{
+                          width: "100%",
+                          aspectRatio: "4 / 3",
+                          overflow: "hidden",
+                          border: "1px solid #ccc",
+                        }}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={resolvePhotoSrc(key)}
+                          alt=""
+                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                        />
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+
+                {/* Signature with signed-by name + timestamp. Gated to DO_ACK
+                    only — DO_START is now a tap-to-confirm with no signature. */}
+                {report.kind !== "DO_START" && report.signature && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography sx={{ fontSize: "0.75rem", color: "#444", mb: 0.5 }}>
+                      Signed by: {report.signedByName ?? "—"}
+                      {report.signedAt
+                        ? ` · ${new Date(report.signedAt).toLocaleString("en-GB", {
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          })}`
+                        : ""}
+                    </Typography>
+                    <Box sx={{ display: "inline-block", border: "1px solid #ccc", p: 0.5 }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={resolvePhotoSrc(report.signature)}
+                        alt="Signature"
+                        style={{ maxHeight: "80px", display: "block" }}
+                      />
+                    </Box>
+                  </Box>
+                )}
+              </Box>
+            ))}
+          </Box>
+        )}
 
       </Paper>
     );

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Tech-list filter for NFC foreground dispatch. Each <tech-list> is a separate
+  filter; a tag matches when its supported tech set is a SUPERSET of the
+  tech-list. The four lists below cover the common NFC Forum tag types so the
+  app catches NTAG21x, MIFARE Classic / Ultralight, and ISO 14443-A/B/V cards.
+  Referenced by AndroidManifest.xml via @xml/nfc_tech_filter.
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <tech-list>
+        <tech>android.nfc.tech.NfcA</tech>
+    </tech-list>
+    <tech-list>
+        <tech>android.nfc.tech.NfcB</tech>
+    </tech-list>
+    <tech-list>
+        <tech>android.nfc.tech.NfcV</tech>
+    </tech-list>
+    <tech-list>
+        <tech>android.nfc.tech.Ndef</tech>
+    </tech-list>
+</resources>

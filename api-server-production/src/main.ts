@@ -13,7 +13,10 @@ const corsOptions: CorsOptions = {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
 
-    const allowedOrigins = ['http://localhost:3000', 'https://www.aims.osiris.so', 'https://aims.osiris.so'];
+    // http://localhost is the default origin for the Android WebView when the
+    // Capacitor shell loads the portal via server.url. iOS WebView uses
+    // capacitor://localhost — added for symmetry when iOS ships.
+    const allowedOrigins = ['http://localhost', 'http://localhost:3000', 'capacitor://localhost', 'https://www.aims.osiris.so', 'https://aims.osiris.so'];
 
     // Allow Vercel deployments
     if (origin.includes('vercel.app')) {
