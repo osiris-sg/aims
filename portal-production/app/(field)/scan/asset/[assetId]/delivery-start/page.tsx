@@ -148,6 +148,7 @@ export default function StartDeliveryPage() {
           onClick={() => router.back()}
           fullWidth
           disabled={submitting}
+          sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
         >
           Cancel
         </Button>
@@ -156,6 +157,7 @@ export default function StartDeliveryPage() {
           onClick={confirm}
           disabled={submitting || contextLoading || !doId}
           fullWidth
+          sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
         >
           {submitting ? <CircularProgress size={20} color="inherit" /> : "Confirm & Start"}
         </Button>

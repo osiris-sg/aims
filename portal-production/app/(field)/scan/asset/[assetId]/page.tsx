@@ -110,14 +110,14 @@ export default function AssetActionChooser() {
           }}
           disabled={!data.canStartDelivery && !data.canAckDelivery}
         >
-          <CardContent sx={{ display: "flex", gap: 2, alignItems: "center" }}>
+          <CardContent sx={{ display: "flex", gap: 2.5, alignItems: "center", py: 3, minHeight: 96 }}>
             {data.canAckDelivery ? (
-              <LocalShippingIcon color="primary" sx={{ fontSize: 40 }} />
+              <LocalShippingIcon color="primary" sx={{ fontSize: 48 }} />
             ) : (
-              <AddBoxIcon color={data.canStartDelivery ? "primary" : "disabled"} sx={{ fontSize: 40 }} />
+              <AddBoxIcon color={data.canStartDelivery ? "primary" : "disabled"} sx={{ fontSize: 48 }} />
             )}
             <Box>
-              <Typography variant="subtitle1" fontWeight={600}>
+              <Typography variant="h6" fontWeight={700}>
                 {data.canAckDelivery ? "Acknowledge Delivery" : "Start Delivery"}
               </Typography>
               {data.canStartDelivery ? (
@@ -141,10 +141,10 @@ export default function AssetActionChooser() {
 
       <Card variant="outlined">
         <CardActionArea onClick={() => router.push(`/scan/asset/${assetId}/service/new`)}>
-          <CardContent sx={{ display: "flex", gap: 2, alignItems: "center" }}>
-            <BuildIcon color="primary" sx={{ fontSize: 40 }} />
+          <CardContent sx={{ display: "flex", gap: 2.5, alignItems: "center", py: 3, minHeight: 96 }}>
+            <BuildIcon color="primary" sx={{ fontSize: 48 }} />
             <Box>
-              <Typography variant="subtitle1" fontWeight={600}>
+              <Typography variant="h6" fontWeight={700}>
                 Maintenance Service Report
               </Typography>
               <Typography variant="body2" color="text.secondary">

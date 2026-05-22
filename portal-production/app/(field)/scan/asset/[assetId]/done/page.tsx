@@ -16,9 +16,25 @@ export default function DonePage() {
       <Typography variant="body2" color="text.secondary">
         Sent back to AIMS.
       </Typography>
-      <Stack direction="column" spacing={1} sx={{ width: "100%", maxWidth: 320, mt: 2 }}>
-        <Button component={Link} href="/scan" variant="contained" fullWidth>Scan another asset</Button>
-        <Button component={Link} href={`/scan/asset/${assetId}`} variant="outlined" fullWidth>Back to this asset</Button>
+      <Stack direction="column" spacing={1.5} sx={{ width: "100%", maxWidth: 320, mt: 2 }}>
+        <Button
+          component={Link}
+          href="/scan"
+          variant="contained"
+          fullWidth
+          sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
+        >
+          Scan another asset
+        </Button>
+        <Button
+          component={Link}
+          href={`/scan/asset/${assetId}`}
+          variant="outlined"
+          fullWidth
+          sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
+        >
+          Back to this asset
+        </Button>
       </Stack>
     </Box>
   );

@@ -141,7 +141,13 @@ export default function DeliveryOrderAckPage() {
 
       <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
         <Button variant="outlined" onClick={() => router.back()} fullWidth>Back</Button>
-        <Button variant="contained" onClick={continueToSign} disabled={submitting || uploading} fullWidth>
+        <Button
+          variant="contained"
+          onClick={continueToSign}
+          disabled={submitting || uploading}
+          fullWidth
+          sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
+        >
           {submitting ? "Saving..." : "Continue to signature"}
         </Button>
       </Stack>

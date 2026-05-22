@@ -119,8 +119,21 @@ export default function SignPage() {
       {error && <Alert severity="error">{error}</Alert>}
 
       <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
-        <Button variant="outlined" onClick={clear} fullWidth>Clear</Button>
-        <Button variant="contained" onClick={submit} disabled={submitting} fullWidth>
+        <Button
+          variant="outlined"
+          onClick={clear}
+          fullWidth
+          sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
+        >
+          Clear
+        </Button>
+        <Button
+          variant="contained"
+          onClick={submit}
+          disabled={submitting}
+          fullWidth
+          sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
+        >
           {submitting ? "Submitting..." : "Submit"}
         </Button>
       </Stack>
