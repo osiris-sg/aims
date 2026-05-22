@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Box, Button, Stack, TextField, Typography, Alert, CircularProgress } from "@mui/material";
+import { Box, Button, Typography, Alert, CircularProgress } from "@mui/material";
 import NfcIcon from "@mui/icons-material/Nfc";
 import { request } from "@/helpers/request";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
@@ -28,7 +28,6 @@ export default function ScanLandingPage() {
   const nfc = useNfcScan();
   const [scanError, setScanError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [manualSku, setManualSku] = useState("");
 
   const resolveTag = useCallback(
     async (uid: string) => {
@@ -70,35 +69,9 @@ export default function ScanLandingPage() {
     if (nfc.uid) resolveTag(nfc.uid);
   }, [nfc.uid, resolveTag]);
 
-  // Surface scan-side errors into the same UI element as manual-flow errors.
   useEffect(() => {
     if (nfc.error) setScanError(nfc.error);
   }, [nfc.error]);
-
-  const goManual = async () => {
-    if (!manualSku.trim()) return;
-    setBusy(true);
-    setScanError(null);
-    try {
-      const token = await getToken();
-      if (!token) throw new Error("Not signed in");
-      const res = await request(
-        { path: `/assets/skuKey/${encodeURIComponent(manualSku.trim())}`, method: "GET" },
-        {},
-        token,
-      );
-      const asset = res.data ?? res;
-      if (asset?.id) {
-        router.push(`/scan/asset/${asset.id}`);
-      } else {
-        setScanError("No asset with that SKU");
-      }
-    } catch (e: any) {
-      setScanError(e?.message ?? "Lookup failed");
-    } finally {
-      setBusy(false);
-    }
-  };
 
   if (isLoading) {
     return (
@@ -136,27 +109,29 @@ export default function ScanLandingPage() {
           size="large"
           onClick={nfc.startScan}
           disabled={busy || nfc.isScanning}
-          sx={{ minWidth: 220 }}
+          startIcon={<NfcIcon />}
+          sx={{
+            minWidth: 260,
+            py: 2,
+            px: 5,
+            fontSize: "1.125rem",
+            minHeight: 64,
+            "& .MuiButton-startIcon > *:first-of-type": { fontSize: 32 },
+          }}
         >
-          {busy ? "Looking up..." : nfc.isScanning ? "Scanning…" : "Start scanning"}
+          {busy ? "Looking up..." : nfc.isScanning ? "Scanning…" : "Tap to scan"}
         </Button>
       )}
 
       {nfc.isSupported === false && (
         <Alert severity="warning" sx={{ width: "100%", maxWidth: 360 }}>
-          NFC scanning isn&apos;t available on this device. Use the AIMS Field native app on an NFC-capable phone, or enter the SKU manually below.
+          NFC is required. Please use the AIMS Field app on an NFC-capable phone.
         </Alert>
       )}
 
       {scanError && (
         <Alert severity="error" sx={{ width: "100%", maxWidth: 360 }}>{scanError}</Alert>
       )}
-
-      <Stack spacing={1} sx={{ width: "100%", maxWidth: 360, mt: 2 }}>
-        <Typography variant="caption" color="text.secondary">Or enter asset SKU manually</Typography>
-        <TextField size="small" placeholder="e.g. AF-90" value={manualSku} onChange={(e) => setManualSku(e.target.value)} />
-        <Button variant="outlined" onClick={goManual} disabled={!manualSku.trim() || busy}>Open</Button>
-      </Stack>
     </Box>
   );
 }
