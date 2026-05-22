@@ -10,9 +10,16 @@ import type { CapacitorConfig } from "@capacitor/cli";
  * is set.
  *
  * Switch targets at build time:
- *   CAP_SERVER_URL=http://192.168.4.23:3000 npx cap sync   (local LAN dev)
+ *   CAP_SERVER_URL=http://192.168.4.23:3000 npx cap sync       (local LAN dev)
  *   CAP_SERVER_URL=https://aims-staging.osiris.so npx cap sync
- *   CAP_SERVER_URL=https://aims.osiris.so npx cap sync     (production)
+ *   CAP_SERVER_URL=https://www.ai-ms.io npx cap sync           (production)
+ *
+ * IMPORTANT: production must use the www. host directly, NOT the bare apex
+ * (https://ai-ms.io). The apex issues a 301 to www, and the redirected
+ * navigation loads the new origin BEFORE Capacitor's native bridge JS is
+ * injected — leaving the WebView without `window.Capacitor`. NFC and
+ * background-geolocation calls then fail silently. Always point server.url
+ * at the final, no-redirect host.
  *
  * Default is the LAN dev URL so freshly-cloned developers can `cap sync` +
  * run the app against a phone on the same Wi-Fi without configuration.
@@ -38,7 +45,9 @@ const config: CapacitorConfig = {
       "192.168.4.23",
       "192.168.*.*",
       "*.osiris.so",
+      "ai-ms.io",
       "*.ai-ms.io",
+      "https://ai-ms.io",
       "*.clerk.accounts.dev",
       "*.clerk.com",
       "accounts.google.com",
