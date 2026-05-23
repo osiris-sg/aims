@@ -29,6 +29,29 @@ const FIELD_BUTTON_SX = {
   minHeight: 48,
 } as const;
 
+// Phone-camera JPEGs run 4–8 MB; Claude's image input cap is 5 MB. Resize
+// to 1280px wide at JPEG quality 0.7 — typically ~200–400 KB, well clear.
+const compressImage = (dataUrl: string, maxWidth = 1280, quality = 0.7): Promise<string> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      let w = img.width;
+      let h = img.height;
+      if (w > maxWidth) {
+        h = (h * maxWidth) / w;
+        w = maxWidth;
+      }
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx?.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.src = dataUrl;
+  });
+};
+
 /**
  * Field create-and-bind flow. The technician arrives here because the scanned
  * NFC tag isn't bound to anything. They photograph the equipment nameplate,
@@ -86,7 +109,11 @@ export default function BindTagPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => setPhotoDataUrl(typeof reader.result === "string" ? reader.result : null);
+    reader.onload = async () => {
+      if (typeof reader.result !== "string") return;
+      const compressed = await compressImage(reader.result);
+      setPhotoDataUrl(compressed);
+    };
     reader.readAsDataURL(file);
   };
 
