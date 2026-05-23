@@ -1,24 +1,39 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Alert, Box, Button, Card, CardContent, Stack, TextField, Typography, CircularProgress } from "@mui/material";
+import {
+  Alert,
+  Box,
+  Button,
+  CircularProgress,
+  MenuItem,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
+import CameraAltIcon from "@mui/icons-material/CameraAlt";
 import { request } from "@/helpers/request";
 
-interface AssetMatch {
+interface Category {
   id: string;
   name: string;
-  skuKey: string;
-  description?: string | null;
-  image?: string | null;
 }
 
+type Step = "capture" | "review" | "success";
+
+const FIELD_BUTTON_SX = {
+  py: 1.5,
+  fontSize: "1rem",
+  minHeight: 48,
+} as const;
+
 /**
- * First-tap binding screen. We arrive here when /assets/by-nfc-uid returned
- * 404 — the tag's hardware UID isn't bound to an asset yet. The technician
- * enters the SKU printed on the item, we look it up, confirm, then POST
- * /assets/:id/bind-nfc-tag and forward to the action chooser.
+ * Field create-and-bind flow. The technician arrives here because the scanned
+ * NFC tag isn't bound to anything. They photograph the equipment nameplate,
+ * Claude vision extracts the model + serial, they review/edit, and a single
+ * POST creates the asset and binds the tag.
  */
 export default function BindTagPage() {
   const router = useRouter();
@@ -26,55 +41,112 @@ export default function BindTagPage() {
   const { getToken } = useAuth();
   const uid = search?.get("uid") ?? "";
 
+  const [step, setStep] = useState<Step>("capture");
+
+  // Capture step
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+
+  // Review step
+  const [name, setName] = useState("");
   const [sku, setSku] = useState("");
-  const [match, setMatch] = useState<AssetMatch | null>(null);
-  const [searching, setSearching] = useState(false);
-  const [binding, setBinding] = useState(false);
+  const [categoryId, setCategoryId] = useState("");
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [extractionFailed, setExtractionFailed] = useState(false);
+  const [creating, setCreating] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
 
-  const find = async () => {
-    if (!sku.trim()) return;
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request({ path: "/categories", method: "GET" }, {}, token);
+        const list: Category[] = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+        if (cancelled) return;
+        setCategories(list);
+        const equipment = list.find((c) => c.name.toLowerCase() === "equipment");
+        if (equipment) setCategoryId(equipment.id);
+      } catch {
+        // Categories load failure is non-fatal — the user can still type the
+        // name/sku; we'll surface the error when they hit Create & Bind.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken]);
+
+  const onPickPhoto = () => fileInputRef.current?.click();
+
+  const onPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setPhotoDataUrl(typeof reader.result === "string" ? reader.result : null);
+    reader.readAsDataURL(file);
+  };
+
+  const analyze = async () => {
+    if (!photoDataUrl) return;
     setError(null);
-    setMatch(null);
-    setSearching(true);
+    setAnalyzing(true);
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const res = await request(
-        { path: `/assets/skuKey/${encodeURIComponent(sku.trim())}`, method: "GET" },
-        {},
+        { path: "/assets/extract-label", method: "POST" },
+        { image: photoDataUrl },
         token,
       );
-      const asset = res.data ?? res;
-      if (!asset?.id) {
-        setError(`No asset found with SKU "${sku.trim()}"`);
-        return;
+      const payload = res?.data ?? res;
+      const extractedModel = typeof payload?.model === "string" ? payload.model : null;
+      const extractedSerial = typeof payload?.serial === "string" ? payload.serial : null;
+
+      if (!extractedModel && !extractedSerial) {
+        setExtractionFailed(true);
+      } else {
+        setExtractionFailed(false);
       }
-      setMatch(asset as AssetMatch);
+      setName(extractedModel ?? "");
+      setSku(extractedSerial ?? "");
+      setStep("review");
     } catch (e: any) {
-      setError(e?.message ?? "Lookup failed");
+      // Move to review anyway so the tech can type it in manually.
+      setExtractionFailed(true);
+      setName("");
+      setSku("");
+      setError(e?.message ?? "Couldn't analyze photo — enter details manually.");
+      setStep("review");
     } finally {
-      setSearching(false);
+      setAnalyzing(false);
     }
   };
 
-  const confirm = async () => {
-    if (!match || !uid) return;
-    setBinding(true);
+  const createAndBind = async () => {
     setError(null);
+    if (!name.trim()) return setError("Name is required.");
+    if (!sku.trim()) return setError("SKU is required.");
+    if (!categoryId) return setError("Pick a category.");
+
+    setCreating(true);
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       await request(
-        { path: `/assets/${match.id}/bind-nfc-tag`, method: "POST" },
-        { uid },
+        { path: "/assets/create-and-bind", method: "POST" },
+        { name: name.trim(), skuKey: sku.trim(), categoryId, nfcTagUid: uid },
         token,
       );
-      router.replace(`/scan/asset/${match.id}`);
+      setStep("success");
     } catch (e: any) {
-      setError(e?.message ?? "Failed to bind tag");
+      // Stay on review screen so the tech can correct (e.g. duplicate SKU).
+      setError(e?.message ?? "Failed to create asset.");
     } finally {
-      setBinding(false);
+      setCreating(false);
     }
   };
 
@@ -90,52 +162,154 @@ export default function BindTagPage() {
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
       <Typography variant="h6" fontWeight={700}>New tag</Typography>
-      <Typography variant="body2" color="text.secondary">
-        This tag isn&apos;t linked to anything yet. Type the SKU printed on the item to link them.
-      </Typography>
       <Typography variant="caption" color="text.secondary" sx={{ wordBreak: "break-all" }}>
         Tag UID: {uid}
       </Typography>
 
-      <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
-        <TextField
-          size="small"
-          fullWidth
-          placeholder="e.g. AF-90"
-          value={sku}
-          onChange={(e) => setSku(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && find()}
-          autoFocus
-        />
-        <Button variant="contained" onClick={find} disabled={searching || !sku.trim()}>
-          {searching ? <CircularProgress size={18} color="inherit" /> : "Find"}
-        </Button>
-      </Stack>
+      {step === "capture" && (
+        <>
+          <Typography variant="body2" color="text.secondary">
+            Take a photo of the equipment&apos;s nameplate. We&apos;ll read the model and serial automatically.
+          </Typography>
 
-      {match && (
-        <Card variant="outlined" sx={{ mt: 1 }}>
-          <CardContent>
-            <Typography variant="subtitle1" fontWeight={600}>{match.name}</Typography>
-            <Typography variant="body2" color="text.secondary">{match.skuKey}</Typography>
-            {match.description && (
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{match.description}</Typography>
-            )}
-            <Button
-              variant="contained"
-              fullWidth
-              sx={{ mt: 2 }}
-              disabled={binding}
-              onClick={confirm}
-            >
-              {binding ? "Linking..." : "Link this tag to this item"}
-            </Button>
-          </CardContent>
-        </Card>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            style={{ display: "none" }}
+            onChange={onPhotoChange}
+          />
+
+          <Button
+            variant="contained"
+            color="primary"
+            fullWidth
+            startIcon={<CameraAltIcon />}
+            onClick={onPickPhoto}
+            sx={FIELD_BUTTON_SX}
+          >
+            {photoDataUrl ? "Retake photo" : "Scan Equipment Label"}
+          </Button>
+
+          {photoDataUrl && (
+            <Box sx={{ mt: 1 }}>
+              <Box
+                component="img"
+                src={photoDataUrl}
+                alt="Nameplate preview"
+                sx={{
+                  width: "100%",
+                  maxHeight: 320,
+                  objectFit: "contain",
+                  borderRadius: 1,
+                  border: "1px solid",
+                  borderColor: "divider",
+                }}
+              />
+              <Button
+                variant="contained"
+                fullWidth
+                disabled={analyzing}
+                onClick={analyze}
+                sx={{ ...FIELD_BUTTON_SX, mt: 2 }}
+              >
+                {analyzing ? (
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <CircularProgress size={18} color="inherit" />
+                    <span>Reading label...</span>
+                  </Stack>
+                ) : (
+                  "Analyze"
+                )}
+              </Button>
+            </Box>
+          )}
+        </>
+      )}
+
+      {step === "review" && (
+        <>
+          <Typography variant="body2" color="text.secondary">
+            Review the details below. Edit anything that&apos;s wrong, then create.
+          </Typography>
+
+          {extractionFailed && (
+            <Alert severity="warning">
+              Couldn&apos;t read the label automatically — please enter manually.
+            </Alert>
+          )}
+
+          <TextField
+            label="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            fullWidth
+          />
+          <TextField
+            label="SKU"
+            value={sku}
+            onChange={(e) => setSku(e.target.value)}
+            fullWidth
+          />
+          <TextField
+            select
+            label="Category"
+            value={categoryId}
+            onChange={(e) => setCategoryId(e.target.value)}
+            fullWidth
+            disabled={!categories.length}
+            helperText={categories.length ? undefined : "Loading categories..."}
+          >
+            {categories.map((c) => (
+              <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
+            ))}
+          </TextField>
+
+          <Button
+            variant="contained"
+            color="primary"
+            fullWidth
+            disabled={creating}
+            onClick={createAndBind}
+            sx={FIELD_BUTTON_SX}
+          >
+            {creating ? "Creating..." : "Create & Bind"}
+          </Button>
+
+          <Button
+            variant="text"
+            fullWidth
+            onClick={() => {
+              setStep("capture");
+              setError(null);
+            }}
+          >
+            Back to photo
+          </Button>
+        </>
+      )}
+
+      {step === "success" && (
+        <>
+          <Alert severity="success">Asset created and NFC tag bound</Alert>
+          <Button
+            variant="contained"
+            color="primary"
+            fullWidth
+            onClick={() => router.replace("/scan")}
+            sx={FIELD_BUTTON_SX}
+          >
+            Scan another asset
+          </Button>
+        </>
       )}
 
       {error && <Alert severity="error">{error}</Alert>}
 
-      <Button sx={{ mt: 2 }} onClick={() => router.replace("/scan")}>Cancel</Button>
+      {step !== "success" && (
+        <Button sx={{ mt: 2 }} onClick={() => router.replace("/scan")}>Cancel</Button>
+      )}
     </Box>
   );
 }

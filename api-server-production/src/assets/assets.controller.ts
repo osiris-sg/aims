@@ -6,6 +6,7 @@ import { UpdateAssetDto } from './dto/update-asset.dto';
 import { DeleteAssetDto } from './dto/delete-asset.dto';
 import { UpdateAssetParentDto } from './dto/update-asset-parent.dto';
 import { AdjustQuantityDto } from './dto/adjust-quantity.dto';
+import { CreateAndBindDto, ExtractLabelDto } from './dto/create-and-bind.dto';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody, ApiQuery } from '@nestjs/swagger';
 
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
@@ -113,6 +114,22 @@ export class AssetsController {
     @UserOrganization() userOrganization: any,
   ) {
     return this.assetsService.bindNfcTag(assetId, body.uid, userOrganization.id);
+  }
+
+  @Post('extract-label')
+  @Permissions('assets:bind-nfc-tag')
+  @ApiOperation({ summary: 'Extract model + serial from a nameplate photo (base64 JPEG/PNG) using Claude vision.' })
+  @ApiBody({ type: ExtractLabelDto })
+  async extractLabel(@Body() body: ExtractLabelDto) {
+    return this.assetsService.extractLabel(body.image);
+  }
+
+  @Post('create-and-bind')
+  @Permissions('assets:bind-nfc-tag')
+  @ApiOperation({ summary: 'Create a new asset and bind it to an NFC tag in a single step (field create-and-bind flow).' })
+  @ApiBody({ type: CreateAndBindDto })
+  async createAndBind(@Body() body: CreateAndBindDto, @UserOrganization() userOrganization: any) {
+    return this.assetsService.createAndBind(body, userOrganization.id);
   }
 
   @Get(':id/parts') 

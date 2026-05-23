@@ -54,7 +54,14 @@ const corsOptions: CorsOptions = {
 };
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    bodyParser: true,
+    rawBody: false,
+  });
+  // Base64-encoded nameplate photos for /assets/extract-label can run several MB.
+  const { json, urlencoded } = await import('express');
+  app.use(json({ limit: '15mb' }));
+  app.use(urlencoded({ extended: true, limit: '15mb' }));
   AppModule.registerSwagger(app);
   app.enableCors(corsOptions);
   app.use(morgan('dev'));
