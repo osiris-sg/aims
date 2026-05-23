@@ -11,7 +11,8 @@ import { OrganizationProvider } from "./context/OrganizationContext";
 import { ConfigurationProvider } from "./context/ConfigurationContext";
 import { SidebarProvider } from "@/components/Sidebar/SidebarContext";
 import { useThemeMode } from "@/contexts/ThemeModeContext";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
 import FieldOnlyGuard from "./components/FieldOnlyGuard";
 import OrgSwitcher from "@/components/OrgSwitcher";
 import ViewingAsBanner from "@/components/ViewingAsBanner";
@@ -22,7 +23,17 @@ interface Props {
 export default function Layout(props: Props) {
   const { children } = props;
   const pathname = usePathname();
+  const router = useRouter();
   const { mode } = useThemeMode();
+  const { isLoaded, isSignedIn } = useAuth();
+
+  // Bounce to sign-in once Clerk confirms there's no session. Without this,
+  // a stale tab after sign-out sits on the portal showing 401s indefinitely.
+  useEffect(() => {
+    if (isLoaded && !isSignedIn) {
+      router.replace("/sign-in");
+    }
+  }, [isLoaded, isSignedIn, router]);
 
   // Debug logging
   console.log("Current pathname:", pathname);
