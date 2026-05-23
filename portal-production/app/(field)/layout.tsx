@@ -1,7 +1,10 @@
 "use client";
 
-import React from "react";
-import { Box } from "@mui/material";
+import React, { useEffect } from "react";
+import { Box, IconButton, Tooltip } from "@mui/material";
+import LogoutIcon from "@mui/icons-material/Logout";
+import { useAuth, useClerk } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 import { OrganizationProvider } from "../portal/context/OrganizationContext";
 import { BackgroundLocationProvider } from "./context/BackgroundLocationContext";
 
@@ -31,6 +34,24 @@ interface Props {
  * tracking after app kill if localStorage indicates an in-flight delivery.
  */
 export default function FieldLayout({ children }: Props) {
+  const router = useRouter();
+  const { isLoaded, isSignedIn } = useAuth();
+  const { signOut } = useClerk();
+
+  // If Clerk has loaded and the user isn't signed in, bounce out of the field
+  // app — every endpoint requires a token, so staying here just shows blank
+  // screens or 401-error toasts forever.
+  useEffect(() => {
+    if (isLoaded && !isSignedIn) {
+      router.replace("/sign-in");
+    }
+  }, [isLoaded, isSignedIn, router]);
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.replace("/");
+  };
+
   return (
     <OrganizationProvider>
       <BackgroundLocationProvider>
@@ -43,6 +64,25 @@ export default function FieldLayout({ children }: Props) {
             bgcolor: "background.default",
           }}
         >
+          <Tooltip title="Sign out">
+            <IconButton
+              aria-label="Sign out"
+              size="small"
+              onClick={handleSignOut}
+              sx={{
+                position: "fixed",
+                top: 8,
+                right: 8,
+                zIndex: 1200,
+                color: "text.secondary",
+                bgcolor: "background.paper",
+                boxShadow: 1,
+                "&:hover": { bgcolor: "background.paper" },
+              }}
+            >
+              <LogoutIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
           {children}
         </Box>
       </BackgroundLocationProvider>
