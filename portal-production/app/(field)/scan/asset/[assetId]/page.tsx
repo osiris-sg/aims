@@ -162,6 +162,14 @@ export default function AssetActionChooser() {
           </Typography>
         </Box>
       )}
+
+      <Button
+        variant="text"
+        sx={{ mt: 4, color: "text.secondary", alignSelf: "center" }}
+        onClick={() => router.push("/scan")}
+      >
+        Scan another asset
+      </Button>
     </Box>
   );
 }

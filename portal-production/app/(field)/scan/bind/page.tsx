@@ -21,7 +21,7 @@ interface Category {
   name: string;
 }
 
-type Step = "capture" | "review" | "success";
+type Step = "capture" | "review";
 
 const FIELD_BUTTON_SX = {
   py: 1.5,
@@ -163,12 +163,16 @@ export default function BindTagPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      await request(
+      const res = await request(
         { path: "/assets/create-and-bind", method: "POST" },
         { name: name.trim(), skuKey: sku.trim(), categoryId, nfcTagUid: uid },
         token,
       );
-      setStep("success");
+      const created = res?.data ?? res;
+      if (!created?.id) throw new Error("Asset created but no ID returned");
+      // Jump straight to the action chooser — same destination as a scan of
+      // an already-bound tag, so the create-then-act flow has no dead end.
+      router.replace(`/scan/asset/${created.id}`);
     } catch (e: any) {
       // Stay on review screen so the tech can correct (e.g. duplicate SKU).
       setError(e?.message ?? "Failed to create asset.");
@@ -317,26 +321,9 @@ export default function BindTagPage() {
         </>
       )}
 
-      {step === "success" && (
-        <>
-          <Alert severity="success">Asset created and NFC tag bound</Alert>
-          <Button
-            variant="contained"
-            color="primary"
-            fullWidth
-            onClick={() => router.replace("/scan")}
-            sx={FIELD_BUTTON_SX}
-          >
-            Scan another asset
-          </Button>
-        </>
-      )}
-
       {error && <Alert severity="error">{error}</Alert>}
 
-      {step !== "success" && (
-        <Button sx={{ mt: 2 }} onClick={() => router.replace("/scan")}>Cancel</Button>
-      )}
+      <Button sx={{ mt: 2 }} onClick={() => router.replace("/scan")}>Cancel</Button>
     </Box>
   );
 }
