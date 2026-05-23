@@ -5,7 +5,9 @@ import { UpdateAssetDto } from './dto/update-asset.dto';
 import { PrismaService } from 'src/common/prisma.service';
 import { DeleteAssetDto } from './dto/delete-asset.dto';
 import { AdjustQuantityDto, AdjustmentType } from './dto/adjust-quantity.dto';
+import { CreateAndBindDto } from './dto/create-and-bind.dto';
 import { Prisma } from '@prisma/client';
+import Anthropic from '@anthropic-ai/sdk';
 
 @Injectable()
 export class AssetsService {
@@ -244,6 +246,118 @@ export class AssetsService {
       throw new HttpException('No asset bound to this NFC tag', HttpStatus.NOT_FOUND);
     }
     return asset;
+  }
+
+  async extractLabel(base64Image: string): Promise<{ model: string | null; serial: string | null }> {
+    if (!base64Image?.trim()) {
+      throw new HttpException('Image is required', HttpStatus.BAD_REQUEST);
+    }
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new HttpException('Label extraction is not configured (missing ANTHROPIC_API_KEY)', HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    // Strip data URL prefix if the frontend sent `data:image/jpeg;base64,...`.
+    const commaIdx = base64Image.indexOf(',');
+    const headerMatch = base64Image.match(/^data:(image\/[a-zA-Z+]+);base64,/);
+    const data = commaIdx >= 0 && headerMatch ? base64Image.slice(commaIdx + 1) : base64Image;
+    const mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' =
+      (headerMatch?.[1] as any) ?? 'image/jpeg';
+
+    const client = new Anthropic({ apiKey });
+
+    try {
+      const response = await client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 200,
+        system:
+          "You are reading an equipment nameplate/label. Extract the Model number and Serial number. Return ONLY a JSON object with keys 'model' and 'serial'. If you can't find either field, use null for that field. Do not include any other text.",
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: mediaType, data } },
+              { type: 'text', text: 'Extract the model and serial from this equipment label.' },
+            ],
+          },
+        ],
+      });
+
+      const textBlock = response.content.find((b) => b.type === 'text');
+      const raw = textBlock && 'text' in textBlock ? textBlock.text.trim() : '';
+      // The model usually returns clean JSON, but defend against fences or stray prose.
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return { model: null, serial: null };
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      return {
+        model: typeof parsed.model === 'string' && parsed.model.trim() ? parsed.model.trim() : null,
+        serial: typeof parsed.serial === 'string' && parsed.serial.trim() ? parsed.serial.trim() : null,
+      };
+    } catch (error: any) {
+      if (error instanceof Anthropic.APIError) {
+        throw new HttpException(`Label extraction failed: ${error.message}`, HttpStatus.BAD_GATEWAY);
+      }
+      if (error instanceof SyntaxError) {
+        return { model: null, serial: null };
+      }
+      throw new HttpException(error?.message ?? 'Label extraction failed', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  async createAndBind(dto: CreateAndBindDto, userOrganizationId: string) {
+    const { name, skuKey, categoryId, nfcTagUid } = dto;
+
+    if (!nfcTagUid?.trim()) {
+      throw new HttpException('NFC UID is required', HttpStatus.BAD_REQUEST);
+    }
+
+    const tagConflict = await this.prisma.asset.findUnique({ where: { nfcTagUid } });
+    if (tagConflict) {
+      throw new HttpException(
+        `NFC tag is already bound to asset ${tagConflict.skuKey}`,
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    try {
+      const asset = await this.prisma.asset.create({
+        data: {
+          name,
+          skuKey,
+          categoryId,
+          organizationId: userOrganizationId,
+          uom: 'PCS',
+          nfcTagUid,
+        },
+      });
+
+      // Mirror createAssets(): wire up DO/RDO templates so the new asset
+      // shows up in document workflows the same way as portal-created ones.
+      const templates = await this.prisma.documentTemplate.findMany({
+        where: {
+          type: { in: ['DO', 'RDO'] },
+          organizationId: userOrganizationId,
+        },
+        select: { id: true },
+      });
+      await this.prisma.assetTemplateTag.createMany({
+        data: templates.map((template) => ({ assetId: asset.id, templateId: template.id })),
+      });
+
+      return asset;
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2002') {
+          const target = (error.meta?.target as string[])?.join(', ') || 'field';
+          throw new HttpException(`Asset with the same ${target} already exists.`, HttpStatus.BAD_REQUEST);
+        }
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to create and bind asset',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
   async bindNfcTag(assetId: string, uid: string, userOrganizationId: string) {
