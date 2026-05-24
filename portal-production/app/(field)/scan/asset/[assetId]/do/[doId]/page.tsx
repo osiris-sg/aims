@@ -17,8 +17,17 @@ interface UploadedPhoto {
 // Phone-camera JPEGs run 4–8 MB. Resize to 1280px wide at JPEG q0.7 — typically
 // ~200–400 KB — before the multipart upload, otherwise the S3 PUT is painfully
 // slow on field LTE and the office gets oversized assets it never zooms into.
-// Mirrors the helper on the bind page (scan/bind/page.tsx).
-const compressImage = (dataUrl: string, maxWidth = 1280, quality = 0.7): Promise<string> => {
+//
+// Uses canvas.toBlob() rather than canvas.toDataURL() + fetch(dataUrl).blob():
+// the round-trip via fetch() on a data URL produces a Blob with an empty
+// `.type` in the Capacitor Android WebView, which downstream uploadImage maps
+// to a ".unknown" extension and the backend silently drops. toBlob guarantees
+// the type we asked for.
+const compressImageToBlob = (
+  dataUrl: string,
+  maxWidth = 1280,
+  quality = 0.7,
+): Promise<Blob> => {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
@@ -33,7 +42,11 @@ const compressImage = (dataUrl: string, maxWidth = 1280, quality = 0.7): Promise
       canvas.height = h;
       const ctx = canvas.getContext("2d");
       ctx?.drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL("image/jpeg", quality));
+      canvas.toBlob(
+        (blob) => resolve(blob ?? new Blob([], { type: "image/jpeg" })),
+        "image/jpeg",
+        quality,
+      );
     };
     img.src = dataUrl;
   });
@@ -77,8 +90,7 @@ export default function DeliveryOrderAckPage() {
       const newPhotos: UploadedPhoto[] = [];
       for (const file of Array.from(files)) {
         const originalDataUrl = await fileToDataUrl(file);
-        const compressedDataUrl = await compressImage(originalDataUrl);
-        const compressedBlob = await fetch(compressedDataUrl).then((r) => r.blob());
+        const compressedBlob = await compressImageToBlob(originalDataUrl);
         const key = await uploadImage({ blob: compressedBlob, folderName: "do-ack", token });
         if (key) newPhotos.push({ key, previewUrl: URL.createObjectURL(compressedBlob) });
       }
