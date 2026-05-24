@@ -1559,30 +1559,6 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     ))}
                   </Box>
                 )}
-
-                {/* Signature with signed-by name + timestamp. Gated to DO_ACK
-                    only — DO_START is now a tap-to-confirm with no signature. */}
-                {report.kind !== "DO_START" && report.signature && (
-                  <Box sx={{ mt: 2 }}>
-                    <Typography sx={{ fontSize: "0.75rem", color: "#444", mb: 0.5 }}>
-                      Signed by: {report.signedByName ?? "—"}
-                      {report.signedAt
-                        ? ` · ${new Date(report.signedAt).toLocaleString("en-GB", {
-                            dateStyle: "medium",
-                            timeStyle: "short",
-                          })}`
-                        : ""}
-                    </Typography>
-                    <Box sx={{ display: "inline-block", border: "1px solid #ccc", p: 0.5 }}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={resolvePhotoSrc(report.signature)}
-                        alt="Signature"
-                        style={{ maxHeight: "80px", display: "block" }}
-                      />
-                    </Box>
-                  </Box>
-                )}
               </Box>
             ))}
           </Box>
