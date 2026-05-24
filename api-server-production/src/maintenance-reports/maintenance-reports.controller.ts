@@ -110,7 +110,8 @@ export class MaintenanceReportsController {
   getScanContext(
     @Param('assetId') assetId: string,
     @UserOrganization() org: { id: string },
+    @Query('inventoryId') inventoryId?: string,
   ) {
-    return this.service.getScanContext(assetId, org.id);
+    return this.service.getScanContext(assetId, org.id, inventoryId);
   }
 }

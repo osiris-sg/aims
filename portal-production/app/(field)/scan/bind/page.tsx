@@ -72,8 +72,11 @@ export default function BindTagPage() {
   const [analyzing, setAnalyzing] = useState(false);
 
   // Review step
-  const [name, setName] = useState("");
-  const [sku, setSku] = useState("");
+  // Field names map to the Inventory create-and-bind shape:
+  //   model  → Asset.skuKey (the product/SKU identifier)
+  //   serial → Inventory.serialNumber (audit/warranty reference only)
+  const [model, setModel] = useState("");
+  const [serial, setSerial] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
   const [extractionFailed, setExtractionFailed] = useState(false);
@@ -138,14 +141,14 @@ export default function BindTagPage() {
       } else {
         setExtractionFailed(false);
       }
-      setName(extractedModel ?? "");
-      setSku(extractedSerial ?? "");
+      setModel(extractedModel ?? "");
+      setSerial(extractedSerial ?? "");
       setStep("review");
     } catch (e: any) {
       // Move to review anyway so the tech can type it in manually.
       setExtractionFailed(true);
-      setName("");
-      setSku("");
+      setModel("");
+      setSerial("");
       setError(e?.message ?? "Couldn't analyze photo — enter details manually.");
       setStep("review");
     } finally {
@@ -155,27 +158,37 @@ export default function BindTagPage() {
 
   const createAndBind = async () => {
     setError(null);
-    if (!name.trim()) return setError("Name is required.");
-    if (!sku.trim()) return setError("SKU is required.");
+    if (!model.trim()) return setError("Model is required.");
     if (!categoryId) return setError("Pick a category.");
 
     setCreating(true);
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
+      const categoryName = categories.find((c) => c.id === categoryId)?.name;
       const res = await request(
-        { path: "/assets/create-and-bind", method: "POST" },
-        { name: name.trim(), skuKey: sku.trim(), categoryId, nfcTagUid: uid },
+        { path: "/inventories/create-and-bind", method: "POST" },
+        {
+          model: model.trim(),
+          serial: serial.trim() || undefined,
+          categoryId,
+          categoryName,
+          nfcTagUid: uid,
+        },
         token,
       );
-      const created = res?.data ?? res;
-      if (!created?.id) throw new Error("Asset created but no ID returned");
+      const payload = res?.data ?? res;
+      const assetId = payload?.asset?.id;
+      const inventoryId = payload?.inventory?.id;
+      if (!assetId || !inventoryId) {
+        throw new Error("Created but no asset/inventory id returned");
+      }
       // Jump straight to the action chooser — same destination as a scan of
       // an already-bound tag, so the create-then-act flow has no dead end.
-      router.replace(`/scan/asset/${created.id}`);
+      router.replace(`/scan/asset/${assetId}?inventoryId=${inventoryId}`);
     } catch (e: any) {
-      // Stay on review screen so the tech can correct (e.g. duplicate SKU).
-      setError(e?.message ?? "Failed to create asset.");
+      // Stay on review screen so the tech can correct (e.g. duplicate tag).
+      setError(e?.message ?? "Failed to create inventory item.");
     } finally {
       setCreating(false);
     }
@@ -272,15 +285,17 @@ export default function BindTagPage() {
           )}
 
           <TextField
-            label="Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+            label="Model"
+            helperText="Product/SKU identifier (e.g. LION375). Becomes the Asset for this unit."
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
             fullWidth
           />
           <TextField
-            label="SKU"
-            value={sku}
-            onChange={(e) => setSku(e.target.value)}
+            label="Serial number"
+            helperText="From the nameplate. Stored for audit; the unit SKU is auto-generated."
+            value={serial}
+            onChange={(e) => setSerial(e.target.value)}
             fullWidth
           />
           <TextField

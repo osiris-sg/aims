@@ -237,15 +237,20 @@ export class AssetsService {
     }
   }
 
-  async getAssetByNfcUid(uid: string, userOrganizationId: string) {
-    const asset = await this.prisma.asset.findFirst({
-      where: { nfcTagUid: uid, organizationId: userOrganizationId, deletedAt: null },
-      include: { category: { select: { id: true, name: true } } },
+  async getByNfcUid(uid: string, userOrganizationId: string) {
+    // Inventory-level lookup only. Asset.nfcTagUid is retained on the schema
+    // for backward compatibility but is not queried for resolution — all
+    // existing bindings were migrated to Inventory rows.
+    const inventory = await this.prisma.inventory.findFirst({
+      where: { nfcTagUid: uid, organizationId: userOrganizationId },
+      include: {
+        asset: { include: { category: { select: { id: true, name: true } } } },
+      },
     });
-    if (!asset) {
-      throw new HttpException('No asset bound to this NFC tag', HttpStatus.NOT_FOUND);
+    if (!inventory) {
+      throw new HttpException('No inventory item bound to this NFC tag', HttpStatus.NOT_FOUND);
     }
-    return asset;
+    return { inventory, asset: inventory.asset };
   }
 
   async extractLabel(base64Image: string): Promise<{ model: string | null; serial: string | null }> {

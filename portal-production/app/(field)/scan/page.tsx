@@ -41,9 +41,14 @@ export default function ScanLandingPage() {
           {},
           token,
         );
-        const asset = res.data ?? res;
-        if (asset?.id) {
-          router.push(`/scan/asset/${asset.id}`);
+        // New shape: { inventory, asset }. The endpoint resolves the tag to a
+        // specific inventory unit and includes its parent asset for the chooser.
+        const payload = res.data ?? res;
+        const assetId = payload?.asset?.id;
+        const inventoryId = payload?.inventory?.id;
+        if (assetId) {
+          const query = inventoryId ? `?inventoryId=${encodeURIComponent(inventoryId)}` : "";
+          router.push(`/scan/asset/${assetId}${query}`);
           return;
         }
         router.push(`/scan/bind?uid=${encodeURIComponent(uid)}`);

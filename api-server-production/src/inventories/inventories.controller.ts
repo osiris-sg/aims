@@ -5,6 +5,7 @@ import { UpdateInventoryDto } from './dto/update-inventory.dto';
 import { GetInventoryDto } from './dto/get-inventory.dto';
 import { DeleteInventoryDto } from './dto/delete-inventory.dto';
 import { GenerateSkuDto } from './dto/generate-sku.dto';
+import { CreateInventoryAndBindDto } from './dto/create-and-bind.dto';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
@@ -102,6 +103,16 @@ export class InventoriesController {
       throw new Error('User is not assigned to any organization');
     }
     return await this.inventoriesService.createInventories(createInventoryDto, organizationId);
+  }
+
+  @Post('create-and-bind')
+  @Permissions('assets:bind-nfc-tag')
+  async createAndBind(@Body() body: CreateInventoryAndBindDto, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.inventoriesService.createAndBind(body, organizationId);
   }
 
   @Put('update')
