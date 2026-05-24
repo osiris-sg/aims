@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { Alert, Box, Button, CircularProgress, Stack, Typography } from "@mui/material";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
@@ -25,10 +25,12 @@ import { useBackgroundLocationContext } from "../../../../context/BackgroundLoca
 export default function StartDeliveryPage() {
   const params = useParams();
   const router = useRouter();
+  const search = useSearchParams();
   const { getToken } = useAuth();
   const { user } = useUser();
   const bgLocation = useBackgroundLocationContext();
   const assetId = params?.assetId as string;
+  const inventoryId = search?.get("inventoryId") ?? null;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,8 +46,9 @@ export default function StartDeliveryPage() {
       try {
         const token = await getToken();
         if (!token) return;
+        const invQuery = inventoryId ? `?inventoryId=${encodeURIComponent(inventoryId)}` : "";
         const res = await request(
-          { path: `/maintenance-reports/scan-context/${assetId}`, method: "GET" },
+          { path: `/maintenance-reports/scan-context/${assetId}${invQuery}`, method: "GET" },
           {},
           token,
         );
@@ -64,7 +67,7 @@ export default function StartDeliveryPage() {
     return () => {
       cancelled = true;
     };
-  }, [assetId, getToken]);
+  }, [assetId, getToken, inventoryId]);
 
   const confirm = async () => {
     setError(null);
@@ -91,6 +94,7 @@ export default function StartDeliveryPage() {
         { path: "/maintenance-reports", method: "POST" },
         {
           assetId,
+          ...(inventoryId ? { inventoryId } : {}),
           description: "Delivery started",
           kind: "DO_START",
           documentId: doId,

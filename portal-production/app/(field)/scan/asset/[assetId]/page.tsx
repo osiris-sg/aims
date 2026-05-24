@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Avatar, Box, Button, Card, CardActionArea, CardContent, CircularProgress, Stack, Typography, Alert } from "@mui/material";
+import { Avatar, Box, Button, Card, CardActionArea, CardContent, Chip, CircularProgress, Stack, Typography, Alert } from "@mui/material";
 import BuildIcon from "@mui/icons-material/Build";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import AddBoxIcon from "@mui/icons-material/AddBox";
@@ -11,6 +11,7 @@ import { request } from "@/helpers/request";
 
 interface ScanContext {
   asset: { id: string; name: string; skuKey: string; image?: string | null; description?: string | null };
+  inventory: { id: string; sku: string; status: string; serialNumber: string | null; location: string | null } | null;
   latestDeliveryOrder: { id: string; name?: string | null; createdAt: string; status: string } | null;
   canStartDelivery: boolean;
   canAckDelivery: boolean;
@@ -21,8 +22,10 @@ interface ScanContext {
 export default function AssetActionChooser() {
   const params = useParams();
   const router = useRouter();
+  const search = useSearchParams();
   const { getToken } = useAuth();
   const assetId = params?.assetId as string;
+  const inventoryId = search?.get("inventoryId") ?? null;
   const [data, setData] = useState<ScanContext | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -37,8 +40,9 @@ export default function AssetActionChooser() {
           setLoading(false);
           return;
         }
+        const inventoryQuery = inventoryId ? `?inventoryId=${encodeURIComponent(inventoryId)}` : "";
         const res = await request(
-          { path: `/maintenance-reports/scan-context/${assetId}`, method: "GET" },
+          { path: `/maintenance-reports/scan-context/${assetId}${inventoryQuery}`, method: "GET" },
           {},
           token,
         );
@@ -57,7 +61,7 @@ export default function AssetActionChooser() {
     return () => {
       cancelled = true;
     };
-  }, [assetId, getToken]);
+  }, [assetId, getToken, inventoryId]);
 
   if (loading) {
     return (
@@ -76,7 +80,7 @@ export default function AssetActionChooser() {
     );
   }
 
-  const { asset, latestDeliveryOrder } = data;
+  const { asset, inventory, latestDeliveryOrder } = data;
   const imageUrl = asset.image ? `${process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/"}${asset.image}` : undefined;
 
   return (
@@ -85,9 +89,18 @@ export default function AssetActionChooser() {
         <Avatar src={imageUrl} variant="rounded" sx={{ width: 72, height: 72 }}>
           {asset.name.slice(0, 2).toUpperCase()}
         </Avatar>
-        <Box>
+        <Box sx={{ minWidth: 0, flex: 1 }}>
           <Typography variant="h6" fontWeight={700}>{asset.name}</Typography>
           <Typography variant="body2" color="text.secondary">{asset.skuKey}</Typography>
+          {inventory && (
+            <Stack direction="row" spacing={1} sx={{ mt: 0.5, alignItems: "center", flexWrap: "wrap" }}>
+              <Chip size="small" label={`Unit ${inventory.sku}`} />
+              <Chip size="small" label={inventory.status} variant="outlined" />
+              {inventory.serialNumber && (
+                <Typography variant="caption" color="text.secondary">SN {inventory.serialNumber}</Typography>
+              )}
+            </Stack>
+          )}
         </Box>
       </Stack>
 
@@ -102,10 +115,11 @@ export default function AssetActionChooser() {
       <Card variant="outlined">
         <CardActionArea
           onClick={() => {
+            const invQuery = inventory ? `?inventoryId=${encodeURIComponent(inventory.id)}` : "";
             if (data.canStartDelivery) {
-              router.push(`/scan/asset/${assetId}/delivery-start`);
+              router.push(`/scan/asset/${assetId}/delivery-start${invQuery}`);
             } else if (data.canAckDelivery && latestDeliveryOrder) {
-              router.push(`/scan/asset/${assetId}/do/${latestDeliveryOrder.id}`);
+              router.push(`/scan/asset/${assetId}/do/${latestDeliveryOrder.id}${invQuery}`);
             }
           }}
           disabled={!data.canStartDelivery && !data.canAckDelivery}
@@ -138,7 +152,10 @@ export default function AssetActionChooser() {
       </Card>
 
       <Card variant="outlined">
-        <CardActionArea onClick={() => router.push(`/scan/asset/${assetId}/service/new`)}>
+        <CardActionArea onClick={() => {
+          const invQuery = inventory ? `?inventoryId=${encodeURIComponent(inventory.id)}` : "";
+          router.push(`/scan/asset/${assetId}/service/new${invQuery}`);
+        }}>
           <CardContent sx={{ display: "flex", gap: 2.5, alignItems: "center", py: 3, minHeight: 96 }}>
             <BuildIcon color="primary" sx={{ fontSize: 48 }} />
             <Box>

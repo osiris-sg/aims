@@ -3,10 +3,11 @@ import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { UpdateInventoryDto } from './dto/update-inventory.dto';
 import { DeleteInventoryDto } from './dto/delete-inventory.dto';
 import { GetInventoryDto } from './dto/get-inventory.dto';
+import { CreateInventoryAndBindDto } from './dto/create-and-bind.dto';
 import * as QRCode from 'qrcode';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from 'src/common/prisma.service';
-import { InventoryStatus } from '@prisma/client';
+import { InventoryStatus, Prisma } from '@prisma/client';
 
 @Injectable()
 export class InventoriesService {
@@ -269,6 +270,98 @@ export class InventoriesService {
       return Array.from({ length: quantity }, (_, i) => `${skuKey}-${(startSkuNumber + i).toString().padStart(3, '0')}`);
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  /**
+   * Field create-and-bind. Given the nameplate model + the scanned NFC tag,
+   * either find or create the parent Asset (SKU), then create exactly one
+   * Inventory unit under it with the next sequential per-unit SKU and bind
+   * the tag to it.
+   *
+   * Idempotency / safety:
+   *   - Asset lookup is by (skuKey=model, organizationId, deletedAt: null).
+   *     Match → reuse; miss → create with DO/RDO template tags (same logic as
+   *     assets.service.createAssets).
+   *   - Per-unit SKU comes from generateSkuRange(), which parses the highest
+   *     existing suffix rather than counting rows — survives deletions.
+   *   - Tag conflict is checked against Inventory.nfcTagUid (UNIQUE in DB).
+   *     A 409 here is preferred over the raw P2002 the DB would throw.
+   */
+  async createAndBind(dto: CreateInventoryAndBindDto, organizationId: string) {
+    if (!dto.nfcTagUid?.trim()) {
+      throw new HttpException('NFC UID is required', HttpStatus.BAD_REQUEST);
+    }
+
+    // 1. Tag conflict check up front — fail fast before any writes.
+    const tagConflict = await this.prisma.inventory.findUnique({
+      where: { nfcTagUid: dto.nfcTagUid },
+      include: { asset: { select: { skuKey: true } } },
+    });
+    if (tagConflict) {
+      throw new HttpException(
+        `NFC tag is already bound to inventory ${tagConflict.sku} (${tagConflict.asset?.skuKey ?? 'unknown SKU'})`,
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    // 2. Find-or-create the parent Asset (SKU).
+    let asset = await this.prisma.asset.findFirst({
+      where: { skuKey: dto.model, organizationId, deletedAt: null },
+    });
+    if (!asset) {
+      asset = await this.prisma.asset.create({
+        data: {
+          name: dto.model,
+          skuKey: dto.model,
+          categoryId: dto.categoryId,
+          organizationId,
+          uom: 'PCS',
+          isTracked: true,
+        },
+      });
+      // Mirror createAssets(): wire DO/RDO template tags so this new SKU
+      // shows up in document workflows the same way portal-created ones do.
+      const templates = await this.prisma.documentTemplate.findMany({
+        where: { type: { in: ['DO', 'RDO'] }, organizationId },
+        select: { id: true },
+      });
+      if (templates.length > 0) {
+        await this.prisma.assetTemplateTag.createMany({
+          data: templates.map((t) => ({ assetId: asset!.id, templateId: t.id })),
+        });
+      }
+    }
+
+    // 3. Next per-unit SKU. Reuses generateSkuRange so we share the same
+    //    "parse highest existing suffix, increment" logic as the bulk endpoint.
+    const [inventorySku] = await this.generateSkuRange(asset.id, 1, organizationId);
+
+    // 4. Create the inventory unit with the NFC tag in one write. The
+    //    @unique constraint on nfcTagUid makes this race-safe.
+    try {
+      const inventory = await this.prisma.inventory.create({
+        data: {
+          assetId: asset.id,
+          sku: inventorySku,
+          category: dto.categoryName ?? 'Equipment',
+          status: 'instock',
+          organizationId,
+          nfcTagUid: dto.nfcTagUid,
+          serialNumber: dto.serial?.trim() || null,
+        },
+        include: { asset: true },
+      });
+      return { inventory, asset };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        // Race: another request bound this UID between the precheck and write.
+        throw new HttpException('NFC tag is already bound to another inventory item.', HttpStatus.CONFLICT);
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to create and bind inventory item',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 

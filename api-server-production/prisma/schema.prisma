@@ -8,84 +8,84 @@ datasource db {
 }
 
 model Organization {
-  id                 String             @id @default(uuid())
-  name               String             @unique
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  address            String?
-  phoneNumber        String?
-  registrationNumber String?
-  logo               String?
-  defaultStamp       String?
-  customDocumentTypes Json?
-  taxRate            Float?             @default(9)
-  bankDetails        Json?              // { accountName, accountNumber, bankName, swiftCode, branchCode, bankCode, currencyCode }
-  stockDeductionTrigger String?         @default("DO") // Legacy field - no longer used. Stock deduction logic: DO always deducts, Invoice deducts only if not extracted from DO
-  assets             Asset[]
-  categories         Category[]
-  customers          Customer[]
-  suppliers          Supplier[]
-  documents          Document[]
-  documentTemplates  DocumentTemplate[]
-  inventories        Inventory[]
-  projects           Project[]
-  roles              Role[]
-  userOrganizations  UserOrganization[]
-  userRoles          UserRole[]
-  xeroConnection     XeroConnection?
-  modules            OrganizationModule[]
-  customFields       CustomField[]
-  uiConfig           OrganizationUIConfig?
-  priceHistories     PriceHistory[]
-  payments           Payment[]
-  transactions       Transaction[]
-  customerBalances   CustomerBalance[]
-  orders             Order[]
-  quantityAdjustments QuantityAdjustment[]
-  importInvoices     ImportInvoice[]
-  chartOfAccounts    ChartOfAccount[]
-  accountingSetting  AccountingSetting?
-  journalEntries     JournalEntry[]
-  serviceReports     MaintenanceServiceReport[]
+  id                    String                     @id @default(uuid())
+  name                  String                     @unique
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+  address               String?
+  phoneNumber           String?
+  registrationNumber    String?
+  logo                  String?
+  defaultStamp          String?
+  customDocumentTypes   Json?
+  taxRate               Float?                     @default(9)
+  bankDetails           Json? // { accountName, accountNumber, bankName, swiftCode, branchCode, bankCode, currencyCode }
+  stockDeductionTrigger String?                    @default("DO") // Legacy field - no longer used. Stock deduction logic: DO always deducts, Invoice deducts only if not extracted from DO
+  assets                Asset[]
+  categories            Category[]
+  customers             Customer[]
+  suppliers             Supplier[]
+  documents             Document[]
+  documentTemplates     DocumentTemplate[]
+  inventories           Inventory[]
+  projects              Project[]
+  roles                 Role[]
+  userOrganizations     UserOrganization[]
+  userRoles             UserRole[]
+  xeroConnection        XeroConnection?
+  modules               OrganizationModule[]
+  customFields          CustomField[]
+  uiConfig              OrganizationUIConfig?
+  priceHistories        PriceHistory[]
+  payments              Payment[]
+  transactions          Transaction[]
+  customerBalances      CustomerBalance[]
+  orders                Order[]
+  quantityAdjustments   QuantityAdjustment[]
+  importInvoices        ImportInvoice[]
+  chartOfAccounts       ChartOfAccount[]
+  accountingSetting     AccountingSetting?
+  journalEntries        JournalEntry[]
+  serviceReports        MaintenanceServiceReport[]
 }
 
 model Asset {
-  id              String             @id @default(uuid()) @db.Uuid
-  name            String
-  skuKey          String
-  categoryId      String             @db.Uuid
-  description     String?
-  image           String?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-  deletedAt       DateTime?          @db.Timestamptz(6)
-  organizationId  String?
-  price           Float?             // Legacy: treated as the selling price for backwards compatibility
-  costPrice       Float?             // What we pay to acquire/produce one unit (for margin tracking)
-  customPrices    Json?              // Optional [{ label: string, value: number }] — e.g. Listing Price, Dealer Price
-  points          Float?             // Asset-level discount (1 point = $1). Gated by enableAssetPoints flag.
-  parentAssetId   String?            @db.Uuid
+  id                  String                     @id @default(uuid()) @db.Uuid
+  name                String
+  skuKey              String
+  categoryId          String                     @db.Uuid
+  description         String?
+  image               String?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  deletedAt           DateTime?                  @db.Timestamptz(6)
+  organizationId      String?
+  price               Float? // Legacy: treated as the selling price for backwards compatibility
+  costPrice           Float? // What we pay to acquire/produce one unit (for margin tracking)
+  customPrices        Json? // Optional [{ label: string, value: number }] — e.g. Listing Price, Dealer Price
+  points              Float? // Asset-level discount (1 point = $1). Gated by enableAssetPoints flag.
+  parentAssetId       String?                    @db.Uuid
   // Unit of Measure (e.g., PCS, EA, SET, BOX, KG, etc.)
-  uom             String             @default("PCS")
+  uom                 String                     @default("PCS")
   // Tracking mode: true = individual inventory items with SKUs, false = simple quantity
-  isTracked       Boolean            @default(true)
+  isTracked           Boolean                    @default(true)
   // Quantity for untracked products (only used when isTracked = false)
-  quantity        Int?
+  quantity            Int?
   // Minimum quantity threshold for low stock alerts
-  minQuantity     Int?
+  minQuantity         Int?
   // Hardware UID of the NFC tag bound to this asset (chip serial number).
   // Set on first scan via the field PWA. Globally unique.
-  nfcTagUid       String?            @unique
-  category        Category           @relation(fields: [categoryId], references: [id])
-  organization    Organization?      @relation(fields: [organizationId], references: [id])
-  parentAsset     Asset?             @relation("AssetHierarchy", fields: [parentAssetId], references: [id])
-  subAssets       Asset[]            @relation("AssetHierarchy")
-  taggedTemplates AssetTemplateTag[]
-  inventories     Inventory[]
-  priceHistories  PriceHistory[]
+  nfcTagUid           String?                    @unique
+  category            Category                   @relation(fields: [categoryId], references: [id])
+  organization        Organization?              @relation(fields: [organizationId], references: [id])
+  parentAsset         Asset?                     @relation("AssetHierarchy", fields: [parentAssetId], references: [id])
+  subAssets           Asset[]                    @relation("AssetHierarchy")
+  taggedTemplates     AssetTemplateTag[]
+  inventories         Inventory[]
+  priceHistories      PriceHistory[]
   quantityAdjustments QuantityAdjustment[]
-  assignments     Assignment[]
-  serviceReports  MaintenanceServiceReport[]
+  assignments         Assignment[]
+  serviceReports      MaintenanceServiceReport[]
 
   @@unique([skuKey, organizationId, deletedAt])
 }
@@ -99,44 +99,53 @@ model Category {
 }
 
 model Inventory {
-  id             String          @id @default(uuid()) @db.Uuid
-  assetId        String          @db.Uuid
+  id             String                     @id @default(uuid()) @db.Uuid
+  assetId        String                     @db.Uuid
   location       String?
   category       String
   quantity       Int?
   sku            String
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  // Manufacturer's serial number from the equipment nameplate. Captured by
+  // the field-scan AI extraction at bind time; used for audit / warranty
+  // lookups. Distinct from `sku` (which is our own per-unit identifier).
+  serialNumber   String?
+  // Hardware UID of the NFC tag bound to this individual unit (chip serial).
+  // Set via the field PWA's create-and-bind flow. Globally unique across orgs.
+  // This is the primary NFC-binding column going forward; Asset.nfcTagUid is
+  // legacy and only retained for backward compatibility.
+  nfcTagUid      String?                    @unique
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
   status         InventoryStatus
   organizationId String
   assignments    Assignment[]
-  asset          Asset           @relation(fields: [assetId], references: [id])
-  organization   Organization    @relation(fields: [organizationId], references: [id])
+  asset          Asset                      @relation(fields: [assetId], references: [id])
+  organization   Organization               @relation(fields: [organizationId], references: [id])
   timelineItems  TimelineItem[]
   serviceReports MaintenanceServiceReport[]
 }
 
 model Customer {
-  id             String       @id @default(uuid()) @db.Uuid
-  customerCode   String?      // Auto-generated code like CA001, CB002
-  name           String
-  email          String?
-  phone          String?
-  address        String?
-  gstRegNo       String?      // Customer's GST/Tax registration number
-  salesmanId     String?      // Reference to UserOrganization.id for the assigned salesman
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  salesman       UserOrganization? @relation(fields: [salesmanId], references: [id])
-  siteOffices    SiteOffice[]
-  priceHistories PriceHistory[] // Track price history for this customer
-  payments       Payment[]
-  transactions   Transaction[]
-  customerBalance CustomerBalance? @relation("CustomerToBalance")
-  projects       Project[]    @relation("CustomerProjects")
-  orders         Order[]      @relation("CustomerOrders")
+  id              String            @id @default(uuid()) @db.Uuid
+  customerCode    String? // Auto-generated code like CA001, CB002
+  name            String
+  email           String?
+  phone           String?
+  address         String?
+  gstRegNo        String? // Customer's GST/Tax registration number
+  salesmanId      String? // Reference to UserOrganization.id for the assigned salesman
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  organizationId  String
+  organization    Organization      @relation(fields: [organizationId], references: [id])
+  salesman        UserOrganization? @relation(fields: [salesmanId], references: [id])
+  siteOffices     SiteOffice[]
+  priceHistories  PriceHistory[] // Track price history for this customer
+  payments        Payment[]
+  transactions    Transaction[]
+  customerBalance CustomerBalance?  @relation("CustomerToBalance")
+  projects        Project[]         @relation("CustomerProjects")
+  orders          Order[]           @relation("CustomerOrders")
 
   @@unique([email, organizationId])
   @@unique([id, organizationId])
@@ -163,25 +172,25 @@ model Supplier {
 }
 
 model DocumentTemplate {
-  id             String             @id @default(uuid()) @db.Uuid
-  name           String?
-  type           String             // Document category: "INVOICE", "QUOTATION", "DELIVERY_ORDER", etc.
-  templateVariant String            @default("Default") // Template design variant: "TI", "TI2", "QO1", "Default", etc.
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
-  config         Json?
-  organizationId String?
+  id              String             @id @default(uuid()) @db.Uuid
+  name            String?
+  type            String // Document category: "INVOICE", "QUOTATION", "DELIVERY_ORDER", etc.
+  templateVariant String             @default("Default") // Template design variant: "TI", "TI2", "QO1", "Default", etc.
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  config          Json?
+  organizationId  String?
   // Template variant fields
-  designName     String?            @default("Default")
-  description    String?
-  thumbnail      String?            // URL to preview thumbnail
-  isActive       Boolean            @default(false)
-  isDefault      Boolean            @default(false) // System default template
-  mockData       Json?              // Mock data for preview
-  layoutConfig   Json?              // Layout-specific configuration
-  styleConfig    Json?              // Styling configuration
-  taggedAssets   AssetTemplateTag[]
-  organization   Organization?      @relation(fields: [organizationId], references: [id])
+  designName      String?            @default("Default")
+  description     String?
+  thumbnail       String? // URL to preview thumbnail
+  isActive        Boolean            @default(false)
+  isDefault       Boolean            @default(false) // System default template
+  mockData        Json? // Mock data for preview
+  layoutConfig    Json? // Layout-specific configuration
+  styleConfig     Json? // Styling configuration
+  taggedAssets    AssetTemplateTag[]
+  organization    Organization?      @relation(fields: [organizationId], references: [id])
 
   @@index([organizationId, type, isActive])
   @@index([organizationId, type])
@@ -215,76 +224,76 @@ model Document {
   id                 String         @id @default(uuid()) @db.Uuid
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
-  config             Json           // All form data stored here (customer, items, etc.)
+  config             Json // All form data stored here (customer, items, etc.)
   documentTemplateId String
-  type               String         // Document type: INVOICE, QUOTATION, etc.
+  type               String // Document type: INVOICE, QUOTATION, etc.
   organizationId     String
-  name               String?        // Document number/identifier
+  name               String? // Document number/identifier
   status             DocumentStatus @default(draft)
 
   // Revision fields for document versioning
-  baseDocumentId     String?        @db.Uuid
-  revisionNumber     Int?           @default(0)
+  baseDocumentId String? @db.Uuid
+  revisionNumber Int?    @default(0)
 
   // Project link
-  projectId          String?        @db.Uuid
+  projectId           String? @db.Uuid
   // Deployment link — for invoices/DOs that belong to a specific rental/sale event
-  projectDeploymentId String?       @db.Uuid
+  projectDeploymentId String? @db.Uuid
 
-  organization       Organization   @relation(fields: [organizationId], references: [id])
-  project            Project?       @relation(fields: [projectId], references: [id])
-  projectDeployment  ProjectDeployment? @relation("DeploymentInvoices", fields: [projectDeploymentId], references: [id])
-  sourcedDeployments ProjectDeployment[] @relation("DeploymentSource")
+  organization       Organization               @relation(fields: [organizationId], references: [id])
+  project            Project?                   @relation(fields: [projectId], references: [id])
+  projectDeployment  ProjectDeployment?         @relation("DeploymentInvoices", fields: [projectDeploymentId], references: [id])
+  sourcedDeployments ProjectDeployment[]        @relation("DeploymentSource")
   timelineItems      TimelineItem[]
   priceHistories     PriceHistory[] // Track price history entries from this document
-  payments           Payment[]      // Payments made against this document
-  transactions       Transaction[]  // Financial transactions from this document
+  payments           Payment[] // Payments made against this document
+  transactions       Transaction[] // Financial transactions from this document
   documentItems      DocumentItem[] // Junction table for efficient item queries
-  assignments        Assignment[]   // Source-of-truth link for assignments produced from this document
-  maintenanceReports MaintenanceServiceReport[]    // Field-side reports (DO_START / DO_ACK) linked to this document
-  orderSources       Order[]        @relation("OrderSourceQuotation") // Orders auto-created when this quotation was confirmed
+  assignments        Assignment[] // Source-of-truth link for assignments produced from this document
+  maintenanceReports MaintenanceServiceReport[] // Field-side reports (DO_START / DO_ACK) linked to this document
+  orderSources       Order[]                    @relation("OrderSourceQuotation") // Orders auto-created when this quotation was confirmed
 
   // Self-relation for revisions: base document -> many revisions
-  baseDocument       Document?      @relation("DocumentRevisions", fields: [baseDocumentId], references: [id])
-  revisions          Document[]     @relation("DocumentRevisions")
+  baseDocument Document?  @relation("DocumentRevisions", fields: [baseDocumentId], references: [id])
+  revisions    Document[] @relation("DocumentRevisions")
 
+  @@unique([name, organizationId, documentTemplateId])
   @@index([baseDocumentId])
   @@index([organizationId, type])
   @@index([organizationId, status])
   @@index([projectId])
   @@index([projectDeploymentId])
-  @@unique([name, organizationId, documentTemplateId])
 }
 
 // Junction table for document items - enables efficient queries for stock movements
 model DocumentItem {
-  id              String    @id @default(uuid()) @db.Uuid
-  documentId      String    @db.Uuid
-  itemId          String    @db.Uuid  // Can be inventoryId or assetId
-  itemType        ItemType  // INVENTORY or ASSET
-  sku             String?   // SKU for reference
-  description     String?   // Item description for reference
-  quantity        Float     @default(0)
-  unitPrice       Float?    @default(0)
-  discount        Float?    @default(0)
-  amount          Float?    @default(0)
-  uom             String?   // Unit of measure
-  lineNumber      Int?      // Position in document
+  id          String   @id @default(uuid()) @db.Uuid
+  documentId  String   @db.Uuid
+  itemId      String   @db.Uuid // Can be inventoryId or assetId
+  itemType    ItemType // INVENTORY or ASSET
+  sku         String? // SKU for reference
+  description String? // Item description for reference
+  quantity    Float    @default(0)
+  unitPrice   Float?   @default(0)
+  discount    Float?   @default(0)
+  amount      Float?   @default(0)
+  uom         String? // Unit of measure
+  lineNumber  Int? // Position in document
   // True for service line items (labor, delivery fees, etc.).
   // Per Phase 5 Option 1, services from the import flow do NOT create DocumentItem
   // rows (they're skipped at the !inventoryItemId gate); this flag covers product
   // rows misclassified post-hoc as service, plus any future paths that DO create
   // service-row DocumentItems.
-  isService       Boolean   @default(false)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  isService   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  document        Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
+  @@unique([documentId, itemId, lineNumber])
   @@index([itemId])
   @@index([documentId])
   @@index([itemId, itemType])
-  @@unique([documentId, itemId, lineNumber])
 }
 
 enum ItemType {
@@ -338,7 +347,7 @@ model UserOrganization {
   id             String       @id @default(uuid())
   userId         String
   organizationId String
-  salesmanCode   String?      // Auto-generated code like S001, S002
+  salesmanCode   String? // Auto-generated code like S001, S002
   isActive       Boolean      @default(true)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
@@ -346,32 +355,32 @@ model UserOrganization {
   lastActiveAt   DateTime?
   settings       Json?
   organization   Organization @relation(fields: [organizationId], references: [id])
-  customers      Customer[]   // Customers assigned to this salesman
+  customers      Customer[] // Customers assigned to this salesman
 
   @@unique([userId, organizationId])
   @@unique([salesmanCode, organizationId])
 }
 
 model Project {
-  id               String        @id @default(uuid()) @db.Uuid
-  projectNumber    String?       // e.g. PRJ-2026-001
+  id               String              @id @default(uuid()) @db.Uuid
+  projectNumber    String? // e.g. PRJ-2026-001
   name             String
   description      String?
   organizationId   String?
-  customerId       String?       @db.Uuid           // direct FK; siteOffice still optional
+  customerId       String?             @db.Uuid // direct FK; siteOffice still optional
   customerPoNumber String?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
   startDate        DateTime?
   endDate          DateTime?
-  status           ProjectStatus @default(pending)
-  siteOfficeId     String?       @db.Uuid
+  status           ProjectStatus       @default(pending)
+  siteOfficeId     String?             @db.Uuid
   assignments      Assignment[]
   documents        Document[]
   deployments      ProjectDeployment[]
-  organization     Organization? @relation(fields: [organizationId], references: [id])
-  siteOffice       SiteOffice?   @relation("SiteOfficeProjects", fields: [siteOfficeId], references: [id])
-  customer         Customer?     @relation("CustomerProjects", fields: [customerId], references: [id])
+  organization     Organization?       @relation(fields: [organizationId], references: [id])
+  siteOffice       SiteOffice?         @relation("SiteOfficeProjects", fields: [siteOfficeId], references: [id])
+  customer         Customer?           @relation("CustomerProjects", fields: [customerId], references: [id])
 
   @@unique([projectNumber, organizationId])
   @@index([organizationId, status])
@@ -382,30 +391,30 @@ model Project {
 // e.g. "DO202310-010 — 1× AF-90 monthly rental, deployed 2023-10-18"
 // Recurring monthly invoices for that rental all link to the same deployment.
 model ProjectDeployment {
-  id               String              @id @default(uuid()) @db.Uuid
-  organizationId   String
-  projectId        String              @db.Uuid
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String
+  projectId      String @db.Uuid
 
   // Auto-assigned per project (1, 2, 3, ...). Displayed name is "Deployment N".
   // Nullable so existing rows aren't violated until the numbering pass runs.
   deploymentNumber Int?
 
-  sourceDocumentId String?             @db.Uuid     // The DO/invoice that started it (audit). Additional DOs attach via Document.projectDeploymentId.
-  type             DeploymentType      @default(RENTAL)
-  description      String?             // Free-form user notes — no longer the displayed name.
-  monthlyRate      Float?              // for rentals; one-off price for sales
-  currency         String?             @default("SGD")
+  sourceDocumentId String?          @db.Uuid // The DO/invoice that started it (audit). Additional DOs attach via Document.projectDeploymentId.
+  type             DeploymentType   @default(RENTAL)
+  description      String? // Free-form user notes — no longer the displayed name.
+  monthlyRate      Float? // for rentals; one-off price for sales
+  currency         String?          @default("SGD")
   deployedDate     DateTime?
   offHiredDate     DateTime?
-  status           DeploymentStatus    @default(ACTIVE)
+  status           DeploymentStatus @default(ACTIVE)
   notes            String?
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
-  project          Project             @relation(fields: [projectId], references: [id])
-  sourceDocument   Document?           @relation("DeploymentSource", fields: [sourceDocumentId], references: [id])
-  assignments      Assignment[]
-  invoices         Document[]          @relation("DeploymentInvoices")  // back-relation; now contains DOs AND invoices, partitioned by service-layer.
+  project        Project      @relation(fields: [projectId], references: [id])
+  sourceDocument Document?    @relation("DeploymentSource", fields: [sourceDocumentId], references: [id])
+  assignments    Assignment[]
+  invoices       Document[]   @relation("DeploymentInvoices") // back-relation; now contains DOs AND invoices, partitioned by service-layer.
 
   @@unique([projectId, deploymentNumber])
   @@index([projectId, status])
@@ -426,29 +435,29 @@ enum DeploymentStatus {
 }
 
 model Assignment {
-  id          String     @id @default(uuid()) @db.Uuid
-  projectId   String     @db.Uuid
+  id                  String  @id @default(uuid()) @db.Uuid
+  projectId           String  @db.Uuid
   // Optional deployment grouping — assignments under a single rental/sale event
   projectDeploymentId String? @db.Uuid
 
   // Mode A: tracked inventory unit (existing)
-  inventoryId String?    @db.Uuid
+  inventoryId String? @db.Uuid
 
   // Mode B: asset + quantity (new, for rentals without serials)
-  assetId     String?    @db.Uuid
-  quantity    Int?
+  assetId  String? @db.Uuid
+  quantity Int?
 
   // Source invoice (idempotency on asset-mode + audit trail)
-  documentId  String?    @db.Uuid
+  documentId String? @db.Uuid
 
-  startDate   DateTime?  @db.Timestamptz(6)
-  endDate     DateTime?  @db.Timestamptz(6)
-  createdAt   DateTime   @default(now())
+  startDate DateTime? @db.Timestamptz(6)
+  endDate   DateTime? @db.Timestamptz(6)
+  createdAt DateTime  @default(now())
 
-  inventory   Inventory? @relation(fields: [inventoryId], references: [id])
-  asset       Asset?     @relation(fields: [assetId], references: [id])
-  document    Document?  @relation(fields: [documentId], references: [id])
-  project     Project    @relation(fields: [projectId], references: [id])
+  inventory         Inventory?         @relation(fields: [inventoryId], references: [id])
+  asset             Asset?             @relation(fields: [assetId], references: [id])
+  document          Document?          @relation(fields: [documentId], references: [id])
+  project           Project            @relation(fields: [projectId], references: [id])
   projectDeployment ProjectDeployment? @relation(fields: [projectDeploymentId], references: [id])
 
   @@unique([projectId, inventoryId])
@@ -544,16 +553,16 @@ enum AuditStatus {
 }
 
 model XeroConnection {
-  id                     String       @id @default(uuid()) @db.Uuid
-  organizationId         String       @unique
-  tenantId               String       @unique
-  accessToken            String
-  refreshToken           String
-  accessTokenExpiresAt   DateTime
-  refreshTokenExpiresAt  DateTime
-  createdAt              DateTime     @default(now())
-  updatedAt              DateTime     @updatedAt
-  organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  id                    String       @id @default(uuid()) @db.Uuid
+  organizationId        String       @unique
+  tenantId              String       @unique
+  accessToken           String
+  refreshToken          String
+  accessTokenExpiresAt  DateTime
+  refreshTokenExpiresAt DateTime
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 
 // Module configuration per organization
@@ -561,21 +570,21 @@ model XeroConnection {
 // container from which POs / DOs / Invoices can be spun off for the items.
 // Status is intentionally a free-form string for v1 (no auto-advance).
 model Order {
-  id                String       @id @default(uuid()) @db.Uuid
-  orderNumber       String       // e.g. ORD202605-001
+  id                String   @id @default(uuid()) @db.Uuid
+  orderNumber       String // e.g. ORD202605-001
   organizationId    String
-  customerId        String?      @db.Uuid
-  sourceQuotationId String?      @db.Uuid  // Document.id of the originating quotation
-  status            String       @default("DRAFT") // DRAFT / IN_PROGRESS / COMPLETED / CANCELLED (free-form)
-  items             Json         // Snapshot at order-creation time: [{ itemCode, description, quantity, unitPrice, costPrice?, taggedAssetCode?, ... }]
-  linkedDocuments   Json?        // { po: [{id,name}], do: [{id,name}], invoice: [{id,name}] }
+  customerId        String?  @db.Uuid
+  sourceQuotationId String?  @db.Uuid // Document.id of the originating quotation
+  status            String   @default("DRAFT") // DRAFT / IN_PROGRESS / COMPLETED / CANCELLED (free-form)
+  items             Json // Snapshot at order-creation time: [{ itemCode, description, quantity, unitPrice, costPrice?, taggedAssetCode?, ... }]
+  linkedDocuments   Json? // { po: [{id,name}], do: [{id,name}], invoice: [{id,name}] }
   notes             String?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  organization      Organization @relation(fields: [organizationId], references: [id])
-  customer          Customer?    @relation("CustomerOrders", fields: [customerId], references: [id])
-  sourceQuotation   Document?    @relation("OrderSourceQuotation", fields: [sourceQuotationId], references: [id])
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  customer        Customer?    @relation("CustomerOrders", fields: [customerId], references: [id])
+  sourceQuotation Document?    @relation("OrderSourceQuotation", fields: [sourceQuotationId], references: [id])
 
   @@unique([orderNumber, organizationId])
   @@index([organizationId, status])
@@ -586,12 +595,12 @@ model Order {
 model OrganizationModule {
   id             String       @id @default(uuid())
   organizationId String
-  moduleCode     String       // 'ASSETS', 'INVENTORY', 'DOCUMENTS', 'PROJECTS', 'CUSTOMERS', 'INVOICES'
+  moduleCode     String // 'ASSETS', 'INVENTORY', 'DOCUMENTS', 'PROJECTS', 'CUSTOMERS', 'INVOICES'
   enabled        Boolean      @default(true)
-  displayName    String?      // Custom label for this module
-  icon           String?      // Custom icon (Material UI icon name)
-  sortOrder      Int?         // Navigation order
-  config         Json?        // Module-specific configuration (routes, permissions, etc.)
+  displayName    String? // Custom label for this module
+  icon           String? // Custom icon (Material UI icon name)
+  sortOrder      Int? // Navigation order
+  config         Json? // Module-specific configuration (routes, permissions, etc.)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   organization   Organization @relation(fields: [organizationId], references: [id])
@@ -602,24 +611,24 @@ model OrganizationModule {
 
 // Custom fields per organization per entity
 model CustomField {
-  id             String       @id @default(uuid())
+  id             String             @id @default(uuid())
   organizationId String
-  entityType     String       // 'Asset', 'Customer', 'Document', 'Inventory', 'Project'
-  fieldName      String       // Technical name (e.g., 'warranty_date')
-  displayLabel   String       // User-facing label (e.g., 'Warranty Expiry Date')
-  fieldType      String       // 'text', 'number', 'date', 'select', 'multiselect', 'boolean', 'file', 'richtext'
-  required       Boolean      @default(false)
-  options        Json?        // For select/multiselect fields: [{value: 'val1', label: 'Label 1'}]
+  entityType     String // 'Asset', 'Customer', 'Document', 'Inventory', 'Project'
+  fieldName      String // Technical name (e.g., 'warranty_date')
+  displayLabel   String // User-facing label (e.g., 'Warranty Expiry Date')
+  fieldType      String // 'text', 'number', 'date', 'select', 'multiselect', 'boolean', 'file', 'richtext'
+  required       Boolean            @default(false)
+  options        Json? // For select/multiselect fields: [{value: 'val1', label: 'Label 1'}]
   defaultValue   String?
-  validation     Json?        // Validation rules: {min: 0, max: 100, pattern: '^[A-Z]'}
-  sortOrder      Int?         @default(0)
-  isActive       Boolean      @default(true)
-  showInList     Boolean      @default(false)   // Show in list/table views
-  showInForm     Boolean      @default(true)    // Show in forms
-  groupName      String?      // Group fields together in forms
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  organization   Organization @relation(fields: [organizationId], references: [id])
+  validation     Json? // Validation rules: {min: 0, max: 100, pattern: '^[A-Z]'}
+  sortOrder      Int?               @default(0)
+  isActive       Boolean            @default(true)
+  showInList     Boolean            @default(false) // Show in list/table views
+  showInForm     Boolean            @default(true) // Show in forms
+  groupName      String? // Group fields together in forms
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  organization   Organization       @relation(fields: [organizationId], references: [id])
   fieldValues    CustomFieldValue[]
 
   @@unique([organizationId, entityType, fieldName])
@@ -630,9 +639,9 @@ model CustomField {
 model CustomFieldValue {
   id            String      @id @default(uuid())
   customFieldId String
-  entityId      String      // ID of the Asset/Customer/etc.
-  entityType    String      // 'Asset', 'Customer', etc.
-  value         Json        // Flexible storage for any type of value
+  entityId      String // ID of the Asset/Customer/etc.
+  entityType    String // 'Asset', 'Customer', etc.
+  value         Json // Flexible storage for any type of value
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   customField   CustomField @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
@@ -643,45 +652,45 @@ model CustomFieldValue {
 
 // UI Configuration per organization
 model OrganizationUIConfig {
-  id                String       @id @default(uuid())
-  organizationId    String       @unique
-  theme             Json?        // Colors, fonts, spacing: {primaryColor: '#..', secondaryColor: '#..'}
-  navigationConfig  Json?        // Custom navigation structure
-  dashboardLayout   Json?        // Dashboard widget configuration
-  terminology       Json?        // Custom labels: {asset: 'Equipment', customer: 'Client'}
-  dateFormat        String?      @default("MM/dd/yyyy")
-  timeFormat        String?      @default("12h")
-  currency          String?      @default("USD")
-  language          String?      @default("en")
-  features          Json?        // Feature flags: {enableProjects: true, enableDocumentAI: false}
-  branding          Json?        // Additional branding config
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
-  organization      Organization @relation(fields: [organizationId], references: [id])
+  id               String       @id @default(uuid())
+  organizationId   String       @unique
+  theme            Json? // Colors, fonts, spacing: {primaryColor: '#..', secondaryColor: '#..'}
+  navigationConfig Json? // Custom navigation structure
+  dashboardLayout  Json? // Dashboard widget configuration
+  terminology      Json? // Custom labels: {asset: 'Equipment', customer: 'Client'}
+  dateFormat       String?      @default("MM/dd/yyyy")
+  timeFormat       String?      @default("12h")
+  currency         String?      @default("USD")
+  language         String?      @default("en")
+  features         Json? // Feature flags: {enableProjects: true, enableDocumentAI: false}
+  branding         Json? // Additional branding config
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  organization     Organization @relation(fields: [organizationId], references: [id])
 }
 
 // Price History for tracking item prices from confirmed invoices
 model PriceHistory {
-  id                String       @id @default(uuid())
-  assetId           String       @db.Uuid // Reference to the asset/item sold (REQUIRED)
-  unitPrice         Float        // Unit price at time of sale
-  quantity          Float        // Quantity sold
-  uom               String?      // Unit of measure
-  totalAmount       Float        // Total amount for this line item
-  documentId        String       @db.Uuid // Reference to the document (invoice)
-  documentNumber    String       // Invoice number for reference
-  documentDate      DateTime     // Date of the invoice
-  customerId        String?      @db.Uuid // Customer who bought it
-  customerName      String?      // Customer name for reference
-  organizationId    String       // Organization ID
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  id             String   @id @default(uuid())
+  assetId        String   @db.Uuid // Reference to the asset/item sold (REQUIRED)
+  unitPrice      Float // Unit price at time of sale
+  quantity       Float // Quantity sold
+  uom            String? // Unit of measure
+  totalAmount    Float // Total amount for this line item
+  documentId     String   @db.Uuid // Reference to the document (invoice)
+  documentNumber String // Invoice number for reference
+  documentDate   DateTime // Date of the invoice
+  customerId     String?  @db.Uuid // Customer who bought it
+  customerName   String? // Customer name for reference
+  organizationId String // Organization ID
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   // Relations
-  document          Document     @relation(fields: [documentId], references: [id])
-  customer          Customer?    @relation(fields: [customerId], references: [id])
-  asset             Asset        @relation(fields: [assetId], references: [id])
-  organization      Organization @relation(fields: [organizationId], references: [id])
+  document     Document     @relation(fields: [documentId], references: [id])
+  customer     Customer?    @relation(fields: [customerId], references: [id])
+  asset        Asset        @relation(fields: [assetId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
 
   // Indexes for fast queries
   @@index([assetId, organizationId])
@@ -692,26 +701,26 @@ model PriceHistory {
 
 // Payment tracking for invoices
 model Payment {
-  id                String       @id @default(uuid())
-  organizationId    String
-  customerId        String       @db.Uuid
-  documentId        String       @db.Uuid
-  amount            Float
-  paymentDate       DateTime
-  paymentMethod     String       // cash, check, transfer, etc
-  reference         String?      // check number, transfer reference
-  notes             String?
-  createdBy         String       // user ID who recorded payment
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  id             String   @id @default(uuid())
+  organizationId String
+  customerId     String   @db.Uuid
+  documentId     String   @db.Uuid
+  amount         Float
+  paymentDate    DateTime
+  paymentMethod  String // cash, check, transfer, etc
+  reference      String? // check number, transfer reference
+  notes          String?
+  createdBy      String // user ID who recorded payment
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   // Relations
-  organization      Organization @relation(fields: [organizationId], references: [id])
-  customer          Customer     @relation(fields: [customerId], references: [id])
-  document          Document     @relation(fields: [documentId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  customer     Customer     @relation(fields: [customerId], references: [id])
+  document     Document     @relation(fields: [documentId], references: [id])
 
   // Create related transaction when payment is recorded
-  transactions      Transaction[]
+  transactions Transaction[]
 
   @@index([customerId, organizationId])
   @@index([documentId])
@@ -721,26 +730,26 @@ model Payment {
 
 // Unified transaction ledger for all financial activities
 model Transaction {
-  id                String       @id @default(uuid())
-  organizationId    String
-  customerId        String       @db.Uuid
-  transactionType   TransactionType // invoice, payment, credit_note, debit_note, adjustment, opening_balance
-  documentId        String?      @db.Uuid // nullable for adjustments/opening balance
-  paymentId         String?      // for payment transactions
-  transactionDate   DateTime
-  reference         String?      // document number or payment reference
-  description       String
-  debit             Float        @default(0)
-  credit            Float        @default(0)
-  balance           Float        @default(0) // running balance at time of transaction
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  id              String          @id @default(uuid())
+  organizationId  String
+  customerId      String          @db.Uuid
+  transactionType TransactionType // invoice, payment, credit_note, debit_note, adjustment, opening_balance
+  documentId      String?         @db.Uuid // nullable for adjustments/opening balance
+  paymentId       String? // for payment transactions
+  transactionDate DateTime
+  reference       String? // document number or payment reference
+  description     String
+  debit           Float           @default(0)
+  credit          Float           @default(0)
+  balance         Float           @default(0) // running balance at time of transaction
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   // Relations
-  organization      Organization @relation(fields: [organizationId], references: [id])
-  customer          Customer     @relation(fields: [customerId], references: [id])
-  document          Document?    @relation(fields: [documentId], references: [id])
-  payment           Payment?     @relation(fields: [paymentId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  customer     Customer     @relation(fields: [customerId], references: [id])
+  document     Document?    @relation(fields: [documentId], references: [id])
+  payment      Payment?     @relation(fields: [paymentId], references: [id])
 
   // Indexes for fast SOA queries
   @@index([customerId, transactionDate])
@@ -751,18 +760,18 @@ model Transaction {
 
 // Customer balance tracking
 model CustomerBalance {
-  id                String       @id @default(uuid())
-  organizationId    String
-  customerId        String       @db.Uuid
-  openingBalance    Float        @default(0)
-  currentBalance    Float        @default(0)
+  id                  String    @id @default(uuid())
+  organizationId      String
+  customerId          String    @db.Uuid
+  openingBalance      Float     @default(0)
+  currentBalance      Float     @default(0)
   lastTransactionDate DateTime?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   // Relations
-  organization      Organization @relation(fields: [organizationId], references: [id])
-  customer          Customer     @relation("CustomerToBalance", fields: [customerId, organizationId], references: [id, organizationId])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  customer     Customer     @relation("CustomerToBalance", fields: [customerId, organizationId], references: [id, organizationId])
 
   @@unique([customerId, organizationId])
   @@index([organizationId])
@@ -779,21 +788,21 @@ enum TransactionType {
 
 // Quantity adjustment history for untracked products
 model QuantityAdjustment {
-  id              String       @id @default(uuid()) @db.Uuid
-  assetId         String       @db.Uuid
-  previousQty     Int          // Quantity before adjustment
-  newQty          Int          // Quantity after adjustment
-  adjustmentType  AdjustmentType // add, subtract, set
-  amount          Int          // Amount adjusted
-  reason          String?      // Optional reason for adjustment
-  adjustedBy      String       // User name/email who made the adjustment
-  adjustedAt      DateTime     @default(now())
-  organizationId  String
-  createdAt       DateTime     @default(now())
+  id             String         @id @default(uuid()) @db.Uuid
+  assetId        String         @db.Uuid
+  previousQty    Int // Quantity before adjustment
+  newQty         Int // Quantity after adjustment
+  adjustmentType AdjustmentType // add, subtract, set
+  amount         Int // Amount adjusted
+  reason         String? // Optional reason for adjustment
+  adjustedBy     String // User name/email who made the adjustment
+  adjustedAt     DateTime       @default(now())
+  organizationId String
+  createdAt      DateTime       @default(now())
 
   // Relations
-  asset           Asset        @relation(fields: [assetId], references: [id])
-  organization    Organization @relation(fields: [organizationId], references: [id])
+  asset        Asset        @relation(fields: [assetId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
 
   // Indexes for fast queries
   @@index([assetId, adjustedAt])
@@ -808,14 +817,14 @@ enum AdjustmentType {
 
 // Import staging table for Xero invoice backfill
 model ImportInvoice {
-  id                String       @id @default(uuid()) @db.Uuid
+  id                String    @id @default(uuid()) @db.Uuid
   organizationId    String
   invoiceNumber     String
   date              String?
   customer          String?
-  customerMatched   Boolean      @default(false)
-  status            String?      // Xero status: Paid, Approved, Draft
-  source            String?      // Receivable Invoice or Credit Note
+  customerMatched   Boolean   @default(false)
+  status            String? // Xero status: Paid, Approved, Draft
+  source            String? // Receivable Invoice or Credit Note
   gross             Float?
   balance           Float?
   // AI-extracted metadata
@@ -828,15 +837,15 @@ model ImportInvoice {
   contactName       String?
   contactPhone      String?
   // Line items stored as JSON array
-  lineItems         Json         // Array of line item objects with asset_match, serial_numbers, etc.
+  lineItems         Json // Array of line item objects with asset_match, serial_numbers, etc.
   // Review status
-  reviewStatus      String       @default("pending") // pending, confirmed, skipped
+  reviewStatus      String    @default("pending") // pending, confirmed, skipped
   skipReason        String?
   confirmedAt       DateTime?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  organization      Organization @relation(fields: [organizationId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
 
   @@unique([invoiceNumber, organizationId])
   @@index([organizationId, reviewStatus])
@@ -858,23 +867,23 @@ model ImportInvoice {
 model ChartOfAccount {
   id               String   @id @default(uuid())
   organizationId   String
-  code             String   // e.g., "S0001", "CA001", "CL300"
-  name             String   // e.g., "Credit Sales", "Trade Receivables"
+  code             String // e.g., "S0001", "CA001", "CL300"
+  name             String // e.g., "Credit Sales", "Trade Receivables"
   description      String?
-  accountType      String   // High-level type — see AccountType enum-ish values in service
-  category         String   // 'PNL' | 'BALANCE_SHEET'
-  normalBalance    String   // 'DEBIT' | 'CREDIT'
+  accountType      String // High-level type — see AccountType enum-ish values in service
+  category         String // 'PNL' | 'BALANCE_SHEET'
+  normalBalance    String // 'DEBIT' | 'CREDIT'
   isControlAccount Boolean  @default(false) // Debtor / Creditor / GST control accounts
   isSystem         Boolean  @default(false) // Seeded by default; cannot be deleted
   isActive         Boolean  @default(true)
-  parentAccountId  String?  // Optional sub-account hierarchy
+  parentAccountId  String? // Optional sub-account hierarchy
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  parent         ChartOfAccount? @relation("AccountHierarchy", fields: [parentAccountId], references: [id])
-  children       ChartOfAccount[] @relation("AccountHierarchy")
-  journalLines   JournalEntryLine[]
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parent       ChartOfAccount?    @relation("AccountHierarchy", fields: [parentAccountId], references: [id])
+  children     ChartOfAccount[]   @relation("AccountHierarchy")
+  journalLines JournalEntryLine[]
 
   @@unique([organizationId, code])
   @@index([organizationId, accountType])
@@ -887,13 +896,13 @@ model AccountingSetting {
   organizationId String @unique
 
   // ---------- Operation Settings ----------
-  baseCurrency            String @default("SGD")
+  baseCurrency          String  @default("SGD")
   // Next-number counters per document type (e.g. { "invoice": 119, "quotation": 22, ... })
-  nextNumbers             Json?
+  nextNumbers           Json?
   // Per-doc-type prefix overrides (e.g. { "invoice": "INV", "quotation": "QO" })
-  numberPrefixes          Json?
-  activateLastSoldPrice   Boolean @default(true)
-  activateLastBuyPrice    Boolean @default(true)
+  numberPrefixes        Json?
+  activateLastSoldPrice Boolean @default(true)
+  activateLastBuyPrice  Boolean @default(true)
 
   // ---------- Accounts Settings ----------
   yearOpeningDate   DateTime?
@@ -930,11 +939,11 @@ model AccountingSetting {
 model JournalEntry {
   id             String   @id @default(uuid())
   organizationId String
-  journalNumber  String   // e.g., "JV-000001"
+  journalNumber  String // e.g., "JV-000001"
   entryDate      DateTime
-  type           String   // MANUAL | INVOICE | PAYMENT | CREDIT_NOTE | DEBIT_NOTE | OPENING_BALANCE | ADJUSTMENT
+  type           String // MANUAL | INVOICE | PAYMENT | CREDIT_NOTE | DEBIT_NOTE | OPENING_BALANCE | ADJUSTMENT
   status         String   @default("DRAFT") // DRAFT | POSTED | VOID
-  reference      String?  // Source document number, payment reference, etc.
+  reference      String? // Source document number, payment reference, etc.
   description    String?
   totalDebit     Float    @default(0)
   totalCredit    Float    @default(0)
@@ -944,17 +953,17 @@ model JournalEntry {
   sourceDocumentId String?
   sourcePaymentId  String?
 
-  postedAt  DateTime?
-  postedBy  String?
-  voidedAt  DateTime?
-  voidedBy  String?
+  postedAt        DateTime?
+  postedBy        String?
+  voidedAt        DateTime?
+  voidedBy        String?
   reversesEntryId String? // If this is a reversing entry, points to original
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   createdBy String?
 
-  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   lines        JournalEntryLine[]
 
   @@unique([organizationId, journalNumber])
@@ -968,7 +977,7 @@ model JournalEntry {
 model JournalEntryLine {
   id             String  @id @default(uuid())
   journalEntryId String
-  accountId      String  // FK to ChartOfAccount.id
+  accountId      String // FK to ChartOfAccount.id
   lineNumber     Int
   description    String?
   debit          Float   @default(0)
@@ -988,34 +997,34 @@ model JournalEntryLine {
 // Field-service maintenance report captured via the NFC scan PWA.
 // One per service visit; tied to an asset, signed by the customer/recipient on-site.
 model MaintenanceServiceReport {
-  id               String                          @id @default(uuid()) @db.Uuid
+  id               String                         @id @default(uuid()) @db.Uuid
   organizationId   String
-  assetId          String                          @db.Uuid
+  assetId          String                         @db.Uuid
   // Optional link to a specific inventory unit (when isTracked assets have serials)
-  inventoryId      String?                         @db.Uuid
+  inventoryId      String?                        @db.Uuid
   // Clerk user id of the technician who performed the work
   technicianUserId String
   technicianName   String?
-  description      String                          // What was serviced / issue / resolution
+  description      String // What was serviced / issue / resolution
   // S3 keys for proof-of-service photos
-  photos           String[]                        @default([])
+  photos           String[]                       @default([])
   // S3 key OR base64 PNG (matches Document signature handling)
   signature        String?
-  signedByName     String?                         // Customer / recipient name
+  signedByName     String? // Customer / recipient name
   signedAt         DateTime?
-  status           MaintenanceServiceReportStatus  @default(draft)
+  status           MaintenanceServiceReportStatus @default(draft)
   // Discriminator for what kind of field activity this row represents.
   // SERVICE   — traditional maintenance/repair visit (default).
   // DO_START  — technician started delivery of an existing DO (label: "Delivery Started").
   // DO_ACK    — technician confirmed final handover/installation of a DO (label: "Delivery Acknowledged").
-  kind             MaintenanceReportKind           @default(SERVICE)
+  kind             MaintenanceReportKind          @default(SERVICE)
   // FK to the Document this report relates to.
   //   DO_START / DO_ACK → the DO being delivered.
   //   SERVICE           → null.
   // Historic DO_ACK rows backfilled from the description-prefix scheme may
   // have null documentId; gating logic only considers MSRs with non-null FK.
-  documentId       String?                         @db.Uuid
-  document         Document?                       @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  documentId       String?                        @db.Uuid
+  document         Document?                      @relation(fields: [documentId], references: [id], onDelete: SetNull)
   // GPS captured at submission time. Optional — submission proceeds without
   // GPS if browser geolocation is denied or unavailable.
   latitude         Float?
@@ -1023,12 +1032,12 @@ model MaintenanceServiceReport {
   // Reverse-geocoded human-readable label (e.g. "12 Tuas South Ave 3").
   // Schema-ready for future enablement; v1 of the field flow leaves it null.
   locationLabel    String?
-  createdAt        DateTime                        @default(now())
-  updatedAt        DateTime                        @updatedAt
+  createdAt        DateTime                       @default(now())
+  updatedAt        DateTime                       @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id])
-  asset        Asset        @relation(fields: [assetId], references: [id])
-  inventory    Inventory?   @relation(fields: [inventoryId], references: [id])
+  organization  Organization           @relation(fields: [organizationId], references: [id])
+  asset         Asset                  @relation(fields: [assetId], references: [id])
+  inventory     Inventory?             @relation(fields: [inventoryId], references: [id])
   // Background-tracked GPS pings collected during this delivery. Populated
   // only for kind=DO_START rows — DO_ACK and SERVICE rows have none.
   locationPings DeliveryLocationPing[]
@@ -1046,23 +1055,23 @@ model MaintenanceServiceReport {
 // Cardinality: 1 DO_START → N pings (typically 1 every 10s while delivery
 // active). Cascade-deleted with the parent report.
 model DeliveryLocationPing {
-  id          String   @id @default(uuid()) @db.Uuid
-  reportId    String   @db.Uuid
-  latitude    Float
-  longitude   Float
-  accuracy    Float?                                     // metres of horizontal uncertainty (68% confidence)
-  speed       Float?                                     // metres per second
-  heading     Float?                                     // degrees from true north (0..360)
-  timestamp   DateTime                                   // capture time from the phone
-  createdAt   DateTime @default(now())                   // server-side receive time
+  id        String   @id @default(uuid()) @db.Uuid
+  reportId  String   @db.Uuid
+  latitude  Float
+  longitude Float
+  accuracy  Float? // metres of horizontal uncertainty (68% confidence)
+  speed     Float? // metres per second
+  heading   Float? // degrees from true north (0..360)
+  timestamp DateTime // capture time from the phone
+  createdAt DateTime @default(now()) // server-side receive time
 
-  report      MaintenanceServiceReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  report MaintenanceServiceReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
 
+  // Idempotency anchor — duplicate batch retries don't double-insert.
+  @@unique([reportId, timestamp])
   // Lookups are always "all pings for report X, ordered by time" → composite
   // index covers both filter and order.
   @@index([reportId, timestamp])
-  // Idempotency anchor — duplicate batch retries don't double-insert.
-  @@unique([reportId, timestamp])
 }
 
 enum MaintenanceServiceReportStatus {

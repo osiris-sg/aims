@@ -100,9 +100,9 @@ export class AssetsController {
 
   @Get('by-nfc-uid/:uid')
   @Permissions('field-scan:access')
-  @ApiOperation({ summary: 'Look up an asset by NFC tag hardware UID. 404 if no asset is bound to that UID yet.' })
-  async getAssetByNfcUid(@Param('uid') uid: string, @UserOrganization() userOrganization: any) {
-    return this.assetsService.getAssetByNfcUid(uid, userOrganization.id);
+  @ApiOperation({ summary: 'Resolve an NFC tag UID to the inventory unit + its parent asset. 404 if unbound. Returns { inventory, asset }.' })
+  async getByNfcUid(@Param('uid') uid: string, @UserOrganization() userOrganization: any) {
+    return this.assetsService.getByNfcUid(uid, userOrganization.id);
   }
 
   @Post(':id/bind-nfc-tag')

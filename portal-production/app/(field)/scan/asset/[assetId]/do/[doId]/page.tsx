@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { Box, Button, IconButton, ImageList, ImageListItem, Stack, TextField, Typography, CircularProgress, Alert } from "@mui/material";
 import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
@@ -71,9 +71,11 @@ const fileToDataUrl = (file: File): Promise<string> =>
 export default function DeliveryOrderAckPage() {
   const params = useParams();
   const router = useRouter();
+  const search = useSearchParams();
   const { getToken } = useAuth();
   const assetId = params?.assetId as string;
   const doId = params?.doId as string;
+  const inventoryId = search?.get("inventoryId") ?? null;
   const [notes, setNotes] = useState("");
   const [photos, setPhotos] = useState<UploadedPhoto[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -123,6 +125,7 @@ export default function DeliveryOrderAckPage() {
         { path: "/maintenance-reports", method: "POST" },
         {
           assetId,
+          ...(inventoryId ? { inventoryId } : {}),
           description,
           photos: photos.map((p) => p.key),
           kind: "DO_ACK",

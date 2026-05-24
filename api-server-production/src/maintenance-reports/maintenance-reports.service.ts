@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
 import { CreateMaintenanceReportDto } from './dto/create-maintenance-report.dto';
 import { SignMaintenanceReportDto } from './dto/sign-maintenance-report.dto';
@@ -141,22 +142,38 @@ export class MaintenanceReportsService {
    * DO. Historic DO_ACK rows with null documentId are intentionally ignored
    * by this gating (they're audit trail only).
    */
-  async getScanContext(assetId: string, organizationId: string) {
+  async getScanContext(assetId: string, organizationId: string, inventoryId?: string) {
     const asset = await this.prisma.asset.findFirst({
       where: { id: assetId, organizationId },
       include: { category: true },
     });
     if (!asset) throw new NotFoundException('Asset not found');
 
-    // Pick the latest DO that's not yet been acknowledged. A DO with a
-    // DO_ACK linked is done — surfacing it would just freeze the action
-    // chooser on "Delivery complete" with no actionable state. Filtering it
-    // out here lets the chooser fall through to the next open DO (if any)
-    // or show "No open delivery order" via the null path below.
+    // Optional inventory context — when the scan resolved to a specific
+    // physical unit, include its details in the response so the chooser can
+    // show "Unit MG20240037-001" above the action cards.
+    const inventory = inventoryId
+      ? await this.prisma.inventory.findFirst({
+          where: { id: inventoryId, assetId, organizationId },
+        })
+      : null;
+
+    // Pick the latest open DO. "Open" = no DO_ACK MSR linked. With the
+    // inventory refactor, DocumentItem rows can reference either the parent
+    // Asset (legacy / SKU-level DOs) or the specific Inventory unit, so we
+    // OR across both itemType values when an inventoryId is in scope.
+    const itemFilter: Prisma.DocumentItemWhereInput = inventoryId
+      ? {
+          OR: [
+            { itemId: assetId, itemType: 'ASSET' },
+            { itemId: inventoryId, itemType: 'INVENTORY' },
+          ],
+        }
+      : { itemId: assetId, itemType: 'ASSET' };
+
     const latestDoItem = await this.prisma.documentItem.findFirst({
       where: {
-        itemId: assetId,
-        itemType: 'ASSET',
+        ...itemFilter,
         document: {
           organizationId,
           type: 'DELIVERY_ORDER',
@@ -213,6 +230,7 @@ export class MaintenanceReportsService {
 
     return {
       asset,
+      inventory,
       latestDeliveryOrder,
       canStartDelivery,
       canAckDelivery,
