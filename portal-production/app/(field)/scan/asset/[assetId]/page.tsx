@@ -91,11 +91,9 @@ export default function AssetActionChooser() {
         </Avatar>
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Typography variant="h6" fontWeight={700}>{asset.name}</Typography>
-          <Typography variant="body2" color="text.secondary">{asset.skuKey}</Typography>
           {inventory && (
             <Stack direction="row" spacing={1} sx={{ mt: 0.5, alignItems: "center", flexWrap: "wrap" }}>
               <Chip size="small" label={`Unit ${inventory.sku}`} />
-              <Chip size="small" label={inventory.status} variant="outlined" />
               {inventory.serialNumber && (
                 <Typography variant="caption" color="text.secondary">SN {inventory.serialNumber}</Typography>
               )}
