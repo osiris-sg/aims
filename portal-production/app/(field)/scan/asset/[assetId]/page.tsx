@@ -129,10 +129,8 @@ export default function AssetActionChooser() {
                   {latestDeliveryOrder?.name ?? latestDeliveryOrder?.id}
                   {data.activeDeliveryStart?.technicianName ? ` · started by ${data.activeDeliveryStart.technicianName}` : data.activeDeliveryStart ? ` · started ${new Date(data.activeDeliveryStart.createdAt).toLocaleDateString()}` : ""}
                 </Typography>
-              ) : !latestDeliveryOrder ? (
-                <Typography variant="body2" color="text.secondary">No open DO for this asset</Typography>
               ) : (
-                <Typography variant="body2" color="text.secondary">Delivery complete</Typography>
+                <Typography variant="body2" color="text.secondary">No open delivery order</Typography>
               )}
             </Box>
           </CardContent>
