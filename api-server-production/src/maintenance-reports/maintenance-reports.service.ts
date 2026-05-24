@@ -148,11 +148,20 @@ export class MaintenanceReportsService {
     });
     if (!asset) throw new NotFoundException('Asset not found');
 
+    // Pick the latest DO that's not yet been acknowledged. A DO with a
+    // DO_ACK linked is done — surfacing it would just freeze the action
+    // chooser on "Delivery complete" with no actionable state. Filtering it
+    // out here lets the chooser fall through to the next open DO (if any)
+    // or show "No open delivery order" via the null path below.
     const latestDoItem = await this.prisma.documentItem.findFirst({
       where: {
         itemId: assetId,
         itemType: 'ASSET',
-        document: { organizationId, type: 'DELIVERY_ORDER' },
+        document: {
+          organizationId,
+          type: 'DELIVERY_ORDER',
+          maintenanceReports: { none: { kind: 'DO_ACK', organizationId } },
+        },
       },
       orderBy: { document: { createdAt: 'desc' } },
       include: { document: true },
