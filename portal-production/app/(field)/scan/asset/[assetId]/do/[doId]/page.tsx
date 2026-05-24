@@ -14,6 +14,39 @@ interface UploadedPhoto {
   previewUrl: string;
 }
 
+// Phone-camera JPEGs run 4–8 MB. Resize to 1280px wide at JPEG q0.7 — typically
+// ~200–400 KB — before the multipart upload, otherwise the S3 PUT is painfully
+// slow on field LTE and the office gets oversized assets it never zooms into.
+// Mirrors the helper on the bind page (scan/bind/page.tsx).
+const compressImage = (dataUrl: string, maxWidth = 1280, quality = 0.7): Promise<string> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      let w = img.width;
+      let h = img.height;
+      if (w > maxWidth) {
+        h = (h * maxWidth) / w;
+        w = maxWidth;
+      }
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx?.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.src = dataUrl;
+  });
+};
+
+const fileToDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
 /**
  * Acknowledge Delivery — second step of the two-step delivery flow. Enabled
  * only when a DO_START MSR exists for this DO and no DO_ACK has been
@@ -43,8 +76,11 @@ export default function DeliveryOrderAckPage() {
       if (!token) throw new Error("Not signed in");
       const newPhotos: UploadedPhoto[] = [];
       for (const file of Array.from(files)) {
-        const key = await uploadImage({ blob: file, folderName: "do-ack", token });
-        if (key) newPhotos.push({ key, previewUrl: URL.createObjectURL(file) });
+        const originalDataUrl = await fileToDataUrl(file);
+        const compressedDataUrl = await compressImage(originalDataUrl);
+        const compressedBlob = await fetch(compressedDataUrl).then((r) => r.blob());
+        const key = await uploadImage({ blob: compressedBlob, folderName: "do-ack", token });
+        if (key) newPhotos.push({ key, previewUrl: URL.createObjectURL(compressedBlob) });
       }
       setPhotos((prev) => [...prev, ...newPhotos]);
     } catch (e: any) {
