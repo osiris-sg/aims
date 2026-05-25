@@ -20,12 +20,22 @@ export class CreateUserDto {
   lastName?: string;
 
   @ApiProperty({
-    description: 'The email address for the new user',
+    description: 'The email address for the new user. Either email or username must be provided.',
     example: 'john.doe@example.com',
+    required: false,
   })
   @IsEmail()
-  @IsNotEmpty()
-  email: string;
+  @IsOptional()
+  email?: string;
+
+  @ApiProperty({
+    description: 'The username for the new user. Either email or username must be provided.',
+    example: 'john.doe',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  username?: string;
 
   @ApiProperty({
     description: 'The password for the new user',

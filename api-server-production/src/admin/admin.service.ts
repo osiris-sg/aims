@@ -1,7 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
-import { NotFoundException } from '@nestjs/common';
+import { NotFoundException, BadRequestException } from '@nestjs/common';
 
 @Injectable()
 export class AdminService {
@@ -548,9 +548,14 @@ export class AdminService {
   }
 
   async createUser(createUserDto: CreateUserDto) {
-    const { firstName, lastName, email, password, roleIds, organizationId } = createUserDto;
+    const { firstName, lastName, email, username, password, roleIds, organizationId } = createUserDto;
 
     console.log('Creating user using osiris Admin', createUserDto);
+
+    // A Clerk user needs at least one identifier — accept either email or username.
+    if (!email && !username) {
+      throw new BadRequestException('Either an email address or a username is required');
+    }
 
     const roles = await this.prisma.role.findMany({
       where: {
@@ -571,7 +576,8 @@ export class AdminService {
       clerkUser = await this.clerkClient.users.createUser({
         firstName,
         lastName,
-        emailAddress: [email],
+        ...(email ? { emailAddress: [email] } : {}),
+        ...(username ? { username } : {}),
         password,
         skipPasswordChecks: true,
         skipPasswordRequirement: true,
@@ -579,7 +585,7 @@ export class AdminService {
     } catch (error: any) {
       console.error('Error creating user in Clerk:', error);
       if (error.errors?.[0]?.code === 'form_identifier_exists') {
-        throw new NotFoundException('A user with this email address already exists');
+        throw new NotFoundException('A user with this email address or username already exists');
       }
       throw new NotFoundException('Failed to create user in Clerk: ' + (error.message || 'Unknown error'));
     }
@@ -625,7 +631,8 @@ export class AdminService {
 
     return {
       id: userId,
-      email: clerkUser.emailAddresses[0]?.emailAddress || email,
+      email: clerkUser.emailAddresses[0]?.emailAddress || email || null,
+      username: clerkUser.username || username || null,
       name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || clerkUser.username || `User ${userId}`,
       roles: userRoles.map((ur) => ({
         id: ur.role.id,
