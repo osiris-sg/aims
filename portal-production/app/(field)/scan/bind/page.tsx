@@ -5,10 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   CircularProgress,
-  MenuItem,
   Stack,
   TextField,
   Typography,
@@ -16,9 +16,10 @@ import {
 import CameraAltIcon from "@mui/icons-material/CameraAlt";
 import { request } from "@/helpers/request";
 
-interface Category {
+interface AssetOption {
   id: string;
   name: string;
+  skuKey: string;
 }
 
 type Step = "capture" | "review";
@@ -54,9 +55,16 @@ const compressImage = (dataUrl: string, maxWidth = 1280, quality = 0.7): Promise
 
 /**
  * Field create-and-bind flow. The technician arrives here because the scanned
- * NFC tag isn't bound to anything. They photograph the equipment nameplate,
- * Claude vision extracts the model + serial, they review/edit, and a single
- * POST creates the asset and binds the tag.
+ * NFC tag isn't bound to anything. They:
+ *   1. Photograph the equipment nameplate (AI extracts model + serial as hints)
+ *   2. Pick an existing Asset from the org's catalog (the picker pre-filters
+ *      by the extracted model). Serial stays editable.
+ *   3. POST creates one Inventory unit under the chosen Asset and binds the
+ *      tag to it.
+ *
+ * Creating a new Asset from the field is intentionally not supported — SKU
+ * management is an office responsibility. The "no match" path tells the tech
+ * to ask the office to add the product.
  */
 export default function BindTagPage() {
   const router = useRouter();
@@ -72,39 +80,44 @@ export default function BindTagPage() {
   const [analyzing, setAnalyzing] = useState(false);
 
   // Review step
-  // Field names map to the Inventory create-and-bind shape:
-  //   model  → Asset.skuKey (the product/SKU identifier)
-  //   serial → Inventory.serialNumber (audit/warranty reference only)
-  const [model, setModel] = useState("");
+  const [assetOptions, setAssetOptions] = useState<AssetOption[]>([]);
+  const [selectedAsset, setSelectedAsset] = useState<AssetOption | null>(null);
+  const [searchInput, setSearchInput] = useState("");
+  const [searching, setSearching] = useState(false);
   const [serial, setSerial] = useState("");
-  const [categoryId, setCategoryId] = useState("");
-  const [categories, setCategories] = useState<Category[]>([]);
   const [extractionFailed, setExtractionFailed] = useState(false);
   const [creating, setCreating] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
 
+  // Debounced asset search. Fires on every searchInput change with a 250 ms
+  // tail so typing doesn't hammer the backend on field LTE. The empty-q case
+  // returns the first 50 assets so the picker is usable before the tech types.
   useEffect(() => {
+    if (step !== "review") return;
     let cancelled = false;
-    (async () => {
+    const timer = setTimeout(async () => {
+      setSearching(true);
       try {
         const token = await getToken();
         if (!token) return;
-        const res = await request({ path: "/categories", method: "GET" }, {}, token);
-        const list: Category[] = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+        const q = searchInput.trim();
+        const path = q ? `/assets/search?q=${encodeURIComponent(q)}` : "/assets/search";
+        const res = await request({ path, method: "GET" }, {}, token);
         if (cancelled) return;
-        setCategories(list);
-        const equipment = list.find((c) => c.name.toLowerCase() === "equipment");
-        if (equipment) setCategoryId(equipment.id);
+        const list: AssetOption[] = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+        setAssetOptions(list);
       } catch {
-        // Categories load failure is non-fatal — the user can still type the
-        // name/sku; we'll surface the error when they hit Create & Bind.
+        // Non-fatal — keep last results visible; show error only on submit.
+      } finally {
+        if (!cancelled) setSearching(false);
       }
-    })();
+    }, 250);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, [getToken]);
+  }, [searchInput, step, getToken]);
 
   const onPickPhoto = () => fileInputRef.current?.click();
 
@@ -141,15 +154,20 @@ export default function BindTagPage() {
       } else {
         setExtractionFailed(false);
       }
-      setModel(extractedModel ?? "");
+      // Pre-fill the picker query so it surfaces the matching catalog row(s)
+      // immediately. The tech still has to confirm by tapping — we never
+      // auto-select even on an exact match.
+      setSearchInput(extractedModel ?? "");
+      setSelectedAsset(null);
       setSerial(extractedSerial ?? "");
       setStep("review");
     } catch (e: any) {
-      // Move to review anyway so the tech can type it in manually.
+      // Move to review anyway so the tech can pick + enter manually.
       setExtractionFailed(true);
-      setModel("");
+      setSearchInput("");
+      setSelectedAsset(null);
       setSerial("");
-      setError(e?.message ?? "Couldn't analyze photo — enter details manually.");
+      setError(e?.message ?? "Couldn't analyze photo — please pick the product manually.");
       setStep("review");
     } finally {
       setAnalyzing(false);
@@ -158,30 +176,33 @@ export default function BindTagPage() {
 
   const createAndBind = async () => {
     setError(null);
-    if (!model.trim()) return setError("Model is required.");
-    if (!categoryId) return setError("Pick a category.");
+    if (!selectedAsset) return setError("Pick the product this unit is.");
 
     setCreating(true);
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const categoryName = categories.find((c) => c.id === categoryId)?.name;
       const res = await request(
         { path: "/inventories/create-and-bind", method: "POST" },
         {
-          model: model.trim(),
+          assetId: selectedAsset.id,
           serial: serial.trim() || undefined,
-          categoryId,
-          categoryName,
           nfcTagUid: uid,
         },
         token,
       );
-      const payload = res?.data ?? res;
+      // The request helper returns { success:false, message } on error rather
+      // than throwing — surface that as a real error so the tech sees the
+      // backend's actual reason (e.g. tag already bound) instead of a silent
+      // "no id returned" fallback.
+      if (res?.success === false) {
+        throw new Error(res?.message ?? "Failed to create inventory item.");
+      }
+      const payload = res?.data;
       const assetId = payload?.asset?.id;
       const inventoryId = payload?.inventory?.id;
       if (!assetId || !inventoryId) {
-        throw new Error("Created but no asset/inventory id returned");
+        throw new Error("Unexpected response from server.");
       }
       // Jump straight to the action chooser — same destination as a scan of
       // an already-bound tag, so the create-then-act flow has no dead end.
@@ -275,22 +296,56 @@ export default function BindTagPage() {
       {step === "review" && (
         <>
           <Typography variant="body2" color="text.secondary">
-            Review the details below. Edit anything that&apos;s wrong, then create.
+            Pick the product this unit is, then confirm. New products can only be added by the office.
           </Typography>
 
           {extractionFailed && (
             <Alert severity="warning">
-              Couldn&apos;t read the label automatically — please enter manually.
+              Couldn&apos;t read the label automatically — please pick the product manually.
             </Alert>
           )}
 
-          <TextField
-            label="Model"
-            helperText="Product/SKU identifier (e.g. LION375). Becomes the Asset for this unit."
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            fullWidth
+          <Autocomplete<AssetOption, false, false, false>
+            options={assetOptions}
+            value={selectedAsset}
+            inputValue={searchInput}
+            onChange={(_, picked) => setSelectedAsset(picked)}
+            onInputChange={(_, v) => setSearchInput(v)}
+            getOptionLabel={(o) => `${o.name} · ${o.skuKey}`}
+            isOptionEqualToValue={(a, b) => a.id === b.id}
+            loading={searching}
+            noOptionsText="No matching product. Ask the office to add it to the catalog."
+            renderOption={(props, option) => (
+              <li {...props} key={option.id}>
+                <Box>
+                  <Typography variant="body2" fontWeight={600}>{option.name}</Typography>
+                  <Typography variant="caption" color="text.secondary">{option.skuKey}</Typography>
+                </Box>
+              </li>
+            )}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Product"
+                placeholder="Search by name or SKU"
+                helperText={
+                  selectedAsset
+                    ? `Selected: ${selectedAsset.name} · ${selectedAsset.skuKey}`
+                    : "Type to filter the catalog."
+                }
+                InputProps={{
+                  ...params.InputProps,
+                  endAdornment: (
+                    <>
+                      {searching && <CircularProgress size={18} />}
+                      {params.InputProps.endAdornment}
+                    </>
+                  ),
+                }}
+              />
+            )}
           />
+
           <TextField
             label="Serial number"
             helperText="From the nameplate. Stored for audit; the unit SKU is auto-generated."
@@ -298,25 +353,12 @@ export default function BindTagPage() {
             onChange={(e) => setSerial(e.target.value)}
             fullWidth
           />
-          <TextField
-            select
-            label="Category"
-            value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value)}
-            fullWidth
-            disabled={!categories.length}
-            helperText={categories.length ? undefined : "Loading categories..."}
-          >
-            {categories.map((c) => (
-              <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
-            ))}
-          </TextField>
 
           <Button
             variant="contained"
             color="primary"
             fullWidth
-            disabled={creating}
+            disabled={creating || !selectedAsset}
             onClick={createAndBind}
             sx={FIELD_BUTTON_SX}
           >

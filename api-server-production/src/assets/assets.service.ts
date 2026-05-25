@@ -237,6 +237,32 @@ export class AssetsService {
     }
   }
 
+  /**
+   * Lightweight asset search for the field-scan bind picker. Returns just
+   * the fields the autocomplete renders, capped at 50 results so the
+   * payload stays small on field LTE. Empty q returns the first 50 — the
+   * autocomplete needs to show something useful before the tech types.
+   */
+  async searchForFieldPicker(q: string | undefined, userOrganizationId: string) {
+    const trimmed = q?.trim();
+    const where: any = {
+      organizationId: userOrganizationId,
+      deletedAt: null,
+    };
+    if (trimmed) {
+      where.OR = [
+        { name: { contains: trimmed, mode: 'insensitive' } },
+        { skuKey: { contains: trimmed, mode: 'insensitive' } },
+      ];
+    }
+    return this.prisma.asset.findMany({
+      where,
+      select: { id: true, name: true, skuKey: true },
+      orderBy: { name: 'asc' },
+      take: 50,
+    });
+  }
+
   async getByNfcUid(uid: string, userOrganizationId: string) {
     // Inventory-level lookup only. Asset.nfcTagUid is retained on the schema
     // for backward compatibility but is not queried for resolution — all
