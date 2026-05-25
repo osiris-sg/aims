@@ -16,8 +16,37 @@ interface OrganizationFeatures {
   enableAssetPoints?: boolean;
   enableItemTagging?: boolean;
   enableConfirmQuotation?: boolean;
+  enableNettRoundDown?: boolean;
   [key: string]: boolean | undefined;
 }
+
+/**
+ * Canonical feature-flag list with default values. Single source of truth for
+ * which flags exist app-wide. The admin panel renders this merged with an org's
+ * stored values so every org shows the same switches (values stay per-org).
+ * Add new flags here so they appear for all orgs without per-org backfilling.
+ */
+export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
+  // Base capabilities (typically on)
+  enableProjects: true,
+  enableAnalytics: true,
+  enableDocumentAI: true,
+  enableCustomFields: true,
+  enableServiceItems: true,
+  // Integrations / mode toggles (opt-in)
+  enableXeroIntegration: false,
+  enableEditInventorySku: false,
+  enableAssetTrackingMode: false,
+  enableFieldScanApp: false,
+  // Newer opt-in feature flags
+  enableAssetPoints: false,
+  enableItemTagging: false,
+  enablePOAsProject: false,
+  enableConfirmQuotation: false,
+  enableDocumentListView: false,
+  // Round each document's Nett Total DOWN to the nearest 5.
+  enableNettRoundDown: false,
+};
 
 interface OrganizationUIConfig {
   features?: OrganizationFeatures;
@@ -81,5 +110,6 @@ export function useOrganizationFeatures() {
     isAssetPointsEnabled: features.enableAssetPoints ?? false,
     isItemTaggingEnabled: features.enableItemTagging ?? false,
     isConfirmQuotationEnabled: features.enableConfirmQuotation ?? false,
+    isNettRoundDownEnabled: features.enableNettRoundDown ?? false,
   };
 }

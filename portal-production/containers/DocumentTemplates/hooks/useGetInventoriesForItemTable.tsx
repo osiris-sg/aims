@@ -94,11 +94,21 @@ export const useGetInventoriesForItemTable = () => {
       uom: asset.uom || "PCS",
       status: asset.quantity > 0 ? "available" : "out_of_stock",
       assetId: asset.id,
+      // Hierarchy + category needed by the FCU-CU (QF) quotation dropdowns:
+      // categoryId/categoryName split CU vs FCU lists; parentAssetId lets us
+      // restrict the FCU dropdown to a CU's children (single-split pairs).
+      parentAssetId: asset.parentAssetId ?? null,
+      categoryId: asset.categoryId ?? asset.category?.id ?? null,
+      customPrices: asset.customPrices,
+      // Accessories tagged to this FCU (Sky Air panel + wired remote) — auto-added to the row.
+      accessoryIds: asset.accessoryIds ?? [],
       asset: {
         id: asset.id,
         name: asset.name,
         description: asset.description,
         category: asset.category,
+        categoryId: asset.categoryId ?? asset.category?.id ?? null,
+        parentAssetId: asset.parentAssetId ?? null,
         uom: asset.uom || "PCS",
         price: asset.price,
         costPrice: asset.costPrice,

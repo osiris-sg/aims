@@ -62,7 +62,12 @@ export class ProjectsService {
       const whereClause: any = { organizationId };
 
       if (search) {
-        whereClause.OR = [{ name: { contains: search, mode: 'insensitive' } }];
+        whereClause.OR = [
+          { name: { contains: search, mode: 'insensitive' } },
+          // Also match a project when one of its tagged documents matches —
+          // e.g. typing a quotation/DO number surfaces the project it's on.
+          { documents: { some: { name: { contains: search, mode: 'insensitive' } } } },
+        ];
       }
 
       // Filter by customer if provided

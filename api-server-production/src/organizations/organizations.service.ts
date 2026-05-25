@@ -1,6 +1,8 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { ClerkClient } from '@clerk/backend';
+import { DEFAULT_DOCUMENT_TEMPLATES } from './default-templates';
+import { DEFAULT_ORG_FEATURES } from './default-features';
 
 @Injectable()
 export class OrganizationsService {
@@ -36,7 +38,76 @@ export class OrganizationsService {
     // Auto-create superadmin role with all permissions
     await this.createSuperadminRole(organization.id);
 
+    // Seed the default document templates so the org can immediately create
+    // invoices, quotations, DOs, POs, etc. without hitting "template not found".
+    await this.seedDefaultTemplates(organization.id);
+
+    // Seed the canonical feature-flag set so the org shows the same flags as
+    // every other org in the admin panel (values default per DEFAULT_ORG_FEATURES).
+    await this.seedDefaultFeatures(organization.id);
+
     return organization;
+  }
+
+  /**
+   * Ensure the org's OrganizationUIConfig has the canonical feature-flag set.
+   * Idempotent — preserves any existing flag values, only fills in missing keys.
+   */
+  async seedDefaultFeatures(organizationId: string) {
+    try {
+      const existing = await this.prisma.organizationUIConfig.findUnique({
+        where: { organizationId },
+        select: { features: true },
+      });
+      const currentFeatures = (existing?.features as Record<string, boolean>) || {};
+      // Existing values win; canonical defaults fill the gaps.
+      const mergedFeatures = { ...DEFAULT_ORG_FEATURES, ...currentFeatures };
+      await this.prisma.organizationUIConfig.upsert({
+        where: { organizationId },
+        update: { features: mergedFeatures },
+        create: { organizationId, features: mergedFeatures },
+      });
+      return { ok: true };
+    } catch (error) {
+      console.error('Error seeding default features:', error);
+      return { ok: false, error };
+    }
+  }
+
+  /**
+   * Seed the canonical document-template set for an organization. Idempotent —
+   * skips any document type that already has a template, so it's safe to call
+   * on org creation and to re-run as a backfill.
+   */
+  async seedDefaultTemplates(organizationId: string) {
+    try {
+      const existing = await this.prisma.documentTemplate.findMany({
+        where: { organizationId },
+        select: { type: true },
+      });
+      const existingTypes = new Set(existing.map((t) => t.type));
+      const toCreate = DEFAULT_DOCUMENT_TEMPLATES.filter((t) => !existingTypes.has(t.type));
+      if (toCreate.length === 0) {
+        return { created: 0 };
+      }
+      await this.prisma.documentTemplate.createMany({
+        data: toCreate.map((t) => ({
+          organizationId,
+          type: t.type,
+          templateVariant: t.templateVariant,
+          name: t.name,
+          designName: 'Default',
+          description: `${t.name} document template`,
+          isActive: true,
+          isDefault: true,
+        })),
+      });
+      console.log(`Seeded ${toCreate.length} default document templates for org ${organizationId}`);
+      return { created: toCreate.length };
+    } catch (error) {
+      console.error('Error seeding default templates:', error);
+      return { created: 0, error };
+    }
   }
 
   /**

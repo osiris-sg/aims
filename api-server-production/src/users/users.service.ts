@@ -1,5 +1,5 @@
 // src/users/users.service.ts
-import { Injectable, NotFoundException, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { UserRole, Role, Permission } from '@prisma/client';
 import { GetUsersDto } from './dto/get-users.dto';
@@ -211,7 +211,12 @@ export class UsersService {
   }
 
   async createUser(createUserDto: CreateUserDto) {
-    const { firstName, lastName, email, password, roleIds, organizationId } = createUserDto;
+    const { firstName, lastName, email, username, password, roleIds, organizationId } = createUserDto;
+
+    // A Clerk user needs at least one identifier — accept either email or username.
+    if (!email && !username) {
+      throw new BadRequestException('Either an email address or a username is required');
+    }
 
     // Verify that all roles exist
     const roles = await this.prisma.role.findMany({
@@ -228,13 +233,15 @@ export class UsersService {
       throw new NotFoundException(`Roles with IDs ${missingRoleIds.join(', ')} not found`);
     }
 
-    // Create user in Clerk
+    // Create user in Clerk. Only send the identifier(s) actually provided so we
+    // can create email-only OR username-only users.
     let clerkUser;
     try {
       clerkUser = await this.clerkClient.users.createUser({
         firstName,
         lastName,
-        emailAddress: [email],
+        ...(email ? { emailAddress: [email] } : {}),
+        ...(username ? { username } : {}),
         password,
         skipPasswordChecks: true,
         skipPasswordRequirement: true,
@@ -242,7 +249,7 @@ export class UsersService {
     } catch (error: any) {
       console.error('Error creating user in Clerk:', error);
       if (error.errors?.[0]?.code === 'form_identifier_exists') {
-        throw new NotFoundException('A user with this email address already exists');
+        throw new NotFoundException('A user with this email address or username already exists');
       }
       throw new NotFoundException('Failed to create user in Clerk: ' + (error.message || 'Unknown error'));
     }
@@ -291,7 +298,8 @@ export class UsersService {
 
     return {
       id: userId,
-      email: clerkUser.emailAddresses[0]?.emailAddress || email,
+      email: clerkUser.emailAddresses[0]?.emailAddress || email || null,
+      username: clerkUser.username || username || null,
       name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || clerkUser.username || `User ${userId}`,
       roles: userRoles.map((ur) => ({
         id: ur.role.id,

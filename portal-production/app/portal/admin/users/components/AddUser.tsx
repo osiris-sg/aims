@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Box, Button, Drawer, Grid, Typography, FormControl, InputLabel, Select, MenuItem, Chip, Alert, IconButton, InputAdornment, Divider } from "@mui/material";
+import { Box, Button, Drawer, Grid, Typography, FormControl, InputLabel, Select, MenuItem, Chip, Alert, IconButton, InputAdornment, Divider, ToggleButton, ToggleButtonGroup } from "@mui/material";
 import { useForm } from "react-hook-form";
 import FormInputBox from "@/form-components/FormInputBox";
 import useAddUserStates from "../hooks/useAddUser";
@@ -30,6 +30,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   const [error, setError] = useState<string>("");
   const [showPassword, setShowPassword] = useState(false);
+  const [identifierType, setIdentifierType] = useState<"email" | "username">("email");
 
   const {
     control,
@@ -37,10 +38,14 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
     reset,
     formState: { errors },
   } = useForm({
+    // Unregister the hidden identifier field when toggling Email/Username so its
+    // `required` rule can't block submission of the active one.
+    shouldUnregister: true,
     defaultValues: {
       firstName: "",
       lastName: "",
       email: "",
+      username: "",
       password: "",
     },
   });
@@ -128,7 +133,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
       const response = await createUser({
         firstName: data.firstName,
         lastName: data.lastName,
-        email: data.email,
+        ...(identifierType === "email" ? { email: data.email } : { username: data.username }),
         organizationId: selectedOrganizationId,
         password: data.password,
         roleIds: selectedRoles,
@@ -141,6 +146,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
         firstName: "",
         lastName: "",
         email: "",
+        username: "",
         password: "",
       });
       setSelectedRoles([]);
@@ -263,21 +269,60 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                 </Grid>
 
                 <Grid item xs={12}>
-                  <FormInputBox
-                    label="Email Address"
-                    control={control}
-                    name="email"
-                    placeHolder="Enter email address"
-                    rules={{
-                      required: "Email is required",
-                      pattern: {
-                        value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-                        message: "Invalid email address",
-                      },
+                  <ToggleButtonGroup
+                    value={identifierType}
+                    exclusive
+                    size="small"
+                    onChange={(_, value) => {
+                      if (value) setIdentifierType(value);
                     }}
-                    error={!!errors.email}
-                    helperText={errors.email?.message as string}
-                  />
+                    sx={{ mb: 1 }}
+                  >
+                    <ToggleButton value="email" sx={{ textTransform: "none" }}>
+                      Email
+                    </ToggleButton>
+                    <ToggleButton value="username" sx={{ textTransform: "none" }}>
+                      Username
+                    </ToggleButton>
+                  </ToggleButtonGroup>
+
+                  {identifierType === "email" ? (
+                    <FormInputBox
+                      label="Email Address"
+                      control={control}
+                      name="email"
+                      placeHolder="Enter email address"
+                      rules={{
+                        required: "Email is required",
+                        pattern: {
+                          value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+                          message: "Invalid email address",
+                        },
+                      }}
+                      error={!!errors.email}
+                      helperText={errors.email?.message as string}
+                    />
+                  ) : (
+                    <FormInputBox
+                      label="Username"
+                      control={control}
+                      name="username"
+                      placeHolder="Enter username"
+                      rules={{
+                        required: "Username is required",
+                        minLength: {
+                          value: 4,
+                          message: "Username must be at least 4 characters",
+                        },
+                        pattern: {
+                          value: /^[a-zA-Z0-9_.-]+$/,
+                          message: "Use only letters, numbers, and _ . -",
+                        },
+                      }}
+                      error={!!errors.username}
+                      helperText={errors.username?.message as string}
+                    />
+                  )}
                 </Grid>
 
                 <Grid item xs={12}>

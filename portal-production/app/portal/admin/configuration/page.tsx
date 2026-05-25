@@ -89,6 +89,7 @@ import {
 import { useAuth } from "@clerk/nextjs";
 import { useConfiguration } from "../../context/ConfigurationContext";
 import { useOrganization } from "../../hooks/useOrganization";
+import { FEATURE_FLAG_DEFAULTS } from "../../hooks/useOrganizationFeatures";
 import { toast } from "react-toastify";
 // Import for drag and drop functionality (if needed in future)
 // import { DragDropContext, Droppable, Draggable } from "@dnd-kit/core";
@@ -770,25 +771,34 @@ export default function ConfigurationAdminPage() {
             </AccordionSummary>
             <AccordionDetails>
               <List>
-                {Object.entries(uiConfigForm.features || {}).map(([key, value]) => (
-                  <ListItem key={key}>
-                    <ListItemText primary={key} />
-                    <ListItemSecondaryAction>
-                      <Switch
-                        checked={value as boolean}
-                        onChange={(e) =>
-                          setUIConfigForm({
-                            ...uiConfigForm,
-                            features: {
-                              ...uiConfigForm.features,
-                              [key]: e.target.checked,
-                            },
-                          })
-                        }
-                      />
-                    </ListItemSecondaryAction>
-                  </ListItem>
-                ))}
+                {/* Render the canonical flag list (defaults) merged with this
+                    org's stored values, so every org shows the same switches.
+                    Values remain per-org; missing keys default to their
+                    canonical default. Any extra keys stored on the org but not
+                    in the canonical list are still shown. */}
+                {Object.keys({ ...FEATURE_FLAG_DEFAULTS, ...(uiConfigForm.features || {}) }).map((key) => {
+                  const value = (uiConfigForm.features?.[key] ?? FEATURE_FLAG_DEFAULTS[key]) ?? false;
+                  return (
+                    <ListItem key={key}>
+                      <ListItemText primary={key} />
+                      <ListItemSecondaryAction>
+                        <Switch
+                          checked={value as boolean}
+                          onChange={(e) =>
+                            setUIConfigForm({
+                              ...uiConfigForm,
+                              features: {
+                                ...FEATURE_FLAG_DEFAULTS,
+                                ...uiConfigForm.features,
+                                [key]: e.target.checked,
+                              },
+                            })
+                          }
+                        />
+                      </ListItemSecondaryAction>
+                    </ListItem>
+                  );
+                })}
               </List>
               <Button onClick={handleSaveUIConfig}>Save Feature Flags</Button>
             </AccordionDetails>

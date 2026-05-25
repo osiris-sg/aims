@@ -140,6 +140,17 @@ export default function page() {
       // render the Proof of Delivery section (see CleanDocumentPreview DO block).
       documentData.maintenanceReports = response.data.maintenanceReports;
 
+      // Column layout (tableColumnOrder / columnLabels / internalColumns) is a
+      // template-level concern. Always take it from the template so it renders
+      // correctly even for saved docs that never persisted the layout, and so
+      // template layout changes propagate to existing documents.
+      const tmplCfg = (templateData && (templateData as any).config) || {};
+      if (Array.isArray(tmplCfg.tableColumnOrder) && tmplCfg.tableColumnOrder.length > 0) {
+        documentData.tableColumnOrder = tmplCfg.tableColumnOrder;
+        if (tmplCfg.columnLabels) documentData.columnLabels = tmplCfg.columnLabels;
+        if (tmplCfg.internalColumns) documentData.internalColumns = tmplCfg.internalColumns;
+      }
+
       // Build metadata
       const metadata = {
         ...response.data,

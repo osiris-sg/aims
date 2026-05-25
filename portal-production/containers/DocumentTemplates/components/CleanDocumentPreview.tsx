@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import React, { useMemo } from "react";
@@ -972,7 +973,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           // Calculate values
           const isAbsorbTax = data.documentInfo?.absorbTax === 'Y' || data.documentInfo?.absorbTax === true;
           const grossTotal = subtotal;
-          const discountAmount = grossTotal * (discountPercent / 100);
+          const discountAmount = data.documentInfo?.discountAmount != null ? Number(data.documentInfo.discountAmount) : grossTotal * (discountPercent / 100);
           const subtotalAfterDiscount = grossTotal - discountAmount;
           const gstAmount = isAbsorbTax && gstPercent > 0
             ? subtotalAfterDiscount * gstPercent / (100 + gstPercent)
@@ -1045,7 +1046,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           const isTaxApplicable = data.documentInfo?.taxApplicable !== 'N' && data.documentInfo?.taxApplicable !== false;
           const gstPercent = isTaxApplicable ? (data.documentInfo?.gstPercent || 9) : 0;
           const grossTotal = subtotal;
-          const discountAmount = grossTotal * (discountPercent / 100);
+          const discountAmount = data.documentInfo?.discountAmount != null ? Number(data.documentInfo.discountAmount) : grossTotal * (discountPercent / 100);
           const subtotalAfterDiscount = grossTotal - discountAmount;
           const gstAmount = subtotalAfterDiscount * (gstPercent / 100);
           const finalTotal = subtotalAfterDiscount + gstAmount;
@@ -1753,7 +1754,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           const gstPercent = isTaxApplicable ? (data.documentInfo?.gstPercent || 9) : 0;
 
             const grossTotal = subtotal;
-            const discountAmount = grossTotal * (discountPercent / 100);
+            const discountAmount = data.documentInfo?.discountAmount != null ? Number(data.documentInfo.discountAmount) : grossTotal * (discountPercent / 100);
             const subtotalAfterDiscount = grossTotal - discountAmount;
             const gstAmount = subtotalAfterDiscount * (gstPercent / 100);
             const finalTotal = subtotalAfterDiscount + gstAmount;
@@ -1823,7 +1824,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             const isTaxApplicable = data.documentInfo?.taxApplicable !== 'N' && data.documentInfo?.taxApplicable !== false;
           const gstPercent = isTaxApplicable ? (data.documentInfo?.gstPercent || 9) : 0;
             const grossTotal = subtotal;
-            const discountAmount = grossTotal * (discountPercent / 100);
+            const discountAmount = data.documentInfo?.discountAmount != null ? Number(data.documentInfo.discountAmount) : grossTotal * (discountPercent / 100);
             const subtotalAfterDiscount = grossTotal - discountAmount;
             const gstAmount = subtotalAfterDiscount * (gstPercent / 100);
             const finalTotal = subtotalAfterDiscount + gstAmount;
@@ -2436,6 +2437,16 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
     const discountAmount = data.documentInfo?.discountAmount || 0;
     const subtotalAfterDiscount = subtotal - discountAmount;
     const currency = data.documentInfo?.currency || "SGD";
+    // FCU-CU (QF) quotation: dealer-based waterfall computed in the editor and
+    // stored on documentInfo (Gross = list subtotal; Discounted Price = dealer −
+    // points − discount; Nett = Discounted + GST). Detected via the cuModel column.
+    const isQfQuote = Array.isArray((data as any)?.tableColumnOrder) && (data as any).tableColumnOrder.includes("cuModel");
+    const qfDiscountedPrice = Number(data.documentInfo?.discountedPrice ?? subtotalAfterDiscount) || 0;
+    const qfGst = Number(data.documentInfo?.gstAmount) || 0;
+    const qfNett = Number(data.documentInfo?.nettTotal ?? qfDiscountedPrice) || 0;
+    const qfTaxApplicable = data.documentInfo?.taxApplicable !== "N" && data.documentInfo?.taxApplicable !== false;
+    const qfGstPct = data.documentInfo?.gstPercent || 9;
+    const finalAmount = isQfQuote ? qfNett : subtotalAfterDiscount;
 
     // Number to words function
     const numberToWords = (num: number): string => {
@@ -2596,13 +2607,28 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               // If the doc carries a custom tableColumnOrder (e.g. FCU/CU System
               // Quotation), render the table from that config. Otherwise keep the
               // existing hardcoded QO layout.
-              const configColumns = (data as any)?.tableColumnOrder as string[] | undefined;
+              const rawConfigColumns = (data as any)?.tableColumnOrder as string[] | undefined;
               const configLabels = ((data as any)?.columnLabels || {}) as Record<string, string>;
-              if (configColumns && configColumns.length > 0) {
+              if (rawConfigColumns && rawConfigColumns.length > 0) {
+                // Internal-only columns (e.g. Dealer/Cost on the FCU-CU quotation)
+                // are rendered in the editor but never in the customer-facing preview.
+                const internalColumns = ((data as any)?.internalColumns as string[]) || ["discountPrice", "costPrice"];
+                // Hide Location / CU / FCU columns entirely when no row has a value
+                // for them (Qty + prices always show).
+                const columnHasData = (col: string) => {
+                  if (col === "location") return items.some((it: any) => String(it.location || "").trim() !== "");
+                  if (col === "cuModel") return items.some((it: any) => String(it.cuCode || "").trim() !== "");
+                  if (col === "fcuModel") return items.some((it: any) => (Array.isArray(it.fcus) && it.fcus.length > 0) || String(it.fcuCode || "").trim() !== "");
+                  return true;
+                };
+                const configColumns = rawConfigColumns.filter((c) => !internalColumns.includes(c)).filter(columnHasData);
                 const labelFor = (col: string) =>
                   configLabels[col] ||
                   (col === "item" ? "Item" :
                     col === "taggedAsset" ? "Tagged" :
+                    col === "cuModel" ? "CU Model" :
+                    col === "fcuModel" ? "FCU Model" :
+                    col === "listPrice" ? "Unit Price" :
                     col === "location" ? "Location" :
                     col === "remarks" ? "Remarks" :
                     col === "quantity" ? "Quantity" :
@@ -2614,14 +2640,25 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     col === "tax" ? "Tax %" : col);
                 const alignFor = (col: string) =>
                   col === "quantity" ? "center" :
-                  col === "unitPrice" || col === "amount" ? "right" : "left";
+                  col === "unitPrice" || col === "listPrice" || col === "amount" ? "right" : "left";
                 const valueFor = (col: string, item: any) => {
                   switch (col) {
                     case "item": return item.itemCode || item.code || "";
                     case "taggedAsset": return item.taggedAssetCode || "";
+                    case "cuModel": return item.cuCode || "";
+                    case "fcuModel":
+                      // CU shown once (cuModel col); each FCU on its own stacked line.
+                      return Array.isArray(item.fcus) && item.fcus.length
+                        ? (<Box sx={{ display: "flex", flexDirection: "column" }}>{item.fcus.map((f: any, i: number) => (<span key={i}>{f.code}</span>))}</Box>)
+                        : (item.fcuCode || "");
+                    case "listPrice": return item.listPrice != null ? Number(item.listPrice).toFixed(2) : "";
                     case "description":
                       return <DescriptionText text={item.description || ""} />;
-                    case "quantity": return item.quantity?.toLocaleString() || "";
+                    case "quantity":
+                      // Per-FCU qty, stacked to line up with the FCU rows.
+                      return Array.isArray(item.fcus) && item.fcus.length
+                        ? (<Box sx={{ display: "flex", flexDirection: "column" }}>{item.fcus.map((f: any, i: number) => (<span key={i}>{f.qty ?? 1}</span>))}</Box>)
+                        : (item.quantity?.toLocaleString() || "");
                     case "unitPrice": return item.unitPrice != null ? Number(item.unitPrice).toFixed(2) : "";
                     case "amount": return (item.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                     case "discount": return item.discount != null ? `${item.discount}` : "";
@@ -2767,30 +2804,59 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           {/* Totals - Right aligned, kept together on print */}
           <Box sx={{ display: "flex", justifyContent: "flex-end", borderTop: "1px solid #000", pt: 1, pageBreakInside: "avoid", breakInside: "avoid" }}>
             <Box sx={{ minWidth: 200 }}>
-              <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
-                <Typography sx={{ fontSize: "0.8125rem" }}>Sub-Total</Typography>
-                <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
-              </Box>
-              {discountAmount > 0 && (
-                <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
-                  <Typography sx={{ fontSize: "0.8125rem" }}>Discount</Typography>
-                  <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
-                </Box>
+              {isQfQuote ? (
+                <>
+                  {/* Gross Total (list) → Discounted Price (dealer − points − disc) → Nett Total (+GST) */}
+                  <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
+                    <Typography sx={{ fontSize: "0.8125rem" }}>Gross Total</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
+                    <Typography sx={{ fontSize: "0.8125rem" }}>Discounted Price</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{qfDiscountedPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
+                  </Box>
+                  {qfTaxApplicable && (
+                    <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
+                      <Typography sx={{ fontSize: "0.8125rem" }}>GST ({qfGstPct}%)</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{qfGst.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
+                    </Box>
+                  )}
+                  <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3, borderTop: "1px solid #000", mt: 0.5, pt: 0.5 }}>
+                    <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Nett Total</Typography>
+                    <Box sx={{ display: "flex", gap: 1 }}>
+                      <Typography sx={{ fontSize: "0.8125rem" }}>{currency}</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right" }}>{qfNett.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
+                    </Box>
+                  </Box>
+                </>
+              ) : (
+                <>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
+                    <Typography sx={{ fontSize: "0.8125rem" }}>Sub-Total</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
+                  </Box>
+                  {discountAmount > 0 && (
+                    <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
+                      <Typography sx={{ fontSize: "0.8125rem" }}>Discount</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
+                    </Box>
+                  )}
+                  <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3, borderTop: "1px solid #000", mt: 0.5, pt: 0.5 }}>
+                    <Typography sx={{ fontSize: "0.8125rem" }}>Total</Typography>
+                    <Box sx={{ display: "flex", gap: 1 }}>
+                      <Typography sx={{ fontSize: "0.8125rem" }}>{currency}</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right" }}>{subtotalAfterDiscount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
+                    </Box>
+                  </Box>
+                </>
               )}
-              <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3, borderTop: "1px solid #000", mt: 0.5, pt: 0.5 }}>
-                <Typography sx={{ fontSize: "0.8125rem" }}>Total</Typography>
-                <Box sx={{ display: "flex", gap: 1 }}>
-                  <Typography sx={{ fontSize: "0.8125rem" }}>{currency}</Typography>
-                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right" }}>{subtotalAfterDiscount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
-                </Box>
-              </Box>
             </Box>
           </Box>
 
           {/* Amount in Words */}
           <Box sx={{ mt: 2, mb: 2 }}>
             <Typography sx={{ fontSize: "0.8125rem" }}>
-              {numberToWords(subtotalAfterDiscount)}
+              {numberToWords(finalAmount)}
             </Typography>
           </Box>
 

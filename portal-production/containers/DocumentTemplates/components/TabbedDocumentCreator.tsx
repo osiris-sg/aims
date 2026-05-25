@@ -181,7 +181,9 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isItemTaggingEnabled: isItemTaggingFlagOn, isConfirmQuotationEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isItemTaggingEnabled: isItemTaggingFlagOn, isConfirmQuotationEnabled, isNettRoundDownEnabled } = useOrganizationFeatures();
+  // When enabled, the document's Nett Total is rounded DOWN to the nearest 5.
+  const roundNettDown = (n: number) => (isNettRoundDownEnabled ? Math.floor((Number(n) || 0) / 5) * 5 : (Number(n) || 0));
   // Item tagging (checkbox column + Tag Items button) is scoped to quotation
   // doc types only — that's where the FCU/CU pairing makes sense. The flag
   // still gates org-level availability; the doc type narrows where it shows.
@@ -285,6 +287,9 @@ export default function TabbedDocumentCreator({
   const [stockCardDialogOpen, setStockCardDialogOpen] = useState(false);
   // "add" = new line item, "tag" = attach picked asset to currently-checked rows.
   const [stockCardMode, setStockCardMode] = useState<"add" | "tag">("add");
+  // FCU-CU (QF) stock-card picker: which row + whether we're picking the CU or
+  // an FCU slot. Opens a dedicated, category-scoped StockCardDialog.
+  const [qfPicker, setQfPicker] = useState<{ rowId: number; target: "cu" | "fcu" | "accessory"; slotIndex: number } | null>(null);
 
   // Item-tagging: tracks which item ids are checked in the leftmost column.
   // Cleared after a tagging round completes or all rows are deleted.
@@ -426,7 +431,7 @@ export default function TabbedDocumentCreator({
   const { watch: templateWatch } = templateMethods;
 
   // Form data state
-  const [formData, setFormData] = useState({
+  const [formData, setFormDataState] = useState({
     // Document name/number from database
     name: existingData?.name || "",
     // General tab data - use organization data as defaults
@@ -556,7 +561,7 @@ export default function TabbedDocumentCreator({
   }, [documentType, templateId, existingData?.documentTemplateId, existingData?.templateId, propFieldDefinitions, getToken]);
 
   // Items management - normalize field names from old inventoryId to new inventoryItemId
-  const [items, setItems] = useState(() => {
+  const [items, setItemsState] = useState(() => {
     const existingItems = existingData?.items || [];
 
     // Check if this is an invoice type that doesn't need item tax
@@ -578,18 +583,26 @@ export default function TabbedDocumentCreator({
     return [];
   });
 
-  // Track initial form state for change detection
-  const initialFormStateRef = useRef<{ formData: any; items: any[] } | null>(null);
+  // Tracks whether the user has actually edited anything in this document.
+  // Auto-population / auto-calc effects call the raw setFormDataState /
+  // setItemsState setters so they don't trip this; only edits routed through
+  // the setFormData / setItems wrappers below (real UI interactions) mark the
+  // document dirty. The back button uses this to decide whether to prompt
+  // Save / Cancel / Delete — no prompt is shown if nothing was touched.
+  const isDirtyRef = useRef(false);
+  const setFormData = useCallback((update: any) => {
+    isDirtyRef.current = true;
+    setFormDataState(update);
+  }, []);
+  const setItems = useCallback((update: any) => {
+    isDirtyRef.current = true;
+    setItemsState(update);
+  }, []);
 
-  // Capture initial state when component mounts or existingData changes
+  // Reset the dirty flag whenever a different document is loaded.
   useEffect(() => {
-    // Create a snapshot of the initial state for comparison
-    const initialSnapshot = {
-      formData: JSON.parse(JSON.stringify(formData)),
-      items: JSON.parse(JSON.stringify(items)),
-    };
-    initialFormStateRef.current = initialSnapshot;
-  }, [existingData]); // Only re-capture when existingData changes (document load)
+    isDirtyRef.current = false;
+  }, [existingData]);
 
   // Fill in customer details from customers list if missing
   useEffect(() => {
@@ -600,7 +613,7 @@ export default function TabbedDocumentCreator({
         const needsUpdate = !formData.customer?.address || !formData.customer?.customerCode;
         if (needsUpdate) {
           console.log('Filling in missing customer details from customers list:', customer);
-          setFormData((prev: any) => ({
+          setFormDataState((prev: any) => ({
             ...prev,
             customer: {
               ...prev.customer,
@@ -620,7 +633,7 @@ export default function TabbedDocumentCreator({
   useEffect(() => {
     if (organization && !formData.company?.gstRegNo) {
       console.log('Filling in company gstRegNo from organization:', organization.registrationNumber);
-      setFormData((prev: any) => ({
+      setFormDataState((prev: any) => ({
         ...prev,
         company: {
           ...prev.company,
@@ -640,7 +653,7 @@ export default function TabbedDocumentCreator({
       console.log("existingData.documentInfo:", JSON.stringify(existingData.documentInfo));
       console.log("existingData.documentInfo.gstPercent:", existingData.documentInfo.gstPercent);
       console.log("existingData.documentInfo.currency:", existingData.documentInfo.currency);
-      setFormData((prev: any) => {
+      setFormDataState((prev: any) => {
         const merged = {
           ...prev,
           documentInfo: {
@@ -653,48 +666,6 @@ export default function TabbedDocumentCreator({
       });
     }
   }, [existingData?.documentInfo]);
-
-  // Function to check if form has changes compared to initial state
-  const hasFormChanges = useCallback((): boolean => {
-    if (!initialFormStateRef.current) return false;
-
-    const initial = initialFormStateRef.current;
-
-    // Compare formData (excluding tracking fields that change on save)
-    const currentFormDataStr = JSON.stringify({
-      ...formData,
-      savedBy: undefined,
-      savedAt: undefined,
-      lastUsedBy: undefined,
-      lastUsedAt: undefined,
-    });
-    const initialFormDataStr = JSON.stringify({
-      ...initial.formData,
-      savedBy: undefined,
-      savedAt: undefined,
-      lastUsedBy: undefined,
-      lastUsedAt: undefined,
-    });
-
-    if (currentFormDataStr !== initialFormDataStr) {
-      console.log('Form data changed');
-      return true;
-    }
-
-    // Compare items (excluding id which is generated dynamically)
-    const normalizeItems = (itemsList: any[]) =>
-      itemsList.map(({ id, ...rest }) => rest);
-
-    const currentItemsStr = JSON.stringify(normalizeItems(items));
-    const initialItemsStr = JSON.stringify(normalizeItems(initial.items));
-
-    if (currentItemsStr !== initialItemsStr) {
-      console.log('Items changed');
-      return true;
-    }
-
-    return false;
-  }, [formData, items]);
 
   const addNewItem = () => {
     const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
@@ -821,6 +792,180 @@ export default function TabbedDocumentCreator({
     });
   };
 
+  // ─── FCU-CU (QF) quotation helpers ──────────────────────────────────────
+  // The QF variant swaps the item/taggedAsset columns for CU Model + FCU Model
+  // dropdowns. Detected from the configured columns (no separate variant flag).
+  const configuredColumnsForVariant = (existingData?.tableColumnOrder ?? existingData?.config?.tableColumnOrder) as string[] | undefined;
+  const isFcuCuVariant = Array.isArray(configuredColumnsForVariant) && configuredColumnsForVariant.includes("cuModel");
+
+  // Discount tier ("Discount Price" entry in the asset's customPrices).
+  const discountPriceOf = (opt: any): number => {
+    const cps = opt?.asset?.customPrices ?? opt?.customPrices;
+    if (!Array.isArray(cps)) return 0;
+    const hit = cps.find((cp: any) => cp && String(cp.label).toLowerCase() === "discount price");
+    return Number(hit?.value) || 0;
+  };
+
+  const cuOptions = useMemo(
+    () => inventoriesForDocument.filter((i: any) => (i.categoryName || i.category) === "Condensing Unit"),
+    [inventoriesForDocument],
+  );
+  const fcuOptions = useMemo(
+    () => inventoriesForDocument.filter((i: any) => (i.categoryName || i.category) === "Fan Coil Unit"),
+    [inventoriesForDocument],
+  );
+  const accOptions = useMemo(
+    () => inventoriesForDocument.filter((i: any) => (i.categoryName || i.category) === "Accessories"),
+    [inventoriesForDocument],
+  );
+  // Children of a CU (single-split pairs). Empty => multi-split (mix-and-match).
+  const childrenOfCu = (cuAssetId: string) =>
+    inventoriesForDocument.filter((i: any) => i.parentAssetId === cuAssetId);
+  const fcuOptionsForCu = (cuAssetId?: string) => {
+    if (!cuAssetId) return fcuOptions;
+    const kids = childrenOfCu(cuAssetId);
+    return kids.length > 0 ? kids : fcuOptions;
+  };
+
+  // Recompute a QF row's prices. A row = ONE CU + N FCUs, each FCU with its own
+  // qty, billed as one combined line: price = CU + sum(FCU.price × FCU.qty).
+  // Single-split CUs (RKM, with a child) carry exactly their child FCU; multi-split
+  // CUs (MKM, no children) hold several indoor units. CU is counted once.
+  const recalcFcuCuRow = (row: any): any => {
+    const cu = row.cuAssetId ? inventoriesForDocument.find((i: any) => i.id === row.cuAssetId) : null;
+    const fcuRows = (row.fcus || [])
+      .map((f: any) => ({ a: inventoriesForDocument.find((i: any) => i.id === f.assetId), qty: Number(f.qty) || 0 }))
+      .filter((x: any) => x.a);
+    // Accessories (Sky Air panel/remote/pump) — priced into the system, qty default 1.
+    const accRows = (row.accessories || [])
+      .map((a: any) => ({ a: inventoriesForDocument.find((i: any) => i.id === a.assetId), qty: Number(a.qty) || 1 }))
+      .filter((x: any) => x.a);
+
+    const sumFcu = (fn: (a: any) => number) => fcuRows.reduce((t: number, { a, qty }: any) => t + (Number(fn(a)) || 0) * qty, 0);
+    const sumAcc = (fn: (a: any) => number) => accRows.reduce((t: number, { a, qty }: any) => t + (Number(fn(a)) || 0) * qty, 0);
+    const pointsOf = (a: any) => (isAssetPointsEnabled ? (Number(a?.asset?.points ?? a?.points) || 0) : 0);
+    // Unit Price = full LIST (points are NOT taken off the list). Dealer + points
+    // are tracked per line; the document totals derive the Discounted Price from
+    // (dealer − points − doc discount). See the totals useMemo / footer. Accessories
+    // add to the system list/dealer/cost (they carry no points).
+    const list = (Number(cu?.unitPrice) || 0) + sumFcu((a) => Number(a.unitPrice) || 0) + sumAcc((a) => Number(a.unitPrice) || 0);
+    const dealer = (cu ? discountPriceOf(cu) : 0) + sumFcu((a) => discountPriceOf(a)) + sumAcc((a) => discountPriceOf(a));
+    const cost = (Number(cu?.costPrice) || 0) + sumFcu((a) => a.costPrice) + sumAcc((a) => a.costPrice);
+    const points = (cu ? pointsOf(cu) : 0) + sumFcu((a) => pointsOf(a));
+    const label = [cu?.sku, ...fcuRows.map(({ a, qty }: any) => (qty > 1 ? `${qty}× ${a.sku}` : a.sku))].filter(Boolean).join(" + ");
+
+    // Qty lives on each FCU now, so the row itself is a single combined unit.
+    return { ...row, listPrice: list, discountPrice: dealer, costPrice: cost, pointsTotal: points, unitPrice: list, quantity: 1, amount: list, description: label, itemCode: label };
+  };
+
+  // Merge an FCU's tagged accessories (Sky Air panel + wired remote) into a row's
+  // accessory list, de-duped (a shared panel isn't added twice).
+  const addFcuAccessories = (accessories: any[], fcuObj: any) => {
+    const next = [...(accessories || [])];
+    for (const accId of (fcuObj?.accessoryIds || [])) {
+      if (next.some((a: any) => a.assetId === accId)) continue;
+      const acc = inventoriesForDocument.find((i: any) => i.id === accId);
+      if (acc) next.push({ assetId: acc.id, code: acc.sku, name: acc.name, qty: 1 });
+    }
+    return next;
+  };
+
+  const handleSelectCu = (rowId: number, cuId: string) => {
+    setItems((prev: any[]) => prev.map((it: any) => {
+      if (it.id !== rowId) return it;
+      const cu = inventoriesForDocument.find((i: any) => i.id === cuId);
+      const kids = cu ? childrenOfCu(cu.id) : [];
+      let fcus = it.fcus || [];
+      let accessories = it.accessories || [];
+      if (kids.length === 1) {
+        // Exactly one compatible FCU (RKM, or single-child Sky Air): auto-pair it
+        // and pull in its tagged accessories.
+        fcus = [{ assetId: kids[0].id, code: kids[0].sku, name: kids[0].name, qty: 1 }];
+        accessories = addFcuAccessories(accessories, kids[0]);
+      } else {
+        // Multiple compatible FCUs (Sky Air) or none (MKM): keep valid picks; the
+        // FCU picker is scoped to the CU's children when it has any.
+        fcus = fcus.filter((f: any) => inventoriesForDocument.some((i: any) => i.id === f.assetId));
+      }
+      return recalcFcuCuRow({ ...it, cuAssetId: cuId, cuCode: cu?.sku || "", cuName: cu?.name || "", fcus, accessories });
+    }));
+  };
+
+  // Set/replace/remove the FCU at a given slot index (index === fcus.length appends).
+  const setFcuAt = (rowId: number, index: number, fcuId: string) => {
+    setItems((prev: any[]) => prev.map((it: any) => {
+      if (it.id !== rowId) return it;
+      const fcu = fcuId ? inventoriesForDocument.find((i: any) => i.id === fcuId) : null;
+      const fcus = [...(it.fcus || [])];
+      let accessories = it.accessories || [];
+      if (!fcu) {
+        if (index < fcus.length) fcus.splice(index, 1); // cleared -> drop the slot
+      } else {
+        const keepQty = index < fcus.length ? (Number(fcus[index]?.qty) || 1) : 1;
+        const entry = { assetId: fcu.id, code: fcu.sku, name: fcu.name, qty: keepQty };
+        if (index < fcus.length) fcus[index] = entry; else fcus.push(entry);
+        accessories = addFcuAccessories(accessories, fcu); // auto-add the FCU's tagged accessories
+      }
+      return recalcFcuCuRow({ ...it, fcus, accessories });
+    }));
+  };
+
+  // Per-FCU quantity.
+  const setFcuQtyAt = (rowId: number, index: number, qty: number) => {
+    setItems((prev: any[]) => prev.map((it: any) => {
+      if (it.id !== rowId) return it;
+      const fcus = [...(it.fcus || [])];
+      if (index < fcus.length) fcus[index] = { ...fcus[index], qty };
+      return recalcFcuCuRow({ ...it, fcus });
+    }));
+  };
+
+  // Set/replace/remove an accessory slot (panel/remote/pump). Qty defaults to 1.
+  const setAccessoryAt = (rowId: number, index: number, accId: string) => {
+    setItems((prev: any[]) => prev.map((it: any) => {
+      if (it.id !== rowId) return it;
+      const acc = accId ? inventoriesForDocument.find((i: any) => i.id === accId) : null;
+      const accessories = [...(it.accessories || [])];
+      if (!acc) {
+        if (index < accessories.length) accessories.splice(index, 1);
+      } else {
+        const entry = { assetId: acc.id, code: acc.sku, name: acc.name, qty: 1 };
+        if (index < accessories.length) accessories[index] = entry; else accessories.push(entry);
+      }
+      return recalcFcuCuRow({ ...it, accessories });
+    }));
+  };
+
+  const addFcuCuRow = () => {
+    setItems((prev: any[]) => [
+      ...prev,
+      { id: Date.now(), cuAssetId: "", cuCode: "", cuName: "", fcus: [], accessories: [], quantity: 1, listPrice: 0, discountPrice: 0, costPrice: 0, unitPrice: 0, amount: 0 },
+    ]);
+  };
+
+  // Open the QF stock-card picker for a row's CU, an FCU slot, or an accessory slot.
+  const openQfPicker = (rowId: number, target: "cu" | "fcu" | "accessory", slotIndex: number) =>
+    setQfPicker({ rowId, target, slotIndex });
+
+  // Items shown in the QF picker: CUs, FCUs scoped to the CU's children, or accessories.
+  const qfPickerRow = qfPicker ? items.find((it: any) => it.id === qfPicker.rowId) : null;
+  const qfPickerItems = !qfPicker
+    ? []
+    : qfPicker.target === "cu"
+    ? cuOptions
+    : qfPicker.target === "accessory"
+    ? accOptions
+    : fcuOptionsForCu(qfPickerRow?.cuAssetId);
+
+  const handleQfPick = (picked: any) => {
+    if (!qfPicker) return;
+    const id = picked?.id || picked?.assetId || "";
+    if (qfPicker.target === "cu") handleSelectCu(qfPicker.rowId, id);
+    else if (qfPicker.target === "accessory") setAccessoryAt(qfPicker.rowId, qfPicker.slotIndex, id);
+    else setFcuAt(qfPicker.rowId, qfPicker.slotIndex, id);
+    setQfPicker(null);
+  };
+
   // Calculations - use organization tax rate for invoices
   const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
   const isCreditDebitNote = documentType === "CN" || documentType === "CREDIT_NOTE" || documentType === "DN" || documentType === "DEBIT_NOTE";
@@ -849,19 +994,57 @@ export default function TabbedDocumentCreator({
   // Auto-calculate right-column summary fields when items/tax change
   useEffect(() => {
     const di = formData?.documentInfo as any;
-    const discountPercent = parseFloat(di?.discountPercent) || 0;
-    const grossTotal = subtotal;
-    const discountAmount = grossTotal * (discountPercent / 100);
-    const subTotalAfterDiscount = grossTotal - discountAmount;
+    const discountValue = parseFloat(di?.discountPercent) || 0;
+    const discountType = di?.discountType || "percent";
     const gstPercent = isTaxApplicable ? (parseFloat(di?.gstPercent) || organization?.taxRate || 9) : 0;
+    const r2 = (n: number) => parseFloat((Number(n) || 0).toFixed(2));
+
+    // FCU-CU (QF) waterfall: Gross = Σ Unit Price (list); Discounted Price =
+    // Σ Dealer − Σ Points − doc discount; Nett = Discounted Price + GST.
+    if (isFcuCuVariant) {
+      const grossTotal = items.reduce((a: number, it: any) => a + (Number(it.listPrice) || 0), 0);
+      const dealerTotal = items.reduce((a: number, it: any) => a + (Number(it.discountPrice) || 0), 0);
+      const pointsTotal = items.reduce((a: number, it: any) => a + (Number(it.pointsTotal) || 0), 0);
+      const afterPoints = Math.max(0, dealerTotal - pointsTotal);
+      const discountAmount = discountType === "amount" ? Math.min(discountValue, afterPoints) : afterPoints * (discountValue / 100);
+      const discountedPrice = Math.max(0, afterPoints - discountAmount);
+      let gstAmount: number, nettTotal: number;
+      if (isAbsorbTax && gstPercent > 0) {
+        nettTotal = discountedPrice;
+        gstAmount = nettTotal * gstPercent / (100 + gstPercent);
+      } else {
+        gstAmount = discountedPrice * (gstPercent / 100);
+        nettTotal = discountedPrice + gstAmount;
+      }
+      setFormDataState((prev: any) => ({
+        ...prev,
+        documentInfo: {
+          ...prev.documentInfo,
+          grossTotal: r2(grossTotal),
+          dealerTotal: r2(dealerTotal),
+          pointsTotal: r2(pointsTotal),
+          discountAmount: r2(discountAmount),
+          discountedPrice: r2(discountedPrice),
+          subTotal: r2(discountedPrice),
+          gstAmount: r2(gstAmount),
+          nettTotal: r2(roundNettDown(nettTotal)),
+        },
+      }));
+      return;
+    }
+
+    const grossTotal = subtotal;
+    // Per-document discount: either a % of the gross or a flat $ amount (capped at gross).
+    const discountAmount = discountType === "amount"
+      ? Math.min(discountValue, grossTotal)
+      : grossTotal * (discountValue / 100);
+    const subTotalAfterDiscount = grossTotal - discountAmount;
 
     let gstAmount: number;
     let nettTotal: number;
 
     if (isAbsorbTax && gstPercent > 0) {
       // Absorb tax: total stays the same, GST is back-calculated from within
-      // nettTotal = subTotalAfterDiscount (the item total IS the final total)
-      // gstAmount = nettTotal × gstPercent / (100 + gstPercent)
       nettTotal = subTotalAfterDiscount;
       gstAmount = nettTotal * gstPercent / (100 + gstPercent);
     } else {
@@ -870,18 +1053,18 @@ export default function TabbedDocumentCreator({
       nettTotal = subTotalAfterDiscount + gstAmount;
     }
 
-    setFormData((prev: any) => ({
+    setFormDataState((prev: any) => ({
       ...prev,
       documentInfo: {
         ...prev.documentInfo,
-        grossTotal: parseFloat(grossTotal.toFixed(2)),
-        discountAmount: parseFloat(discountAmount.toFixed(2)),
-        subTotal: isAbsorbTax ? parseFloat((subTotalAfterDiscount - gstAmount).toFixed(2)) : parseFloat(subTotalAfterDiscount.toFixed(2)),
-        gstAmount: parseFloat(gstAmount.toFixed(2)),
-        nettTotal: parseFloat(nettTotal.toFixed(2)),
+        grossTotal: r2(grossTotal),
+        discountAmount: r2(discountAmount),
+        subTotal: isAbsorbTax ? r2(subTotalAfterDiscount - gstAmount) : r2(subTotalAfterDiscount),
+        gstAmount: r2(gstAmount),
+        nettTotal: r2(nettTotal),
       },
     }));
-  }, [subtotal, (formData?.documentInfo as any)?.discountPercent, (formData?.documentInfo as any)?.gstPercent, formData?.documentInfo?.taxApplicable, formData?.documentInfo?.absorbTax, isTaxApplicable, isAbsorbTax]);
+  }, [subtotal, items, isFcuCuVariant, isNettRoundDownEnabled, (formData?.documentInfo as any)?.discountPercent, (formData?.documentInfo as any)?.discountType, (formData?.documentInfo as any)?.gstPercent, formData?.documentInfo?.taxApplicable, formData?.documentInfo?.absorbTax, isTaxApplicable, isAbsorbTax]);
 
   const handleMainTabChange = (_: React.SyntheticEvent, newValue: number) => {
     setMainTabValue(newValue);
@@ -1686,8 +1869,8 @@ export default function TabbedDocumentCreator({
       // Navigate to parent page for confirmed documents
       router.push(getParentRoute(documentType));
     } else {
-      // Check if there are any changes to the form
-      const hasChanges = hasFormChanges();
+      // Only prompt if the user actually touched something in the document.
+      const hasChanges = isDirtyRef.current;
 
       if (hasChanges) {
         // Show dialog only if there are unsaved changes
@@ -3183,6 +3366,12 @@ export default function TabbedDocumentCreator({
                                 columnId === "receivedQty" ? "Received Qty" :
                                 columnId === "location" ? "Location" :
                                 columnId === "taggedAsset" ? "Tagged Item" :
+                                columnId === "cuModel" ? "CU Model" :
+                                columnId === "fcuModel" ? "FCU Model" :
+                                columnId === "accessories" ? "Accessories" :
+                                columnId === "listPrice" ? "Unit Price" :
+                                columnId === "discountPrice" ? "Dealer Price" :
+                                columnId === "costPrice" ? "Cost Price" :
                                 columnId === "remarks" ? "Remarks" : columnId;
 
                               if (!isVisible) return null;
@@ -3359,6 +3548,29 @@ export default function TabbedDocumentCreator({
                                     </TableCell>
                                   );
                                 } else if (columnId === "quantity") {
+                                  // For the FCU-CU variant qty is per-FCU: a stack of qty inputs
+                                  // aligned 1:1 (same 40px row height) with the FCU chips.
+                                  if (isFcuCuVariant) {
+                                    const selectedFcus = (item.fcus || []) as any[];
+                                    return (
+                                      <TableCell key={columnId} align="center">
+                                        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+                                          {selectedFcus.map((f: any, idx: number) => (
+                                            <Box key={idx} sx={{ height: 40, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                              <TextField
+                                                type="number"
+                                                size="small"
+                                                value={f.qty ?? 1}
+                                                onChange={(e) => setFcuQtyAt(item.id, idx, parseFloat(e.target.value) || 0)}
+                                                sx={{ width: 80 }}
+                                                inputProps={{ min: 0 }}
+                                              />
+                                            </Box>
+                                          ))}
+                                        </Box>
+                                      </TableCell>
+                                    );
+                                  }
                                   return (
                                     <TableCell key={columnId} align="center">
                                       <TextField
@@ -3537,6 +3749,100 @@ export default function TabbedDocumentCreator({
                                       )}
                                     </TableCell>
                                   );
+                                } else if (columnId === "cuModel") {
+                                  // Opens the stock-card picker (CUs, with description + list/dealer).
+                                  return (
+                                    <TableCell key={columnId}>
+                                      <Button
+                                        variant="outlined"
+                                        size="small"
+                                        onClick={() => openQfPicker(item.id, "cu", 0)}
+                                        sx={{ minWidth: 150, justifyContent: "flex-start", textTransform: "none", color: item.cuCode ? "text.primary" : "text.secondary" }}
+                                      >
+                                        {item.cuCode || "Select CU"}
+                                      </Button>
+                                    </TableCell>
+                                  );
+                                } else if (columnId === "fcuModel") {
+                                  // Exactly one compatible FCU (RKM) => locked, no add/remove.
+                                  // Multiple compatible FCUs (Sky Air) or none (MKM) => chips + "Add FCU"
+                                  // button opening the stock-card picker (scoped to the CU's children when any).
+                                  const kidCount = item.cuAssetId ? childrenOfCu(item.cuAssetId).length : 0;
+                                  const lockedSingle = kidCount === 1;
+                                  const selectedFcus = (item.fcus || []) as any[];
+                                  return (
+                                    <TableCell key={columnId}>
+                                      <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+                                        {selectedFcus.map((f: any, idx: number) => (
+                                          <Box key={idx} sx={{ height: 40, display: "flex", alignItems: "center" }}>
+                                            <Chip
+                                              size="small"
+                                              label={f.code}
+                                              onDelete={lockedSingle ? undefined : () => setFcuAt(item.id, idx, "")}
+                                              sx={{ maxWidth: "100%" }}
+                                            />
+                                          </Box>
+                                        ))}
+                                        {!lockedSingle && (
+                                          <Button
+                                            variant="text"
+                                            size="small"
+                                            startIcon={<AddIcon />}
+                                            onClick={() => openQfPicker(item.id, "fcu", selectedFcus.length)}
+                                            sx={{ alignSelf: "flex-start", textTransform: "none" }}
+                                          >
+                                            Add FCU
+                                          </Button>
+                                        )}
+                                      </Box>
+                                    </TableCell>
+                                  );
+                                } else if (columnId === "accessories") {
+                                  // Panel / remote / pump — added via the stock-card picker (scoped
+                                  // to the Accessories category). Priced into the system; editor-only.
+                                  const selectedAcc = (item.accessories || []) as any[];
+                                  return (
+                                    <TableCell key={columnId}>
+                                      <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+                                        {selectedAcc.map((a: any, idx: number) => (
+                                          <Box key={idx} sx={{ display: "flex", alignItems: "center", mb: 0.25 }}>
+                                            <Chip
+                                              size="small"
+                                              label={a.code}
+                                              onDelete={() => setAccessoryAt(item.id, idx, "")}
+                                              sx={{ maxWidth: "100%" }}
+                                            />
+                                          </Box>
+                                        ))}
+                                        <Button
+                                          variant="text"
+                                          size="small"
+                                          startIcon={<AddIcon />}
+                                          onClick={() => openQfPicker(item.id, "accessory", selectedAcc.length)}
+                                          sx={{ alignSelf: "flex-start", textTransform: "none" }}
+                                        >
+                                          Add Accessory
+                                        </Button>
+                                      </Box>
+                                    </TableCell>
+                                  );
+                                } else if (columnId === "listPrice" || columnId === "discountPrice" || columnId === "costPrice") {
+                                  return (
+                                    <TableCell key={columnId} align="center">
+                                      <TextField
+                                        type="number"
+                                        value={item[columnId] ?? 0}
+                                        onChange={(e) => {
+                                          const v = parseFloat(e.target.value) || 0;
+                                          updateItem(item.id, columnId, v);
+                                          // listPrice is the customer-facing unit price -> keep unitPrice/amount in sync.
+                                          if (columnId === "listPrice") updateItem(item.id, "unitPrice", v);
+                                        }}
+                                        size="small"
+                                        sx={{ width: 100 }}
+                                      />
+                                    </TableCell>
+                                  );
                                 } else {
                                   // Custom column - render as text field
                                   return (
@@ -3594,12 +3900,13 @@ export default function TabbedDocumentCreator({
                           variant="contained"
                           startIcon={<AddIcon />}
                           onClick={() => {
+                            if (isFcuCuVariant) { addFcuCuRow(); return; }
                             setStockCardMode("add");
                             setStockCardDialogOpen(true);
                           }}
                           size="small"
                         >
-                          Add Item
+                          {isFcuCuVariant ? "Add Row" : "Add Item"}
                         </Button>
                         {isItemTaggingEnabled && selectedItemIds.length > 0 && (
                           <Button
@@ -3682,13 +3989,51 @@ export default function TabbedDocumentCreator({
                                 const dInfo = formData?.documentInfo as any;
                                 const currency = dInfo?.currency || "SGD";
                                 const discPct = parseFloat(dInfo?.discountPercent) || 0;
-                                const discAmt = subtotal * (discPct / 100);
-                                const afterDisc = subtotal - discAmt;
+                                const discType = dInfo?.discountType || "percent";
                                 const gstPct = isTaxApplicable ? (parseFloat(dInfo?.gstPercent) || organization?.taxRate || 9) : 0;
+
+                                // FCU-CU (QF): Gross = Σ Unit Price (list); Discounted Price =
+                                // Σ Dealer − Σ Points − doc discount; Nett = Discounted + GST.
+                                if (isFcuCuVariant) {
+                                  const gross = items.reduce((a: number, it: any) => a + (Number(it.listPrice) || 0), 0);
+                                  const dealerTotal = items.reduce((a: number, it: any) => a + (Number(it.discountPrice) || 0), 0);
+                                  const pointsTotal = items.reduce((a: number, it: any) => a + (Number(it.pointsTotal) || 0), 0);
+                                  const afterPoints = Math.max(0, dealerTotal - pointsTotal);
+                                  const discAmt = discType === "amount" ? Math.min(discPct, afterPoints) : afterPoints * (discPct / 100);
+                                  const discountedPrice = Math.max(0, afterPoints - discAmt);
+                                  const gst = isAbsorbTax && gstPct > 0 ? discountedPrice * gstPct / (100 + gstPct) : discountedPrice * (gstPct / 100);
+                                  const nett = roundNettDown(isAbsorbTax ? discountedPrice : discountedPrice + gst);
+                                  return (
+                                    <>
+                                      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                                        <Typography variant="body2">Gross Total:</Typography>
+                                        <Typography variant="body2">{currency} {gross.toFixed(2)}</Typography>
+                                      </Box>
+                                      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                                        <Typography variant="body2" fontWeight="bold">Discounted Price:</Typography>
+                                        <Typography variant="body2" fontWeight="bold">{currency} {discountedPrice.toFixed(2)}</Typography>
+                                      </Box>
+                                      {isTaxApplicable && (
+                                        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                                          <Typography variant="body2">GST ({gstPct}%){isAbsorbTax ? " (absorbed)" : ""}:</Typography>
+                                          <Typography variant="body2">{currency} {gst.toFixed(2)}</Typography>
+                                        </Box>
+                                      )}
+                                      <Divider sx={{ my: 0.5 }} />
+                                      <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                        <Typography variant="body2" fontWeight="bold">Nett Total:</Typography>
+                                        <Typography variant="body2" fontWeight="bold" color="primary">{currency} {nett.toFixed(2)}</Typography>
+                                      </Box>
+                                    </>
+                                  );
+                                }
+
+                                const discAmt = discType === "amount" ? Math.min(discPct, subtotal) : subtotal * (discPct / 100);
+                                const afterDisc = subtotal - discAmt;
                                 const gst = isAbsorbTax && gstPct > 0
                                   ? afterDisc * gstPct / (100 + gstPct)
                                   : afterDisc * (gstPct / 100);
-                                const nett = isAbsorbTax ? afterDisc : afterDisc + gst;
+                                const nett = roundNettDown(isAbsorbTax ? afterDisc : afterDisc + gst);
                                 const displaySubtotal = isAbsorbTax ? afterDisc - gst : afterDisc;
 
                                 return (
@@ -3697,9 +4042,9 @@ export default function TabbedDocumentCreator({
                                       <Typography variant="body2">Gross Total:</Typography>
                                       <Typography variant="body2">{currency} {subtotal.toFixed(2)}</Typography>
                                     </Box>
-                                    {discPct > 0 && (
+                                    {discAmt > 0 && (
                                       <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-                                        <Typography variant="body2">Discount ({discPct}%):</Typography>
+                                        <Typography variant="body2">Discount{discType === "amount" ? "" : ` (${discPct}%)`}:</Typography>
                                         <Typography variant="body2" color="error.main">-{currency} {discAmt.toFixed(2)}</Typography>
                                       </Box>
                                     )}
@@ -3827,6 +4172,8 @@ export default function TabbedDocumentCreator({
                     (existingData as any)?.tableColumnOrder ?? existingData?.config?.tableColumnOrder,
                   columnLabels:
                     (existingData as any)?.columnLabels ?? existingData?.config?.columnLabels,
+                  internalColumns:
+                    (existingData as any)?.internalColumns ?? existingData?.config?.internalColumns,
                 }}
                 organization={organization}
                 // Field-tech delivery reports linked to this document. When
@@ -4341,6 +4688,18 @@ export default function TabbedDocumentCreator({
         reportId={routeDialogReportId}
         open={!!routeDialogReportId}
         onClose={() => setRouteDialogReportId(null)}
+      />
+
+      {/* FCU-CU (QF) stock-card picker — scoped to CUs or FCUs, shows
+          description + Unit (list) + Dealer price. */}
+      <StockCardDialog
+        open={!!qfPicker}
+        onClose={() => setQfPicker(null)}
+        onSelectItem={handleQfPick}
+        inventoryItems={qfPickerItems}
+        priceMode="selling"
+        showDealerPrice
+        showPoints
       />
 
       {/* Locate Document Dialog */}

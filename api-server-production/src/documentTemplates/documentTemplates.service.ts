@@ -218,6 +218,11 @@ export class DocumentTemplatesService {
 
       return documentTemplate;
     } catch (error) {
+      // Preserve the real status (e.g. 404 not-found) instead of masking
+      // every error as a 500.
+      if (error instanceof HttpException) {
+        throw error;
+      }
       console.error('Error fetching document template by type:', error);
       throw new HttpException(error.message || 'Internal Server Error', HttpStatus.INTERNAL_SERVER_ERROR);
     }

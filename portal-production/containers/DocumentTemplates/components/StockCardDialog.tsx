@@ -42,6 +42,8 @@ interface InventoryItem {
   minQuantity?: number;
   unitPrice?: number;
   costPrice?: number;
+  customPrices?: any[];
+  points?: number;
   uom?: string;
   status?: string;
   assetId?: string;
@@ -52,6 +54,8 @@ interface InventoryItem {
     uom?: string;
     price?: number;
     costPrice?: number;
+    customPrices?: any[];
+    points?: number;
     category?: {
       id: string;
       name: string;
@@ -67,6 +71,10 @@ interface StockCardDialogProps {
   // "cost" for PO/PR — column reads asset.costPrice and is labeled "Cost Price".
   // "selling" (default) — column reads unitPrice/asset.price labeled "Unit Price".
   priceMode?: "cost" | "selling";
+  // When true, add a "Dealer Price" column (from customPrices "Discount Price").
+  showDealerPrice?: boolean;
+  // When true, add a "Points" column (from asset.points; 1 point = $1 discount).
+  showPoints?: boolean;
 }
 
 type SearchMode = "code" | "description" | "category";
@@ -77,13 +85,25 @@ export default function StockCardDialog({
   onSelectItem,
   inventoryItems,
   priceMode = "selling",
+  showDealerPrice = false,
+  showPoints = false,
 }: StockCardDialogProps) {
+  const getPoints = (it: InventoryItem) => {
+    const p = it.points ?? it.asset?.points;
+    return p != null ? Number(p) : null;
+  };
   const showCost = priceMode === "cost";
   const priceColumnLabel = showCost ? "Cost Price" : "Unit Price";
   const getDisplayPrice = (it: InventoryItem) =>
     showCost
       ? (it.costPrice ?? it.asset?.costPrice ?? null)
       : (it.unitPrice ?? it.asset?.price ?? null);
+  const getDealerPrice = (it: InventoryItem) => {
+    const cps = it.customPrices ?? it.asset?.customPrices;
+    if (!Array.isArray(cps)) return null;
+    const hit = cps.find((cp: any) => cp && String(cp.label).toLowerCase() === "discount price");
+    return hit != null ? Number(hit.value) : null;
+  };
   const [searchTerm, setSearchTerm] = useState("");
   const [searchMode, setSearchMode] = useState<SearchMode>("code");
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -248,6 +268,12 @@ export default function StockCardDialog({
                 <TableCell align="center" sx={{ width: "10%" }}>Balance</TableCell>
                 <TableCell align="center" sx={{ width: "10%" }}>Min Qty</TableCell>
                 <TableCell align="right" sx={{ width: "12%" }}>{priceColumnLabel}</TableCell>
+                {showDealerPrice && (
+                  <TableCell align="right" sx={{ width: "12%" }}>Dealer Price</TableCell>
+                )}
+                {showPoints && (
+                  <TableCell align="center" sx={{ width: "8%" }}>Points</TableCell>
+                )}
                 {isAssetTrackingModeEnabled && (
                   <TableCell align="center" sx={{ width: "10%" }}>Status</TableCell>
                 )}
@@ -257,7 +283,7 @@ export default function StockCardDialog({
             <TableBody>
               {filteredItems.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={isAssetTrackingModeEnabled ? 8 : 7} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={(isAssetTrackingModeEnabled ? 8 : 7) + (showDealerPrice ? 1 : 0) + (showPoints ? 1 : 0)} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">
                       {searchTerm ? `No ${itemType.toLowerCase()}s found matching your search` : `No ${itemType.toLowerCase()}s available`}
                     </Typography>
@@ -290,6 +316,22 @@ export default function StockCardDialog({
                         return v != null ? `$${Number(v).toFixed(2)}` : "-";
                       })()}
                     </TableCell>
+                    {showDealerPrice && (
+                      <TableCell align="right" className="tabular-nums" sx={{ color: "text.secondary" }}>
+                        {(() => {
+                          const v = getDealerPrice(item);
+                          return v != null ? `$${Number(v).toFixed(2)}` : "-";
+                        })()}
+                      </TableCell>
+                    )}
+                    {showPoints && (
+                      <TableCell align="center" className="tabular-nums" sx={{ color: "text.primary" }}>
+                        {(() => {
+                          const v = getPoints(item);
+                          return v != null && v > 0 ? v : "-";
+                        })()}
+                      </TableCell>
+                    )}
                     {isAssetTrackingModeEnabled && (
                       <TableCell align="center">
                         <Chip

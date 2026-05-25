@@ -614,12 +614,23 @@ export default function DynamicFormFields({
     // Skip currency in right column (it's part of Rate row display)
     if (field.fieldName === 'documentInfo.currency') return null;
 
-    // Disc % row with input and calculated amount
+    // Disc row: % or $ (per-document discount) + calculated amount.
     if (field.fieldName === 'documentInfo.discountPercent') {
       const discAmount = getNestedValue(formData, 'documentInfo.discountAmount') ?? 0;
+      const discType = getNestedValue(formData, 'documentInfo.discountType') || 'percent';
       return (
         <Box key={field.fieldName} sx={rightRowSx}>
-          <Typography sx={rightLabelSx}>Disc %</Typography>
+          <Typography sx={rightLabelSx}>Disc</Typography>
+          <FormControl size="small" sx={{ width: 56 }}>
+            <Select
+              value={discType}
+              onChange={(e) => setFormData(setNestedValue(formData, 'documentInfo.discountType', e.target.value))}
+              sx={selectSx}
+            >
+              <MenuItem value="percent" sx={{ fontSize: '0.75rem' }}>%</MenuItem>
+              <MenuItem value="amount" sx={{ fontSize: '0.75rem' }}>$</MenuItem>
+            </Select>
+          </FormControl>
           <TextField
             type="number"
             value={value}

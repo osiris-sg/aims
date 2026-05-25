@@ -64,6 +64,10 @@ model Asset {
   costPrice           Float? // What we pay to acquire/produce one unit (for margin tracking)
   customPrices        Json? // Optional [{ label: string, value: number }] — e.g. Listing Price, Dealer Price
   points              Float? // Asset-level discount (1 point = $1). Gated by enableAssetPoints flag.
+  // Accessory asset IDs auto-added with this FCU on the FCU-CU (QF) quotation
+  // (e.g. Sky Air: decoration panel + wired remote). Many-to-many — accessories
+  // are shared across FCUs, so this is a tag list, not a parent/child relation.
+  accessoryIds        String[]                   @default([])
   parentAssetId       String?                    @db.Uuid
   // Unit of Measure (e.g., PCS, EA, SET, BOX, KG, etc.)
   uom                 String                     @default("PCS")
