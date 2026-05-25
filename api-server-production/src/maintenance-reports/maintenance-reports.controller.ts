@@ -21,6 +21,26 @@ interface ClerkRequest extends Request {
 export class MaintenanceReportsController {
   constructor(private readonly service: MaintenanceReportsService) {}
 
+  /**
+   * Org-wide paginated list of SERVICE reports for the portal Service
+   * Reports page. Query params: page, limit, search.
+   */
+  @Get()
+  @Permissions('maintenance-reports:read')
+  findAll(
+    @UserOrganization() org: { id: string },
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.service.findAllService(
+      org.id,
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 20,
+      search,
+    );
+  }
+
   @Post()
   @Permissions('maintenance-reports:create')
   create(

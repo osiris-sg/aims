@@ -33,6 +33,7 @@ import {
   Storefront,
   AccountBalance,
   ReceiptLong,
+  Build,
 } from "@mui/icons-material";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -56,6 +57,7 @@ const iconMap: Record<string, React.ComponentType> = {
   Storefront,
   AccountBalance,
   ReceiptLong,
+  Build,
 };
 
 const getIcon = (iconName?: string) => {

@@ -118,6 +118,71 @@ export class MaintenanceReportsService {
     return report;
   }
 
+  /**
+   * Paginated org-wide list of SERVICE reports for the portal "Service
+   * Reports" page. DO_START / DO_ACK rows are excluded — they're tracked in
+   * the delivery view and would otherwise clutter the list.
+   *
+   * Search composes:
+   *   - numeric input  → exact reportNumber match
+   *   - text input     → JSON-path filter on serviceData.customerName
+   * Prisma's JSON-path filters don't support `mode: 'insensitive'`, so
+   * customer-name search is case-sensitive. Swap to $queryRaw with
+   * `serviceData->>'customerName' ILIKE ...` if insensitivity becomes
+   * important.
+   */
+  async findAllService(
+    organizationId: string,
+    page = 1,
+    limit = 20,
+    search?: string,
+  ) {
+    const trimmed = search?.trim();
+    const where: Prisma.MaintenanceServiceReportWhereInput = {
+      organizationId,
+      kind: 'SERVICE',
+    };
+
+    if (trimmed) {
+      const orClauses: Prisma.MaintenanceServiceReportWhereInput[] = [];
+      const asNum = Number(trimmed);
+      if (!Number.isNaN(asNum) && Number.isInteger(asNum)) {
+        orClauses.push({ reportNumber: asNum });
+      }
+      orClauses.push({
+        serviceData: {
+          path: ['customerName'],
+          string_contains: trimmed,
+        },
+      });
+      where.OR = orClauses;
+    }
+
+    const skip = (page - 1) * limit;
+    const [docs, total] = await Promise.all([
+      this.prisma.maintenanceServiceReport.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          asset: { select: { name: true, skuKey: true } },
+          inventory: { select: { sku: true, serialNumber: true } },
+        },
+      }),
+      this.prisma.maintenanceServiceReport.count({ where }),
+    ]);
+
+    return {
+      docs,
+      total,
+      page,
+      limit,
+      hasNextPage: skip + docs.length < total,
+      hasPreviousPage: page > 1,
+    };
+  }
+
   async listByAsset(assetId: string, organizationId: string) {
     return this.prisma.maintenanceServiceReport.findMany({
       where: { assetId, organizationId },
