@@ -90,6 +90,19 @@ export default function BindTagPage() {
 
   const [error, setError] = useState<string | null>(null);
 
+  // Auto-select on exact match. When the AI extraction (or the tech's typing)
+  // lands on a query that exactly matches a catalog row's name or skuKey,
+  // pre-pick it for them so they don't have to tap a single item in the
+  // dropdown. Guarded by `!selectedAsset` so this doesn't fight a manual pick.
+  useEffect(() => {
+    if (selectedAsset || !searchInput.trim() || !assetOptions.length) return;
+    const q = searchInput.trim().toLowerCase();
+    const exact = assetOptions.find(
+      (a) => a.name.toLowerCase() === q || a.skuKey.toLowerCase() === q,
+    );
+    if (exact) setSelectedAsset(exact);
+  }, [assetOptions, searchInput, selectedAsset]);
+
   // Debounced asset search. Fires on every searchInput change with a 250 ms
   // tail so typing doesn't hammer the backend on field LTE. The empty-q case
   // returns the first 50 assets so the picker is usable before the tech types.
@@ -154,9 +167,10 @@ export default function BindTagPage() {
       } else {
         setExtractionFailed(false);
       }
-      // Pre-fill the picker query so it surfaces the matching catalog row(s)
-      // immediately. The tech still has to confirm by tapping — we never
-      // auto-select even on an exact match.
+      // Pre-fill the picker query so it surfaces matching catalog row(s)
+      // immediately. The auto-select effect above will lock in the pick when
+      // exactly one row matches on name or skuKey — no tap needed in the
+      // happy path. Ambiguous results still require a manual selection.
       setSearchInput(extractedModel ?? "");
       setSelectedAsset(null);
       setSerial(extractedSerial ?? "");
@@ -310,7 +324,13 @@ export default function BindTagPage() {
             value={selectedAsset}
             inputValue={searchInput}
             onChange={(_, picked) => setSelectedAsset(picked)}
-            onInputChange={(_, v) => setSearchInput(v)}
+            // Gate on reason === 'input' so MUI's post-selection "reset" (which
+            // fires with the formatted option label like "LION375 · LION375")
+            // doesn't pollute the search query and trigger a useless backend
+            // call that finds nothing.
+            onInputChange={(_, v, reason) => {
+              if (reason === "input") setSearchInput(v);
+            }}
             getOptionLabel={(o) => `${o.name} · ${o.skuKey}`}
             isOptionEqualToValue={(a, b) => a.id === b.id}
             loading={searching}
