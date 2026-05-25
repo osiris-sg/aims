@@ -26,6 +26,9 @@ const PERMISSIONS_NEEDED = [
   { resource: 'assets', action: 'bind-nfc-tag', description: 'Bind an NFC tag UID to an asset' },
   // Photo upload (proof-of-service / DO-ack photos)
   { resource: 'uploads', action: 'upload-image', description: 'Upload proof-of-service and DO-ack photos to S3' },
+  // Customer lookup — used by the revamped 5-page MSR form to search for the
+  // company name on page 1. Read-only paginated list; no PII writes.
+  { resource: 'customers', action: 'read', description: 'List and search customers' },
 ];
 
 async function main() {

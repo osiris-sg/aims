@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsEnum, IsLatitude, IsLongitude, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsArray, IsEnum, IsLatitude, IsLongitude, IsObject, IsOptional, IsString, IsUUID } from 'class-validator';
 import { MaintenanceReportKind } from '@prisma/client';
 
 export class CreateMaintenanceReportDto {
@@ -56,4 +56,23 @@ export class CreateMaintenanceReportDto {
   @IsOptional()
   @IsString()
   locationLabel?: string;
+
+  // Structured payload for the revamped 5-page MSR form. Schemaless on the
+  // backend; the field PWA owns the shape.
+  @ApiPropertyOptional({ description: 'Structured form data for the 5-page service report.' })
+  @IsOptional()
+  @IsObject()
+  serviceData?: Record<string, any>;
+
+  // Optional inline sign-off — when present, the row is created already
+  // completed (no separate /sign call). Used by the revamped SERVICE flow.
+  @ApiPropertyOptional({ description: 'Client signature (S3 key or base64) — finalizes the report on create.' })
+  @IsOptional()
+  @IsString()
+  signature?: string;
+
+  @ApiPropertyOptional({ description: 'Name of the client signer captured with the signature.' })
+  @IsOptional()
+  @IsString()
+  signedByName?: string;
 }

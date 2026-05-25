@@ -16,27 +16,77 @@ export class MaintenanceReportsService {
     });
     if (!asset) throw new NotFoundException('Asset not found in this organization');
 
-    return this.prisma.maintenanceServiceReport.create({
-      data: {
-        organizationId,
-        assetId: dto.assetId,
-        inventoryId: dto.inventoryId,
-        technicianUserId,
-        technicianName: dto.technicianName,
-        description: dto.description,
-        photos: dto.photos ?? [],
-        // Defaults to SERVICE in the schema; explicit pass-through for DO_START
-        // and DO_ACK from the field PWA action cards.
-        ...(dto.kind ? { kind: dto.kind } : {}),
-        // FK to the Document being delivered (DO_START / DO_ACK). Null for SERVICE.
-        ...(dto.documentId ? { documentId: dto.documentId } : {}),
-        // Geolocation captured at submission. Submission proceeds even if these
-        // are absent (browser denial / no signal); just write null.
-        ...(typeof dto.latitude === 'number' ? { latitude: dto.latitude } : {}),
-        ...(typeof dto.longitude === 'number' ? { longitude: dto.longitude } : {}),
-        ...(dto.locationLabel ? { locationLabel: dto.locationLabel } : {}),
-      },
-    });
+    const effectiveKind = dto.kind ?? 'SERVICE';
+    const isRevampedServiceSubmission = effectiveKind === 'SERVICE' && !!dto.serviceData;
+
+    const baseData: Prisma.MaintenanceServiceReportUncheckedCreateInput = {
+      organizationId,
+      assetId: dto.assetId,
+      inventoryId: dto.inventoryId,
+      technicianUserId,
+      technicianName: dto.technicianName,
+      description: dto.description,
+      photos: dto.photos ?? [],
+      // Defaults to SERVICE in the schema; explicit pass-through for DO_START
+      // and DO_ACK from the field PWA action cards.
+      ...(dto.kind ? { kind: dto.kind } : {}),
+      // FK to the Document being delivered (DO_START / DO_ACK). Null for SERVICE.
+      ...(dto.documentId ? { documentId: dto.documentId } : {}),
+      // Geolocation captured at submission. Submission proceeds even if these
+      // are absent (browser denial / no signal); just write null.
+      ...(typeof dto.latitude === 'number' ? { latitude: dto.latitude } : {}),
+      ...(typeof dto.longitude === 'number' ? { longitude: dto.longitude } : {}),
+      ...(dto.locationLabel ? { locationLabel: dto.locationLabel } : {}),
+      ...(dto.serviceData ? { serviceData: dto.serviceData as Prisma.InputJsonValue } : {}),
+      // Inline sign-off path: when the client signature arrives in the create
+      // payload (revamped 5-page form), finalize the row in one write.
+      ...(dto.signature
+        ? {
+            signature: dto.signature,
+            signedByName: dto.signedByName,
+            signedAt: new Date(),
+            status: 'completed' as const,
+          }
+        : {}),
+    };
+
+    // Non-revamped flows (DO_START, DO_ACK, legacy SERVICE) skip the
+    // sequential numbering entirely.
+    if (!isRevampedServiceSubmission) {
+      return this.prisma.maintenanceServiceReport.create({ data: baseData });
+    }
+
+    // Sequential per-org report number. Race protection: unique index on
+    // (organizationId, reportNumber); on P2002 we re-read the max and retry
+    // once. Field-tech concurrent submissions are rare enough that two retries
+    // would be a strong signal of a different bug.
+    const computeNextNumber = async () => {
+      const latest = await this.prisma.maintenanceServiceReport.findFirst({
+        where: { organizationId, reportNumber: { not: null } },
+        orderBy: { reportNumber: 'desc' },
+        select: { reportNumber: true },
+      });
+      return (latest?.reportNumber ?? 0) + 1;
+    };
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const reportNumber = await computeNextNumber();
+      try {
+        return await this.prisma.maintenanceServiceReport.create({
+          data: { ...baseData, reportNumber },
+        });
+      } catch (err) {
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002' &&
+          attempt === 0
+        ) {
+          continue; // someone else grabbed this number — recompute and retry
+        }
+        throw err;
+      }
+    }
+    throw new Error('Failed to assign a unique report number after retries');
   }
 
   async sign(id: string, dto: SignMaintenanceReportDto, organizationId: string) {

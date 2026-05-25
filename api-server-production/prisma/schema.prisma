@@ -1036,6 +1036,13 @@ model MaintenanceServiceReport {
   // Reverse-geocoded human-readable label (e.g. "12 Tuas South Ave 3").
   // Schema-ready for future enablement; v1 of the field flow leaves it null.
   locationLabel    String?
+  // Sequential per-org SERVICE report number (paper-form analogue). Null for
+  // DO_START / DO_ACK rows and for SERVICE rows created by the legacy flow.
+  reportNumber     Int?
+  // Structured payload for the 5-page MSR form (customer link, checklist,
+  // times, tech signature key, etc.). Schemaless on purpose — see the field
+  // PWA's submit handler for the canonical shape.
+  serviceData      Json?
   createdAt        DateTime                       @default(now())
   updatedAt        DateTime                       @updatedAt
 
@@ -1046,10 +1053,12 @@ model MaintenanceServiceReport {
   // only for kind=DO_START rows — DO_ACK and SERVICE rows have none.
   locationPings DeliveryLocationPing[]
 
+  @@unique([organizationId, reportNumber])
   @@index([organizationId, assetId, createdAt])
   @@index([assetId, status])
   @@index([organizationId, kind, createdAt])
   @@index([documentId, kind])
+  @@index([organizationId, reportNumber(sort: Desc)])
 }
 
 // Live-tracked GPS pings emitted by the field-tech app between Start Delivery
