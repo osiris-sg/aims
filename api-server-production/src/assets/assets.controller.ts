@@ -105,6 +105,14 @@ export class AssetsController {
     return this.assetsService.getByNfcUid(uid, userOrganization.id);
   }
 
+  @Get('search')
+  @Permissions('assets:bind-nfc-tag')
+  @ApiOperation({ summary: 'Lightweight asset search for the field-scan bind picker. Returns up to 50 {id,name,skuKey} matching the query.' })
+  @ApiQuery({ name: 'q', type: 'string', required: false, description: 'Case-insensitive substring on name or skuKey.' })
+  async searchForFieldPicker(@Query('q') q: string | undefined, @UserOrganization() userOrganization: any) {
+    return this.assetsService.searchForFieldPicker(q, userOrganization.id);
+  }
+
   @Post(':id/bind-nfc-tag')
   @Permissions('assets:bind-nfc-tag')
   @ApiOperation({ summary: 'Bind an NFC tag (chip UID) to this asset. Idempotent if same UID; conflicts if UID already used.' })

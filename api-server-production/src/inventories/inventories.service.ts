@@ -274,19 +274,20 @@ export class InventoriesService {
   }
 
   /**
-   * Field create-and-bind. Given the nameplate model + the scanned NFC tag,
-   * either find or create the parent Asset (SKU), then create exactly one
-   * Inventory unit under it with the next sequential per-unit SKU and bind
-   * the tag to it.
+   * Field create-and-bind. The tech has picked an existing Asset (SKU) and
+   * scanned an unbound NFC tag. We create one Inventory unit under that
+   * asset with the next sequential per-unit SKU and bind the tag to it.
    *
-   * Idempotency / safety:
-   *   - Asset lookup is by (skuKey=model, organizationId, deletedAt: null).
-   *     Match → reuse; miss → create with DO/RDO template tags (same logic as
-   *     assets.service.createAssets).
-   *   - Per-unit SKU comes from generateSkuRange(), which parses the highest
-   *     existing suffix rather than counting rows — survives deletions.
+   * Asset creation is intentionally NOT available from the field — SKU /
+   * catalog management is an office responsibility. If the asset doesn't
+   * exist, the tech is sent back to the picker.
+   *
+   * Safety:
    *   - Tag conflict is checked against Inventory.nfcTagUid (UNIQUE in DB).
    *     A 409 here is preferred over the raw P2002 the DB would throw.
+   *   - Per-unit SKU comes from generateSkuRange(), which parses the highest
+   *     existing suffix rather than counting rows — survives deletions.
+   *   - The org-scope filter on the asset lookup prevents cross-org binding.
    */
   async createAndBind(dto: CreateInventoryAndBindDto, organizationId: string) {
     if (!dto.nfcTagUid?.trim()) {
@@ -305,32 +306,17 @@ export class InventoriesService {
       );
     }
 
-    // 2. Find-or-create the parent Asset (SKU).
-    let asset = await this.prisma.asset.findFirst({
-      where: { skuKey: dto.model, organizationId, deletedAt: null },
+    // 2. Look up the chosen Asset. Org-scoped + soft-delete filter prevents
+    //    binding to anything outside the tech's org or to deleted catalog rows.
+    //    Include the category so we can copy its name onto Inventory.category
+    //    (the Inventory model has its own String category — distinct from the
+    //    Asset.categoryId FK relation).
+    const asset = await this.prisma.asset.findFirst({
+      where: { id: dto.assetId, organizationId, deletedAt: null },
+      include: { category: { select: { name: true } } },
     });
     if (!asset) {
-      asset = await this.prisma.asset.create({
-        data: {
-          name: dto.model,
-          skuKey: dto.model,
-          categoryId: dto.categoryId,
-          organizationId,
-          uom: 'PCS',
-          isTracked: true,
-        },
-      });
-      // Mirror createAssets(): wire DO/RDO template tags so this new SKU
-      // shows up in document workflows the same way portal-created ones do.
-      const templates = await this.prisma.documentTemplate.findMany({
-        where: { type: { in: ['DO', 'RDO'] }, organizationId },
-        select: { id: true },
-      });
-      if (templates.length > 0) {
-        await this.prisma.assetTemplateTag.createMany({
-          data: templates.map((t) => ({ assetId: asset!.id, templateId: t.id })),
-        });
-      }
+      throw new HttpException('Asset not found in this organization.', HttpStatus.NOT_FOUND);
     }
 
     // 3. Next per-unit SKU. Reuses generateSkuRange so we share the same
@@ -344,7 +330,7 @@ export class InventoriesService {
         data: {
           assetId: asset.id,
           sku: inventorySku,
-          category: dto.categoryName ?? 'Equipment',
+          category: asset.category?.name ?? 'Equipment',
           status: 'instock',
           organizationId,
           nfcTagUid: dto.nfcTagUid,
