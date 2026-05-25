@@ -149,6 +149,13 @@ export default function NewServiceReportPage() {
   const [clientSigDataUrl, setClientSigDataUrl] = useState<string | null>(null);
   const [clientSignerName, setClientSignerName] = useState("");
 
+  // Stroke-presence flags driven by SignatureCanvas's onEnd callback. Refs
+  // alone aren't enough to gate the Next button: assigning a ref doesn't
+  // trigger a re-render, and drawing on the canvas fires no React state
+  // change either — so a disabled check that reads `techSigRef.current`
+  // computes stale and never recomputes after the user signs.
+  const [techSigDrawn, setTechSigDrawn] = useState(false);
+
   // Re-mount key for each signature canvas — bumping it lets the user wipe
   // a previously-captured signature and start fresh from the same step.
   const [techCanvasKey, setTechCanvasKey] = useState(0);
@@ -521,6 +528,7 @@ export default function NewServiceReportPage() {
     bumpKey: () => void,
     capturedDataUrl: string | null,
     setCaptured: (v: string | null) => void,
+    onDrawnChange?: (drawn: boolean) => void,
   ) => (
     <Box>
       {capturedDataUrl ? (
@@ -545,6 +553,7 @@ export default function NewServiceReportPage() {
             onClick={() => {
               setCaptured(null);
               bumpKey();
+              onDrawnChange?.(false);
             }}
             sx={{ mt: 1 }}
           >
@@ -566,13 +575,17 @@ export default function NewServiceReportPage() {
               key={canvasKey}
               ref={refObj}
               penColor="black"
+              onEnd={() => onDrawnChange?.(true)}
               canvasProps={{ width: 360, height: 200, style: { width: "100%", height: 200 } }}
             />
           </Box>
           <Button
             variant="text"
             size="small"
-            onClick={() => refObj.current?.clear()}
+            onClick={() => {
+              refObj.current?.clear();
+              onDrawnChange?.(false);
+            }}
             sx={{ mt: 1 }}
           >
             Clear
@@ -594,8 +607,8 @@ export default function NewServiceReportPage() {
         () => setTechCanvasKey((k) => k + 1),
         techSigDataUrl,
         setTechSigDataUrl,
+        setTechSigDrawn,
       )}
-      <Typography variant="caption" color="text.secondary">Name &amp; signature</Typography>
     </Stack>
   );
 
@@ -664,7 +677,7 @@ export default function NewServiceReportPage() {
   const nextDisabled =
     submitting ||
     (step === 1 && !canAdvanceFromHeader) ||
-    (step === 4 && !techSigRef.current);
+    (step === 4 && !techSigDrawn && !techSigDataUrl);
 
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5, pb: 6 }}>
