@@ -48,6 +48,17 @@ export class AssetsController {
     return this.assetsService.getAssetBySKUKEY(skuKey, userOrganization.id);
   }
 
+  // NestJS matches routes in declaration order, and `:id` is a catch-all that
+  // swallows `/assets/search`. Keep all static-string GET routes ABOVE the
+  // parameterized `:id` ones in this file.
+  @Get('search')
+  @Permissions('assets:bind-nfc-tag')
+  @ApiOperation({ summary: 'Lightweight asset search for the field-scan bind picker. Returns up to 50 {id,name,skuKey} matching the query.' })
+  @ApiQuery({ name: 'q', type: 'string', required: false, description: 'Case-insensitive substring on name or skuKey.' })
+  async searchForFieldPicker(@Query('q') q: string | undefined, @UserOrganization() userOrganization: any) {
+    return this.assetsService.searchForFieldPicker(q, userOrganization.id);
+  }
+
   @Get(':id')
   @Permissions('assets:read-id')
   @ApiOperation({ summary: 'Get an asset by its ID' })
@@ -103,14 +114,6 @@ export class AssetsController {
   @ApiOperation({ summary: 'Resolve an NFC tag UID to the inventory unit + its parent asset. 404 if unbound. Returns { inventory, asset }.' })
   async getByNfcUid(@Param('uid') uid: string, @UserOrganization() userOrganization: any) {
     return this.assetsService.getByNfcUid(uid, userOrganization.id);
-  }
-
-  @Get('search')
-  @Permissions('assets:bind-nfc-tag')
-  @ApiOperation({ summary: 'Lightweight asset search for the field-scan bind picker. Returns up to 50 {id,name,skuKey} matching the query.' })
-  @ApiQuery({ name: 'q', type: 'string', required: false, description: 'Case-insensitive substring on name or skuKey.' })
-  async searchForFieldPicker(@Query('q') q: string | undefined, @UserOrganization() userOrganization: any) {
-    return this.assetsService.searchForFieldPicker(q, userOrganization.id);
   }
 
   @Post(':id/bind-nfc-tag')
