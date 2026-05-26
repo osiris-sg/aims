@@ -55,6 +55,20 @@ export class MaintenanceReportsController {
     return this.service.create(dto, org.id, technicianUserId);
   }
 
+  /**
+   * Spin off an Invoice document from a SERVICE report that the field tech
+   * marked as paymentRequired. Idempotent: a second call returns the same
+   * documentId without creating a duplicate.
+   */
+  @Post(':id/create-invoice')
+  @Permissions('maintenance-reports:create')
+  createInvoice(
+    @Param('id') id: string,
+    @UserOrganization() org: { id: string },
+  ) {
+    return this.service.createInvoiceFromMsr(id, org.id);
+  }
+
   @Post(':id/sign')
   @Permissions('maintenance-reports:sign')
   sign(

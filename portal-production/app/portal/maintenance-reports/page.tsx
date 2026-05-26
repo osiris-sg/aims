@@ -7,6 +7,7 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   CircularProgress,
   Paper,
   Stack,
@@ -34,10 +35,26 @@ interface MsrRow {
   id: string;
   reportNumber: number | null;
   createdAt: string;
+  paymentRequired: boolean;
+  invoiceDocumentId: string | null;
   serviceData: ServiceData | null;
   asset: { name: string; skuKey: string } | null;
   inventory: { sku: string; serialNumber: string | null } | null;
 }
+
+type StatusKind = "completed" | "pending-invoice" | "invoice-created";
+
+const statusFor = (row: MsrRow): StatusKind => {
+  if (!row.paymentRequired) return "completed";
+  if (row.invoiceDocumentId) return "invoice-created";
+  return "pending-invoice";
+};
+
+const statusChipProps = (kind: StatusKind): { label: string; color: "success" | "warning"; variant: "filled" | "outlined" } => {
+  if (kind === "pending-invoice") return { label: "Pending Invoice", color: "warning", variant: "filled" };
+  if (kind === "invoice-created") return { label: "Invoice Created", color: "success", variant: "outlined" };
+  return { label: "Completed", color: "success", variant: "filled" };
+};
 
 interface ListResponse {
   docs: MsrRow[];
@@ -156,18 +173,19 @@ export default function MaintenanceReportsListPage() {
               <TableCell sx={{ fontWeight: 600 }}>Unit</TableCell>
               <TableCell sx={{ fontWeight: 600, width: 140 }}>Service Date</TableCell>
               <TableCell sx={{ fontWeight: 600, width: 160 }}>Created</TableCell>
+              <TableCell sx={{ fontWeight: 600, width: 160 }}>Status</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={6} align="center" sx={{ py: 6 }}>
+                <TableCell colSpan={7} align="center" sx={{ py: 6 }}>
                   <CircularProgress size={28} />
                 </TableCell>
               </TableRow>
             ) : docs.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} align="center" sx={{ py: 6, color: "text.secondary" }}>
+                <TableCell colSpan={7} align="center" sx={{ py: 6, color: "text.secondary" }}>
                   {debouncedSearch ? "No reports match this search." : "No service reports yet."}
                 </TableCell>
               </TableRow>
@@ -189,6 +207,12 @@ export default function MaintenanceReportsListPage() {
                   <TableCell>{row.inventory?.sku ?? "—"}</TableCell>
                   <TableCell>{row.serviceData?.serviceDate ?? "—"}</TableCell>
                   <TableCell>{new Date(row.createdAt).toLocaleString()}</TableCell>
+                  <TableCell>
+                    {(() => {
+                      const chip = statusChipProps(statusFor(row));
+                      return <Chip size="small" label={chip.label} color={chip.color} variant={chip.variant} />;
+                    })()}
+                  </TableCell>
                 </TableRow>
               ))
             )}

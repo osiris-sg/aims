@@ -255,6 +255,7 @@ model Document {
   documentItems      DocumentItem[] // Junction table for efficient item queries
   assignments        Assignment[] // Source-of-truth link for assignments produced from this document
   maintenanceReports MaintenanceServiceReport[] // Field-side reports (DO_START / DO_ACK) linked to this document
+  msrInvoices        MaintenanceServiceReport[] @relation("MsrInvoice") // Service reports that produced THIS invoice
   orderSources       Order[]                    @relation("OrderSourceQuotation") // Orders auto-created when this quotation was confirmed
 
   // Self-relation for revisions: base document -> many revisions
@@ -1001,50 +1002,60 @@ model JournalEntryLine {
 // Field-service maintenance report captured via the NFC scan PWA.
 // One per service visit; tied to an asset, signed by the customer/recipient on-site.
 model MaintenanceServiceReport {
-  id               String                         @id @default(uuid()) @db.Uuid
-  organizationId   String
-  assetId          String                         @db.Uuid
+  id                String                         @id @default(uuid()) @db.Uuid
+  organizationId    String
+  assetId           String                         @db.Uuid
   // Optional link to a specific inventory unit (when isTracked assets have serials)
-  inventoryId      String?                        @db.Uuid
+  inventoryId       String?                        @db.Uuid
   // Clerk user id of the technician who performed the work
-  technicianUserId String
-  technicianName   String?
-  description      String // What was serviced / issue / resolution
+  technicianUserId  String
+  technicianName    String?
+  description       String // What was serviced / issue / resolution
   // S3 keys for proof-of-service photos
-  photos           String[]                       @default([])
+  photos            String[]                       @default([])
   // S3 key OR base64 PNG (matches Document signature handling)
-  signature        String?
-  signedByName     String? // Customer / recipient name
-  signedAt         DateTime?
-  status           MaintenanceServiceReportStatus @default(draft)
+  signature         String?
+  signedByName      String? // Customer / recipient name
+  signedAt          DateTime?
+  status            MaintenanceServiceReportStatus @default(draft)
   // Discriminator for what kind of field activity this row represents.
   // SERVICE   — traditional maintenance/repair visit (default).
   // DO_START  — technician started delivery of an existing DO (label: "Delivery Started").
   // DO_ACK    — technician confirmed final handover/installation of a DO (label: "Delivery Acknowledged").
-  kind             MaintenanceReportKind          @default(SERVICE)
+  kind              MaintenanceReportKind          @default(SERVICE)
   // FK to the Document this report relates to.
   //   DO_START / DO_ACK → the DO being delivered.
   //   SERVICE           → null.
   // Historic DO_ACK rows backfilled from the description-prefix scheme may
   // have null documentId; gating logic only considers MSRs with non-null FK.
-  documentId       String?                        @db.Uuid
-  document         Document?                      @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  documentId        String?                        @db.Uuid
+  document          Document?                      @relation(fields: [documentId], references: [id], onDelete: SetNull)
   // GPS captured at submission time. Optional — submission proceeds without
   // GPS if browser geolocation is denied or unavailable.
-  latitude         Float?
-  longitude        Float?
+  latitude          Float?
+  longitude         Float?
   // Reverse-geocoded human-readable label (e.g. "12 Tuas South Ave 3").
   // Schema-ready for future enablement; v1 of the field flow leaves it null.
-  locationLabel    String?
+  locationLabel     String?
   // Sequential per-org SERVICE report number (paper-form analogue). Null for
   // DO_START / DO_ACK rows and for SERVICE rows created by the legacy flow.
-  reportNumber     Int?
+  reportNumber      Int?
   // Structured payload for the 5-page MSR form (customer link, checklist,
   // times, tech signature key, etc.). Schemaless on purpose — see the field
   // PWA's submit handler for the canonical shape.
-  serviceData      Json?
-  createdAt        DateTime                       @default(now())
-  updatedAt        DateTime                       @updatedAt
+  serviceData       Json?
+  // Set by the field tech at submit time. When false, the report is auto-
+  // emailed to the customer (PDF attached) and the loop closes. When true,
+  // an Invoice document must be created from the office before customer
+  // contact — surfaced on the dashboard as "Pending Invoice".
+  paymentRequired   Boolean                        @default(false)
+  // FK to the Invoice Document created off this report (set when an office
+  // user clicks Create Invoice on the detail page). Distinct from the
+  // DO-flow `documentId` above so the two linkages don't fight.
+  invoiceDocumentId String?                        @db.Uuid
+  invoiceDocument   Document?                      @relation("MsrInvoice", fields: [invoiceDocumentId], references: [id], onDelete: SetNull)
+  createdAt         DateTime                       @default(now())
+  updatedAt         DateTime                       @updatedAt
 
   organization  Organization           @relation(fields: [organizationId], references: [id])
   asset         Asset                  @relation(fields: [assetId], references: [id])

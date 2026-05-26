@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsEnum, IsLatitude, IsLongitude, IsObject, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsLatitude, IsLongitude, IsObject, IsOptional, IsString, IsUUID } from 'class-validator';
 import { MaintenanceReportKind } from '@prisma/client';
 
 export class CreateMaintenanceReportDto {
@@ -75,4 +75,13 @@ export class CreateMaintenanceReportDto {
   @IsOptional()
   @IsString()
   signedByName?: string;
+
+  // Step 6 of the 5-page+1 SERVICE flow. When false (default), the report is
+  // auto-emailed to the customer with a PDF attachment. When true, the email
+  // is skipped and the office must create an Invoice from the dashboard
+  // before customer contact.
+  @ApiPropertyOptional({ description: 'Whether payment is required (faulty equipment / billable work). Defaults to false.' })
+  @IsOptional()
+  @IsBoolean()
+  paymentRequired?: boolean;
 }

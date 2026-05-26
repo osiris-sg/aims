@@ -13,5 +13,8 @@ import { OrdersModule } from '../orders/orders.module';
   imports: [CommonModule, PriceHistoryModule, TransactionsModule, EmailModule, JournalModule, OrdersModule],
   controllers: [DocumentsController],
   providers: [DocumentsService, PrismaService],
+  // Exported so MaintenanceReportsModule can call createBasicDocument when
+  // an MSR with paymentRequired=true spins off an Invoice from the office.
+  exports: [DocumentsService],
 })
 export class DocumentsModule {}

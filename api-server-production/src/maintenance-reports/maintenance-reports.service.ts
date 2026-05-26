@@ -1,13 +1,24 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
+import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
+import { EmailService } from '../email/email.service';
+import { DocumentsService } from '../documents/documents.service';
 import { CreateMaintenanceReportDto } from './dto/create-maintenance-report.dto';
 import { SignMaintenanceReportDto } from './dto/sign-maintenance-report.dto';
 import { CreateLocationPingsDto } from './dto/location-ping.dto';
+import { buildServiceReportHtml } from './service-report-pdf';
 
 @Injectable()
 export class MaintenanceReportsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(MaintenanceReportsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly pdfGenerator: PdfGeneratorService,
+    private readonly email: EmailService,
+    private readonly documentsService: DocumentsService,
+  ) {}
 
   async create(dto: CreateMaintenanceReportDto, organizationId: string, technicianUserId: string) {
     const asset = await this.prisma.asset.findFirst({
@@ -27,6 +38,7 @@ export class MaintenanceReportsService {
       technicianName: dto.technicianName,
       description: dto.description,
       photos: dto.photos ?? [],
+      paymentRequired: dto.paymentRequired ?? false,
       // Defaults to SERVICE in the schema; explicit pass-through for DO_START
       // and DO_ACK from the field PWA action cards.
       ...(dto.kind ? { kind: dto.kind } : {}),
@@ -69,12 +81,14 @@ export class MaintenanceReportsService {
       return (latest?.reportNumber ?? 0) + 1;
     };
 
+    let created: Awaited<ReturnType<typeof this.prisma.maintenanceServiceReport.create>> | null = null;
     for (let attempt = 0; attempt < 2; attempt++) {
       const reportNumber = await computeNextNumber();
       try {
-        return await this.prisma.maintenanceServiceReport.create({
+        created = await this.prisma.maintenanceServiceReport.create({
           data: { ...baseData, reportNumber },
         });
+        break;
       } catch (err) {
         if (
           err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -86,7 +100,182 @@ export class MaintenanceReportsService {
         throw err;
       }
     }
-    throw new Error('Failed to assign a unique report number after retries');
+    if (!created) {
+      throw new Error('Failed to assign a unique report number after retries');
+    }
+
+    // Fire-and-forget: when the tech says payment isn't required, email the
+    // report PDF to the customer (CC admin). Failures are logged, never
+    // propagated — the HTTP response shouldn't fail because Resend is down
+    // or puppeteer hiccupped.
+    if (!created.paymentRequired) {
+      void this.sendReportEmailInBackground(created.id).catch((err) =>
+        this.logger.error(`Background MSR email failed for ${created!.id}: ${err?.message}`, err?.stack),
+      );
+    }
+
+    return created;
+  }
+
+  /**
+   * Generate the report PDF (puppeteer) and email it to the customer with
+   * admin@osiris.sg (or ADMIN_EMAIL) in CC. All steps are independently
+   * try/catch'd so a render failure doesn't sink the email and an email
+   * failure doesn't sink the request.
+   */
+  private async sendReportEmailInBackground(reportId: string): Promise<void> {
+    const report = await this.prisma.maintenanceServiceReport.findUnique({
+      where: { id: reportId },
+      include: {
+        asset: { select: { name: true, skuKey: true } },
+        inventory: { select: { sku: true, serialNumber: true } },
+        organization: { select: { name: true } },
+      },
+    });
+    if (!report) {
+      this.logger.warn(`MSR email skipped — report ${reportId} not found`);
+      return;
+    }
+
+    const sd = (report.serviceData as any) ?? {};
+    const clientEmail: string | undefined = sd.clientEmail;
+    if (!clientEmail || !clientEmail.includes('@')) {
+      this.logger.warn(`MSR ${reportId}: no client email on serviceData; skipping email`);
+      return;
+    }
+
+    let pdfBuffer: Buffer | undefined;
+    try {
+      const html = buildServiceReportHtml({
+        reportNumber: report.reportNumber,
+        technicianName: report.technicianName,
+        serviceData: sd,
+        asset: report.asset,
+        inventory: report.inventory,
+        orgName: report.organization.name,
+      });
+      pdfBuffer = await this.pdfGenerator.generatePdfFromHtml(html);
+    } catch (err: any) {
+      this.logger.error(`MSR ${reportId} PDF generation failed: ${err?.message}`, err?.stack);
+      // Continue without attachment — the customer still gets a notification.
+    }
+
+    const customerName: string = sd.customerName ?? 'Customer';
+    const result = await this.email.sendServiceReportEmail({
+      to: [clientEmail],
+      cc: [this.email.getAdminEmail()],
+      customerName,
+      organizationName: report.organization.name,
+      reportNumber: report.reportNumber ?? report.id,
+      serviceDate: sd.serviceDate ?? '',
+      pdfBuffer,
+    });
+
+    if (!result.success) {
+      this.logger.error(`MSR ${reportId} email failed: ${result.error}`);
+    }
+  }
+
+  /**
+   * Create an Invoice document from a SERVICE report and link them. Called by
+   * the office when paymentRequired === true. Idempotent: if an invoice is
+   * already linked, returns its ids without creating a duplicate.
+   */
+  async createInvoiceFromMsr(msrId: string, organizationId: string) {
+    const report = await this.prisma.maintenanceServiceReport.findFirst({
+      where: { id: msrId, organizationId, kind: 'SERVICE' },
+      include: {
+        asset: { select: { id: true, name: true, skuKey: true } },
+        inventory: { select: { id: true, sku: true, serialNumber: true } },
+        invoiceDocument: { select: { id: true, documentTemplateId: true } },
+      },
+    });
+    if (!report) throw new NotFoundException('Service report not found');
+
+    if (report.invoiceDocument) {
+      return {
+        documentId: report.invoiceDocument.id,
+        templateId: report.invoiceDocument.documentTemplateId,
+        alreadyExisted: true,
+      };
+    }
+
+    // Resolve the org's invoice template using the same priority order as
+    // documents.service.createFromExtraction: active > default > newest.
+    const template = await this.prisma.documentTemplate.findFirst({
+      where: { type: 'INVOICE', organizationId },
+      select: { id: true },
+      orderBy: [
+        { isActive: 'desc' },
+        { isDefault: 'desc' },
+        { createdAt: 'desc' },
+      ],
+    });
+    if (!template) {
+      throw new BadRequestException('No INVOICE template configured for this organization');
+    }
+
+    const sd = (report.serviceData as any) ?? {};
+    const itemId = report.inventory?.id ?? report.asset?.id;
+    const sku = report.inventory?.sku ?? report.asset?.skuKey ?? '';
+    const description = report.asset?.name ?? 'Service item';
+
+    // Single asset line, price 0 — office fills in pricing. inventoryItemId
+    // is the legacy field name in the items[] config (overloaded for both
+    // INVENTORY and ASSET item types — see documents.service.syncDocumentItems).
+    const items = itemId
+      ? [
+          {
+            inventoryItemId: itemId,
+            sku,
+            description,
+            quantity: 1,
+            unitPrice: 0,
+            amount: 0,
+            discount: 0,
+            tax: '9',
+            taxAmount: 0,
+            uom: 'PCS',
+            serialNumbers: report.inventory?.serialNumber ? [report.inventory.serialNumber] : [],
+          },
+        ]
+      : [];
+
+    const config = {
+      date: new Date().toISOString(),
+      items,
+      customer: sd.customerId
+        ? { id: sd.customerId, name: sd.customerName ?? '' }
+        : sd.customerName
+          ? { name: sd.customerName }
+          : undefined,
+      customerId: sd.customerId,
+      documentInfo: {
+        currency: 'SGD',
+        gstPercent: 9,
+        // Surface the originating report in the editor so the office sees
+        // the source at a glance; not used by any logic.
+        msrReportNumber: report.reportNumber,
+      },
+    };
+
+    const newDoc = await this.documentsService.createBasicDocument(
+      template.id,
+      'INVOICE',
+      organizationId,
+      config,
+    );
+
+    await this.prisma.maintenanceServiceReport.update({
+      where: { id: report.id },
+      data: { invoiceDocumentId: newDoc.id },
+    });
+
+    return {
+      documentId: newDoc.id,
+      templateId: newDoc.documentTemplateId,
+      alreadyExisted: false,
+    };
   }
 
   async sign(id: string, dto: SignMaintenanceReportDto, organizationId: string) {
@@ -112,7 +301,14 @@ export class MaintenanceReportsService {
   async findById(id: string, organizationId: string) {
     const report = await this.prisma.maintenanceServiceReport.findFirst({
       where: { id, organizationId },
-      include: { asset: true, inventory: true },
+      include: {
+        asset: true,
+        inventory: true,
+        // Surface the invoice's template id so the dashboard's View Invoice
+        // button can construct /portal/documents/INVOICE/{templateId}/{docId}
+        // without a second round-trip.
+        invoiceDocument: { select: { id: true, documentTemplateId: true, name: true, status: true } },
+      },
     });
     if (!report) throw new NotFoundException('Service report not found');
     return report;

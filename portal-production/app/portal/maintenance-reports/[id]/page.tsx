@@ -19,6 +19,8 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import PrintIcon from "@mui/icons-material/Print";
 import CheckBoxIcon from "@mui/icons-material/CheckBox";
 import CheckBoxOutlineBlankIcon from "@mui/icons-material/CheckBoxOutlineBlank";
+import ReceiptIcon from "@mui/icons-material/Receipt";
+import EmailIcon from "@mui/icons-material/Email";
 import { request } from "@/helpers/request";
 
 // Mirror of the printed-form checklist used when the field tech submitted the
@@ -84,10 +86,13 @@ interface MsrDetail {
   technicianName: string | null;
   createdAt: string;
   status: string;
+  paymentRequired: boolean;
+  invoiceDocumentId: string | null;
   serviceData: ServiceData | null;
   signedByName: string | null;
   asset: { id: string; name: string; skuKey: string } | null;
   inventory: { id: string; sku: string; serialNumber: string | null } | null;
+  invoiceDocument: { id: string; documentTemplateId: string; name: string | null; status: string } | null;
 }
 
 const formatDateTime = (iso?: string | null) => {
@@ -113,6 +118,40 @@ export default function MaintenanceReportDetailPage() {
   const [report, setReport] = useState<MsrDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [creatingInvoice, setCreatingInvoice] = useState(false);
+
+  const createInvoice = async () => {
+    if (!report) return;
+    setError(null);
+    setCreatingInvoice(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request(
+        { path: `/maintenance-reports/${report.id}/create-invoice`, method: "POST" },
+        {},
+        token,
+      );
+      const payload = res?.data ?? res;
+      const documentId: string | undefined = payload?.documentId;
+      const templateId: string | undefined = payload?.templateId;
+      if (!documentId || !templateId) {
+        throw new Error("Invoice creation returned no document id");
+      }
+      router.push(`/portal/documents/INVOICE/${templateId}/${documentId}`);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to create invoice");
+    } finally {
+      setCreatingInvoice(false);
+    }
+  };
+
+  const viewInvoice = () => {
+    if (!report?.invoiceDocument) return;
+    router.push(
+      `/portal/documents/INVOICE/${report.invoiceDocument.documentTemplateId}/${report.invoiceDocument.id}`,
+    );
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -170,15 +209,48 @@ export default function MaintenanceReportDetailPage() {
         direction="row"
         justifyContent="space-between"
         alignItems="center"
+        flexWrap="wrap"
+        gap={1}
         sx={{ "@media print": { display: "none" } }}
         className="msr-toolbar"
       >
         <Button startIcon={<ArrowBackIcon />} onClick={() => router.push("/portal/maintenance-reports")}>
           Back to list
         </Button>
-        <Button variant="contained" startIcon={<PrintIcon />} onClick={() => window.print()}>
-          Print
-        </Button>
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+          {/* Invoice action — three mutually exclusive states. */}
+          {report.paymentRequired && !report.invoiceDocument && (
+            <Button
+              variant="contained"
+              color="warning"
+              startIcon={<ReceiptIcon />}
+              onClick={createInvoice}
+              disabled={creatingInvoice}
+            >
+              {creatingInvoice ? "Creating..." : "Create Invoice"}
+            </Button>
+          )}
+          {report.paymentRequired && report.invoiceDocument && (
+            <Button
+              variant="contained"
+              startIcon={<ReceiptIcon />}
+              onClick={viewInvoice}
+            >
+              View Invoice
+            </Button>
+          )}
+          {!report.paymentRequired && (
+            <Chip
+              icon={<EmailIcon />}
+              label="Report emailed to customer"
+              color="success"
+              variant="outlined"
+            />
+          )}
+          <Button variant="contained" startIcon={<PrintIcon />} onClick={() => window.print()}>
+            Print
+          </Button>
+        </Stack>
       </Stack>
 
       <Paper variant="outlined" sx={{ p: 3 }}>

@@ -95,7 +95,9 @@ const CHECKLIST_ITEMS: { id: number; label: string }[] = [
   { id: 30, label: "" },
 ];
 
-const STEP_TITLES = ["Header", "Checklist", "Remarks & Time", "Service signature", "Client signature"];
+const STEP_TITLES = ["Header", "Checklist", "Remarks & Time", "Service signature", "Client signature", "Payment"];
+const TOTAL_STEPS = 6;
+type Step = 1 | 2 | 3 | 4 | 5 | 6;
 
 const formatDateInput = (d: Date) => d.toISOString().slice(0, 10);
 const formatTime = (d: Date) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -111,7 +113,7 @@ export default function NewServiceReportPage() {
   const assetId = params?.assetId as string;
   const inventoryId = search?.get("inventoryId") ?? null;
 
-  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [step, setStep] = useState<Step>(1);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -155,6 +157,7 @@ export default function NewServiceReportPage() {
   // change either — so a disabled check that reads `techSigRef.current`
   // computes stale and never recomputes after the user signs.
   const [techSigDrawn, setTechSigDrawn] = useState(false);
+  const [clientSigDrawn, setClientSigDrawn] = useState(false);
 
   // Re-mount key for each signature canvas — bumping it lets the user wipe
   // a previously-captured signature and start fresh from the same step.
@@ -267,7 +270,7 @@ export default function NewServiceReportPage() {
     return await res.blob();
   };
 
-  const submit = async () => {
+  const submit = async (paymentRequired: boolean) => {
     if (!customer) {
       setError("Pick a company first");
       setStep(1);
@@ -278,10 +281,10 @@ export default function NewServiceReportPage() {
       setStep(4);
       return;
     }
-    // Capture the client signature from canvas at submit time, just in case
-    // the tech reached Submit without an explicit canvas event between.
     if (!clientSigDataUrl) {
-      if (!captureClientSig()) return;
+      setError("Client signature is required");
+      setStep(5);
+      return;
     }
 
     setSubmitting(true);
@@ -290,22 +293,11 @@ export default function NewServiceReportPage() {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
 
-      // Re-read after captureClientSig setState — the canvas value is the
-      // authoritative source either way, so re-derive here.
-      const finalClientSig =
-        clientSigDataUrl ??
-        (clientSigRef.current?.isEmpty() ? null : clientSigRef.current?.getTrimmedCanvas().toDataURL("image/png") ?? null);
-      if (!finalClientSig) {
-        setError("Client signature is required");
-        setStep(5);
-        return;
-      }
-
       // Upload both signatures to S3 — same folder as photos so the office
       // portal renders them via the existing NEXT_PUBLIC_RESOURCE_URL prefix.
       const [techBlob, clientBlob] = await Promise.all([
         dataUrlToBlob(techSigDataUrl),
-        dataUrlToBlob(finalClientSig),
+        dataUrlToBlob(clientSigDataUrl),
       ]);
       const [techKey, clientKey] = await Promise.all([
         uploadImage({ blob: techBlob, folderName: "maintenance-reports", token }),
@@ -350,6 +342,7 @@ export default function NewServiceReportPage() {
           kind: "SERVICE",
           description: remarks.trim() || "Maintenance service report",
           signature: clientKey,
+          paymentRequired,
           ...(clientSignerName.trim() ? { signedByName: clientSignerName.trim() } : {}),
           ...(technicianName ? { technicianName } : {}),
           serviceData,
@@ -631,10 +624,42 @@ export default function NewServiceReportPage() {
         () => setClientCanvasKey((k) => k + 1),
         clientSigDataUrl,
         setClientSigDataUrl,
+        setClientSigDrawn,
       )}
       <Typography variant="caption" color="text.secondary">
         Name / Signature / Company&apos;s stamp
       </Typography>
+    </Stack>
+  );
+
+  // Step 6 — payment choice. The two buttons ARE the submit; there's no
+  // single "Submit" anywhere on this step. Tapping either kicks off the
+  // upload + POST path with the chosen flag.
+  const renderPaymentStep = () => (
+    <Stack spacing={2}>
+      <Typography variant="body2" color="text.secondary">
+        If payment is required (e.g. faulty equipment), an invoice will be created on the
+        dashboard. Otherwise, a copy of this report will be emailed to the customer.
+      </Typography>
+      <Button
+        variant="outlined"
+        onClick={() => submit(false)}
+        disabled={submitting}
+        fullWidth
+        sx={{ ...FIELD_BUTTON_SX, py: 2.5, fontSize: "1.05rem" }}
+      >
+        {submitting ? <CircularProgress size={20} /> : "No Payment Required"}
+      </Button>
+      <Button
+        variant="contained"
+        color="warning"
+        onClick={() => submit(true)}
+        disabled={submitting}
+        fullWidth
+        sx={{ ...FIELD_BUTTON_SX, py: 2.5, fontSize: "1.05rem" }}
+      >
+        {submitting ? <CircularProgress size={20} color="inherit" /> : "Payment Required"}
+      </Button>
     </Stack>
   );
 
@@ -653,6 +678,9 @@ export default function NewServiceReportPage() {
     } else if (step === 4) {
       if (!captureTechSig()) return;
       setStep(5);
+    } else if (step === 5) {
+      if (!captureClientSig()) return;
+      setStep(6);
     }
   };
 
@@ -661,7 +689,7 @@ export default function NewServiceReportPage() {
     if (step === 1) {
       router.back();
     } else {
-      setStep((s) => (s - 1) as 1 | 2 | 3 | 4 | 5);
+      setStep((s) => (s - 1) as Step);
     }
   };
 
@@ -673,18 +701,19 @@ export default function NewServiceReportPage() {
     );
   }
 
-  const progressPct = (step / 5) * 100;
+  const progressPct = (step / TOTAL_STEPS) * 100;
   const nextDisabled =
     submitting ||
     (step === 1 && !canAdvanceFromHeader) ||
-    (step === 4 && !techSigDrawn && !techSigDataUrl);
+    (step === 4 && !techSigDrawn && !techSigDataUrl) ||
+    (step === 5 && !clientSigDrawn && !clientSigDataUrl);
 
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5, pb: 6 }}>
       <Box>
         <Typography variant="h6" fontWeight={700}>Maintenance &amp; Inspection Service Report</Typography>
         <Typography variant="caption" color="text.secondary">
-          Step {step} of 5 — {STEP_TITLES[step - 1]}
+          Step {step} of {TOTAL_STEPS} — {STEP_TITLES[step - 1]}
         </Typography>
         <LinearProgress variant="determinate" value={progressPct} sx={{ mt: 1, borderRadius: 1, height: 6 }} />
       </Box>
@@ -696,14 +725,17 @@ export default function NewServiceReportPage() {
       {step === 3 && renderRemarksStep()}
       {step === 4 && renderTechSigStep()}
       {step === 5 && renderClientSigStep()}
+      {step === 6 && renderPaymentStep()}
 
       {error && <Alert severity="error">{error}</Alert>}
 
-      <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
-        <Button variant="outlined" onClick={onBack} disabled={submitting} fullWidth sx={FIELD_BUTTON_SX}>
-          Back
-        </Button>
-        {step < 5 ? (
+      {/* Step 6 supplies its own action buttons (the two payment choices),
+          so the standard Back/Next row hides on that step. */}
+      {step !== 6 && (
+        <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
+          <Button variant="outlined" onClick={onBack} disabled={submitting} fullWidth sx={FIELD_BUTTON_SX}>
+            Back
+          </Button>
           <Button
             variant="contained"
             onClick={onNext}
@@ -713,18 +745,18 @@ export default function NewServiceReportPage() {
           >
             Next
           </Button>
-        ) : (
-          <Button
-            variant="contained"
-            onClick={submit}
-            disabled={submitting}
-            fullWidth
-            sx={FIELD_BUTTON_SX}
-          >
-            {submitting ? <CircularProgress size={20} color="inherit" /> : "Submit"}
-          </Button>
-        )}
-      </Stack>
+        </Stack>
+      )}
+      {step === 6 && (
+        <Button
+          variant="text"
+          onClick={onBack}
+          disabled={submitting}
+          fullWidth
+        >
+          Back
+        </Button>
+      )}
     </Box>
   );
 }
