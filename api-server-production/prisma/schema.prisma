@@ -73,6 +73,7 @@ model Asset {
   uom                 String                     @default("PCS")
   // Tracking mode: true = individual inventory items with SKUs, false = simple quantity
   isTracked           Boolean                    @default(true)
+  isExternal          Boolean                    @default(true)
   // Quantity for untracked products (only used when isTracked = false)
   quantity            Int?
   // Minimum quantity threshold for low stock alerts
