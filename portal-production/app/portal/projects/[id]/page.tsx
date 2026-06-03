@@ -111,6 +111,17 @@ interface Deployment {
   lastInvoiceName: string | null;
 }
 
+interface QuotationRow {
+  id: string;
+  name: string | null;
+  type: string;
+  status: string;
+  createdAt: string;
+  projectDeploymentId: string | null;
+  documentTemplateId: string | null;
+  amount: number;
+}
+
 interface ProjectDetail {
   id: string;
   projectNumber: string | null;
@@ -123,6 +134,7 @@ interface ProjectDetail {
   customer: { id: string; name: string; code: string | null } | null;
   siteOffice: { id: string; name: string; address: string | null } | null;
   deployments: Deployment[];
+  quotations: QuotationRow[];
   standaloneDocs: any[];
   allInvoices: any[];
   totals: {
@@ -132,6 +144,7 @@ interface ProjectDetail {
     deploymentCount: number;
     activeDeployments: number;
     invoiceCount: number;
+    quotationCount: number;
   };
 }
 
@@ -192,6 +205,44 @@ const fmtMoney = (n: number, ccy = "SGD") =>
 
 const fmtDate = (d: string | null) => (d ? new Date(d).toLocaleDateString() : "—");
 
+// Boil verbose Biofuel-style rental descriptions
+//   "Rental of one unit ... Brand: BIOFUEL Model: LION375 Year: 2025 S/No.: MG20250090"
+// down to "LION375 · MG20250090" for the deployment item table. Full text is
+// always preserved for the tooltip so nothing is lost.
+function formatItemDescription(raw: string | null | undefined): { display: string; full: string } {
+  const full = (raw ?? "").trim();
+  if (!full) return { display: "—", full: "" };
+  const modelMatch = full.match(/Model:\s*([^\s,;]+(?:\s+\d+)?)/i);
+  const serialMatch = full.match(/(?:S\/No|Serial(?:\s*No)?)\.?:?\s*([^\s,;]+)/i);
+  if (modelMatch && serialMatch) {
+    return { display: `${modelMatch[1]} · ${serialMatch[1]}`, full };
+  }
+  if (full.length > 60) return { display: full.slice(0, 60).trim() + "…", full };
+  return { display: full, full };
+}
+
+// Apply the project-level item search to a deployment, returning a copy with
+// non-matching documentItems filtered out. Returns null when no items match
+// (so the deployment is dropped from the visible list entirely). When the
+// search string is empty the original deployment is passed through unchanged.
+function filterDeploymentByItemSearch(d: Deployment, search: string): Deployment | null {
+  const q = search.trim().toLowerCase();
+  if (!q) return d;
+  const itemMatches = (it: DocumentItemRow) => {
+    const desc = (it.description ?? "").toLowerCase();
+    const sku = (it.sku ?? "").toLowerCase();
+    return desc.includes(q) || sku.includes(q);
+  };
+  const filteredDocs = d.documents
+    .map((doc) => ({ ...doc, documentItems: doc.documentItems.filter(itemMatches) }))
+    .filter((doc) => doc.documentItems.length > 0);
+  const filteredInvs = d.invoices
+    .map((inv) => ({ ...inv, documentItems: inv.documentItems.filter(itemMatches) }))
+    .filter((inv) => inv.documentItems.length > 0);
+  if (filteredDocs.length === 0 && filteredInvs.length === 0) return null;
+  return { ...d, documents: filteredDocs, invoices: filteredInvs };
+}
+
 const monthsBetween = (start: string | null, end: string | null) => {
   if (!start) return 0;
   const s = new Date(start);
@@ -228,6 +279,11 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
   const [photoDialogSrc, setPhotoDialogSrc] = useState<string | null>(null);
   // Open delivery-route dialog, keyed by the DO_START report id. null = closed.
   const [routeDialogReportId, setRouteDialogReportId] = useState<string | null>(null);
+  const [itemSearch, setItemSearch] = useState("");
+  // QUOTATION template id for the "Create Quotation" button. undefined =
+  // not yet fetched; null = fetched but the org has none; string = ready.
+  const [quotationTemplateId, setQuotationTemplateId] = useState<string | null | undefined>(undefined);
+  const [creatingQuotation, setCreatingQuotation] = useState(false);
 
   const fetchProject = useCallback(async () => {
     if (!params?.id) return;
@@ -252,8 +308,9 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
 
   // Lazy-load field reports the first time the user opens that tab. Refetches
   // when the project id changes (i.e. navigating to a different project).
+  // Field Reports moved from tab 4 → tab 5 when the Quotations tab was added.
   useEffect(() => {
-    if (tab !== 4 || fieldReports !== null) return;
+    if (tab !== 5 || fieldReports !== null) return;
     if (!params?.id) return;
     let cancelled = false;
     (async () => {
@@ -286,21 +343,104 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
     setFieldReports(null);
   }, [params?.id]);
 
+  // Lazy-load the QUOTATION template id when the user first opens the Quotations
+  // tab — needed for the "Create Quotation" button and to construct the link
+  // for any quotations that don't already carry their own documentTemplateId.
+  useEffect(() => {
+    if (tab !== 4 || quotationTemplateId !== undefined) return;
+    if (!organizationId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request(
+          { path: "/documentTemplates", method: "POST" },
+          { page: 1, limit: 100, search: "", organizationId },
+          token,
+        );
+        if (cancelled) return;
+        const docs: any[] = res?.data?.docs ?? [];
+        const quotation = docs.find((d) => (d.type || "").toUpperCase() === "QUOTATION");
+        setQuotationTemplateId(quotation?.id ?? null);
+      } catch (err) {
+        console.error("Failed to load quotation template:", err);
+        if (!cancelled) setQuotationTemplateId(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, quotationTemplateId, organizationId, getToken]);
+
   // Active on Site: only ACTIVE deployments AND not service-only.
   // Off-hired/completed/cancelled live in the Past Deployments tab; service-only
   // deployments are surfaced under Sales & Services regardless of status.
   const active = useMemo(
-    () => (project?.deployments ?? []).filter((d) => d.status === "ACTIVE" && !d.isServiceOnly),
-    [project],
+    () =>
+      (project?.deployments ?? [])
+        .filter((d) => d.status === "ACTIVE" && !d.isServiceOnly)
+        .map((d) => filterDeploymentByItemSearch(d, itemSearch))
+        .filter((d): d is Deployment => d !== null),
+    [project, itemSearch],
   );
   const past = useMemo(
-    () => (project?.deployments ?? []).filter((d) => d.status !== "ACTIVE"),
-    [project],
+    () =>
+      (project?.deployments ?? [])
+        .filter((d) => d.status !== "ACTIVE")
+        .map((d) => filterDeploymentByItemSearch(d, itemSearch))
+        .filter((d): d is Deployment => d !== null),
+    [project, itemSearch],
   );
   const serviceOnlyDeployments = useMemo(
-    () => (project?.deployments ?? []).filter((d) => d.isServiceOnly),
-    [project],
+    () =>
+      (project?.deployments ?? [])
+        .filter((d) => d.isServiceOnly)
+        .map((d) => filterDeploymentByItemSearch(d, itemSearch))
+        .filter((d): d is Deployment => d !== null),
+    [project, itemSearch],
   );
+  // When the user is actively searching, force-expand every visible deployment
+  // so the matching items are immediately readable without an extra click.
+  const isSearching = itemSearch.trim().length > 0;
+  const isDeploymentExpanded = (id: string) => isSearching || !!expanded[id];
+
+  const handleCreateQuotation = async () => {
+    if (!project || !organizationId) return;
+    if (!quotationTemplateId) {
+      toast.error(
+        quotationTemplateId === null
+          ? "No QUOTATION template configured for this organization"
+          : "Quotation template still loading — try again",
+      );
+      return;
+    }
+    setCreatingQuotation(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await request(
+        { path: "/documents/basic", method: "POST" },
+        {
+          documentTemplateId: quotationTemplateId,
+          type: "QUOTATION",
+          config: {},
+          projectId: project.id,
+        },
+        token,
+      );
+      if (res?.success && res.data?.id) {
+        router.push(`/portal/documents/QUOTATION/${quotationTemplateId}/${res.data.id}`);
+      } else {
+        toast.error(res?.message ?? "Failed to create quotation");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Error creating quotation");
+    } finally {
+      setCreatingQuotation(false);
+    }
+  };
 
   const offHire = async (deploymentId: string) => {
     if (!organizationId) return;
@@ -410,6 +550,7 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
             <Tab label={`Past Deployments (${past.length})`} />
             <Tab label={`Sales & Services (${project.standaloneDocs.length + serviceOnlyDeployments.length})`} />
             <Tab label={`All Invoices (${project.allInvoices.length})`} />
+            <Tab label={`Quotations (${project.quotations?.length ?? 0})`} />
             <Tab label={fieldReports === null ? "Field Reports" : `Field Reports (${fieldReports.length})`} />
           </Tabs>
           {tab === 0 && (
@@ -418,6 +559,20 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
             </Button>
           )}
         </Stack>
+
+        {/* Item search — applies to the deployment tabs (0, 1, 2). Hidden on
+            table-based tabs where the underlying Table already has its own
+            search affordances. */}
+        {(tab === 0 || tab === 1 || tab === 2) && (
+          <TextField
+            value={itemSearch}
+            onChange={(e) => setItemSearch(e.target.value)}
+            placeholder="Search items by name, SKU, or serial..."
+            size="small"
+            fullWidth
+            sx={{ mb: 1.5 }}
+          />
+        )}
 
         {/* Tab 0: Active on site (ACTIVE && !isServiceOnly) */}
         {tab === 0 && (
@@ -436,7 +591,7 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
                 <DeploymentCard
                   key={d.id}
                   deployment={d}
-                  expanded={!!expanded[d.id]}
+                  expanded={isDeploymentExpanded(d.id)}
                   onToggle={() => setExpanded((s) => ({ ...s, [d.id]: !s[d.id] }))}
                   onOffHire={() => offHire(d.id)}
                   onAttachDoc={() => setAttachOpenFor(d.id)}
@@ -460,7 +615,7 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
                   <DeploymentCard
                     key={d.id}
                     deployment={d}
-                    expanded={!!expanded[d.id]}
+                    expanded={isDeploymentExpanded(d.id)}
                     onToggle={() => setExpanded((s) => ({ ...s, [d.id]: !s[d.id] }))}
                     onAttachDoc={() => setAttachOpenFor(d.id)}
                     onPreview={(id) => setPreviewDocId(id)}
@@ -484,7 +639,7 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
                     <DeploymentCard
                       key={d.id}
                       deployment={d}
-                      expanded={!!expanded[d.id]}
+                      expanded={isDeploymentExpanded(d.id)}
                       onToggle={() => setExpanded((s) => ({ ...s, [d.id]: !s[d.id] }))}
                       onAttachDoc={() => setAttachOpenFor(d.id)}
                     />
@@ -521,18 +676,6 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
           </Box>
         )}
 
-        {/* Tab 4: Field Reports — service reports + DO starts + DO acks
-            captured by techs in the NFC scan PWA. Lazy-fetched on first
-            visit via the useEffect above. */}
-        {tab === 4 && (
-          <FieldReportsList
-            reports={fieldReports}
-            loading={fieldReportsLoading}
-            onPhotoClick={setPhotoDialogSrc}
-            onViewRoute={setRouteDialogReportId}
-          />
-        )}
-
         {/* Tab 3: All Invoices */}
         {tab === 3 && (
           <Table
@@ -556,6 +699,73 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
             ]}
             data={project.allInvoices}
             onRowSelect={() => {}}
+          />
+        )}
+
+        {/* Tab 4: Quotations linked to this project. Each row navigates to the
+            quotation editor; "Create Quotation" spawns a new quotation pre-
+            linked to this project via POST /documents/basic. */}
+        {tab === 4 && (
+          <Box>
+            <Stack direction="row" justifyContent="flex-end" sx={{ mb: 1 }}>
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={creatingQuotation ? <CircularProgress size={14} color="inherit" /> : <AddIcon />}
+                onClick={handleCreateQuotation}
+                disabled={creatingQuotation || quotationTemplateId === undefined}
+              >
+                Create Quotation
+              </Button>
+            </Stack>
+            {(project.quotations?.length ?? 0) === 0 ? (
+              <Box sx={{ p: 6, textAlign: "center", color: "text.secondary" }}>
+                <Typography variant="body2">No quotations linked to this project yet.</Typography>
+              </Box>
+            ) : (
+              <Table
+                columns={[
+                  { id: "name", accessorKey: "name", header: "Quotation #", cell: (i: any) => i.getValue() ?? "—" },
+                  { id: "status", accessorKey: "status", header: "Status", cell: (i: any) => i.getValue() },
+                  { id: "amount", accessorKey: "amount", header: "Amount", cell: (i: any) => fmtMoney(i.getValue() ?? 0) },
+                  { id: "createdAt", accessorKey: "createdAt", header: "Created", cell: (i: any) => fmtDate(i.getValue()) },
+                  {
+                    id: "actions",
+                    header: "",
+                    cell: ({ row }: { row: any }) => (
+                      <IconButton
+                        size="small"
+                        sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}
+                        onClick={() => {
+                          const q = row.original;
+                          const tmpl = q.documentTemplateId ?? quotationTemplateId;
+                          if (!tmpl) {
+                            toast.error("Cannot open quotation: missing template id");
+                            return;
+                          }
+                          router.push(`/portal/documents/QUOTATION/${tmpl}/${q.id}`);
+                        }}
+                      >
+                        <VisibilityIcon fontSize="small" />
+                      </IconButton>
+                    ),
+                  },
+                ]}
+                data={project.quotations ?? []}
+              />
+            )}
+          </Box>
+        )}
+
+        {/* Tab 5: Field Reports — service reports + DO starts + DO acks
+            captured by techs in the NFC scan PWA. Lazy-fetched on first
+            visit via the useEffect above. */}
+        {tab === 5 && (
+          <FieldReportsList
+            reports={fieldReports}
+            loading={fieldReportsLoading}
+            onPhotoClick={setPhotoDialogSrc}
+            onViewRoute={setRouteDialogReportId}
           />
         )}
 
@@ -965,7 +1175,16 @@ function DeploymentCard({
                                 opacity: it.isService ? 0.7 : 1,
                               }}
                             >
-                              <td>{it.description ?? "—"}</td>
+                              {(() => {
+                                const { display, full } = formatItemDescription(it.description);
+                                return full ? (
+                                  <Tooltip title={full} placement="top-start">
+                                    <td style={{ cursor: "help" }}>{display}</td>
+                                  </Tooltip>
+                                ) : (
+                                  <td>{display}</td>
+                                );
+                              })()}
                               <td>{it.sku ?? "—"}</td>
                               <td>{it.quantity}</td>
                               <td>{it.uom ?? "—"}</td>
@@ -1042,7 +1261,16 @@ function DeploymentCard({
                                 opacity: it.isService ? 0.7 : 1,
                               }}
                             >
-                              <td>{it.description ?? "—"}</td>
+                              {(() => {
+                                const { display, full } = formatItemDescription(it.description);
+                                return full ? (
+                                  <Tooltip title={full} placement="top-start">
+                                    <td style={{ cursor: "help" }}>{display}</td>
+                                  </Tooltip>
+                                ) : (
+                                  <td>{display}</td>
+                                );
+                              })()}
                               <td>{it.sku ?? "—"}</td>
                               <td>{it.quantity}</td>
                               <td>{it.uom ?? "—"}</td>
