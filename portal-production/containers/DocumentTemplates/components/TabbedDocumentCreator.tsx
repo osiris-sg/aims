@@ -326,6 +326,12 @@ export default function TabbedDocumentCreator({
   const isStockAdjustmentOut = documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_OUT";
   const isStockAdjustment = isStockAdjustmentIn || isStockAdjustmentOut;
   const isDeliveryOrder = documentType === "DO" || documentType === "DELIVERY_ORDER";
+  const isQuotation =
+    documentType === "QUOTATION" ||
+    documentType === "QO" ||
+    documentType === "QO1" ||
+    documentType === "QO2" ||
+    documentType === "QT";
 
   // Delivery route dialog state (DO-only). Opens with the linked DO_START
   // MaintenanceServiceReport's id; the shared DeliveryRouteDialog handles
@@ -360,6 +366,36 @@ export default function TabbedDocumentCreator({
 
   // Past descriptions history hook
   const { pastDescriptions, isLoading: isLoadingDescriptions } = usePastDescriptions();
+
+  // Linked-project change handler used by the QUOTATION project picker in the
+  // General tab. Optimistically updates formData and, on already-saved docs,
+  // calls PATCH /documents/:id/link-project so the link is committed
+  // immediately. Rolls back on failure.
+  const handleProjectLinkChange = useCallback(async (nextId: string) => {
+    const previousId = formData.projectId || "";
+    if (previousId === nextId) return;
+    setFormData((prev: any) => ({ ...prev, projectId: nextId }));
+    if (!isQuotation || !documentId) return; // new docs persist on save
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await request(
+        { path: `/documents/${documentId}/link-project`, method: "PATCH" },
+        { projectId: nextId || null },
+        token,
+      );
+      if (res?.success) {
+        toast.success(nextId ? "Project linked" : "Project unlinked");
+      } else {
+        toast.error(res?.message ?? "Failed to update project link");
+        setFormData((prev: any) => ({ ...prev, projectId: previousId }));
+      }
+    } catch (err) {
+      console.error("link-project PATCH failed:", err);
+      toast.error("Failed to update project link");
+      setFormData((prev: any) => ({ ...prev, projectId: previousId }));
+    }
+  }, [formData.projectId, isQuotation, documentId, getToken]);
 
   // Inventory items for item table
   const { inventoriesForDocument } = useGetInventoriesForItemTable();
@@ -603,6 +639,21 @@ export default function TabbedDocumentCreator({
   useEffect(() => {
     isDirtyRef.current = false;
   }, [existingData]);
+
+  // Projects are customer-scoped: clear formData.projectId whenever the
+  // currently-selected customer changes to one the project doesn't belong to.
+  // Skips while projects haven't loaded yet so we don't blow away a valid link
+  // pre-fetch.
+  useEffect(() => {
+    if (!formData.projectId) return;
+    if (!projects || projects.length === 0) return;
+    const proj = projects.find((p: any) => p.id === formData.projectId);
+    if (!proj) return; // unknown project (filtered out / not loaded) — leave alone
+    const customerId = formData.customer?.id;
+    if (proj.customerId && customerId && proj.customerId !== customerId) {
+      setFormDataState((prev: any) => ({ ...prev, projectId: "" }));
+    }
+  }, [formData.customer?.id, projects]);
 
   // Fill in customer details from customers list if missing
   useEffect(() => {
@@ -2615,72 +2666,6 @@ export default function TabbedDocumentCreator({
               )}
             </Box>
 
-          {/* Project picker for template-driven DO/Invoice/Quotation flows.
-              Lives outside the dynamic tabs so it's visible regardless of which
-              tab is active (the legacy Details tab has its own copy below).
-              QUOTATION variants additionally call PATCH /documents/:id/link-project
-              on change so the link is committed without needing a full save. */}
-          {templateFieldConfig && (
-            documentType === "DO" ||
-            documentType === "TI" ||
-            documentType === "TI2" ||
-            documentType === "INVOICE" ||
-            documentType === "QUOTATION" ||
-            documentType === "QO" ||
-            documentType === "QO1" ||
-            documentType === "QT"
-          ) && (
-            <Card sx={{ mb: 0.5 }}>
-              <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
-                <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25 }}>
-                  Linked Project
-                </Typography>
-                <Divider sx={{ mb: 0.5 }} />
-                <Autocomplete
-                  size="small"
-                  options={projects.filter((p) => !formData.customer.id || !p.customerId || p.customerId === formData.customer.id)}
-                  getOptionLabel={(option) => option.name}
-                  value={projects.find((p) => p.id === formData.projectId) || null}
-                  onChange={async (_, newValue) => {
-                    const previousId = formData.projectId;
-                    const nextId = newValue?.id || "";
-                    setFormData({ ...formData, projectId: nextId });
-                    // Live PATCH only for QUOTATIONs on already-saved documents.
-                    // New/unsaved docs will pick up the projectId on first save.
-                    const isQuotation =
-                      documentType === "QUOTATION" ||
-                      documentType === "QO" ||
-                      documentType === "QO1" ||
-                      documentType === "QT";
-                    if (!isQuotation || !documentId) return;
-                    try {
-                      const token = await getToken();
-                      if (!token) return;
-                      const res = await request(
-                        { path: `/documents/${documentId}/link-project`, method: "PATCH" },
-                        { projectId: nextId || null },
-                        token,
-                      );
-                      if (res?.success) {
-                        toast.success(nextId ? "Project linked" : "Project unlinked");
-                      } else {
-                        toast.error(res?.message ?? "Failed to update project link");
-                        // Roll back the optimistic update so the picker reflects truth.
-                        setFormData((prev: any) => ({ ...prev, projectId: previousId }));
-                      }
-                    } catch (err) {
-                      console.error("link-project PATCH failed:", err);
-                      toast.error("Failed to update project link");
-                      setFormData((prev: any) => ({ ...prev, projectId: previousId }));
-                    }
-                  }}
-                  renderInput={(params) => (
-                    <TextField {...params} label="Project (optional)" size="small" />
-                  )}
-                />
-              </CardContent>
-            </Card>
-          )}
 
           {/* Dynamic Tabs based on template config */}
           {templateFieldConfig?.tabs.map((tab, index) => (
@@ -2736,6 +2721,30 @@ export default function TabbedDocumentCreator({
                     }}
                   />
                   </Collapse>
+                  {/* Project picker — QUOTATION-only, customer-scoped. Lives
+                      on the first dynamic tab (conventionally General) so it
+                      sits with the customer/salesman fields without needing a
+                      template-config change to inject it. */}
+                  {isQuotation && index === 0 && (
+                    <Box sx={{ mt: 1 }}>
+                      <Autocomplete
+                        size="small"
+                        options={projects.filter((p: any) => !formData.customer.id || !p.customerId || p.customerId === formData.customer.id)}
+                        getOptionLabel={(option: any) => option.projectNumber ? `${option.projectNumber} — ${option.name}` : option.name}
+                        value={projects.find((p: any) => p.id === formData.projectId) || null}
+                        onChange={(_, newValue: any) => handleProjectLinkChange(newValue?.id || "")}
+                        disabled={!formData.customer.id}
+                        renderInput={(params) => (
+                          <TextField
+                            {...params}
+                            label="Project"
+                            size="small"
+                            placeholder={formData.customer.id ? "Select a project (optional)" : "Select a customer first"}
+                          />
+                        )}
+                      />
+                    </Box>
+                  )}
                 </CardContent>
               </Card>
             </TabPanel>
@@ -2782,6 +2791,26 @@ export default function TabbedDocumentCreator({
                               {formData.customer.address}
                             </Typography>
                           </Paper>
+                        </Grid>
+                      )}
+                      {isQuotation && (
+                        <Grid item xs={12}>
+                          <Autocomplete
+                            size="small"
+                            options={projects.filter((p: any) => !formData.customer.id || !p.customerId || p.customerId === formData.customer.id)}
+                            getOptionLabel={(option: any) => option.projectNumber ? `${option.projectNumber} — ${option.name}` : option.name}
+                            value={projects.find((p: any) => p.id === formData.projectId) || null}
+                            onChange={(_, newValue: any) => handleProjectLinkChange(newValue?.id || "")}
+                            disabled={!formData.customer.id}
+                            renderInput={(params) => (
+                              <TextField
+                                {...params}
+                                label="Project"
+                                size="small"
+                                placeholder={formData.customer.id ? "Select a project (optional)" : "Select a customer first"}
+                              />
+                            )}
+                          />
                         </Grid>
                       )}
                     </Grid>

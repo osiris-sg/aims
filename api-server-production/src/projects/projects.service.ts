@@ -70,13 +70,21 @@ export class ProjectsService {
         ];
       }
 
-      // Filter by customer if provided
+      // Filter by customer if provided. Match either the direct Project.customerId
+      // FK (added later in the schema) or the legacy siteOffice.customer.id path
+      // — projects in the wild use both depending on when they were created.
       if (filters?.customerId) {
-        whereClause.siteOffice = {
-          customer: {
-            id: filters.customerId,
-          },
-        };
+        const customerOr = [
+          { customerId: filters.customerId },
+          { siteOffice: { customer: { id: filters.customerId } } },
+        ];
+        if (whereClause.OR) {
+          // A search OR is already present — AND it with the customer OR.
+          whereClause.AND = [{ OR: whereClause.OR }, { OR: customerOr }];
+          delete whereClause.OR;
+        } else {
+          whereClause.OR = customerOr;
+        }
       }
 
       const projects = await this.prisma.project.findMany({
