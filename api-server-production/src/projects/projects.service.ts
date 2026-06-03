@@ -201,6 +201,9 @@ export class ProjectsService {
               status: true,
               createdAt: true,
               projectDeploymentId: true,
+              // Needed for the project page's "open quotation editor" link:
+              // /portal/documents/QUOTATION/<documentTemplateId>/<id>
+              documentTemplateId: true,
               config: true,
               payments: { select: { amount: true } },
             },
