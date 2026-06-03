@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Delete, Req, UseGuards, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Delete, Req, UseGuards, HttpException, HttpStatus } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { CreateDocumentWithTimelineDto } from './dto/create-document-with-timeline.dto';
@@ -40,12 +40,21 @@ export class DocumentsController {
 
   @Post('basic')
   @Permissions('documents:create-basic')
-  async createBasicDocument(@Body() body: { documentTemplateId: string; type: string; config?: any }, @Req() req: RequestWithOrganization) {
+  async createBasicDocument(
+    @Body() body: { documentTemplateId: string; type: string; config?: any; projectId?: string },
+    @Req() req: RequestWithOrganization,
+  ) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
       throw new Error('User is not assigned to any organization');
     }
-    return await this.documentsService.createBasicDocument(body.documentTemplateId, body.type, organizationId, body.config || {});
+    return await this.documentsService.createBasicDocument(
+      body.documentTemplateId,
+      body.type,
+      organizationId,
+      body.config || {},
+      body.projectId,
+    );
   }
 
   @Post('from-extraction')
@@ -131,6 +140,21 @@ export class DocumentsController {
       throw new Error('User is not assigned to any organization');
     }
     return await this.documentsService.getById(id, organizationId);
+  }
+
+  @Patch(':id/link-project')
+  @Permissions('documents:update')
+  async linkProject(
+    @Param('id') id: string,
+    @Body() body: { projectId: string },
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    if (!body?.projectId) {
+      throw new HttpException('projectId is required', HttpStatus.BAD_REQUEST);
+    }
+    return await this.documentsService.linkProjectToDocument(id, body.projectId, organizationId);
   }
 
   @Post('update')

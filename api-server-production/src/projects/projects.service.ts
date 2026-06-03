@@ -277,16 +277,28 @@ export class ProjectsService {
         };
       });
 
-      // Project-level rollup (every linked document, deployment-attached or standalone)
-      const allDocs = project.documents;
-      const projectTotalBilled = allDocs.reduce((s, d) => s + readDocAmount(d.config), 0);
-      const projectTotalPaid = allDocs.reduce(
+      // Split quotations out of the document list — they have their own
+      // surface on the project page and shouldn't double-count toward the
+      // billed/paid rollups (quotations are proposals, not billed amounts).
+      const quotationDocs = project.documents.filter((d) => d.type === 'QUOTATION');
+      const nonQuotationDocs = project.documents.filter((d) => d.type !== 'QUOTATION');
+
+      // Project-level rollup (every linked non-quotation document)
+      const projectTotalBilled = nonQuotationDocs.reduce((s, d) => s + readDocAmount(d.config), 0);
+      const projectTotalPaid = nonQuotationDocs.reduce(
         (s, d) => s + d.payments.reduce((p, pay) => p + (pay.amount ?? 0), 0),
         0,
       );
 
-      // Standalone (sales/services not bound to a deployment)
-      const standaloneDocs = allDocs
+      // Quotations bucket — minimal header shape; full preview via the
+      // existing DocumentPreviewDialog (GET /documents/:id).
+      const quotations = quotationDocs.map(({ payments, config, ...rest }) => ({
+        ...rest,
+        amount: readDocAmount(config),
+      }));
+
+      // Standalone (sales/services not bound to a deployment, excluding quotations)
+      const standaloneDocs = nonQuotationDocs
         .filter((d) => !d.projectDeploymentId)
         .map(({ payments, config, ...rest }) => ({
           ...rest,
@@ -294,8 +306,8 @@ export class ProjectsService {
           paid: payments.reduce((p, pay) => p + (pay.amount ?? 0), 0),
         }));
 
-      // Flat chronological invoice list
-      const allInvoices = allDocs.map(({ payments, config, ...rest }) => ({
+      // Flat chronological invoice/DO list (excluding quotations)
+      const allInvoices = nonQuotationDocs.map(({ payments, config, ...rest }) => ({
         ...rest,
         amount: readDocAmount(config),
         paid: payments.reduce((p, pay) => p + (pay.amount ?? 0), 0),
@@ -317,6 +329,7 @@ export class ProjectsService {
           ? { id: project.siteOffice.id, name: project.siteOffice.name, address: project.siteOffice.address }
           : null,
         deployments,
+        quotations,
         standaloneDocs,
         allInvoices,
         totals: {
@@ -325,7 +338,8 @@ export class ProjectsService {
           outstanding: projectTotalBilled - projectTotalPaid,
           deploymentCount: deployments.length,
           activeDeployments: deployments.filter((d) => d.status === 'ACTIVE').length,
-          invoiceCount: allDocs.length,
+          invoiceCount: nonQuotationDocs.length,
+          quotationCount: quotationDocs.length,
         },
       };
     } catch (error) {
