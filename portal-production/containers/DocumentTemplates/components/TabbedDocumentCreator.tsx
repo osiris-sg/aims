@@ -367,36 +367,6 @@ export default function TabbedDocumentCreator({
   // Past descriptions history hook
   const { pastDescriptions, isLoading: isLoadingDescriptions } = usePastDescriptions();
 
-  // Linked-project change handler used by the QUOTATION project picker in the
-  // General tab. Optimistically updates formData and, on already-saved docs,
-  // calls PATCH /documents/:id/link-project so the link is committed
-  // immediately. Rolls back on failure.
-  const handleProjectLinkChange = useCallback(async (nextId: string) => {
-    const previousId = formData.projectId || "";
-    if (previousId === nextId) return;
-    setFormData((prev: any) => ({ ...prev, projectId: nextId }));
-    if (!isQuotation || !documentId) return; // new docs persist on save
-    try {
-      const token = await getToken();
-      if (!token) return;
-      const res = await request(
-        { path: `/documents/${documentId}/link-project`, method: "PATCH" },
-        { projectId: nextId || null },
-        token,
-      );
-      if (res?.success) {
-        toast.success(nextId ? "Project linked" : "Project unlinked");
-      } else {
-        toast.error(res?.message ?? "Failed to update project link");
-        setFormData((prev: any) => ({ ...prev, projectId: previousId }));
-      }
-    } catch (err) {
-      console.error("link-project PATCH failed:", err);
-      toast.error("Failed to update project link");
-      setFormData((prev: any) => ({ ...prev, projectId: previousId }));
-    }
-  }, [formData.projectId, isQuotation, documentId, getToken]);
-
   // Inventory items for item table
   const { inventoriesForDocument } = useGetInventoriesForItemTable();
 
@@ -634,6 +604,36 @@ export default function TabbedDocumentCreator({
     isDirtyRef.current = true;
     setItemsState(update);
   }, []);
+
+  // Linked-project change handler used by the QUOTATION project picker.
+  // Optimistically updates formData and, on already-saved docs, calls
+  // PATCH /documents/:id/link-project so the link is committed immediately.
+  // Rolls back on failure.
+  const handleProjectLinkChange = useCallback(async (nextId: string) => {
+    const previousId = formData.projectId || "";
+    if (previousId === nextId) return;
+    setFormData((prev: any) => ({ ...prev, projectId: nextId }));
+    if (!isQuotation || !documentId) return; // new docs persist on save
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await request(
+        { path: `/documents/${documentId}/link-project`, method: "PATCH" },
+        { projectId: nextId || null },
+        token,
+      );
+      if (res?.success) {
+        toast.success(nextId ? "Project linked" : "Project unlinked");
+      } else {
+        toast.error(res?.message ?? "Failed to update project link");
+        setFormData((prev: any) => ({ ...prev, projectId: previousId }));
+      }
+    } catch (err) {
+      console.error("link-project PATCH failed:", err);
+      toast.error("Failed to update project link");
+      setFormData((prev: any) => ({ ...prev, projectId: previousId }));
+    }
+  }, [formData.projectId, isQuotation, documentId, getToken, setFormData]);
 
   // Reset the dirty flag whenever a different document is loaded.
   useEffect(() => {
@@ -2647,6 +2647,54 @@ export default function TabbedDocumentCreator({
               </Box>
             </Box>
 
+            {/* QUOTATION-only project picker. Rendered OUTSIDE the tabs so
+                it stays visible regardless of templateFieldConfig state or
+                which tab is currently active. Customer-scoped: enabled only
+                once a customer is picked; options filtered to that customer
+                (or projects with no customerId — legacy). Saved-doc changes
+                fire PATCH /documents/:id/link-project optimistically. */}
+            {isQuotation && (
+              <Box sx={{ px: 2, py: 1, bgcolor: "background.paper", borderBottom: 1, borderColor: "divider", display: "flex", alignItems: "center", gap: 1 }}>
+                <Typography variant="body2" fontWeight={600} sx={{ minWidth: 80 }}>
+                  Project:
+                </Typography>
+                <Box sx={{ flex: 1, maxWidth: 480 }}>
+                  <Autocomplete
+                    size="small"
+                    options={projects.filter((p: any) => !formData.customer?.id || !p.customerId || p.customerId === formData.customer.id)}
+                    getOptionLabel={(option: any) => option?.projectNumber ? `${option.projectNumber} — ${option.name}` : (option?.name ?? "")}
+                    value={projects.find((p: any) => p.id === formData.projectId) || null}
+                    onChange={(_, newValue: any) => handleProjectLinkChange(newValue?.id || "")}
+                    disabled={!formData.customer?.id}
+                    noOptionsText={formData.customer?.id ? "No projects for this customer" : "Select a customer first"}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        size="small"
+                        placeholder={formData.customer?.id ? "Select a project (optional)" : "Select a customer first"}
+                      />
+                    )}
+                  />
+                </Box>
+                {/* Diagnostic span — logs each render so we can confirm gating
+                    is working. Renders nothing visible. */}
+                {(() => {
+                  if (typeof window !== "undefined") {
+                    // eslint-disable-next-line no-console
+                    console.log("[ProjectPicker]", {
+                      documentType,
+                      isQuotation,
+                      customerId: formData.customer?.id,
+                      projectId: formData.projectId,
+                      projectCount: projects.length,
+                      filteredCount: projects.filter((p: any) => !formData.customer?.id || !p.customerId || p.customerId === formData.customer.id).length,
+                    });
+                  }
+                  return null;
+                })()}
+              </Box>
+            )}
+
             {/* Main Tabs - Dynamic rendering based on template config */}
             <Box sx={{ borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
               {isLoadingFieldConfig ? (
@@ -2721,30 +2769,6 @@ export default function TabbedDocumentCreator({
                     }}
                   />
                   </Collapse>
-                  {/* Project picker — QUOTATION-only, customer-scoped. Lives
-                      on the first dynamic tab (conventionally General) so it
-                      sits with the customer/salesman fields without needing a
-                      template-config change to inject it. */}
-                  {isQuotation && index === 0 && (
-                    <Box sx={{ mt: 1 }}>
-                      <Autocomplete
-                        size="small"
-                        options={projects.filter((p: any) => !formData.customer.id || !p.customerId || p.customerId === formData.customer.id)}
-                        getOptionLabel={(option: any) => option.projectNumber ? `${option.projectNumber} — ${option.name}` : option.name}
-                        value={projects.find((p: any) => p.id === formData.projectId) || null}
-                        onChange={(_, newValue: any) => handleProjectLinkChange(newValue?.id || "")}
-                        disabled={!formData.customer.id}
-                        renderInput={(params) => (
-                          <TextField
-                            {...params}
-                            label="Project"
-                            size="small"
-                            placeholder={formData.customer.id ? "Select a project (optional)" : "Select a customer first"}
-                          />
-                        )}
-                      />
-                    </Box>
-                  )}
                 </CardContent>
               </Card>
             </TabPanel>
@@ -2791,26 +2815,6 @@ export default function TabbedDocumentCreator({
                               {formData.customer.address}
                             </Typography>
                           </Paper>
-                        </Grid>
-                      )}
-                      {isQuotation && (
-                        <Grid item xs={12}>
-                          <Autocomplete
-                            size="small"
-                            options={projects.filter((p: any) => !formData.customer.id || !p.customerId || p.customerId === formData.customer.id)}
-                            getOptionLabel={(option: any) => option.projectNumber ? `${option.projectNumber} — ${option.name}` : option.name}
-                            value={projects.find((p: any) => p.id === formData.projectId) || null}
-                            onChange={(_, newValue: any) => handleProjectLinkChange(newValue?.id || "")}
-                            disabled={!formData.customer.id}
-                            renderInput={(params) => (
-                              <TextField
-                                {...params}
-                                label="Project"
-                                size="small"
-                                placeholder={formData.customer.id ? "Select a project (optional)" : "Select a customer first"}
-                              />
-                            )}
-                          />
                         </Grid>
                       )}
                     </Grid>
