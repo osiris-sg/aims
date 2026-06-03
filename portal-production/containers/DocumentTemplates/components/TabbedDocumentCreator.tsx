@@ -2647,44 +2647,26 @@ export default function TabbedDocumentCreator({
               </Box>
             </Box>
 
-            {/* QUOTATION-only project picker. Rendered OUTSIDE the tabs so
-                it stays visible regardless of templateFieldConfig state or
-                which tab is currently active. Customer-scoped: enabled only
-                once a customer is picked; options filtered to that customer
-                (or projects with no customerId — legacy). Saved-doc changes
-                fire PATCH /documents/:id/link-project optimistically.
-                position:relative + isolation creates an isolated stacking
-                context so the Autocomplete's internal Popper can't bleed onto
-                the form fields below (which broke Customer Code clicking). */}
-            {isQuotation && (
-              <Box sx={{ px: 2, py: 1, bgcolor: "background.paper", borderBottom: 1, borderColor: "divider", display: "flex", alignItems: "center", gap: 1, position: "relative", zIndex: 0, isolation: "isolate" }}>
+            {/* QUOTATION-only project picker. Only rendered AFTER a customer
+                is picked — earlier attempts at rendering a disabled picker
+                in this slot ended up blocking Customer Code clicks (likely
+                an MUI Autocomplete-portal interaction). Skipping the render
+                until customer.id is set sidesteps the whole class of bug. */}
+            {isQuotation && formData.customer?.id && (
+              <Box sx={{ px: 2, py: 1, bgcolor: "background.paper", borderBottom: 1, borderColor: "divider", display: "flex", alignItems: "center", gap: 1 }}>
                 <Typography variant="body2" fontWeight={600} sx={{ minWidth: 80 }}>
                   Project:
                 </Typography>
-                <Box
-                  sx={{
-                    flex: 1,
-                    maxWidth: 480,
-                    // When the picker is disabled (no customer yet), MUI keeps the
-                    // input wrapper interactive enough to capture stray clicks —
-                    // gate the whole subtree so the field below stays clickable.
-                    pointerEvents: !formData.customer?.id ? "none" : "auto",
-                  }}
-                >
+                <Box sx={{ flex: 1, maxWidth: 480 }}>
                   <Autocomplete
                     size="small"
-                    options={projects.filter((p: any) => !formData.customer?.id || !p.customerId || p.customerId === formData.customer.id)}
+                    options={projects.filter((p: any) => !p.customerId || p.customerId === formData.customer.id)}
                     getOptionLabel={(option: any) => option?.projectNumber ? `${option.projectNumber} — ${option.name}` : (option?.name ?? "")}
                     value={projects.find((p: any) => p.id === formData.projectId) || null}
                     onChange={(_, newValue: any) => handleProjectLinkChange(newValue?.id || "")}
-                    disabled={!formData.customer?.id}
-                    noOptionsText={formData.customer?.id ? "No projects for this customer" : "Select a customer first"}
+                    noOptionsText="No projects for this customer"
                     renderInput={(params) => (
-                      <TextField
-                        {...params}
-                        size="small"
-                        placeholder={formData.customer?.id ? "Select a project (optional)" : "Select a customer first"}
-                      />
+                      <TextField {...params} size="small" placeholder="Select a project (optional)" />
                     )}
                   />
                 </Box>
