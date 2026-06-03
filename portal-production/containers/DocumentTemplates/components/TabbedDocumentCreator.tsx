@@ -606,34 +606,51 @@ export default function TabbedDocumentCreator({
   }, []);
 
   // Linked-project change handler used by the QUOTATION project picker.
-  // Optimistically updates formData and, on already-saved docs, calls
-  // PATCH /documents/:id/link-project so the link is committed immediately.
-  // Rolls back on failure.
-  const handleProjectLinkChange = useCallback(async (nextId: string) => {
-    const previousId = formData.projectId || "";
-    if (previousId === nextId) return;
-    setFormData((prev: any) => ({ ...prev, projectId: nextId }));
-    if (!isQuotation || !documentId) return; // new docs persist on save
+  // Purely local state update — the actual PATCH to
+  // /documents/:id/link-project is deferred until the document is saved
+  // (see persistProjectLinkIfChanged below).
+  const handleProjectLinkChange = useCallback((nextId: string) => {
+    setFormData((prev: any) => (prev.projectId === nextId ? prev : { ...prev, projectId: nextId }));
+  }, [setFormData]);
+
+  // Tracks the last projectId successfully persisted to the backend so we
+  // know whether to fire the link-project PATCH on save. Initialized from
+  // existingData.projectId on each document load.
+  const persistedProjectIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    persistedProjectIdRef.current = existingData?.projectId ?? null;
+  }, [existingData?.id, existingData?.projectId]);
+
+  // Commit the quotation→project link to the backend. Called from each save
+  // flow (Save as Draft, Confirm Quotation, etc.). No-op when the picker
+  // value matches what's already persisted; skipped for non-quotation docs
+  // and for unsaved (no documentId) drafts — those persist via the normal
+  // document update flow when the doc is first created.
+  const persistProjectLinkIfChanged = useCallback(async () => {
+    if (!isQuotation) return;
+    const docId = documentId || existingData?.id;
+    if (!docId) return;
+    const desired = formData.projectId || null;
+    const persisted = persistedProjectIdRef.current || null;
+    if (desired === persisted) return;
     try {
       const token = await getToken();
       if (!token) return;
       const res = await request(
-        { path: `/documents/${documentId}/link-project`, method: "PATCH" },
-        { projectId: nextId || null },
+        { path: `/documents/${docId}/link-project`, method: "PATCH" },
+        { projectId: desired },
         token,
       );
       if (res?.success) {
-        toast.success(nextId ? "Project linked" : "Project unlinked");
+        persistedProjectIdRef.current = desired;
       } else {
-        toast.error(res?.message ?? "Failed to update project link");
-        setFormData((prev: any) => ({ ...prev, projectId: previousId }));
+        toast.error(res?.message ?? "Failed to save project link");
       }
     } catch (err) {
       console.error("link-project PATCH failed:", err);
-      toast.error("Failed to update project link");
-      setFormData((prev: any) => ({ ...prev, projectId: previousId }));
+      toast.error("Failed to save project link");
     }
-  }, [formData.projectId, isQuotation, documentId, getToken, setFormData]);
+  }, [isQuotation, documentId, existingData?.id, formData.projectId, getToken]);
 
   // Reset the dirty flag whenever a different document is loaded.
   useEffect(() => {
@@ -1303,6 +1320,8 @@ export default function TabbedDocumentCreator({
 
       // Call onSave with confirmed status
       await onSave?.(saveData);
+      // Persist any pending quotation→project link before the page reloads.
+      await persistProjectLinkIfChanged();
 
       toast.success("Document confirmed successfully");
       setConfirmDialogOpen(false);
@@ -1336,6 +1355,8 @@ export default function TabbedDocumentCreator({
         lastUsedAt: currentTimestamp,
       };
       await onSave?.(saveData);
+      // Persist any pending quotation→project link.
+      await persistProjectLinkIfChanged();
       toast.success("Quotation confirmed");
       setConvertQuotationDialogOpen(true);
     } catch (error) {
@@ -1955,6 +1976,9 @@ export default function TabbedDocumentCreator({
         lastUsedAt: currentTimestamp,
       };
       await onSave?.(saveData);
+      // Commit the quotation project link after the document itself has
+      // persisted. Safe no-op for non-quotation flows and for unchanged links.
+      await persistProjectLinkIfChanged();
     }
     toast.success("Document saved as draft");
     // Navigate to parent page after saving
@@ -2530,6 +2554,8 @@ export default function TabbedDocumentCreator({
                   console.log("Direct Save - issueBy in saveData:", saveData.issueBy);
                   console.log("Direct Save - Items in saveData:", JSON.stringify(saveData.items, null, 2));
                   await onSave?.(saveData);
+                  // Persist any pending quotation→project link.
+                  await persistProjectLinkIfChanged();
                   toast.success("Document saved as draft");
                 }
               }}
