@@ -146,13 +146,20 @@ export class DocumentsController {
   @Permissions('documents:update')
   async linkProject(
     @Param('id') id: string,
-    @Body() body: { projectId: string },
+    @Body() body: { projectId: string | null },
     @Req() req: RequestWithOrganization,
   ) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) throw new Error('User is not assigned to any organization');
-    if (!body?.projectId) {
-      throw new HttpException('projectId is required', HttpStatus.BAD_REQUEST);
+    // projectId must be either a non-empty string (link) or explicitly null (unlink).
+    // Reject undefined / empty string / non-string non-null to prevent accidental
+    // unlinks from malformed payloads.
+    const hasKey = body !== null && body !== undefined && 'projectId' in body;
+    if (!hasKey || (body.projectId !== null && (typeof body.projectId !== 'string' || !body.projectId))) {
+      throw new HttpException(
+        'projectId must be a project id string or explicitly null',
+        HttpStatus.BAD_REQUEST,
+      );
     }
     return await this.documentsService.linkProjectToDocument(id, body.projectId, organizationId);
   }
