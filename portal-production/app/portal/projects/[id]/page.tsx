@@ -31,6 +31,8 @@ import AddIcon from "@mui/icons-material/Add";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import CloseIcon from "@mui/icons-material/Close";
 import RouteIcon from "@mui/icons-material/Route";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import { useTheme } from "@mui/material/styles";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import dynamic from "next/dynamic";
@@ -55,6 +57,14 @@ const DeliveryRouteMap = dynamic(() => import("@/components/DeliveryRouteMap"), 
 type DeploymentStatus = "ACTIVE" | "OFF_HIRED" | "COMPLETED" | "CANCELLED";
 type DeploymentType = "RENTAL" | "SALE" | "SERVICE";
 
+interface SubAssetRow {
+  id: string;
+  name: string;
+  skuKey: string;
+  isTracked: boolean;
+  inventoryCount: number;
+}
+
 interface DocumentItemRow {
   id: string;
   itemId: string;
@@ -66,6 +76,9 @@ interface DocumentItemRow {
   uom: string | null;
   lineNumber: number | null;
   isService: boolean;
+  // Children of this item's parent asset (e.g. TSS under a SIDS unit).
+  // Empty when the asset has no sub-assets.
+  subAssets?: SubAssetRow[];
 }
 
 interface DeploymentDocument {
@@ -1034,6 +1047,85 @@ function SummaryStat({ label, value, accent }: { label: string; value: string; a
   );
 }
 
+// One row in a deployment's DO / Invoice item table. Shared by both sections
+// so the expand-children behaviour stays consistent. When the row's resolved
+// parent asset has children (subAssets), a chevron toggles a per-child row
+// rendered directly below, full-width and indented.
+function ItemRow({
+  it,
+  expanded,
+  onToggleExpand,
+}: {
+  it: DocumentItemRow;
+  expanded: boolean;
+  onToggleExpand: (id: string) => void;
+}) {
+  const { display, full } = formatItemDescription(it.description);
+  const hasChildren = (it.subAssets?.length ?? 0) > 0;
+  return (
+    <>
+      <Box
+        component="tr"
+        sx={{
+          "& td": { p: 0.75, borderTop: 1, borderColor: "divider", fontVariantNumeric: "tabular-nums" },
+          opacity: it.isService ? 0.7 : 1,
+        }}
+      >
+        <td>
+          <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
+            {hasChildren ? (
+              <IconButton size="small" onClick={() => onToggleExpand(it.id)} sx={{ p: 0.25 }}>
+                {expanded ? <ExpandMoreIcon fontSize="inherit" /> : <ChevronRightIcon fontSize="inherit" />}
+              </IconButton>
+            ) : (
+              <Box sx={{ width: 22 }} />
+            )}
+            {full ? (
+              <Tooltip title={full} placement="top-start">
+                <Box component="span" sx={{ cursor: "help" }}>{display}</Box>
+              </Tooltip>
+            ) : (
+              <Box component="span">{display}</Box>
+            )}
+          </Box>
+        </td>
+        <td>{it.sku ?? "—"}</td>
+        <td>{it.quantity}</td>
+        <td>{it.uom ?? "—"}</td>
+        <td>
+          <Chip
+            size="small"
+            variant="outlined"
+            label={it.isService ? "Service" : "Product"}
+            color={it.isService ? "secondary" : "default"}
+          />
+        </td>
+      </Box>
+      {expanded && hasChildren &&
+        it.subAssets!.map((child) => (
+          <Box
+            component="tr"
+            key={child.id}
+            sx={{
+              "& td": { p: 0.75, borderTop: 1, borderColor: "divider" },
+              bgcolor: "surfaceTones.low",
+            }}
+          >
+            <td colSpan={5} style={{ paddingLeft: "2.5rem" }}>
+              <Box sx={{ display: "inline-flex", alignItems: "center", gap: 1, color: "text.secondary", fontSize: "0.78rem" }}>
+                <span>└─</span>
+                <Box component="span" sx={{ fontWeight: 600, color: "text.primary" }}>{child.name}</Box>
+                <Chip size="small" variant="outlined" label={child.skuKey} />
+                {child.isTracked && <Chip size="small" label="tracked" />}
+                <span>· {child.inventoryCount} inv</span>
+              </Box>
+            </td>
+          </Box>
+        ))}
+    </>
+  );
+}
+
 function DeploymentCard({
   deployment,
   expanded,
@@ -1051,6 +1143,17 @@ function DeploymentCard({
 }) {
   const months = monthsBetween(deployment.deployedDate, deployment.offHiredDate);
   const ccy = deployment.currency ?? "SGD";
+  // Track which item rows have their sub-asset list expanded. Local to the
+  // card so state survives independently of the parent's deployment expand.
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(() => new Set());
+  const toggleItem = (itemId: string) => {
+    setExpandedItems((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
 
   return (
     <Box
@@ -1167,36 +1270,12 @@ function DeploymentCard({
                         </Box>
                         <Box component="tbody">
                           {doc.documentItems.map((it) => (
-                            <Box
-                              component="tr"
+                            <ItemRow
                               key={it.id}
-                              sx={{
-                                "& td": { p: 0.75, borderTop: 1, borderColor: "divider", fontVariantNumeric: "tabular-nums" },
-                                opacity: it.isService ? 0.7 : 1,
-                              }}
-                            >
-                              {(() => {
-                                const { display, full } = formatItemDescription(it.description);
-                                return full ? (
-                                  <Tooltip title={full} placement="top-start">
-                                    <td style={{ cursor: "help" }}>{display}</td>
-                                  </Tooltip>
-                                ) : (
-                                  <td>{display}</td>
-                                );
-                              })()}
-                              <td>{it.sku ?? "—"}</td>
-                              <td>{it.quantity}</td>
-                              <td>{it.uom ?? "—"}</td>
-                              <td>
-                                <Chip
-                                  size="small"
-                                  variant="outlined"
-                                  label={it.isService ? "Service" : "Product"}
-                                  color={it.isService ? "secondary" : "default"}
-                                />
-                              </td>
-                            </Box>
+                              it={it}
+                              expanded={expandedItems.has(it.id)}
+                              onToggleExpand={toggleItem}
+                            />
                           ))}
                         </Box>
                       </Box>
@@ -1253,36 +1332,12 @@ function DeploymentCard({
                         </Box>
                         <Box component="tbody">
                           {inv.documentItems.map((it) => (
-                            <Box
-                              component="tr"
+                            <ItemRow
                               key={it.id}
-                              sx={{
-                                "& td": { p: 0.75, borderTop: 1, borderColor: "divider", fontVariantNumeric: "tabular-nums" },
-                                opacity: it.isService ? 0.7 : 1,
-                              }}
-                            >
-                              {(() => {
-                                const { display, full } = formatItemDescription(it.description);
-                                return full ? (
-                                  <Tooltip title={full} placement="top-start">
-                                    <td style={{ cursor: "help" }}>{display}</td>
-                                  </Tooltip>
-                                ) : (
-                                  <td>{display}</td>
-                                );
-                              })()}
-                              <td>{it.sku ?? "—"}</td>
-                              <td>{it.quantity}</td>
-                              <td>{it.uom ?? "—"}</td>
-                              <td>
-                                <Chip
-                                  size="small"
-                                  variant="outlined"
-                                  label={it.isService ? "Service" : "Product"}
-                                  color={it.isService ? "secondary" : "default"}
-                                />
-                              </td>
-                            </Box>
+                              it={it}
+                              expanded={expandedItems.has(it.id)}
+                              onToggleExpand={toggleItem}
+                            />
                           ))}
                         </Box>
                       </Box>

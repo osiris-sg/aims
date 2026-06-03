@@ -217,6 +217,74 @@ export class ProjectsService {
       const resolvedCustomer =
         project.customer ?? (project.siteOffice as any)?.customer ?? null;
 
+      // ---- Asset hierarchy (subAssets) for documentItems ---------------------
+      // DocumentItem.itemId is a polymorphic UUID (inventory or asset). To show
+      // child assets ("SIDS has a TSS child") on the item rows, gather every
+      // referenced parent asset id in one pass, fetch each parent's subAssets
+      // once, and build a lookup keyed by itemId so the per-item mapping is
+      // O(1). Inventory items need an extra hop (inv.id → inv.assetId).
+      const collectedItemIds = new Set<string>();
+      const collectedInventoryIds = new Set<string>();
+      const collectedAssetIds = new Set<string>();
+      for (const d of project.deployments) {
+        for (const linked of d.invoices) {
+          for (const it of linked.documentItems) {
+            collectedItemIds.add(it.itemId);
+            if (it.itemType === 'INVENTORY') collectedInventoryIds.add(it.itemId);
+            else if (it.itemType === 'ASSET') collectedAssetIds.add(it.itemId);
+          }
+        }
+      }
+      const invRows =
+        collectedInventoryIds.size > 0
+          ? await this.prisma.inventory.findMany({
+              where: { id: { in: [...collectedInventoryIds] }, organizationId },
+              select: { id: true, assetId: true },
+            })
+          : [];
+      const inventoryAssetById = new Map(invRows.map((i) => [i.id, i.assetId]));
+      for (const r of invRows) collectedAssetIds.add(r.assetId);
+
+      const parentAssets =
+        collectedAssetIds.size > 0
+          ? await this.prisma.asset.findMany({
+              where: { id: { in: [...collectedAssetIds] }, deletedAt: null },
+              select: {
+                id: true,
+                subAssets: {
+                  where: { deletedAt: null },
+                  select: {
+                    id: true,
+                    name: true,
+                    skuKey: true,
+                    isTracked: true,
+                    _count: { select: { inventories: true } },
+                  },
+                },
+              },
+            })
+          : [];
+      const subAssetsByParentId = new Map(
+        parentAssets.map((a) => [
+          a.id,
+          a.subAssets.map((s) => ({
+            id: s.id,
+            name: s.name,
+            skuKey: s.skuKey,
+            isTracked: s.isTracked,
+            inventoryCount: s._count.inventories,
+          })),
+        ]),
+      );
+      // Returns the subAssets array for a given documentItem (empty if the
+      // item's resolved parent asset has no children).
+      const subAssetsForItem = (it: { itemId: string; itemType: string }): any[] => {
+        const assetId =
+          it.itemType === 'INVENTORY' ? inventoryAssetById.get(it.itemId) : it.itemId;
+        if (!assetId) return [];
+        return subAssetsByParentId.get(assetId) ?? [];
+      };
+
       // Per-deployment rollups. The `invoices` Prisma relation now contains BOTH
       // DO and invoice Documents (since DOs may be attached to a deployment via
       // Document.projectDeploymentId in Phase 4). Split by allowlisted type.
@@ -259,15 +327,23 @@ export class ProjectsService {
           isServiceOnly,
           sourceDocument: d.sourceDocument,
           assignments: d.assignments,
-          documents: docsBucket.map(({ payments, config, ...rest }) => ({
+          documents: docsBucket.map(({ payments, config, documentItems, ...rest }) => ({
             ...rest,
-            // documentItems already in `rest`; payments/config dropped (DO docs aren't billed)
+            documentItems: (documentItems ?? []).map((it: any) => ({
+              ...it,
+              subAssets: subAssetsForItem(it),
+            })),
+            // payments/config dropped (DO docs aren't billed)
           })),
           // Keep documentItems on the invoice mapper too — the project detail
           // page renders them inline under each invoice (since Biofuel has no
           // DO Documents, this is the only line-item surface available).
-          invoices: invoicesBucket.map(({ payments, config, ...rest }) => ({
+          invoices: invoicesBucket.map(({ payments, config, documentItems, ...rest }) => ({
             ...rest,
+            documentItems: (documentItems ?? []).map((it: any) => ({
+              ...it,
+              subAssets: subAssetsForItem(it),
+            })),
             amount: readDocAmount(config),
             paid: payments.reduce((p, pay) => p + (pay.amount ?? 0), 0),
           })),

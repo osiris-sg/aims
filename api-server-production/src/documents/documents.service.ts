@@ -721,11 +721,15 @@ export class DocumentsService {
   }
 
   /**
-   * Attach (or move) a QUOTATION document to a Project by setting
-   * Document.projectId. Allows overwrite when the quotation is already linked
-   * to a different project (per product decision: re-link = move).
+   * Attach, move, or detach a QUOTATION document's Project link.
+   * - projectId = "<uuid>" : link / re-link (overwrite if already linked).
+   * - projectId = null     : unlink (set Document.projectId to null).
    */
-  async linkProjectToDocument(documentId: string, projectId: string, organizationId: string) {
+  async linkProjectToDocument(
+    documentId: string,
+    projectId: string | null,
+    organizationId: string,
+  ) {
     const doc = await this.prisma.document.findFirst({
       where: { id: documentId, organizationId },
       select: { id: true, type: true, projectId: true },
@@ -737,11 +741,13 @@ export class DocumentsService {
         HttpStatus.BAD_REQUEST,
       );
     }
-    const project = await this.prisma.project.findFirst({
-      where: { id: projectId, organizationId },
-      select: { id: true },
-    });
-    if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
+    if (projectId !== null) {
+      const project = await this.prisma.project.findFirst({
+        where: { id: projectId, organizationId },
+        select: { id: true },
+      });
+      if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
+    }
 
     return this.prisma.document.update({
       where: { id: documentId },
