@@ -2560,7 +2560,7 @@ export default function TabbedDocumentCreator({
                 }
               }}
             >
-              {isTemplateEditMode ? "Save Template" : "Save as Draft"}
+              {isTemplateEditMode ? "Save Template" : isQuotation ? "Save" : "Save as Draft"}
             </Button>
           )}
           {isDocumentConfirmed && (
@@ -4367,7 +4367,7 @@ export default function TabbedDocumentCreator({
               fontWeight: 500,
             }}
           >
-            Save as Draft
+            {isQuotation ? "Save" : "Save as Draft"}
           </Button>
           <Button
             onClick={handleDelete}
