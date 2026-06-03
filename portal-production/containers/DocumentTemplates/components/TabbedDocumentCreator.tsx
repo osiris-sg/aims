@@ -2652,13 +2652,25 @@ export default function TabbedDocumentCreator({
                 which tab is currently active. Customer-scoped: enabled only
                 once a customer is picked; options filtered to that customer
                 (or projects with no customerId — legacy). Saved-doc changes
-                fire PATCH /documents/:id/link-project optimistically. */}
+                fire PATCH /documents/:id/link-project optimistically.
+                position:relative + isolation creates an isolated stacking
+                context so the Autocomplete's internal Popper can't bleed onto
+                the form fields below (which broke Customer Code clicking). */}
             {isQuotation && (
-              <Box sx={{ px: 2, py: 1, bgcolor: "background.paper", borderBottom: 1, borderColor: "divider", display: "flex", alignItems: "center", gap: 1 }}>
+              <Box sx={{ px: 2, py: 1, bgcolor: "background.paper", borderBottom: 1, borderColor: "divider", display: "flex", alignItems: "center", gap: 1, position: "relative", zIndex: 0, isolation: "isolate" }}>
                 <Typography variant="body2" fontWeight={600} sx={{ minWidth: 80 }}>
                   Project:
                 </Typography>
-                <Box sx={{ flex: 1, maxWidth: 480 }}>
+                <Box
+                  sx={{
+                    flex: 1,
+                    maxWidth: 480,
+                    // When the picker is disabled (no customer yet), MUI keeps the
+                    // input wrapper interactive enough to capture stray clicks —
+                    // gate the whole subtree so the field below stays clickable.
+                    pointerEvents: !formData.customer?.id ? "none" : "auto",
+                  }}
+                >
                   <Autocomplete
                     size="small"
                     options={projects.filter((p: any) => !formData.customer?.id || !p.customerId || p.customerId === formData.customer.id)}
@@ -2676,22 +2688,6 @@ export default function TabbedDocumentCreator({
                     )}
                   />
                 </Box>
-                {/* Diagnostic span — logs each render so we can confirm gating
-                    is working. Renders nothing visible. */}
-                {(() => {
-                  if (typeof window !== "undefined") {
-                    // eslint-disable-next-line no-console
-                    console.log("[ProjectPicker]", {
-                      documentType,
-                      isQuotation,
-                      customerId: formData.customer?.id,
-                      projectId: formData.projectId,
-                      projectCount: projects.length,
-                      filteredCount: projects.filter((p: any) => !formData.customer?.id || !p.customerId || p.customerId === formData.customer.id).length,
-                    });
-                  }
-                  return null;
-                })()}
               </Box>
             )}
 
