@@ -720,6 +720,36 @@ export class DocumentsService {
     }
   }
 
+  /**
+   * Attach (or move) a QUOTATION document to a Project by setting
+   * Document.projectId. Allows overwrite when the quotation is already linked
+   * to a different project (per product decision: re-link = move).
+   */
+  async linkProjectToDocument(documentId: string, projectId: string, organizationId: string) {
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true, type: true, projectId: true },
+    });
+    if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+    if (doc.type !== 'QUOTATION') {
+      throw new HttpException(
+        `Only QUOTATION documents can be linked to a project (got "${doc.type}")`,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, organizationId },
+      select: { id: true },
+    });
+    if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
+
+    return this.prisma.document.update({
+      where: { id: documentId },
+      data: { projectId },
+      select: { id: true, name: true, type: true, status: true, projectId: true, createdAt: true, updatedAt: true },
+    });
+  }
+
   async deleteDocument(id: string, organizationId: string) {
     try {
       // First, delete any associated accounting transactions
@@ -865,9 +895,34 @@ export class DocumentsService {
       return createdDocument;
     });
   }
-  async createBasicDocument(documentTemplateId: string, type: string, organizationId: string, config: any = {}) {
+  async createBasicDocument(
+    documentTemplateId: string,
+    type: string,
+    organizationId: string,
+    config: any = {},
+    projectId?: string,
+  ) {
     try {
-      console.log('Creating basic document with template ID:', documentTemplateId, 'Type:', type, 'Organization ID:', organizationId, 'Config:', config);
+      console.log('Creating basic document with template ID:', documentTemplateId, 'Type:', type, 'Organization ID:', organizationId, 'Config:', config, 'ProjectId:', projectId);
+
+      // If projectId is supplied, validate it belongs to this org and prefill
+      // customer info into the config when the caller didn't pass one. Empty-
+      // field-only fill so explicit customer choices in the config are never
+      // overwritten.
+      let resolvedProject: { id: string; customer: any } | null = null;
+      if (projectId) {
+        const project = await this.prisma.project.findFirst({
+          where: { id: projectId, organizationId },
+          select: {
+            id: true,
+            customer: { select: { id: true, name: true, customerCode: true, email: true, phone: true, address: true, gstRegNo: true } },
+          },
+        });
+        if (!project) {
+          throw new HttpException('Project not found in this organization', HttpStatus.NOT_FOUND);
+        }
+        resolvedProject = project;
+      }
 
       // Get organization to check for custom document types and defaults (logo, stamp)
       const organization = await this.prisma.organization.findUnique({
@@ -943,6 +998,12 @@ export class DocumentsService {
       if (!initialConfig.columnLabels && templateConfig.columnLabels && typeof templateConfig.columnLabels === 'object') {
         initialConfig.columnLabels = templateConfig.columnLabels;
       }
+      // Prefill customer info from the project when projectId is supplied and
+      // the caller didn't already populate it. Generic across document types.
+      if (resolvedProject?.customer) {
+        if (!initialConfig.customerId) initialConfig.customerId = resolvedProject.customer.id;
+        if (!initialConfig.customer) initialConfig.customer = resolvedProject.customer;
+      }
 
       const newDocument = await this.prisma.document.create({
         data: {
@@ -952,6 +1013,7 @@ export class DocumentsService {
           organizationId,
           name,
           revisionNumber: 0,
+          projectId: projectId || undefined,
         },
       });
 
