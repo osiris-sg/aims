@@ -1155,6 +1155,25 @@ function DeploymentCard({
     });
   };
 
+  // Deduplicated item summary across all DO/invoice line items in this
+  // deployment. A rental that spans 5 monthly invoices shows the unit once
+  // here; per-invoice itemization is still available by expanding individual
+  // invoices below. Dedupe key prefers itemId (a UUID) and falls back to sku
+  // so service rows / legacy data without itemId don't all collapse onto each
+  // other.
+  const dedupedItems = useMemo<DocumentItemRow[]>(() => {
+    const map = new Map<string, DocumentItemRow>();
+    const all: DocumentItemRow[] = [
+      ...deployment.documents.flatMap((d) => d.documentItems ?? []),
+      ...deployment.invoices.flatMap((i) => i.documentItems ?? []),
+    ];
+    for (const it of all) {
+      const key = it.itemId || it.sku || it.id;
+      if (!map.has(key)) map.set(key, it);
+    }
+    return Array.from(map.values());
+  }, [deployment.documents, deployment.invoices]);
+
   return (
     <Box
       sx={{
@@ -1235,6 +1254,39 @@ function DeploymentCard({
 
       {expanded && (
         <Box sx={{ borderTop: 1, borderColor: "divider", bgcolor: "surfaceTones.low" }}>
+          {/* Deployed Items — deduplicated summary across all DOs/invoices in
+              this deployment. Renders FIRST so users see what was deployed
+              before scrolling through monthly invoice cards. Per-invoice item
+              tables remain available by expanding invoices below. */}
+          {dedupedItems.length > 0 && (
+            <Box sx={{ p: 2, borderBottom: 1, borderColor: "divider" }}>
+              <Typography variant="overline" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+                Deployed Items ({dedupedItems.length})
+              </Typography>
+              <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8125rem", bgcolor: "background.paper" }}>
+                <Box component="thead">
+                  <Box component="tr" sx={{ "& th": { p: 0.75, textAlign: "left", color: "text.secondary", fontSize: "0.6875rem", textTransform: "uppercase", letterSpacing: 0.5 } }}>
+                    <th>Item</th>
+                    <th>SKU</th>
+                    <th>Qty</th>
+                    <th>UOM</th>
+                    <th>Type</th>
+                  </Box>
+                </Box>
+                <Box component="tbody">
+                  {dedupedItems.map((it) => (
+                    <ItemRow
+                      key={`dedup-${it.id}`}
+                      it={it}
+                      expanded={expandedItems.has(it.id)}
+                      onToggleExpand={toggleItem}
+                    />
+                  ))}
+                </Box>
+              </Box>
+            </Box>
+          )}
+
           {/* Delivery Orders section */}
           {deployment.documents.length > 0 && (
             <Box sx={{ p: 2, borderBottom: 1, borderColor: "divider" }}>

@@ -55,13 +55,20 @@ export class ProjectsController {
   }
   @Post('create-by-name')
   @Permissions('projects:create-by-name')
-  async createProjectByName(@Body() body: { name: string }, @Req() req: RequestWithOrganization) {
+  async createProjectByName(
+    @Body() body: { name: string; customerId?: string },
+    @Req() req: RequestWithOrganization,
+  ) {
     try {
       const organizationId = req.userOrganization?.id;
       if (!organizationId) {
         throw new Error('User is not assigned to any organization');
       }
-      return await this.projectsService.createProjectByName(body.name, organizationId);
+      return await this.projectsService.createProjectByName(
+        body.name,
+        organizationId,
+        body.customerId,
+      );
     } catch (error) {
       console.error('Error occurred in createProjectByName:', error);
       throw new HttpException('An unexpected error occurred while creating the project by name.', HttpStatus.INTERNAL_SERVER_ERROR);

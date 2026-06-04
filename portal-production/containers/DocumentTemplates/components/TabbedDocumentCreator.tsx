@@ -613,6 +613,72 @@ export default function TabbedDocumentCreator({
     setFormData((prev: any) => (prev.projectId === nextId ? prev : { ...prev, projectId: nextId }));
   }, [setFormData]);
 
+  // Local projects = props.projects + any project the user has just created
+  // via the "+ Create new project" inline flow. Lets the picker show the new
+  // row immediately without waiting for the parent's useGetProjects refetch.
+  const [locallyCreatedProjects, setLocallyCreatedProjects] = useState<any[]>([]);
+  const effectiveProjects = useMemo(
+    () => [...projects, ...locallyCreatedProjects],
+    [projects, locallyCreatedProjects],
+  );
+  // Drop locally-created entries that have shown up in the refreshed parent
+  // list — keeps the union from growing forever as the parent refetches.
+  useEffect(() => {
+    if (locallyCreatedProjects.length === 0) return;
+    setLocallyCreatedProjects((prev) =>
+      prev.filter((local) => !projects.some((p: any) => p.id === local.id)),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects]);
+
+  // Create-Project inline dialog state.
+  const [createProjectDialogOpen, setCreateProjectDialogOpen] = useState(false);
+  const [createProjectName, setCreateProjectName] = useState("");
+  const [creatingProject, setCreatingProject] = useState(false);
+  const handleCreateProjectSubmit = useCallback(async () => {
+    const trimmed = createProjectName.trim();
+    if (!trimmed) {
+      toast.error("Project name is required");
+      return;
+    }
+    const customerId = formData.customer?.id;
+    if (!customerId) {
+      toast.error("Pick a customer first");
+      return;
+    }
+    setCreatingProject(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await request(
+        { path: "/projects/create-by-name", method: "POST" },
+        { name: trimmed, customerId },
+        token,
+      );
+      if (res?.success && res.data?.id) {
+        const created = {
+          id: res.data.id,
+          name: res.data.name ?? trimmed,
+          customerId: res.data.customerId ?? customerId,
+          status: res.data.status ?? "pending",
+        };
+        setLocallyCreatedProjects((prev) => [...prev, created]);
+        // Auto-select the new project in the picker.
+        setFormData((prev: any) => ({ ...prev, projectId: created.id }));
+        toast.success("Project created");
+        setCreateProjectDialogOpen(false);
+        setCreateProjectName("");
+      } else {
+        toast.error(res?.message ?? "Failed to create project");
+      }
+    } catch (err) {
+      console.error("create project failed:", err);
+      toast.error("Failed to create project");
+    } finally {
+      setCreatingProject(false);
+    }
+  }, [createProjectName, formData.customer?.id, getToken, setFormData]);
+
   // Tracks the last projectId successfully persisted to the backend so we
   // know whether to fire the link-project PATCH on save. Initialized from
   // existingData.projectId on each document load.
@@ -2686,9 +2752,9 @@ export default function TabbedDocumentCreator({
                 <Box sx={{ flex: 1, maxWidth: 480 }}>
                   <Autocomplete
                     size="small"
-                    options={projects.filter((p: any) => !p.customerId || p.customerId === formData.customer.id)}
+                    options={effectiveProjects.filter((p: any) => !p.customerId || p.customerId === formData.customer.id)}
                     getOptionLabel={(option: any) => option?.projectNumber ? `${option.projectNumber} — ${option.name}` : (option?.name ?? "")}
-                    value={projects.find((p: any) => p.id === formData.projectId) || null}
+                    value={effectiveProjects.find((p: any) => p.id === formData.projectId) || null}
                     onChange={(_, newValue: any) => handleProjectLinkChange(newValue?.id || "")}
                     noOptionsText="No projects for this customer"
                     renderInput={(params) => (
@@ -2696,6 +2762,18 @@ export default function TabbedDocumentCreator({
                     )}
                   />
                 </Box>
+                <Button
+                  size="small"
+                  variant="text"
+                  startIcon={<AddIcon />}
+                  onClick={() => {
+                    setCreateProjectName("");
+                    setCreateProjectDialogOpen(true);
+                  }}
+                  sx={{ textTransform: "none" }}
+                >
+                  Create new project
+                </Button>
               </Box>
             )}
 
@@ -5262,6 +5340,54 @@ export default function TabbedDocumentCreator({
           }
         }}
       />
+
+      {/* Create Project Dialog — QUOTATION picker's "+ Create new project"
+          inline flow. Creates a minimal project linked to the currently-
+          selected customer and auto-selects it in the picker. */}
+      <Dialog
+        open={createProjectDialogOpen}
+        onClose={() => (creatingProject ? null : setCreateProjectDialogOpen(false))}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>Create Project</DialogTitle>
+        <DialogContent>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+            For customer <strong>{formData.customer?.name || formData.customer?.id}</strong>.
+            Status defaults to pending; you can fill in the rest later from the
+            Projects page.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            label="Project Name"
+            value={createProjectName}
+            onChange={(e) => setCreateProjectName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !creatingProject) {
+                e.preventDefault();
+                handleCreateProjectSubmit();
+              }
+            }}
+            disabled={creatingProject}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateProjectDialogOpen(false)} disabled={creatingProject}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleCreateProjectSubmit}
+            disabled={creatingProject || !createProjectName.trim()}
+            startIcon={creatingProject ? <CircularProgress size={14} color="inherit" /> : <AddIcon />}
+          >
+            Create
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Salesman Select Dialog */}
       <SalesmanSelectDialog
