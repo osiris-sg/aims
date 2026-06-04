@@ -846,13 +846,17 @@ export class ProjectsService {
     }
   }
 
-  async createProjectByName(name: string, organizationId: string) {
+  async createProjectByName(name: string, organizationId: string, customerId?: string) {
     try {
       const project = await this.prisma.project.create({
         data: {
           name,
           organizationId,
           status: ProjectStatus.pending, // default status
+          // Optional direct customer link — used by the quotation editor's
+          // "+ Create new project" flow so the project shows up under the
+          // selected customer immediately.
+          ...(customerId ? { customerId } : {}),
         },
       });
       return project;
