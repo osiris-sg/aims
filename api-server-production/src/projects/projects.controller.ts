@@ -90,6 +90,23 @@ export class ProjectsController {
     }
   }
 
+  // Field bind flow: create a Deployment + single-item DO for a freshly
+  // bound inventory unit. Reuses the add-assignments permission — it's the
+  // same "field tech attaches an item to a project" capability.
+  @Post(':id/field-deploy')
+  @Permissions('projects:add-assignments')
+  async fieldDeploy(
+    @Param('id') projectId: string,
+    @Body() body: { inventoryId: string; assetId: string },
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return this.projectsService.fieldDeploy(projectId, organizationId, body);
+  }
+
   // ---- Deployments ----------------------------------------------------------
 
   @Get(':id/deployments')
