@@ -5,6 +5,8 @@ import { Box, IconButton, Tooltip } from "@mui/material";
 import LogoutIcon from "@mui/icons-material/Logout";
 import { useAuth, useClerk } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
+import { ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 import { OrganizationProvider } from "../portal/context/OrganizationContext";
 import { BackgroundLocationProvider } from "./context/BackgroundLocationContext";
 
@@ -84,6 +86,11 @@ export default function FieldLayout({ children }: Props) {
             </IconButton>
           </Tooltip>
           {children}
+          {/* Field-flow toasts (e.g. "Item created and assigned to …"). Lives
+              at the layout level so a toast fired right before a
+              router.replace survives the navigation. top-center keeps it
+              clear of the fixed sign-out button at top-right. */}
+          <ToastContainer position="top-center" autoClose={3000} hideProgressBar newestOnTop closeOnClick pauseOnFocusLoss={false} draggable />
         </Box>
       </BackgroundLocationProvider>
     </OrganizationProvider>
