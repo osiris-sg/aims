@@ -113,7 +113,12 @@ export default function StartDeliveryPage() {
       // navigation below shouldn't be gated on the foreground service start
       // (which awaits Android permission prompts that can take seconds).
       void bgLocation.start(reportId);
-      router.replace(`/scan/asset/${assetId}/done`);
+      // Carry inventoryId through to /done so its "Back to this asset" link
+      // can restore the full scan context — without it the action chooser
+      // can't find the DO that references this inventory unit and shows
+      // "No delivery order" until the tech rescans the tag.
+      const invQuery = inventoryId ? `?inventoryId=${encodeURIComponent(inventoryId)}` : "";
+      router.replace(`/scan/asset/${assetId}/done${invQuery}`);
     } catch (e: any) {
       setError(e?.message ?? "Failed to start delivery");
     } finally {
