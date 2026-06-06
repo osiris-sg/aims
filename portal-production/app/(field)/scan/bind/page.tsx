@@ -534,11 +534,17 @@ export default function BindTagPage() {
             fullWidth
           />
 
-          <Divider sx={{ my: 1 }}>
-            <Typography variant="caption" color="text.secondary">
-              Optional — assign to a project
-            </Typography>
-          </Divider>
+          <Divider sx={{ my: 1 }} />
+
+          {/* Explicit section header (not just the divider caption) so the
+              optional assignment block is unmissable on small screens even
+              before the pickers have any options loaded. */}
+          <Typography variant="subtitle2" fontWeight={700}>
+            Assign to Project (optional)
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ mt: -1.5 }}>
+            Pick a customer, then a project — the new item will be assigned to it.
+          </Typography>
 
           <Autocomplete<CustomerOption, false, false, false>
             options={customerOptions}
