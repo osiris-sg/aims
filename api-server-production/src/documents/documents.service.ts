@@ -230,6 +230,36 @@ export class DocumentsService {
         console.log('MSR photos to be stored:', configAsPlainObject.photos.length, 'photos');
       }
 
+      // Preserve "tracking" fields the form doesn't surface. Without this, a
+      // round-trip Save wipes them (the form sends back its full config, but
+      // not these), which breaks downstream features that depend on them:
+      // - sourceOrderId / sourceOrderNumber: how a PO/DO/Invoice traces back
+      //   to its parent Order (used by the supplier-doc verify-upload flow
+      //   to find which order's items to stamp ✓).
+      // - orderType: gates PO editor behaviour (Route Order hides discount,
+      //   shows Less Points; Project cascades top discount).
+      // - sourceDocumentId / sourceDocumentNumber / sourceDocumentType: the
+      //   quotation-to-doc lineage used by the doc breadcrumbs.
+      // Honour an *explicit* overwrite from the form (so it's still possible
+      // to update these via tooling), but never let a bare save erase them.
+      const existingConfig = (existingDocument.config as any) || {};
+      const trackingKeys = [
+        'sourceOrderId',
+        'sourceOrderNumber',
+        'orderType',
+        'sourceDocumentId',
+        'sourceDocumentNumber',
+        'sourceDocumentType',
+      ];
+      for (const k of trackingKeys) {
+        if (
+          (configAsPlainObject as any)[k] === undefined &&
+          existingConfig[k] !== undefined
+        ) {
+          (configAsPlainObject as any)[k] = existingConfig[k];
+        }
+      }
+
       // Validate status transition for invoices
       const invoiceTypesForValidation = ['INVOICE', 'TI', 'TI2'];
       if (dto.status && invoiceTypesForValidation.includes(existingDocument.type)) {
@@ -270,6 +300,18 @@ export class DocumentsService {
         }
       }
 
+      // Sync Document.name with the editable "Purchase Order No." / document
+      // number on the form. When the user types a custom number into the
+      // documentNumber field it becomes the document's authoritative name,
+      // so the orders list, supplier-doc verification (which matches on name),
+      // and any other downstream surface all stay in agreement.
+      const editedDocNumber =
+        (configAsPlainObject as any)?.documentNumber ??
+        (configAsPlainObject as any)?.documentInfo?.documentNumber;
+      const trimmedDocNumber =
+        typeof editedDocNumber === 'string' && editedDocNumber.trim() ? editedDocNumber.trim() : undefined;
+      const nameToWrite = trimmedDocNumber ?? dto.name;
+
       // Update the document itself with config only
       const updatedDocument = await this.prisma.document.update({
         where: {
@@ -281,11 +323,43 @@ export class DocumentsService {
           type: dto.type,
           // Update document status if provided
           status: dto.status, // DocumentStatus enum
-          name: dto.name, // Update document name if provided
+          name: nameToWrite, // Custom doc number wins; otherwise honour dto.name
           // Link to project if projectId exists in config
           projectId: projectId || undefined,
         },
       });
+
+      // Order.linkedDocuments stores a *snapshot* of each linked doc's name —
+      // so when the user renames a PO/DO/Invoice (typically by typing a custom
+      // Purchase Order No.), the chip on the order page would otherwise show
+      // the stale label. Propagate the new name to every order that references
+      // this document. Skip if the name didn't actually change.
+      if (nameToWrite && nameToWrite !== existingDocument.name) {
+        try {
+          const orders = await this.prisma.order.findMany({
+            where: { organizationId },
+            select: { id: true, linkedDocuments: true },
+          });
+          for (const o of orders) {
+            const ld: any = o.linkedDocuments || {};
+            let dirty = false;
+            for (const kind of ['po', 'do', 'invoice'] as const) {
+              const list: any[] = Array.isArray(ld[kind]) ? ld[kind] : [];
+              for (const ref of list) {
+                if (ref && ref.id === id && ref.name !== nameToWrite) {
+                  ref.name = nameToWrite;
+                  dirty = true;
+                }
+              }
+            }
+            if (dirty) {
+              await this.prisma.order.update({ where: { id: o.id }, data: { linkedDocuments: ld } });
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to propagate doc rename to orders.linkedDocuments:', (e as Error).message);
+        }
+      }
 
       // ---- Invoice confirmation gate (price history + AR transaction) ----
       // NOTE: GL auto-posting for invoices lives in confirmInvoice(); this generic
@@ -301,6 +375,37 @@ export class DocumentsService {
         becomingConfirmed,
         willAutoPost: isInvoiceType && becomingConfirmed,
       });
+      // Route Order PO confirm → decrement the org's Points balance by the
+      // editable "Less Points" amount the user entered on the PO. Lives here
+      // because confirms-flip is the trigger; balance moves once-per-confirm
+      // and a confirmed doc can't be re-confirmed (guarded at the top).
+      const isPoType = dto.type === 'PO' || dto.type === 'PURCHASE_ORDER';
+      const cfgForPoints: any = configAsPlainObject || {};
+      const isRouteOrderPo = isPoType && (cfgForPoints?.orderType ?? cfgForPoints?.documentInfo?.orderType) === 'Route Order';
+      if (becomingConfirmed && isRouteOrderPo) {
+        const redeemRaw =
+          cfgForPoints?.documentInfo?.pointsRedeemed ??
+          cfgForPoints?.pointsRedeemed ??
+          cfgForPoints?.documentInfo?.pointsDeducted ?? // legacy auto-computed fallback
+          cfgForPoints?.pointsDeducted ??
+          0;
+        const redeem = Math.max(0, Number(redeemRaw) || 0);
+        if (redeem > 0) {
+          try {
+            const result = await this.prisma.organization.update({
+              where: { id: organizationId },
+              data: { pointsBalance: { decrement: redeem } },
+              select: { pointsBalance: true },
+            });
+            console.log(
+              `🎯 Points debited: -${redeem} on Route Order PO ${id}; new balance ${result.pointsBalance}`,
+            );
+          } catch (err) {
+            console.error('Points debit failed (non-fatal):', (err as Error).message);
+          }
+        }
+      }
+
       if (becomingConfirmed && isInvoiceType) {
         try {
           await this.priceHistoryService.savePriceHistoryFromDocument(id, organizationId);
@@ -1011,13 +1116,24 @@ export class DocumentsService {
         if (!initialConfig.customer) initialConfig.customer = resolvedProject.customer;
       }
 
+      // Honour a user-supplied document number at creation time too — the
+      // editable "Purchase Order No." (or any doc's number field) should
+      // immediately become the document's name. Falls back to the
+      // auto-generated serial when no custom value was passed.
+      const initialDocNumber =
+        (initialConfig as any)?.documentNumber ?? (initialConfig as any)?.documentInfo?.documentNumber;
+      const initialName =
+        typeof initialDocNumber === 'string' && initialDocNumber.trim()
+          ? initialDocNumber.trim()
+          : name;
+
       const newDocument = await this.prisma.document.create({
         data: {
           documentTemplateId,
           type,
           config: initialConfig,
           organizationId,
-          name,
+          name: initialName,
           revisionNumber: 0,
           projectId: projectId || undefined,
         },

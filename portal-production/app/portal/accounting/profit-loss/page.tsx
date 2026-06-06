@@ -20,9 +20,11 @@ import {
 import RefreshIcon from "@mui/icons-material/Refresh";
 import PrintIcon from "@mui/icons-material/Print";
 import DownloadIcon from "@mui/icons-material/Download";
+import LockIcon from "@mui/icons-material/Lock";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
+import CloseWizardDialog from "../_lib/CloseWizardDialog";
 
 type Section = {
   title: string;
@@ -75,7 +77,17 @@ export default function ProfitLossPage() {
   const [tab, setTab] = useState<"PL" | "BS">("PL");
   const [cutOffDate, setCutOffDate] = useState(today);
   const [closingStock, setClosingStock] = useState("0");
+  // Tracks whether the user has manually edited the closing-stock field. If
+  // they have, we don't overwrite it on auto-refetch — they've taken control.
+  const [closingStockTouched, setClosingStockTouched] = useState(false);
+  const [autoClosingStock, setAutoClosingStock] = useState<{
+    total: number;
+    itemsWithMissingCost: number;
+    itemCount: number;
+  } | null>(null);
   const [mode, setMode] = useState<Mode>("STANDARD");
+  const [closeWizardOpen, setCloseWizardOpen] = useState(false);
+  const [closeWizardType, setCloseWizardType] = useState<"MONTH_END" | "YEAR_END">("MONTH_END");
   const [pl, setPl] = useState<PnlReport | null>(null);
   const [bs, setBs] = useState<BsReport | null>(null);
   const [loading, setLoading] = useState(false);
@@ -109,6 +121,34 @@ export default function ProfitLossPage() {
     load();
   }, [load]);
 
+  // Auto-fetch closing-stock valuation when the cut-off date changes. Pre-fills
+  // the input field unless the user has manually overridden the value.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await request<{
+          total: number;
+          itemCount: number;
+          itemsWithMissingCost: number;
+        }>(`/accounting/closing-stock?asOfDate=${cutOffDate}`);
+        if (cancelled) return;
+        setAutoClosingStock(res);
+        if (!closingStockTouched) {
+          setClosingStock(String(res.total));
+        }
+      } catch {
+        // Silent — closing stock pre-fill is a nicety, not required.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // We intentionally exclude closingStockTouched from deps — we only want
+    // this to refire when the date changes, not when the user types.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cutOffDate, request]);
+
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
       {/* Page title — hidden on print */}
@@ -139,39 +179,73 @@ export default function ProfitLossPage() {
             value={cutOffDate}
             onChange={(e) => setCutOffDate(e.target.value)}
           />
-          <TextField
-            size="small"
-            type="number"
-            label="Closing Stock"
-            value={closingStock}
-            onChange={(e) => setClosingStock(e.target.value)}
-            inputProps={{ step: "0.01" }}
-            sx={{ width: 180 }}
-          />
-          <FormControl>
-            <RadioGroup row value={mode} onChange={(e) => setMode(e.target.value as Mode)}>
-              <FormControlLabel value="STANDARD" control={<Radio size="small" />} label="Standard" />
-              <FormControlLabel
-                value="MONTH_END"
-                control={<Radio size="small" />}
-                label="Month-End Closing"
-                disabled
-                sx={{ "& .MuiFormControlLabel-label": { color: "text.disabled" } }}
-              />
-              <FormControlLabel
-                value="YEAR_END"
-                control={<Radio size="small" />}
-                label="Year-End Closing"
-                disabled
-                sx={{ "& .MuiFormControlLabel-label": { color: "text.disabled" } }}
-              />
-            </RadioGroup>
-            {mode !== "STANDARD" && (
-              <Typography variant="caption" sx={{ color: "warning.main", mt: 0.5 }}>
-                Closing modes (post adjustment entries) are not yet implemented — Standard view only.
-              </Typography>
+          <Stack direction="column" gap={0.25}>
+            <TextField
+              size="small"
+              type="number"
+              label="Closing Stock"
+              value={closingStock}
+              onChange={(e) => {
+                setClosingStock(e.target.value);
+                setClosingStockTouched(true);
+              }}
+              inputProps={{ step: "0.01" }}
+              sx={{ width: 180 }}
+              helperText={
+                autoClosingStock
+                  ? closingStockTouched && parseFloat(closingStock) !== autoClosingStock.total
+                    ? `Overriding auto (${autoClosingStock.total.toFixed(2)})`
+                    : `Auto-derived from ${autoClosingStock.itemCount} item${autoClosingStock.itemCount === 1 ? "" : "s"}${autoClosingStock.itemsWithMissingCost > 0 ? ` · ${autoClosingStock.itemsWithMissingCost} missing cost` : ""}`
+                  : " "
+              }
+              FormHelperTextProps={{
+                sx: { fontSize: "0.65rem", mx: 0, mt: 0.25 },
+              }}
+            />
+            {closingStockTouched && autoClosingStock && parseFloat(closingStock) !== autoClosingStock.total && (
+              <Box
+                component="span"
+                onClick={() => {
+                  setClosingStock(String(autoClosingStock.total));
+                  setClosingStockTouched(false);
+                }}
+                sx={{
+                  fontSize: "0.65rem",
+                  color: "primary.main",
+                  cursor: "pointer",
+                  textDecoration: "underline",
+                  alignSelf: "flex-start",
+                }}
+              >
+                Reset to auto
+              </Box>
             )}
-          </FormControl>
+          </Stack>
+          <Stack direction="row" gap={1}>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<LockIcon />}
+              onClick={() => {
+                setCloseWizardType("MONTH_END");
+                setCloseWizardOpen(true);
+              }}
+            >
+              Month-End Close
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              color="primary"
+              startIcon={<LockIcon />}
+              onClick={() => {
+                setCloseWizardType("YEAR_END");
+                setCloseWizardOpen(true);
+              }}
+            >
+              Year-End Close
+            </Button>
+          </Stack>
           <Stack direction="row" gap={1}>
             <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={load}>
               Refresh
@@ -241,6 +315,14 @@ export default function ProfitLossPage() {
           }
         }
       `}</style>
+
+      <CloseWizardDialog
+        open={closeWizardOpen}
+        onClose={() => setCloseWizardOpen(false)}
+        defaultCutOffDate={cutOffDate}
+        defaultType={closeWizardType}
+        onCompleted={() => load()}
+      />
     </Box>
   );
 }

@@ -1,5 +1,6 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { OpenAI } from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { ConfigService } from '@nestjs/config';
 const pdfParse = require('pdf-parse');
 
@@ -84,6 +85,43 @@ export interface ExtractedDocumentData {
     validity?: string;
     shippingMethod?: string;
     [key: string]: any;
+  };
+}
+
+// Supplier reconciliation: a focused extraction shape used when a supplier's
+// DO or Tax Invoice is uploaded to verify it matches a buyer's PO. Captures
+// item CODE separately from description (the PO matches on SKU), and pulls
+// reward / loyalty Points which Route Order POs care about.
+export interface SupplierReconciliationData {
+  docKind?: 'DELIVERY_ORDER' | 'INVOICE' | 'UNKNOWN';
+  docNumber?: string;
+  docDate?: string;
+  // The BUYER's PO reference printed on the supplier doc (e.g. "PO No.",
+  // "Customer PO No."). NOT the supplier's own sales order number.
+  customerPoNumber?: string;
+  salesOrderNumber?: string;
+  projectName?: string;
+  items: Array<{
+    code?: string;
+    description?: string;
+    quantity?: number;
+    unit?: string;
+    unitPrice?: number;
+    amount?: number;
+  }>;
+  totals?: {
+    subtotal?: number;
+    tax?: number;
+    taxPercent?: number;
+    total?: number;
+  };
+  points?: {
+    issued?: number;
+    redeemed?: number;
+  };
+  supplier?: {
+    name?: string;
+    gstRegNo?: string;
   };
 }
 
@@ -504,5 +542,166 @@ export class DocumentExtractionService {
         HttpStatus.INTERNAL_SERVER_ERROR
       );
     }
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Supplier reconciliation extraction (for PO verification on the orders page).
+  // Mirrors processDocumentFile's PDF/image preprocessing but accepts arbitrary
+  // prompts, so we can request a different shape (with item codes + points).
+  // ────────────────────────────────────────────────────────────────────────
+
+  async extractForReconciliation(
+    file: Express.Multer.File,
+  ): Promise<SupplierReconciliationData> {
+    const systemPrompt = `You are an expert at extracting structured data from supplier delivery orders and tax invoices for purchase-order reconciliation. Return STRICT JSON in the exact shape requested. Be precise with numbers and never put a SKU/model code inside "description".`;
+
+    const userPrompt = `Extract the data needed to reconcile this supplier delivery order or tax invoice against a buyer's purchase order. Return ONLY JSON in exactly this shape:
+{
+  "docKind": "DELIVERY_ORDER" | "INVOICE" | "UNKNOWN",
+  "docNumber": "DO No. or Invoice No., string",
+  "docDate": "YYYY-MM-DD",
+  "customerPoNumber": "the BUYER's PO number printed on the doc (labeled 'PO No.', 'Customer PO No.', or similar) — NOT the supplier's sales order",
+  "salesOrderNumber": "supplier's sales order number if shown",
+  "projectName": "Name of Project / Project Name if shown",
+  "items": [
+    {
+      "code": "exact material/model code as printed (e.g. MKM85ZVMG, CTKM25ZVMG). For Daikin docs the first column is 'Material'. Always extract the code separately; never leave it inside 'description'.",
+      "description": "human-readable description with the code removed",
+      "quantity": number,
+      "unit": "EA, PCS, UNIT, etc.",
+      "unitPrice": number,
+      "amount": number
+    }
+  ],
+  "totals": {
+    "subtotal": number,
+    "tax": number,
+    "taxPercent": number,
+    "total": number
+  },
+  "points": {
+    "issued": number,
+    "redeemed": number
+  },
+  "supplier": {
+    "name": "issuing company name",
+    "gstRegNo": "supplier GST reg number"
+  }
+}
+
+Rules:
+- "docKind" = DELIVERY_ORDER if titled "Delivery Order"/"DO"; INVOICE if titled "Tax Invoice"/"Invoice"; otherwise UNKNOWN.
+- For Delivery Orders without prices, omit unitPrice/amount per item and omit "totals".
+- "points.issued" = "Points Issued" / "Reward Points awarded" (the number earned). "points.redeemed" = a "Reward Points" line subtracted from the total (if shown).
+- Use null for unknown scalars and [] for missing items. Numbers must be plain numbers (no commas, no currency).`;
+
+    const raw = await this._extractStructuredJson(file, systemPrompt, userPrompt);
+    return this._cleanReconciliationData(raw);
+  }
+
+  // Claude-based extraction (claude-sonnet-4-6). Mirrors the bills.service
+  // pattern: pass PDFs straight through as a "document" content block (no
+  // pdf-to-png needed), images as an "image" block, and parse a JSON object
+  // out of the response. Returns a raw object that the caller validates.
+  private async _extractStructuredJson(
+    file: Express.Multer.File,
+    systemPrompt: string,
+    userPrompt: string,
+  ): Promise<any> {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new HttpException(
+        'Document reconciliation not configured (missing ANTHROPIC_API_KEY)',
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+
+    const data = file.buffer.toString('base64');
+    const isPdf = file.mimetype === 'application/pdf';
+    const mediaType = isPdf
+      ? 'application/pdf'
+      : ((file.mimetype as any) || 'image/jpeg');
+
+    const content: any[] = [];
+    if (isPdf) {
+      content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } });
+    } else {
+      content.push({ type: 'image', source: { type: 'base64', media_type: mediaType, data } });
+    }
+    content.push({ type: 'text', text: userPrompt });
+
+    const client = new Anthropic({ apiKey });
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 3000,
+      system: systemPrompt,
+      messages: [{ role: 'user', content }],
+    });
+
+    const block = response.content.find((b) => b.type === 'text');
+    const raw = block && 'text' in block ? (block as any).text.trim() : '';
+    // Claude usually returns just the JSON object, but tolerate a stray
+    // preamble by scooping the first {...} chunk.
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) {
+      throw new HttpException('No JSON returned by extractor', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+    try {
+      return JSON.parse(match[0]);
+    } catch (e) {
+      throw new HttpException(
+        `Extractor returned malformed JSON: ${(e as Error).message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  private _cleanReconciliationData(data: any): SupplierReconciliationData {
+    const num = (v: any): number | undefined => {
+      if (v === null || v === undefined || v === '') return undefined;
+      const x = typeof v === 'string' ? parseFloat(v.replace(/[^0-9.\-]/g, '')) : Number(v);
+      return Number.isFinite(x) ? x : undefined;
+    };
+    const str = (v: any): string | undefined =>
+      typeof v === 'string' && v.trim() ? v.trim() : undefined;
+    const kind = ['DELIVERY_ORDER', 'INVOICE', 'UNKNOWN'].includes(data?.docKind)
+      ? (data.docKind as 'DELIVERY_ORDER' | 'INVOICE' | 'UNKNOWN')
+      : 'UNKNOWN';
+    return {
+      docKind: kind,
+      docNumber: str(data?.docNumber),
+      docDate: this.parseDate(data?.docDate),
+      customerPoNumber: str(data?.customerPoNumber),
+      salesOrderNumber: str(data?.salesOrderNumber),
+      projectName: str(data?.projectName),
+      items: (Array.isArray(data?.items) ? data.items : []).map((it: any) => ({
+        code: str(it?.code),
+        description: str(it?.description),
+        quantity: num(it?.quantity),
+        unit: str(it?.unit),
+        unitPrice: num(it?.unitPrice),
+        amount: num(it?.amount),
+      })),
+      totals: data?.totals
+        ? {
+            subtotal: num(data.totals.subtotal),
+            tax: num(data.totals.tax),
+            taxPercent: num(data.totals.taxPercent),
+            total: num(data.totals.total),
+          }
+        : undefined,
+      points: data?.points
+        ? {
+            issued: num(data.points.issued),
+            redeemed: num(data.points.redeemed),
+          }
+        : undefined,
+      supplier: data?.supplier
+        ? {
+            name: str(data.supplier.name),
+            gstRegNo: str(data.supplier.gstRegNo),
+          }
+        : undefined,
+    };
   }
 }

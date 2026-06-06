@@ -150,6 +150,9 @@ export default function DynamicSidebarContent() {
   // the expanded list, used here so the parent click can navigate to a valid
   // sub-page even when the module's bare route doesn't have its own landing.
   const resolveSubmenuRoute = (module: any, submenu: any): string => {
+    // An explicit `href` on the submenu wins — used for cross-module deep links
+    // (e.g. the Accounting module pointing at /portal/settings/accounting-setup).
+    if (typeof submenu === 'object' && submenu?.href) return submenu.href;
     const submenuKey = typeof submenu === 'string' ? submenu : submenu.key;
     if (submenuKey === 'list') return module.config.route;
     if (submenuKey === 'extraction' && module.moduleCode === 'DOCUMENTS') {

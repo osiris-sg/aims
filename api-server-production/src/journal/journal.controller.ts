@@ -94,6 +94,13 @@ export class JournalController {
     });
   }
 
+  @Get('reports/hub')
+  @Permissions('journal:read')
+  @ApiOperation({ summary: 'Finance Hub snapshot — KPIs + Action Queue + Insights' })
+  hub(@Req() req: RequestWithOrganization) {
+    return this.service.hubSnapshot(requireOrgId(req));
+  }
+
   @Get('reports/profit-loss')
   @Permissions('journal:read')
   @ApiOperation({ summary: 'Profit & Loss with this-month / prev-month / YTD columns' })
@@ -114,6 +121,18 @@ export class JournalController {
     const asOfDate = q.asOfDate ? new Date(q.asOfDate) : new Date();
     const closingStock = q.closingStock !== undefined ? Number(q.closingStock) : undefined;
     return this.service.balanceSheetReport(requireOrgId(req), { asOfDate, closingStock });
+  }
+
+  @Get('reports/cash-flow')
+  @Permissions('journal:read')
+  @ApiOperation({ summary: 'Cash flow statement (indirect method) — operating / investing / financing' })
+  @ApiQuery({ name: 'startDate', required: true })
+  @ApiQuery({ name: 'endDate', required: true })
+  cashFlow(@Req() req: RequestWithOrganization, @Query() q: any) {
+    return this.service.cashFlowReport(requireOrgId(req), {
+      startDate: new Date(q.startDate),
+      endDate: new Date(q.endDate),
+    });
   }
 
   @Get('reports/gst')

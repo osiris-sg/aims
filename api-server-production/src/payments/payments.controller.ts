@@ -77,6 +77,18 @@ export class PaymentsController {
     });
   }
 
+  @Post('summary')
+  @Permissions('payments:read')
+  @ApiOperation({ summary: 'Batched payment summary for AR workspace — returns totalPaid/count/lastDate per documentId' })
+  summary(
+    @Body() body: { documentIds: string[] },
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.paymentsService.summaryByDocuments(body.documentIds || [], organizationId);
+  }
+
   @Get('document/:documentId')
   @Permissions('payments:read')
   @ApiOperation({ summary: 'Get payments for a specific document' })

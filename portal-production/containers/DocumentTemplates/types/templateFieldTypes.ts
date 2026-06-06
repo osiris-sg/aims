@@ -12,6 +12,7 @@ export interface FieldDefinition {
   required: boolean;
   gridSize?: 6 | 12; // Grid column size (6 = half width, 12 = full width)
   dataSource?: string; // For select/autocomplete: 'customers', 'projects', 'deliveryOrders', etc.
+  options?: { value: string; label: string }[]; // For select: static options (overrides dataSource)
   placeholder?: string;
   defaultValue?: any;
   filterBy?: string; // For dependent dropdowns: filter by this field (e.g., 'customerId')

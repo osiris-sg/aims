@@ -50,6 +50,18 @@ export class ChartOfAccountsController {
     return this.service.create(requireOrgId(req), dto);
   }
 
+  @Post('categorize')
+  @Permissions('accounting:read')
+  @ApiOperation({
+    summary: 'Smart-categorize: suggest the best-fit GL account(s) for a free-form line description',
+  })
+  categorize(
+    @Req() req: RequestWithOrganization,
+    @Body() body: { description: string; hint?: 'SALE' | 'PURCHASE' | 'EXPENSE' },
+  ) {
+    return this.service.suggestAccount(requireOrgId(req), body.description, body.hint);
+  }
+
   @Post('seed-defaults')
   @Permissions('accounting:create')
   @ApiOperation({ summary: 'Seed the default Singapore SME chart of accounts (only if empty)' })

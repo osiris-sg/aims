@@ -267,6 +267,37 @@ export class PaymentsService {
   /**
    * Get payments for a specific document
    */
+  // Batched payment summary for a list of documents — used by the AR
+  // workspace to enrich the invoice list with totalPaid / outstanding / last
+  // payment date without N+1 queries.
+  async summaryByDocuments(documentIds: string[], organizationId: string) {
+    if (!documentIds?.length) return {};
+    const payments = await this.prisma.payment.findMany({
+      where: { documentId: { in: documentIds }, organizationId },
+      select: { documentId: true, amount: true, paymentDate: true },
+    });
+    const out: Record<
+      string,
+      { totalPaid: number; paymentCount: number; lastPaymentDate: string | null }
+    > = {};
+    for (const id of documentIds) {
+      out[id] = { totalPaid: 0, paymentCount: 0, lastPaymentDate: null };
+    }
+    for (const p of payments) {
+      const row = out[p.documentId];
+      if (!row) continue;
+      row.totalPaid += p.amount;
+      row.paymentCount += 1;
+      const d = p.paymentDate.toISOString();
+      if (!row.lastPaymentDate || d > row.lastPaymentDate) row.lastPaymentDate = d;
+    }
+    // Round totalPaid to 2dp so floats stop being floats.
+    for (const id of documentIds) {
+      out[id].totalPaid = Math.round(out[id].totalPaid * 100) / 100;
+    }
+    return out;
+  }
+
   async findByDocument(documentId: string, organizationId: string) {
     try {
       const payments = await this.prisma.payment.findMany({

@@ -68,6 +68,7 @@ import {
 } from "@mui/icons-material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import CleanDocumentPreview from "./CleanDocumentPreview";
+import RouteOrderPointsEditor from "./RouteOrderPointsEditor";
 // Shared dialog — same component used by the Field Reports tab on the
 // project detail page. Renders a Leaflet map of the live delivery route
 // from /maintenance-reports/:reportId/location-track.
@@ -982,14 +983,20 @@ export default function TabbedDocumentCreator({
     // are tracked per line; the document totals derive the Discounted Price from
     // (dealer − points − doc discount). See the totals useMemo / footer. Accessories
     // add to the system list/dealer/cost (they carry no points).
-    const list = (Number(cu?.unitPrice) || 0) + sumFcu((a) => Number(a.unitPrice) || 0) + sumAcc((a) => Number(a.unitPrice) || 0);
-    const dealer = (cu ? discountPriceOf(cu) : 0) + sumFcu((a) => discountPriceOf(a)) + sumAcc((a) => discountPriceOf(a));
-    const cost = (Number(cu?.costPrice) || 0) + sumFcu((a) => a.costPrice) + sumAcc((a) => a.costPrice);
-    const points = (cu ? pointsOf(cu) : 0) + sumFcu((a) => pointsOf(a));
+    // One "set" = CU + (each FCU × FCU Qty) + (each accessory × Accessory Qty).
+    // Set Qty (masterQty) multiplies the whole set.
+    const m = Number(row.masterQty) || 1;
+    const setList = (Number(cu?.unitPrice) || 0) + sumFcu((a) => Number(a.unitPrice) || 0) + sumAcc((a) => Number(a.unitPrice) || 0);
+    const setDealer = (cu ? discountPriceOf(cu) : 0) + sumFcu((a) => discountPriceOf(a)) + sumAcc((a) => discountPriceOf(a));
+    const setCost = (Number(cu?.costPrice) || 0) + sumFcu((a) => a.costPrice) + sumAcc((a) => a.costPrice);
+    const setPoints = (cu ? pointsOf(cu) : 0) + sumFcu((a) => pointsOf(a));
+    const list = m * setList;
+    const dealer = m * setDealer;
+    const cost = m * setCost;
+    const points = m * setPoints;
     const label = [cu?.sku, ...fcuRows.map(({ a, qty }: any) => (qty > 1 ? `${qty}× ${a.sku}` : a.sku))].filter(Boolean).join(" + ");
 
-    // Qty lives on each FCU now, so the row itself is a single combined unit.
-    return { ...row, listPrice: list, discountPrice: dealer, costPrice: cost, pointsTotal: points, unitPrice: list, quantity: 1, amount: list, description: label, itemCode: label };
+    return { ...row, masterQty: m, listPrice: list, discountPrice: dealer, costPrice: cost, pointsTotal: points, unitPrice: list, quantity: m, amount: list, description: label, itemCode: label };
   };
 
   // Merge an FCU's tagged accessories (Sky Air panel + wired remote) into a row's
@@ -1054,6 +1061,21 @@ export default function TabbedDocumentCreator({
     }));
   };
 
+  // Per-accessory quantity.
+  const setAccessoryQtyAt = (rowId: number, index: number, qty: number) => {
+    setItems((prev: any[]) => prev.map((it: any) => {
+      if (it.id !== rowId) return it;
+      const accessories = [...(it.accessories || [])];
+      if (index < accessories.length) accessories[index] = { ...accessories[index], qty };
+      return recalcFcuCuRow({ ...it, accessories });
+    }));
+  };
+
+  // Master/Set qty — multiplies CU + all FCUs + all accessories for the row.
+  const setMasterQty = (rowId: number, qty: number) => {
+    setItems((prev: any[]) => prev.map((it: any) => (it.id === rowId ? recalcFcuCuRow({ ...it, masterQty: qty }) : it)));
+  };
+
   // Set/replace/remove an accessory slot (panel/remote/pump). Qty defaults to 1.
   const setAccessoryAt = (rowId: number, index: number, accId: string) => {
     setItems((prev: any[]) => prev.map((it: any) => {
@@ -1073,7 +1095,7 @@ export default function TabbedDocumentCreator({
   const addFcuCuRow = () => {
     setItems((prev: any[]) => [
       ...prev,
-      { id: Date.now(), cuAssetId: "", cuCode: "", cuName: "", fcus: [], accessories: [], quantity: 1, listPrice: 0, discountPrice: 0, costPrice: 0, unitPrice: 0, amount: 0 },
+      { id: Date.now(), cuAssetId: "", cuCode: "", cuName: "", fcus: [], accessories: [], masterQty: 1, quantity: 1, listPrice: 0, discountPrice: 0, costPrice: 0, unitPrice: 0, amount: 0 },
     ]);
   };
 
@@ -1081,14 +1103,25 @@ export default function TabbedDocumentCreator({
   const openQfPicker = (rowId: number, target: "cu" | "fcu" | "accessory", slotIndex: number) =>
     setQfPicker({ rowId, target, slotIndex });
 
-  // Items shown in the QF picker: CUs, FCUs scoped to the CU's children, or accessories.
+  // Items shown in the QF picker: CUs, FCUs scoped to the CU's children, or
+  // accessories scoped to the row's selected FCU(s) (defaults + options).
   const qfPickerRow = qfPicker ? items.find((it: any) => it.id === qfPicker.rowId) : null;
+  const accessoriesForRow = (row: any) => {
+    const ids = new Set<string>();
+    (row?.fcus || []).forEach((f: any) => {
+      const fcuObj = inventoriesForDocument.find((i: any) => i.id === f.assetId);
+      (fcuObj?.accessoryIds || []).forEach((id: string) => ids.add(id));
+      (fcuObj?.accessoryOptionIds || []).forEach((id: string) => ids.add(id));
+    });
+    const scoped = accOptions.filter((a: any) => ids.has(a.id));
+    return scoped.length ? scoped : accOptions; // fall back to all if no FCU picked
+  };
   const qfPickerItems = !qfPicker
     ? []
     : qfPicker.target === "cu"
     ? cuOptions
     : qfPicker.target === "accessory"
-    ? accOptions
+    ? accessoriesForRow(qfPickerRow)
     : fcuOptionsForCu(qfPickerRow?.cuAssetId);
 
   const handleQfPick = (picked: any) => {
@@ -1104,6 +1137,38 @@ export default function TabbedDocumentCreator({
   const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
   const isCreditDebitNote = documentType === "CN" || documentType === "CREDIT_NOTE" || documentType === "DN" || documentType === "DEBIT_NOTE";
   const subtotal = items.reduce((acc: number, item: any) => acc + (item.amount || 0), 0);
+
+  // PO-from-order discount gating by the source order's Type (carried in config.orderType).
+  // Project: the top discount % cascades into item-level discounts (applied once, at item level).
+  // Route Order: both the top discount and the item Discount column are hidden.
+  const poOrderType = String(
+    (formData?.documentInfo as any)?.orderType ?? (formData as any)?.orderType ??
+    (existingData as any)?.orderType ?? existingData?.documentInfo?.orderType ?? "",
+  );
+  const isPurchaseOrderDoc = documentType === "PO" || documentType === "PURCHASE_ORDER";
+  const isRouteOrderPO = isPurchaseOrderDoc && poOrderType === "Route Order";
+  const isProjectPO = isPurchaseOrderDoc && poOrderType === "Project";
+  // Route Order PO: auto-computed Σ points × qty across items — used as the
+  // default "Less Points" deduction unless the user has manually edited the
+  // amount they want to redeem from the org-wide Points balance.
+  const poTotalPoints = isRouteOrderPO
+    ? items.reduce((s: number, it: any) => s + (Number(it.points) || 0) * (Number(it.quantity) || 0), 0)
+    : 0;
+  // User-editable redemption (lives on documentInfo.pointsRedeemed). When
+  // unset, fall back to the auto-computed total so existing POs keep
+  // showing what they always did. Cleared (empty string) → fall back too.
+  const pointsRedeemedRaw = (formData?.documentInfo as any)?.pointsRedeemed;
+  const poPointsRedeemed =
+    isRouteOrderPO
+      ? pointsRedeemedRaw != null && String(pointsRedeemedRaw) !== ""
+        ? Math.max(0, Number(pointsRedeemedRaw) || 0)
+        : poTotalPoints
+      : 0;
+
+  // QF quotation "Type" drives the pricing waterfall. Project sells at the
+  // list/unit price — only the document discount applies, no dealer tier and no
+  // points deduction. Route Order (the default) sells at dealer − points.
+  const isProjectQuote = isFcuCuVariant && poOrderType === "Project";
 
   // Check if tax is applicable (from form Tax Y/N toggle)
   const isTaxApplicable = formData?.documentInfo?.taxApplicable !== 'N' && formData?.documentInfo?.taxApplicable !== false;
@@ -1133,13 +1198,15 @@ export default function TabbedDocumentCreator({
     const gstPercent = isTaxApplicable ? (parseFloat(di?.gstPercent) || organization?.taxRate || 9) : 0;
     const r2 = (n: number) => parseFloat((Number(n) || 0).toFixed(2));
 
-    // FCU-CU (QF) waterfall: Gross = Σ Unit Price (list); Discounted Price =
-    // Σ Dealer − Σ Points − doc discount; Nett = Discounted Price + GST.
+    // FCU-CU (QF) waterfall. Route Order: Gross = Σ list; base = Σ Dealer −
+    // Σ Points; Discounted Price = base − doc discount. Project: base = Σ list
+    // (no dealer, no points) so the quotation shows the unit price minus only
+    // the document discount. Nett = Discounted Price + GST either way.
     if (isFcuCuVariant) {
       const grossTotal = items.reduce((a: number, it: any) => a + (Number(it.listPrice) || 0), 0);
-      const dealerTotal = items.reduce((a: number, it: any) => a + (Number(it.discountPrice) || 0), 0);
-      const pointsTotal = items.reduce((a: number, it: any) => a + (Number(it.pointsTotal) || 0), 0);
-      const afterPoints = Math.max(0, dealerTotal - pointsTotal);
+      const dealerTotal = isProjectQuote ? 0 : items.reduce((a: number, it: any) => a + (Number(it.discountPrice) || 0), 0);
+      const pointsTotal = isProjectQuote ? 0 : items.reduce((a: number, it: any) => a + (Number(it.pointsTotal) || 0), 0);
+      const afterPoints = isProjectQuote ? grossTotal : Math.max(0, dealerTotal - pointsTotal);
       const discountAmount = discountType === "amount" ? Math.min(discountValue, afterPoints) : afterPoints * (discountValue / 100);
       const discountedPrice = Math.max(0, afterPoints - discountAmount);
       let gstAmount: number, nettTotal: number;
@@ -1169,7 +1236,11 @@ export default function TabbedDocumentCreator({
 
     const grossTotal = subtotal;
     // Per-document discount: either a % of the gross or a flat $ amount (capped at gross).
-    const discountAmount = discountType === "amount"
+    // Project PO: the discount lives on the item lines (cascaded), so don't apply it
+    // again at the document level.
+    const discountAmount = isProjectPO
+      ? 0
+      : discountType === "amount"
       ? Math.min(discountValue, grossTotal)
       : grossTotal * (discountValue / 100);
     const subTotalAfterDiscount = grossTotal - discountAmount;
@@ -1178,13 +1249,17 @@ export default function TabbedDocumentCreator({
     let nettTotal: number;
 
     if (isAbsorbTax && gstPercent > 0) {
-      // Absorb tax: total stays the same, GST is back-calculated from within
-      nettTotal = subTotalAfterDiscount;
-      gstAmount = nettTotal * gstPercent / (100 + gstPercent);
+      // Absorb tax: total stays the same, GST is back-calculated from within.
+      // Points come off after that so 1 point = $1 off the displayed Nett.
+      gstAmount = subTotalAfterDiscount * gstPercent / (100 + gstPercent);
+      nettTotal = subTotalAfterDiscount - poPointsRedeemed;
     } else {
-      // Normal: GST added on top
+      // Normal: GST is computed on the full sub-total (not on sub − points),
+      // then points come off the Nett directly. This makes "Less Points"
+      // behave like a flat $-for-$ deduction — the value the user types is
+      // exactly what comes off the Nett Total.
       gstAmount = subTotalAfterDiscount * (gstPercent / 100);
-      nettTotal = subTotalAfterDiscount + gstAmount;
+      nettTotal = subTotalAfterDiscount + gstAmount - poPointsRedeemed;
     }
 
     setFormDataState((prev: any) => ({
@@ -1193,12 +1268,34 @@ export default function TabbedDocumentCreator({
         ...prev.documentInfo,
         grossTotal: r2(grossTotal),
         discountAmount: r2(discountAmount),
+        // Saved: the user's chosen redemption (drives Less Points everywhere
+        // including the clean preview); pointsDeducted kept as a legacy alias.
+        pointsRedeemed: r2(poPointsRedeemed),
+        pointsDeducted: r2(poPointsRedeemed),
         subTotal: isAbsorbTax ? r2(subTotalAfterDiscount - gstAmount) : r2(subTotalAfterDiscount),
         gstAmount: r2(gstAmount),
         nettTotal: r2(nettTotal),
       },
     }));
-  }, [subtotal, items, isFcuCuVariant, isNettRoundDownEnabled, (formData?.documentInfo as any)?.discountPercent, (formData?.documentInfo as any)?.discountType, (formData?.documentInfo as any)?.gstPercent, formData?.documentInfo?.taxApplicable, formData?.documentInfo?.absorbTax, isTaxApplicable, isAbsorbTax]);
+  }, [subtotal, items, isFcuCuVariant, isProjectQuote, isNettRoundDownEnabled, poPointsRedeemed, (formData?.documentInfo as any)?.discountPercent, (formData?.documentInfo as any)?.discountType, (formData?.documentInfo as any)?.gstPercent, formData?.documentInfo?.taxApplicable, formData?.documentInfo?.absorbTax, isTaxApplicable, isAbsorbTax]);
+
+  // Project PO: when the top Discount % changes, cascade it into every item's
+  // discount (applied once at item level — the document-level discount is then
+  // zeroed in the totals so it isn't double-counted). Skips the initial mount so
+  // a saved PO's per-item discounts aren't clobbered on load.
+  const cascadedDiscRef = useRef<number | null>(null);
+  useEffect(() => {
+    const dp = parseFloat((formData?.documentInfo as any)?.discountPercent) || 0;
+    if (!isProjectPO) { cascadedDiscRef.current = dp; return; }
+    if (cascadedDiscRef.current === null) { cascadedDiscRef.current = dp; return; } // skip mount
+    if (cascadedDiscRef.current === dp) return;
+    cascadedDiscRef.current = dp;
+    setItems((prev: any[]) => prev.map((it: any) => {
+      const qty = Number(it.quantity) || 0;
+      const unit = Number(it.unitPrice) || 0;
+      return { ...it, discount: dp, discountType: "percent", amount: qty * unit * (1 - dp / 100) };
+    }));
+  }, [(formData?.documentInfo as any)?.discountPercent, isProjectPO]);
 
   const handleMainTabChange = (_: React.SyntheticEvent, newValue: number) => {
     setMainTabValue(newValue);
@@ -2822,6 +2919,7 @@ export default function TabbedDocumentCreator({
                     fields={tab.fields}
                     formData={formData}
                     setFormData={setFormData}
+                    hideDiscount={isRouteOrderPO}
                     customers={customers}
                     suppliers={suppliers}
                     projects={projects}
@@ -3495,9 +3593,9 @@ export default function TabbedDocumentCreator({
                                 : isDeliveryOrderType || isCreditDebitNote
                                 ? ["item", "description", "uom", "quantity", "unitPrice", "amount"]
                                 : ["item", "description", "quantity", "unitPrice", "tax", "amount"];
-                              const defaultColumns = (configuredColumns && configuredColumns.length > 0)
+                              const defaultColumns = ((configuredColumns && configuredColumns.length > 0)
                                 ? configuredColumns
-                                : baseDefaultColumns;
+                                : baseDefaultColumns).filter((c: string) => !(isRouteOrderPO && c === "discount"));
                               return (isTemplateEditMode ? templateWatch("tableColumnOrder") : defaultColumns).map((columnId: string) => {
                                 // Skip tax column for invoices
                                 if (isInvoiceType && columnId === "tax") return null;
@@ -3522,6 +3620,8 @@ export default function TabbedDocumentCreator({
                                 columnId === "cuModel" ? "CU Model" :
                                 columnId === "fcuModel" ? "FCU Model" :
                                 columnId === "accessories" ? "Accessories" :
+                                columnId === "accessoryQty" ? "Accessory Qty" :
+                                columnId === "masterQty" ? "Set Qty" :
                                 columnId === "listPrice" ? "Unit Price" :
                                 columnId === "discountPrice" ? "Dealer Price" :
                                 columnId === "costPrice" ? "Cost Price" :
@@ -3599,9 +3699,9 @@ export default function TabbedDocumentCreator({
                                   : isDeliveryOrderType || isCreditDebitNote
                                   ? ["item", "description", "uom", "quantity", "unitPrice", "amount"]
                                   : ["item", "description", "quantity", "unitPrice", "tax", "amount"];
-                                const defaultColumns = (configuredColumns && configuredColumns.length > 0)
+                                const defaultColumns = ((configuredColumns && configuredColumns.length > 0)
                                   ? configuredColumns
-                                  : baseDefaultColumns;
+                                  : baseDefaultColumns).filter((c: string) => !(isRouteOrderPO && c === "discount"));
                                 return (isTemplateEditMode ? templateWatch("tableColumnOrder") : defaultColumns).map((columnId: string) => {
                                   // Skip tax column for invoices
                                   if (isInvoiceType && columnId === "tax") return null;
@@ -3732,6 +3832,41 @@ export default function TabbedDocumentCreator({
                                         onChange={(e) => updateItem(item.id, "quantity", parseFloat(e.target.value))}
                                         size="small"
                                         sx={{ width: 80 }}
+                                      />
+                                    </TableCell>
+                                  );
+                                } else if (columnId === "accessoryQty") {
+                                  // Per-accessory qty, stacked to line up with the accessory chips.
+                                  const selectedAcc = (item.accessories || []) as any[];
+                                  return (
+                                    <TableCell key={columnId} align="center">
+                                      <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+                                        {selectedAcc.map((a: any, idx: number) => (
+                                          <Box key={idx} sx={{ height: 40, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                            <TextField
+                                              type="number"
+                                              size="small"
+                                              value={a.qty ?? 1}
+                                              onChange={(e) => setAccessoryQtyAt(item.id, idx, parseFloat(e.target.value) || 0)}
+                                              sx={{ width: 80 }}
+                                              inputProps={{ min: 0 }}
+                                            />
+                                          </Box>
+                                        ))}
+                                      </Box>
+                                    </TableCell>
+                                  );
+                                } else if (columnId === "masterQty") {
+                                  // Master/Set qty — multiplies CU + all FCUs + all accessories.
+                                  return (
+                                    <TableCell key={columnId} align="center">
+                                      <TextField
+                                        type="number"
+                                        size="small"
+                                        value={item.masterQty ?? 1}
+                                        onChange={(e) => setMasterQty(item.id, parseFloat(e.target.value) || 0)}
+                                        sx={{ width: 80 }}
+                                        inputProps={{ min: 0 }}
                                       />
                                     </TableCell>
                                   );
@@ -3958,7 +4093,7 @@ export default function TabbedDocumentCreator({
                                     <TableCell key={columnId}>
                                       <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
                                         {selectedAcc.map((a: any, idx: number) => (
-                                          <Box key={idx} sx={{ display: "flex", alignItems: "center", mb: 0.25 }}>
+                                          <Box key={idx} sx={{ height: 40, display: "flex", alignItems: "center" }}>
                                             <Chip
                                               size="small"
                                               label={a.code}
@@ -4145,13 +4280,14 @@ export default function TabbedDocumentCreator({
                                 const discType = dInfo?.discountType || "percent";
                                 const gstPct = isTaxApplicable ? (parseFloat(dInfo?.gstPercent) || organization?.taxRate || 9) : 0;
 
-                                // FCU-CU (QF): Gross = Σ Unit Price (list); Discounted Price =
-                                // Σ Dealer − Σ Points − doc discount; Nett = Discounted + GST.
+                                // FCU-CU (QF): Route Order base = Σ Dealer − Σ Points;
+                                // Project base = Σ list (unit price). Discounted Price =
+                                // base − doc discount; Nett = Discounted + GST.
                                 if (isFcuCuVariant) {
                                   const gross = items.reduce((a: number, it: any) => a + (Number(it.listPrice) || 0), 0);
-                                  const dealerTotal = items.reduce((a: number, it: any) => a + (Number(it.discountPrice) || 0), 0);
-                                  const pointsTotal = items.reduce((a: number, it: any) => a + (Number(it.pointsTotal) || 0), 0);
-                                  const afterPoints = Math.max(0, dealerTotal - pointsTotal);
+                                  const dealerTotal = isProjectQuote ? 0 : items.reduce((a: number, it: any) => a + (Number(it.discountPrice) || 0), 0);
+                                  const pointsTotal = isProjectQuote ? 0 : items.reduce((a: number, it: any) => a + (Number(it.pointsTotal) || 0), 0);
+                                  const afterPoints = isProjectQuote ? gross : Math.max(0, dealerTotal - pointsTotal);
                                   const discAmt = discType === "amount" ? Math.min(discPct, afterPoints) : afterPoints * (discPct / 100);
                                   const discountedPrice = Math.max(0, afterPoints - discAmt);
                                   const gst = isAbsorbTax && gstPct > 0 ? discountedPrice * gstPct / (100 + gstPct) : discountedPrice * (gstPct / 100);
@@ -4181,12 +4317,20 @@ export default function TabbedDocumentCreator({
                                   );
                                 }
 
-                                const discAmt = discType === "amount" ? Math.min(discPct, subtotal) : subtotal * (discPct / 100);
+                                const discAmt = isProjectPO ? 0 : (discType === "amount" ? Math.min(discPct, subtotal) : subtotal * (discPct / 100));
                                 const afterDisc = subtotal - discAmt;
+                                // 1 point = $1 off the Nett: GST is computed
+                                // on the sub-total (no points adjustment),
+                                // then points are deducted from the Nett.
                                 const gst = isAbsorbTax && gstPct > 0
                                   ? afterDisc * gstPct / (100 + gstPct)
                                   : afterDisc * (gstPct / 100);
-                                const nett = roundNettDown(isAbsorbTax ? afterDisc : afterDisc + gst);
+                                // Skip round-down on Route Order POs — the
+                                // user is fine-tuning points to the dollar
+                                // and round-to-nearest-5 would mask their
+                                // per-tick edits.
+                                const nettRaw = (isAbsorbTax ? afterDisc : afterDisc + gst) - poPointsRedeemed;
+                                const nett = isRouteOrderPO ? nettRaw : roundNettDown(nettRaw);
                                 const displaySubtotal = isAbsorbTax ? afterDisc - gst : afterDisc;
 
                                 return (
@@ -4212,6 +4356,26 @@ export default function TabbedDocumentCreator({
                                         </Typography>
                                         <Typography variant="body2">{currency} {gst.toFixed(2)}</Typography>
                                       </Box>
+                                    )}
+                                    {isRouteOrderPO && (
+                                      <RouteOrderPointsEditor
+                                        currency={currency}
+                                        autoComputed={poTotalPoints}
+                                        redeemed={poPointsRedeemed}
+                                        onChangeRedeemed={(v) =>
+                                          setFormDataState((prev: any) => ({
+                                            ...prev,
+                                            documentInfo: { ...prev.documentInfo, pointsRedeemed: v },
+                                          }))
+                                        }
+                                        onResetRedeemed={() =>
+                                          setFormDataState((prev: any) => {
+                                            const di = { ...(prev.documentInfo || {}) };
+                                            delete di.pointsRedeemed;
+                                            return { ...prev, documentInfo: di };
+                                          })
+                                        }
+                                      />
                                     )}
                                     <Divider sx={{ my: 0.5 }} />
                                     <Box sx={{ display: "flex", justifyContent: "space-between" }}>
@@ -4318,6 +4482,12 @@ export default function TabbedDocumentCreator({
                 data={{
                   ...formData,
                   items: items,
+                  // Forward the resolved order Type so the PO/PR preview can
+                  // gate the "Less Points" deduction. orderType lives on
+                  // existingData (and documentInfo) — formData alone drops it,
+                  // which is why the footer showed Less Points but the preview
+                  // didn't.
+                  orderType: poOrderType || (formData as any)?.orderType,
                   logo: organization?.logo, // Pass the logo from organization
                   // Forward the per-template column layout so the preview
                   // renders the configured columns (e.g. FCU/CU Quotation).
@@ -4831,6 +5001,7 @@ export default function TabbedDocumentCreator({
             ? "cost"
             : "selling"
         }
+        showCapacity
       />
 
       {/* Delivery Route dialog — triggered by the Show Route button at the
@@ -4853,6 +5024,7 @@ export default function TabbedDocumentCreator({
         priceMode="selling"
         showDealerPrice
         showPoints
+        showCapacity
       />
 
       {/* Locate Document Dialog */}

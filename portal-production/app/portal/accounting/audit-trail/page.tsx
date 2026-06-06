@@ -29,8 +29,10 @@ import PrintIcon from "@mui/icons-material/Print";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import SearchIcon from "@mui/icons-material/Search";
 import CloseIcon from "@mui/icons-material/Close";
+import AddIcon from "@mui/icons-material/Add";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
+import JournalEntryDialog from "../_lib/JournalEntryDialog";
 
 type Account = { id: string; code: string; name: string };
 
@@ -79,6 +81,7 @@ export default function AuditTrailPage() {
   const [filters, setFilters] = useState({ type: "", status: "", startDate: "", endDate: "" });
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<JournalEntry | null>(null);
+  const [newOpen, setNewOpen] = useState(false);
 
   const queryString = useMemo(() => {
     const p = new URLSearchParams();
@@ -218,6 +221,14 @@ export default function AuditTrailPage() {
           <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={load}>
             Refresh
           </Button>
+          <Button
+            startIcon={<AddIcon />}
+            variant="contained"
+            size="small"
+            onClick={() => setNewOpen(true)}
+          >
+            New Entry
+          </Button>
         </Stack>
       </Paper>
 
@@ -289,6 +300,7 @@ export default function AuditTrailPage() {
       </TableContainer>
 
       <EntryDialog entry={selected} onClose={() => setSelected(null)} />
+      <JournalEntryDialog open={newOpen} onClose={() => setNewOpen(false)} onCreated={load} />
     </Box>
   );
 }

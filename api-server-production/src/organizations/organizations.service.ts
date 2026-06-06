@@ -157,6 +157,40 @@ export class OrganizationsService {
     });
   }
 
+  /**
+   * Read just the reward Points balance — cheap pinpoint query so the PO
+   * editor can poll without dragging the whole org graph along.
+   */
+  async getPointsBalance(id: string) {
+    return this.prisma.organization.findUnique({
+      where: { id },
+      select: { id: true, pointsBalance: true },
+    });
+  }
+
+  /** Set the org's Points balance to an absolute value (inline edit). */
+  async setPointsBalance(id: string, balance: number) {
+    return this.prisma.organization.update({
+      where: { id },
+      data: { pointsBalance: balance },
+      select: { id: true, pointsBalance: true },
+    });
+  }
+
+  /**
+   * Atomic decrement used by the document confirm path when a Route Order PO
+   * flips to confirmed. Returns the new balance. Negative balances are
+   * allowed (the user can over-redeem and reconcile later).
+   */
+  async decrementPointsBalance(id: string, amount: number) {
+    if (!amount) return this.getPointsBalance(id);
+    return this.prisma.organization.update({
+      where: { id },
+      data: { pointsBalance: { decrement: amount } },
+      select: { id: true, pointsBalance: true },
+    });
+  }
+
   async findOne(id: string) {
     return this.prisma.organization.findUnique({
       where: { id },

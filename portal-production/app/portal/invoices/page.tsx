@@ -10,6 +10,8 @@ import { Box, IconButton, Alert, Button } from "@mui/material";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import DownloadIcon from "@mui/icons-material/Download";
 import LinkIcon from "@mui/icons-material/Link";
+import PaymentIcon from "@mui/icons-material/Payment";
+import { Tab, Tabs, Chip, alpha } from "@mui/material";
 import { useRouter } from "next/navigation";
 import moment from "moment";
 import { toast } from "react-toastify";
@@ -18,6 +20,7 @@ import { ROUTES } from "@/routes";
 import CustomerSelectionDrawer from "./components/CustomerSelectionDrawer";
 import InvoiceVariantDrawer from "./components/InvoiceVariantDrawer";
 import InvoiceStatistics from "./components/InvoiceStatistics";
+import RecordPaymentDialog from "./components/RecordPaymentDialog";
 import { useXeroConnection } from "./hooks/useXeroConnection";
 
 interface Document {
@@ -100,6 +103,59 @@ export default function InvoicesPage() {
   const [variantDrawerOpen, setVariantDrawerOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
 
+  // AR workspace state: per-invoice payment summary (totalPaid / count / last),
+  // active status tab, and the quick "Record Payment" dialog.
+  type PaymentSummaryRow = { totalPaid: number; paymentCount: number; lastPaymentDate: string | null };
+  const [paymentSummary, setPaymentSummary] = useState<Record<string, PaymentSummaryRow>>({});
+  const [arTab, setArTab] = useState<"all" | "awaiting" | "overdue" | "paid">("all");
+  const [payDialogOpen, setPayDialogOpen] = useState(false);
+  const [payDialogInvoice, setPayDialogInvoice] = useState<any>(null);
+
+  // Read the invoice's gross total from its config blob. Documents store the
+  // form data under config.summary / config.nettTotal / etc. — try a few.
+  const getInvoiceTotal = (doc: any): number => {
+    const cfg = doc?.config || {};
+    const candidates = [cfg?.summary?.grandTotal, cfg?.nettTotal, cfg?.grandTotal, cfg?.total, cfg?.summary?.total];
+    for (const c of candidates) {
+      const n = parseFloat(c);
+      if (!isNaN(n) && n > 0) return n;
+    }
+    // Fallback: sum line items if present.
+    if (Array.isArray(cfg.items)) {
+      const sum = cfg.items.reduce((s: number, it: any) => {
+        const amt = parseFloat(it.amount) || parseFloat(it.quantity) * parseFloat(it.unitPrice) || 0;
+        return s + amt;
+      }, 0);
+      if (sum > 0) return sum;
+    }
+    return 0;
+  };
+
+  const getDueDate = (doc: any): Date | null => {
+    const d = doc?.config?.dueDate;
+    return d ? new Date(d) : null;
+  };
+
+  // Days overdue for unpaid invoices. Negative = days until due. null = no due date.
+  const daysOverdue = (doc: any): number | null => {
+    const due = getDueDate(doc);
+    if (!due) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diff = Math.floor((today.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
+    return diff;
+  };
+
+  // Derived per-invoice status for AR tabs. "paid" beats document status.
+  const arStatusOf = (doc: any): "paid" | "overdue" | "awaiting" => {
+    const total = getInvoiceTotal(doc);
+    const paid = paymentSummary[doc.id]?.totalPaid ?? 0;
+    if (total > 0 && paid >= total - 0.005) return "paid";
+    const od = daysOverdue(doc);
+    if (od !== null && od > 0) return "overdue";
+    return "awaiting";
+  };
+
   // Xero connection hook
   const { connectionStatus, loading: xeroLoading, connectToXero } = useXeroConnection();
 
@@ -180,6 +236,51 @@ export default function InvoicesPage() {
       },
     },
     {
+      accessorKey: "outstanding",
+      header: "Outstanding",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      cell: ({ row }: any) => {
+        const total = getInvoiceTotal(row.original);
+        const paid = paymentSummary[row.original.id]?.totalPaid ?? 0;
+        const outstanding = Math.max(0, total - paid);
+        const fmt = (n: number) =>
+          n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return (
+          <Box sx={{ textAlign: "right", fontFamily: "monospace" }}>
+            <Box sx={{ fontWeight: 600 }}>{fmt(outstanding)}</Box>
+            {paid > 0 && (
+              <Box sx={{ fontSize: "0.7rem", color: "text.secondary" }}>
+                paid {fmt(paid)} / {fmt(total)}
+              </Box>
+            )}
+          </Box>
+        );
+      },
+    },
+    {
+      accessorKey: "daysOverdue",
+      header: "Age",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      cell: ({ row }: any) => {
+        const status = arStatusOf(row.original);
+        if (status === "paid") {
+          return <Box sx={{ fontSize: "0.8125rem", color: "success.main" }}>Paid</Box>;
+        }
+        const od = daysOverdue(row.original);
+        if (od === null) return <Box sx={{ color: "text.disabled" }}>—</Box>;
+        if (od > 0) {
+          const tone = od >= 60 ? "error.main" : od >= 30 ? "warning.main" : "warning.main";
+          return (
+            <Box sx={{ color: tone, fontWeight: 600, fontSize: "0.8125rem" }}>
+              {od}d overdue
+            </Box>
+          );
+        }
+        if (od === 0) return <Box sx={{ fontSize: "0.8125rem", color: "warning.main" }}>Due today</Box>;
+        return <Box sx={{ fontSize: "0.8125rem", color: "text.secondary" }}>{Math.abs(od)}d to go</Box>;
+      },
+    },
+    {
       accessorKey: "createdAt",
       header: "Created Date",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -198,8 +299,35 @@ export default function InvoicesPage() {
           window.open(viewUrl, "_blank");
         };
 
+        const status = arStatusOf(row.original);
         return (
           <Box sx={{ display: "flex", gap: "var(--default-gap)" }}>
+            {status !== "paid" && (
+              <IconButton
+                title="Record payment"
+                onClick={() => {
+                  const total = getInvoiceTotal(row.original);
+                  const paid = paymentSummary[row.original.id]?.totalPaid ?? 0;
+                  setPayDialogInvoice({
+                    id: row.original.id,
+                    name: row.original.name,
+                    customerId: row.original.config?.customer?.id,
+                    customerName:
+                      row.original.associated_customer ||
+                      row.original.config?.customer?.name,
+                    amount: Math.max(0, total - paid),
+                    status: row.original.status,
+                  });
+                  setPayDialogOpen(true);
+                }}
+                sx={{
+                  color: "text.secondary",
+                  "&:hover": { color: "success.main" },
+                }}
+              >
+                <PaymentIcon />
+              </IconButton>
+            )}
             <IconButton
               onClick={() => router.push(`/portal/documents/${documentType}/${templateId}/${id}`)}
               sx={{
@@ -285,6 +413,53 @@ export default function InvoicesPage() {
   useEffect(() => {
     fetchDocuments();
   }, [fetchDocuments]);
+
+  // After invoices land, batch-fetch payment summaries so the AR columns
+  // (Paid / Outstanding / Days Overdue) have data. Single round-trip.
+  useEffect(() => {
+    if (!organizationId || documents.docs.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const ids = documents.docs.map((d) => d.id);
+        const res = await request(
+          { path: "/payments/summary", method: "POST" },
+          { documentIds: ids },
+          token,
+        );
+        if (!cancelled && res?.success) {
+          setPaymentSummary(res.data || {});
+        }
+      } catch {
+        // Silent — AR columns will just show 0 paid / full outstanding.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [documents.docs, organizationId, getToken]);
+
+  // Filter invoices by AR tab. Computed live so user-edits to paymentSummary
+  // (after recording a payment) update the visible row set.
+  const visibleDocs = (() => {
+    if (arTab === "all") return documents.docs;
+    return documents.docs.filter((d) => arStatusOf(d) === arTab);
+  })();
+
+  const arCounts = (() => {
+    let awaiting = 0,
+      overdue = 0,
+      paid = 0;
+    for (const d of documents.docs) {
+      const s = arStatusOf(d);
+      if (s === "awaiting") awaiting += 1;
+      else if (s === "overdue") overdue += 1;
+      else if (s === "paid") paid += 1;
+    }
+    return { all: documents.docs.length, awaiting, overdue, paid };
+  })();
 
   // Add useState and onSubmit above return
   const [isDocumentTemplateUpdating, setIsDocumentTemplateUpdating] = useState(false);
@@ -493,7 +668,7 @@ export default function InvoicesPage() {
 
       <PageTable
         columns={columns}
-        data={documents.docs}
+        data={visibleDocs}
         tableName="Invoice List"
         subTitle="Invoice Detail Information"
         buttonName="Create Invoice"
@@ -509,13 +684,24 @@ export default function InvoicesPage() {
         setFilters={handleSetFilters}
         availableFilters={["status", "category", "createdOn"]}
         pageCount={documents.totalPages}
-        totalDocs={documents.totalDocs}
+        totalDocs={visibleDocs.length}
         actionButtons={actionButtons}
         headerContent={
-          <InvoiceStatistics
-            documents={documents.docs}
-            loading={loading}
-          />
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+            <InvoiceStatistics documents={documents.docs} loading={loading} />
+            <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
+              <Tabs
+                value={arTab}
+                onChange={(_, v) => setArTab(v)}
+                sx={{ minHeight: 36, "& .MuiTab-root": { minHeight: 36, textTransform: "none", fontWeight: 600 } }}
+              >
+                <Tab value="all" label={<TabLabel text="All" count={arCounts.all} />} />
+                <Tab value="awaiting" label={<TabLabel text="Awaiting Payment" count={arCounts.awaiting} tone="info" />} />
+                <Tab value="overdue" label={<TabLabel text="Overdue" count={arCounts.overdue} tone="error" />} />
+                <Tab value="paid" label={<TabLabel text="Paid" count={arCounts.paid} tone="success" />} />
+              </Tabs>
+            </Box>
+          </Box>
         }
       />
 
@@ -529,6 +715,40 @@ export default function InvoicesPage() {
         onSelectVariant={handleVariantSelect}
         selectedCustomer={selectedCustomer}
       />
+
+      {/* Quick Record-Payment dialog opened from the per-row Pay icon */}
+      <RecordPaymentDialog
+        open={payDialogOpen}
+        onClose={() => setPayDialogOpen(false)}
+        onSuccess={() => {
+          setPayDialogOpen(false);
+          fetchDocuments();
+        }}
+        invoice={payDialogInvoice}
+      />
     </MainCard>
+  );
+}
+
+function TabLabel({
+  text,
+  count,
+  tone,
+}: {
+  text: string;
+  count: number;
+  tone?: "info" | "error" | "success";
+}) {
+  return (
+    <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.75 }}>
+      {text}
+      <Chip
+        size="small"
+        label={count}
+        variant="outlined"
+        color={tone ?? "default"}
+        sx={{ height: 18, fontSize: "0.65rem", "& .MuiChip-label": { px: 0.75 } }}
+      />
+    </Box>
   );
 }

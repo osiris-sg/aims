@@ -27,6 +27,11 @@ export class UpdateAccountingSettingsDto {
   @IsBoolean()
   activateLastBuyPrice?: boolean;
 
+  @ApiPropertyOptional({ description: 'When true, PO confirm posts Dr Inventory (not Purchases); invoice post adds Dr COGS / Cr Inventory.' })
+  @IsOptional()
+  @IsBoolean()
+  enablePerpetualInventory?: boolean;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsDateString()

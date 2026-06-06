@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -44,6 +44,7 @@ interface InventoryItem {
   costPrice?: number;
   customPrices?: any[];
   points?: number;
+  capacityKw?: number;
   uom?: string;
   status?: string;
   assetId?: string;
@@ -56,6 +57,7 @@ interface InventoryItem {
     costPrice?: number;
     customPrices?: any[];
     points?: number;
+    capacityKw?: number;
     category?: {
       id: string;
       name: string;
@@ -75,6 +77,8 @@ interface StockCardDialogProps {
   showDealerPrice?: boolean;
   // When true, add a "Points" column (from asset.points; 1 point = $1 discount).
   showPoints?: boolean;
+  // When true, add a "Capacity" column (from asset.capacityKw, shown as "x kW").
+  showCapacity?: boolean;
 }
 
 type SearchMode = "code" | "description" | "category";
@@ -87,10 +91,15 @@ export default function StockCardDialog({
   priceMode = "selling",
   showDealerPrice = false,
   showPoints = false,
+  showCapacity = false,
 }: StockCardDialogProps) {
   const getPoints = (it: InventoryItem) => {
     const p = it.points ?? it.asset?.points;
     return p != null ? Number(p) : null;
+  };
+  const getCapacity = (it: InventoryItem) => {
+    const c = it.capacityKw ?? it.asset?.capacityKw;
+    return c != null ? Number(c) : null;
   };
   const showCost = priceMode === "cost";
   const priceColumnLabel = showCost ? "Cost Price" : "Unit Price";
@@ -108,6 +117,9 @@ export default function StockCardDialog({
   const [searchMode, setSearchMode] = useState<SearchMode>("code");
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [selectedViewItem, setSelectedViewItem] = useState<InventoryItem | null>(null);
+  // Keyboard navigation: highlighted row (Enter selects it; default = first match).
+  const [activeIndex, setActiveIndex] = useState(0);
+  const activeRowRef = useRef<HTMLTableRowElement | null>(null);
   const { isAssetTrackingModeEnabled } = useOrganizationFeatures();
   const itemType = isAssetTrackingModeEnabled ? "Item" : "Product";
 
@@ -148,10 +160,32 @@ export default function StockCardDialog({
     });
   }, [inventoryItems, searchTerm, searchMode]);
 
+  // Reset the highlight to the first row whenever the filtered list changes.
+  useEffect(() => { setActiveIndex(0); }, [searchTerm, searchMode, inventoryItems]);
+
+  // Keep the highlighted row scrolled into view as you arrow through.
+  useEffect(() => { activeRowRef.current?.scrollIntoView({ block: "nearest" }); }, [activeIndex]);
+
   const handleRowClick = (item: InventoryItem) => {
     onSelectItem(item);
     setSearchTerm("");
     onClose();
+  };
+
+  // ↑/↓ to move the highlight, Enter to select it (default is the first match).
+  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
+    if (!filteredItems.length) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIndex((i) => Math.min(i + 1, filteredItems.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex((i) => Math.max(i - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const item = filteredItems[Math.min(activeIndex, filteredItems.length - 1)];
+      if (item) handleRowClick(item);
+    }
   };
 
   const handleClose = () => {
@@ -216,6 +250,7 @@ export default function StockCardDialog({
             placeholder="Search items..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
             size="small"
             autoFocus
             InputProps={{
@@ -265,6 +300,9 @@ export default function StockCardDialog({
                 <TableCell sx={{ width: "18%" }}>Code</TableCell>
                 <TableCell sx={{ width: "40%" }}>Description</TableCell>
                 <TableCell sx={{ width: "15%" }}>Category</TableCell>
+                {showCapacity && (
+                  <TableCell align="center" sx={{ width: "9%" }}>Capacity</TableCell>
+                )}
                 <TableCell align="center" sx={{ width: "10%" }}>Balance</TableCell>
                 <TableCell align="center" sx={{ width: "10%" }}>Min Qty</TableCell>
                 <TableCell align="right" sx={{ width: "12%" }}>{priceColumnLabel}</TableCell>
@@ -283,7 +321,7 @@ export default function StockCardDialog({
             <TableBody>
               {filteredItems.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={(isAssetTrackingModeEnabled ? 8 : 7) + (showDealerPrice ? 1 : 0) + (showPoints ? 1 : 0)} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={(isAssetTrackingModeEnabled ? 8 : 7) + (showDealerPrice ? 1 : 0) + (showPoints ? 1 : 0) + (showCapacity ? 1 : 0)} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">
                       {searchTerm ? `No ${itemType.toLowerCase()}s found matching your search` : `No ${itemType.toLowerCase()}s available`}
                     </Typography>
@@ -293,8 +331,11 @@ export default function StockCardDialog({
                 filteredItems.map((item, index) => (
                   <TableRow
                     key={item.id || index}
+                    ref={index === activeIndex ? activeRowRef : undefined}
                     hover
                     onClick={() => handleRowClick(item)}
+                    onMouseEnter={() => setActiveIndex(index)}
+                    selected={index === activeIndex}
                     sx={{ cursor: "pointer" }}
                   >
                     <TableCell sx={{ fontWeight: 500, color: "text.primary" }}>
@@ -304,6 +345,14 @@ export default function StockCardDialog({
                     <TableCell sx={{ color: "text.secondary" }}>
                       {getItemCategory(item)}
                     </TableCell>
+                    {showCapacity && (
+                      <TableCell align="center" className="tabular-nums" sx={{ color: "text.secondary" }}>
+                        {(() => {
+                          const v = getCapacity(item);
+                          return v != null ? `${v} kW` : "-";
+                        })()}
+                      </TableCell>
+                    )}
                     <TableCell align="center" sx={{ color: "text.primary" }}>
                       {item.quantity !== undefined ? item.quantity : "-"}
                     </TableCell>

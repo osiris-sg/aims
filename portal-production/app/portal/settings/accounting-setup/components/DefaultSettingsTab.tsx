@@ -22,6 +22,7 @@ type SettingsForm = {
   taxReference: string;
   activateLastSoldPrice: boolean;
   activateLastBuyPrice: boolean;
+  enablePerpetualInventory: boolean;
   yearOpeningDate: string;
   yearOpeningStock: number;
   monthOpeningDate: string;
@@ -68,6 +69,7 @@ export default function DefaultSettingsTab({ settings, loading, onSave }: Props)
     taxReference: settings?.taxReference || "GST",
     activateLastSoldPrice: settings?.activateLastSoldPrice ?? true,
     activateLastBuyPrice: settings?.activateLastBuyPrice ?? true,
+    enablePerpetualInventory: settings?.enablePerpetualInventory ?? false,
     yearOpeningDate: toDateInput(settings?.yearOpeningDate),
     yearOpeningStock: settings?.yearOpeningStock ?? 0,
     monthOpeningDate: toDateInput(settings?.monthOpeningDate),
@@ -100,6 +102,7 @@ export default function DefaultSettingsTab({ settings, loading, onSave }: Props)
       taxReference: data.taxReference,
       activateLastSoldPrice: !!data.activateLastSoldPrice,
       activateLastBuyPrice: !!data.activateLastBuyPrice,
+      enablePerpetualInventory: !!data.enablePerpetualInventory,
       yearOpeningDate: data.yearOpeningDate || undefined,
       yearOpeningStock: Number(data.yearOpeningStock) || 0,
       monthOpeningDate: data.monthOpeningDate || undefined,
@@ -147,6 +150,16 @@ export default function DefaultSettingsTab({ settings, loading, onSave }: Props)
                   <FormControlLabel
                     control={<Switch checked={!!field.value} onChange={(_, v) => field.onChange(v)} />}
                     label="Activate Last Buy Price"
+                  />
+                )}
+              />
+              <Controller
+                control={control}
+                name="enablePerpetualInventory"
+                render={({ field }) => (
+                  <FormControlLabel
+                    control={<Switch checked={!!field.value} onChange={(_, v) => field.onChange(v)} />}
+                    label="Perpetual inventory (auto Dr/Cr Inventory + COGS)"
                   />
                 )}
               />

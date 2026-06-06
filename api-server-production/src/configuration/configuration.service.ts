@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { CreateModuleDto, UpdateModuleDto, ModuleConfigDto } from './dto/module.dto';
 import { CreateCustomFieldDto, UpdateCustomFieldDto } from './dto/custom-field.dto';
 import { UpdateUIConfigDto } from './dto/ui-config.dto';
+import { MODULE_CATALOG, getCatalogModule, mergeModulesWithCatalog } from './module-catalog';
 
 @Injectable()
 export class ConfigurationService {
@@ -45,19 +46,32 @@ export class ConfigurationService {
   }
 
   async updateModule(organizationId: string, moduleCode: string, data: UpdateModuleDto) {
-    return this.prisma.organizationModule.update({
+    // Upsert, not update: a catalog module surfaced via the merge has no stored row
+    // until it's first toggled. Falling back to update() would throw for those. Any
+    // field the caller omits falls back to the catalog definition on create.
+    const catalog = getCatalogModule(moduleCode);
+    return this.prisma.organizationModule.upsert({
       where: {
         organizationId_moduleCode: {
           organizationId,
           moduleCode,
         },
       },
-      data: {
+      update: {
         enabled: data.enabled,
         displayName: data.displayName,
         icon: data.icon,
         sortOrder: data.sortOrder,
         config: data.config,
+      },
+      create: {
+        organizationId,
+        moduleCode,
+        enabled: data.enabled ?? catalog?.defaultEnabled ?? true,
+        displayName: data.displayName ?? catalog?.displayName,
+        icon: data.icon ?? catalog?.icon,
+        sortOrder: data.sortOrder ?? catalog?.sortOrder,
+        config: data.config ?? catalog?.config,
       },
     });
   }
@@ -74,71 +88,17 @@ export class ConfigurationService {
   }
 
   async initializeDefaultModules(organizationId: string) {
-    const defaultModules = [
-      { moduleCode: 'DASHBOARD', displayName: 'Dashboard', icon: 'Dashboard', sortOrder: 0, config: { route: '/portal' } },
-      {
-        moduleCode: 'INVENTORY',
-        displayName: 'Inventory',
-        icon: 'Inventory',
-        sortOrder: 1,
-        config: {
-          route: '/portal/inventory',
-          subMenus: [
-            { key: 'products', label: 'Products' },
-            { key: 'purchases', label: 'Purchases' },
-            { key: 'purchases-return', label: 'Purchases Return' },
-            { key: 'adjustment-in', label: 'Stock Adjustment In' },
-            { key: 'adjustment-out', label: 'Stock Adjustment Out' },
-            { key: 'reports', label: 'Reports' },
-            { key: 'stock-card', label: 'Stock Card' },
-          ],
-        },
-      },
-      {
-        moduleCode: 'SALES',
-        displayName: 'Sales',
-        icon: 'ShoppingCart',
-        sortOrder: 2,
-        config: {
-          route: '/portal/sales',
-          subMenus: [
-            { key: 'quotations', label: 'Quotation' },
-            { key: 'sales-orders', label: 'Sales Order' },
-            { key: 'delivery-orders', label: 'Delivery Order' },
-            { key: 'invoices', label: 'Invoice' },
-            { key: 'debit-notes', label: 'Debit Note' },
-            { key: 'credit-notes', label: 'Credit Note' },
-            { key: 'stock-card', label: 'Stock Card' },
-          ],
-        },
-      },
-      { moduleCode: 'CUSTOMERS', displayName: 'Customers', icon: 'PeopleRounded', sortOrder: 3, config: { route: '/portal/customers' } },
-      { moduleCode: 'PROJECTS', displayName: 'Projects', icon: 'AccountTree', sortOrder: 4, config: { route: '/portal/projects' } },
-      { moduleCode: 'USER_MANAGEMENT', displayName: 'User Management', icon: 'PeopleRounded', sortOrder: 5, config: { route: '/portal/user-management', subMenus: ['users', 'roles'] } },
-      { moduleCode: 'AUDIT', displayName: 'Audit', icon: 'AnalyticsRounded', sortOrder: 6, config: { route: '/portal/audit' } },
-      {
-        moduleCode: 'ACCOUNTING',
-        displayName: 'General Ledger',
-        icon: 'AccountBalance',
-        sortOrder: 7,
-        config: {
-          route: '/portal/accounting',
-          subMenus: [
-            { key: 'general-ledger', label: 'General Ledger' },
-            { key: 'trial-balance', label: 'Trial Balance' },
-            { key: 'audit-trail', label: 'Audit Trail' },
-            { key: 'gst', label: 'Goods & Services Tax' },
-            { key: 'profit-loss', label: 'Profit / Loss & BS' },
-            { key: 'expense-listing', label: 'Expense Listing' },
-            { key: 'bank-reconciliation', label: 'Bank Reconciliation' },
-            { key: 'foreign-bank', label: 'Foreign Bank Listing' },
-          ],
-        },
-      },
-    ];
-
-    const modulePromises = defaultModules.map(module =>
-      this.createOrUpdateModule(organizationId, module)
+    // Seed straight from the canonical catalog so there's only one list to maintain.
+    // Each module is created with its catalog default-enabled value.
+    const modulePromises = MODULE_CATALOG.map(module =>
+      this.createOrUpdateModule(organizationId, {
+        moduleCode: module.moduleCode,
+        enabled: module.defaultEnabled,
+        displayName: module.displayName,
+        icon: module.icon,
+        sortOrder: module.sortOrder,
+        config: module.config,
+      })
     );
 
     return Promise.all(modulePromises);
@@ -295,34 +255,6 @@ export class ConfigurationService {
       modules = await this.getOrganizationModules(organizationId);
     }
 
-    // Ensure the General Ledger module is present for orgs that were initialized
-    // before the accounting suite shipped. We only create it if missing — never
-    // overwrite an admin's customisations.
-    const accountingModule = modules.find((m) => m.moduleCode === 'ACCOUNTING');
-    if (!accountingModule) {
-      await this.createOrUpdateModule(organizationId, {
-        moduleCode: 'ACCOUNTING',
-        displayName: 'General Ledger',
-        icon: 'AccountBalance',
-        sortOrder: 7,
-        enabled: true,
-        config: {
-          route: '/portal/accounting',
-          subMenus: [
-            { key: 'general-ledger', label: 'General Ledger' },
-            { key: 'trial-balance', label: 'Trial Balance' },
-            { key: 'audit-trail', label: 'Audit Trail' },
-            { key: 'gst', label: 'Goods & Services Tax' },
-            { key: 'profit-loss', label: 'Profit / Loss & BS' },
-            { key: 'expense-listing', label: 'Expense Listing' },
-            { key: 'bank-reconciliation', label: 'Bank Reconciliation' },
-            { key: 'foreign-bank', label: 'Foreign Bank Listing' },
-          ],
-        },
-      } as any);
-      modules = await this.getOrganizationModules(organizationId);
-    }
-
     // Conditionally add/remove 'Inventory Items' submenu based on Asset Tracking Mode
     const uiFeatures = (uiConfig as any)?.features || {};
     const isAssetTrackingOn = uiFeatures.enableAssetTrackingMode === true;
@@ -355,6 +287,11 @@ export class ConfigurationService {
       }
     }
 
+    // Overlay the org's stored module rows on the canonical catalog so every org
+    // sees every module (new ones appear disabled, ready to toggle). Stored rows
+    // win, so per-org enabled/customisations are preserved.
+    const mergedModules = mergeModulesWithCatalog(modules);
+
     // Group custom fields by entity type
     const customFieldsByEntity = customFields.reduce((acc, field) => {
       if (!acc[field.entityType]) {
@@ -365,7 +302,7 @@ export class ConfigurationService {
     }, {} as Record<string, typeof customFields>);
 
     return {
-      modules,
+      modules: mergedModules,
       uiConfig,
       customFields: customFieldsByEntity,
     };

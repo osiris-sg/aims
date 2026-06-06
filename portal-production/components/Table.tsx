@@ -199,7 +199,15 @@ export default function Table(props: Props) {
                       minHeight: "48px",
                     }}
                   >
-                    {row.getVisibleCells().map((cell: any) => (
+                    {row.getVisibleCells().map((cell: any) => {
+                      // Per-column opt-out from the nowrap+ellipsis default.
+                      // Set `wrap: true` on a column def to let its cell grow
+                      // vertically instead of clipping horizontally — useful
+                      // for chip-bearing columns where "Route Order" would
+                      // otherwise get cut to "Route Or…".
+                      const wrap = cell.column.columnDef.wrap === true;
+                      const isDescription = cell.column.id === "description";
+                      return (
                       <TableCell
                         key={cell.id}
                         sx={{
@@ -216,11 +224,11 @@ export default function Table(props: Props) {
                                 width: `${cell.column.columnDef.size}%`,
                                 minWidth: cell.column.columnDef.minSize ? `${cell.column.columnDef.minSize}%` : `${cell.column.columnDef.size}%`,
                                 maxWidth: cell.column.columnDef.maxSize ? `${cell.column.columnDef.maxSize}%` : undefined,
-                                // Allow description column to wrap and expand
-                                ...(cell.column.id === "description"
+                                // Allow description / wrap columns to grow vertically.
+                                ...(isDescription || wrap
                                   ? {
-                                      whiteSpace: "pre-wrap",
-                                      wordWrap: "break-word",
+                                      whiteSpace: "normal",
+                                      wordBreak: "break-word",
                                       overflow: "visible",
                                       verticalAlign: "top",
                                       height: "auto",
@@ -230,6 +238,13 @@ export default function Table(props: Props) {
                                   : {
                                       overflow: "hidden",
                                     }),
+                              }
+                            : wrap
+                            ? {
+                                whiteSpace: "normal",
+                                wordBreak: "break-word",
+                                overflow: "visible",
+                                verticalAlign: "top",
                               }
                             : {
                                 whiteSpace: "nowrap",
@@ -242,9 +257,9 @@ export default function Table(props: Props) {
                           <Skeleton variant="text" sx={{ m: "0.5rem 0.3rem" }} />
                         ) : (
                           <div
-                            className={cell.column.id === "description" ? "" : "truncate"}
+                            className={isDescription || wrap ? "" : "truncate"}
                             style={{
-                              ...(cell.column.id === "description"
+                              ...(isDescription
                                 ? {
                                     height: "auto",
                                     minHeight: "auto",
@@ -255,6 +270,12 @@ export default function Table(props: Props) {
                                     boxSizing: "border-box",
                                     overflow: "hidden",
                                   }
+                                : wrap
+                                ? {
+                                    whiteSpace: "normal",
+                                    wordBreak: "break-word",
+                                    overflow: "visible",
+                                  }
                                 : {}),
                             }}
                           >
@@ -262,7 +283,8 @@ export default function Table(props: Props) {
                           </div>
                         )}
                       </TableCell>
-                    ))}
+                      );
+                    })}
                   </TableRow>
                 );
               })}

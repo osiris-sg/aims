@@ -1,12 +1,16 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { CreateJournalEntryDto, JournalLineDto, UpdateJournalEntryDto } from './dto/journal-entry.dto';
+import { AnomaliesService } from '../anomalies/anomalies.service';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 
 @Injectable()
 export class JournalService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly anomalies: AnomaliesService,
+  ) {}
 
   // ---------- Numbering ----------
 
@@ -75,10 +79,28 @@ export class JournalService {
     organizationId: string,
     dto: CreateJournalEntryDto,
     userId?: string,
-    options?: { autoPost?: boolean },
+    options?: { autoPost?: boolean; bypassPeriodLock?: boolean },
   ) {
     const { totalDebit, totalCredit } = this.validateLines(dto.lines);
     await this.assertAccountsBelongToOrg(organizationId, dto.lines.map((l) => l.accountId));
+
+    // Period-lock guard — refuse to create an entry dated inside a closed
+    // period. The Close Wizard itself bypasses this when posting the year-end
+    // rollover JE (bypassPeriodLock=true).
+    if (!options?.bypassPeriodLock) {
+      const settings = await this.prisma.accountingSetting.findUnique({
+        where: { organizationId },
+        select: { lockedThroughDate: true },
+      });
+      if (settings?.lockedThroughDate) {
+        const entryDate = new Date(dto.entryDate);
+        if (entryDate <= settings.lockedThroughDate) {
+          throw new BadRequestException(
+            `Period is closed through ${settings.lockedThroughDate.toISOString().slice(0, 10)}. Cannot create entries dated on or before that date.`,
+          );
+        }
+      }
+    }
 
     const journalNumber = dto.journalNumber || (await this.nextJournalNumber(organizationId));
 
@@ -347,6 +369,194 @@ export class JournalService {
     };
   }
 
+  // ---------- Finance Hub aggregate ----------
+  // Single round-trip aggregate for the Hub dashboard: KPIs across MTD / YTD /
+  // as-of-now + an Action Queue feed and surfaced anomalies. Wraps the existing
+  // trial-balance / P&L / GST methods so we have one source of truth for each
+  // computation.
+  async hubSnapshot(organizationId: string, now: Date = new Date()) {
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const yearStart = new Date(now.getFullYear(), 0, 1);
+    const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+
+    // 1) Trial balance as-of-now → cash & AR & AP control account balances
+    const tb = await this.trialBalance(organizationId, now);
+
+    const settings = await this.prisma.accountingSetting.findUnique({
+      where: { organizationId },
+    });
+    const controls = (settings?.controlAccounts as any) || {};
+    const debtorCode = controls.debtorControl || 'CA001';
+    const creditorCode = controls.creditorControl || 'CL001';
+    const taxCode = controls.taxLiabilities || 'CL900';
+
+    // Cash / Bank = current-asset accounts with codes matching cash/bank pattern.
+    const cashRows = tb.rows.filter(
+      (r) =>
+        r.code === 'CA004' ||
+        r.code === 'CA600' ||
+        /^CA1\d{2}$/.test(r.code) ||
+        r.code === 'CA006',
+    );
+    const cashBalance = cashRows.reduce((s, r) => s + r.balance, 0);
+    const arBalance = tb.rows.find((r) => r.code === debtorCode)?.balance ?? 0;
+    const apBalance = tb.rows.find((r) => r.code === creditorCode)?.balance ?? 0;
+    const taxOutstanding = tb.rows.find((r) => r.code === taxCode)?.balance ?? 0;
+
+    // 2) Period activity → Revenue MTD/YTD, Net Profit MTD/YTD
+    const [mtdActivity, ytdActivity, prevMonthActivity] = await Promise.all([
+      this.accountActivity(organizationId, { startDate: monthStart, endDate: now }),
+      this.accountActivity(organizationId, { startDate: yearStart, endDate: now }),
+      this.accountActivity(organizationId, { startDate: prevMonthStart, endDate: prevMonthEnd }),
+    ]);
+
+    const sumBalance = (rows: any[], types: string[]) =>
+      rows.filter((r) => types.includes(r.accountType)).reduce((s, r) => s + r.balance, 0);
+
+    const REVENUE_TYPES = ['SALES', 'INCOME'];
+    const EXPENSE_TYPES = ['EXPENSE', 'EXCHANGE_GAIN_LOSS', 'PURCHASE', 'TAX'];
+
+    const revenueMtd = sumBalance(mtdActivity, REVENUE_TYPES);
+    const revenueYtd = sumBalance(ytdActivity, REVENUE_TYPES);
+    const revenuePrev = sumBalance(prevMonthActivity, REVENUE_TYPES);
+    const netProfitMtd = revenueMtd - sumBalance(mtdActivity, EXPENSE_TYPES);
+    const netProfitYtd = revenueYtd - sumBalance(ytdActivity, EXPENSE_TYPES);
+    const netProfitPrev = revenuePrev - sumBalance(prevMonthActivity, EXPENSE_TYPES);
+
+    const pctChange = (curr: number, prev: number) =>
+      prev === 0 ? null : ROUND(((curr - prev) / Math.abs(prev)) * 100);
+
+    // 3) Action Queue feed — concrete unhandled-thing counts the user can act on.
+    const [draftJournalCount, unpostedConfirmedDocsCount, unbalancedDrafts] = await Promise.all([
+      this.prisma.journalEntry.count({ where: { organizationId, status: 'DRAFT' } }),
+      // Confirmed documents (CN/DN/PO/PR/TI) that don't yet have a matching POSTED
+      // journal entry. The auto-post pipeline should have handled these, so any
+      // count > 0 indicates a real issue.
+      this.prisma.document.count({
+        where: {
+          organizationId,
+          status: 'paid',
+          type: { in: ['INVOICE', 'TI'] },
+          NOT: {
+            id: {
+              in: (
+                await this.prisma.journalEntry.findMany({
+                  where: { organizationId, status: 'POSTED', type: 'INVOICE' },
+                  select: { sourceDocumentId: true },
+                })
+              )
+                .map((j) => j.sourceDocumentId)
+                .filter((id): id is string => !!id),
+            },
+          },
+        },
+      }),
+      this.prisma.journalEntry.findMany({
+        where: { organizationId, status: 'DRAFT' },
+        select: { id: true, journalNumber: true, totalDebit: true, totalCredit: true },
+      }),
+    ]);
+
+    const outOfBalanceDrafts = unbalancedDrafts.filter(
+      (e) => ROUND(e.totalDebit - e.totalCredit) !== 0,
+    );
+
+    const actionQueue: Array<{
+      severity: 'info' | 'warning' | 'error';
+      title: string;
+      detail?: string;
+      count?: number;
+      link?: string;
+    }> = [];
+
+    if (draftJournalCount > 0) {
+      actionQueue.push({
+        severity: 'info',
+        title: `${draftJournalCount} draft journal ${draftJournalCount === 1 ? 'entry' : 'entries'} pending review`,
+        count: draftJournalCount,
+        link: '/portal/accounting/reports?tab=audit',
+      });
+    }
+    if (unpostedConfirmedDocsCount > 0) {
+      actionQueue.push({
+        severity: 'warning',
+        title: `${unpostedConfirmedDocsCount} confirmed ${unpostedConfirmedDocsCount === 1 ? 'invoice has' : 'invoices have'} not posted to GL`,
+        detail: 'Auto-post should have caught these — needs investigation',
+        count: unpostedConfirmedDocsCount,
+        link: '/portal/accounting/reports?tab=audit',
+      });
+    }
+    if (outOfBalanceDrafts.length > 0) {
+      actionQueue.push({
+        severity: 'error',
+        title: `${outOfBalanceDrafts.length} draft ${outOfBalanceDrafts.length === 1 ? 'entry is' : 'entries are'} out of balance`,
+        count: outOfBalanceDrafts.length,
+        link: '/portal/accounting/reports?tab=audit',
+      });
+    }
+    if (taxOutstanding > 0) {
+      actionQueue.push({
+        severity: 'info',
+        title: `GST payable: ${taxOutstanding.toFixed(2)} — ready to file`,
+        link: '/portal/accounting/reports?tab=gst',
+      });
+    }
+
+    // Anomaly detector findings — flagged duplicate invoices, stale drafts,
+    // missing-tax-on-invoice, outlier amounts, etc. Pushed to the same queue.
+    const anomalyFindings = await this.anomalies.runAll(organizationId, now);
+    actionQueue.push(...anomalyFindings);
+
+    // 4) Insights — simple heuristic explanations.
+    const insights: Array<{ tone: 'positive' | 'negative' | 'neutral'; text: string }> = [];
+
+    const revPct = pctChange(revenueMtd, revenuePrev);
+    if (revPct !== null && Math.abs(revPct) >= 10) {
+      insights.push({
+        tone: revPct > 0 ? 'positive' : 'negative',
+        text: `Revenue MTD is ${Math.abs(revPct).toFixed(0)}% ${revPct > 0 ? 'higher' : 'lower'} than last month (${revenueMtd.toFixed(2)} vs ${revenuePrev.toFixed(2)})`,
+      });
+    }
+    const profitPct = pctChange(netProfitMtd, netProfitPrev);
+    if (profitPct !== null && Math.abs(profitPct) >= 15) {
+      insights.push({
+        tone: profitPct > 0 ? 'positive' : 'negative',
+        text: `Net profit MTD ${profitPct > 0 ? 'up' : 'down'} ${Math.abs(profitPct).toFixed(0)}% vs last month`,
+      });
+    }
+    if (arBalance > cashBalance && arBalance > 0) {
+      insights.push({
+        tone: 'neutral',
+        text: `Customers owe you ${arBalance.toFixed(2)} — more than your cash on hand. Consider collections push.`,
+      });
+    }
+    if (apBalance > cashBalance && apBalance > 0) {
+      insights.push({
+        tone: 'negative',
+        text: `You owe suppliers ${apBalance.toFixed(2)} — exceeds your cash position.`,
+      });
+    }
+
+    return {
+      asOf: now.toISOString(),
+      kpis: {
+        revenueMtd: ROUND(revenueMtd),
+        revenueYtd: ROUND(revenueYtd),
+        revenueMtdChange: revPct,
+        netProfitMtd: ROUND(netProfitMtd),
+        netProfitYtd: ROUND(netProfitYtd),
+        netProfitMtdChange: profitPct,
+        cashBalance: ROUND(cashBalance),
+        arBalance: ROUND(arBalance),
+        apBalance: ROUND(apBalance),
+        taxOutstanding: ROUND(taxOutstanding),
+      },
+      actionQueue,
+      insights,
+    };
+  }
+
   // ---------- P&L / Balance Sheet helpers ----------
 
   // Sum debits/credits per account between (startDate, endDate]. Used as the
@@ -537,6 +747,156 @@ export class JournalService {
       operationalNet: {
         label: 'OPERATIONAL NET PROFIT BEFORE TAX',
         values: operationalNet,
+      },
+    };
+  }
+
+  // ---------- Cash Flow Statement (indirect method) ----------
+  // Computes cash flow from operations, investing, and financing by taking
+  // net income for the period and adjusting for changes in non-cash working
+  // capital accounts + non-operating BS movements between the start and end
+  // dates. Pure-derived — no schema, no manual input.
+  async cashFlowReport(
+    organizationId: string,
+    opts: { startDate: Date; endDate: Date },
+  ) {
+    const { startDate, endDate } = opts;
+
+    // Beginning and ending balance for every BS account.
+    const [beginActivity, endActivity, periodActivity] = await Promise.all([
+      this.accountActivity(organizationId, { endDate: new Date(startDate.getTime() - 1) }),
+      this.accountActivity(organizationId, { endDate }),
+      this.accountActivity(organizationId, { startDate, endDate }),
+    ]);
+
+    const balByAccountId = (data: any[]) => {
+      const m = new Map<string, { code: string; name: string; accountType: string; balance: number }>();
+      for (const r of data) m.set(r.id, { code: r.code, name: r.name, accountType: r.accountType, balance: r.balance });
+      return m;
+    };
+
+    const beginMap = balByAccountId(beginActivity);
+    const endMap = balByAccountId(endActivity);
+
+    // Movement per account = end balance - begin balance.
+    const accountIds = new Set([...beginMap.keys(), ...endMap.keys()]);
+    const movements: Array<{ code: string; name: string; accountType: string; movement: number }> = [];
+    for (const id of accountIds) {
+      const e = endMap.get(id) ?? { code: beginMap.get(id)!.code, name: beginMap.get(id)!.name, accountType: beginMap.get(id)!.accountType, balance: 0 };
+      const b = beginMap.get(id) ?? { code: e.code, name: e.name, accountType: e.accountType, balance: 0 };
+      const movement = ROUND(e.balance - b.balance);
+      if (movement === 0) continue;
+      movements.push({ code: e.code, name: e.name, accountType: e.accountType, movement });
+    }
+
+    // Net income for the period from P&L accounts.
+    const REVENUE_TYPES = ['SALES', 'INCOME'];
+    const EXPENSE_TYPES = ['EXPENSE', 'EXCHANGE_GAIN_LOSS', 'PURCHASE', 'TAX', 'EXTRAORDINARY'];
+    const periodRevenue = periodActivity
+      .filter((r) => REVENUE_TYPES.includes(r.accountType))
+      .reduce((s, r) => s + r.balance, 0);
+    const periodExpense = periodActivity
+      .filter((r) => EXPENSE_TYPES.includes(r.accountType))
+      .reduce((s, r) => s + r.balance, 0);
+    const netIncome = ROUND(periodRevenue - periodExpense);
+
+    // Working capital movements (operating).
+    // AR (CURRENT_ASSET CA001-style) — increase reduces cash.
+    // Inventory — increase reduces cash.
+    // AP / accrued (CURRENT_LIABILITY) — increase boosts cash.
+    const isCashAccount = (code: string) =>
+      code === 'CA004' || code === 'CA600' || /^CA1\d{2}$/.test(code) || code === 'CA006';
+
+    const operatingMovements = movements.filter(
+      (m) =>
+        !isCashAccount(m.code) &&
+        (m.accountType === 'CURRENT_ASSET' ||
+          m.accountType === 'CURRENT_LIABILITY' ||
+          m.accountType === 'TAX_LIABILITY'),
+    );
+
+    // For current assets: balance increase = cash decrease (sign-flip).
+    // For current liabilities: balance increase = cash increase.
+    const operatingAdjustments = operatingMovements.map((m) => {
+      const isAsset = m.accountType === 'CURRENT_ASSET';
+      const cashImpact = isAsset ? -m.movement : m.movement;
+      return {
+        code: m.code,
+        name: m.name,
+        movement: m.movement,
+        cashImpact: ROUND(cashImpact),
+      };
+    });
+
+    const operatingCash = ROUND(
+      netIncome + operatingAdjustments.reduce((s, m) => s + m.cashImpact, 0),
+    );
+
+    // Investing: changes in fixed/intangible assets.
+    const investingMovements = movements.filter(
+      (m) => m.accountType === 'FIXED_ASSET' || m.accountType === 'INTANGIBLE_ASSET' || m.accountType === 'DEPRECIATION_PROVISION',
+    );
+    const investingCash = ROUND(
+      investingMovements.reduce((s, m) => {
+        // FA/IA increase = cash out; depreciation provision increase = no cash
+        const isProvision = m.accountType === 'DEPRECIATION_PROVISION';
+        return s + (isProvision ? 0 : -m.movement);
+      }, 0),
+    );
+
+    // Financing: changes in equity / long-term liabilities.
+    const financingMovements = movements.filter(
+      (m) =>
+        m.accountType === 'SHARE_CAPITAL' ||
+        m.accountType === 'RETAINED_PROFIT' ||
+        m.accountType === 'DIVIDEND' ||
+        m.accountType === 'CAPITAL_RESERVE' ||
+        m.accountType === 'MEDIUM_TERM_LIABILITY' ||
+        m.accountType === 'LONG_TERM_LIABILITY',
+    );
+    const financingCash = ROUND(
+      financingMovements.reduce((s, m) => {
+        const isOutflow = m.accountType === 'DIVIDEND';
+        return s + (isOutflow ? -m.movement : m.movement);
+      }, 0),
+    );
+
+    // Beginning cash + net change = ending cash (verification).
+    const beginningCash = ROUND(
+      [...beginMap.values()].filter((r) => isCashAccount(r.code)).reduce((s, r) => s + r.balance, 0),
+    );
+    const endingCash = ROUND(
+      [...endMap.values()].filter((r) => isCashAccount(r.code)).reduce((s, r) => s + r.balance, 0),
+    );
+    const netChange = ROUND(operatingCash + investingCash + financingCash);
+    const reconciles = ROUND(beginningCash + netChange) === endingCash;
+
+    return {
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      operating: {
+        netIncome,
+        adjustments: operatingAdjustments,
+        total: operatingCash,
+      },
+      investing: {
+        movements: investingMovements.map((m) => ({ ...m, cashImpact: m.accountType === 'DEPRECIATION_PROVISION' ? 0 : ROUND(-m.movement) })),
+        total: investingCash,
+      },
+      financing: {
+        movements: financingMovements.map((m) => ({
+          ...m,
+          cashImpact: ROUND(m.accountType === 'DIVIDEND' ? -m.movement : m.movement),
+        })),
+        total: financingCash,
+      },
+      summary: {
+        beginningCash,
+        netChangeInCash: netChange,
+        endingCash,
+        reconciles,
+        actualEndingCash: endingCash,
+        reconciliationDiff: ROUND(beginningCash + netChange - endingCash),
       },
     };
   }

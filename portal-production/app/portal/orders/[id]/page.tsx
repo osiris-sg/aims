@@ -23,9 +23,13 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import ReceiptIcon from "@mui/icons-material/Receipt";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
@@ -40,6 +44,7 @@ interface OrderItem {
   description?: string;
   quantity?: number;
   unitPrice?: number;
+  dealerPrice?: number;
   uom?: string;
   amount?: number;
   isTagGroup?: boolean;
@@ -47,6 +52,33 @@ interface OrderItem {
   taggedAssetId?: string;
   taggedAssetCode?: string;
   taggedAssetName?: string;
+  category?: string;
+  points?: number;
+  discount?: number;
+  // Set by the orders/verify-upload endpoint when a supplier doc reconciles
+  // against this line. Carries the supplier doc no. + date for the tooltip,
+  // plus the S3 fileKey so the page can mint a signed download URL on demand.
+  verifiedDo?: VerifiedStamp | null;
+  verifiedInv?: VerifiedStamp | null;
+}
+
+interface VerifiedStamp {
+  docNumber?: string | null;
+  date?: string | null;
+  supplier?: string | null;
+  at?: string;
+  fileUrl?: string | null;
+  fileKey?: string | null;
+  originalName?: string | null;
+  mimeType?: string | null;
+  // 'ok' when SKU + qty + price + amount all matched the supplier doc;
+  // 'mismatch' when qty matched but price/amount diverged (still stamped, but
+  // shown amber so the user knows there's a discrepancy worth eyeballing).
+  lineStatus?: "ok" | "mismatch";
+  mismatchNotes?: string | null;
+  supplierQty?: number | null;
+  supplierUnitPrice?: number | null;
+  supplierAmount?: number | null;
 }
 
 interface OrderDetail {
@@ -80,6 +112,12 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   const [inventories, setInventories] = useState<any[]>([]);
   const [selected, setSelected] = useState<number[]>([]);
   const [creating, setCreating] = useState<null | "PO" | "DO" | "INVOICE">(null);
+  // Project orders: editable per-item discount. draftItems is a working copy of
+  // order.items; editedIdx tracks which lines the user manually changed (so
+  // "Recalibrate" only rebalances the untouched lines).
+  const [draftItems, setDraftItems] = useState<OrderItem[] | null>(null);
+  const [editedIdx, setEditedIdx] = useState<Set<number>>(new Set());
+  const [savingDiscounts, setSavingDiscounts] = useState(false);
 
   const fetchOrder = useCallback(async () => {
     if (!organization?.id || !params?.id) return;
@@ -117,13 +155,155 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   useEffect(() => { fetchOrder(); }, [fetchOrder]);
   useEffect(() => { fetchInventories(); }, [fetchInventories]);
 
+  // Route Orders show a per-item Points column (asset points carried on each line).
+  const isRouteOrder = ((order as any)?.orderType || "") === "Route Order";
+  // Project Orders show an editable per-item Discount column (the quotation's
+  // discount, spread per line by the backend when the quotation was confirmed).
+  const isProject = ((order as any)?.orderType || "") === "Project";
+  const currency = (organization as any)?.currency || "SGD";
+
+  // Seed the editable draft from the loaded order. Reset whenever the order
+  // (re)loads so a fresh fetch after save clears the "edited" set.
+  useEffect(() => {
+    setDraftItems(order?.items ? order.items.map((i) => ({ ...i })) : null);
+    setEditedIdx(new Set());
+  }, [order?.items]);
+
   // Tagged CUs are also line items in the order — surface them as their own
   // rows in the table so the user can select + convert them to PO/DO/Invoice
-  // independently from the FCU rows that reference them.
-  const visibleItems = useMemo(
-    () => (order?.items || []).map((it, idx) => ({ ...it, _index: idx })),
+  // independently from the FCU rows that reference them. For Project orders we
+  // render from the editable draft so discount edits show live.
+  const visibleItems = useMemo(() => {
+    const base = isProject && draftItems ? draftItems : order?.items || [];
+    return base.map((it, idx) => ({ ...it, _index: idx }));
+  }, [isProject, draftItems, order?.items]);
+
+  // Per-line gross (before discount) and the discount $ (gross − net amount).
+  // The discount amount is the source of truth (the % is for display/entry),
+  // so totals reconcile exactly to the cent regardless of rounded percents.
+  const grossOf = (it: OrderItem) => (Number(it.unitPrice) || 0) * (Number(it.quantity) || 0);
+  const discAmtOf = (it: OrderItem) => grossOf(it) - (Number(it.amount) || 0);
+  // Target = the discount total when the order was created (all lines at the
+  // quotation rate). "Recalibrate" rebalances back to this fixed amount.
+  const targetTotalDiscount = useMemo(
+    () => (order?.items || []).reduce((s, it) => s + discAmtOf(it), 0),
     [order?.items],
   );
+  const currentTotalDiscount = useMemo(
+    () => (draftItems || []).reduce((s, it) => s + discAmtOf(it), 0),
+    [draftItems],
+  );
+  const dirty = useMemo(() => {
+    if (!draftItems || !order?.items) return false;
+    return draftItems.some((it, i) => Number(it.discount || 0) !== Number(order.items[i]?.discount || 0));
+  }, [draftItems, order?.items]);
+  const diverged = Math.abs(currentTotalDiscount - targetTotalDiscount) > 0.005;
+  const hasOtherItems = useMemo(
+    () => (draftItems || []).some((_, i) => !editedIdx.has(i)),
+    [draftItems, editedIdx],
+  );
+
+  const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+
+  // Edit one line's discount %; recompute its amount and lock it (so a later
+  // Recalibrate leaves it alone and only rebalances the untouched lines).
+  const setItemDiscount = (idx: number, raw: string) => {
+    setDraftItems((prev) => {
+      if (!prev) return prev;
+      const next = prev.map((x) => ({ ...x }));
+      let pct = parseFloat(raw);
+      if (isNaN(pct)) pct = 0;
+      pct = Math.max(0, Math.min(100, pct));
+      next[idx].discount = pct;
+      next[idx].amount = r2(grossOf(next[idx]) * (1 - pct / 100));
+      return next;
+    });
+    setEditedIdx((prev) => new Set(prev).add(idx));
+  };
+
+  // Edit a line's Amount directly (to land on round figures); back-compute its
+  // discount % from gross − amount and lock the line, same as a % edit.
+  const setItemAmount = (idx: number, raw: string) => {
+    setDraftItems((prev) => {
+      if (!prev) return prev;
+      const next = prev.map((x) => ({ ...x }));
+      const gross = grossOf(next[idx]);
+      let amt = parseFloat(raw);
+      if (isNaN(amt)) amt = 0;
+      amt = Math.max(0, Math.min(gross, amt));
+      next[idx].amount = r2(amt);
+      next[idx].discount = gross > 0 ? r2(((gross - amt) / gross) * 100) : 0;
+      return next;
+    });
+    setEditedIdx((prev) => new Set(prev).add(idx));
+  };
+
+  // Spread the remaining discount (target − sum of the edited lines) across the
+  // untouched lines, proportional to each line's gross (i.e. a uniform rate).
+  // Amounts are allocated in cents with the last line absorbing the rounding
+  // residual, so the total discount returns to target exactly.
+  const recalibrate = () => {
+    setDraftItems((prev) => {
+      if (!prev) return prev;
+      const next = prev.map((x) => ({ ...x }));
+      const editedDiscSum = next.reduce((s, it, i) => (editedIdx.has(i) ? s + discAmtOf(it) : s), 0);
+      const otherIdx = next.map((_, i) => i).filter((i) => !editedIdx.has(i));
+      const otherGross = otherIdx.reduce((s, i) => s + grossOf(next[i]), 0);
+      if (otherGross <= 0) {
+        toast.warn("No other items to recalibrate.");
+        return prev;
+      }
+      let remaining = targetTotalDiscount - editedDiscSum;
+      if (remaining < 0) {
+        remaining = 0;
+        toast.warn("Edited discounts already exceed the original total — other items set to 0%.");
+      } else if (remaining > otherGross) {
+        remaining = otherGross;
+        toast.warn("Can't fully redistribute — other items capped at 100%.");
+      }
+      let allocated = 0;
+      otherIdx.forEach((i, k) => {
+        const gross = grossOf(next[i]);
+        let discAmt =
+          k === otherIdx.length - 1 ? r2(remaining - allocated) : r2((remaining * gross) / otherGross);
+        if (discAmt < 0) discAmt = 0;
+        if (discAmt > gross) discAmt = gross;
+        allocated = r2(allocated + discAmt);
+        next[i].amount = r2(gross - discAmt);
+        next[i].discount = gross > 0 ? r2((discAmt / gross) * 100) : 0;
+      });
+      return next;
+    });
+  };
+
+  const resetDiscounts = () => {
+    setDraftItems(order?.items ? order.items.map((i) => ({ ...i })) : null);
+    setEditedIdx(new Set());
+  };
+
+  const saveDiscounts = async () => {
+    if (!order || !draftItems) return;
+    setSavingDiscounts(true);
+    try {
+      const token = await getToken();
+      const res = await request(
+        { path: `/orders/${order.id}/items`, method: "PATCH" },
+        { items: draftItems },
+        token ?? undefined,
+      );
+      if (res?.success || res?.data) {
+        toast.success("Discounts updated");
+        await fetchOrder();
+      } else {
+        toast.error("Failed to update discounts");
+      }
+    } catch (err) {
+      console.error("Update order items failed:", err);
+      toast.error("Failed to update discounts");
+    } finally {
+      setSavingDiscounts(false);
+    }
+  };
 
   // Per-row status: which doc kinds (PO/DO/INVOICE) have already been created
   // and include this item. Derived from order.linkedDocuments[docKind][].itemIds.
@@ -211,7 +391,10 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
       const pickedItems = visibleItems.filter((it) => selected.includes(it._index));
       const flat = pickedItems.map((it, idx) => {
         const qty = Number(it.quantity || 1);
-        const price = targetType === "PO" ? lookupCost(it) : Number(it.unitPrice || 0);
+        // Route Order PO prices items at the dealer price; other POs use cost.
+        const price = targetType === "PO"
+          ? (isRouteOrder ? (Number((it as any).dealerPrice) || lookupCost(it)) : lookupCost(it))
+          : Number(it.unitPrice || 0);
         return {
           id: Date.now() + idx,
           itemCode: it.itemCode || "",
@@ -222,6 +405,8 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           unitPrice: price,
           discount: 0,
           amount: qty * price,
+          // Carry per-unit points so a Route Order PO can show "Less Points".
+          points: Number((it as any).points) || 0,
         };
       });
 
@@ -244,6 +429,9 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
             items: flat,
             sourceOrderId: order.id,
             sourceOrderNumber: order.orderNumber,
+            // Carry the order's Type so the PO editor can gate discount behavior
+            // (Project: cascade top % to item discounts; Route Order: hide discounts).
+            orderType: (order as any).orderType || null,
           },
         },
         token,
@@ -359,6 +547,16 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
               )}
             </Box>
             <Box>
+              <Typography variant="caption" color="text.secondary">Type</Typography>
+              {(order as any).orderType ? (
+                <Box sx={{ mt: 0.25 }}>
+                  <Chip size="small" variant="outlined" label={(order as any).orderType} />
+                </Box>
+              ) : (
+                <Typography variant="body2">—</Typography>
+              )}
+            </Box>
+            <Box>
               <Typography variant="caption" color="text.secondary">Created</Typography>
               <Typography variant="body2">{moment(order.createdAt).format("DD/MM/YYYY HH:mm")}</Typography>
             </Box>
@@ -378,18 +576,23 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                 <Checkbox size="small" checked={allChecked} indeterminate={someChecked} onChange={toggleAll} />
               </TableCell>
               <TableCell>Code</TableCell>
+              <TableCell align="center">Category</TableCell>
               <TableCell>Description</TableCell>
               <TableCell align="center">Qty</TableCell>
               <TableCell align="right">Unit Price</TableCell>
+              {isProject && <TableCell align="center">Discount</TableCell>}
               <TableCell align="right">Amount</TableCell>
+              {isRouteOrder && <TableCell align="center">Points</TableCell>}
               <TableCell align="center">Tagged</TableCell>
+              <TableCell align="center">Ver. DO</TableCell>
+              <TableCell align="center">Ver. INV</TableCell>
               <TableCell align="center">Status</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {visibleItems.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8}>
+                <TableCell colSpan={11 + (isRouteOrder ? 1 : 0) + (isProject ? 1 : 0)}>
                   <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: "center" }}>
                     No items in this order.
                   </Typography>
@@ -412,10 +615,46 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                     />
                   )}
                 </TableCell>
+                <TableCell align="center">
+                  {it.category ? (
+                    <Chip size="small" variant="outlined" label={it.category} sx={{ height: 20, fontSize: "0.7rem" }} />
+                  ) : (
+                    <Typography variant="caption" color="text.disabled">—</Typography>
+                  )}
+                </TableCell>
                 <TableCell>{it.description || "—"}</TableCell>
                 <TableCell align="center">{it.quantity ?? "—"}</TableCell>
                 <TableCell align="right">{(it.unitPrice ?? 0).toFixed(2)}</TableCell>
-                <TableCell align="right">{(it.amount ?? 0).toFixed(2)}</TableCell>
+                {isProject && (
+                  <TableCell align="center">
+                    <TextField
+                      type="number"
+                      size="small"
+                      value={it.discount ?? 0}
+                      onChange={(e) => setItemDiscount(it._index, e.target.value)}
+                      onFocus={(e) => e.target.select()}
+                      inputProps={{ min: 0, max: 100, step: 0.01, style: { textAlign: "right", width: 52, padding: "4px 6px" } }}
+                      InputProps={{ endAdornment: <Typography variant="caption" sx={{ ml: 0.25 }}>%</Typography> }}
+                      sx={{ width: 88 }}
+                    />
+                  </TableCell>
+                )}
+                <TableCell align="right">
+                  {isProject ? (
+                    <TextField
+                      type="number"
+                      size="small"
+                      value={it.amount ?? 0}
+                      onChange={(e) => setItemAmount(it._index, e.target.value)}
+                      onFocus={(e) => e.target.select()}
+                      inputProps={{ min: 0, step: 0.01, style: { textAlign: "right", width: 84, padding: "4px 6px" } }}
+                      sx={{ width: 108 }}
+                    />
+                  ) : (
+                    (it.amount ?? 0).toFixed(2)
+                  )}
+                </TableCell>
+                {isRouteOrder && <TableCell align="center">{(Number(it.points) || 0) * (Number(it.quantity) || 0)}</TableCell>}
                 <TableCell align="center">
                   {it.isTagGroup ? (
                     <Typography variant="caption" color="text.disabled">—</Typography>
@@ -424,6 +663,12 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                   ) : (
                     <Typography variant="caption" color="text.disabled">—</Typography>
                   )}
+                </TableCell>
+                <TableCell align="center">
+                  <VerifiedCell stamp={it.verifiedDo} />
+                </TableCell>
+                <TableCell align="center">
+                  <VerifiedCell stamp={it.verifiedInv} />
                 </TableCell>
                 <TableCell align="center">
                   {(() => {
@@ -444,6 +689,65 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           </TableBody>
         </Table>
       </TableContainer>
+
+      {/* Route Order: total points across all lines (points × qty). */}
+      {isRouteOrder && (
+        <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1, mb: 2 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+            Total Points:&nbsp;
+            {visibleItems.reduce((sum, it) => sum + (Number(it.points) || 0) * (Number(it.quantity) || 0), 0)}
+          </Typography>
+        </Box>
+      )}
+
+      {/* Project Order: editable per-item discount. The total discount amount is
+          fixed (set when the quotation was confirmed); editing one line's rate
+          diverges the total and surfaces "Recalibrate" to rebalance the rest. */}
+      {isProject && (
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            mt: 1,
+            mb: 2,
+            gap: 2,
+            flexWrap: "wrap",
+          }}
+        >
+          <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
+            {diverged && hasOtherItems && (
+              <Button size="small" variant="outlined" onClick={recalibrate}>
+                Recalibrate discount for other items
+              </Button>
+            )}
+            {dirty && (
+              <Button size="small" variant="contained" onClick={saveDiscounts} disabled={savingDiscounts}>
+                {savingDiscounts ? "Saving…" : "Save discounts"}
+              </Button>
+            )}
+            {dirty && (
+              <Button size="small" color="inherit" onClick={resetDiscounts} disabled={savingDiscounts}>
+                Reset
+              </Button>
+            )}
+          </Stack>
+          <Box sx={{ textAlign: "right" }}>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              Total Discount:&nbsp;{currency} {currentTotalDiscount.toFixed(2)}
+            </Typography>
+            {diverged ? (
+              <Typography variant="caption" color="warning.main" sx={{ display: "block" }}>
+                Target {currency} {targetTotalDiscount.toFixed(2)} — click Recalibrate to rebalance
+              </Typography>
+            ) : (
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                Net total {currency} {(visibleItems.reduce((s, it) => s + grossOf(it), 0) - currentTotalDiscount).toFixed(2)}
+              </Typography>
+            )}
+          </Box>
+        </Box>
+      )}
 
       {/* Action buttons */}
       <Stack direction="row" spacing={1} sx={{ mb: 3 }}>
@@ -514,6 +818,151 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         !order.linkedDocuments?.invoice?.length && (
           <Typography variant="caption" color="text.disabled">No documents created from this order yet.</Typography>
         )}
+
+      {/* Supplier uploads — DOs / Invoices reconciled against this order via
+          the upload-and-verify flow. Per-line stamps carry the same fileKey
+          for the doc they came from, so we dedupe by fileKey to show each
+          upload once. */}
+      <SupplierUploadsSection items={order.items || []} />
     </MainCard>
+  );
+}
+
+/**
+ * Lists every supplier DO / Invoice uploaded against this order. Reads stamps
+ * off the items array, dedupes by fileKey, and renders one clickable chip per
+ * upload. Clicking mints a signed S3 URL and opens the file in a new tab.
+ */
+function SupplierUploadsSection({ items }: { items: OrderItem[] }) {
+  const { getToken } = useAuth();
+  const [openingKey, setOpeningKey] = useState<string | null>(null);
+
+  const uploads = useMemo(() => {
+    const byKey = new Map<string, { kind: "do" | "invoice"; stamp: VerifiedStamp }>();
+    for (const it of items || []) {
+      for (const k of ["verifiedDo", "verifiedInv"] as const) {
+        const stamp = (it as any)[k] as VerifiedStamp | undefined;
+        if (!stamp?.fileKey || byKey.has(stamp.fileKey)) continue;
+        byKey.set(stamp.fileKey, { kind: k === "verifiedDo" ? "do" : "invoice", stamp });
+      }
+    }
+    return Array.from(byKey.values());
+  }, [items]);
+
+  if (uploads.length === 0) return null;
+
+  const openFile = async (stamp: VerifiedStamp) => {
+    if (!stamp.fileKey || openingKey) return;
+    setOpeningKey(stamp.fileKey);
+    try {
+      const token = await getToken();
+      const res = await request(
+        { path: `/orders/supplier-doc-url?key=${encodeURIComponent(stamp.fileKey)}`, method: "GET" },
+        {},
+        token ?? undefined,
+      );
+      const url: string | undefined = res?.data?.url ?? res?.url;
+      if (url) window.open(url, "_blank", "noopener,noreferrer");
+      else toast.error("Couldn't get a download link for that file");
+    } catch (err) {
+      console.error("Supplier doc download failed:", err);
+      toast.error("Couldn't open the file");
+    } finally {
+      setOpeningKey(null);
+    }
+  };
+
+  const grouped = {
+    do: uploads.filter((u) => u.kind === "do"),
+    invoice: uploads.filter((u) => u.kind === "invoice"),
+  };
+  const labelMap = { do: "Delivery Orders (supplier)", invoice: "Invoices (supplier)" } as const;
+
+  return (
+    <Box sx={{ mt: 2 }}>
+      <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>Supplier Uploads</Typography>
+      {(["do", "invoice"] as const).map((kind) => {
+        const list = grouped[kind];
+        if (list.length === 0) return null;
+        return (
+          <Box key={kind} sx={{ mb: 1.5 }}>
+            <Typography variant="caption" color="text.secondary">{labelMap[kind]}</Typography>
+            <Stack direction="row" spacing={1} sx={{ mt: 0.5, flexWrap: "wrap" }}>
+              {list.map((u) => {
+                const s = u.stamp;
+                const label = [s.supplier, s.docNumber].filter(Boolean).join(" · ") || s.originalName || "Supplier doc";
+                const busy = openingKey === s.fileKey;
+                return (
+                  <Tooltip key={s.fileKey || label} arrow title={`${label}${s.date ? ` · ${s.date}` : ""} — click to download`}>
+                    <Chip
+                      size="small"
+                      label={busy ? "…" : label}
+                      variant="outlined"
+                      color="success"
+                      icon={<CheckCircleIcon />}
+                      clickable
+                      onClick={() => openFile(s)}
+                    />
+                  </Tooltip>
+                );
+              })}
+            </Stack>
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
+/**
+ * One-cell render for a verifiedDo / verifiedInv stamp. ✓ chip when the line
+ * was reconciled against a supplier doc; hovering shows doc no. + date.
+ * Clicking opens the saved supplier file (a signed S3 URL minted on demand)
+ * in a new tab so the user can re-download whenever they need it.
+ */
+/**
+ * Per-row passive ✓ indicator. Downloads live in the Supplier Uploads
+ * section at the bottom of the page (one chip per upload, deduped) so this
+ * cell just summarises the per-line reconciliation: solid green when SKU +
+ * qty + price all matched, amber Verified ⚠ when qty matched but price /
+ * amount diverged (with the deltas in the tooltip).
+ */
+function VerifiedCell({ stamp }: { stamp?: VerifiedStamp | null }) {
+  if (!stamp) return <Typography variant="caption" color="text.disabled">—</Typography>;
+  const hasMismatch = stamp.lineStatus === "mismatch";
+  const tip = (
+    <>
+      {stamp.supplier && <div>{stamp.supplier}</div>}
+      {stamp.docNumber && <div>Doc no.&nbsp;{stamp.docNumber}</div>}
+      {stamp.date && <div>{stamp.date}</div>}
+      {hasMismatch && (
+        <>
+          <div style={{ marginTop: 4, color: "#ffb74d", fontWeight: 600 }}>Price mismatch</div>
+          {stamp.supplierUnitPrice != null && (
+            <div>Supplier unit&nbsp;{Number(stamp.supplierUnitPrice).toFixed(2)}</div>
+          )}
+          {stamp.supplierAmount != null && (
+            <div>Supplier amount&nbsp;{Number(stamp.supplierAmount).toFixed(2)}</div>
+          )}
+          {stamp.mismatchNotes && (
+            <div style={{ opacity: 0.85, fontSize: "0.7rem", marginTop: 2 }}>{stamp.mismatchNotes}</div>
+          )}
+        </>
+      )}
+      {stamp.at && <div style={{ opacity: 0.7, fontSize: "0.7rem", marginTop: 2 }}>verified {new Date(stamp.at).toLocaleString()}</div>}
+    </>
+  );
+
+  return (
+    <Tooltip arrow title={tip}>
+      <Chip
+        size="small"
+        color={hasMismatch ? "warning" : "success"}
+        variant={hasMismatch ? "outlined" : "filled"}
+        icon={hasMismatch ? <WarningAmberIcon /> : <CheckCircleIcon />}
+        label={hasMismatch ? "Verified ⚠" : "Verified"}
+        sx={{ height: 22, "& .MuiChip-icon": { ml: "4px", fontSize: 14 } }}
+      />
+    </Tooltip>
   );
 }

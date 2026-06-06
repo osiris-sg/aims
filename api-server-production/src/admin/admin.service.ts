@@ -2,6 +2,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { mergeModulesWithCatalog, getCatalogModule } from '../configuration/module-catalog';
 
 @Injectable()
 export class AdminService {
@@ -296,7 +297,7 @@ export class AdminService {
   }
 
   async getOrganizationById(id: string) {
-    return this.prisma.organization.findUnique({
+    const org = await this.prisma.organization.findUnique({
       where: { id },
       include: {
         modules: {
@@ -322,6 +323,12 @@ export class AdminService {
         },
       },
     });
+
+    if (!org) return org;
+
+    // Overlay the canonical catalog so every org shows every module (new ones
+    // appear disabled with a virtual id, ready to toggle). Stored rows win.
+    return { ...org, modules: mergeModulesWithCatalog(org.modules) };
   }
 
   async updateOrganization(id: string, data: Record<string, any>) {
@@ -703,10 +710,11 @@ export class AdminService {
   // ===== ORGANIZATION MODULE MANAGEMENT SERVICES =====
 
   async getOrganizationModules(organizationId: string) {
-    return this.prisma.organizationModule.findMany({
+    const rows = await this.prisma.organizationModule.findMany({
       where: { organizationId },
       orderBy: { sortOrder: 'asc' },
     });
+    return mergeModulesWithCatalog(rows);
   }
 
   async createOrganizationModule(organizationId: string, moduleData: any) {
@@ -736,6 +744,28 @@ export class AdminService {
 
   async updateOrganizationModule(organizationId: string, moduleId: string, moduleData: any) {
     const { displayName, icon, sortOrder, enabled, config } = moduleData;
+
+    // Catalog modules that have no stored row yet arrive with a virtual id
+    // ("catalog:<CODE>"). Upsert by (organizationId, moduleCode), filling any
+    // omitted field from the catalog definition, instead of update-by-id which
+    // would throw with no matching row.
+    if (moduleId.startsWith('catalog:')) {
+      const moduleCode = moduleId.slice('catalog:'.length);
+      const catalog = getCatalogModule(moduleCode);
+      return this.prisma.organizationModule.upsert({
+        where: { organizationId_moduleCode: { organizationId, moduleCode } },
+        update: { displayName, icon, sortOrder, enabled, config },
+        create: {
+          organizationId,
+          moduleCode,
+          enabled: enabled ?? catalog?.defaultEnabled ?? true,
+          displayName: displayName ?? catalog?.displayName,
+          icon: icon ?? catalog?.icon,
+          sortOrder: sortOrder ?? catalog?.sortOrder,
+          config: config ?? catalog?.config,
+        },
+      });
+    }
 
     return this.prisma.organizationModule.update({
       where: { id: moduleId },

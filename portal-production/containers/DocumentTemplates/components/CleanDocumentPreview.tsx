@@ -2087,10 +2087,25 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           const gstPercent = isTaxApplicable ? (data.documentInfo?.gstPercent || 9) : 0;
             const isAbsorbTax = data.documentInfo?.absorbTax === 'Y' || data.documentInfo?.absorbTax === true;
             const grossTotal = subtotal;
+            // Route Order PO: deduct the user's chosen "Less Points" redemption
+            // (documentInfo.pointsRedeemed). Falls back to the auto-computed Σ
+            // points × qty for older docs that don't have the override saved.
+            const isRoutePO = data?.orderType === "Route Order";
+            const autoPoints = isRoutePO
+              ? items.reduce((s: number, it: any) => s + (Number(it.points) || 0) * (Number(it.quantity) || 0), 0)
+              : 0;
+            const redeemedRaw = (data as any)?.documentInfo?.pointsRedeemed ?? (data as any)?.documentInfo?.pointsDeducted;
+            const poTotalPoints = isRoutePO
+              ? redeemedRaw != null && String(redeemedRaw) !== ""
+                ? Math.max(0, Number(redeemedRaw) || 0)
+                : autoPoints
+              : 0;
+            // 1 point = $1 off the Nett: GST on the full sub-total, then
+            // points come off the Nett directly. Same model as the editor.
             const gstAmount = isAbsorbTax && gstPercent > 0
               ? grossTotal * gstPercent / (100 + gstPercent)
               : grossTotal * (gstPercent / 100);
-            const finalTotal = isAbsorbTax ? grossTotal : grossTotal + gstAmount;
+            const finalTotal = (isAbsorbTax ? grossTotal : grossTotal + gstAmount) - poTotalPoints;
 
             return (
               <>
@@ -2107,6 +2122,12 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                         <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", minWidth: 60 }}>{gstAmount.toFixed(2)}</Typography>
                       </Box>
                     </Box>
+                    {poTotalPoints > 0 && (
+                      <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
+                        <Typography sx={{ fontSize: "0.8125rem" }}>Less Points</Typography>
+                        <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>-{poTotalPoints.toFixed(2)}</Typography>
+                      </Box>
+                    )}
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3, borderTop: "1px solid #000", mt: 0.5, pt: 0.5 }}>
                       <Typography sx={{ fontSize: "0.8125rem" }}>TOTAL</Typography>
                       <Box sx={{ display: "flex", gap: 2 }}>
@@ -2333,10 +2354,25 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           const gstPercent = isTaxApplicable ? (data.documentInfo?.gstPercent || 9) : 0;
             const isAbsorbTax = data.documentInfo?.absorbTax === 'Y' || data.documentInfo?.absorbTax === true;
             const grossTotal = subtotal;
+            // Route Order PO: deduct the user's chosen "Less Points" redemption
+            // (documentInfo.pointsRedeemed). Falls back to the auto-computed Σ
+            // points × qty for older docs that don't have the override saved.
+            const isRoutePO = data?.orderType === "Route Order";
+            const autoPoints = isRoutePO
+              ? items.reduce((s: number, it: any) => s + (Number(it.points) || 0) * (Number(it.quantity) || 0), 0)
+              : 0;
+            const redeemedRaw = (data as any)?.documentInfo?.pointsRedeemed ?? (data as any)?.documentInfo?.pointsDeducted;
+            const poTotalPoints = isRoutePO
+              ? redeemedRaw != null && String(redeemedRaw) !== ""
+                ? Math.max(0, Number(redeemedRaw) || 0)
+                : autoPoints
+              : 0;
+            // 1 point = $1 off the Nett: GST on the full sub-total, then
+            // points come off the Nett directly. Same model as the editor.
             const gstAmount = isAbsorbTax && gstPercent > 0
               ? grossTotal * gstPercent / (100 + gstPercent)
               : grossTotal * (gstPercent / 100);
-            const finalTotal = isAbsorbTax ? grossTotal : grossTotal + gstAmount;
+            const finalTotal = (isAbsorbTax ? grossTotal : grossTotal + gstAmount) - poTotalPoints;
 
             return (
               <>
@@ -2353,6 +2389,12 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                         <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", minWidth: 60 }}>{gstAmount.toFixed(2)}</Typography>
                       </Box>
                     </Box>
+                    {poTotalPoints > 0 && (
+                      <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
+                        <Typography sx={{ fontSize: "0.8125rem" }}>Less Points</Typography>
+                        <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>-{poTotalPoints.toFixed(2)}</Typography>
+                      </Box>
+                    )}
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3, borderTop: "1px solid #000", mt: 0.5, pt: 0.5 }}>
                       <Typography sx={{ fontSize: "0.8125rem" }}>TOTAL</Typography>
                       <Box sx={{ display: "flex", gap: 2 }}>
@@ -2646,6 +2688,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     case "item": return item.itemCode || item.code || "";
                     case "taggedAsset": return item.taggedAssetCode || "";
                     case "cuModel": return item.cuCode || "";
+                    case "masterQty": return item.masterQty ?? 1;
                     case "fcuModel":
                       // CU shown once (cuModel col); each FCU on its own stacked line.
                       return Array.isArray(item.fcus) && item.fcus.length

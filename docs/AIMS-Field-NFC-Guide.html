@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIMS Field — NFC Scanning Guide</title>
+<style>
+  :root{
+    --bg:#f6f8fa; --ink:#1f2328; --muted:#57606a; --line:#d0d7de;
+    --blue:#0969da; --blue-d:#0a2540; --green:#1a7f37; --amber:#bf8700;
+    --card:#ffffff; --screen:#fbfcfd;
+  }
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;margin:0;padding:0;background:var(--bg);color:var(--ink);line-height:1.55}
+  .wrap{max-width:1100px;margin:0 auto;padding:32px 24px 64px}
+  h1{font-size:30px;margin:0 0 4px}
+  h2{font-size:21px;margin:0;}
+  .sub{color:var(--muted);font-size:15px}
+  .intro{background:#fff;border-left:4px solid var(--blue);padding:14px 18px;border-radius:6px;margin:20px 0;font-size:14.5px}
+  .intro strong{color:var(--blue-d)}
+  .req{display:flex;gap:12px;flex-wrap:wrap;margin:18px 0}
+  .req .item{background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px 14px;font-size:13.5px;flex:1;min-width:210px}
+  .req .item b{display:block;color:var(--blue-d);font-size:13px;margin-bottom:2px}
+  .toc{background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px 18px;margin:20px 0;font-size:14px;columns:2;column-gap:32px}
+  .toc a{color:var(--blue);text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+
+  /* step layout */
+  .step{display:flex;gap:28px;align-items:flex-start;background:#fff;border:1px solid var(--line);border-radius:12px;padding:22px 24px;margin:18px 0;page-break-inside:avoid}
+  .step .copy{flex:1;min-width:0}
+  .step .shot{flex:0 0 300px}
+  .step h2{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  .num{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:var(--blue);color:#fff;font-size:15px;font-weight:700;flex:0 0 auto}
+  .copy p{margin:8px 0;font-size:14.5px}
+  .copy ul{margin:8px 0;padding-left:20px;font-size:14.5px}
+  .copy li{margin:4px 0}
+  .tag{display:inline-block;font:600 12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;background:#eef3f8;border:1px solid var(--line);border-radius:4px;padding:1px 6px;color:var(--blue-d)}
+  .note{background:#fff8d6;border:1px solid #f0d97a;border-radius:6px;padding:10px 12px;font-size:13.5px;margin:10px 0}
+  .note b{color:#7a5b00}
+  .callout{background:#eaf3ff;border:1px solid #b6d4fb;border-radius:6px;padding:10px 12px;font-size:13.5px;margin:10px 0}
+  .section-label{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700;margin:34px 0 2px}
+
+  /* ---- phone mockup ---- */
+  .device{width:300px;border:10px solid #11161c;border-radius:32px;background:#11161c;box-shadow:0 8px 30px rgba(10,37,64,.18)}
+  .notch{height:18px;display:flex;justify-content:center}
+  .notch::after{content:"";width:90px;height:14px;background:#11161c;border-radius:0 0 12px 12px}
+  .scr{background:var(--screen);border-radius:20px;overflow:hidden}
+  .statusbar{display:flex;justify-content:space-between;align-items:center;padding:6px 14px 2px;font-size:11px;color:var(--muted)}
+  .appbar{display:flex;justify-content:space-between;align-items:center;padding:8px 14px;border-bottom:1px solid var(--line);background:#fff}
+  .appbar .brand{font-weight:700;font-size:13px;color:var(--blue-d)}
+  .appbar .out{font-size:11px;color:var(--muted)}
+  .body{padding:16px 14px 18px;min-height:300px}
+  .center{display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px}
+  .stitle{font-weight:700;font-size:16px}
+  .ssub{font-size:12.5px;color:var(--muted)}
+  .cap{font-size:11px;color:var(--muted);word-break:break-all}
+
+  .btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border-radius:8px;padding:11px 12px;font-size:13.5px;font-weight:600;margin-top:10px;border:1px solid transparent}
+  .b-primary{background:var(--blue);color:#fff}
+  .b-out{background:#fff;color:var(--blue);border-color:#9ec3f0}
+  .b-warn{background:var(--amber);color:#fff}
+  .b-green{background:var(--green);color:#fff}
+  .b-text{background:transparent;color:var(--blue);font-weight:600}
+  .b-disabled{background:#eef1f4;color:#9aa4ad;border-color:#e1e5ea}
+  .b-lg{padding:15px 12px;font-size:14.5px}
+  .row{display:flex;gap:10px}
+  .row .btn{flex:1}
+
+  .tf{margin-top:12px}
+  .tf .lab{font-size:11px;color:var(--muted);margin-bottom:3px}
+  .tf .ipt{border:1px solid var(--line);border-radius:6px;padding:9px 10px;font-size:13px;background:#fff;color:var(--ink);display:flex;justify-content:space-between;align-items:center}
+  .tf .ipt.ph{color:#9aa4ad}
+  .tf .ipt.ro{background:#f2f4f6;color:#6b7480}
+  .tf .help{font-size:10.5px;color:var(--muted);margin-top:3px}
+
+  .ava{width:60px;height:60px;border-radius:12px;background:#dce6f2;display:flex;align-items:center;justify-content:center;color:var(--blue-d);font-weight:700;font-size:13px}
+  .chip{display:inline-block;font-size:11px;background:#eef3f8;border:1px solid var(--line);border-radius:20px;padding:2px 9px;color:var(--blue-d)}
+  .acard{display:flex;gap:12px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:12px;background:#fff;margin-top:10px}
+  .acard.dis{opacity:.5}
+  .acard .ic{width:40px;height:40px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;color:var(--blue)}
+  .acard .t{font-weight:700;font-size:13.5px}
+  .acard .s{font-size:11.5px;color:var(--muted)}
+
+  .checklist{display:grid;grid-template-columns:1fr 1fr;gap:3px 10px;font-size:11.5px;margin-top:8px}
+  .ci{display:flex;align-items:center;gap:6px}
+  .box{width:14px;height:14px;border:1.5px solid #9aa4ad;border-radius:3px;flex:0 0 auto}
+  .box.on{background:var(--blue);border-color:var(--blue);position:relative}
+  .box.on::after{content:"✓";color:#fff;font-size:10px;position:absolute;top:-2px;left:1px}
+
+  .sigpad{border:1.5px dashed var(--line);border-radius:8px;height:96px;background:#fff;margin-top:10px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:8px}
+  .sigpad svg{opacity:.65}
+  .photos{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:8px}
+  .photos .ph{height:44px;border-radius:6px;background:#dce6f2;border:1px solid var(--line)}
+  .progress{height:6px;background:#e6eaef;border-radius:4px;margin-top:8px;overflow:hidden}
+  .progress > i{display:block;height:100%;background:var(--blue)}
+  .alert{border-radius:6px;padding:8px 10px;font-size:11.5px;margin-top:10px}
+  .a-warn{background:#fff4e5;border:1px solid #f0c98a;color:#7a4f00}
+  .a-info{background:#eaf3ff;border:1px solid #b6d4fb;color:#0a3a73}
+  .divider{height:1px;background:var(--line);margin:12px 0}
+  .shotcap{text-align:center;font-size:11.5px;color:var(--muted);margin-top:8px}
+
+  .icon{width:64px;height:64px}
+  footer{color:var(--muted);font-size:12.5px;margin-top:30px;border-top:1px solid var(--line);padding-top:16px}
+
+  @media print{
+    @page{size:A4 portrait;margin:12mm 14mm}
+    body{background:#fff}
+    .wrap{max-width:none;padding:0}
+    /* Single column so it reads top-to-bottom on a phone PDF viewer */
+    .step{flex-direction:column;border-color:#ccc;box-shadow:none;padding:16px 4px}
+    .step .shot{flex:none;align-self:center;margin-top:12px}
+    .step .copy{width:100%}
+    .device{box-shadow:none}
+    a{color:var(--ink);text-decoration:none}
+    .toc{break-inside:avoid;columns:1}
+    #s8 > div{grid-template-columns:1fr !important}
+    h1{font-size:26px}
+  }
+  @media (max-width:760px){
+    .step{flex-direction:column}
+    .step .shot{align-self:center}
+    .toc{columns:1}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>AIMS Field — NFC Scanning Guide</h1>
+  <div class="sub">Step-by-step, for field technicians. From tapping a tag to a signed report.</div>
+
+  <div class="intro">
+    <strong>What this app does.</strong> You tap your phone on the NFC sticker stuck to a piece of
+    equipment. The app instantly recognises the unit and lets you do one of two things on site:
+    <b>acknowledge a delivery</b> (with proof photos, GPS and a recipient signature) or fill in a
+    <b>Maintenance &amp; Inspection Service Report</b> (checklist, remarks, and two signatures).
+    The very first time a brand-new sticker is tapped, you link it to a product once — after that,
+    every tap goes straight in.
+  </div>
+
+  <div class="req">
+    <div class="item"><b>Phone</b> An <b>Android phone with NFC</b> turned on. (iPhone is supported in the installed app only; NFC is not available in the iPhone browser.)</div>
+    <div class="item"><b>App</b> The <b>AIMS Field</b> app, or open the field site in <b>Chrome</b> on Android.</div>
+    <div class="item"><b>Login</b> Your AIMS account. Your organisation must have the <span class="tag">Field Scan</span> feature enabled by an admin.</div>
+    <div class="item"><b>Connection</b> Mobile data or Wi-Fi — photos and reports upload to AIMS as you go.</div>
+  </div>
+
+  <div class="section-label">Contents</div>
+  <div class="toc">
+    <a href="#s1">1. Open the app &amp; sign in</a><br>
+    <a href="#s2">2. Tap an asset tag</a><br>
+    <a href="#s3">3. First time? Register the tag</a><br>
+    <a href="#s4">4. Choose what you're doing</a><br>
+    <a href="#s5">5. Delivery: Start → Acknowledge → Sign</a><br>
+    <a href="#s6">6. Maintenance Service Report (6 steps)</a><br>
+    <a href="#s7">7. Finishing &amp; doing the next one</a><br>
+    <a href="#s8">8. Troubleshooting</a>
+  </div>
+
+  <!-- 1 -->
+  <div class="step" id="s1">
+    <div class="copy">
+      <h2><span class="num">1</span> Open the app &amp; sign in</h2>
+      <p>Open <b>AIMS Field</b> (or the field web link in Chrome) and sign in with your AIMS account.</p>
+      <ul>
+        <li>Field technicians land directly on the <b>scan</b> screen — there's no menu to navigate.</li>
+        <li>If you see a message that <em>"Field scan is not enabled for your organisation"</em>, ask an admin to switch it on under <b>Admin → Configuration → Feature Flags</b>.</li>
+      </ul>
+      <div class="note"><b>Tip:</b> Make sure <b>NFC is enabled</b> in your phone settings before you start (Settings → Connected devices → NFC).</div>
+    </div>
+    <div class="shot">
+      <div class="device"><div class="notch"></div><div class="scr">
+        <div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+        <div class="appbar"><span class="brand">AIMS Field</span><span class="out">Sign out ⎋</span></div>
+        <div class="body center" style="justify-content:center;min-height:300px">
+          <div class="ava" style="width:54px;height:54px;border-radius:50%">👤</div>
+          <div class="stitle">Sign in to AIMS Field</div>
+          <div class="ssub">Use your AIMS work account.</div>
+          <div class="btn b-primary" style="max-width:200px">Continue</div>
+        </div>
+      </div></div>
+      <div class="shotcap">Sign-in screen</div>
+    </div>
+  </div>
+
+  <!-- 2 -->
+  <div class="step" id="s2">
+    <div class="copy">
+      <h2><span class="num">2</span> Tap an asset tag</h2>
+      <p>On the home screen, tap the big <b>Tap to scan</b> button, then hold the <b>back of your phone</b> against the NFC sticker on the equipment until it buzzes.</p>
+      <ul>
+        <li>Button text changes to <b>Scanning…</b>, then <b>Looking up…</b> while it finds the unit.</li>
+        <li>If the tag is already linked → you go straight to <b>"What are you doing?"</b> (step 4).</li>
+        <li>If it's a brand-new tag → you go to <b>"New tag"</b> to register it (step 3).</li>
+      </ul>
+      <div class="note"><b>Where's the NFC antenna?</b> On most Android phones it's the upper-middle of the back. Move the phone slowly until it reads.</div>
+    </div>
+    <div class="shot">
+      <div class="device"><div class="notch"></div><div class="scr">
+        <div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+        <div class="appbar"><span class="brand">AIMS Field</span><span class="out">⎋</span></div>
+        <div class="body center" style="justify-content:center;min-height:300px">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#0969da" stroke-width="1.6" stroke-linecap="round"><path d="M3 12a9 9 0 0 1 9-9"/><path d="M6 12a6 6 0 0 1 6-6"/><path d="M9 12a3 3 0 0 1 3-3"/><circle cx="12" cy="12" r="1.4" fill="#0969da" stroke="none"/></svg>
+          <div class="stitle">Tap an asset tag</div>
+          <div class="ssub">Hold your phone close to the NFC sticker on the asset.</div>
+          <div class="btn b-primary b-lg" style="max-width:220px">Tap to scan</div>
+        </div>
+      </div></div>
+      <div class="shotcap">Home / scan screen (<span class="tag">/scan</span>)</div>
+    </div>
+  </div>
+
+  <div class="section-label">First-time tags only</div>
+
+  <!-- 3 -->
+  <div class="step" id="s3">
+    <div class="copy">
+      <h2><span class="num">3</span> First time? Register the tag</h2>
+      <p>A new sticker isn't linked to anything yet, so you link it once. <b>You don't create a new product</b> — you photograph the nameplate and pick the matching product from the catalog.</p>
+      <p><b>3a — Photograph the nameplate.</b> Tap <b>Scan Equipment Label</b>, take a clear photo of the model/serial plate, then tap <b>Analyze</b>. The app reads the model and serial to help you.</p>
+      <p><b>3b — Pick the product &amp; confirm.</b> The <b>Product</b> box is pre-filled from the photo; if there's an exact match it's selected for you. Check the <b>Serial number</b>, then tap <b>Create &amp; Bind</b>.</p>
+      <div class="note"><b>"No matching product"?</b> The product isn't in the catalog yet. Ask the office to add it — new products can only be added from the office, not the field.</div>
+    </div>
+    <div class="shot">
+      <div class="device"><div class="notch"></div><div class="scr">
+        <div class="statusbar"><span>9:42</span><span>📶 🔋</span></div>
+        <div class="appbar"><span class="brand">New tag</span><span class="out">⎋</span></div>
+        <div class="body">
+          <div class="cap">Tag UID: 04:a1:b2:c3:d4:e5:f6</div>
+          <div class="ssub" style="margin-top:8px">Pick the product this unit is, then confirm. New products can only be added by the office.</div>
+          <div class="tf"><div class="lab">Product</div><div class="ipt">LION375 · LION375</div><div class="help">Selected: LION375 · LION375</div></div>
+          <div class="tf"><div class="lab">Serial number</div><div class="ipt">MG20240001</div><div class="help">From the nameplate. Stored for audit; the unit SKU is auto-generated.</div></div>
+          <div class="btn b-primary">Create &amp; Bind</div>
+          <div class="btn b-text">Back to photo</div>
+        </div>
+      </div></div>
+      <div class="shotcap">3b — pick product &amp; confirm (<span class="tag">/scan/bind</span>)</div>
+    </div>
+  </div>
+
+  <div class="section-label">Every tap from here</div>
+
+  <!-- 4 -->
+  <div class="step" id="s4">
+    <div class="copy">
+      <h2><span class="num">4</span> Choose what you're doing</h2>
+      <p>After a successful tap you see the unit's details and two choices:</p>
+      <ul>
+        <li><b>Start / Acknowledge Delivery</b> — appears only when this unit has an open Delivery Order. The card text changes to match: <b>Start Delivery</b> first, then <b>Acknowledge Delivery</b> after it's been started. If there's no open order it reads <em>"No open delivery order"</em> and is greyed out.</li>
+        <li><b>Maintenance Service Report</b> — always available; for any service or inspection visit.</li>
+      </ul>
+      <p>Tap <b>Scan another asset</b> at the bottom to go back to the home screen.</p>
+    </div>
+    <div class="shot">
+      <div class="device"><div class="notch"></div><div class="scr">
+        <div class="statusbar"><span>9:43</span><span>📶 🔋</span></div>
+        <div class="appbar"><span class="brand">AIMS Field</span><span class="out">⎋</span></div>
+        <div class="body">
+          <div style="display:flex;gap:10px;align-items:center">
+            <div class="ava">LION</div>
+            <div><div class="stitle" style="font-size:15px">LION375</div>
+            <div style="margin-top:3px"><span class="chip">Unit MG20240001-001</span></div>
+            <div class="cap" style="margin-top:3px">SN MG20240001</div></div>
+          </div>
+          <div style="font-weight:700;font-size:13px;margin-top:14px">What are you doing?</div>
+          <div class="acard">
+            <div class="ic"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#0969da" stroke-width="1.6"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2"/><circle cx="18.5" cy="18.5" r="2"/></svg></div>
+            <div><div class="t">Start Delivery</div><div class="s">DO-12345 · 27 May 2026</div></div>
+          </div>
+          <div class="acard">
+            <div class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0969da" stroke-width="1.6"><path d="M14 7l3 3-7 7-3 1 1-3z"/><path d="M3 21h18"/></svg></div>
+            <div><div class="t">Maintenance Service Report</div><div class="s">Capture photos and customer signature for work performed</div></div>
+          </div>
+          <div class="cap" style="margin-top:10px">Recent activity (3)</div>
+          <div class="btn b-text" style="margin-top:6px">Scan another asset</div>
+        </div>
+      </div></div>
+      <div class="shotcap">Action chooser (<span class="tag">/scan/asset/…</span>)</div>
+    </div>
+  </div>
+
+  <!-- 5 -->
+  <div class="section-label">Path A — Delivery</div>
+  <div class="step" id="s5">
+    <div class="copy">
+      <h2><span class="num">5</span> Delivery: Start → Acknowledge → Sign</h2>
+      <p>This is a <b>two-stage</b> flow with GPS tracking in between, so the office can see the unit move from the depot to the customer.</p>
+      <p><b>5a — Start Delivery</b> (at the depot, before you leave). Tap the card → <b>Confirm &amp; Start</b>. GPS tracking begins and a "Tracking delivery" notification stays in your tray.</p>
+      <p><b>5b — Acknowledge Delivery</b> (at the destination). Tap the unit's card again → add optional <b>Notes</b>, tap <b>Add photos</b> for proof of delivery, then <b>Continue to signature</b>.</p>
+      <p><b>5c — Customer signature.</b> Hand the phone to the recipient, have them sign, optionally type their name, and tap <b>Submit</b>. GPS tracking stops automatically.</p>
+      <div class="note"><b>Order matters:</b> "Acknowledge" only unlocks after "Start". If a colleague started it, their name shows on the card.</div>
+    </div>
+    <div class="shot">
+      <div class="device"><div class="notch"></div><div class="scr">
+        <div class="statusbar"><span>10:02</span><span>📶 🔋</span></div>
+        <div class="appbar"><span class="brand">Acknowledge Delivery</span><span class="out">⎋</span></div>
+        <div class="body">
+          <div class="cap">DO-12345</div>
+          <div class="tf"><div class="lab">Notes (optional)</div><div class="ipt ph" style="height:46px;align-items:flex-start">Any condition issues or remarks at delivery</div></div>
+          <div style="font-size:12px;font-weight:600;margin-top:12px">Proof of delivery (2)</div>
+          <div class="photos"><div class="ph"></div><div class="ph"></div><div class="ph" style="background:#eef1f4;display:flex;align-items:center;justify-content:center;color:#9aa4ad;font-size:18px">＋</div></div>
+          <div class="btn b-out">＋ Add photos</div>
+          <div class="row"><div class="btn b-out">Back</div><div class="btn b-primary">Continue to signature</div></div>
+        </div>
+      </div></div>
+      <div class="shotcap">5b — Acknowledge Delivery</div>
+      <div class="device" style="margin-top:14px"><div class="notch"></div><div class="scr">
+        <div class="statusbar"><span>10:05</span><span>📶 🔋</span></div>
+        <div class="appbar"><span class="brand">Customer signature</span><span class="out">⎋</span></div>
+        <div class="body">
+          <div class="ssub">Have the recipient sign in the box below to confirm the work / delivery.</div>
+          <div class="tf"><div class="lab">Recipient name (optional)</div><div class="ipt ph">Name</div></div>
+          <div class="sigpad"><svg width="150" height="46" viewBox="0 0 150 46" fill="none" stroke="#33414e" stroke-width="2" stroke-linecap="round"><path d="M8 34c10-22 16 6 24-2s10-20 18-8 12 14 22 2 14-10 22-2"/></svg></div>
+          <div class="row"><div class="btn b-out">Clear</div><div class="btn b-primary">Submit</div></div>
+        </div>
+      </div></div>
+      <div class="shotcap">5c — Customer signature</div>
+    </div>
+  </div>
+
+  <!-- 6 -->
+  <div class="section-label">Path B — Maintenance Service Report</div>
+  <div class="step" id="s6">
+    <div class="copy">
+      <h2><span class="num">6</span> Maintenance Service Report — 6 steps</h2>
+      <p>A guided wizard with a progress bar at the top (<b>Step X of 6</b>). Use <b>Back</b> / <b>Next</b> to move; <b>Next</b> stays locked until the current step is complete.</p>
+      <ol style="font-size:14.5px;padding-left:20px">
+        <li><b>Header</b> — search and pick the <b>Company</b> (required). <b>Client Email</b> auto-fills from their record (editable). Add <b>Job Location</b>. <b>Model</b> and <b>Serial No</b> are filled in for you and can't be edited. Set the <b>Service Date</b> (defaults to today) and an optional <b>Next Service Date</b>.</li>
+        <li><b>Checklist</b> — tap each item you checked or serviced (control panel, PLC, HMI, pumps, valves, sensors, pressures, flow rate, …).</li>
+        <li><b>Remarks &amp; Time</b> — <b>Time In</b> was captured automatically when you opened the form; <b>Time Out</b> is stamped when you submit. Type your <b>Remarks</b>.</li>
+        <li><b>Service signature</b> — shows <b>"SERVICE BY {your company}"</b>; you (the technician) sign. Use <b>Re-sign</b> to redo.</li>
+        <li><b>Client signature</b> — the customer reads the certification line, you type their <b>name</b>, and they sign.</li>
+        <li><b>Payment</b> — choose one (this submits the report):
+          <ul>
+            <li><b>No Payment Required</b> → the report PDF is <b>emailed to the customer</b> automatically.</li>
+            <li><b>Payment Required</b> → a <b>Pending Invoice</b> is created on the office dashboard; the office invoices before contacting the customer.</li>
+          </ul>
+        </li>
+      </ol>
+    </div>
+    <div class="shot">
+      <div class="device"><div class="notch"></div><div class="scr">
+        <div class="statusbar"><span>11:10</span><span>📶 🔋</span></div>
+        <div class="appbar"><span class="brand">Service Report</span><span class="out">⎋</span></div>
+        <div class="body">
+          <div style="font-weight:700;font-size:13px">Maintenance &amp; Inspection Service Report</div>
+          <div class="cap">Step 1 of 6 — Header</div>
+          <div class="progress"><i style="width:16.6%"></i></div>
+          <div class="tf"><div class="lab">Company Name *</div><div class="ipt">Biofuel Industries Pte Ltd</div></div>
+          <div class="tf"><div class="lab">Client Email</div><div class="ipt">ops@biofuel.com</div></div>
+          <div class="tf"><div class="lab">Model</div><div class="ipt ro">LION375</div></div>
+          <div class="tf"><div class="lab">Serial No</div><div class="ipt ro">MG20240001</div></div>
+          <div class="row"><div class="btn b-out">Back</div><div class="btn b-primary">Next</div></div>
+        </div>
+      </div></div>
+      <div class="shotcap">Step 1 — Header</div>
+
+      <div class="device" style="margin-top:14px"><div class="notch"></div><div class="scr">
+        <div class="statusbar"><span>11:12</span><span>📶 🔋</span></div>
+        <div class="appbar"><span class="brand">Service Report</span><span class="out">⎋</span></div>
+        <div class="body">
+          <div class="cap">Step 2 of 6 — Checklist</div>
+          <div class="progress"><i style="width:33%"></i></div>
+          <div class="ssub" style="margin-top:8px">Tap each item that was checked / serviced.</div>
+          <div class="checklist">
+            <div class="ci"><span class="box on"></span>1. Control panel</div><div class="ci"><span class="box"></span>2. PLC</div>
+            <div class="ci"><span class="box on"></span>3. HMI</div><div class="ci"><span class="box"></span>4. Power voltage</div>
+            <div class="ci"><span class="box"></span>5. Frequency</div><div class="ci"><span class="box on"></span>6. Backwash pump</div>
+            <div class="ci"><span class="box on"></span>7. Submersible pump</div><div class="ci"><span class="box"></span>8. Aerator</div>
+            <div class="ci"><span class="box"></span>9. Suction pump</div><div class="ci"><span class="box"></span>10. Air scouring</div>
+            <div class="ci"><span class="box on"></span>11. Turbula pump</div><div class="ci"><span class="box"></span>12. 3 way valve</div>
+          </div>
+          <div class="row"><div class="btn b-out">Back</div><div class="btn b-primary">Next</div></div>
+        </div>
+      </div></div>
+      <div class="shotcap">Step 2 — Checklist (25 items)</div>
+
+      <div class="device" style="margin-top:14px"><div class="notch"></div><div class="scr">
+        <div class="statusbar"><span>11:25</span><span>📶 🔋</span></div>
+        <div class="appbar"><span class="brand">Service Report</span><span class="out">⎋</span></div>
+        <div class="body">
+          <div class="cap">Step 6 of 6 — Payment</div>
+          <div class="progress"><i style="width:100%"></i></div>
+          <div class="ssub" style="margin-top:10px">If payment is required (e.g. faulty equipment), an invoice will be created on the dashboard. Otherwise, a copy of this report will be emailed to the customer.</div>
+          <div class="btn b-out b-lg">No Payment Required</div>
+          <div class="btn b-warn b-lg">Payment Required</div>
+          <div class="btn b-text">Back</div>
+        </div>
+      </div></div>
+      <div class="shotcap">Step 6 — Payment (this submits)</div>
+    </div>
+  </div>
+
+  <!-- 7 -->
+  <div class="step" id="s7">
+    <div class="copy">
+      <h2><span class="num">7</span> Finishing &amp; doing the next one</h2>
+      <p>After you submit (either path), you'll see the <b>Submitted</b> screen confirming it's been sent back to AIMS.</p>
+      <ul>
+        <li><b>Scan another asset</b> — go back to the home screen for the next unit.</li>
+        <li><b>Back to this asset</b> — return to the same unit's action screen (e.g. to do a second report).</li>
+      </ul>
+      <div class="callout">Everything you submitted — photos, signatures, checklist, GPS track — is now visible to the office under <b>Service Reports</b> in the AIMS portal.</div>
+    </div>
+    <div class="shot">
+      <div class="device"><div class="notch"></div><div class="scr">
+        <div class="statusbar"><span>11:26</span><span>📶 🔋</span></div>
+        <div class="appbar"><span class="brand">AIMS Field</span><span class="out">⎋</span></div>
+        <div class="body center" style="justify-content:center;min-height:300px">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#1a7f37" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>
+          <div class="stitle">Submitted</div>
+          <div class="ssub">Sent back to AIMS.</div>
+          <div class="btn b-primary" style="max-width:220px">Scan another asset</div>
+          <div class="btn b-out" style="max-width:220px">Back to this asset</div>
+        </div>
+      </div></div>
+      <div class="shotcap">Done screen</div>
+    </div>
+  </div>
+
+  <!-- 8 -->
+  <div class="step" id="s8" style="display:block">
+    <h2 style="margin-bottom:10px"><span class="num">8</span> Troubleshooting</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:14px">
+      <div class="req item" style="min-width:0"><b>"NFC is required" message</b> Your phone has no NFC or it's off, or you're on an iPhone browser. Turn NFC on in phone settings, or use the installed AIMS Field app on an NFC phone.</div>
+      <div class="req item" style="min-width:0"><b>Tag won't read</b> Move the phone slowly over the sticker; the antenna is usually upper-middle of the back. Remove thick/metal cases.</div>
+      <div class="req item" style="min-width:0"><b>"No matching product" when binding</b> The product isn't in the catalog. Ask the office to add it, then tap again.</div>
+      <div class="req item" style="min-width:0"><b>Delivery card is greyed out</b> There's no open Delivery Order for this unit, or it's already been acknowledged. Use the Maintenance Service Report instead, or check with the office.</div>
+      <div class="req item" style="min-width:0"><b>"Field scan is not enabled"</b> An admin must enable it under <b>Admin → Configuration → Feature Flags</b> for your organisation.</div>
+      <div class="req item" style="min-width:0"><b>Next button stays disabled</b> The current step needs something — pick a company, draw a signature, etc. The required field is highlighted.</div>
+      <div class="req item" style="min-width:0"><b>Photo / signature won't upload</b> Check your data/Wi-Fi connection and try again; the app retries the upload.</div>
+      <div class="req item" style="min-width:0"><b>Tag bound to the wrong product</b> Don't re-tap to fix it — ask the office to correct the link in the portal.</div>
+    </div>
+  </div>
+
+  <footer>
+    Screens shown are simplified mock-ups of the live app; on-device wording and layout may differ slightly.
+    This guide covers the field PWA flows: <span class="tag">/scan</span>, tag binding, the delivery (DO) flow, and the
+    6-step Maintenance &amp; Inspection Service Report. Generated for AIMS Field.
+  </footer>
+
+</div>
+</body>
+</html>

@@ -64,21 +64,31 @@ export const useGetInventoriesForItemTable = () => {
     const token = await getToken();
     if (!token || !organizationId) return [];
 
-    const response = await request(
-      {
-        path: "/assets",
-        method: "POST",
-      },
-      {
-        page: 1,
-        limit: 100,
-      },
-      token
-    );
+    // Page through ALL assets. The CU/FCU/Accessory pickers filter this list
+    // client-side by category, so a single capped page (was limit:100) makes
+    // whole categories disappear once an org's catalogue exceeds the page size
+    // (e.g. Cappitech now has 600+ assets, and /assets orders by createdAt desc,
+    // so the older "Condensing Unit" items fell off the first page). Loop until
+    // the server reports no more pages.
+    const PAGE_SIZE = 200;
+    let page = 1;
+    let allAssets: any[] = [];
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const response = await request(
+        { path: "/assets", method: "POST" },
+        { page, limit: PAGE_SIZE },
+        token
+      );
+      const docs = response?.data?.docs || [];
+      allAssets = allAssets.concat(docs);
+      const hasNext = response?.data?.hasNextPage ?? docs.length === PAGE_SIZE;
+      if (!hasNext || docs.length === 0 || page > 100) break;
+      page += 1;
+    }
 
     // Map assets to the inventory item format expected by StockCardDialog
-    const assets = response?.data?.docs || [];
-    return assets.map((asset: any) => ({
+    return allAssets.map((asset: any) => ({
       id: asset.id,
       sku: asset.skuKey,
       name: asset.name,
@@ -94,14 +104,19 @@ export const useGetInventoriesForItemTable = () => {
       uom: asset.uom || "PCS",
       status: asset.quantity > 0 ? "available" : "out_of_stock",
       assetId: asset.id,
+      // Nominal cooling capacity (kW) — shown as a Capacity column in the picker
+      // for VRV / chiller / chilled-water FCU products that carry a rating.
+      capacityKw: asset.capacityKw ?? null,
       // Hierarchy + category needed by the FCU-CU (QF) quotation dropdowns:
       // categoryId/categoryName split CU vs FCU lists; parentAssetId lets us
       // restrict the FCU dropdown to a CU's children (single-split pairs).
       parentAssetId: asset.parentAssetId ?? null,
       categoryId: asset.categoryId ?? asset.category?.id ?? null,
       customPrices: asset.customPrices,
-      // Accessories tagged to this FCU (Sky Air panel + wired remote) — auto-added to the row.
+      // Accessories tagged to this FCU: accessoryIds = auto-added defaults (panel +
+      // wired remote); accessoryOptionIds = swappable options (black panel, wireless).
       accessoryIds: asset.accessoryIds ?? [],
+      accessoryOptionIds: asset.accessoryOptionIds ?? [],
       asset: {
         id: asset.id,
         name: asset.name,
@@ -114,6 +129,7 @@ export const useGetInventoriesForItemTable = () => {
         costPrice: asset.costPrice,
         customPrices: asset.customPrices,
         points: asset.points,
+        capacityKw: asset.capacityKw ?? null,
       },
     }));
   }, [organizationId, getToken]);

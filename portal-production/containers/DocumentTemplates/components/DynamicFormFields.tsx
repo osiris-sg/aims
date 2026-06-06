@@ -276,6 +276,7 @@ interface DynamicFormFieldsProps {
   fields: FieldDefinition[];
   formData: any;
   setFormData: (data: any) => void;
+  hideDiscount?: boolean; // Route Order PO: hide the document-level Disc field
   customers?: any[];
   suppliers?: any[];
   projects?: any[];
@@ -342,6 +343,7 @@ export default function DynamicFormFields({
   fields,
   formData,
   setFormData,
+  hideDiscount = false,
   customers = [],
   suppliers = [],
   projects = [],
@@ -424,7 +426,12 @@ export default function DynamicFormFields({
 
       case 'select':
         let options: any[] = [];
-        if (field.dataSource === 'deliveryOrders') {
+        // Static {value,label} options declared on the field (e.g. QF "Type":
+        // Project / Route Order) take precedence over a dynamic dataSource.
+        const staticOptions = Array.isArray((field as any).options) ? (field as any).options : null;
+        if (staticOptions) {
+          options = staticOptions;
+        } else if (field.dataSource === 'deliveryOrders') {
           options = deliveryOrders;
         } else if (field.dataSource === 'projects') {
           options = projects;
@@ -442,7 +449,7 @@ export default function DynamicFormFields({
               sx={selectSx}
               displayEmpty
             >
-              {field.dataSource === 'currencies' || field.dataSource === 'yesNo' ? (
+              {staticOptions || field.dataSource === 'currencies' || field.dataSource === 'yesNo' ? (
                 options.map((opt) => (
                   <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: '0.8rem' }}>
                     {opt.label}
@@ -616,6 +623,7 @@ export default function DynamicFormFields({
 
     // Disc row: % or $ (per-document discount) + calculated amount.
     if (field.fieldName === 'documentInfo.discountPercent') {
+      if (hideDiscount) return null; // Route Order PO: no document-level discount
       const discAmount = getNestedValue(formData, 'documentInfo.discountAmount') ?? 0;
       const discType = getNestedValue(formData, 'documentInfo.discountType') || 'percent';
       return (

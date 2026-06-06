@@ -21,6 +21,11 @@ model Organization {
   taxRate               Float?                     @default(9)
   bankDetails           Json? // { accountName, accountNumber, bankName, swiftCode, branchCode, bankCode, currencyCode }
   stockDeductionTrigger String?                    @default("DO") // Legacy field - no longer used. Stock deduction logic: DO always deducts, Invoice deducts only if not extracted from DO
+  // Org-wide reward Points ledger. Float so partial-point adjustments stay
+  // representable; decremented when a Route Order PO is confirmed by the
+  // user's chosen "Less Points" amount on that PO. Inline-editable so the
+  // user can seed it once Daikin tells them their starting balance.
+  pointsBalance         Float?                     @default(0)
   assets                Asset[]
   categories            Category[]
   customers             Customer[]
@@ -46,6 +51,14 @@ model Organization {
   chartOfAccounts       ChartOfAccount[]
   accountingSetting     AccountingSetting?
   journalEntries        JournalEntry[]
+  recurringJournals     RecurringJournalTemplate[]
+  costCenters           CostCenter[]
+  fixedAssets           FixedAsset[]
+  budgets               Budget[]
+  bills                 Bill[]
+  bankImports           BankStatementImport[]
+  xeroAccountMappings   XeroAccountMapping[]
+  xeroSyncRuns          XeroSyncRun[]
   serviceReports        MaintenanceServiceReport[]
 }
 
@@ -64,10 +77,14 @@ model Asset {
   costPrice           Float? // What we pay to acquire/produce one unit (for margin tracking)
   customPrices        Json? // Optional [{ label: string, value: number }] — e.g. Listing Price, Dealer Price
   points              Float? // Asset-level discount (1 point = $1). Gated by enableAssetPoints flag.
+  capacityKw          Float? // Nominal cooling capacity in kW (e.g. VRV outdoor/indoor units). Null for items without a capacity rating (accessories, kits).
   // Accessory asset IDs auto-added with this FCU on the FCU-CU (QF) quotation
   // (e.g. Sky Air: decoration panel + wired remote). Many-to-many — accessories
   // are shared across FCUs, so this is a tag list, not a parent/child relation.
   accessoryIds        String[]                   @default([])
+  // Additional accessory OPTIONS (e.g. black panel, wireless remote): not auto-added,
+  // but shown in this FCU's scoped accessory picker so they're swappable.
+  accessoryOptionIds  String[]                   @default([])
   parentAssetId       String?                    @db.Uuid
   // Unit of Measure (e.g., PCS, EA, SET, BOX, KG, etc.)
   uom                 String                     @default("PCS")
@@ -139,6 +156,9 @@ model Customer {
   address         String?
   gstRegNo        String? // Customer's GST/Tax registration number
   salesmanId      String? // Reference to UserOrganization.id for the assigned salesman
+  // Xero pull-sync: ContactID from Xero (null = not yet synced).
+  xeroId          String?           @unique
+  xeroLastSyncAt  DateTime?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
   organizationId  String
@@ -166,10 +186,14 @@ model Supplier {
   phone          String?
   address        String?
   gstRegNo       String?
+  // Xero pull-sync: ContactID from Xero (suppliers are also Contacts in Xero).
+  xeroId         String?      @unique
+  xeroLastSyncAt DateTime?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
+  bills          Bill[]
 
   @@unique([email, organizationId])
   @@unique([id, organizationId])
@@ -291,6 +315,11 @@ model DocumentItem {
   // rows misclassified post-hoc as service, plus any future paths that DO create
   // service-row DocumentItems.
   isService   Boolean  @default(false)
+  // True for fixed-asset purchases on a PO line. When PO is confirmed, the
+  // journal-auto-post pipeline creates a FixedAsset record from this line so
+  // it enters the depreciation schedule. User completes method + useful life
+  // on the FA detail page after creation.
+  isFixedAsset Boolean @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -581,6 +610,7 @@ model Order {
   organizationId    String
   customerId        String?  @db.Uuid
   sourceQuotationId String?  @db.Uuid // Document.id of the originating quotation
+  orderType         String? // Carried from the QF quotation's "Type" field: Project / Route Order
   status            String   @default("DRAFT") // DRAFT / IN_PROGRESS / COMPLETED / CANCELLED (free-form)
   items             Json // Snapshot at order-creation time: [{ itemCode, description, quantity, unitPrice, costPrice?, taggedAssetCode?, ... }]
   linkedDocuments   Json? // { po: [{id,name}], do: [{id,name}], invoice: [{id,name}] }
@@ -883,6 +913,9 @@ model ChartOfAccount {
   isSystem         Boolean  @default(false) // Seeded by default; cannot be deleted
   isActive         Boolean  @default(true)
   parentAccountId  String? // Optional sub-account hierarchy
+  // Xero pull-sync: AccountID from Xero.
+  xeroId           String?  @unique
+  xeroLastSyncAt   DateTime?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -890,6 +923,7 @@ model ChartOfAccount {
   parent       ChartOfAccount?    @relation("AccountHierarchy", fields: [parentAccountId], references: [id])
   children     ChartOfAccount[]   @relation("AccountHierarchy")
   journalLines JournalEntryLine[]
+  budgets      Budget[]
 
   @@unique([organizationId, code])
   @@index([organizationId, accountType])
@@ -927,6 +961,28 @@ model AccountingSetting {
   accountCodeRanges Json?
   // Control-account code references (e.g. { debtorControl: "CA001", creditorControl: "CL001", taxLiabilities: "CL300", ... })
   controlAccounts   Json?
+
+  // ---------- AP / Bills ----------
+  // Bills over this amount require Admin approval before posting. 0 = no
+  // threshold (every bill auto-eligible). Configurable per org.
+  billApprovalThreshold Float? @default(5000)
+
+  // ---------- Perpetual Inventory ----------
+  // When ON, journal auto-post writes Dr Inventory / Cr Cash on PO confirm and
+  // Dr COGS / Cr Inventory on invoice post (instead of expensing purchases
+  // directly to COGS). Closing Stock then comes from the Inventory GL account
+  // balance and the P&L Closing Stock filter input becomes redundant. OFF by
+  // default — preserves existing periodic-inventory behavior for legacy orgs.
+  enablePerpetualInventory Boolean @default(false)
+
+  // ---------- Period Locking ----------
+  // Inclusive cut-off date for the last closed period. Posting / editing
+  // journal entries with entryDate <= this date is rejected. Updated by the
+  // Smart Close Wizard on Month-End / Year-End run.
+  lockedThroughDate DateTime?
+  // Log of past close runs — array of { type, lockedThrough, runAt, runBy,
+  // yearEndJournalEntryId? } so users can audit / unwind if needed.
+  closeHistory      Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -993,11 +1049,361 @@ model JournalEntryLine {
   foreignAmount Float?
   exchangeRate  Float?
 
+  // Cost-center tag for dimensional reporting. Optional — null = unallocated /
+  // "general overhead". Set by the user on manual JE entry or auto-suggested
+  // by the journal-auto-post pipeline based on document context + LLM hint.
+  costCenterId String?
+  costCenter   CostCenter? @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+
   journalEntry JournalEntry   @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
   account      ChartOfAccount @relation(fields: [accountId], references: [id])
 
   @@index([journalEntryId])
   @@index([accountId])
+  @@index([costCenterId])
+}
+
+// ============================================================
+// COST CENTERS / DEPARTMENTS
+// ============================================================
+// Dimensional tag attached to JournalEntryLine for "P&L by department" style
+// reporting. Hierarchical via parentId — e.g. "Operations" → "Field Services".
+model CostCenter {
+  id             String   @id @default(uuid())
+  organizationId String
+  code           String   // short code, e.g. OPS, SALES, R&D
+  name           String   // human label, e.g. "Operations — Field"
+  description    String?
+  parentId       String?
+  isActive       Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parent       CostCenter?        @relation("CostCenterHierarchy", fields: [parentId], references: [id])
+  children     CostCenter[]       @relation("CostCenterHierarchy")
+  journalLines JournalEntryLine[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, isActive])
+}
+
+// ============================================================
+// FIXED ASSETS REGISTER + DEPRECIATION
+// ============================================================
+// One row per depreciable asset (vehicles, machinery, office equipment, etc.).
+// Created either manually or auto-from-PO when a DocumentItem has
+// isFixedAsset=true. Monthly depreciation is posted by the Smart Close Wizard
+// during Month-End Close and logged as DepreciationEntry rows.
+model FixedAsset {
+  id                String   @id @default(uuid())
+  organizationId    String
+  code              String   // org-unique tag, e.g. FA-001
+  name              String   // e.g. "Delivery van #1"
+  description       String?
+  category          String?  // free-form bucket (Vehicle / Office Equipment / Machinery)
+  // Acquisition
+  cost              Float    // purchase cost (excl tax) — depreciation basis
+  salvageValue      Float    @default(0)
+  inServiceDate     DateTime // date depreciation begins
+  // Depreciation method
+  // STRAIGHT_LINE | DECLINING_BALANCE | UNITS_OF_PRODUCTION
+  method            String   @default("STRAIGHT_LINE")
+  usefulLifeMonths  Int?     // required for STRAIGHT_LINE
+  decliningRate     Float?   // percent per period, e.g. 20 → 20% reducing-balance
+  totalUnits        Float?   // required for UNITS_OF_PRODUCTION (total life-units)
+  unitsPerPeriod    Float?   // user-entered units consumed each period for U-O-P
+  // Linkage
+  sourcePoId        String?  // PO document this FA was created from (optional)
+  // Lifecycle
+  disposedAt        DateTime?
+  disposalProceeds  Float?
+  isActive          Boolean  @default(true)
+
+  // GL accounts used when posting depreciation. Optional — falls back to
+  // controlAccounts.{depreciationProvision, depreciationExpense} on settings,
+  // or PD001 / EX410 by default.
+  depreciationProvisionAccountId String?
+  depreciationExpenseAccountId   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String?
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entries      DepreciationEntry[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, isActive])
+}
+
+// Log of posted depreciation entries — one per asset per period. Useful for
+// audit (proves the FA register reconciles with GL) and for not double-posting.
+model DepreciationEntry {
+  id              String   @id @default(uuid())
+  fixedAssetId    String
+  organizationId  String
+  periodYear      Int
+  periodMonth     Int      // 1-12
+  amount          Float
+  journalEntryId  String?  // back-link to the JE that posted this depreciation
+  postedAt        DateTime @default(now())
+
+  fixedAsset FixedAsset @relation(fields: [fixedAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([fixedAssetId, periodYear, periodMonth])
+  @@index([organizationId, periodYear, periodMonth])
+}
+
+// ============================================================
+// BUDGETS
+// ============================================================
+// One budget figure per GL account per calendar month. Compared to actual P&L
+// activity in the "Budget vs Actual" Reports tab.
+model Budget {
+  id             String  @id @default(uuid())
+  organizationId String
+  accountId      String  // FK to ChartOfAccount.id
+  year           Int
+  month          Int     // 1-12
+  amount         Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  account      ChartOfAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, year, month])
+  @@index([organizationId, year])
+}
+
+// ============================================================
+// BILLS (Accounts Payable)
+// ============================================================
+// Supplier bills. Separate doctype from Document/Invoice — invoices are
+// sales-side, bills are purchase-side. Lifecycle:
+//   DRAFT → PENDING_APPROVAL (if amount > threshold) → POSTED → PAID → VOID
+// "PENDING_APPROVAL" is skipped when bill amount is at/below the org's
+// billApprovalThreshold (configurable in AccountingSetting).
+//
+// Lines are JSON-stored (same shape as recurring journals' lines), each row:
+//   { description, quantity, unitPrice, amount, accountId?, taxAmount? }
+//
+// `sourcePoId` links a bill back to a Purchase Order document for 3-way
+// matching (PO → receipt → bill). Discrepancy detection done in the service.
+//
+// `inboundMeta` captures provenance for bills created via PDF/LLM extract or
+// email forward — useful for audit + debugging extraction accuracy.
+model Bill {
+  id             String   @id @default(uuid())
+  organizationId String
+  supplierId     String   @db.Uuid
+  billNumber     String   // supplier's invoice number / our internal ref
+  billDate       DateTime
+  dueDate        DateTime?
+  status         String   @default("DRAFT")
+    // DRAFT | PENDING_APPROVAL | POSTED | PAID | VOID
+  reference      String?
+  description    String?
+  // Totals
+  subtotal       Float    @default(0)
+  taxAmount      Float    @default(0)
+  totalAmount    Float    @default(0)
+  amountPaid     Float    @default(0)
+  currency       String   @default("SGD")
+  // Lines: [{ description, quantity, unitPrice, amount, accountId?, taxRate?, taxAmount? }]
+  lines          Json
+  // PO linkage (3-way match)
+  sourcePoId     String?
+  // Match flags surfaced to the UI when bill is from a PO
+  matchStatus    String?  // MATCHED | QTY_DIFF | AMOUNT_DIFF | LINE_DIFF
+  matchDetails   Json?
+  // Provenance for non-manual entries
+  inboundChannel String?  // MANUAL | UPLOAD | EMAIL | FROM_PO
+  inboundMeta    Json?    // { extractedBy: 'claude-sonnet-4-6', originalFileKey, emailFromAddress, ... }
+  // GL linkage — set when POSTED
+  journalEntryId String?
+  // Approval audit
+  approvedBy     String?
+  approvedAt     DateTime?
+  postedAt       DateTime?
+  postedBy       String?
+  voidedAt       DateTime?
+  voidedBy       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier     Supplier     @relation(fields: [supplierId], references: [id])
+
+  @@unique([organizationId, billNumber, supplierId])
+  @@index([organizationId, status])
+  @@index([organizationId, billDate])
+  @@index([supplierId])
+  @@index([sourcePoId])
+}
+
+// ============================================================
+// BANK RECONCILIATION
+// ============================================================
+// One BankStatementImport per uploaded statement. Each row of the statement
+// becomes a BankStatementLine that the user matches to a JournalEntryLine on
+// the bank account, or posts as a new JE (for charges/interest/transfers).
+model BankStatementImport {
+  id              String   @id @default(uuid())
+  organizationId  String
+  bankAccountId   String   // FK to ChartOfAccount.id of the bank account
+  source          String   // CSV | PDF | MANUAL
+  filename        String?
+  // Date window the statement covers (best-guess from first/last line dates).
+  periodStart     DateTime?
+  periodEnd       DateTime?
+  // Statement's ending balance (read from CSV last row / PDF total). Used to
+  // verify reconciliation: book balance + outstanding ?= bank ending balance.
+  endingBalance   Float?
+  // CSV column-mapping the user saved on first import for this bank account.
+  // Stored on the import too so we know what we used.
+  columnMapping   Json?
+  notes           String?
+
+  createdAt DateTime @default(now())
+  createdBy String?
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lines        BankStatementLine[]
+
+  @@index([organizationId, bankAccountId])
+}
+
+model BankStatementLine {
+  id             String   @id @default(uuid())
+  importId       String
+  organizationId String
+  bankAccountId  String   // duplicated from import for query convenience
+  // Parsed fields
+  date           DateTime
+  description    String
+  reference      String?
+  // Signed: positive = credit (money in), negative = debit (money out). UI
+  // can split into debit/credit columns from this.
+  amount         Float
+  runningBalance Float?
+  // Matching
+  // PENDING | MATCHED | POSTED_NEW | IGNORED
+  status         String   @default("PENDING")
+  matchedJournalLineId String?  // the JournalEntryLine this row matched
+  matchedAt      DateTime?
+  matchedBy      String?
+  // For POSTED_NEW: the JE we created from this unmatched line.
+  postedJournalEntryId String?
+  // LLM-suggested GL account when unmatched (for the "post as new" flow).
+  suggestedAccountId   String?
+  suggestionConfidence Float?
+  suggestionReason     String?
+
+  createdAt DateTime @default(now())
+
+  import BankStatementImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@index([importId])
+  @@index([organizationId, bankAccountId, status])
+  @@index([organizationId, date])
+}
+
+// ============================================================
+// XERO SYNC (PULL-only)
+// ============================================================
+// Per-org mapping between an AIMS ChartOfAccount and a Xero account. Source
+// of the mapping is tracked so the UI can show "auto-suggested by AI" vs
+// "manually confirmed" — important because we never want to overwrite a
+// manual mapping on a subsequent auto-map run.
+model XeroAccountMapping {
+  id              String   @id @default(uuid())
+  organizationId  String
+  // AIMS side
+  aimsAccountId   String?  // null = unmatched ("Xero account not yet mapped")
+  aimsAccountCode String   // duplicated for diff/audit even if aims account is later deleted
+  // Xero side
+  xeroAccountId   String   // Xero's AccountID GUID
+  xeroAccountCode String?  // Xero's account code (some Xero accts have no code)
+  xeroAccountName String
+  xeroAccountType String?  // REVENUE | EXPENSE | ASSET | LIABILITY | EQUITY...
+  // Confidence + source
+  source          String   @default("AUTO") // AUTO | MANUAL | CREATED
+  confidence      Float?   // 0-1, set when source=AUTO
+  reason          String?
+  confirmedAt     DateTime? // set when user clicks "approve"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, xeroAccountId])
+  @@index([organizationId, aimsAccountId])
+}
+
+// Audit log: one row per "Sync Now" click. Tracks what was pulled + counts.
+model XeroSyncRun {
+  id              String   @id @default(uuid())
+  organizationId  String
+  // PULL scope flags — JSON for forward-compat as we add bills/invoices.
+  // e.g. { accounts: true, contacts: true, invoices: false, ... }
+  scope           Json
+  status          String   @default("RUNNING") // RUNNING | SUCCESS | PARTIAL | FAILED
+  // Per-resource counts: { accountsCreated, accountsUpdated, contactsCreated, ... }
+  counts          Json?
+  // Per-resource errors so a single bad record doesn't blow the whole run.
+  errors          Json?
+
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  startedBy   String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, startedAt(sort: Desc)])
+}
+
+// ============================================================
+// RECURRING JOURNAL TEMPLATES
+// ============================================================
+// User-defined templates that auto-create DRAFT journal entries on a schedule.
+// Used for rent, accruals, depreciation, prepayments. Lazy trigger: the
+// Finance Hub checks for due-and-active templates on load and creates drafts.
+model RecurringJournalTemplate {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String   // e.g. "Office rent — May 2026"
+  description    String?
+  reference      String?  // optional reference applied to the created JE
+  // DAILY | WEEKLY | MONTHLY | QUARTERLY | YEARLY
+  frequency      String
+  // Next date this template is due to run. Cron / hub-load compares to today.
+  nextRunDate    DateTime
+  // Last time this template successfully created an entry. Helps users sanity-
+  // check that automation is working.
+  lastRunAt      DateTime?
+  lastRunEntryId String?
+  // Active flag — paused templates skip without erroring.
+  isActive       Boolean  @default(true)
+  // Line clones, stored as JSON: [{ accountId, description, debit, credit }]
+  lines          Json
+  // Optional end date — template stops creating entries after this.
+  endDate        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, isActive])
+  @@index([organizationId, nextRunDate])
 }
 
 // Field-service maintenance report captured via the NFC scan PWA.

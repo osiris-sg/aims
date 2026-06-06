@@ -37,6 +37,16 @@ import { ImportModule } from './import/import.module';
 import { AccountingModule } from './accounting/accounting.module';
 import { JournalModule } from './journal/journal.module';
 import { MaintenanceReportsModule } from './maintenance-reports/maintenance-reports.module';
+import { AskModule } from './ask/ask.module';
+import { AnomaliesModule } from './anomalies/anomalies.module';
+import { CloseModule } from './close/close.module';
+import { RecurringModule } from './recurring/recurring.module';
+import { CostCentersModule } from './cost-centers/cost-centers.module';
+import { FixedAssetsModule } from './fixed-assets/fixed-assets.module';
+import { BudgetsModule } from './budgets/budgets.module';
+import { BillsModule } from './bills/bills.module';
+import { BankRecModule } from './bank-rec/bank-rec.module';
+import { XeroSyncModule } from './xero-sync/xero-sync.module';
 
 @Module({
   imports: [
@@ -73,6 +83,16 @@ import { MaintenanceReportsModule } from './maintenance-reports/maintenance-repo
     AccountingModule,
     JournalModule,
     MaintenanceReportsModule,
+    AskModule,
+    AnomaliesModule,
+    CloseModule,
+    RecurringModule,
+    CostCentersModule,
+    FixedAssetsModule,
+    BudgetsModule,
+    BillsModule,
+    BankRecModule,
+    XeroSyncModule,
   ],
   controllers: [AppController],
   providers: [

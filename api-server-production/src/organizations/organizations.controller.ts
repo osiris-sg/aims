@@ -20,6 +20,39 @@ interface RequestWithOrganization extends Request {
 export class OrganizationsController {
   constructor(private readonly organizationsService: OrganizationsService) {}
 
+  /**
+   * Org-wide reward Points ledger. GET reads the current balance; PATCH
+   * writes a new absolute value (so the user can seed it once Daikin tells
+   * them the starting figure). A Route Order PO transition to confirmed
+   * deducts from the balance separately, via the documents update path.
+   */
+  @Get('points-balance')
+  @UseGuards(ClerkAuthGuard)
+  async getPointsBalance(@Req() req: RequestWithOrganization) {
+    const orgId = req.userOrganization?.id;
+    if (!orgId) return { success: false, message: 'No org', data: null };
+    const org = await this.organizationsService.getPointsBalance(orgId);
+    return {
+      success: true,
+      message: 'OK',
+      data: { balance: Number((org as any)?.pointsBalance) || 0 },
+    };
+  }
+
+  @Patch('points-balance')
+  @UseGuards(ClerkAuthGuard)
+  async setPointsBalance(@Body() body: { balance: number }, @Req() req: RequestWithOrganization) {
+    const orgId = req.userOrganization?.id;
+    if (!orgId) return { success: false, message: 'No org', data: null };
+    const balance = Math.max(0, Number(body?.balance) || 0);
+    const org = await this.organizationsService.setPointsBalance(orgId, balance);
+    return {
+      success: true,
+      message: 'Points balance updated',
+      data: { balance: Number((org as any)?.pointsBalance) || 0 },
+    };
+  }
+
   @Get('user')
   async getUserOrganization(@Req() req: RequestWithOrganization) {
     const organization = req.userOrganization;

@@ -11,10 +11,15 @@ const apiBase = process.env.NEXT_PUBLIC_BACKEND_API_URL;
 
 type FetchInit = RequestInit & { rawBody?: boolean };
 
-export function useAccountingApi() {
+// Typed signature for the request helper. Declared explicitly so the generic
+// survives useCallback/useMemo wrapping (otherwise the inferred type collapses
+// and consumers can't call `request<Account[]>(…)`).
+type AccountingRequest = <T = any>(path: string, init?: FetchInit) => Promise<T>;
+
+export function useAccountingApi(): { request: AccountingRequest } {
   const { getToken } = useAuth();
 
-  const request = useCallback(
+  const request: AccountingRequest = useCallback(
     async <T = any>(path: string, init?: FetchInit): Promise<T> => {
       const token = await getToken();
       const res = await fetch(`${apiBase}${path}`, {

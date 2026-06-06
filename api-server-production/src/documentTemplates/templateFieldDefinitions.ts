@@ -13,6 +13,7 @@ export interface FieldDefinition {
   required: boolean;
   gridSize?: 6 | 12;
   dataSource?: string;
+  options?: { value: string; label: string }[]; // For select: static options (overrides dataSource)
   placeholder?: string;
   defaultValue?: any;
   filterBy?: string;
@@ -1686,6 +1687,34 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
       },
     ],
   },
+};
+
+// QF — FCU-CU System Quotation (Cappitech). Same form fields as the standard
+// quotation (QT) plus a "Type" dropdown (Project / Route Order). The Type value
+// is saved to documentInfo.orderType in the backend but is NOT rendered in the
+// clean document preview.
+TEMPLATE_FIELD_DEFINITIONS.QF = {
+  tabs: TEMPLATE_FIELD_DEFINITIONS.QT.tabs.map((tab) =>
+    tab.tabId === "general"
+      ? {
+          ...tab,
+          fields: [
+            ...tab.fields,
+            {
+              fieldName: "documentInfo.orderType",
+              displayLabel: "Type",
+              fieldType: "select",
+              required: false,
+              gridSize: 6,
+              options: [
+                { value: "Project", label: "Project" },
+                { value: "Route Order", label: "Route Order" },
+              ],
+            },
+          ],
+        }
+      : tab,
+  ),
 };
 
 // Alias mappings for legacy document types

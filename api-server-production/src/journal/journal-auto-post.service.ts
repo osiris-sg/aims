@@ -54,6 +54,76 @@ export class JournalAutoPostService {
     return this.firstAccountOfType(organizationId, 'PURCHASE');
   }
 
+  // For perpetual-inventory orgs. The Inventory account is the BS-side store
+  // for stock-at-cost; COGS is the P&L expense recognized when stock leaves
+  // the door. Both have sensible defaults (CA002 / CS001) but can be overridden
+  // via AccountingSetting.controlAccounts.{inventoryAccount,cogsAccount}.
+  private async resolvePerpetualAccounts(organizationId: string) {
+    const setting = await this.prisma.accountingSetting.findUnique({
+      where: { organizationId },
+      select: { enablePerpetualInventory: true, controlAccounts: true },
+    });
+    if (!setting?.enablePerpetualInventory) return null;
+    const controls = (setting.controlAccounts as Record<string, string> | null) ?? {};
+    const inventoryCode = controls.inventoryAccount || 'CA002';
+    const cogsCode = controls.cogsAccount || 'CS001';
+    const [inventory, cogs] = await Promise.all([
+      this.resolveAccountByCode(organizationId, inventoryCode),
+      this.resolveAccountByCode(organizationId, cogsCode),
+    ]);
+    if (!inventory || !cogs) {
+      this.logger.warn(
+        `[perpetual] org=${organizationId} has perpetual ON but missing accounts (inventory=${inventoryCode} → ${inventory?.code}, cogs=${cogsCode} → ${cogs?.code}); falling back to non-perpetual`,
+      );
+      return null;
+    }
+    return { inventory, cogs };
+  }
+
+  // Compute COGS for an invoice = Σ(line qty × Asset.costPrice). Returns null
+  // if we can't compute (no line items, no asset links). Used only when
+  // perpetual is on.
+  private async computeInvoiceCogs(organizationId: string, documentId: string): Promise<number | null> {
+    const items = await this.prisma.documentItem.findMany({
+      where: { documentId },
+      select: { itemId: true, itemType: true, quantity: true },
+    });
+    if (items.length === 0) return null;
+
+    // Resolve asset ids per item. INVENTORY items reference an Inventory row
+    // (look up its asset); ASSET items reference the asset directly.
+    const inventoryIds = items.filter((i) => i.itemType === 'INVENTORY').map((i) => i.itemId);
+    const inventoryToAsset = new Map<string, string>();
+    if (inventoryIds.length > 0) {
+      const inv = await this.prisma.inventory.findMany({
+        where: { id: { in: inventoryIds } },
+        select: { id: true, assetId: true },
+      });
+      for (const r of inv) inventoryToAsset.set(r.id, r.assetId);
+    }
+    const assetIds = new Set<string>();
+    for (const it of items) {
+      const aid = it.itemType === 'ASSET' ? it.itemId : inventoryToAsset.get(it.itemId);
+      if (aid) assetIds.add(aid);
+    }
+    if (assetIds.size === 0) return null;
+
+    const assets = await this.prisma.asset.findMany({
+      where: { id: { in: Array.from(assetIds) }, organizationId },
+      select: { id: true, costPrice: true },
+    });
+    const costByAsset = new Map(assets.map((a) => [a.id, a.costPrice ?? 0]));
+
+    let cogs = 0;
+    for (const it of items) {
+      const aid = it.itemType === 'ASSET' ? it.itemId : inventoryToAsset.get(it.itemId);
+      if (!aid) continue;
+      const unitCost = costByAsset.get(aid) ?? 0;
+      cogs += (it.quantity || 0) * unitCost;
+    }
+    return ROUND(cogs);
+  }
+
   /** Returns true if a non-void journal entry already exists for this source. */
   async alreadyPostedForDocument(organizationId: string, documentId: string, type: string) {
     const existing = await this.prisma.journalEntry.findFirst({
@@ -128,6 +198,24 @@ export class JournalAutoPostService {
     ];
     if (tax > 0 && taxAccount) {
       lines.push({ accountId: taxAccount.id, debit: 0, credit: tax, description: `Tax — ${invoiceNumber ?? ''}`.trim() });
+    }
+
+    // Perpetual-inventory cost side. Adds Dr COGS / Cr Inventory at cost so
+    // the JE stays balanced and inventory drops out of the BS as stock leaves.
+    const perpetual = await this.resolvePerpetualAccounts(organizationId);
+    if (perpetual) {
+      const cogs = await this.computeInvoiceCogs(organizationId, documentId);
+      if (cogs && cogs > 0) {
+        lines.push(
+          { accountId: perpetual.cogs.id, debit: cogs, credit: 0, description: `COGS — ${invoiceNumber ?? ''}`.trim() },
+          { accountId: perpetual.inventory.id, debit: 0, credit: cogs, description: `Inventory release — ${invoiceNumber ?? ''}`.trim() },
+        );
+        this.logger.log(`[postFromInvoice] perpetual ON — added COGS lines at ${cogs}`);
+      } else {
+        this.logger.warn(
+          `[postFromInvoice] perpetual ON but COGS is 0 or unresolved — inventory side skipped (set Asset.costPrice on line items)`,
+        );
+      }
     }
 
     try {
@@ -389,16 +477,22 @@ export class JournalAutoPostService {
     }
 
     const creditor = await this.resolveAccountByCode(organizationId, controls.creditorControl);
-    const purchase = await this.firstPurchaseAccount(organizationId);
     const taxAccount = tax > 0 ? await this.resolveAccountByCode(organizationId, controls.taxLiabilities) : null;
 
-    if (!creditor || !purchase || (tax > 0 && !taxAccount)) {
-      this.logger.warn(`[postFromPurchaseOrder] missing accounts (creditor=${creditor?.code}, purchase=${purchase?.code}, tax=${taxAccount?.code}); skipping`);
+    // Perpetual flips the debit side of a PO: stock goes onto the BS as
+    // Inventory (asset) instead of being expensed to Purchases. Falls back to
+    // periodic Purchases if perpetual isn't configured.
+    const perpetual = await this.resolvePerpetualAccounts(organizationId);
+    const debitAccount = perpetual ? perpetual.inventory : await this.firstPurchaseAccount(organizationId);
+    const debitLabel = perpetual ? 'Inventory in' : 'Purchase';
+
+    if (!creditor || !debitAccount || (tax > 0 && !taxAccount)) {
+      this.logger.warn(`[postFromPurchaseOrder] missing accounts (creditor=${creditor?.code}, debit=${debitAccount?.code}, tax=${taxAccount?.code}); skipping`);
       return null;
     }
 
     const lines = [
-      { accountId: purchase.id, debit: net, credit: 0, description: `Purchase — ${documentNumber ?? ''}`.trim() },
+      { accountId: debitAccount.id, debit: net, credit: 0, description: `${debitLabel} — ${documentNumber ?? ''}`.trim() },
     ];
     if (tax > 0 && taxAccount) {
       lines.push({ accountId: taxAccount.id, debit: tax, credit: 0, description: `Input tax — ${documentNumber ?? ''}`.trim() });

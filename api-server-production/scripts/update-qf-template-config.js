@@ -12,16 +12,18 @@ const config = {
     location: 'Location',
     cuModel: 'CU Model',
     fcuModel: 'FCU Model',
+    quantity: 'FCU Qty',        // per-FCU quantity
     accessories: 'Accessories',
-    quantity: 'Qty',
+    accessoryQty: 'Accessory Qty', // per-accessory quantity
+    masterQty: 'Set Qty',       // multiplies CU + all FCUs + all accessories
     listPrice: 'Unit Price',
     discountPrice: 'Dealer Price',
   },
-  // Editor columns: Location | CU | FCU | Accessories | Qty | Unit Price | Dealer Price.
-  tableColumnOrder: ['location', 'cuModel', 'fcuModel', 'accessories', 'quantity', 'listPrice', 'discountPrice'],
-  // Render in the editor but EXCLUDE from CleanDocumentPreview: Accessories + Dealer Price.
-  // (Preview therefore shows Location | CU | FCU | Qty | Unit Price.)
-  internalColumns: ['accessories', 'discountPrice'],
+  // Editor: Location | CU | FCU | FCU Qty | Accessories | Accessory Qty | Set Qty | Unit Price | Dealer Price.
+  tableColumnOrder: ['location', 'cuModel', 'fcuModel', 'quantity', 'accessories', 'accessoryQty', 'masterQty', 'listPrice', 'discountPrice'],
+  // Hidden from CleanDocumentPreview: Accessories, Accessory Qty, Dealer Price.
+  // (Preview shows Location | CU | FCU | FCU Qty | Set Qty | Unit Price.)
+  internalColumns: ['accessories', 'accessoryQty', 'discountPrice'],
 };
 
 (async () => {

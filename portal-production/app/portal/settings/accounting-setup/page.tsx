@@ -12,10 +12,14 @@ import {
 } from "@mui/material";
 import SettingsIcon from "@mui/icons-material/SettingsSuggest";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
+import Inventory2Icon from "@mui/icons-material/Inventory2";
+import BusinessIcon from "@mui/icons-material/Business";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
 import DefaultSettingsTab from "./components/DefaultSettingsTab";
 import AccountsDefinitionTab from "./components/AccountsDefinitionTab";
+import InventoryCostTab from "./components/InventoryCostTab";
+import CostCentersTab from "./components/CostCentersTab";
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -144,6 +148,8 @@ export default function AccountingSetupPage() {
           <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)}>
             <Tab icon={<SettingsIcon />} iconPosition="start" label="Default Settings" />
             <Tab icon={<AccountTreeIcon />} iconPosition="start" label="Accounts Definition" />
+            <Tab icon={<Inventory2Icon />} iconPosition="start" label="Inventory Cost" />
+            <Tab icon={<BusinessIcon />} iconPosition="start" label="Cost Centers" />
           </Tabs>
         </Box>
 
@@ -162,6 +168,14 @@ export default function AccountingSetupPage() {
             onUpdateAccount={updateAccount}
             onDeleteAccount={deleteAccount}
           />
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={2}>
+          <InventoryCostTab />
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={3}>
+          <CostCentersTab />
         </TabPanel>
       </Paper>
     </Box>
