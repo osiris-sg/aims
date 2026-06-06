@@ -29,6 +29,12 @@ const PERMISSIONS_NEEDED = [
   // Customer lookup — used by the revamped 5-page MSR form to search for the
   // company name on page 1. Read-only paginated list; no PII writes.
   { resource: 'customers', action: 'read', description: 'List and search customers' },
+  // Project assignment from the bind flow — the tech can optionally pick a
+  // customer → project on the create-and-bind review screen, create a minimal
+  // project inline, and assign the new inventory unit to it.
+  { resource: 'projects', action: 'read', description: 'List and search projects' },
+  { resource: 'projects', action: 'create-by-name', description: 'Create a minimal project by name' },
+  { resource: 'projects', action: 'add-assignments', description: 'Assign inventory units to a project' },
 ];
 
 async function main() {

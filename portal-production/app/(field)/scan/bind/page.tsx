@@ -9,17 +9,35 @@ import {
   Box,
   Button,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
   Stack,
   TextField,
   Typography,
 } from "@mui/material";
 import CameraAltIcon from "@mui/icons-material/CameraAlt";
+import AddIcon from "@mui/icons-material/Add";
+import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
 
 interface AssetOption {
   id: string;
   name: string;
   skuKey: string;
+}
+
+interface CustomerOption {
+  id: string;
+  name: string;
+  customerCode: string | null;
+}
+
+interface ProjectOption {
+  id: string;
+  name: string;
 }
 
 type Step = "capture" | "review";
@@ -88,6 +106,23 @@ export default function BindTagPage() {
   const [extractionFailed, setExtractionFailed] = useState(false);
   const [creating, setCreating] = useState(false);
 
+  // Optional customer → project assignment. Both pickers are optional: the
+  // tech can bind a tag without touching them, but if a project is picked the
+  // new unit is assigned to it right after the bind succeeds.
+  const [customerOptions, setCustomerOptions] = useState<CustomerOption[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerOption | null>(null);
+  const [customerInput, setCustomerInput] = useState("");
+  const [customerSearching, setCustomerSearching] = useState(false);
+  const [projectOptions, setProjectOptions] = useState<ProjectOption[]>([]);
+  const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+
+  // Inline "+ Create Project" dialog — same minimal flow as the quotation
+  // editor's picker: name only, linked to the selected customer.
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [createProjectName, setCreateProjectName] = useState("");
+  const [creatingProject, setCreatingProject] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
 
   // Auto-select on exact match. When the AI extraction (or the tech's typing)
@@ -131,6 +166,108 @@ export default function BindTagPage() {
       clearTimeout(timer);
     };
   }, [searchInput, step, getToken]);
+
+  // Debounced customer search (300 ms tail), same shape as the asset search
+  // above. Empty query returns the first 20 customers so the picker is usable
+  // before the tech types.
+  useEffect(() => {
+    if (step !== "review") return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setCustomerSearching(true);
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request(
+          { path: "/customers", method: "POST" },
+          { page: 1, limit: 20, search: customerInput.trim() || undefined },
+          token,
+        );
+        if (cancelled) return;
+        const docs = res?.data?.docs;
+        setCustomerOptions(
+          Array.isArray(docs)
+            ? docs.map((c: any) => ({ id: c.id, name: c.name, customerCode: c.customerCode ?? null }))
+            : [],
+        );
+      } catch {
+        // Non-fatal — the whole section is optional; keep last results.
+      } finally {
+        if (!cancelled) setCustomerSearching(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [customerInput, step, getToken]);
+
+  // Load the selected customer's projects. The backend filters by customerId
+  // (both the direct FK and the legacy siteOffice→customer path), so no
+  // client-side filtering is needed; the Autocomplete narrows as the tech
+  // types. Clearing/changing the customer resets the project pick.
+  useEffect(() => {
+    setSelectedProject(null);
+    setProjectOptions([]);
+    if (!selectedCustomer) return;
+    let cancelled = false;
+    (async () => {
+      setProjectsLoading(true);
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request(
+          { path: "/projects", method: "POST" },
+          { page: 1, limit: 50, filters: { customerId: selectedCustomer.id } },
+          token,
+        );
+        if (cancelled) return;
+        const docs = res?.data?.docs;
+        setProjectOptions(
+          Array.isArray(docs) ? docs.map((p: any) => ({ id: p.id, name: p.name })) : [],
+        );
+      } catch {
+        // Non-fatal — optional section.
+      } finally {
+        if (!cancelled) setProjectsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCustomer, getToken]);
+
+  // "+ Create Project" — minimal create linked to the selected customer,
+  // mirroring the quotation editor's inline flow. Auto-selects the new row.
+  const handleCreateProject = async () => {
+    const trimmed = createProjectName.trim();
+    if (!trimmed || !selectedCustomer) return;
+    setCreatingProject(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request(
+        { path: "/projects/create-by-name", method: "POST" },
+        { name: trimmed, customerId: selectedCustomer.id },
+        token,
+      );
+      if (res?.success && res.data?.id) {
+        const created: ProjectOption = { id: res.data.id, name: res.data.name ?? trimmed };
+        setProjectOptions((prev) => [created, ...prev]);
+        setSelectedProject(created);
+        setCreateProjectOpen(false);
+        setCreateProjectName("");
+        toast.success("Project created");
+      } else {
+        toast.error(res?.message ?? "Failed to create project");
+      }
+    } catch (e: any) {
+      console.error("create project failed:", e);
+      toast.error(e?.message ?? "Failed to create project");
+    } finally {
+      setCreatingProject(false);
+    }
+  };
 
   const onPickPhoto = () => fileInputRef.current?.click();
 
@@ -217,6 +354,29 @@ export default function BindTagPage() {
       const inventoryId = payload?.inventory?.id;
       if (!assetId || !inventoryId) {
         throw new Error("Unexpected response from server.");
+      }
+      // Optional project assignment — best-effort. The bind has already
+      // succeeded at this point, so a failure here must never block the flow:
+      // log it, tell the tech the item was still created, and move on. The
+      // office can assign it from the portal later.
+      if (selectedProject) {
+        try {
+          const assignRes = await request(
+            { path: `/projects/${selectedProject.id}/assignments`, method: "POST" },
+            { assignments: [{ inventoryId, status: "rental" }] },
+            token,
+          );
+          if (assignRes?.success === false) {
+            throw new Error(assignRes?.message ?? "Assignment request failed");
+          }
+          toast.success(`Item created and assigned to ${selectedProject.name}`);
+        } catch (assignErr) {
+          console.error("project assignment failed (binding succeeded):", assignErr);
+          toast.success("Item created");
+          toast.warning("Couldn't assign to project — assign it later from the portal.");
+        }
+      } else {
+        toast.success("Item created");
       }
       // Jump straight to the action chooser — same destination as a scan of
       // an already-bound tag, so the create-then-act flow has no dead end.
@@ -374,6 +534,97 @@ export default function BindTagPage() {
             fullWidth
           />
 
+          <Divider sx={{ my: 1 }}>
+            <Typography variant="caption" color="text.secondary">
+              Optional — assign to a project
+            </Typography>
+          </Divider>
+
+          <Autocomplete<CustomerOption, false, false, false>
+            options={customerOptions}
+            value={selectedCustomer}
+            onChange={(_, picked) => setSelectedCustomer(picked)}
+            onInputChange={(_, v, reason) => {
+              // Same guard as the asset picker: ignore MUI's post-selection
+              // "reset" so the formatted label doesn't pollute the query.
+              if (reason === "input") setCustomerInput(v);
+            }}
+            getOptionLabel={(o) => (o.customerCode ? `${o.name} · ${o.customerCode}` : o.name)}
+            isOptionEqualToValue={(a, b) => a.id === b.id}
+            loading={customerSearching}
+            // Server-side search drives the option list — disable the
+            // client-side filter so partial matches from the backend aren't
+            // re-filtered away against the formatted label.
+            filterOptions={(x) => x}
+            renderOption={(props, option) => (
+              <li {...props} key={option.id}>
+                <Box>
+                  <Typography variant="body2" fontWeight={600}>{option.name}</Typography>
+                  {option.customerCode && (
+                    <Typography variant="caption" color="text.secondary">{option.customerCode}</Typography>
+                  )}
+                </Box>
+              </li>
+            )}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Customer (optional)"
+                placeholder="Search by name or code"
+                InputProps={{
+                  ...params.InputProps,
+                  endAdornment: (
+                    <>
+                      {customerSearching && <CircularProgress size={18} />}
+                      {params.InputProps.endAdornment}
+                    </>
+                  ),
+                }}
+              />
+            )}
+          />
+
+          {selectedCustomer && (
+            <Stack direction="row" spacing={1} alignItems="flex-start">
+              <Autocomplete<ProjectOption, false, false, false>
+                sx={{ flexGrow: 1 }}
+                options={projectOptions}
+                value={selectedProject}
+                onChange={(_, picked) => setSelectedProject(picked)}
+                getOptionLabel={(o) => o.name}
+                isOptionEqualToValue={(a, b) => a.id === b.id}
+                loading={projectsLoading}
+                noOptionsText="No projects for this customer yet."
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Project (optional)"
+                    placeholder="Pick a project"
+                    InputProps={{
+                      ...params.InputProps,
+                      endAdornment: (
+                        <>
+                          {projectsLoading && <CircularProgress size={18} />}
+                          {params.InputProps.endAdornment}
+                        </>
+                      ),
+                    }}
+                  />
+                )}
+              />
+              <Button
+                variant="outlined"
+                onClick={() => setCreateProjectOpen(true)}
+                startIcon={<AddIcon />}
+                sx={{ whiteSpace: "nowrap", minHeight: 56 }}
+              >
+                Create
+              </Button>
+            </Stack>
+          )}
+
+          <Divider sx={{ my: 1 }} />
+
           <Button
             variant="contained"
             color="primary"
@@ -401,6 +652,53 @@ export default function BindTagPage() {
       {error && <Alert severity="error">{error}</Alert>}
 
       <Button sx={{ mt: 2 }} onClick={() => router.replace("/scan")}>Cancel</Button>
+
+      {/* Create Project dialog — same minimal inline flow as the quotation
+          editor's "+ Create new project": name only, linked to the selected
+          customer, status defaults to pending. */}
+      <Dialog
+        open={createProjectOpen}
+        onClose={() => (creatingProject ? null : setCreateProjectOpen(false))}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>Create Project</DialogTitle>
+        <DialogContent>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+            For customer <strong>{selectedCustomer?.name}</strong>. Status defaults
+            to pending; the office can fill in the rest later.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            label="Project Name"
+            value={createProjectName}
+            onChange={(e) => setCreateProjectName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !creatingProject) {
+                e.preventDefault();
+                handleCreateProject();
+              }
+            }}
+            disabled={creatingProject}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateProjectOpen(false)} disabled={creatingProject}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleCreateProject}
+            disabled={creatingProject || !createProjectName.trim()}
+            startIcon={creatingProject ? <CircularProgress size={14} color="inherit" /> : <AddIcon />}
+          >
+            Create
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
