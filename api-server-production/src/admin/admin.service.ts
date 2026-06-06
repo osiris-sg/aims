@@ -297,19 +297,20 @@ export class AdminService {
   }
 
   async getOrganizationById(id: string) {
+    // Keep the response small. Older versions of this endpoint pulled every
+    // related row in (assets, inventories, customers, documents, …) which
+    // produced hundreds of KB of JSON for orgs like Cappitech (628 assets +
+    // their customPrices/accessoryIds blobs) and timed out behind Render's
+    // proxy — manifesting as "Organization not found" on the admin detail
+    // page because the frontend received nothing. The detail page only needs
+    // the org row, its modules, and the per-relation counts; drill-down
+    // sub-pages fetch the rest via their own endpoints.
     const org = await this.prisma.organization.findUnique({
       where: { id },
       include: {
         modules: {
           orderBy: { sortOrder: 'asc' },
         },
-        assets: true,
-        inventories: true,
-        customers: true,
-        documents: true,
-        documentTemplates: true,
-        projects: true,
-        userOrganizations: true,
         _count: {
           select: {
             assets: true,
