@@ -355,25 +355,27 @@ export default function BindTagPage() {
       if (!assetId || !inventoryId) {
         throw new Error("Unexpected response from server.");
       }
-      // Optional project assignment — best-effort. The bind has already
-      // succeeded at this point, so a failure here must never block the flow:
-      // log it, tell the tech the item was still created, and move on. The
-      // office can assign it from the portal later.
+      // Optional project deployment — best-effort. Creates a Deployment +
+      // single-item DO on the backend so the unit shows up on the project
+      // page's deployment cards (standalone Assignment rows don't render
+      // there). The bind has already succeeded at this point, so a failure
+      // here must never block the flow: log it, tell the tech the item was
+      // still created, and move on. The office can deploy it from the portal.
       if (selectedProject) {
         try {
-          const assignRes = await request(
-            { path: `/projects/${selectedProject.id}/assignments`, method: "POST" },
-            { assignments: [{ inventoryId, status: "rental" }] },
+          const deployRes = await request(
+            { path: `/projects/${selectedProject.id}/field-deploy`, method: "POST" },
+            { inventoryId, assetId },
             token,
           );
-          if (assignRes?.success === false) {
-            throw new Error(assignRes?.message ?? "Assignment request failed");
+          if (deployRes?.success === false) {
+            throw new Error(deployRes?.message ?? "Deployment request failed");
           }
-          toast.success(`Item created and assigned to ${selectedProject.name}`);
-        } catch (assignErr) {
-          console.error("project assignment failed (binding succeeded):", assignErr);
+          toast.success(`Item created and deployed to ${selectedProject.name}`);
+        } catch (deployErr) {
+          console.error("field deploy failed (binding succeeded):", deployErr);
           toast.success("Item created");
-          toast.warning("Couldn't assign to project — assign it later from the portal.");
+          toast.warning("Couldn't deploy to project — deploy it later from the portal.");
         }
       } else {
         toast.success("Item created");

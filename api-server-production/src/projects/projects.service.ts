@@ -4,7 +4,7 @@ import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 // import { DeleteProjectDto } from './dto/delete-project.dto';
 import { GetProjectDto } from './dto/get-project.dto';
-import { Prisma, DeploymentType, DeploymentStatus } from '@prisma/client';
+import { Prisma, DeploymentType, DeploymentStatus, ItemType } from '@prisma/client';
 import { ProjectStatus } from '@prisma/client';
 import { InventoryStatus } from '@prisma/client';
 
@@ -521,6 +521,176 @@ export class ProjectsService {
       'Could not allocate a deployment number after 3 attempts',
       HttpStatus.CONFLICT,
     );
+  }
+
+  /**
+   * Field create-and-bind → deployment. Called by the NFC bind flow when the
+   * tech picked a project: creates a Deployment + auto-numbered DO with one
+   * line item for the freshly bound inventory unit, so the item shows up on
+   * the project page's deployment cards (which read document line items —
+   * standalone Assignment rows are invisible there).
+   *
+   * All writes run in one transaction; the 3-attempt retry covers unique
+   * races on (projectId, deploymentNumber) and the document name — same
+   * backstop pattern as createDeployment / createBasicDocument.
+   */
+  async fieldDeploy(
+    projectId: string,
+    organizationId: string,
+    body: { inventoryId: string; assetId: string },
+  ) {
+    const { inventoryId, assetId } = body ?? ({} as any);
+    if (!inventoryId || !assetId) {
+      throw new HttpException('inventoryId and assetId are required', HttpStatus.BAD_REQUEST);
+    }
+
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, organizationId },
+      select: {
+        id: true,
+        customer: {
+          select: { id: true, name: true, customerCode: true, email: true, phone: true, address: true, gstRegNo: true },
+        },
+      },
+    });
+    if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
+
+    const inventory = await this.prisma.inventory.findFirst({
+      where: { id: inventoryId, organizationId },
+      include: { asset: { select: { id: true, name: true, uom: true } } },
+    });
+    if (!inventory) throw new HttpException('Inventory item not found', HttpStatus.NOT_FOUND);
+    if (inventory.assetId !== assetId) {
+      throw new HttpException('assetId does not match the inventory item', HttpStatus.BAD_REQUEST);
+    }
+
+    // DO template — same resolution order as documents.createFromExtraction.
+    const template = await this.prisma.documentTemplate.findFirst({
+      where: { organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } },
+      select: { id: true, type: true, templateVariant: true },
+      orderBy: [{ isActive: 'desc' }, { isDefault: 'desc' }, { createdAt: 'desc' }],
+    });
+    if (!template) {
+      throw new HttpException('No Delivery Order template configured for this organization', HttpStatus.NOT_FOUND);
+    }
+
+    // Org defaults seeded into the DO config — mirrors createBasicDocument so
+    // the office sees a normal-looking DO when they open it in the editor.
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { customDocumentTypes: true, logo: true, defaultStamp: true },
+    });
+
+    const description = `${inventory.asset.name} - ${inventory.sku}`;
+    const now = new Date();
+    const customTypes = organization?.customDocumentTypes as Record<string, string> | null;
+    const namePrefix = `${template.templateVariant || customTypes?.[template.type] || template.type}${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}-`;
+
+    // `inventoryItemId` is the legacy items[] key (overloaded for INVENTORY
+    // and ASSET) — see documents.service.syncDocumentItems.
+    const config: any = {
+      date: now.toISOString(),
+      items: [
+        {
+          inventoryItemId: inventoryId,
+          sku: inventory.sku,
+          description: inventory.asset.name,
+          quantity: 1,
+          uom: inventory.asset.uom,
+          serialNumbers: inventory.serialNumber ? [inventory.serialNumber] : [],
+        },
+      ],
+    };
+    if (organization?.logo) config.logo = organization.logo;
+    if (organization?.defaultStamp) config.stamp = { company: organization.defaultStamp };
+    if (project.customer) {
+      config.customerId = project.customer.id;
+      config.customer = project.customer;
+    }
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          // Deployment — auto-numbered per project (count + 1).
+          const taken = await tx.projectDeployment.count({ where: { projectId } });
+          const deployment = await tx.projectDeployment.create({
+            data: {
+              projectId,
+              organizationId,
+              deploymentNumber: taken + 1,
+              type: DeploymentType.RENTAL,
+              status: DeploymentStatus.ACTIVE,
+              deployedDate: now,
+              description,
+            },
+          });
+
+          // DO number — same `{prefix}{yyyy}{mm}-NNN` pattern as
+          // createBasicDocument, excluding revision docs from the serial scan.
+          const lastDoc = await tx.document.findFirst({
+            where: {
+              organizationId,
+              documentTemplateId: template.id,
+              name: { startsWith: namePrefix },
+              baseDocumentId: null,
+            },
+            select: { name: true },
+            orderBy: { name: 'desc' },
+          });
+          const lastSerial = lastDoc?.name?.match(/-(\d+)$/);
+          const serial = String(lastSerial ? parseInt(lastSerial[1], 10) + 1 : 1).padStart(3, '0');
+
+          const document = await tx.document.create({
+            data: {
+              name: `${namePrefix}${serial}`,
+              documentTemplateId: template.id,
+              type: template.type,
+              organizationId,
+              config,
+              revisionNumber: 0,
+              projectId,
+              projectDeploymentId: deployment.id,
+            },
+          });
+
+          // Audit pointer: this DO is the document that started the deployment.
+          await tx.projectDeployment.update({
+            where: { id: deployment.id },
+            data: { sourceDocumentId: document.id },
+          });
+
+          await tx.documentItem.create({
+            data: {
+              documentId: document.id,
+              itemId: inventoryId,
+              itemType: ItemType.INVENTORY,
+              sku: inventory.sku,
+              description: inventory.asset.name,
+              quantity: 1,
+              uom: inventory.asset.uom,
+              lineNumber: 1,
+            },
+          });
+
+          await tx.inventory.update({
+            where: { id: inventoryId },
+            data: { status: InventoryStatus.rental },
+          });
+
+          return {
+            deployment: { ...deployment, sourceDocumentId: document.id },
+            document: { id: document.id, name: document.name, type: document.type },
+          };
+        });
+      } catch (err) {
+        // Unique race on deploymentNumber or document name — recompute + retry.
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new HttpException('Could not allocate deployment/DO numbers after 3 attempts', HttpStatus.CONFLICT);
   }
 
   async attachDocumentToDeployment(
