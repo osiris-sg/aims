@@ -353,7 +353,10 @@ export default function NewServiceReportPage() {
         throw new Error(res?.message ?? "Failed to submit report");
       }
 
-      router.replace(`/scan/asset/${assetId}/done`);
+      // Keep inventoryId on the /done URL so "Back to this asset" restores
+      // the full scan context in the action chooser.
+      const invDoneQuery = inventoryId ? `?inventoryId=${encodeURIComponent(inventoryId)}` : "";
+      router.replace(`/scan/asset/${assetId}/done${invDoneQuery}`);
     } catch (e: any) {
       setError(e?.message ?? "Failed to submit report");
     } finally {

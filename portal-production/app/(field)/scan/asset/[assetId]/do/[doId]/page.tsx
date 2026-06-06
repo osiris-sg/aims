@@ -135,7 +135,10 @@ export default function DeliveryOrderAckPage() {
       );
       const reportId = res.data?.id ?? res.id;
       if (!reportId) throw new Error("No report id returned");
-      router.push(`/scan/asset/${assetId}/sign?reportId=${reportId}&kind=do`);
+      // Forward inventoryId so sign → done → "Back to this asset" keeps the
+      // full scan context (the action chooser needs it to resolve the DO).
+      const invQuery = inventoryId ? `&inventoryId=${encodeURIComponent(inventoryId)}` : "";
+      router.push(`/scan/asset/${assetId}/sign?reportId=${reportId}&kind=do${invQuery}`);
     } catch (e: any) {
       setError(e?.message ?? "Failed to save acknowledgement");
     } finally {

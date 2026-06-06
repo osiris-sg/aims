@@ -20,6 +20,9 @@ export default function SignPage() {
   //   do             → stop background tracking after successful sign
   //   (omitted)      → service-report flow, no tracking change
   const flowKind = search?.get("kind");
+  // Threaded through the whole flow (chooser → ack → sign → done) so the
+  // done page's "Back to this asset" link can restore the full scan context.
+  const inventoryId = search?.get("inventoryId") ?? null;
   const sigRef = useRef<SignatureCanvas>(null);
   const [signedByName, setSignedByName] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -78,7 +81,8 @@ export default function SignPage() {
         console.log("[sign] no flowKind match — service-report flow, no tracking change");
       }
 
-      router.replace(`/scan/asset/${assetId}/done`);
+      const invQuery = inventoryId ? `?inventoryId=${encodeURIComponent(inventoryId)}` : "";
+      router.replace(`/scan/asset/${assetId}/done${invQuery}`);
     } catch (e: any) {
       setError(e?.message ?? "Failed to submit signature");
     } finally {
