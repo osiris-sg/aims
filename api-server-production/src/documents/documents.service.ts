@@ -1038,7 +1038,15 @@ export class DocumentsService {
       // Get organization to check for custom document types and defaults (logo, stamp)
       const organization = await this.prisma.organization.findUnique({
         where: { id: organizationId },
-        select: { customDocumentTypes: true, logo: true, defaultStamp: true },
+        select: {
+          customDocumentTypes: true,
+          logo: true,
+          defaultStamp: true,
+          // Org-wide tax defaults seeded onto documentInfo on new docs.
+          taxRate: true,
+          taxApplicable: true,
+          absorbTax: true,
+        },
       });
 
       // Get document template to use templateVariant for naming + inherit
@@ -1108,6 +1116,26 @@ export class DocumentsService {
       }
       if (!initialConfig.columnLabels && templateConfig.columnLabels && typeof templateConfig.columnLabels === 'object') {
         initialConfig.columnLabels = templateConfig.columnLabels;
+      }
+
+      // Seed the tax block from the org's defaults (Company Profile page →
+      // taxApplicable / taxRate / absorbTax). Only fill when the caller didn't
+      // already supply a value, so explicit per-doc overrides still win.
+      const orgTaxApplicable = (organization as any)?.taxApplicable;
+      const orgAbsorbTax = (organization as any)?.absorbTax;
+      const orgTaxRate = organization?.taxRate;
+      if (!initialConfig.documentInfo || typeof initialConfig.documentInfo !== 'object') {
+        initialConfig.documentInfo = {};
+      }
+      const di = initialConfig.documentInfo;
+      if (di.taxApplicable === undefined && orgTaxApplicable !== undefined && orgTaxApplicable !== null) {
+        di.taxApplicable = !!orgTaxApplicable;
+      }
+      if (di.absorbTax === undefined && orgAbsorbTax !== undefined && orgAbsorbTax !== null) {
+        di.absorbTax = !!orgAbsorbTax;
+      }
+      if ((di.gstPercent === undefined || di.gstPercent === null || di.gstPercent === 0) && orgTaxRate != null) {
+        di.gstPercent = Number(orgTaxRate);
       }
       // Prefill customer info from the project when projectId is supplied and
       // the caller didn't already populate it. Generic across document types.

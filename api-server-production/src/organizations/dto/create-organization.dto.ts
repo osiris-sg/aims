@@ -63,6 +63,14 @@ export class CreateOrganizationDto {
   @Max(100)
   taxRate?: number;
 
+  @ApiProperty({ required: false, description: 'Org-wide default: tax applies to new documents.' })
+  @IsOptional()
+  taxApplicable?: boolean;
+
+  @ApiProperty({ required: false, description: 'Org-wide default: absorb tax (back-calculated from a tax-inclusive total).' })
+  @IsOptional()
+  absorbTax?: boolean;
+
   @ApiProperty({
     required: false,
     description: 'Bank details for invoices (accountName, accountNumber, bankName, swiftCode, branchCode, bankCode, currencyCode)',

@@ -19,6 +19,12 @@ model Organization {
   defaultStamp          String?
   customDocumentTypes   Json?
   taxRate               Float?                     @default(9)
+  // Org-wide defaults for the per-document tax toggles. The document editor
+  // seeds new docs from these (documentInfo.taxApplicable / .absorbTax) so a
+  // user who normally invoices with GST on top doesn't have to flip the
+  // switch on every new draft. Per-doc overrides still win when set.
+  taxApplicable         Boolean                    @default(true)
+  absorbTax             Boolean                    @default(false)
   bankDetails           Json? // { accountName, accountNumber, bankName, swiftCode, branchCode, bankCode, currencyCode }
   stockDeductionTrigger String?                    @default("DO") // Legacy field - no longer used. Stock deduction logic: DO always deducts, Invoice deducts only if not extracted from DO
   // Org-wide reward Points ledger. Float so partial-point adjustments stay

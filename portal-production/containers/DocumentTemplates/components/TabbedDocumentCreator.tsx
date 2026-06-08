@@ -474,9 +474,21 @@ export default function TabbedDocumentCreator({
       // Additional fields for quotation extraction
       contact: existingData?.documentInfo?.contact || existingData?.contact || "",
       rate: existingData?.documentInfo?.rate || existingData?.rate || "",
-      taxApplicable: existingData?.documentInfo?.taxApplicable ?? existingData?.taxApplicable ?? false,
-      absorbTax: existingData?.documentInfo?.absorbTax ?? existingData?.absorbTax ?? false,
-      gstPercent: existingData?.documentInfo?.gstPercent ?? existingData?.gstPercent ?? 0,
+      // New docs fall back to the org's Tax Defaults (Company Profile page).
+      // Existing docs keep their stored values so a previously-saved off/on
+      // state isn't silently flipped when org defaults change later.
+      taxApplicable: existingData?.documentInfo?.taxApplicable
+        ?? existingData?.taxApplicable
+        ?? (organization as any)?.taxApplicable
+        ?? false,
+      absorbTax: existingData?.documentInfo?.absorbTax
+        ?? existingData?.absorbTax
+        ?? (organization as any)?.absorbTax
+        ?? false,
+      gstPercent: existingData?.documentInfo?.gstPercent
+        ?? existingData?.gstPercent
+        ?? organization?.taxRate
+        ?? 0,
       // DO-specific fields
       issueBy: existingData?.documentInfo?.issueBy || existingData?.issueBy || "",
     },

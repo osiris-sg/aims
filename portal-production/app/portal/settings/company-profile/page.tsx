@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useMemo } from "react";
-import { Box, Button, Divider, Typography, Grid2, IconButton, Chip } from "@mui/material";
+import React, { useEffect, useMemo, useState } from "react";
+import { Box, Button, Divider, FormControlLabel, Switch, Typography, Grid2, IconButton, Chip, Tabs, Tab } from "@mui/material";
+import { Controller } from "react-hook-form";
 import { useAuth } from "@clerk/nextjs";
 import { useForm, useWatch } from "react-hook-form";
 import FormInputBox from "@/form-components/FormInputBox";
@@ -21,7 +22,11 @@ export default function OrganizationSettingsPage() {
       address: organization?.address || "",
       phoneNumber: organization?.phoneNumber || "",
       registrationNumber: organization?.registrationNumber || "",
-      taxRate: organization?.taxRate || 9,
+      taxRate: organization?.taxRate ?? 9,
+      // Org-wide defaults for the per-document tax toggles. The doc editor
+      // seeds new docs from these (documentInfo.taxApplicable / .absorbTax).
+      taxApplicable: (organization as any)?.taxApplicable ?? true,
+      absorbTax: (organization as any)?.absorbTax ?? false,
       bankAccountName: organization?.bankDetails?.accountName || "",
       bankAccountNumber: organization?.bankDetails?.accountNumber || "",
       bankName: organization?.bankDetails?.bankName || "",
@@ -38,6 +43,8 @@ export default function OrganizationSettingsPage() {
 
   const { control, handleSubmit, reset, setValue } = useForm<any>({ defaultValues });
   const customDocumentTypes = useWatch({ control, name: "customDocumentTypes" }) || {};
+
+  const [activeTab, setActiveTab] = useState<"general" | "tax" | "bank" | "branding" | "documents">("general");
 
   // When organization data becomes available, re-populate the form
   useEffect(() => {
@@ -93,6 +100,8 @@ export default function OrganizationSettingsPage() {
       phoneNumber: data.phoneNumber,
       registrationNumber: data.registrationNumber,
       taxRate: parseFloat(data.taxRate) || 0,
+      taxApplicable: !!data.taxApplicable,
+      absorbTax: !!data.absorbTax,
       customDocumentTypes: data.customDocumentTypes,
       bankDetails: {
         accountName: data.bankAccountName || "",
@@ -175,112 +184,179 @@ export default function OrganizationSettingsPage() {
     // no hard refresh here; OrganizationContext will continue returning previous values until reload
   };
 
+  const tabs: { value: typeof activeTab; label: string }[] = [
+    { value: "general", label: "General" },
+    { value: "tax", label: "Tax Defaults" },
+    { value: "bank", label: "Bank Details" },
+    { value: "branding", label: "Branding" },
+    { value: "documents", label: "Document Names" },
+  ];
+
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
       <Typography variant="h5" sx={{ fontWeight: 700 }}>
         Company Profile
       </Typography>
-      <Divider />
+
+      <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
+        <Tabs
+          value={activeTab}
+          onChange={(_, v) => setActiveTab(v)}
+          variant="scrollable"
+          scrollButtons="auto"
+          sx={{
+            "& .MuiTab-root": {
+              textTransform: "none",
+              fontWeight: 500,
+              fontSize: "0.9rem",
+              minHeight: 44,
+            },
+            "& .Mui-selected": { color: "primary.main" },
+            "& .MuiTabs-indicator": { backgroundColor: "primary.main" },
+          }}
+        >
+          {tabs.map((t) => (
+            <Tab key={t.value} value={t.value} label={t.label} />
+          ))}
+        </Tabs>
+      </Box>
 
       <Box component="form" onSubmit={handleSubmit(onSubmit)} sx={{ display: "flex", flexDirection: "column", gap: 2, maxWidth: 720 }}>
-        <FormInputBox control={control} name="name" label="Organization Name" placeHolder="Enter name" />
-        <FormInputBox control={control} name="address" label="Address" placeHolder="Enter address" />
-        <FormInputBox control={control} name="phoneNumber" label="Phone Number" placeHolder="Enter phone" />
-        <FormInputBox control={control} name="registrationNumber" label="Registration No" placeHolder="Enter registration number" />
-        <FormInputBox
-          control={control}
-          name="taxRate"
-          label="Tax Rate (%)"
-          placeHolder="Enter tax rate (e.g., 9 for 9%)"
-          type="number"
-          min={0}
-        />
+        {activeTab === "general" && (
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <FormInputBox control={control} name="name" label="Organization Name" placeHolder="Enter name" />
+            <FormInputBox control={control} name="address" label="Address" placeHolder="Enter address" />
+            <FormInputBox control={control} name="phoneNumber" label="Phone Number" placeHolder="Enter phone" />
+            <FormInputBox control={control} name="registrationNumber" label="Registration No" placeHolder="Enter registration number" />
+          </Box>
+        )}
 
-        <Box>
-          <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>
-            Bank Details
-          </Typography>
-          <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
-            Bank details will appear on invoices and other documents.
-          </Typography>
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-            <FormInputBox control={control} name="bankAccountName" label="Account Name" placeHolder="Enter account name" />
-            <FormInputBox control={control} name="bankAccountNumber" label="Account Number" placeHolder="Enter account number" />
-            <FormInputBox control={control} name="bankName" label="Bank Name" placeHolder="Enter bank name" />
-            <FormInputBox control={control} name="bankSwiftCode" label="SWIFT/BIC Code" placeHolder="Enter SWIFT/BIC code" />
-            <Box sx={{ display: "flex", gap: 2 }}>
-              <Box sx={{ flex: 1 }}>
-                <FormInputBox control={control} name="bankBranchCode" label="Branch Code" placeHolder="Enter branch code" />
-              </Box>
-              <Box sx={{ flex: 1 }}>
-                <FormInputBox control={control} name="bankCode" label="Bank Code" placeHolder="Enter bank code" />
-              </Box>
-              <Box sx={{ flex: 1 }}>
-                <FormInputBox control={control} name="bankCurrencyCode" label="Currency Code" placeHolder="Enter currency" />
+        {activeTab === "tax" && (
+          <Box>
+            <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>
+              Tax Defaults
+            </Typography>
+            <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
+              New documents inherit these settings. You can still override per-document inside the editor.
+            </Typography>
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+              <Controller
+                control={control}
+                name="taxApplicable"
+                render={({ field }) => (
+                  <FormControlLabel
+                    control={<Switch checked={!!field.value} onChange={(e) => field.onChange(e.target.checked)} />}
+                    label="Tax Applicable by default"
+                  />
+                )}
+              />
+              <FormInputBox control={control} name="taxRate" label="Tax Rate (%)" placeHolder="Enter tax rate (e.g., 9 for 9%)" type="number" min={0} />
+              <Controller
+                control={control}
+                name="absorbTax"
+                render={({ field }) => (
+                  <FormControlLabel
+                    control={<Switch checked={!!field.value} onChange={(e) => field.onChange(e.target.checked)} />}
+                    label="Absorb Tax in Total (tax-inclusive pricing)"
+                  />
+                )}
+              />
+            </Box>
+          </Box>
+        )}
+
+        {activeTab === "bank" && (
+          <Box>
+            <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>
+              Bank Details
+            </Typography>
+            <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
+              Bank details will appear on invoices and other documents.
+            </Typography>
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+              <FormInputBox control={control} name="bankAccountName" label="Account Name" placeHolder="Enter account name" />
+              <FormInputBox control={control} name="bankAccountNumber" label="Account Number" placeHolder="Enter account number" />
+              <FormInputBox control={control} name="bankName" label="Bank Name" placeHolder="Enter bank name" />
+              <FormInputBox control={control} name="bankSwiftCode" label="SWIFT/BIC Code" placeHolder="Enter SWIFT/BIC code" />
+              <Box sx={{ display: "flex", gap: 2 }}>
+                <Box sx={{ flex: 1 }}>
+                  <FormInputBox control={control} name="bankBranchCode" label="Branch Code" placeHolder="Enter branch code" />
+                </Box>
+                <Box sx={{ flex: 1 }}>
+                  <FormInputBox control={control} name="bankCode" label="Bank Code" placeHolder="Enter bank code" />
+                </Box>
+                <Box sx={{ flex: 1 }}>
+                  <FormInputBox control={control} name="bankCurrencyCode" label="Currency Code" placeHolder="Enter currency" />
+                </Box>
               </Box>
             </Box>
           </Box>
-        </Box>
+        )}
 
-        <Box>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>
-            Logo
-          </Typography>
-          <FormImage control={control} name="logo" numberOfUploaders={1} />
-        </Box>
+        {activeTab === "branding" && (
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <Box>
+              <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>
+                Logo
+              </Typography>
+              <FormImage control={control} name="logo" numberOfUploaders={1} />
+            </Box>
 
-        <Box>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>
-            Default Company Stamp
-          </Typography>
-          <FormImage control={control} name="defaultStamp" numberOfUploaders={1} />
-        </Box>
-
-        <Box>
-          <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>
-            Custom Document Type Names
-          </Typography>
-          <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
-            Customize how document types appear to your users. For example, change "Invoice" to "BI2025" for your organization.
-          </Typography>
-
-          {/* Current custom document types */}
-          {Object.entries(customDocumentTypes).map(([docType, displayName]) => {
-            const docInfo = availableDocumentTypes.find((d) => d.code === docType);
-            return (
-              <Box key={docType} sx={{ mb: 2, p: 2, border: 1, borderColor: "divider", borderRadius: 1 }}>
-                <Grid2 container spacing={2} alignItems="center">
-                  <Grid2 size={3}>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                      {docInfo?.label || docType}
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                      Code: {docType}
-                    </Typography>
-                  </Grid2>
-                  <Grid2 size={7}>
-                    <FormInputBox control={control} name={`customDocumentTypes.${docType}`} label="Custom Display Name" placeHolder={`e.g., BI2025, Custom ${docInfo?.label || docType}`} size="small" onChange={(e) => updateCustomDocumentType(docType, e.target.value)} />
-                  </Grid2>
-                  <Grid2 size={2}>
-                    <IconButton onClick={() => removeCustomDocumentType(docType)} color="error" size="small">
-                      <DeleteIcon />
-                    </IconButton>
-                  </Grid2>
-                </Grid2>
-              </Box>
-            );
-          })}
-
-          {/* Add new document type */}
-          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-            {availableDocumentTypes
-              .filter((docType) => !customDocumentTypes[docType.code])
-              .map((docType) => (
-                <Chip key={docType.code} label={`Add ${docType.label}`} onClick={() => addCustomDocumentType(docType.code)} icon={<AddIcon />} variant="outlined" clickable sx={{ mb: 1 }} />
-              ))}
+            <Box>
+              <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>
+                Default Company Stamp
+              </Typography>
+              <FormImage control={control} name="defaultStamp" numberOfUploaders={1} />
+            </Box>
           </Box>
-        </Box>
+        )}
 
+        {activeTab === "documents" && (
+          <Box>
+            <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>
+              Custom Document Type Names
+            </Typography>
+            <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
+              Customize how document types appear to your users. For example, change &quot;Invoice&quot; to &quot;BI2025&quot; for your organization.
+            </Typography>
+
+            {Object.entries(customDocumentTypes).map(([docType]) => {
+              const docInfo = availableDocumentTypes.find((d) => d.code === docType);
+              return (
+                <Box key={docType} sx={{ mb: 2, p: 2, border: 1, borderColor: "divider", borderRadius: 1 }}>
+                  <Grid2 container spacing={2} alignItems="center">
+                    <Grid2 size={3}>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {docInfo?.label || docType}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                        Code: {docType}
+                      </Typography>
+                    </Grid2>
+                    <Grid2 size={7}>
+                      <FormInputBox control={control} name={`customDocumentTypes.${docType}`} label="Custom Display Name" placeHolder={`e.g., BI2025, Custom ${docInfo?.label || docType}`} size="small" onChange={(e) => updateCustomDocumentType(docType, e.target.value)} />
+                    </Grid2>
+                    <Grid2 size={2}>
+                      <IconButton onClick={() => removeCustomDocumentType(docType)} color="error" size="small">
+                        <DeleteIcon />
+                      </IconButton>
+                    </Grid2>
+                  </Grid2>
+                </Box>
+              );
+            })}
+
+            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+              {availableDocumentTypes
+                .filter((docType) => !customDocumentTypes[docType.code])
+                .map((docType) => (
+                  <Chip key={docType.code} label={`Add ${docType.label}`} onClick={() => addCustomDocumentType(docType.code)} icon={<AddIcon />} variant="outlined" clickable sx={{ mb: 1 }} />
+                ))}
+            </Box>
+          </Box>
+        )}
+
+        <Divider sx={{ mt: 1 }} />
         <Button type="submit" variant="contained" color="primary" sx={{ alignSelf: "flex-start" }}>
           Save
         </Button>
