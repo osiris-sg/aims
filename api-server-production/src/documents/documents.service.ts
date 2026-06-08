@@ -343,7 +343,7 @@ export class DocumentsService {
           for (const o of orders) {
             const ld: any = o.linkedDocuments || {};
             let dirty = false;
-            for (const kind of ['po', 'do', 'invoice'] as const) {
+            for (const kind of ['po', 'do', 'invoice', 'salesOrder'] as const) {
               const list: any[] = Array.isArray(ld[kind]) ? ld[kind] : [];
               for (const ref of list) {
                 if (ref && ref.id === id && ref.name !== nameToWrite) {

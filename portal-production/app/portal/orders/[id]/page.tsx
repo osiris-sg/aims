@@ -33,6 +33,7 @@ import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import ReceiptIcon from "@mui/icons-material/Receipt";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
+import AssignmentIcon from "@mui/icons-material/Assignment";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import moment from "moment";
 import { toast } from "react-toastify";
@@ -111,7 +112,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   const [loading, setLoading] = useState(false);
   const [inventories, setInventories] = useState<any[]>([]);
   const [selected, setSelected] = useState<number[]>([]);
-  const [creating, setCreating] = useState<null | "PO" | "DO" | "INVOICE">(null);
+  const [creating, setCreating] = useState<null | "PO" | "DO" | "INVOICE" | "SO">(null);
   // Project orders: editable per-item discount. draftItems is a working copy of
   // order.items; editedIdx tracks which lines the user manually changed (so
   // "Recalibrate" only rebalances the untouched lines).
@@ -305,13 +306,14 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     }
   };
 
-  // Per-row status: which doc kinds (PO/DO/INVOICE) have already been created
-  // and include this item. Derived from order.linkedDocuments[docKind][].itemIds.
-  const itemStatusFor = (itemId: number | undefined): Record<"po" | "do" | "invoice", boolean> => {
-    const result = { po: false, do: false, invoice: false };
+  // Per-row status: which doc kinds (PO/DO/INVOICE/SO) have already been
+  // created and include this item. Derived from
+  // order.linkedDocuments[docKind][].itemIds.
+  const itemStatusFor = (itemId: number | undefined): Record<"po" | "do" | "invoice" | "salesOrder", boolean> => {
+    const result = { po: false, do: false, invoice: false, salesOrder: false };
     if (itemId == null) return result;
     const ld = order?.linkedDocuments || {};
-    (["po", "do", "invoice"] as const).forEach((kind) => {
+    (["po", "do", "invoice", "salesOrder"] as const).forEach((kind) => {
       const list = (ld as any)[kind] || [];
       if (list.some((d: any) => Array.isArray(d.itemIds) && d.itemIds.includes(itemId))) {
         result[kind] = true;
@@ -340,7 +342,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     return Number(inv?.asset?.price ?? it.unitPrice ?? 0);
   };
 
-  const handleCreateDoc = async (targetType: "PO" | "DO" | "INVOICE") => {
+  const handleCreateDoc = async (targetType: "PO" | "DO" | "INVOICE" | "SO") => {
     if (!order || selected.length === 0) return;
     setCreating(targetType);
     try {
@@ -352,13 +354,15 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
 
       // Map the button's short code to the canonical doc-type string used in
       // DocumentTemplate.type and Document.type. The templates table stores
-      // 'DELIVERY_ORDER' (not 'DO'), 'INVOICE', and 'PO'. We also try a few
+      // 'DELIVERY_ORDER' (not 'DO'), 'INVOICE', 'PO', and 'SO'. We try a few
       // fallbacks since some orgs may have legacy 'DO'/'PURCHASE_ORDER' rows.
       const candidateTypes =
         targetType === "DO"
           ? ["DELIVERY_ORDER", "DO"]
           : targetType === "PO"
           ? ["PO", "PURCHASE_ORDER"]
+          : targetType === "SO"
+          ? ["SO", "SALES_ORDER"]
           : ["INVOICE"];
 
       let templateId: string | undefined;
@@ -453,7 +457,11 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
       // Link the spawned doc back onto the order so it shows up in "Linked".
       // Carry the templateId so the chip can route directly to the doc editor,
       // and the picked item ids so we can render per-row status badges later.
-      const docKind = targetType === "PO" ? "po" : targetType === "DO" ? "do" : "invoice";
+      const docKind =
+        targetType === "PO" ? "po"
+        : targetType === "DO" ? "do"
+        : targetType === "SO" ? "salesOrder"
+        : "invoice";
       const itemIds = pickedItems.map((it) => it.id).filter((id) => id != null);
       await request(
         { path: `/orders/${order.id}/link`, method: "PATCH" },
@@ -682,10 +690,11 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                 <TableCell align="center">
                   {(() => {
                     const s = itemStatusFor(it.id as number | undefined);
-                    const any = s.po || s.do || s.invoice;
+                    const any = s.po || s.do || s.invoice || s.salesOrder;
                     if (!any) return <Typography variant="caption" color="text.disabled">—</Typography>;
                     return (
                       <Stack direction="row" spacing={0.5} justifyContent="center">
+                        {s.salesOrder && <Chip size="small" color="warning" variant="outlined" label="SO" />}
                         {s.po && <Chip size="small" color="success" variant="outlined" label="PO" />}
                         {s.do && <Chip size="small" color="info" variant="outlined" label="DO" />}
                         {s.invoice && <Chip size="small" color="primary" variant="outlined" label="INV" />}
@@ -765,6 +774,14 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         </Typography>
         <Button
           variant="outlined"
+          startIcon={<AssignmentIcon />}
+          onClick={() => handleCreateDoc("SO")}
+          disabled={selected.length === 0 || !!creating}
+        >
+          {creating === "SO" ? "Creating…" : "Create SO from selected"}
+        </Button>
+        <Button
+          variant="outlined"
           startIcon={<ShoppingCartIcon />}
           onClick={() => handleCreateDoc("PO")}
           disabled={selected.length === 0 || !!creating}
@@ -793,10 +810,15 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
 
       {/* Linked documents */}
       <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>Linked Documents</Typography>
-      {(["po", "do", "invoice"] as const).map((kind) => {
-        const list = order.linkedDocuments?.[kind] || [];
+      {(["salesOrder", "po", "do", "invoice"] as const).map((kind) => {
+        const list = (order.linkedDocuments as any)?.[kind] || [];
         if (list.length === 0) return null;
-        const labelMap = { po: "Purchase Orders", do: "Delivery Orders", invoice: "Invoices" } as const;
+        const labelMap = {
+          salesOrder: "Sales Orders",
+          po: "Purchase Orders",
+          do: "Delivery Orders",
+          invoice: "Invoices",
+        } as const;
         return (
           <Box key={kind} sx={{ mb: 1.5 }}>
             <Typography variant="caption" color="text.secondary">{labelMap[kind]}</Typography>
@@ -809,7 +831,11 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                   variant="outlined"
                   clickable
                   onClick={() => {
-                    const type = kind === "po" ? "PO" : kind === "do" ? "DO" : "INVOICE";
+                    const type =
+                      kind === "po" ? "PO"
+                      : kind === "do" ? "DO"
+                      : kind === "salesOrder" ? "SO"
+                      : "INVOICE";
                     if (!d.templateId) {
                       toast.error("Cannot open doc: missing template id");
                       return;
@@ -824,7 +850,8 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
       })}
       {!order.linkedDocuments?.po?.length &&
         !order.linkedDocuments?.do?.length &&
-        !order.linkedDocuments?.invoice?.length && (
+        !order.linkedDocuments?.invoice?.length &&
+        !(order.linkedDocuments as any)?.salesOrder?.length && (
           <Typography variant="caption" color="text.disabled">No documents created from this order yet.</Typography>
         )}
 

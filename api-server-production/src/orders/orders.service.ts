@@ -96,7 +96,7 @@ export class OrdersService {
         orderType,
         status: 'DRAFT',
         items: items as Prisma.InputJsonValue,
-        linkedDocuments: { po: [], do: [], invoice: [] } as Prisma.InputJsonValue,
+        linkedDocuments: { po: [], do: [], invoice: [], salesOrder: [] } as Prisma.InputJsonValue,
         notes: `Auto-created from quotation ${quotation.name}`,
       },
     });
@@ -251,12 +251,14 @@ export class OrdersService {
 
   /**
    * Append a linked document reference to the order's linkedDocuments bucket.
-   * docKind is one of 'po' / 'do' / 'invoice'. Idempotent on the docId.
+   * docKind is one of 'po' / 'do' / 'invoice' / 'salesOrder'. Idempotent on
+   * the docId. Buckets initialise lazily so older orders without a salesOrder
+   * key still accept SO links.
    */
   async linkDocument(
     orderId: string,
     organizationId: string,
-    docKind: 'po' | 'do' | 'invoice',
+    docKind: 'po' | 'do' | 'invoice' | 'salesOrder',
     docRef: { id: string; name: string; templateId?: string; itemIds?: number[] },
   ) {
     const order = await this.prisma.order.findFirst({
@@ -264,7 +266,7 @@ export class OrdersService {
       select: { linkedDocuments: true },
     });
     if (!order) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
-    const bucket: any = (order.linkedDocuments as any) || { po: [], do: [], invoice: [] };
+    const bucket: any = (order.linkedDocuments as any) || { po: [], do: [], invoice: [], salesOrder: [] };
     const list: any[] = Array.isArray(bucket[docKind]) ? bucket[docKind] : [];
     if (!list.some((d) => d.id === docRef.id)) list.push(docRef);
     bucket[docKind] = list;

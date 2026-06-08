@@ -98,7 +98,7 @@ export class OrdersController {
   @Permissions('orders:update')
   async linkDocument(
     @Param('id') id: string,
-    @Body() body: { docKind: 'po' | 'do' | 'invoice'; docId: string; docName: string; templateId?: string; itemIds?: number[] },
+    @Body() body: { docKind: 'po' | 'do' | 'invoice' | 'salesOrder'; docId: string; docName: string; templateId?: string; itemIds?: number[] },
     @Req() req: RequestWithOrganization,
   ) {
     const orgId = req.userOrganization?.id;

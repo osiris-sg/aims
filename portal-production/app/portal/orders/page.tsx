@@ -14,6 +14,7 @@ import VisibilityIcon from "@mui/icons-material/Visibility";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import ReceiptIcon from "@mui/icons-material/Receipt";
+import AssignmentIcon from "@mui/icons-material/Assignment";
 import moment from "moment";
 import { toast } from "react-toastify";
 import VerifySupplierUploadPanel from "./_components/VerifySupplierUploadPanel";
@@ -211,6 +212,7 @@ export default function OrdersListPage() {
         const ld = row.original.linkedDocuments || {};
         return (
           <LinkedDocsCell
+            so={(ld.salesOrder || []).length}
             po={(ld.po || []).length}
             doCount={(ld.do || []).length}
             inv={(ld.invoice || []).length}
@@ -305,8 +307,8 @@ export default function OrdersListPage() {
  * "1 PO" / "1 INV" chips compressed into <40 px so the table can breathe and
  * Ver. DO / Ver. INV fit beside it without truncating the rest.
  */
-function LinkedDocsCell({ po, doCount, inv }: { po: number; doCount: number; inv: number }) {
-  if (po + doCount + inv === 0) return <Typography variant="caption" color="text.disabled">—</Typography>;
+function LinkedDocsCell({ so, po, doCount, inv }: { so: number; po: number; doCount: number; inv: number }) {
+  if (so + po + doCount + inv === 0) return <Typography variant="caption" color="text.disabled">—</Typography>;
   const item = (label: string, n: number, Icon: React.ElementType) =>
     n > 0 ? (
       <Tooltip arrow title={`${n} ${label}${n === 1 ? "" : "s"}`}>
@@ -318,6 +320,7 @@ function LinkedDocsCell({ po, doCount, inv }: { po: number; doCount: number; inv
     ) : null;
   return (
     <Stack direction="row" spacing={0.75}>
+      {item("SO", so, AssignmentIcon)}
       {item("PO", po, ShoppingCartIcon)}
       {item("DO", doCount, LocalShippingIcon)}
       {item("Invoice", inv, ReceiptIcon)}
