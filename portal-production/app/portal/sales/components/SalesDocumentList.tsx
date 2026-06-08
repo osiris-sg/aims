@@ -169,7 +169,8 @@ export default function SalesDocumentList({
       accessorKey: "action",
       header: "Action",
       cell: ({ row }: any) => {
-        const { documentType, templateId, id } = row.original;
+        const { documentType, templateId, id, status } = row.original;
+        const isDraft = (status || "draft") === "draft";
 
         const handleDownload = () => {
           const viewUrl = `/portal/documents/view/${documentType}/${templateId}/${id}?autoprint=true`;
@@ -198,7 +199,7 @@ export default function SalesDocumentList({
             >
               <DownloadIcon />
             </IconButton>
-            {showDelete && (
+            {showDelete && isDraft && (
               <IconButton
                 onClick={() => handleDeleteClick(row.original)}
                 sx={{

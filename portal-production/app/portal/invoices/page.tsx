@@ -6,12 +6,14 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
-import { Box, IconButton, Alert, Button } from "@mui/material";
+import { Box, IconButton, Alert, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from "@mui/material";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import DownloadIcon from "@mui/icons-material/Download";
+import DeleteIcon from "@mui/icons-material/Delete";
 import LinkIcon from "@mui/icons-material/Link";
 import PaymentIcon from "@mui/icons-material/Payment";
 import { Tab, Tabs, Chip, alpha } from "@mui/material";
+import { useDeleteDocument } from "@/app/portal/hooks/api";
 import { useRouter } from "next/navigation";
 import moment from "moment";
 import { toast } from "react-toastify";
@@ -110,6 +112,28 @@ export default function InvoicesPage() {
   const [arTab, setArTab] = useState<"all" | "awaiting" | "overdue" | "paid">("all");
   const [payDialogOpen, setPayDialogOpen] = useState(false);
   const [payDialogInvoice, setPayDialogInvoice] = useState<any>(null);
+
+  // Draft-only delete: invoices in draft status can be removed.
+  const [docToDelete, setDocToDelete] = useState<Document | null>(null);
+  const deleteDocumentMutation = useDeleteDocument();
+  const handleDeleteConfirm = async () => {
+    if (!docToDelete) return;
+    const id = docToDelete.id;
+    try {
+      await deleteDocumentMutation.mutateAsync(id);
+      toast.success("Invoice deleted");
+      setDocToDelete(null);
+      // Drop the row locally so the list updates without an extra round-trip.
+      setDocuments((prev) => ({
+        ...prev,
+        docs: (prev.docs || []).filter((d) => d.id !== id),
+        totalDocs: Math.max(0, (prev.totalDocs || 0) - 1),
+      }));
+    } catch (err: any) {
+      console.error("Delete invoice failed:", err);
+      toast.error(err?.message || "Failed to delete invoice");
+    }
+  };
 
   // Read the invoice's gross total from its config blob. Documents store the
   // form data under config.summary / config.nettTotal / etc. — try a few.
@@ -300,6 +324,7 @@ export default function InvoicesPage() {
         };
 
         const status = arStatusOf(row.original);
+        const isDraft = (row.original.status || "draft") === "draft";
         return (
           <Box sx={{ display: "flex", gap: "var(--default-gap)" }}>
             {status !== "paid" && (
@@ -346,6 +371,18 @@ export default function InvoicesPage() {
             >
               <DownloadIcon />
             </IconButton>
+            {isDraft && (
+              <IconButton
+                title="Delete draft"
+                onClick={() => setDocToDelete(row.original)}
+                sx={{
+                  color: "text.secondary",
+                  "&:hover": { color: "error.main" },
+                }}
+              >
+                <DeleteIcon />
+              </IconButton>
+            )}
           </Box>
         );
       },
@@ -726,6 +763,28 @@ export default function InvoicesPage() {
         }}
         invoice={payDialogInvoice}
       />
+
+      <Dialog open={!!docToDelete} onClose={() => setDocToDelete(null)}>
+        <DialogTitle>Delete Invoice</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Delete &quot;{docToDelete?.name || "this draft"}&quot;? This cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDocToDelete(null)} disabled={deleteDocumentMutation.isPending}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleDeleteConfirm}
+            color="error"
+            variant="contained"
+            disabled={deleteDocumentMutation.isPending}
+          >
+            {deleteDocumentMutation.isPending ? "Deleting..." : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </MainCard>
   );
 }

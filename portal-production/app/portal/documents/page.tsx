@@ -221,7 +221,8 @@ export default function DocumentsPage() {
       header: "Action",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => {
-        const { documentType, templateId, id } = row.original;
+        const { documentType, templateId, id, status } = row.original;
+        const isDraft = (status || "draft") === "draft";
 
         const handleDownload = () => {
           // Open document in view mode in a new tab and auto-trigger print
@@ -249,15 +250,17 @@ export default function DocumentsPage() {
             >
               <DownloadIcon />
             </IconButton>
-            <IconButton
-              onClick={() => handleDeleteClick(row.original)}
-              sx={{
-              color: "text.secondary",
-              "&:hover": { color: "error.main" },
-              }}
-            >
-              <DeleteIcon />
-            </IconButton>
+            {isDraft && (
+              <IconButton
+                onClick={() => handleDeleteClick(row.original)}
+                sx={{
+                color: "text.secondary",
+                "&:hover": { color: "error.main" },
+                }}
+              >
+                <DeleteIcon />
+              </IconButton>
+            )}
           </Box>
         );
       },
