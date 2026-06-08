@@ -71,6 +71,10 @@ export class CreateOrganizationDto {
   @IsOptional()
   absorbTax?: boolean;
 
+  @ApiProperty({ required: false, description: 'ISO currency code (SGD, USD, MYR, …) used as the default for new documents.' })
+  @IsOptional()
+  defaultCurrency?: string;
+
   @ApiProperty({
     required: false,
     description: 'Bank details for invoices (accountName, accountNumber, bankName, swiftCode, branchCode, bankCode, currencyCode)',

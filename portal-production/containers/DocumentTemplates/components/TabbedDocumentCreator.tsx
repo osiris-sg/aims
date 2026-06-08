@@ -469,7 +469,10 @@ export default function TabbedDocumentCreator({
       soNo: existingData?.documentInfo?.soNo || existingData?.soNo || "",
       page: existingData?.documentInfo?.page || existingData?.page || "1",
       paymentTerms: existingData?.documentInfo?.paymentTerms || existingData?.paymentTerms || "0 DAYS",
-      currency: existingData?.documentInfo?.currency || existingData?.currency || "SGD",
+      currency: existingData?.documentInfo?.currency
+        || existingData?.currency
+        || (organization as any)?.defaultCurrency
+        || "SGD",
       qinRef: existingData?.documentInfo?.qinRef || existingData?.qinRef || "",
       // Additional fields for quotation extraction
       contact: existingData?.documentInfo?.contact || existingData?.contact || "",
@@ -507,7 +510,7 @@ export default function TabbedDocumentCreator({
     // Quotation-specific fields
     quotationNo: existingData?.quotationNo || "",
     validityTerm: existingData?.validityTerm || "",
-    currency: existingData?.currency || "SGD",
+    currency: existingData?.currency || (organization as any)?.defaultCurrency || "SGD",
     // MSR-specific fields
     equipmentId: existingData?.equipmentId || "",
     location: existingData?.location || "",

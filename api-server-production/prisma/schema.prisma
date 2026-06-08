@@ -25,6 +25,9 @@ model Organization {
   // switch on every new draft. Per-doc overrides still win when set.
   taxApplicable         Boolean                    @default(true)
   absorbTax             Boolean                    @default(false)
+  // ISO currency code (e.g. SGD, USD, MYR) used as the default for new
+  // documents (documentInfo.currency). Per-doc overrides still win.
+  defaultCurrency       String                     @default("SGD")
   bankDetails           Json? // { accountName, accountNumber, bankName, swiftCode, branchCode, bankCode, currencyCode }
   stockDeductionTrigger String?                    @default("DO") // Legacy field - no longer used. Stock deduction logic: DO always deducts, Invoice deducts only if not extracted from DO
   // Org-wide reward Points ledger. Float so partial-point adjustments stay

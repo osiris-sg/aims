@@ -27,6 +27,7 @@ export default function OrganizationSettingsPage() {
       // seeds new docs from these (documentInfo.taxApplicable / .absorbTax).
       taxApplicable: (organization as any)?.taxApplicable ?? true,
       absorbTax: (organization as any)?.absorbTax ?? false,
+      defaultCurrency: (organization as any)?.defaultCurrency || "SGD",
       bankAccountName: organization?.bankDetails?.accountName || "",
       bankAccountNumber: organization?.bankDetails?.accountNumber || "",
       bankName: organization?.bankDetails?.bankName || "",
@@ -102,6 +103,7 @@ export default function OrganizationSettingsPage() {
       taxRate: parseFloat(data.taxRate) || 0,
       taxApplicable: !!data.taxApplicable,
       absorbTax: !!data.absorbTax,
+      defaultCurrency: (data.defaultCurrency || "SGD").toUpperCase(),
       customDocumentTypes: data.customDocumentTypes,
       bankDetails: {
         accountName: data.bankAccountName || "",
@@ -228,6 +230,12 @@ export default function OrganizationSettingsPage() {
             <FormInputBox control={control} name="address" label="Address" placeHolder="Enter address" />
             <FormInputBox control={control} name="phoneNumber" label="Phone Number" placeHolder="Enter phone" />
             <FormInputBox control={control} name="registrationNumber" label="Registration No" placeHolder="Enter registration number" />
+            <FormInputBox
+              control={control}
+              name="defaultCurrency"
+              label="Default Currency"
+              placeHolder="ISO code (e.g. SGD, USD, MYR)"
+            />
           </Box>
         )}
 

@@ -1042,10 +1042,11 @@ export class DocumentsService {
           customDocumentTypes: true,
           logo: true,
           defaultStamp: true,
-          // Org-wide tax defaults seeded onto documentInfo on new docs.
+          // Org-wide tax + currency defaults seeded onto documentInfo on new docs.
           taxRate: true,
           taxApplicable: true,
           absorbTax: true,
+          defaultCurrency: true,
         },
       });
 
@@ -1138,6 +1139,15 @@ export class DocumentsService {
       }
       if ((di.gstPercent === undefined || di.gstPercent === null || di.gstPercent === 0) && orgTaxRate != null) {
         di.gstPercent = Number(orgTaxRate);
+      }
+      const orgCurrency = (organization as any)?.defaultCurrency;
+      if (!di.currency && orgCurrency) {
+        di.currency = orgCurrency;
+      }
+      // Some templates read formData.currency at the top level too — seed it
+      // in case the form expects it there.
+      if (!initialConfig.currency && orgCurrency) {
+        initialConfig.currency = orgCurrency;
       }
       // Prefill customer info from the project when projectId is supplied and
       // the caller didn't already populate it. Generic across document types.
