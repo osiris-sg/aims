@@ -1504,6 +1504,24 @@ export default function TabbedDocumentCreator({
   // user to optionally convert the quotation into a PO / DO / Invoice via the
   // ConvertQuotation dialog. Does NOT reload — the dialog handles next steps.
   const handleConfirmQuotation = async () => {
+    // Type gate — every quotation that has a Type field configured (the QF
+    // template's Project / Route Order picker) must have one chosen before
+    // confirm. Without it the auto-created Order has orderType=null, and
+    // downstream gating (Route Order PO points, Project per-item discount
+    // cascade) silently breaks. Stop the user here instead.
+    const docInfo: any = formData?.documentInfo || {};
+    const typeFieldConfigured =
+      isFcuCuVariant ||
+      Object.prototype.hasOwnProperty.call(docInfo, "orderType") ||
+      Object.prototype.hasOwnProperty.call(formData || {}, "orderType");
+    if (typeFieldConfigured) {
+      const ot = String(docInfo.orderType ?? (formData as any)?.orderType ?? "").trim();
+      if (!ot) {
+        toast.error("Please select a Type (Project or Route Order) before confirming.");
+        return;
+      }
+    }
+
     setIsConfirming(true);
     try {
       const currentUserName = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || 'SYS';
