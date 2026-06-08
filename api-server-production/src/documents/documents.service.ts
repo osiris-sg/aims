@@ -1128,11 +1128,13 @@ export class DocumentsService {
         initialConfig.documentInfo = {};
       }
       const di = initialConfig.documentInfo;
+      // The Tax / Absorb Tax fields render as Y/N selects in the form so we
+      // store the string variant — booleans would render as empty.
       if (di.taxApplicable === undefined && orgTaxApplicable !== undefined && orgTaxApplicable !== null) {
-        di.taxApplicable = !!orgTaxApplicable;
+        di.taxApplicable = orgTaxApplicable ? 'Y' : 'N';
       }
       if (di.absorbTax === undefined && orgAbsorbTax !== undefined && orgAbsorbTax !== null) {
-        di.absorbTax = !!orgAbsorbTax;
+        di.absorbTax = orgAbsorbTax ? 'Y' : 'N';
       }
       if ((di.gstPercent === undefined || di.gstPercent === null || di.gstPercent === 0) && orgTaxRate != null) {
         di.gstPercent = Number(orgTaxRate);

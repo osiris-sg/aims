@@ -475,16 +475,19 @@ export default function TabbedDocumentCreator({
       contact: existingData?.documentInfo?.contact || existingData?.contact || "",
       rate: existingData?.documentInfo?.rate || existingData?.rate || "",
       // New docs fall back to the org's Tax Defaults (Company Profile page).
-      // Existing docs keep their stored values so a previously-saved off/on
-      // state isn't silently flipped when org defaults change later.
+      // The form Select uses "Y" / "N" string values, but the org stores
+      // booleans — coerce so the select renders the right option instead of
+      // sitting empty.
       taxApplicable: existingData?.documentInfo?.taxApplicable
         ?? existingData?.taxApplicable
-        ?? (organization as any)?.taxApplicable
-        ?? false,
+        ?? ((organization as any)?.taxApplicable != null
+          ? ((organization as any).taxApplicable ? "Y" : "N")
+          : "Y"),
       absorbTax: existingData?.documentInfo?.absorbTax
         ?? existingData?.absorbTax
-        ?? (organization as any)?.absorbTax
-        ?? false,
+        ?? ((organization as any)?.absorbTax != null
+          ? ((organization as any).absorbTax ? "Y" : "N")
+          : "N"),
       gstPercent: existingData?.documentInfo?.gstPercent
         ?? existingData?.gstPercent
         ?? organization?.taxRate
