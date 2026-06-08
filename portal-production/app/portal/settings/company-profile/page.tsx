@@ -6,7 +6,36 @@ import { Controller } from "react-hook-form";
 import { useAuth } from "@clerk/nextjs";
 import { useForm, useWatch } from "react-hook-form";
 import FormInputBox from "@/form-components/FormInputBox";
+import FormSelect from "@/form-components/FormSelect";
 import FormImage from "@/form-components/FormImage";
+
+/**
+ * Short list of common operating currencies for the Default Currency picker
+ * on Company Profile. Stored as the ISO code; the label shows the symbol +
+ * full name for clarity. Add more as your client base grows.
+ */
+const CURRENCY_OPTIONS = [
+  { value: "SGD", label: "SGD — Singapore Dollar" },
+  { value: "USD", label: "USD — US Dollar" },
+  { value: "MYR", label: "MYR — Malaysian Ringgit" },
+  { value: "IDR", label: "IDR — Indonesian Rupiah" },
+  { value: "THB", label: "THB — Thai Baht" },
+  { value: "PHP", label: "PHP — Philippine Peso" },
+  { value: "VND", label: "VND — Vietnamese Dong" },
+  { value: "HKD", label: "HKD — Hong Kong Dollar" },
+  { value: "CNY", label: "CNY — Chinese Yuan" },
+  { value: "JPY", label: "JPY — Japanese Yen" },
+  { value: "KRW", label: "KRW — Korean Won" },
+  { value: "TWD", label: "TWD — Taiwan Dollar" },
+  { value: "INR", label: "INR — Indian Rupee" },
+  { value: "AUD", label: "AUD — Australian Dollar" },
+  { value: "NZD", label: "NZD — New Zealand Dollar" },
+  { value: "EUR", label: "EUR — Euro" },
+  { value: "GBP", label: "GBP — British Pound" },
+  { value: "CHF", label: "CHF — Swiss Franc" },
+  { value: "CAD", label: "CAD — Canadian Dollar" },
+  { value: "AED", label: "AED — UAE Dirham" },
+];
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { uploadImage } from "@/helpers/imageUploader";
 import { toast } from "react-toastify";
@@ -230,11 +259,13 @@ export default function OrganizationSettingsPage() {
             <FormInputBox control={control} name="address" label="Address" placeHolder="Enter address" />
             <FormInputBox control={control} name="phoneNumber" label="Phone Number" placeHolder="Enter phone" />
             <FormInputBox control={control} name="registrationNumber" label="Registration No" placeHolder="Enter registration number" />
-            <FormInputBox
+            <FormSelect
               control={control}
               name="defaultCurrency"
               label="Default Currency"
-              placeHolder="ISO code (e.g. SGD, USD, MYR)"
+              menuTitle="Default Currency"
+              placeHolder="Select default currency"
+              menuItems={CURRENCY_OPTIONS}
             />
           </Box>
         )}
