@@ -11,12 +11,18 @@ import {
   Box,
   Card,
   CardContent,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   Grid,
   IconButton,
   Skeleton,
   Typography,
 } from "@mui/material";
 import VisibilityIcon from "@mui/icons-material/Visibility";
+import DeleteIcon from "@mui/icons-material/Delete";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
 import DraftsOutlinedIcon from "@mui/icons-material/DraftsOutlined";
@@ -25,6 +31,7 @@ import { Button } from "@mui/material";
 import moment from "moment";
 import { toast } from "react-toastify";
 import DocumentUploadDialog from "./DocumentUploadDialog";
+import { useDeleteDocument } from "@/app/portal/hooks/api";
 
 interface Props {
   documentTypes: string[];
@@ -152,6 +159,22 @@ export default function DocumentListView({
     createdOn: { startDate: null, endDate: null },
   });
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [docToDelete, setDocToDelete] = useState<DocumentRow | null>(null);
+
+  const deleteDocumentMutation = useDeleteDocument();
+
+  const handleDeleteConfirm = async () => {
+    if (!docToDelete) return;
+    try {
+      await deleteDocumentMutation.mutateAsync(docToDelete.id);
+      toast.success(`${documentLabel} deleted`);
+      setDocToDelete(null);
+      fetchDocs();
+    } catch (err: any) {
+      console.error("Delete document failed:", err);
+      toast.error(err?.message || `Failed to delete ${documentLabel}`);
+    }
+  };
 
   const fetchDocs = useCallback(async () => {
     if (!organization?.id) return;
@@ -303,14 +326,25 @@ export default function DocumentListView({
       accessorKey: "action",
       header: "Action",
       cell: ({ row }: any) => {
-        const { documentType, templateId, id } = row.original;
+        const { documentType, templateId, id, status } = row.original;
+        const isDraft = (status || "draft") === "draft";
         return (
-          <IconButton
-            onClick={() => router.push(`/portal/documents/${documentType}/${templateId}/${id}`)}
-            sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}
-          >
-            <VisibilityIcon />
-          </IconButton>
+          <Box sx={{ display: "flex", gap: 0.5 }}>
+            <IconButton
+              onClick={() => router.push(`/portal/documents/${documentType}/${templateId}/${id}`)}
+              sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}
+            >
+              <VisibilityIcon />
+            </IconButton>
+            {isDraft && (
+              <IconButton
+                onClick={() => setDocToDelete(row.original)}
+                sx={{ color: "text.secondary", "&:hover": { color: "error.main" } }}
+              >
+                <DeleteIcon />
+              </IconButton>
+            )}
+          </Box>
         );
       },
     },
@@ -411,6 +445,28 @@ export default function DocumentListView({
           documentLabel={documentLabel}
         />
       )}
+
+      <Dialog open={!!docToDelete} onClose={() => setDocToDelete(null)}>
+        <DialogTitle>Delete {documentLabel}</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Delete &quot;{docToDelete?.name || "this draft"}&quot;? This cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDocToDelete(null)} disabled={deleteDocumentMutation.isPending}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleDeleteConfirm}
+            color="error"
+            variant="contained"
+            disabled={deleteDocumentMutation.isPending}
+          >
+            {deleteDocumentMutation.isPending ? "Deleting..." : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </MainCard>
   );
 }

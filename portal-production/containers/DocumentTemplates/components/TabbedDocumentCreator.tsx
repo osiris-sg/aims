@@ -229,9 +229,10 @@ export default function TabbedDocumentCreator({
   const [confirmPRDialogOpen, setConfirmPRDialogOpen] = useState(false);
   const [confirmInvoiceDialogOpen, setConfirmInvoiceDialogOpen] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
-  // Convert-after-confirm dialog state for quotations (gated by enableConfirmQuotation).
+  // Confirm-quotation dialog state. On confirm we resolve the auto-created
+  // Order (matched by sourceQuotationId) and offer a one-click jump to it.
   const [convertQuotationDialogOpen, setConvertQuotationDialogOpen] = useState(false);
-  const [isConverting, setIsConverting] = useState(false);
+  const [linkedOrderId, setLinkedOrderId] = useState<string | null>(null);
   const [isToolBarOpen, setToolBarOpen] = useState(false);
 
   // PDF generation states
@@ -1521,6 +1522,26 @@ export default function TabbedDocumentCreator({
       // Persist any pending quotation→project link.
       await persistProjectLinkIfChanged();
       toast.success("Quotation confirmed");
+
+      // The backend auto-creates an Order with sourceQuotationId = this doc's
+      // id (gated by enableConfirmQuotation). Look it up so the dialog can
+      // offer a direct jump. Best-effort — if the order isn't there yet
+      // (very fast confirm + slower auto-create), the dialog still opens
+      // and the "Go to Order" button will be disabled.
+      try {
+        const quotationId = documentId || (existingData as any)?.id;
+        if (quotationId) {
+          const token = await getToken();
+          const res = await request({ path: "/orders", method: "GET" }, {}, token ?? undefined);
+          const list: any[] = res?.data ?? [];
+          const found = list.find((o) => o?.sourceQuotationId === quotationId);
+          setLinkedOrderId(found?.id ?? null);
+        }
+      } catch (err) {
+        console.warn("Failed to resolve linked order after confirm:", err);
+        setLinkedOrderId(null);
+      }
+
       setConvertQuotationDialogOpen(true);
     } catch (error) {
       console.error("Error confirming quotation:", error);
@@ -1530,122 +1551,9 @@ export default function TabbedDocumentCreator({
     }
   };
 
-  // Convert the just-confirmed quotation into a new draft of the chosen type.
-  // Looks up the active template for that type, pre-fills customer + items,
-  // creates the new draft, and navigates to it.
-  const handleConvertQuotation = async (targetType: "PO" | "DO" | "INVOICE") => {
-    setIsConverting(true);
-    try {
-      const token = await getToken();
-      if (!token) {
-        toast.error("Not authenticated");
-        return;
-      }
-      // DocumentTemplate.type stores canonical long names: DELIVERY_ORDER (not
-      // DO), INVOICE, PO (sometimes PURCHASE_ORDER). Try the long form first,
-      // then fall back so we don't 404 in orgs that still have legacy rows.
-      const candidateTypes =
-        targetType === "DO"
-          ? ["DELIVERY_ORDER", "DO"]
-          : targetType === "PO"
-          ? ["PO", "PURCHASE_ORDER"]
-          : ["INVOICE"];
-      let newTemplateId: string | undefined;
-      let resolvedType: string | undefined;
-      for (const t of candidateTypes) {
-        try {
-          const r = await request(
-            { path: `/documentTemplates/type/${t}`, method: "GET" },
-            {},
-            token,
-          );
-          if (r?.success && r?.data?.id) {
-            newTemplateId = r.data.id;
-            resolvedType = t;
-            break;
-          }
-        } catch {
-          // 404 → next candidate.
-        }
-      }
-      if (!newTemplateId || !resolvedType) {
-        toast.error(`No ${targetType} template found for this organization`);
-        return;
-      }
-
-      // PO conversion: flatten any tag groups into independent line items and
-      // swap each unit price for the asset's costPrice (since a PO is what we
-      // pay the supplier, not what we quote the customer). The FCU/CU grouping
-      // is intentionally dropped — every item gets its own row.
-      // DO / Invoice: keep items as-is (customer-facing pricing stays).
-      const lookupCost = (it: any): number => {
-        const inv = inventoriesForDocument.find((i: any) =>
-          i.id === it.inventoryItemId ||
-          i.assetId === it.inventoryItemId ||
-          i.asset?.id === it.inventoryItemId ||
-          i.assetId === it.taggedAssetId ||
-          i.asset?.id === it.taggedAssetId,
-        );
-        const cost = inv?.asset?.costPrice;
-        if (cost != null) return Number(cost);
-        return Number(inv?.asset?.price ?? it.unitPrice ?? 0);
-      };
-      const buildPOItems = () =>
-        items.map((it: any, idx: number) => {
-          const qty = Number(it.quantity || 1);
-          const cost = lookupCost(it);
-          // For tag-group items the FCU/CU asset info already lives on the row;
-          // for FCU rows we use their own itemCode/description.
-          return {
-            id: Date.now() + idx,
-            itemCode: it.itemCode || it.taggedAssetCode || "",
-            inventoryItemId: it.inventoryItemId || it.taggedAssetId || "",
-            description: it.description || it.taggedAssetName || "",
-            uom: it.uom || "PCS",
-            quantity: qty,
-            unitPrice: cost,
-            discount: 0,
-            amount: qty * cost,
-          };
-        });
-
-      const isPoTarget = targetType === "PO";
-      const sourceConfig = {
-        customer: formData.customer,
-        customerId: formData.customer?.id,
-        customerName: formData.customer?.name,
-        items: isPoTarget ? buildPOItems() : items.map((it: any) => ({ ...it })),
-        documentInfo: {
-          ...formData.documentInfo,
-        },
-        sourceDocumentId: existingData?.id || documentId,
-        sourceDocumentType: "QUOTATION",
-        sourceDocumentNumber: formData.name || formData.documentInfo?.documentNumber,
-      };
-
-      const created = await request(
-        { path: "/documents/basic", method: "POST" },
-        {
-          type: resolvedType,
-          documentTemplateId: newTemplateId,
-          config: sourceConfig,
-        },
-        token,
-      );
-      if (!created?.success || !created?.data?.id) {
-        toast.error(`Failed to create ${targetType}`);
-        return;
-      }
-      toast.success(`Created ${targetType} from quotation`);
-      setConvertQuotationDialogOpen(false);
-      router.push(`/portal/documents/${resolvedType}/${newTemplateId}/${created.data.id}`);
-    } catch (err: any) {
-      console.error("Convert quotation failed:", err);
-      toast.error(err?.message || "Conversion failed");
-    } finally {
-      setIsConverting(false);
-    }
-  };
+  // (handleConvertQuotation was removed — the post-confirm dialog now offers
+  // only "Go to Order" and "Leave it"; PO/DO/Invoice spin-offs happen from
+  // the order page where the items are already in hand.)
 
   // Handle PO confirmation with supplier D/O info
   const handleConfirmPO = async (poData: ConfirmPOData) => {
@@ -4912,25 +4820,27 @@ export default function TabbedDocumentCreator({
         </DialogActions>
       </Dialog>
 
-      {/* Convert Quotation Dialog — opens after a quotation is confirmed.
-          Lets the user spin off a PO / DO / Invoice with the quotation's items
-          pre-filled, or close the dialog and extract later via the existing
-          extract flows on the target doc. */}
+      {/* Post-confirm dialog: two options only — jump straight to the auto-
+          created Order, or leave it (close + reload to show confirmed state).
+          The PO/DO/Invoice spin-offs that used to live here have moved to the
+          order page itself, where the items are already on hand. */}
       <Dialog
         open={convertQuotationDialogOpen}
-        onClose={() => !isConverting && setConvertQuotationDialogOpen(false)}
+        onClose={() => setConvertQuotationDialogOpen(false)}
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Quotation Confirmed — Convert?</DialogTitle>
+        <DialogTitle>Quotation Confirmed</DialogTitle>
         <DialogContent dividers>
-          <Typography variant="body2" sx={{ mb: 2 }}>
-            The quotation has been confirmed. Would you like to convert it into another document now?
-            The customer and line items will be copied into the new draft.
+          <Typography variant="body2">
+            The quotation has been confirmed and a new Order has been created from it.
+            You can jump to the order now or come back later from the Orders list.
           </Typography>
-          <Typography variant="caption" color="text.secondary">
-            You can also do this later via the Extract button on a new PO / DO / Invoice.
-          </Typography>
+          {convertQuotationDialogOpen && !linkedOrderId && (
+            <Typography variant="caption" color="warning.main" sx={{ display: "block", mt: 1 }}>
+              Couldn&apos;t locate the linked order automatically — open the Orders list to find it.
+            </Typography>
+          )}
         </DialogContent>
         <DialogActions sx={{ p: 2, gap: 1 }}>
           <Button
@@ -4938,30 +4848,17 @@ export default function TabbedDocumentCreator({
               setConvertQuotationDialogOpen(false);
               window.location.reload();
             }}
-            disabled={isConverting}
           >
-            Leave for now
-          </Button>
-          <Button
-            variant="outlined"
-            onClick={() => handleConvertQuotation("PO")}
-            disabled={isConverting}
-          >
-            Convert to PO
-          </Button>
-          <Button
-            variant="outlined"
-            onClick={() => handleConvertQuotation("DO")}
-            disabled={isConverting}
-          >
-            Convert to DO
+            Leave it
           </Button>
           <Button
             variant="contained"
-            onClick={() => handleConvertQuotation("INVOICE")}
-            disabled={isConverting}
+            disabled={!linkedOrderId}
+            onClick={() => {
+              if (linkedOrderId) router.push(`/portal/orders/${linkedOrderId}`);
+            }}
           >
-            Convert to Invoice
+            Go to Order
           </Button>
         </DialogActions>
       </Dialog>
