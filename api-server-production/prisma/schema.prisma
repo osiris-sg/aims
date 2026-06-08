@@ -28,6 +28,12 @@ model Organization {
   // ISO currency code (e.g. SGD, USD, MYR) used as the default for new
   // documents (documentInfo.currency). Per-doc overrides still win.
   defaultCurrency       String                     @default("SGD")
+  // Round-down step for QF quote totals. Project quotes round the
+  // Discounted Price (pre-GST) down to this step and roll the absorbed
+  // amount into the Discount line. Route Order quotes round the Nett
+  // Total (post-GST) down to this step and surface the crumb as a final
+  // "Round-down" line. 0 = no rounding.
+  quoteRoundingStep     Int                        @default(10)
   bankDetails           Json? // { accountName, accountNumber, bankName, swiftCode, branchCode, bankCode, currencyCode }
   stockDeductionTrigger String?                    @default("DO") // Legacy field - no longer used. Stock deduction logic: DO always deducts, Invoice deducts only if not extracted from DO
   // Org-wide reward Points ledger. Float so partial-point adjustments stay

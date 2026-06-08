@@ -2849,7 +2849,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             <Box sx={{ minWidth: 200 }}>
               {isQfQuote ? (
                 <>
-                  {/* Gross Total (list) → Discounted Price (dealer − points − disc) → Nett Total (+GST) */}
+                  {/* Gross Total (list) → Discounted Price → GST → optional
+                      Round-down (Route Order absorbs crumb here) → Nett Total. */}
                   <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                     <Typography sx={{ fontSize: "0.8125rem" }}>Gross Total</Typography>
                     <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
@@ -2862,6 +2863,12 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                       <Typography sx={{ fontSize: "0.8125rem" }}>GST ({qfGstPct}%)</Typography>
                       <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{qfGst.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
+                    </Box>
+                  )}
+                  {Number(data.documentInfo?.quoteRoundDown) > 0 && (
+                    <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
+                      <Typography sx={{ fontSize: "0.8125rem" }}>Round-down</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>-{Number(data.documentInfo.quoteRoundDown).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
                     </Box>
                   )}
                   <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3, borderTop: "1px solid #000", mt: 0.5, pt: 0.5 }}>

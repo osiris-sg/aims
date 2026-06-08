@@ -1226,8 +1226,27 @@ export default function TabbedDocumentCreator({
       const dealerTotal = isProjectQuote ? 0 : items.reduce((a: number, it: any) => a + (Number(it.discountPrice) || 0), 0);
       const pointsTotal = isProjectQuote ? 0 : items.reduce((a: number, it: any) => a + (Number(it.pointsTotal) || 0), 0);
       const afterPoints = isProjectQuote ? grossTotal : Math.max(0, dealerTotal - pointsTotal);
-      const discountAmount = discountType === "amount" ? Math.min(discountValue, afterPoints) : afterPoints * (discountValue / 100);
-      const discountedPrice = Math.max(0, afterPoints - discountAmount);
+      const userDiscount = discountType === "amount" ? Math.min(discountValue, afterPoints) : afterPoints * (discountValue / 100);
+
+      // Org-wide round-down step (Company Profile → Quote Round-down Step).
+      // Project: round the Discounted Price (pre-GST) down to the step; the
+      // absorbed crumb is rolled into the Discount line (so the displayed
+      // Discount > the user's typed %, and Sub-total lands clean).
+      // Route Order: round the Nett Total (post-GST) down to the step; the
+      // crumb shows as a separate 'Round-down' line below GST.
+      const step = Math.max(0, Number((organization as any)?.quoteRoundingStep) || 0);
+      const roundDown = (n: number) => (step > 0 ? Math.floor(n / step) * step : n);
+
+      let discountAmount = userDiscount;
+      let discountedPrice = Math.max(0, afterPoints - userDiscount);
+      let projectRoundAbsorbed = 0;
+      if (isProjectQuote && step > 0) {
+        const target = roundDown(discountedPrice);
+        projectRoundAbsorbed = discountedPrice - target;
+        discountedPrice = target;
+        discountAmount = userDiscount + projectRoundAbsorbed;
+      }
+
       let gstAmount: number, nettTotal: number;
       if (isAbsorbTax && gstPercent > 0) {
         nettTotal = discountedPrice;
@@ -1236,6 +1255,14 @@ export default function TabbedDocumentCreator({
         gstAmount = discountedPrice * (gstPercent / 100);
         nettTotal = discountedPrice + gstAmount;
       }
+
+      let routeRoundAbsorbed = 0;
+      if (!isProjectQuote && step > 0) {
+        const target = roundDown(nettTotal);
+        routeRoundAbsorbed = nettTotal - target;
+        nettTotal = target;
+      }
+
       setFormDataState((prev: any) => ({
         ...prev,
         documentInfo: {
@@ -1247,7 +1274,12 @@ export default function TabbedDocumentCreator({
           discountedPrice: r2(discountedPrice),
           subTotal: r2(discountedPrice),
           gstAmount: r2(gstAmount),
-          nettTotal: r2(roundNettDown(nettTotal)),
+          // Per-quote round-down absorbed amount; surfaced as a line on the
+          // editor footer + clean preview when > 0 (Route Order only — the
+          // Project version is already baked into discountAmount above).
+          quoteRoundDown: r2(routeRoundAbsorbed),
+          quoteRoundStep: step,
+          nettTotal: r2(nettTotal),
         },
       }));
       return;
@@ -4227,21 +4259,42 @@ export default function TabbedDocumentCreator({
                                 // FCU-CU (QF): Route Order base = Σ Dealer − Σ Points;
                                 // Project base = Σ list (unit price). Discounted Price =
                                 // base − doc discount; Nett = Discounted + GST.
+                                // Org-wide round-down step applied at different
+                                // stages per type: Project absorbs into Discount,
+                                // Route Order absorbs from Nett (shown as
+                                // 'Round-down' line below GST).
                                 if (isFcuCuVariant) {
                                   const gross = items.reduce((a: number, it: any) => a + (Number(it.listPrice) || 0), 0);
                                   const dealerTotal = isProjectQuote ? 0 : items.reduce((a: number, it: any) => a + (Number(it.discountPrice) || 0), 0);
                                   const pointsTotal = isProjectQuote ? 0 : items.reduce((a: number, it: any) => a + (Number(it.pointsTotal) || 0), 0);
                                   const afterPoints = isProjectQuote ? gross : Math.max(0, dealerTotal - pointsTotal);
-                                  const discAmt = discType === "amount" ? Math.min(discPct, afterPoints) : afterPoints * (discPct / 100);
-                                  const discountedPrice = Math.max(0, afterPoints - discAmt);
+                                  const userDiscAmt = discType === "amount" ? Math.min(discPct, afterPoints) : afterPoints * (discPct / 100);
+                                  const step = Math.max(0, Number((organization as any)?.quoteRoundingStep) || 0);
+                                  const rd = (n: number) => (step > 0 ? Math.floor(n / step) * step : n);
+
+                                  let displayDiscAmt = userDiscAmt;
+                                  let discountedPrice = Math.max(0, afterPoints - userDiscAmt);
+                                  if (isProjectQuote && step > 0) {
+                                    const target = rd(discountedPrice);
+                                    displayDiscAmt = userDiscAmt + (discountedPrice - target);
+                                    discountedPrice = target;
+                                  }
                                   const gst = isAbsorbTax && gstPct > 0 ? discountedPrice * gstPct / (100 + gstPct) : discountedPrice * (gstPct / 100);
-                                  const nett = roundNettDown(isAbsorbTax ? discountedPrice : discountedPrice + gst);
+                                  const nettRaw = isAbsorbTax ? discountedPrice : discountedPrice + gst;
+                                  const nett = !isProjectQuote && step > 0 ? rd(nettRaw) : nettRaw;
+                                  const roundCrumb = !isProjectQuote ? nettRaw - nett : 0;
                                   return (
                                     <>
                                       <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
                                         <Typography variant="body2">Gross Total:</Typography>
                                         <Typography variant="body2">{currency} {gross.toFixed(2)}</Typography>
                                       </Box>
+                                      {isProjectQuote && displayDiscAmt > 0 && (
+                                        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                                          <Typography variant="body2">Discount:</Typography>
+                                          <Typography variant="body2" color="error.main">-{currency} {displayDiscAmt.toFixed(2)}</Typography>
+                                        </Box>
+                                      )}
                                       <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
                                         <Typography variant="body2" fontWeight="bold">Discounted Price:</Typography>
                                         <Typography variant="body2" fontWeight="bold">{currency} {discountedPrice.toFixed(2)}</Typography>
@@ -4250,6 +4303,12 @@ export default function TabbedDocumentCreator({
                                         <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
                                           <Typography variant="body2">GST ({gstPct}%){isAbsorbTax ? " (absorbed)" : ""}:</Typography>
                                           <Typography variant="body2">{currency} {gst.toFixed(2)}</Typography>
+                                        </Box>
+                                      )}
+                                      {roundCrumb > 0 && (
+                                        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                                          <Typography variant="body2">Round-down:</Typography>
+                                          <Typography variant="body2" color="error.main">-{currency} {roundCrumb.toFixed(2)}</Typography>
                                         </Box>
                                       )}
                                       <Divider sx={{ my: 0.5 }} />

@@ -75,6 +75,12 @@ export class CreateOrganizationDto {
   @IsOptional()
   defaultCurrency?: string;
 
+  @ApiProperty({ required: false, description: 'Round-down step for QF quote totals (Project rounds Discounted Price, Route rounds Nett). 0 = off.' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  quoteRoundingStep?: number;
+
   @ApiProperty({
     required: false,
     description: 'Bank details for invoices (accountName, accountNumber, bankName, swiftCode, branchCode, bankCode, currencyCode)',
