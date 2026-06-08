@@ -391,10 +391,19 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
       const pickedItems = visibleItems.filter((it) => selected.includes(it._index));
       const flat = pickedItems.map((it, idx) => {
         const qty = Number(it.quantity || 1);
-        // Route Order PO prices items at the dealer price; other POs use cost.
+        // Pricing rules per outbound doc:
+        //  - PO     : Route Order = dealer (what we pay supplier); else = cost.
+        //  - DO/INV : Route Order = dealer (matches what the QF Route Order
+        //             quotation actually charged — list - points effectively
+        //             collapses to the dealer line on the quote, so invoicing
+        //             the customer at list would over-bill them); else =
+        //             list / unitPrice as quoted.
+        const dealer = Number((it as any).dealerPrice);
         const price = targetType === "PO"
-          ? (isRouteOrder ? (Number((it as any).dealerPrice) || lookupCost(it)) : lookupCost(it))
-          : Number(it.unitPrice || 0);
+          ? (isRouteOrder ? (dealer || lookupCost(it)) : lookupCost(it))
+          : isRouteOrder && dealer > 0
+            ? dealer
+            : Number(it.unitPrice || 0);
         return {
           id: Date.now() + idx,
           itemCode: it.itemCode || "",
