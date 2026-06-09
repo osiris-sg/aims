@@ -116,6 +116,9 @@ export default function BindTagPage() {
   const [projectOptions, setProjectOptions] = useState<ProjectOption[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(false);
+  // Tracks the last customer the project list was reset for, so a re-render that
+  // only changes getToken's identity doesn't clear the tech's project pick.
+  const prevCustomerRef = useRef<string | null>(null);
 
   // Inline "+ Create Project" dialog — same minimal flow as the quotation
   // editor's picker: name only, linked to the selected customer.
@@ -207,8 +210,15 @@ export default function BindTagPage() {
   // client-side filtering is needed; the Autocomplete narrows as the tech
   // types. Clearing/changing the customer resets the project pick.
   useEffect(() => {
-    setSelectedProject(null);
-    setProjectOptions([]);
+    // Only reset the project pick when the customer genuinely changes — not on
+    // every effect run. getToken stays in deps so the fetch uses a fresh token,
+    // but an unstable getToken identity must not wipe the tech's selection.
+    const currentCustomerId = selectedCustomer?.id ?? null;
+    if (currentCustomerId !== prevCustomerRef.current) {
+      setSelectedProject(null);
+      setProjectOptions([]);
+      prevCustomerRef.current = currentCustomerId;
+    }
     if (!selectedCustomer) return;
     let cancelled = false;
     (async () => {
