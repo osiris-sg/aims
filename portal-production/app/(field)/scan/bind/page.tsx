@@ -16,6 +16,8 @@ import {
   Divider,
   Stack,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
 import CameraAltIcon from "@mui/icons-material/CameraAlt";
@@ -116,6 +118,9 @@ export default function BindTagPage() {
   const [projectOptions, setProjectOptions] = useState<ProjectOption[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(false);
+  // Rental vs sale for the deployment created on bind. Only shown once a project
+  // is picked; defaults to RENTAL.
+  const [deploymentType, setDeploymentType] = useState<"RENTAL" | "SALE">("RENTAL");
   // Tracks the last customer the project list was reset for, so a re-render that
   // only changes getToken's identity doesn't clear the tech's project pick.
   const prevCustomerRef = useRef<string | null>(null);
@@ -375,7 +380,7 @@ export default function BindTagPage() {
         try {
           const deployRes = await request(
             { path: `/projects/${selectedProject.id}/field-deploy`, method: "POST" },
-            { inventoryId, assetId },
+            { inventoryId, assetId, type: deploymentType },
             token,
           );
           if (deployRes?.success === false) {
@@ -639,6 +644,24 @@ export default function BindTagPage() {
                 Create
               </Button>
             </Stack>
+          )}
+
+          {selectedProject && (
+            <ToggleButtonGroup
+              value={deploymentType}
+              exclusive
+              fullWidth
+              size="small"
+              color="primary"
+              onChange={(_, next) => {
+                // exclusive group returns null when re-clicking the active button;
+                // keep the current value so one option is always selected.
+                if (next) setDeploymentType(next);
+              }}
+            >
+              <ToggleButton value="RENTAL">Rental</ToggleButton>
+              <ToggleButton value="SALE">Sale</ToggleButton>
+            </ToggleButtonGroup>
           )}
 
           <Divider sx={{ my: 1 }} />

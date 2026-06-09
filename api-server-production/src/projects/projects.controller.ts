@@ -97,7 +97,7 @@ export class ProjectsController {
   @Permissions('projects:add-assignments')
   async fieldDeploy(
     @Param('id') projectId: string,
-    @Body() body: { inventoryId: string; assetId: string },
+    @Body() body: { inventoryId: string; assetId: string; type?: 'RENTAL' | 'SALE' },
     @Req() req: RequestWithOrganization,
   ) {
     const organizationId = req.userOrganization?.id;

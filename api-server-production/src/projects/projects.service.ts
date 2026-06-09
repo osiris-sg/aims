@@ -537,12 +537,15 @@ export class ProjectsService {
   async fieldDeploy(
     projectId: string,
     organizationId: string,
-    body: { inventoryId: string; assetId: string },
+    body: { inventoryId: string; assetId: string; type?: 'RENTAL' | 'SALE' },
   ) {
-    const { inventoryId, assetId } = body ?? ({} as any);
+    const { inventoryId, assetId, type } = body ?? ({} as any);
     if (!inventoryId || !assetId) {
       throw new HttpException('inventoryId and assetId are required', HttpStatus.BAD_REQUEST);
     }
+    // Default to RENTAL for backward compatibility with callers that omit type.
+    const deploymentType = type === 'SALE' ? DeploymentType.SALE : DeploymentType.RENTAL;
+    const inventoryStatus = type === 'SALE' ? InventoryStatus.sold : InventoryStatus.rental;
 
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, organizationId },
@@ -618,7 +621,7 @@ export class ProjectsService {
               projectId,
               organizationId,
               deploymentNumber: taken + 1,
-              type: DeploymentType.RENTAL,
+              type: deploymentType,
               status: DeploymentStatus.ACTIVE,
               deployedDate: now,
               description,
@@ -674,7 +677,7 @@ export class ProjectsService {
 
           await tx.inventory.update({
             where: { id: inventoryId },
-            data: { status: InventoryStatus.rental },
+            data: { status: inventoryStatus },
           });
 
           return {
