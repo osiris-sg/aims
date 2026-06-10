@@ -1178,6 +1178,18 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             )}
           </Box>
         )}
+
+        {/* Closing footer message — pulled from per-doc-type defaults
+            (Company Profile → Doc Defaults) or per-doc override. Sits below
+            Notes / T&Cs, above the signature block. */}
+        {(data.footerMessage || data.documentInfo?.footerMessage) && (
+          <Box sx={{ mt: 2, pt: 1, borderTop: "1px dashed", borderColor: "rgba(0,0,0,0.15)", pageBreakInside: "avoid", breakInside: "avoid" }}>
+            <RichContent
+              text={data.footerMessage || data.documentInfo?.footerMessage}
+              sx={{ fontSize: "0.8125rem", lineHeight: 1.6, textAlign: "center", fontStyle: "italic" }}
+            />
+          </Box>
+        )}
         </Box>
         </Box>
 

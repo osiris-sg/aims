@@ -534,9 +534,22 @@ export default function TabbedDocumentCreator({
     sourceDocumentId: existingData?.sourceDocumentId || "",
     sourceDocumentType: existingData?.sourceDocumentType || "",
     sourceDocumentNumber: existingData?.sourceDocumentNumber || "",
-    // Footer data
-    note: existingData?.note || "",
-    termsAndConditions: existingData?.termsAndConditions || "",
+    // Footer data — fall back to org per-doc-type defaults (Company Profile
+    // → Doc Defaults) when the doc itself doesn't carry a value. Per-doc
+    // edits still win. Looks up by doc type, and tolerates either the
+    // canonical type or a templateVariant alias.
+    note: existingData?.documentInfo?.note
+      || existingData?.note
+      || ((organization as any)?.docTypeDefaults?.[documentType]?.notes)
+      || "",
+    termsAndConditions: existingData?.documentInfo?.termsAndConditions
+      || existingData?.termsAndConditions
+      || ((organization as any)?.docTypeDefaults?.[documentType]?.tnc)
+      || "",
+    footerMessage: existingData?.documentInfo?.footerMessage
+      || existingData?.footerMessage
+      || ((organization as any)?.docTypeDefaults?.[documentType]?.footerMessage)
+      || "",
     bankDetails: existingData?.bankDetails || "",
     remarks: existingData?.remarks || "",
     agreementText: existingData?.agreementText || "",

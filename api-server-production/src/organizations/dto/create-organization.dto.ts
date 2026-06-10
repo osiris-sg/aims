@@ -83,6 +83,14 @@ export class CreateOrganizationDto {
 
   @ApiProperty({
     required: false,
+    description: 'Per-doc-type defaults for T&Cs / Notes / Footer. Keyed by doc type (e.g. PO, QO1, INVOICE) → { tnc, notes, footerMessage }.',
+    example: { PO: { tnc: '60-day payment terms', notes: '', footerMessage: 'Thank you.' } },
+  })
+  @IsOptional()
+  docTypeDefaults?: Record<string, { tnc?: string; notes?: string; footerMessage?: string }>;
+
+  @ApiProperty({
+    required: false,
     description: 'Bank details for invoices (accountName, accountNumber, bankName, swiftCode, branchCode, bankCode, currencyCode)',
   })
   @IsOptional()

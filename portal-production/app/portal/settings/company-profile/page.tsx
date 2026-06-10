@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Box, Button, Divider, FormControlLabel, Switch, Typography, Grid2, IconButton, Chip, Tabs, Tab } from "@mui/material";
+import { Box, Button, Divider, FormControlLabel, MenuItem, Select, Switch, TextField, Typography, Grid2, IconButton, Chip, Tabs, Tab } from "@mui/material";
 import { Controller } from "react-hook-form";
 import { useAuth } from "@clerk/nextjs";
 import { useForm, useWatch } from "react-hook-form";
@@ -38,6 +38,7 @@ const CURRENCY_OPTIONS = [
 ];
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { uploadImage } from "@/helpers/imageUploader";
+import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
 import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
 
@@ -60,6 +61,9 @@ export default function OrganizationSettingsPage() {
       // QF quote rounding step — Project rounds Discounted Price down,
       // Route Order rounds Nett down. 0 = off.
       quoteRoundingStep: (organization as any)?.quoteRoundingStep ?? 10,
+      // Per-doc-type defaults (keyed by canonical doc type code).
+      // { [code]: { tnc, notes, footerMessage } }
+      docTypeDefaults: (organization as any)?.docTypeDefaults || {},
       bankAccountName: organization?.bankDetails?.accountName || "",
       bankAccountNumber: organization?.bankDetails?.accountNumber || "",
       bankName: organization?.bankDetails?.bankName || "",
@@ -77,7 +81,7 @@ export default function OrganizationSettingsPage() {
   const { control, handleSubmit, reset, setValue } = useForm<any>({ defaultValues });
   const customDocumentTypes = useWatch({ control, name: "customDocumentTypes" }) || {};
 
-  const [activeTab, setActiveTab] = useState<"general" | "tax" | "bank" | "branding" | "documents">("general");
+  const [activeTab, setActiveTab] = useState<"general" | "tax" | "bank" | "branding" | "documents" | "docDefaults">("general");
 
   // When organization data becomes available, re-populate the form
   useEffect(() => {
@@ -137,6 +141,7 @@ export default function OrganizationSettingsPage() {
       absorbTax: !!data.absorbTax,
       defaultCurrency: (data.defaultCurrency || "SGD").toUpperCase(),
       quoteRoundingStep: Math.max(0, parseInt(String(data.quoteRoundingStep ?? 10), 10) || 0),
+      docTypeDefaults: data.docTypeDefaults || {},
       customDocumentTypes: data.customDocumentTypes,
       bankDetails: {
         accountName: data.bankAccountName || "",
@@ -225,6 +230,7 @@ export default function OrganizationSettingsPage() {
     { value: "bank", label: "Bank Details" },
     { value: "branding", label: "Branding" },
     { value: "documents", label: "Document Names" },
+    { value: "docDefaults", label: "Doc Defaults" },
   ];
 
   return (
@@ -407,11 +413,207 @@ export default function OrganizationSettingsPage() {
           </Box>
         )}
 
+        {activeTab === "docDefaults" && <DocDefaultsTab control={control} setValue={setValue} />}
+
         <Divider sx={{ mt: 1 }} />
         <Button type="submit" variant="contained" color="primary" sx={{ alignSelf: "flex-start" }}>
           Save
         </Button>
       </Box>
+    </Box>
+  );
+}
+
+/**
+ * Per-doc-type default editor. User picks a doc type from the dropdown,
+ * fills T&Cs / Notes / Footer for THAT type, and moves on; saving on the
+ * outer form persists the whole `docTypeDefaults` map onto the org.
+ *
+ * Local state holds the in-progress map; `setValue("docTypeDefaults", …)`
+ * keeps the form payload synced so the outer "Save" button picks it up.
+ */
+function DocDefaultsTab({ control, setValue }: { control: any; setValue: (n: string, v: any) => void }) {
+  const { getToken } = useAuth();
+  // Watch the current docTypeDefaults so we hydrate the visible fields when
+  // the user switches type. Direct subscription via useWatch from react-hook-form.
+  const all = useWatch({ control, name: "docTypeDefaults" }) || {};
+  const [selectedType, setSelectedType] = useState<string>("");
+  const [docTypes, setDocTypes] = useState<{ code: string; label: string }[]>([]);
+  const [loadingTypes, setLoadingTypes] = useState(true);
+
+  // Friendly labels for the well-known codes. Anything not in this map gets
+  // the template's actual `name` field as a fallback, with the raw code in
+  // parens so the user can still tell what it is.
+  const KNOWN_LABELS: Record<string, string> = {
+    QUOTATION: "Quotation",
+    QO1: "Quotation — Style 1",
+    QO2: "Quotation — Style 2",
+    QT: "Quotation",
+    QF: "FCU-CU Quotation",
+    SO: "Sales Order",
+    PO: "Purchase Order",
+    PURCHASE_ORDER: "Purchase Order",
+    PR: "Purchase Return",
+    DO: "Delivery Order",
+    DELIVERY_ORDER: "Delivery Order",
+    RDO: "Return Delivery Order",
+    INVOICE: "Invoice",
+    TI: "Tax Invoice — Style 1",
+    TI2: "Tax Invoice — Style 2",
+    DN: "Debit Note",
+    CN: "Credit Note",
+    MSR: "Maintenance Service Report",
+    SAI: "Stock Adjustment In",
+    SAO: "Stock Adjustment Out",
+  };
+
+  // Fetch the activated DocumentTemplates for this org (the list endpoint
+  // accepts a paged search; bump the limit high so we get them all in one
+  // round-trip — orgs rarely have more than ~30 templates). Dedupe by type
+  // so a multi-style invoice template (TI + TI2) shows as both entries.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        const res = await request(
+          { path: "/documentTemplates", method: "POST" },
+          { limit: 200, page: 1 },
+          token ?? undefined,
+        );
+        const docs: any[] = res?.data?.docs || [];
+        const seen = new Set<string>();
+        const list: { code: string; label: string }[] = [];
+        for (const t of docs) {
+          const code = String(t?.type || "").trim();
+          if (!code || seen.has(code)) continue;
+          seen.add(code);
+          const friendly = KNOWN_LABELS[code];
+          const label = friendly || (t?.name ? `${t.name} (${code})` : code);
+          list.push({ code, label });
+        }
+        list.sort((a, b) => a.label.localeCompare(b.label));
+        if (!cancelled) setDocTypes(list);
+      } catch (err) {
+        console.warn("Failed to load doc templates:", err);
+      } finally {
+        if (!cancelled) setLoadingTypes(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const current = (selectedType && all[selectedType]) || { tnc: "", notes: "", footerMessage: "" };
+
+  const updateField = (key: "tnc" | "notes" | "footerMessage", value: string) => {
+    if (!selectedType) return;
+    const next = {
+      ...all,
+      [selectedType]: { ...current, [key]: value },
+    };
+    setValue("docTypeDefaults", next);
+  };
+
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+        Doc Defaults
+      </Typography>
+      <Typography variant="body2" sx={{ color: "text.secondary" }}>
+        Save default Terms &amp; Conditions, Notes, and a closing Footer message per document type. New documents inherit
+        these when the corresponding field is empty; per-document edits still win.
+      </Typography>
+
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+        <Typography variant="caption" color="text.secondary">Document Type</Typography>
+        {loadingTypes ? (
+          <Typography variant="caption" color="text.disabled">Loading templates…</Typography>
+        ) : docTypes.length === 0 ? (
+          <Typography variant="caption" color="warning.main">
+            No document templates activated for this organization. Set one up first (Admin → Organizations → Templates).
+          </Typography>
+        ) : (
+        <Select
+          size="small"
+          value={selectedType}
+          onChange={(e) => setSelectedType(e.target.value as string)}
+          displayEmpty
+        >
+          <MenuItem value=""><em>Select a document type…</em></MenuItem>
+          {docTypes.map((d) => {
+            const hasContent =
+              !!all[d.code]?.tnc?.trim() ||
+              !!all[d.code]?.notes?.trim() ||
+              !!all[d.code]?.footerMessage?.trim();
+            return (
+              <MenuItem key={d.code} value={d.code}>
+                {d.label}
+                {hasContent && (
+                  <Chip
+                    size="small"
+                    label="set"
+                    variant="outlined"
+                    color="success"
+                    sx={{ ml: 1, height: 18, fontSize: "0.65rem" }}
+                  />
+                )}
+              </MenuItem>
+            );
+          })}
+        </Select>
+        )}
+      </Box>
+
+      {selectedType ? (
+        <>
+          <TextField
+            label="Terms & Conditions"
+            multiline
+            minRows={4}
+            value={current.tnc || ""}
+            onChange={(e) => updateField("tnc", e.target.value)}
+            placeholder="e.g. Prices are subject to confirmation. Goods sold are non-refundable…"
+            fullWidth
+          />
+          <TextField
+            label="Notes"
+            multiline
+            minRows={3}
+            value={current.notes || ""}
+            onChange={(e) => updateField("notes", e.target.value)}
+            placeholder="Internal / customer-visible notes."
+            fullWidth
+          />
+          <TextField
+            label="Footer / Closing Message"
+            multiline
+            minRows={2}
+            value={current.footerMessage || ""}
+            onChange={(e) => updateField("footerMessage", e.target.value)}
+            placeholder="Renders at the bottom of the printed document. e.g. 'Thank you for your business.'"
+            fullWidth
+          />
+          <Box>
+            <Button
+              size="small"
+              color="error"
+              onClick={() => {
+                if (!selectedType) return;
+                const next = { ...all };
+                delete next[selectedType];
+                setValue("docTypeDefaults", next);
+              }}
+            >
+              Clear defaults for this type
+            </Button>
+          </Box>
+        </>
+      ) : (
+        <Typography variant="caption" color="text.secondary">
+          Pick a document type above to start editing its defaults.
+        </Typography>
+      )}
     </Box>
   );
 }

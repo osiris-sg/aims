@@ -208,7 +208,7 @@ export class OrganizationsService {
 
   async update(
     id: string,
-    data: { name?: string; address?: string; phoneNumber?: string; registrationNumber?: string; logo?: string | null; defaultStamp?: string | null; customDocumentTypes?: Record<string, string>; taxRate?: number; taxApplicable?: boolean; absorbTax?: boolean; defaultCurrency?: string; quoteRoundingStep?: number; bankDetails?: Record<string, string> },
+    data: { name?: string; address?: string; phoneNumber?: string; registrationNumber?: string; logo?: string | null; defaultStamp?: string | null; customDocumentTypes?: Record<string, string>; taxRate?: number; taxApplicable?: boolean; absorbTax?: boolean; defaultCurrency?: string; quoteRoundingStep?: number; docTypeDefaults?: Record<string, { tnc?: string; notes?: string; footerMessage?: string }> | null; bankDetails?: Record<string, string> },
   ) {
     return this.prisma.organization.update({
       where: { id },

@@ -1047,6 +1047,8 @@ export class DocumentsService {
           taxApplicable: true,
           absorbTax: true,
           defaultCurrency: true,
+          // Per-doc-type boilerplate (T&Cs / Notes / Footer message).
+          docTypeDefaults: true,
         },
       });
 
@@ -1148,6 +1150,23 @@ export class DocumentsService {
       // in case the form expects it there.
       if (!initialConfig.currency && orgCurrency) {
         initialConfig.currency = orgCurrency;
+      }
+
+      // Per-doc-type boilerplate: T&Cs / Notes / Footer message. Looked up
+      // by the doc's `type` against organization.docTypeDefaults. Per-doc
+      // overrides still win — these only fill empty fields.
+      const docTypeDefaults: any = (organization as any)?.docTypeDefaults || {};
+      const typeDefaults = (docTypeDefaults && typeof docTypeDefaults === 'object' && docTypeDefaults[type]) || null;
+      if (typeDefaults) {
+        if (!di.termsAndConditions && typeof typeDefaults.tnc === 'string' && typeDefaults.tnc.trim()) {
+          di.termsAndConditions = typeDefaults.tnc;
+        }
+        if (!di.note && typeof typeDefaults.notes === 'string' && typeDefaults.notes.trim()) {
+          di.note = typeDefaults.notes;
+        }
+        if (!di.footerMessage && typeof typeDefaults.footerMessage === 'string' && typeDefaults.footerMessage.trim()) {
+          di.footerMessage = typeDefaults.footerMessage;
+        }
       }
       // Prefill customer info from the project when projectId is supplied and
       // the caller didn't already populate it. Generic across document types.

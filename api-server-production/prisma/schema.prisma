@@ -34,6 +34,12 @@ model Organization {
   // Total (post-GST) down to this step and surface the crumb as a final
   // "Round-down" line. 0 = no rounding.
   quoteRoundingStep     Int                        @default(10)
+  // Per-doc-type defaults for T&Cs / Notes / Footer message. Keyed by the
+  // doc's `type` value (e.g. "QO1", "PO", "INVOICE"). Each entry is:
+  // { tnc?: string, notes?: string, footerMessage?: string }. Seeded onto
+  // documentInfo on new docs (per-doc overrides still win). Edited from
+  // Company Profile → Doc Defaults tab.
+  docTypeDefaults       Json?
   bankDetails           Json? // { accountName, accountNumber, bankName, swiftCode, branchCode, bankCode, currencyCode }
   stockDeductionTrigger String?                    @default("DO") // Legacy field - no longer used. Stock deduction logic: DO always deducts, Invoice deducts only if not extracted from DO
   // Org-wide reward Points ledger. Float so partial-point adjustments stay
