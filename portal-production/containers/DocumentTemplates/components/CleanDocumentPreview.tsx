@@ -2926,58 +2926,104 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           </Box>
 
 
-          {/* Closing Message */}
-          <Typography sx={{ fontSize: "0.8125rem", mb: 2 }}>
-            Hope the above Quotation meets your requirement. Pls contact us if you have any doubt.
-          </Typography>
+          {(() => {
+            // Orgs that have configured per-doc-type defaults (Company Profile
+            // → Doc Defaults) carry a footerMessage on the doc. For those (e.g.
+            // Cappitech) we produce the clean layout: drop the two hardcoded
+            // closing / computer-generated lines, and render Terms & Conditions
+            // BEFORE Notes. The configured footerMessage renders in the
+            // dedicated footer block below. Orgs without docTypeDefaults
+            // (Osiris, Biofuel, …) have no footerMessage, so they fall through
+            // to the original layout — hardcoded lines and Notes-before-T&Cs —
+            // completely unchanged.
+            const hasDocTypeDefaults = !!(data.footerMessage || data.documentInfo?.footerMessage);
 
-          {/* Computer Generated Notice — placed before Notes/T&Cs so it stays
-              with the main quotation page rather than being pushed to the end
-              of long T&Cs. */}
-          <Typography sx={{ fontSize: "0.8125rem", fontStyle: "italic", mb: 3 }}>
-            This is a computer generated Quotation. No signature is required.
-          </Typography>
+            const notesBlock = (data.note || data.remarks) && (
+              <Box sx={{ display: "flex", gap: 3, mb: 2 }}>
+                {data.note && (
+                  <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
+                    <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Note:</Typography>
+                    <RichContent text={data.note} sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }} />
+                  </Box>
+                )}
+                {data.remarks && (
+                  <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
+                    <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Remarks:</Typography>
+                    <RichContent text={data.remarks} sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }} />
+                  </Box>
+                )}
+              </Box>
+            );
 
-          {/* Notes & Remarks side by side */}
-          {(data.note || data.remarks) && (
-            <Box sx={{ display: "flex", gap: 3, mb: 2 }}>
-              {data.note && (
-                <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
-                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Note:</Typography>
-                  <RichContent text={data.note} sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }} />
-                </Box>
-              )}
-              {data.remarks && (
-                <Box sx={{ flex: 1, minWidth: 0, pageBreakInside: "avoid", breakInside: "avoid" }}>
-                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Remarks:</Typography>
-                  <RichContent text={data.remarks} sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }} />
-                </Box>
-              )}
-            </Box>
-          )}
+            // Terms & Conditions — long content allowed to flow across pages.
+            // Heading uses a phantom padding-bottom + negative margin so the
+            // browser must reserve space for the heading PLUS the next ~3
+            // lines of body. If they can't all fit, the heading is pushed to
+            // the next page along with its content. breakAfter: avoid is
+            // also set as a hint, but Chrome ignores it inconsistently —
+            // the phantom padding is the reliable mechanism.
+            const tncBlock = data.termsAndConditions && (
+              <Box sx={{ mb: 2 }}>
+                <Typography
+                  sx={{
+                    fontSize: "0.8125rem",
+                    fontWeight: 600,
+                    pageBreakAfter: "avoid",
+                    breakAfter: "avoid",
+                    paddingBottom: "4em",
+                    marginBottom: "-4em",
+                  }}
+                >
+                  Terms & Conditions:
+                </Typography>
+                <RichContent text={data.termsAndConditions} sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }} />
+              </Box>
+            );
 
-          {/* Terms & Conditions — long content allowed to flow across pages.
-              Heading uses a phantom padding-bottom + negative margin so the
-              browser must reserve space for the heading PLUS the next ~3
-              lines of body. If they can't all fit, the heading is pushed to
-              the next page along with its content. breakAfter: avoid is
-              also set as a hint, but Chrome ignores it inconsistently —
-              the phantom padding is the reliable mechanism. */}
-          {data.termsAndConditions && (
-            <Box sx={{ mb: 2 }}>
-              <Typography
-                sx={{
-                  fontSize: "0.8125rem",
-                  fontWeight: 600,
-                  pageBreakAfter: "avoid",
-                  breakAfter: "avoid",
-                  paddingBottom: "4em",
-                  marginBottom: "-4em",
-                }}
-              >
-                Terms & Conditions:
-              </Typography>
-              <RichContent text={data.termsAndConditions} sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }} />
+            return (
+              <>
+                {/* Hardcoded closing message — suppressed once the org has its
+                    own configured footer. */}
+                {!hasDocTypeDefaults && (
+                  <Typography sx={{ fontSize: "0.8125rem", mb: 2 }}>
+                    Hope the above Quotation meets your requirement. Pls contact us if you have any doubt.
+                  </Typography>
+                )}
+
+                {/* Computer Generated Notice — suppressed once the org has its
+                    own configured footer (which carries the equivalent line). */}
+                {!hasDocTypeDefaults && (
+                  <Typography sx={{ fontSize: "0.8125rem", fontStyle: "italic", mb: 3 }}>
+                    This is a computer generated Quotation. No signature is required.
+                  </Typography>
+                )}
+
+                {hasDocTypeDefaults ? (
+                  <>
+                    {tncBlock}
+                    {notesBlock}
+                  </>
+                ) : (
+                  <>
+                    {notesBlock}
+                    {tncBlock}
+                  </>
+                )}
+              </>
+            );
+          })()}
+
+          {/* Closing footer message — pulled from per-doc-type defaults
+              (Company Profile → Doc Defaults) or per-doc override. Centred
+              italic with a dashed rule, matching the TI2/DO footer. Only
+              renders when configured, so orgs without docTypeDefaults are
+              unaffected. */}
+          {(data.footerMessage || data.documentInfo?.footerMessage) && (
+            <Box sx={{ mt: 2, pt: 1, borderTop: "1px dashed", borderColor: "rgba(0,0,0,0.15)", pageBreakInside: "avoid", breakInside: "avoid" }}>
+              <RichContent
+                text={data.footerMessage || data.documentInfo?.footerMessage}
+                sx={{ fontSize: "0.8125rem", lineHeight: 1.6, textAlign: "center", fontStyle: "italic" }}
+              />
             </Box>
           )}
 
