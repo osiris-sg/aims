@@ -91,7 +91,7 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
   };
 
   return (
-    <Drawer anchor="right" open={open} onClose={onClose} sx={{ "& .MuiDrawer-paper": { width: "400px", backgroundColor: theme.palette.tertiary.contrastText } }}>
+    <Drawer anchor="right" open={open} onClose={onClose} sx={{ "& .MuiDrawer-paper": { width: "400px", backgroundColor: "background.paper", backgroundImage: "none", borderLeft: 1, borderColor: "divider" } }}>
       <Stack direction="column" gap="var(--double-gap)" padding="var(--default-padding)" height="100%" width="100%" display="flex" alignItems="center" justifyContent="center">
         <Typography variant="body1" sx={{ width: "100%" }}>
           {isEditMode ? "Edit Customer" : "Add Customer"}
