@@ -23,14 +23,14 @@ const getResourceUrl = (key: string | undefined | null): string | undefined => {
 };
 
 // Helper: renders a LABEL : VALUE row, hidden when value is empty
-function InfoRow({ label, value, minWidth = "100px" }: { label: string; value: any; minWidth?: string }) {
+function InfoRow({ label, value, minWidth = "100px", fontSize = "0.8125rem" }: { label: string; value: any; minWidth?: string; fontSize?: string }) {
   const displayValue = typeof value === "string" ? value.trim() : value;
   if (!displayValue && displayValue !== 0) return null;
   return (
     <Box sx={{ display: "flex" }}>
-      <Typography sx={{ fontSize: "0.8125rem", minWidth, lineHeight: 1.4 }}>{label}</Typography>
-      <Typography sx={{ fontSize: "0.8125rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
-      <Typography sx={{ fontSize: "0.8125rem", flex: 1, lineHeight: 1.4 }}>{displayValue}</Typography>
+      <Typography sx={{ fontSize, minWidth, lineHeight: 1.4 }}>{label}</Typography>
+      <Typography sx={{ fontSize, ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
+      <Typography sx={{ fontSize, flex: 1, lineHeight: 1.4 }}>{displayValue}</Typography>
     </Box>
   );
 }
@@ -1253,7 +1253,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
 
         {/* DO Reference Number - Top Right */}
         <Box sx={{ textAlign: "right", mb: 1 }}>
-          <Typography sx={{ fontSize: "0.8125rem" }}>
+          <Typography sx={{ fontSize: "0.875rem" }}>
             DO {data.documentInfo?.referenceNo || data.documentInfo?.documentNumber || ""}
           </Typography>
         </Box>
@@ -1264,11 +1264,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           <Box sx={{ width: "45%" }}>
             {/* Bill To */}
             <Box sx={{ mb: 3 }}>
-              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>Bill To :</Typography>
-              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>
+              <Typography sx={{ fontSize: "0.875rem", fontWeight: 600, mb: 0.5 }}>Bill To :</Typography>
+              <Typography sx={{ fontSize: "0.875rem", fontWeight: 600 }}>
                 {data.customer?.name || data.customerName || ""}
               </Typography>
-              <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
+              <Typography sx={{ fontSize: "0.875rem", whiteSpace: "pre-line" }}>
                 {data.billTo || data.customer?.address || data.customerAddress || ""}
               </Typography>
             </Box>
@@ -1276,12 +1276,12 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             {/* Deliver To - hidden when deliver to address is empty */}
             {data.deliveryTo && (
             <Box>
-              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>Deliver To :</Typography>
-              <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
+              <Typography sx={{ fontSize: "0.875rem", fontWeight: 600, mb: 0.5 }}>Deliver To :</Typography>
+              <Typography sx={{ fontSize: "0.875rem", whiteSpace: "pre-line" }}>
                 {data.deliveryTo}
               </Typography>
               {(data.documentInfo?.contactName || data.documentInfo?.contact || data.contact) && (
-                <Typography sx={{ fontSize: "0.8125rem" }}>
+                <Typography sx={{ fontSize: "0.875rem" }}>
                   Attn: {data.documentInfo?.contactName || data.documentInfo?.contact || data.contact}
                   {data.documentInfo?.contactNumber ? ` (${data.documentInfo.contactNumber})` : ""}
                 </Typography>
@@ -1297,19 +1297,19 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 0.5 }}>
                 DELIVERY ORDER
               </Typography>
-              <InfoRow label="UEN" value={data.customer?.gstRegNo || data.customer?.npwp || data.company?.gstRegNo || data.gstRegNo} />
+              <InfoRow label="UEN" value={data.customer?.gstRegNo || data.customer?.npwp || data.company?.gstRegNo || data.gstRegNo} fontSize="0.875rem" />
               <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.8125rem", minWidth: "100px", lineHeight: 1.4 }}>DELIVERY ORDER</Typography>
-                <Typography sx={{ fontSize: "0.8125rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}></Typography>
-                <Typography sx={{ fontSize: "0.8125rem", flex: 1, lineHeight: 1.4, fontWeight: 600 }}>{data.documentInfo?.documentNumber || data.name || ""}</Typography>
+                <Typography sx={{ fontSize: "0.875rem", minWidth: "100px", lineHeight: 1.4 }}>DELIVERY ORDER</Typography>
+                <Typography sx={{ fontSize: "0.875rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}></Typography>
+                <Typography sx={{ fontSize: "0.875rem", flex: 1, lineHeight: 1.4, fontWeight: 600 }}>{data.documentInfo?.documentNumber || data.name || ""}</Typography>
               </Box>
-              <InfoRow label="Date" value={formatDate(data.documentInfo?.date || data.date)} />
-              <InfoRow label="Delivery Date" value={formatDate(data.documentInfo?.deliveryDate)} />
-              <InfoRow label="Delivery Time" value={data.documentInfo?.deliveryTime} />
-              <InfoRow label="P/O No." value={data.documentInfo?.poNo || data.poNo} />
-              <InfoRow label="Terms" value={data.documentInfo?.paymentTerms || data.paymentTerms || "CASH"} />
-              <InfoRow label="Salesman" value={data.documentInfo?.salesPerson || data.salesPerson} />
-              <InfoRow label="Customer" value={data.customerCode || data.customer?.customerCode} />
+              <InfoRow label="Date" value={formatDate(data.documentInfo?.date || data.date)} fontSize="0.875rem" />
+              <InfoRow label="Delivery Date" value={formatDate(data.documentInfo?.deliveryDate)} fontSize="0.875rem" />
+              <InfoRow label="Delivery Time" value={data.documentInfo?.deliveryTime} fontSize="0.875rem" />
+              <InfoRow label="P/O No." value={data.documentInfo?.poNo || data.poNo} fontSize="0.875rem" />
+              <InfoRow label="Terms" value={data.documentInfo?.paymentTerms || data.paymentTerms || "CASH"} fontSize="0.875rem" />
+              <InfoRow label="Salesman" value={data.documentInfo?.salesPerson || data.salesPerson} fontSize="0.875rem" />
+              <InfoRow label="Customer" value={data.customerCode || data.customer?.customerCode} fontSize="0.875rem" />
             </Box>
           </Box>
         </Box>
@@ -1996,16 +1996,16 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1, alignItems: "flex-start" }}>
           {/* Left - Supplier Info */}
           <Box sx={{ width: "45%" }}>
-            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>To :</Typography>
-            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>
+            <Typography sx={{ fontSize: "0.875rem", fontWeight: 600, mb: 0.5 }}>To :</Typography>
+            <Typography sx={{ fontSize: "0.875rem", fontWeight: 600 }}>
               {data.supplier?.name || data.documentInfo?.supplierName || data.customer?.name || data.customerName || ""}
             </Typography>
-            <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
+            <Typography sx={{ fontSize: "0.875rem", whiteSpace: "pre-line" }}>
               {data.supplier?.address || data.documentInfo?.supplierAddress || data.customer?.address || data.customerAddress || ""}
             </Typography>
             {(data.documentInfo?.contactName || data.documentInfo?.contact || data.contact) && (
               <Box sx={{ mt: 1 }}>
-                <Typography sx={{ fontSize: "0.8125rem" }}>
+                <Typography sx={{ fontSize: "0.875rem" }}>
                   ATTN : {data.documentInfo?.contactName || data.documentInfo?.contact || data.contact}
                   {data.documentInfo?.contactNumber ? ` (${data.documentInfo.contactNumber})` : ""}
                 </Typography>
@@ -2020,12 +2020,12 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 1 }}>
                 {isPR ? "PURCHASE RETURN" : "PURCHASE ORDER"}
               </Typography>
-              <InfoRow label="P/O NO." value={data.documentInfo?.documentNumber || data.name} />
-              <InfoRow label="Date" value={formatDate(data.documentInfo?.date)} />
-              <InfoRow label="Our Reference" value={data.documentInfo?.referenceNo} />
-              <InfoRow label="Delivery Date" value={formatDate(data.documentInfo?.deliveryDate)} />
-              <InfoRow label="Terms" value={data.documentInfo?.paymentTerms || "60 DAYS"} />
-              <InfoRow label="Currency" value={data.documentInfo?.currency || "SGD"} />
+              <InfoRow label="P/O NO." value={data.documentInfo?.documentNumber || data.name} fontSize="0.875rem" />
+              <InfoRow label="Date" value={formatDate(data.documentInfo?.date)} fontSize="0.875rem" />
+              <InfoRow label="Our Reference" value={data.documentInfo?.referenceNo} fontSize="0.875rem" />
+              <InfoRow label="Delivery Date" value={formatDate(data.documentInfo?.deliveryDate)} fontSize="0.875rem" />
+              <InfoRow label="Terms" value={data.documentInfo?.paymentTerms || "60 DAYS"} fontSize="0.875rem" />
+              <InfoRow label="Currency" value={data.documentInfo?.currency || "SGD"} fontSize="0.875rem" />
             </Box>
           </Box>
         </Box>
@@ -2592,11 +2592,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1, alignItems: "flex-start" }}>
           {/* Left - To Section */}
           <Box sx={{ width: "45%", border: "1px solid #000", p: 1.5 }}>
-            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>To :</Typography>
-            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>
+            <Typography sx={{ fontSize: "0.875rem", fontWeight: 600, mb: 0.5 }}>To :</Typography>
+            <Typography sx={{ fontSize: "0.875rem", fontWeight: 600 }}>
               {data.customer?.name || data.customerName || ""}
             </Typography>
-            <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
+            <Typography sx={{ fontSize: "0.875rem", whiteSpace: "pre-line" }}>
               {data.billTo || data.customer?.address || data.customerAddress || ""}
             </Typography>
           </Box>
@@ -2608,17 +2608,17 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 1 }}>
                 QUOTATION
               </Typography>
-              <InfoRow label="UEN" value={data.customer?.gstRegNo || data.company?.gstRegNo || organization?.registrationNumber} minWidth="110px" />
+              <InfoRow label="UEN" value={data.customer?.gstRegNo || data.company?.gstRegNo || organization?.registrationNumber} minWidth="110px" fontSize="0.875rem" />
               <Box sx={{ display: "flex" }}>
-                <Typography sx={{ fontSize: "0.8125rem", minWidth: "110px", lineHeight: 1.4, fontWeight: 600 }}>QUOTATION NO.</Typography>
-                <Typography sx={{ fontSize: "0.8125rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}></Typography>
-                <Typography sx={{ fontSize: "0.8125rem", flex: 1, lineHeight: 1.4, fontWeight: 600 }}>{data.documentInfo?.documentNumber || ""}</Typography>
+                <Typography sx={{ fontSize: "0.875rem", minWidth: "110px", lineHeight: 1.4, fontWeight: 600 }}>QUOTATION NO.</Typography>
+                <Typography sx={{ fontSize: "0.875rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}></Typography>
+                <Typography sx={{ fontSize: "0.875rem", flex: 1, lineHeight: 1.4, fontWeight: 600 }}>{data.documentInfo?.documentNumber || ""}</Typography>
               </Box>
-              <InfoRow label="Date" value={formatDate(data.documentInfo?.date)} minWidth="110px" />
-              <InfoRow label="Your Ref" value={data.documentInfo?.referenceNo} minWidth="110px" />
-              <InfoRow label="RE" value={data.documentInfo?.subject} minWidth="110px" />
-              <InfoRow label="Terms" value={data.documentInfo?.paymentTerms} minWidth="110px" />
-              <InfoRow label="Customer" value={data.customer?.customerCode || data.customerCode} minWidth="110px" />
+              <InfoRow label="Date" value={formatDate(data.documentInfo?.date)} minWidth="110px" fontSize="0.875rem" />
+              <InfoRow label="Your Ref" value={data.documentInfo?.referenceNo} minWidth="110px" fontSize="0.875rem" />
+              <InfoRow label="RE" value={data.documentInfo?.subject} minWidth="110px" fontSize="0.875rem" />
+              <InfoRow label="Terms" value={data.documentInfo?.paymentTerms} minWidth="110px" fontSize="0.875rem" />
+              <InfoRow label="Customer" value={data.customer?.customerCode || data.customerCode} minWidth="110px" fontSize="0.875rem" />
             </Box>
           </Box>
         </Box>
@@ -2626,7 +2626,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         {/* Attention Line */}
         {(data.documentInfo?.contactName || data.documentInfo?.contact || data.attention?.name) && (
           <Box sx={{ mb: 1 }}>
-            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>
+            <Typography sx={{ fontSize: "0.875rem", fontWeight: 600 }}>
               Attn : {data.documentInfo?.contactName || data.documentInfo?.contact || data.attention?.name}
               {data.documentInfo?.contactNumber ? ` (${data.documentInfo.contactNumber})` : ""}
             </Typography>
