@@ -1304,6 +1304,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 <Typography sx={{ fontSize: "0.8125rem", flex: 1, lineHeight: 1.4, fontWeight: 600 }}>{data.documentInfo?.documentNumber || data.name || ""}</Typography>
               </Box>
               <InfoRow label="Date" value={formatDate(data.documentInfo?.date || data.date)} />
+              <InfoRow label="Delivery Date" value={formatDate(data.documentInfo?.deliveryDate)} />
+              <InfoRow label="Delivery Time" value={data.documentInfo?.deliveryTime} />
               <InfoRow label="P/O No." value={data.documentInfo?.poNo || data.poNo} />
               <InfoRow label="Terms" value={data.documentInfo?.paymentTerms || data.paymentTerms || "CASH"} />
               <InfoRow label="Salesman" value={data.documentInfo?.salesPerson || data.salesPerson} />
@@ -2614,6 +2616,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               </Box>
               <InfoRow label="Date" value={formatDate(data.documentInfo?.date)} minWidth="110px" />
               <InfoRow label="Your Ref" value={data.documentInfo?.referenceNo} minWidth="110px" />
+              <InfoRow label="RE" value={data.documentInfo?.subject} minWidth="110px" />
               <InfoRow label="Terms" value={data.documentInfo?.paymentTerms} minWidth="110px" />
               <InfoRow label="Customer" value={data.customer?.customerCode || data.customerCode} minWidth="110px" />
             </Box>

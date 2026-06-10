@@ -406,6 +406,19 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
             required: false,
           },
           {
+            fieldName: "documentInfo.deliveryDate",
+            displayLabel: "Delivery Date",
+            fieldType: "date",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.deliveryTime",
+            displayLabel: "Delivery Time",
+            fieldType: "text",
+            required: false,
+            defaultValue: "",
+          },
+          {
             fieldName: "documentInfo.paymentTerms",
             displayLabel: "Terms",
             fieldType: "text",
@@ -1528,6 +1541,13 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
             displayLabel: "Your Reference",
             fieldType: "text",
             required: false,
+          },
+          {
+            fieldName: "documentInfo.subject",
+            displayLabel: "RE",
+            fieldType: "text",
+            required: false,
+            defaultValue: "",
           },
           {
             fieldName: "documentInfo.contact",
