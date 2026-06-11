@@ -1148,10 +1148,37 @@ export default function TabbedDocumentCreator({
     const scoped = accOptions.filter((a: any) => ids.has(a.id));
     return scoped.length ? scoped : accOptions; // fall back to all if no FCU picked
   };
+
+  // VRV (and any capacityKw-tagged) sizing rule: total FCU capacity on a
+  // row must not exceed the CU's capacity by more than 130%. Hide CUs
+  // whose capacity × 1.3 < the FCU total currently on the row. CUs with
+  // no capacityKw set (most non-VRV CUs) pass through unfiltered.
+  const FCU_TO_CU_RATIO = 1.3;
+  const fcuTotalKwForRow = (row: any): number => {
+    if (!row) return 0;
+    let sum = 0;
+    for (const f of row.fcus || []) {
+      const fAsset = inventoriesForDocument.find((i: any) => i.id === f.assetId);
+      const cap = Number(fAsset?.capacityKw) || 0;
+      const qty = Number(f.qty) || 1;
+      sum += cap * qty;
+    }
+    return sum;
+  };
+  const cuOptionsForRow = (row: any): any[] => {
+    const fcuKw = fcuTotalKwForRow(row);
+    if (fcuKw <= 0) return cuOptions; // No FCU capacity set → no constraint
+    return cuOptions.filter((cu: any) => {
+      const cuKw = Number(cu.capacityKw);
+      if (!Number.isFinite(cuKw) || cuKw <= 0) return true; // CU lacks rating → don't constrain
+      return fcuKw <= cuKw * FCU_TO_CU_RATIO;
+    });
+  };
+
   const qfPickerItems = !qfPicker
     ? []
     : qfPicker.target === "cu"
-    ? cuOptions
+    ? cuOptionsForRow(qfPickerRow)
     : qfPicker.target === "accessory"
     ? accessoriesForRow(qfPickerRow)
     : fcuOptionsForCu(qfPickerRow?.cuAssetId);
