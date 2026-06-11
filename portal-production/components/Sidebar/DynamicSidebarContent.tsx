@@ -39,6 +39,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { getListRouteFromPathname } from "@/app/portal/components/documentRoutes";
 import { useSidebar } from "./SidebarContext";
 
 // Material UI icon mapping
@@ -68,11 +70,21 @@ const getIcon = (iconName?: string) => {
 
 export default function DynamicSidebarContent() {
   const theme = useTheme();
-  const pathname = usePathname();
+  const rawPathname = usePathname();
   const { modules, loading, error, isModuleEnabled } = useConfiguration();
   const { isModuleAllowed } = useUserPermissions();
+  const { isDocumentListViewEnabled } = useOrganizationFeatures();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
+
+  // When the list-view feature is on and we're inside a document editor URL
+  // (/portal/documents/<type>/...), behave for sidebar-highlight purposes as if
+  // we were still on the originating list page. Keeps e.g. the "Sales Orders"
+  // item highlighted while the user is editing a sales-order draft.
+  const remappedListRoute = isDocumentListViewEnabled
+    ? getListRouteFromPathname(rawPathname)
+    : null;
+  const pathname = remappedListRoute ?? rawPathname;
 
 
   // Handle submenu toggles
@@ -163,8 +175,15 @@ export default function DynamicSidebarContent() {
 
   const renderMenuItem = (module: any, index: number) => {
     const hasSubMenus = module.config?.subMenus && module.config.subMenus.length > 0;
-    const isOpen = openMenus[module.moduleCode] || false;
     const isActive = isItemActive(module);
+    // Force the parent open when one of its submenus is the currently-active
+    // route, so the highlighted child stays visible after the user navigates in
+    // via a deep URL (e.g. a document-editor page remapped to its list view).
+    const hasActiveSubmenu = hasSubMenus && module.config.subMenus.some((sm: any) => {
+      const r = resolveSubmenuRoute(module, sm);
+      return pathname === r || pathname.startsWith(r + "/");
+    });
+    const isOpen = (openMenus[module.moduleCode] ?? false) || hasActiveSubmenu;
 
     // Parent click navigates only for the GL module — other parents keep the
     // legacy toggle-only behavior. Add module codes here to opt them in.
