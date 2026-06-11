@@ -55,8 +55,13 @@ const ORG = '59802f75-262b-4f96-b8b2-09a9a071d882';
       ...rest,
       type: 'SO',
       name: (rest.name || 'Purchase Order').replace(/Purchase Order/i, 'Sales Order').trim() || 'Sales Order',
+      // Auto-numbering uses templateVariant as the doc-name prefix. The PO
+      // clone carries variant='PO' from the source, which mistakenly produces
+      // 'PO202606-NNN' for sales orders. Override to 'SO' so new SO docs name
+      // themselves correctly.
+      templateVariant: 'SO',
     },
-    select: { id: true, type: true, name: true },
+    select: { id: true, type: true, name: true, templateVariant: true },
   });
   console.log('Created SO template:', created.id, '|', created.type, '|', created.name);
 
