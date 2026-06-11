@@ -102,6 +102,7 @@ import { useGetInventoriesForItemTable } from "../hooks/useGetInventoriesForItem
 import { getTemplateFormFields } from "../utils/templateFieldSync";
 import { useGetDocuments } from "@/app/portal/hooks/api";
 import { TemplateFieldConfig } from "../types/templateFieldTypes";
+import { getDocumentListRoute } from "@/app/portal/components/documentRoutes";
 
 // Helper to determine the parent route based on document type
 const getParentRoute = (docType: string): string => {
@@ -182,7 +183,12 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isItemTaggingEnabled: isItemTaggingFlagOn, isConfirmQuotationEnabled, isNettRoundDownEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isItemTaggingEnabled: isItemTaggingFlagOn, isConfirmQuotationEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled } = useOrganizationFeatures();
+  // When the list-view feature is on, the back arrow returns to that doc type's
+  // list page (e.g. /portal/sales/sales-orders) instead of the generic section
+  // landing — so the sidebar highlight + browsing context stay consistent.
+  const resolveBackRoute = (docType: string) =>
+    (isDocumentListViewEnabled && getDocumentListRoute(docType)) || getParentRoute(docType);
   // When enabled, the document's Nett Total is rounded DOWN to the nearest 5.
   const roundNettDown = (n: number) => (isNettRoundDownEnabled ? Math.floor((Number(n) || 0) / 5) * 5 : (Number(n) || 0));
   // Item tagging (checkbox column + Tag Items button) is scoped to quotation
@@ -1167,10 +1173,18 @@ export default function TabbedDocumentCreator({
   };
   const cuOptionsForRow = (row: any): any[] => {
     const fcuKw = fcuTotalKwForRow(row);
-    if (fcuKw <= 0) return cuOptions; // No FCU capacity set → no constraint
+    // No FCUs picked yet (or none have capacityKw) → show the full CU list,
+    // so non-VRV product lines (RKM / MKM / SkyAir, none of which have a
+    // capacityKw rating) work exactly as before.
+    if (fcuKw <= 0) return cuOptions;
+    // VRV mode (the row has FCU capacities). Only CUs that *also* have a
+    // capacityKw AND meet the 130% rule survive — that automatically drops
+    // mis-categorised entries like the Heat Recovery Ventilators (VAM*HVE),
+    // which are sitting in the Condensing Unit category but aren't real CUs
+    // and have no capacityKw.
     return cuOptions.filter((cu: any) => {
       const cuKw = Number(cu.capacityKw);
-      if (!Number.isFinite(cuKw) || cuKw <= 0) return true; // CU lacks rating → don't constrain
+      if (!Number.isFinite(cuKw) || cuKw <= 0) return false;
       return fcuKw <= cuKw * FCU_TO_CU_RATIO;
     });
   };
@@ -2118,7 +2132,7 @@ export default function TabbedDocumentCreator({
     const documentStatus = existingData?.status || "draft";
     if (documentStatus === "confirmed") {
       // Navigate to parent page for confirmed documents
-      router.push(getParentRoute(documentType));
+      router.push(resolveBackRoute(documentType));
     } else {
       // Only prompt if the user actually touched something in the document.
       const hasChanges = isDirtyRef.current;
@@ -2128,7 +2142,7 @@ export default function TabbedDocumentCreator({
         setBackConfirmDialogOpen(true);
       } else {
         // No changes, navigate to parent page
-        router.push(getParentRoute(documentType));
+        router.push(resolveBackRoute(documentType));
       }
     }
   };
@@ -2161,7 +2175,7 @@ export default function TabbedDocumentCreator({
     }
     toast.success("Document saved as draft");
     // Navigate to parent page after saving
-    router.push(getParentRoute(documentType));
+    router.push(resolveBackRoute(documentType));
   };
 
   // Handle delete from dialog
@@ -2195,12 +2209,12 @@ export default function TabbedDocumentCreator({
       }
 
       // Navigate to parent page regardless of deletion result
-      router.push(getParentRoute(documentType));
+      router.push(resolveBackRoute(documentType));
     } catch (error) {
       console.error("Error deleting document:", error);
       toast.error("Failed to delete document");
       // Still navigate to parent page even if deletion fails
-      router.push(getParentRoute(documentType));
+      router.push(resolveBackRoute(documentType));
     }
   };
 
