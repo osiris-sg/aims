@@ -396,18 +396,30 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
       const flat = pickedItems.map((it, idx) => {
         const qty = Number(it.quantity || 1);
         // Pricing rules per outbound doc:
-        //  - PO     : Route Order = dealer (what we pay supplier); else = cost.
-        //  - DO/INV : Route Order = dealer (matches what the QF Route Order
-        //             quotation actually charged — list - points effectively
-        //             collapses to the dealer line on the quote, so invoicing
-        //             the customer at list would over-bill them); else =
-        //             list / unitPrice as quoted.
+        //  - PO         : Route Order = dealer (what we pay supplier); else cost.
+        //  - SO/DO/INV  : ALWAYS the list unit price (matches what the QF
+        //                 quotation showed on each line). The discount % and
+        //                 the points are carried as separate per-line fields
+        //                 below, so the spun-off doc's totals can collapse the
+        //                 same way the quotation did:
+        //                   Project       → gross − Σ (qty × list × disc%)
+        //                   Route Order   → gross − Σ (qty × points)  "Less Points"
         const dealer = Number((it as any).dealerPrice);
+        const itemDiscPct = Number((it as any).discount) || 0;
+        const listUnit = Number(it.unitPrice || 0);
         const price = targetType === "PO"
           ? (isRouteOrder ? (dealer || lookupCost(it)) : lookupCost(it))
-          : isRouteOrder && dealer > 0
-            ? dealer
-            : Number(it.unitPrice || 0);
+          : listUnit;
+        // Carry the per-line discount % onto SO / DO / Invoice so the
+        // customer-facing doc reflects exactly what the quotation showed.
+        // PO is supplier-facing so the discount column is suppressed there.
+        const carriedDiscount = targetType === "PO" ? 0 : itemDiscPct;
+        // Amount for non-PO targets must account for the carried discount;
+        // PO uses cost price with no doc-level discount cascading down.
+        const carriedAmount =
+          targetType === "PO"
+            ? qty * price
+            : qty * price * (1 - carriedDiscount / 100);
         return {
           id: Date.now() + idx,
           itemCode: it.itemCode || "",
@@ -416,9 +428,10 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           uom: it.uom || "PCS",
           quantity: qty,
           unitPrice: price,
-          discount: 0,
-          amount: qty * price,
-          // Carry per-unit points so a Route Order PO can show "Less Points".
+          discount: carriedDiscount,
+          amount: carriedAmount,
+          // Carry per-unit points so the spun-off doc can show "Less Points"
+          // (Route Order PO + Route Order Invoice/DO/SO all read this).
           points: Number((it as any).points) || 0,
         };
       });
