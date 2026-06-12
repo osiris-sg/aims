@@ -81,6 +81,12 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
               defaultStamp: true,
               customDocumentTypes: true,
               taxRate: true,
+              taxApplicable: true,
+              absorbTax: true,
+              defaultCurrency: true,
+              quoteRoundingStep: true,
+              docTypeDefaults: true,
+              pointsBalance: true,
               bankDetails: true,
             },
           },
@@ -115,7 +121,9 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
         select: {
           id: true, name: true, address: true, phoneNumber: true,
           registrationNumber: true, logo: true, defaultStamp: true,
-          customDocumentTypes: true, taxRate: true, bankDetails: true,
+          customDocumentTypes: true, taxRate: true, taxApplicable: true,
+          absorbTax: true, defaultCurrency: true, quoteRoundingStep: true,
+          docTypeDefaults: true, pointsBalance: true, bankDetails: true,
         },
       });
       if (target) {
