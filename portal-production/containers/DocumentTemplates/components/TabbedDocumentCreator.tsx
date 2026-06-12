@@ -102,7 +102,7 @@ import { useGetInventoriesForItemTable } from "../hooks/useGetInventoriesForItem
 import { getTemplateFormFields } from "../utils/templateFieldSync";
 import { useGetDocuments } from "@/app/portal/hooks/api";
 import { TemplateFieldConfig } from "../types/templateFieldTypes";
-import { getDocumentListRoute } from "@/app/portal/components/documentRoutes";
+import { getDocumentListRoute } from "@/app/portal/components/documentRoutes"; // co-pkg: depends on fa8351c
 
 // Helper to determine the parent route based on document type
 const getParentRoute = (docType: string): string => {
@@ -783,7 +783,14 @@ export default function TabbedDocumentCreator({
     if (formData.customer?.id && customers?.length > 0) {
       const customer = customers.find((c: any) => c.id === formData.customer.id);
       if (customer) {
-        const needsUpdate = !formData.customer?.address || !formData.customer?.customerCode;
+        // Seed documentInfo.contact from the customer's phone when it's empty
+        // — templates that show a Contact field (QO/DO/PO/etc.) get an
+        // auto-fill instead of forcing the user to retype the phone.
+        const contactNeedsSeed = !formData.documentInfo?.contact && !!customer.phone;
+        const needsUpdate =
+          !formData.customer?.address ||
+          !formData.customer?.customerCode ||
+          contactNeedsSeed;
         if (needsUpdate) {
           console.log('Filling in missing customer details from customers list:', customer);
           setFormDataState((prev: any) => ({
@@ -794,13 +801,17 @@ export default function TabbedDocumentCreator({
               customerCode: prev.customer?.customerCode || customer.customerCode || "",
               name: prev.customer?.name || customer.name || "",
             },
+            documentInfo: {
+              ...prev.documentInfo,
+              contact: prev.documentInfo?.contact || customer.phone || "",
+            },
             // Also set billTo if it's empty
             billTo: prev.billTo || customer.address || "",
           }));
         }
       }
     }
-  }, [customers, formData.customer?.id, formData.customer?.address, formData.customer?.customerCode]);
+  }, [customers, formData.customer?.id, formData.customer?.address, formData.customer?.customerCode, formData.documentInfo?.contact]);
 
   // Fill in company details from organization if missing
   useEffect(() => {
