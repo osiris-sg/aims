@@ -1,4 +1,31 @@
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsNotEmpty, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class CustomerContactDto {
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @IsNotEmpty()
+  @IsString()
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string | null;
+
+  @IsOptional()
+  @IsString()
+  email?: string | null;
+
+  @IsOptional()
+  @IsString()
+  designation?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  isPrimary?: boolean;
+}
 
 export class CreateCustomerDto {
   @IsNotEmpty()
@@ -28,4 +55,10 @@ export class CreateCustomerDto {
   @IsString()
   @IsOptional()
   createdAt?: Date | null;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CustomerContactDto)
+  contacts?: CustomerContactDto[];
 }

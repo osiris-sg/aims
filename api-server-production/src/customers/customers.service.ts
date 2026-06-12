@@ -53,6 +53,7 @@ export class CustomersService {
         },
         include: {
           salesman: true,
+          contacts: true,
         },
       });
 
@@ -109,6 +110,7 @@ export class CustomersService {
         },
         include: {
           salesman: true,
+          contacts: { orderBy: { createdAt: 'asc' } },
         },
       });
     } catch (error) {
@@ -123,12 +125,31 @@ export class CustomersService {
       // Generate customer code: C + first letter of name + 3-digit sequential number
       const customerCode = await this.generateCustomerCode(createCustomerDto.name, organizationId);
 
+      const { contacts, ...customerData } = createCustomerDto;
+      const cleanContacts = (contacts || []).filter(
+        (c) => c.name && c.name.trim() !== '',
+      );
+
       const newCustomer = await this.prisma.customer.create({
         data: {
-          ...createCustomerDto,
+          ...customerData,
           customerCode,
           organizationId, // Automatically assign to user's organization
+          ...(cleanContacts.length > 0
+            ? {
+                contacts: {
+                  create: cleanContacts.map((c) => ({
+                    name: c.name,
+                    phone: c.phone ?? null,
+                    email: c.email ?? null,
+                    designation: c.designation ?? null,
+                    isPrimary: !!c.isPrimary,
+                  })),
+                },
+              }
+            : {}),
         },
+        include: { contacts: true },
       });
       return newCustomer;
     } catch (error) {
@@ -163,14 +184,41 @@ export class CustomersService {
 
   async updateCustomers(updateCustomerDto: UpdateCustomerDto, organizationId: string) {
     try {
-      const customer = await this.prisma.customer.update({
+      const { id, contacts, ...customerData } = updateCustomerDto;
+
+      await this.prisma.customer.update({
         where: {
-          id: updateCustomerDto.id,
+          id,
           organizationId, // Ensure user can only update customers in their organization
         },
-        data: updateCustomerDto,
+        data: customerData,
       });
-      return customer;
+
+      // When contacts are provided, replace the customer's POC list wholesale
+      // (mirrors the site-office contactDetails replace-on-update pattern).
+      if (contacts) {
+        await this.prisma.customerContact.deleteMany({ where: { customerId: id } });
+        const cleanContacts = contacts.filter(
+          (c) => c.name && c.name.trim() !== '',
+        );
+        if (cleanContacts.length > 0) {
+          await this.prisma.customerContact.createMany({
+            data: cleanContacts.map((c) => ({
+              name: c.name,
+              phone: c.phone ?? null,
+              email: c.email ?? null,
+              designation: c.designation ?? null,
+              isPrimary: !!c.isPrimary,
+              customerId: id,
+            })),
+          });
+        }
+      }
+
+      return await this.prisma.customer.findFirst({
+        where: { id, organizationId },
+        include: { contacts: { orderBy: { createdAt: 'asc' } } },
+      });
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }

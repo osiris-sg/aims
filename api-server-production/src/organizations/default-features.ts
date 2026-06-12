@@ -24,4 +24,6 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   enableDocumentListView: false,
   // Round each document's Nett Total DOWN to the nearest 5.
   enableNettRoundDown: false,
+  // Quotation "Project" picker (link a quotation to a project + create new).
+  enableQuotationProjectLink: false,
 };
