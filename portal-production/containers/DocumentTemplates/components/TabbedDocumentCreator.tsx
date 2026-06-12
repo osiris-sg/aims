@@ -183,7 +183,7 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isItemTaggingEnabled: isItemTaggingFlagOn, isConfirmQuotationEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isItemTaggingEnabled: isItemTaggingFlagOn, isConfirmQuotationEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled } = useOrganizationFeatures();
   // When the list-view feature is on, the back arrow returns to that doc type's
   // list page (e.g. /portal/sales/sales-orders) instead of the generic section
   // landing — so the sidebar highlight + browsing context stay consistent.
@@ -1102,27 +1102,30 @@ export default function TabbedDocumentCreator({
 
   // Per-FCU quantity.
   const setFcuQtyAt = (rowId: number, index: number, qty: number) => {
+    const q = Math.max(0, Number(qty) || 0);
     setItems((prev: any[]) => prev.map((it: any) => {
       if (it.id !== rowId) return it;
       const fcus = [...(it.fcus || [])];
-      if (index < fcus.length) fcus[index] = { ...fcus[index], qty };
+      if (index < fcus.length) fcus[index] = { ...fcus[index], qty: q };
       return recalcFcuCuRow({ ...it, fcus });
     }));
   };
 
   // Per-accessory quantity.
   const setAccessoryQtyAt = (rowId: number, index: number, qty: number) => {
+    const q = Math.max(0, Number(qty) || 0);
     setItems((prev: any[]) => prev.map((it: any) => {
       if (it.id !== rowId) return it;
       const accessories = [...(it.accessories || [])];
-      if (index < accessories.length) accessories[index] = { ...accessories[index], qty };
+      if (index < accessories.length) accessories[index] = { ...accessories[index], qty: q };
       return recalcFcuCuRow({ ...it, accessories });
     }));
   };
 
   // Master/Set qty — multiplies CU + all FCUs + all accessories for the row.
   const setMasterQty = (rowId: number, qty: number) => {
-    setItems((prev: any[]) => prev.map((it: any) => (it.id === rowId ? recalcFcuCuRow({ ...it, masterQty: qty }) : it)));
+    const q = Math.max(0, Number(qty) || 0);
+    setItems((prev: any[]) => prev.map((it: any) => (it.id === rowId ? recalcFcuCuRow({ ...it, masterQty: q }) : it)));
   };
 
   // Set/replace/remove an accessory slot (panel/remote/pump). Qty defaults to 1.
@@ -1293,23 +1296,31 @@ export default function TabbedDocumentCreator({
       const afterPoints = isProjectQuote ? grossTotal : Math.max(0, dealerTotal - pointsTotal);
       const userDiscount = discountType === "amount" ? Math.min(discountValue, afterPoints) : afterPoints * (discountValue / 100);
 
-      // Org-wide round-down step (Company Profile → Quote Round-down Step).
-      // Project: round the Discounted Price (pre-GST) down to the step; the
-      // absorbed crumb is rolled into the Discount line (so the displayed
-      // Discount > the user's typed %, and Sub-total lands clean).
-      // Route Order: round the Nett Total (post-GST) down to the step; the
-      // crumb shows as a separate 'Round-down' line below GST.
-      const step = Math.max(0, Number((organization as any)?.quoteRoundingStep) || 0);
-      const roundDown = (n: number) => (step > 0 ? Math.floor(n / step) * step : n);
+      // Hardcoded round-down rules for QF quotes (Cappitech):
+      //  • Project: round the Discounted Price (pre-GST) DOWN to the nearest 100,
+      //    then let the salesperson fine-tune it anywhere inside that hundred
+      //    band [floor, floor+99] via documentInfo.discountedPriceOverride. The
+      //    Discount line absorbs whatever gap is left (afterPoints − final).
+      //  • Route Order: round the Nett Total (post-GST) DOWN to the nearest 5
+      //    (the legacy enableNettRoundDown step); crumb shows as a 'Round-down'
+      //    line below GST.
+      const PROJECT_STEP = 100;
+      const ROUTE_STEP = 5;
+      const step = isProjectQuote ? PROJECT_STEP : ROUTE_STEP;
 
       let discountAmount = userDiscount;
       let discountedPrice = Math.max(0, afterPoints - userDiscount);
-      let projectRoundAbsorbed = 0;
-      if (isProjectQuote && step > 0) {
-        const target = roundDown(discountedPrice);
-        projectRoundAbsorbed = discountedPrice - target;
-        discountedPrice = target;
-        discountAmount = userDiscount + projectRoundAbsorbed;
+      if (isProjectQuote) {
+        const bandFloor = Math.floor(discountedPrice / PROJECT_STEP) * PROJECT_STEP;
+        const bandCeil = bandFloor + (PROJECT_STEP - 1);
+        const ovRaw = di?.discountedPriceOverride;
+        const hasOverride = ovRaw != null && String(ovRaw) !== "" && !isNaN(Number(ovRaw));
+        // Default = auto round-down to the hundred floor; an override is clamped
+        // back into the band so it can never escape [floor, floor+99].
+        discountedPrice = hasOverride
+          ? Math.min(bandCeil, Math.max(bandFloor, Number(ovRaw)))
+          : bandFloor;
+        discountAmount = Math.max(0, afterPoints - discountedPrice);
       }
 
       let gstAmount: number, nettTotal: number;
@@ -1322,8 +1333,8 @@ export default function TabbedDocumentCreator({
       }
 
       let routeRoundAbsorbed = 0;
-      if (!isProjectQuote && step > 0) {
-        const target = roundDown(nettTotal);
+      if (!isProjectQuote) {
+        const target = Math.floor(nettTotal / ROUTE_STEP) * ROUTE_STEP;
         routeRoundAbsorbed = nettTotal - target;
         nettTotal = target;
       }
@@ -1393,7 +1404,7 @@ export default function TabbedDocumentCreator({
         nettTotal: r2(nettTotal),
       },
     }));
-  }, [subtotal, items, isFcuCuVariant, isProjectQuote, isNettRoundDownEnabled, poPointsRedeemed, (formData?.documentInfo as any)?.discountPercent, (formData?.documentInfo as any)?.discountType, (formData?.documentInfo as any)?.gstPercent, formData?.documentInfo?.taxApplicable, formData?.documentInfo?.absorbTax, isTaxApplicable, isAbsorbTax]);
+  }, [subtotal, items, isFcuCuVariant, isProjectQuote, isNettRoundDownEnabled, poPointsRedeemed, (formData?.documentInfo as any)?.discountPercent, (formData?.documentInfo as any)?.discountType, (formData?.documentInfo as any)?.discountedPriceOverride, (formData?.documentInfo as any)?.gstPercent, formData?.documentInfo?.taxApplicable, formData?.documentInfo?.absorbTax, isTaxApplicable, isAbsorbTax]);
 
   // Project PO: when the top Discount % changes, cascade it into every item's
   // discount (applied once at item level — the document-level discount is then
@@ -2877,12 +2888,14 @@ export default function TabbedDocumentCreator({
               </Box>
             </Box>
 
-            {/* QUOTATION-only project picker. Only rendered AFTER a customer
-                is picked — earlier attempts at rendering a disabled picker
-                in this slot ended up blocking Customer Code clicks (likely
-                an MUI Autocomplete-portal interaction). Skipping the render
-                until customer.id is set sidesteps the whole class of bug. */}
-            {isQuotation && formData.customer?.id && (
+            {/* QUOTATION-only project picker. Gated behind the per-org
+                enableQuotationProjectLink flag (Biofuel-only today). Only
+                rendered AFTER a customer is picked — earlier attempts at
+                rendering a disabled picker in this slot ended up blocking
+                Customer Code clicks (likely an MUI Autocomplete-portal
+                interaction). Skipping the render until customer.id is set
+                sidesteps the whole class of bug. */}
+            {isQuotation && isQuotationProjectLinkEnabled && formData.customer?.id && (
               <Box sx={{ px: 2, py: 1, bgcolor: "background.paper", borderBottom: 1, borderColor: "divider", display: "flex", alignItems: "center", gap: 1 }}>
                 <Typography variant="body2" fontWeight={600} sx={{ minWidth: 80 }}>
                   Project:
@@ -3870,9 +3883,10 @@ export default function TabbedDocumentCreator({
                                       <TextField
                                         type="number"
                                         value={item.quantity}
-                                        onChange={(e) => updateItem(item.id, "quantity", parseFloat(e.target.value))}
+                                        onChange={(e) => updateItem(item.id, "quantity", Math.max(0, parseFloat(e.target.value) || 0))}
                                         size="small"
                                         sx={{ width: 80 }}
+                                        inputProps={{ min: 0 }}
                                       />
                                     </TableCell>
                                   );
@@ -4016,9 +4030,10 @@ export default function TabbedDocumentCreator({
                                       <TextField
                                         type="number"
                                         value={item.receivedQty || 0}
-                                        onChange={(e) => updateItem(item.id, "receivedQty", parseFloat(e.target.value) || 0)}
+                                        onChange={(e) => updateItem(item.id, "receivedQty", Math.max(0, parseFloat(e.target.value) || 0))}
                                         size="small"
                                         sx={{ width: 80 }}
+                                        inputProps={{ min: 0 }}
                                       />
                                     </TableCell>
                                   );
@@ -4195,7 +4210,7 @@ export default function TabbedDocumentCreator({
                                     <TextField
                                       type="number"
                                       value={item.receivedQty || 0}
-                                      onChange={(e) => updateItem(item.id, "receivedQty", parseFloat(e.target.value) || 0)}
+                                      onChange={(e) => updateItem(item.id, "receivedQty", Math.max(0, parseFloat(e.target.value) || 0))}
                                       size="small"
                                       sx={{ width: 80 }}
                                       inputProps={{ min: 0, max: item.quantity || 0 }}
@@ -4334,19 +4349,24 @@ export default function TabbedDocumentCreator({
                                   const pointsTotal = isProjectQuote ? 0 : items.reduce((a: number, it: any) => a + (Number(it.pointsTotal) || 0), 0);
                                   const afterPoints = isProjectQuote ? gross : Math.max(0, dealerTotal - pointsTotal);
                                   const userDiscAmt = discType === "amount" ? Math.min(discPct, afterPoints) : afterPoints * (discPct / 100);
-                                  const step = Math.max(0, Number((organization as any)?.quoteRoundingStep) || 0);
-                                  const rd = (n: number) => (step > 0 ? Math.floor(n / step) * step : n);
-
+                                  // Project: round Discounted Price down to 100,
+                                  // editable within [floor, floor+99]. Route:
+                                  // round Nett down to 5. (Hardcoded for QF.)
+                                  const PROJECT_STEP = 100, ROUTE_STEP = 5;
                                   let displayDiscAmt = userDiscAmt;
                                   let discountedPrice = Math.max(0, afterPoints - userDiscAmt);
-                                  if (isProjectQuote && step > 0) {
-                                    const target = rd(discountedPrice);
-                                    displayDiscAmt = userDiscAmt + (discountedPrice - target);
-                                    discountedPrice = target;
+                                  let bandFloor = 0, bandCeil = 0;
+                                  if (isProjectQuote) {
+                                    bandFloor = Math.floor(discountedPrice / PROJECT_STEP) * PROJECT_STEP;
+                                    bandCeil = bandFloor + (PROJECT_STEP - 1);
+                                    const ovRaw = dInfo?.discountedPriceOverride;
+                                    const hasOverride = ovRaw != null && String(ovRaw) !== "" && !isNaN(Number(ovRaw));
+                                    discountedPrice = hasOverride ? Math.min(bandCeil, Math.max(bandFloor, Number(ovRaw))) : bandFloor;
+                                    displayDiscAmt = Math.max(0, afterPoints - discountedPrice);
                                   }
                                   const gst = isAbsorbTax && gstPct > 0 ? discountedPrice * gstPct / (100 + gstPct) : discountedPrice * (gstPct / 100);
                                   const nettRaw = isAbsorbTax ? discountedPrice : discountedPrice + gst;
-                                  const nett = !isProjectQuote && step > 0 ? rd(nettRaw) : nettRaw;
+                                  const nett = !isProjectQuote ? Math.floor(nettRaw / ROUTE_STEP) * ROUTE_STEP : nettRaw;
                                   const roundCrumb = !isProjectQuote ? nettRaw - nett : 0;
                                   return (
                                     <>
@@ -4360,10 +4380,36 @@ export default function TabbedDocumentCreator({
                                           <Typography variant="body2" color="error.main">-{currency} {displayDiscAmt.toFixed(2)}</Typography>
                                         </Box>
                                       )}
-                                      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-                                        <Typography variant="body2" fontWeight="bold">Discounted Price:</Typography>
-                                        <Typography variant="body2" fontWeight="bold">{currency} {discountedPrice.toFixed(2)}</Typography>
-                                      </Box>
+                                      {isProjectQuote ? (
+                                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
+                                          <Typography variant="body2" fontWeight="bold">Discounted Price:</Typography>
+                                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                                            <Typography variant="body2">{currency}</Typography>
+                                            <TextField
+                                              size="small"
+                                              type="number"
+                                              value={dInfo?.discountedPriceOverride ?? bandFloor}
+                                              onChange={(e) => {
+                                                const v = e.target.value;
+                                                setFormDataState((prev: any) => ({ ...prev, documentInfo: { ...prev.documentInfo, discountedPriceOverride: v === "" ? null : Number(v) } }));
+                                              }}
+                                              onBlur={(e) => {
+                                                const n = Number(e.target.value);
+                                                const clamped = isNaN(n) ? bandFloor : Math.min(bandCeil, Math.max(bandFloor, n));
+                                                setFormDataState((prev: any) => ({ ...prev, documentInfo: { ...prev.documentInfo, discountedPriceOverride: clamped } }));
+                                              }}
+                                              inputProps={{ min: bandFloor, max: bandCeil, step: 1, style: { textAlign: "right", padding: "2px 6px", width: 84, fontWeight: 700 } }}
+                                              helperText={`${bandFloor}–${bandCeil}`}
+                                              FormHelperTextProps={{ sx: { m: 0, textAlign: "right", fontSize: "0.65rem" } }}
+                                            />
+                                          </Box>
+                                        </Box>
+                                      ) : (
+                                        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                                          <Typography variant="body2" fontWeight="bold">Discounted Price:</Typography>
+                                          <Typography variant="body2" fontWeight="bold">{currency} {discountedPrice.toFixed(2)}</Typography>
+                                        </Box>
+                                      )}
                                       {isTaxApplicable && (
                                         <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
                                           <Typography variant="body2">GST ({gstPct}%){isAbsorbTax ? " (absorbed)" : ""}:</Typography>

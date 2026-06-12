@@ -106,6 +106,7 @@ export default function EditDocumentPage() {
     phone: customer.phone || "",
     email: customer.email || "",
     salesman: customer.salesman || null,
+    contacts: customer.contacts || [],
   })) || [];
 
   const projectsList = projects?.map((project: any) => ({

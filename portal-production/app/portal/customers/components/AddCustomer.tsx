@@ -1,6 +1,7 @@
 import FormInputBox from "@/form-components/FormInputBox";
-import { Drawer, Typography, Stack, Button, useTheme, FormControl, InputLabel, Select, MenuItem, FormHelperText } from "@mui/material";
-import { useForm, Controller } from "react-hook-form";
+import { Drawer, Typography, Stack, Button, useTheme, FormControl, InputLabel, Select, MenuItem, FormHelperText, Box, IconButton, Divider } from "@mui/material";
+import { Add as AddIcon, DeleteOutline as DeleteIcon } from "@mui/icons-material";
+import { useForm, Controller, useFieldArray } from "react-hook-form";
 import * as yup from "yup";
 import { yupResolver } from "@hookform/resolvers/yup";
 import { useAuth } from "@clerk/nextjs";
@@ -30,6 +31,17 @@ const customerSchema = yup.object().shape({
   address: yup.string().notRequired(),
   gstRegNo: yup.string().notRequired(),
   salesmanId: yup.string().nullable().notRequired(),
+  contacts: yup
+    .array()
+    .of(
+      yup.object({
+        name: yup.string().notRequired(),
+        phone: yup.string().notRequired(),
+        email: yup.string().notRequired(),
+        designation: yup.string().notRequired(),
+      })
+    )
+    .notRequired(),
 });
 
 export default function AddCustomer({ open, onClose, onSuccess, customerId, isEditMode = false }: AddCustomerProps) {
@@ -47,8 +59,14 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
       address: null,
       gstRegNo: null,
       salesmanId: null as string | null,
+      contacts: [] as { name: string; phone: string; email: string; designation: string }[],
     },
     resolver: yupResolver(customerSchema),
+  });
+
+  const { fields: contactFields, append: appendContact, remove: removeContact } = useFieldArray({
+    control,
+    name: "contacts",
   });
 
   // Fetch salesmen when drawer opens
@@ -108,6 +126,15 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
             setValue("address", customer.address);
             setValue("gstRegNo", customer.gstRegNo);
             setValue("salesmanId", customer.salesmanId || null);
+            setValue(
+              "contacts",
+              (customer.contacts || []).map((c: { name?: string; phone?: string; email?: string; designation?: string }) => ({
+                name: c.name || "",
+                phone: c.phone || "",
+                email: c.email || "",
+                designation: c.designation || "",
+              }))
+            );
           }
         } catch (error) {
           console.error("Error fetching customer:", error);
@@ -130,6 +157,9 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
         },
         {
           ...data,
+          contacts: (data.contacts || []).filter(
+            (c: { name?: string }) => c.name && c.name.trim() !== ""
+          ),
           ...(isEditMode && { id: customerId }),
           organizationId: organization.id,
         },
@@ -185,6 +215,47 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
                 </FormControl>
               )}
             />
+
+            {/* Points of Contact (POC / "Attn To") */}
+            <Divider sx={{ mt: 1 }} />
+            <Stack direction="row" alignItems="center" justifyContent="space-between">
+              <Typography variant="body2" fontWeight={600}>
+                Points of Contact
+              </Typography>
+              <Button
+                size="small"
+                startIcon={<AddIcon fontSize="small" />}
+                onClick={() => appendContact({ name: "", phone: "", email: "", designation: "" })}
+              >
+                Add
+              </Button>
+            </Stack>
+            {contactFields.length === 0 && (
+              <Typography variant="caption" color="text.secondary">
+                No contacts yet. Add people to address documents to (Attn To).
+              </Typography>
+            )}
+            {contactFields.map((field, index) => (
+              <Box
+                key={field.id}
+                sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 1, position: "relative" }}
+              >
+                <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.5 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Contact {index + 1}
+                  </Typography>
+                  <IconButton size="small" onClick={() => removeContact(index)} aria-label="Remove contact">
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Stack>
+                <Stack direction="column" gap="var(--default-gap)">
+                  <FormInputBox control={control} name={`contacts.${index}.name`} label="Name" placeHolder="Contact name" />
+                  <FormInputBox control={control} name={`contacts.${index}.phone`} label="Phone" placeHolder="Contact phone" />
+                  <FormInputBox control={control} name={`contacts.${index}.email`} label="Email" placeHolder="Contact email" />
+                  <FormInputBox control={control} name={`contacts.${index}.designation`} label="Designation" placeHolder="e.g. Procurement Manager" />
+                </Stack>
+              </Box>
+            ))}
           </Stack>
           <Stack
             direction="row"

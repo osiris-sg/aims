@@ -65,6 +65,10 @@ function CustomerCodeField({
     return newObj;
   };
 
+  // "Attn To" Contact field value for a POC: name + phone.
+  const contactLabel = (c: any) =>
+    [c?.name, c?.phone].filter((v) => v && String(v).trim() !== '').join(' - ');
+
   // For object mode, find customer by ID; for code mode, find by code
   const currentValue = getNestedVal(formData, fieldName);
   const selectedCustomer = storeMode === 'object'
@@ -159,6 +163,39 @@ function CustomerCodeField({
         >
           {selectedCustomer.name}
         </Typography>
+      )}
+      {/* Points-of-Contact ("Attn To") dropdown — appears when the selected
+          customer has POCs. Picking one fills the document's Contact field
+          (documentInfo.contact) with the POC's name + phone number. */}
+      {storeMode === 'object' && Array.isArray(selectedCustomer?.contacts) && selectedCustomer.contacts.length > 0 && (
+        <FormControl size="small" sx={{ minWidth: 150 }}>
+          <Select
+            displayEmpty
+            value={
+              selectedCustomer.contacts.find(
+                (c: any) => contactLabel(c) === getNestedVal(formData, 'documentInfo.contact'),
+              )?.id || ''
+            }
+            onChange={(e) => {
+              const poc = selectedCustomer.contacts.find((c: any) => c.id === e.target.value);
+              if (!poc) return;
+              setFormData(setNestedVal(formData, 'documentInfo.contact', contactLabel(poc)));
+            }}
+            sx={{ ...inputSx, fontSize: '0.75rem' }}
+            renderValue={(val) => {
+              const poc = selectedCustomer.contacts.find((c: any) => c.id === val);
+              return poc ? poc.name : <span style={{ color: '#9e9e9e' }}>Attn To…</span>;
+            }}
+          >
+            {selectedCustomer.contacts.map((c: any) => (
+              <MenuItem key={c.id} value={c.id} sx={{ fontSize: '0.8rem' }}>
+                {c.name}
+                {c.designation ? ` — ${c.designation}` : ''}
+                {c.phone ? ` (${c.phone})` : ''}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
       )}
     </Box>
   );

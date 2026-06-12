@@ -17,6 +17,7 @@ interface OrganizationFeatures {
   enableItemTagging?: boolean;
   enableConfirmQuotation?: boolean;
   enableNettRoundDown?: boolean;
+  enableQuotationProjectLink?: boolean;
   [key: string]: boolean | undefined;
 }
 
@@ -46,6 +47,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableDocumentListView: false,
   // Round each document's Nett Total DOWN to the nearest 5.
   enableNettRoundDown: false,
+  // Quotation "Project" picker (link a quotation to a project + create new).
+  enableQuotationProjectLink: false,
 };
 
 interface OrganizationUIConfig {
@@ -111,5 +114,6 @@ export function useOrganizationFeatures() {
     isItemTaggingEnabled: features.enableItemTagging ?? false,
     isConfirmQuotationEnabled: features.enableConfirmQuotation ?? false,
     isNettRoundDownEnabled: features.enableNettRoundDown ?? false,
+    isQuotationProjectLinkEnabled: features.enableQuotationProjectLink ?? false,
   };
 }

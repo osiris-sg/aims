@@ -149,6 +149,7 @@ export default function ViewDocumentPage() {
     email: customer.email || "",
     gstRegNo: customer.gstRegNo || "",
     salesman: customer.salesman || null,
+    contacts: customer.contacts || [],
   })) || [];
 
   const projectsList = projects?.map((project: any) => ({
