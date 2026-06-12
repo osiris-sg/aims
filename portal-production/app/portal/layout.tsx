@@ -16,6 +16,7 @@ import { useAuth } from "@clerk/nextjs";
 import FieldOnlyGuard from "./components/FieldOnlyGuard";
 import OrgSwitcher from "@/components/OrgSwitcher";
 import ViewingAsBanner from "@/components/ViewingAsBanner";
+import { useOrganizationFeatures } from "./hooks/useOrganizationFeatures";
 
 interface Props {
   children: React.ReactNode;
@@ -78,8 +79,8 @@ export default function Layout(props: Props) {
                 minHeight: "100vh",
               }}
             >
-              {isDocumentPage ? <DocumentSidebar /> : <DesktopSideBar />}
-              {!isDocumentPage && <AppNavbar />}
+              <PortalChrome isDocumentPage={isDocumentPage} />
+
               <Box sx={{ flexGrow: 1, height: "100%", width: "100%", display: "flex", flexDirection: "column" }}>
                 {/* Admin-only chrome — both components self-hide for non-admins. */}
                 <ViewingAsBanner />
@@ -94,5 +95,21 @@ export default function Layout(props: Props) {
         </ConfigurationProvider>
       </FieldOnlyGuard>
     </OrganizationProvider>
+  );
+}
+
+// Sidebar + navbar choice. The document editor pages normally swap in the
+// compact DocumentSidebar, but when the enableDocumentListView feature flag
+// is on we keep the regular DesktopSideBar + AppNavbar so the user stays
+// anchored to the originating list view (matches the back-button behaviour
+// in TabbedDocumentCreator).
+function PortalChrome({ isDocumentPage }: { isDocumentPage: boolean }) {
+  const { isDocumentListViewEnabled } = useOrganizationFeatures();
+  const useDocumentChrome = isDocumentPage && !isDocumentListViewEnabled;
+  return (
+    <>
+      {useDocumentChrome ? <DocumentSidebar /> : <DesktopSideBar />}
+      {!useDocumentChrome && <AppNavbar />}
+    </>
   );
 }
