@@ -92,7 +92,9 @@ export function useDocumentLock(documentId?: string | null, enabled: boolean = t
         token,
       );
       if (!res || res.success === false) return null;
-      return res;
+      // Backend responses are wrapped by CustomResponseInterceptor as
+      // { success, data, message } — the lock state lives under .data.
+      return res.data ?? res;
     },
     [documentId, getToken],
   );
@@ -108,13 +110,15 @@ export function useDocumentLock(documentId?: string | null, enabled: boolean = t
         token,
       );
       if (!res || res.success === false) return;
-      if (res.lostLock) {
+      // Unwrap the { success, data, message } envelope (see callAcquire).
+      const body = res.data ?? res;
+      if (body.lostLock) {
         // Someone genuinely took over — drop to read-only viewer/poller.
         isHolderRef.current = false;
         setLostLock(true);
         setIsReadOnly(true);
-        setCanTakeOver(!!res.canTakeOver);
-        setHolderName(res.editingByName || "another user");
+        setCanTakeOver(!!body.canTakeOver);
+        setHolderName(body.editingByName || "another user");
       } else {
         // Still mine (or re-claimed a lapsed lock) — self-heal any stale banner.
         isHolderRef.current = true;
@@ -122,7 +126,7 @@ export function useDocumentLock(documentId?: string | null, enabled: boolean = t
         setIsReadOnly(false);
         setCanTakeOver(false);
         setHolderName(null);
-        if (typeof res.version === "number") setVersion(res.version);
+        if (typeof body.version === "number") setVersion(body.version);
       }
     },
     [documentId, getToken],
