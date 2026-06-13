@@ -286,6 +286,17 @@ model Document {
   baseDocumentId String? @db.Uuid
   revisionNumber Int?    @default(0)
 
+  // Concurrent-edit guard (presence lock + optimistic concurrency).
+  // editingAt = heartbeat (editor open); lastActivityAt = last real content
+  // edit. Take-over is allowed only when lastActivityAt is >5 min stale.
+  // version increments on every successful save; a save carrying an older
+  // version is rejected (409) so a stale copy can't clobber newer work.
+  editingByUserId String?
+  editingByName   String?
+  editingAt       DateTime?
+  lastActivityAt  DateTime?
+  version         Int       @default(0)
+
   // Project link
   projectId           String? @db.Uuid
   // Deployment link — for invoices/DOs that belong to a specific rental/sale event

@@ -1,6 +1,6 @@
 import { PartialType } from '@nestjs/swagger';
 import { CreateDocumentDto } from './create-document.dto';
-import { IsArray, IsNotEmpty, IsOptional, IsString, IsUUID, ValidateNested, IsEnum } from 'class-validator';
+import { IsArray, IsNotEmpty, IsOptional, IsString, IsUUID, ValidateNested, IsEnum, IsInt } from 'class-validator';
 import { Type } from 'class-transformer';
 import { DocumentStatus } from '@prisma/client';
 
@@ -183,4 +183,10 @@ export class UpdateDocumentDto extends PartialType(CreateDocumentDto) {
   @IsString()
   @IsOptional()
   name?: string;
+
+  // Optimistic-concurrency token: the version the client loaded. A save whose
+  // version is behind the stored one is rejected (409) by updateDocument.
+  @IsInt()
+  @IsOptional()
+  version?: number;
 }

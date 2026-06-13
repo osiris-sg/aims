@@ -180,6 +180,122 @@ export class DocumentsService {
     }
   }
 
+  // --- Concurrent-edit lock (presence + takeover) ----------------------------
+  // A holder is considered idle (and thus take-over-able) once they haven't made
+  // a real content edit for this long. Presence heartbeats refresh editingAt but
+  // NOT lastActivityAt, so a tab left open still goes idle.
+  private static readonly LOCK_IDLE_MS = 5 * 60 * 1000; // 5 minutes
+
+  private buildLockState(doc: any, viewerUserId: string) {
+    const holder = doc?.editingByUserId || null;
+    const heldByMe = !!holder && holder === viewerUserId;
+    const lastActivity = doc?.lastActivityAt ? new Date(doc.lastActivityAt).getTime() : 0;
+    const idleMs = lastActivity ? Date.now() - lastActivity : Number.POSITIVE_INFINITY;
+    const isIdle = !holder || idleMs >= DocumentsService.LOCK_IDLE_MS;
+    return {
+      editingByUserId: holder,
+      editingByName: doc?.editingByName || null,
+      editingAt: doc?.editingAt || null,
+      lastActivityAt: doc?.lastActivityAt || null,
+      version: doc?.version ?? 0,
+      heldByMe,
+      // Someone else is actively editing → the opener should go read-only.
+      lockedByOther: !!holder && !heldByMe && !isIdle,
+      // Any non-holder may take over — always offer a way out so a user is
+      // never dead-ended in read-only (e.g. a stale lock from another account
+      // during testing, or a colleague who walked away). The version-409 guard
+      // on save still prevents silent clobbering. `idle` only changes the
+      // banner wording (active vs. "away"), not whether takeover is allowed.
+      canTakeOver: !!holder && !heldByMe,
+      isIdle: !!holder && !heldByMe && isIdle,
+    };
+  }
+
+  // Claim/refresh the lock when opening the editor. Claims when the doc is free,
+  // already ours, or the holder is idle (>5 min). Never wrests an active editor —
+  // an explicit takeover still requires the holder to be idle.
+  async acquireDocumentLock(
+    id: string,
+    organizationId: string,
+    userId: string,
+    userName: string,
+    takeover: boolean,
+  ) {
+    const doc = await this.prisma.document.findUnique({ where: { id, organizationId } });
+    if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+    const state = this.buildLockState(doc, userId);
+    // Claim silently only when the doc is free or already ours. An idle holder
+    // is NOT auto-grabbed — the opener gets read-only + a "Take over" affordance
+    // and must pass takeover=true to claim. An actively-editing holder can never
+    // be taken over.
+    const canClaim = !state.editingByUserId || state.heldByMe || (takeover && state.canTakeOver);
+    if (!canClaim) {
+      // Either someone is actively editing (read-only), or it's idle and the
+      // opener hasn't asked to take over yet (read-only + canTakeOver).
+      return { acquired: false, ...state };
+    }
+    const now = new Date();
+    const updated = await this.prisma.document.update({
+      where: { id, organizationId },
+      data: {
+        editingByUserId: userId,
+        editingByName: userName,
+        editingAt: now,
+        // Reset the idle clock on (re)acquire/takeover so a freshly opened doc
+        // isn't instantly take-over-able and a takeover starts a clean window.
+        lastActivityAt: now,
+      } as any,
+    });
+    return { acquired: true, ...this.buildLockState(updated, userId) };
+  }
+
+  // Heartbeat while the editor is open. edited=true bumps the idle clock; a bare
+  // ping only refreshes presence. The lock is self-healing: lostLock is reported
+  // ONLY when ANOTHER user now holds it (a genuine takeover). If the lock was
+  // found free (lapsed/released transiently — e.g. a stray cleanup or HMR remount
+  // in dev), the holder simply re-claims it, so a hiccup never kicks the active
+  // editor to read-only.
+  async heartbeatDocumentLock(
+    id: string,
+    organizationId: string,
+    userId: string,
+    userName: string,
+    edited: boolean,
+  ) {
+    const doc = await this.prisma.document.findUnique({ where: { id, organizationId } });
+    if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+    const holder = (doc as any).editingByUserId;
+    if (holder && holder !== userId) {
+      return { ok: false, lostLock: true, ...this.buildLockState(doc, userId) };
+    }
+    const reclaiming = !holder; // lock was free → re-assert this editor's hold
+    const now = new Date();
+    const updated = await this.prisma.document.update({
+      where: { id, organizationId },
+      data: {
+        editingByUserId: userId,
+        editingByName: userName || (doc as any).editingByName || 'Someone',
+        editingAt: now,
+        ...(edited || reclaiming ? { lastActivityAt: now } : {}),
+      } as any,
+    });
+    return { ok: true, lostLock: false, ...this.buildLockState(updated, userId) };
+  }
+
+  // Release on close/save. No-op if the caller isn't the current holder.
+  async releaseDocumentLock(id: string, organizationId: string, userId: string) {
+    const doc = await this.prisma.document.findUnique({ where: { id, organizationId } });
+    if (!doc) return { released: false };
+    if ((doc as any).editingByUserId && (doc as any).editingByUserId !== userId) {
+      return { released: false }; // someone else holds it now — leave it intact
+    }
+    await this.prisma.document.update({
+      where: { id, organizationId },
+      data: { editingByUserId: null, editingByName: null, editingAt: null, lastActivityAt: null } as any,
+    });
+    return { released: true };
+  }
+
   async updateDocument(dto: UpdateDocumentDto, organizationId: string) {
     try {
       const configAsPlainObject: any = dto.config ? dto.config : null;
@@ -205,6 +321,29 @@ export class DocumentsService {
           throw new HttpException('Cannot edit confirmed document. Please create a revision instead.', HttpStatus.FORBIDDEN);
         }
         // Allow only status changes for confirmed documents
+      }
+
+      // Optimistic-concurrency guard. If the client sent the version it loaded,
+      // reject the save when the document has since moved on (someone else saved
+      // it, or took the lock over). Stops a stale copy from silently clobbering
+      // newer work. Callers that don't send a version (internal/non-editor
+      // updates) are unaffected; the editor always sends it.
+      const incomingVersion = (dto as any).version;
+      if (
+        typeof incomingVersion === 'number' &&
+        (existingDocument as any).version != null &&
+        incomingVersion !== (existingDocument as any).version
+      ) {
+        throw new HttpException(
+          {
+            message:
+              'This document was updated by someone else. Reload to get the latest version before saving.',
+            code: 'VERSION_CONFLICT',
+            currentVersion: (existingDocument as any).version,
+            editingByName: (existingDocument as any).editingByName || null,
+          },
+          HttpStatus.CONFLICT,
+        );
       }
 
       // projectId can arrive either at the top level (frontend's update payload
@@ -326,7 +465,10 @@ export class DocumentsService {
           name: nameToWrite, // Custom doc number wins; otherwise honour dto.name
           // Link to project if projectId exists in config
           projectId: projectId || undefined,
-        },
+          // Bump the optimistic-concurrency counter on every successful save so
+          // any other editor holding an older copy is rejected on their save.
+          version: { increment: 1 },
+        } as any,
       });
 
       // Order.linkedDocuments stores a *snapshot* of each linked doc's name —

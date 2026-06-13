@@ -17,6 +17,8 @@ interface RequestWithOrganization extends Request {
     id: string;
     name: string;
   };
+  // Set by ClerkAuthGuard — the authenticated user (id is the Clerk user id).
+  user?: { id: string };
 }
 @Controller('documents')
 @UseGuards(ClerkAuthGuard)
@@ -162,6 +164,51 @@ export class DocumentsController {
       );
     }
     return await this.documentsService.linkProjectToDocument(id, body.projectId, organizationId);
+  }
+
+  // --- Concurrent-edit lock (presence) ---------------------------------------
+  // Claim/refresh the edit lock when opening a document in the editor. Returns
+  // the lock state so the client can decide: edit, go read-only, or offer
+  // "Take over" (only when the current holder has been idle > 5 min).
+  @Patch(':id/lock')
+  @Permissions('documents:update')
+  async acquireLock(
+    @Param('id') id: string,
+    @Body() body: { userName?: string; takeover?: boolean },
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    const userId = req.user?.id;
+    if (!userId) throw new HttpException('No authenticated user', HttpStatus.UNAUTHORIZED);
+    return this.documentsService.acquireDocumentLock(id, organizationId, userId, body?.userName || 'Someone', !!body?.takeover);
+  }
+
+  // Heartbeat while the editor is open. edited=true means the holder actually
+  // changed content (bumps the idle clock); edited=false is a presence ping.
+  @Patch(':id/lock/heartbeat')
+  @Permissions('documents:update')
+  async heartbeatLock(
+    @Param('id') id: string,
+    @Body() body: { edited?: boolean; userName?: string },
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    const userId = req.user?.id;
+    if (!userId) throw new HttpException('No authenticated user', HttpStatus.UNAUTHORIZED);
+    return this.documentsService.heartbeatDocumentLock(id, organizationId, userId, body?.userName || 'Someone', !!body?.edited);
+  }
+
+  // Release the lock on close/save. No-op if the caller isn't the holder.
+  @Delete(':id/lock')
+  @Permissions('documents:update')
+  async releaseLock(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    const userId = req.user?.id;
+    if (!userId) throw new HttpException('No authenticated user', HttpStatus.UNAUTHORIZED);
+    return this.documentsService.releaseDocumentLock(id, organizationId, userId);
   }
 
   @Post('update')
