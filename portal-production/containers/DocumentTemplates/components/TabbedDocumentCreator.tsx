@@ -401,6 +401,13 @@ export default function TabbedDocumentCreator({
     return result;
   }, [onSave, lockEnabled, lockReadOnly, lock.lostLock, lock.holderName, lock.version, lock.refreshVersion]);
 
+  // Draft autosave: while we hold the lock on a persisted draft, edits save
+  // automatically (debounced) so there's no manual Save button — Confirm stays
+  // explicit. New (unsaved) drafts and the template editor keep the manual Save.
+  const autosaveActive = lockEnabled && !lockReadOnly && !isTemplateEditMode;
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const isAutosavingRef = useRef(false);
+
   // Past descriptions history hook
   const { pastDescriptions, isLoading: isLoadingDescriptions } = usePastDescriptions();
 
@@ -2272,6 +2279,41 @@ export default function TabbedDocumentCreator({
     }
   };
 
+  // Debounce: 2s after the last edit, autosave the draft. Re-runs on every
+  // items/formData change (resetting the timer), so it only fires once editing
+  // pauses. Gated on holding the lock + having real unsaved edits (isDirtyRef).
+  useEffect(() => {
+    if (!autosaveActive) return;
+    if (!isDirtyRef.current) return;
+    const t = setTimeout(async () => {
+      if (isAutosavingRef.current || !isDirtyRef.current) return;
+      isAutosavingRef.current = true;
+      setSaveStatus("saving");
+      try {
+        const name = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || "SYS";
+        const ts = new Date().toISOString();
+        await guardedSave({
+          ...formData,
+          items,
+          name: formData.name || (formData?.documentInfo as any)?.documentNumber,
+          savedBy: name,
+          savedAt: ts,
+          lastUsedBy: name,
+          lastUsedAt: ts,
+        });
+        await persistProjectLinkIfChanged();
+        isDirtyRef.current = false;
+        setSaveStatus("saved");
+      } catch {
+        setSaveStatus("error");
+      } finally {
+        isAutosavingRef.current = false;
+      }
+    }, 2000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, formData, autosaveActive]);
+
   return (
     <Box sx={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}>
       {/* Concurrent-edit banner: read-only when someone else holds the lock. */}
@@ -2803,7 +2845,29 @@ export default function TabbedDocumentCreator({
               Mark as Paid
             </Button>
           )}
-          {!isDocumentConfirmed && (
+          {/* Autosave status indicator — replaces the manual Save button while
+              we hold the lock on a persisted draft (Confirm stays explicit). */}
+          {!isDocumentConfirmed && autosaveActive && (
+            <Typography
+              variant="body2"
+              sx={{ display: "flex", alignItems: "center", gap: 0.5, color: saveStatus === "error" ? "error.main" : "text.secondary", fontWeight: 500, px: 1 }}
+            >
+              {saveStatus === "saving" ? (
+                <>
+                  <CircularProgress size={14} thickness={5} />
+                  Saving…
+                </>
+              ) : saveStatus === "error" ? (
+                "Couldn't save"
+              ) : (
+                <>
+                  <CheckCircleIcon fontSize="small" color="success" />
+                  Saved
+                </>
+              )}
+            </Typography>
+          )}
+          {!isDocumentConfirmed && !autosaveActive && (
             <Button
               size="small"
               variant="contained"
