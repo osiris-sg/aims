@@ -486,6 +486,10 @@ export class DocumentsService {
           // Bump the optimistic-concurrency counter on every successful save so
           // any other editor holding an older copy is rejected on their save.
           version: { increment: 1 },
+          // A content save IS activity by the lock holder — bump the idle clock
+          // so an actively-saving editor (autosave fires ~every 2s) never reads
+          // as idle and can't be taken over. Status-only updates skip this.
+          ...(configAsPlainObject ? { lastActivityAt: new Date() } : {}),
         } as any,
       });
 
