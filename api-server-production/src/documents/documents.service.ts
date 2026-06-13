@@ -189,7 +189,13 @@ export class DocumentsService {
   private buildLockState(doc: any, viewerUserId: string) {
     const holder = doc?.editingByUserId || null;
     const heldByMe = !!holder && holder === viewerUserId;
-    const lastActivity = doc?.lastActivityAt ? new Date(doc.lastActivityAt).getTime() : 0;
+    // Idle is measured from the last REAL edit. Fall back to the presence
+    // heartbeat (editingAt) when lastActivityAt is missing, so a just-opened doc
+    // (which has a fresh editingAt but no edits yet) is never instantly
+    // take-over-able. Only a genuinely held doc with NO timestamps at all is
+    // treated as idle.
+    const activityTs = doc?.lastActivityAt ?? doc?.editingAt ?? null;
+    const lastActivity = activityTs ? new Date(activityTs).getTime() : 0;
     const idleMs = lastActivity ? Date.now() - lastActivity : Number.POSITIVE_INFINITY;
     const isIdle = !holder || idleMs >= DocumentsService.LOCK_IDLE_MS;
     return {
