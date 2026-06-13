@@ -233,13 +233,6 @@ export class DocumentsService {
     // and must pass takeover=true to claim. An actively-editing holder can never
     // be taken over.
     const canClaim = !state.editingByUserId || state.heldByMe || (takeover && state.canTakeOver);
-    // [doclock] diagnostic — remove once the false-lock issue is understood.
-    console.log('[doclock] acquire', JSON.stringify({
-      doc: id, org: organizationId, viewer: userId, viewerName: userName, takeover,
-      storedHolderId: (doc as any).editingByUserId, storedHolderName: (doc as any).editingByName,
-      heldByMe: state.heldByMe, canTakeOver: state.canTakeOver, lockedByOther: state.lockedByOther,
-      lastActivityAt: (doc as any).lastActivityAt, canClaim, willAcquire: canClaim,
-    }));
     if (!canClaim) {
       // Either someone is actively editing (read-only), or it's idle and the
       // opener hasn't asked to take over yet (read-only + canTakeOver).
@@ -276,11 +269,6 @@ export class DocumentsService {
     const doc = await this.prisma.document.findUnique({ where: { id, organizationId } });
     if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
     const holder = (doc as any).editingByUserId;
-    // [doclock] diagnostic — remove once the false-lock issue is understood.
-    console.log('[doclock] heartbeat', JSON.stringify({
-      doc: id, viewer: userId, viewerName: userName, storedHolderId: holder,
-      storedHolderName: (doc as any).editingByName, edited, lostLock: !!(holder && holder !== userId),
-    }));
     if (holder && holder !== userId) {
       return { ok: false, lostLock: true, ...this.buildLockState(doc, userId) };
     }
