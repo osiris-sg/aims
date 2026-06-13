@@ -63,6 +63,9 @@ export function useDocumentLock(documentId?: string | null, enabled: boolean = t
   // Apply an acquire/poll response: acquired === true means I hold it (editable);
   // otherwise read-only, surfacing why (active holder vs idle → takeover).
   const applyAcquire = useCallback((res: any) => {
+    // [doclock] diagnostic — remove once the false-lock issue is understood.
+    // eslint-disable-next-line no-console
+    console.log("[doclock] applyAcquire", { documentId, acquired: res?.acquired, storedHolderId: res?.editingByUserId, storedHolderName: res?.editingByName, canTakeOver: res?.canTakeOver, heldByMe: res?.heldByMe });
     if (typeof res?.version === "number") setVersion(res.version);
     if (res?.acquired) {
       isHolderRef.current = true;
@@ -76,7 +79,7 @@ export function useDocumentLock(documentId?: string | null, enabled: boolean = t
       setCanTakeOver(!!res?.canTakeOver);
       setHolderName(res?.editingByName || "another user");
     }
-  }, []);
+  }, [documentId]);
 
   const callAcquire = useCallback(
     async (takeover: boolean) => {
