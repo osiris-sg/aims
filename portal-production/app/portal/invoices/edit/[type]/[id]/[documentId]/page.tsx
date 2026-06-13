@@ -140,6 +140,8 @@ export default function page() {
         projectId: data.project?.id || data.projectId || null,
         documentTemplateId: documentMetadata?.documentTemplateId || id,
         name: data.name || data.documentInfo?.documentNumber || documentMetadata?.name,
+        // Optimistic-concurrency token (see editor lock); backend 409s on stale save.
+        version: data.version,
       };
 
       console.log('Saving document with payload:', updatePayload);

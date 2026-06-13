@@ -457,6 +457,9 @@ export default function page() {
         projectId: data.project?.id || data.projectId || null,
         documentTemplateId: documentMetadata?.documentTemplateId || params.id as string,
         name: data.name || data.documentInfo?.documentNumber || documentMetadata?.name,
+        // Optimistic-concurrency token from the editor's lock; the backend
+        // rejects the save (409) if another editor saved in the meantime.
+        version: data.version,
       };
 
       console.log('Saving document with payload:', updatePayload);

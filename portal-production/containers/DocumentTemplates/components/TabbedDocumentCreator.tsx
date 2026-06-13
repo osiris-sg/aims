@@ -94,6 +94,7 @@ import RecordPaymentDialog from "@/app/portal/invoices/components/RecordPaymentD
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useReactToPrint } from "react-to-print";
 import { request } from "@/helpers/request";
+import { useDocumentLock } from "@/app/portal/hooks/useDocumentLock";
 import { toast } from "react-toastify";
 import { useForm, Controller } from "react-hook-form";
 import { usePathname, useRouter } from "next/navigation";
@@ -372,6 +373,34 @@ export default function TabbedDocumentCreator({
   const { getToken } = useAuth();
   const { user } = useUser();
 
+  // Concurrent-edit guard. Only locks a persisted document being edited (not a
+  // brand-new draft, not the template editor, not a confirmed/preview view).
+  const lockDocId = (existingData?.id || documentId) as string | undefined;
+  // Don't lock the read-only view page (opens in preview), the template editor,
+  // or confirmed documents — only a real edit session claims the lock.
+  const lockEnabled = !!lockDocId && !isTemplateEditMode && !isDocumentConfirmed && !initialPreviewMode;
+  const lock = useDocumentLock(lockDocId, lockEnabled);
+  // Read-only when someone else is editing, an idle lock hasn't been taken over
+  // yet, or someone took the lock from under us.
+  const lockReadOnly = lockEnabled && (lock.isReadOnly || lock.lostLock);
+
+  // Every editor save path funnels through this: block saves while read-only,
+  // stamp the optimistic-concurrency version, then re-pull the bumped version
+  // so a follow-up save by the same user doesn't false-conflict.
+  const guardedSave = useCallback(async (saveData: any) => {
+    if (lockReadOnly) {
+      toast.error(
+        lock.lostLock
+          ? `${lock.holderName || "Someone"} took over editing — reload to see their changes.`
+          : `${lock.holderName || "Someone"} is editing this document. Take over to make changes.`,
+      );
+      return;
+    }
+    const result = await onSave?.({ ...saveData, version: lockEnabled ? lock.version : undefined });
+    if (lockEnabled) lock.refreshVersion();
+    return result;
+  }, [onSave, lockEnabled, lockReadOnly, lock.lostLock, lock.holderName, lock.version, lock.refreshVersion]);
+
   // Past descriptions history hook
   const { pastDescriptions, isLoading: isLoadingDescriptions } = usePastDescriptions();
 
@@ -635,14 +664,17 @@ export default function TabbedDocumentCreator({
   // document dirty. The back button uses this to decide whether to prompt
   // Save / Cancel / Delete — no prompt is shown if nothing was touched.
   const isDirtyRef = useRef(false);
+  const markEdited = lock.markEdited;
   const setFormData = useCallback((update: any) => {
     isDirtyRef.current = true;
+    markEdited(); // real edit → bump the lock's idle clock on next heartbeat
     setFormDataState(update);
-  }, []);
+  }, [markEdited]);
   const setItems = useCallback((update: any) => {
     isDirtyRef.current = true;
+    markEdited();
     setItemsState(update);
-  }, []);
+  }, [markEdited]);
 
   // Linked-project change handler used by the QUOTATION project picker.
   // Purely local state update — the actual PATCH to
@@ -1609,7 +1641,7 @@ export default function TabbedDocumentCreator({
       };
 
       // Call onSave with confirmed status
-      await onSave?.(saveData);
+      await guardedSave(saveData);
       // Persist any pending quotation→project link before the page reloads.
       await persistProjectLinkIfChanged();
 
@@ -1662,7 +1694,7 @@ export default function TabbedDocumentCreator({
         lastUsedBy: currentUserName,
         lastUsedAt: currentTimestamp,
       };
-      await onSave?.(saveData);
+      await guardedSave(saveData);
       // Persist any pending quotation→project link.
       await persistProjectLinkIfChanged();
       toast.success("Quotation confirmed");
@@ -1726,7 +1758,7 @@ export default function TabbedDocumentCreator({
       };
 
       // Call onSave with confirmed status
-      await onSave?.(saveData);
+      await guardedSave(saveData);
 
       const docLabel = isPurchaseReturn ? "Purchase Return" : "Purchase Order";
       toast.success(`${docLabel} confirmed and stock updated`);
@@ -1769,7 +1801,7 @@ export default function TabbedDocumentCreator({
       };
 
       // Call onSave with confirmed status
-      await onSave?.(saveData);
+      await guardedSave(saveData);
 
       const docLabel = isStockAdjustmentIn ? "Stock Adjustment In" : "Stock Adjustment Out";
       toast.success(`${docLabel} confirmed and stock updated`);
@@ -1819,7 +1851,7 @@ export default function TabbedDocumentCreator({
       };
 
       // Save current form state first
-      await onSave?.(saveData);
+      await guardedSave(saveData);
 
       // Call backend to confirm DO and handle stock deduction
       const confirmResponse = await request(
@@ -1884,7 +1916,7 @@ export default function TabbedDocumentCreator({
       };
 
       // Save current form state first
-      await onSave?.(saveData);
+      await guardedSave(saveData);
 
       // Call backend to confirm PR and handle stock update
       const confirmResponse = await request(
@@ -1965,7 +1997,7 @@ export default function TabbedDocumentCreator({
       };
 
       // Save current form state first
-      await onSave?.(saveData);
+      await guardedSave(saveData);
 
       // Call backend to confirm Invoice and handle stock deduction
       const confirmResponse = await request(
@@ -2177,7 +2209,7 @@ export default function TabbedDocumentCreator({
 
     if (isTemplateEditMode) {
       const templateConfig = templateMethods.getValues();
-      await onSave?.({ ...formData, config: templateConfig });
+      await guardedSave({ ...formData, config: templateConfig });
     } else {
       // Include items in the save data with tracking info
       const saveData = {
@@ -2190,7 +2222,7 @@ export default function TabbedDocumentCreator({
         lastUsedBy: currentUserName,
         lastUsedAt: currentTimestamp,
       };
-      await onSave?.(saveData);
+      await guardedSave(saveData);
       // Commit the quotation project link after the document itself has
       // persisted. Safe no-op for non-quotation flows and for unchanged links.
       await persistProjectLinkIfChanged();
@@ -2242,6 +2274,40 @@ export default function TabbedDocumentCreator({
 
   return (
     <Box sx={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}>
+      {/* Concurrent-edit banner: read-only when someone else holds the lock. */}
+      {lockEnabled && lockReadOnly && (
+        <Box
+          sx={{
+            px: 2,
+            py: 1,
+            display: "flex",
+            alignItems: "center",
+            gap: 1.5,
+            // Explicit high-contrast colors so the banner is clearly legible in
+            // BOTH light and dark mode (the theme warning/error tokens render as
+            // pale fills with dark text that wash out on the dark surface).
+            bgcolor: lock.lostLock ? "#C62828" : "#F9A825",
+            color: lock.lostLock ? "#FFFFFF" : "#1A1100",
+            borderBottom: 1,
+            borderColor: "divider",
+          }}
+        >
+          <Typography variant="body2" sx={{ fontWeight: 700, flex: 1 }}>
+            {lock.lostLock
+              ? `${lock.holderName || "Someone"} took over editing this document. Reload to see the latest version before making changes.`
+              : `${lock.holderName || "Someone"} has this document open — take over to make changes.`}
+          </Typography>
+          {lock.lostLock ? (
+            <Button size="small" variant="contained" color="inherit" onClick={() => window.location.reload()}>
+              Reload
+            </Button>
+          ) : lock.canTakeOver ? (
+            <Button size="small" variant="contained" color="inherit" onClick={() => lock.takeOver()}>
+              Take over
+            </Button>
+          ) : null}
+        </Box>
+      )}
       {/* Header Actions */}
       <Box
         sx={{
@@ -2750,7 +2816,7 @@ export default function TabbedDocumentCreator({
                 if (isTemplateEditMode) {
                   // Save template configuration
                   const templateConfig = templateMethods.getValues();
-                  await onSave?.({ ...formData, config: templateConfig });
+                  await guardedSave({ ...formData, config: templateConfig });
                   toast.success("Template saved");
                 } else {
                   // Save document data with name field, items, and tracking info
@@ -2768,7 +2834,7 @@ export default function TabbedDocumentCreator({
                   console.log("Direct Save - deliveryTo in saveData:", saveData.deliveryTo);
                   console.log("Direct Save - issueBy in saveData:", saveData.issueBy);
                   console.log("Direct Save - Items in saveData:", JSON.stringify(saveData.items, null, 2));
-                  await onSave?.(saveData);
+                  await guardedSave(saveData);
                   // Persist any pending quotation→project link.
                   await persistProjectLinkIfChanged();
                   toast.success("Document saved as draft");
