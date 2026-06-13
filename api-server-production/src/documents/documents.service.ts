@@ -207,13 +207,11 @@ export class DocumentsService {
       heldByMe,
       // Someone else is actively editing → the opener should go read-only.
       lockedByOther: !!holder && !heldByMe && !isIdle,
-      // Any non-holder may take over — always offer a way out so a user is
-      // never dead-ended in read-only (e.g. a stale lock from another account
-      // during testing, or a colleague who walked away). The version-409 guard
-      // on save still prevents silent clobbering. `idle` only changes the
-      // banner wording (active vs. "away"), not whether takeover is allowed.
-      canTakeOver: !!holder && !heldByMe,
-      isIdle: !!holder && !heldByMe && isIdle,
+      // Take over is offered ONLY once the holder has been idle (no real edit /
+      // save) for >5 min — an actively-working holder is never taken over. A
+      // stale lock self-resolves: it goes idle after 5 min and becomes
+      // take-over-able, so nobody is permanently dead-ended in read-only.
+      canTakeOver: !!holder && !heldByMe && isIdle,
     };
   }
 
