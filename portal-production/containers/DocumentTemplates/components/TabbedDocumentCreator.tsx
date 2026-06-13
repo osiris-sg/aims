@@ -273,8 +273,8 @@ export default function TabbedDocumentCreator({
     `,
   });
 
-  // Back button confirmation dialog
-  const [backConfirmDialogOpen, setBackConfirmDialogOpen] = useState(false);
+  // "Saving, please wait…" dialog shown on exit while a save is flushing.
+  const [savingExitDialogOpen, setSavingExitDialogOpen] = useState(false);
 
   // Send email dialog state
   const [sendEmailDialogOpen, setSendEmailDialogOpen] = useState(false);
@@ -2187,24 +2187,53 @@ export default function TabbedDocumentCreator({
     templateMethods.setValue(`columnLabels.${fieldId}`, label, { shouldDirty: true });
   };
 
-  // Handle back button click
-  const handleBackClick = () => {
-    // If document is confirmed, just navigate back without showing dialog
+  // Handle back button click. With autosave there's no save/discard prompt:
+  // if a save is pending or in flight we show a "Saving, please wait…" dialog,
+  // flush the save, then auto-navigate. Otherwise we leave immediately.
+  const handleBackClick = async () => {
+    const backRoute = resolveBackRoute(documentType);
     const documentStatus = existingData?.status || "draft";
     if (documentStatus === "confirmed") {
-      // Navigate to parent page for confirmed documents
-      router.push(resolveBackRoute(documentType));
-    } else {
-      // Only prompt if the user actually touched something in the document.
-      const hasChanges = isDirtyRef.current;
-
-      if (hasChanges) {
-        // Show dialog only if there are unsaved changes
-        setBackConfirmDialogOpen(true);
-      } else {
-        // No changes, navigate to parent page
-        router.push(resolveBackRoute(documentType));
+      router.push(backRoute);
+      return;
+    }
+    const pending = isDirtyRef.current || isAutosavingRef.current || saveStatus === "saving";
+    if (!pending) {
+      router.push(backRoute);
+      return;
+    }
+    setSavingExitDialogOpen(true);
+    try {
+      // Let any in-flight autosave settle first (avoids a double-save / version race).
+      let waited = 0;
+      while (isAutosavingRef.current && waited < 15000) {
+        await new Promise((r) => setTimeout(r, 150));
+        waited += 150;
       }
+      if (isDirtyRef.current) {
+        setSaveStatus("saving");
+        const name = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || "SYS";
+        const ts = new Date().toISOString();
+        if (isTemplateEditMode) {
+          await guardedSave({ ...formData, config: templateMethods.getValues() });
+        } else {
+          await guardedSave({
+            ...formData,
+            items,
+            name: formData.name || (formData?.documentInfo as any)?.documentNumber,
+            savedBy: name,
+            savedAt: ts,
+            lastUsedBy: name,
+            lastUsedAt: ts,
+          });
+          await persistProjectLinkIfChanged();
+        }
+        isDirtyRef.current = false;
+        setSaveStatus("saved");
+      }
+    } finally {
+      setSavingExitDialogOpen(false);
+      router.push(backRoute);
     }
   };
 
@@ -4819,60 +4848,23 @@ export default function TabbedDocumentCreator({
         )}
       </Dialog>
 
-      {/* Back Button Confirmation Dialog */}
+      {/* Saving-on-exit dialog: shown while the draft flushes its last save,
+          then auto-closes and navigates. No save/discard choice — autosave
+          already persisted everything; this just waits for the tail save. */}
       <Dialog
-        open={backConfirmDialogOpen}
-        onClose={() => setBackConfirmDialogOpen(false)}
+        open={savingExitDialogOpen}
         maxWidth="xs"
         fullWidth
-        PaperProps={{
-          sx: {
-            borderRadius: 2,
-            p: 1,
-          }
-        }}
+        PaperProps={{ sx: { borderRadius: 2, p: 1 } }}
       >
         <DialogContent>
-          <Typography variant="body1" sx={{ textAlign: 'center', fontWeight: 500 }}>
-            Do you want to <strong>save this {getDocumentTitle().toLowerCase()} as draft</strong> or <strong>delete</strong> it?
-          </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1.5, py: 1 }}>
+            <CircularProgress size={20} thickness={5} />
+            <Typography variant="body1" sx={{ fontWeight: 500 }}>
+              Saving… please wait
+            </Typography>
+          </Box>
         </DialogContent>
-        <DialogActions sx={{ justifyContent: 'center', gap: 1, pb: 2 }}>
-          <Button
-            onClick={() => setBackConfirmDialogOpen(false)}
-            variant="text"
-            color="inherit"
-            sx={{
-              color: 'text.secondary',
-              textTransform: 'uppercase',
-              fontWeight: 500,
-            }}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSaveAsDraft}
-            variant="text"
-            sx={{
-              color: '#4CAF50',
-              textTransform: 'uppercase',
-              fontWeight: 500,
-            }}
-          >
-            {isQuotation ? "Save" : "Save as Draft"}
-          </Button>
-          <Button
-            onClick={handleDelete}
-            variant="text"
-            sx={{
-              color: '#f44336',
-              textTransform: 'uppercase',
-              fontWeight: 500,
-            }}
-          >
-            Delete
-          </Button>
-        </DialogActions>
       </Dialog>
 
       {/* Confirm Document Dialog */}
