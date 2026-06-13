@@ -2366,7 +2366,9 @@ export default function TabbedDocumentCreator({
           <Typography variant="body2" sx={{ fontWeight: 700, flex: 1 }}>
             {lock.lostLock
               ? `${lock.holderName || "Someone"} took over editing this document. Reload to see the latest version before making changes.`
-              : `${lock.holderName || "Someone"} has this document open — take over to make changes.`}
+              : lock.canTakeOver
+              ? `${lock.holderName || "Someone"} has this document open but hasn't edited it in a while — you can take over editing.`
+              : `${lock.holderName || "Someone"} is currently editing this document. Please wait until they're done before you can take over.`}
           </Typography>
           {lock.lostLock ? (
             <Button size="small" variant="contained" color="inherit" onClick={() => window.location.reload()}>
