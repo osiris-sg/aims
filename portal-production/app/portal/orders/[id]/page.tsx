@@ -17,6 +17,8 @@ import {
   Divider,
   IconButton,
   Stack,
+  Tab,
+  Tabs,
   Table,
   TableBody,
   TableCell,
@@ -104,6 +106,11 @@ const statusColor = (status: string) => {
   return "default";
 };
 
+// Pipeline stages an order item moves through. "sentPaid" covers both an
+// emailed (pending_payment) and a paid invoice — the row shows which.
+type Stage = "new" | "so" | "po" | "do" | "delivered" | "invoice" | "sentPaid";
+const DELIVERED_STATUSES = ["delivered_not_installed", "delivered_installed"];
+
 export default function OrderDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const { organization } = useOrganization();
@@ -178,6 +185,70 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     const base = isProject && draftItems ? draftItems : order?.items || [];
     return base.map((it, idx) => ({ ...it, _index: idx }));
   }, [isProject, draftItems, order?.items]);
+
+  // --- Pipeline stages -------------------------------------------------------
+  // Each item lives under one tab = the furthest stage it has reached. Stage is
+  // derived from which linked docs include the item and their live status
+  // (delivered / sent / paid), enriched server-side in orders.getById.
+  const STAGES: { key: Stage; label: string }[] = [
+    { key: "new", label: "Not Started" },
+    { key: "so", label: "SO" },
+    { key: "po", label: "PO" },
+    { key: "do", label: "DO Created" },
+    { key: "delivered", label: "Delivered" },
+    { key: "invoice", label: "Invoice" },
+    { key: "sentPaid", label: "Sent / Paid" },
+  ];
+
+  const linkedDocsFor = useCallback(
+    (itemId?: number) => {
+      const ld: any = order?.linkedDocuments || {};
+      const pick = (kind: string) =>
+        (ld[kind] || []).filter(
+          (d: any) => itemId != null && Array.isArray(d.itemIds) && d.itemIds.includes(itemId),
+        );
+      return { salesOrder: pick("salesOrder"), po: pick("po"), do: pick("do"), invoice: pick("invoice") };
+    },
+    [order?.linkedDocuments],
+  );
+
+  const stageOf = useCallback(
+    (item: any): Stage => {
+      const d = linkedDocsFor(item?.id);
+      const invStatus = d.invoice.map((x: any) => x.status);
+      const doStatus = d.do.map((x: any) => x.status);
+      if (invStatus.includes("paid") || invStatus.includes("pending_payment")) return "sentPaid";
+      if (d.invoice.length) return "invoice";
+      if (doStatus.some((s: string) => DELIVERED_STATUSES.includes(s))) return "delivered";
+      if (d.do.length) return "do";
+      if (d.po.length) return "po";
+      if (d.salesOrder.length) return "so";
+      return "new";
+    },
+    [linkedDocsFor],
+  );
+
+  const stageCounts = useMemo(() => {
+    const counts: Record<Stage, number> = { new: 0, so: 0, po: 0, do: 0, delivered: 0, invoice: 0, sentPaid: 0 };
+    visibleItems.forEach((it) => { counts[stageOf(it)]++; });
+    return counts;
+  }, [visibleItems, stageOf]);
+
+  const [activeStage, setActiveStage] = useState<Stage>("new");
+  // When an order loads, jump to the first stage that actually has items.
+  useEffect(() => {
+    if (!order?.id) return;
+    const firstNonEmpty = STAGES.find((s) => stageCounts[s.key] > 0)?.key;
+    setActiveStage(firstNonEmpty || "new");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order?.id]);
+
+  const displayedItems = useMemo(
+    () => visibleItems.filter((it) => stageOf(it) === activeStage),
+    [visibleItems, stageOf, activeStage],
+  );
+
+  const changeStage = (s: Stage) => { setActiveStage(s); setSelected([]); };
 
   // Per-line gross (before discount) and the discount $ (gross − net amount).
   // The discount amount is the source of truth (the % is for display/entry),
@@ -322,13 +393,14 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     return result;
   };
 
-  const allChecked = visibleItems.length > 0 && selected.length === visibleItems.length;
-  const someChecked = selected.length > 0 && selected.length < visibleItems.length;
+  // Selection is scoped to the active stage tab (cleared on tab change).
+  const allChecked = displayedItems.length > 0 && selected.length === displayedItems.length;
+  const someChecked = selected.length > 0 && selected.length < displayedItems.length;
 
   const toggleRow = (idx: number) =>
     setSelected((prev) => (prev.includes(idx) ? prev.filter((x) => x !== idx) : [...prev, idx]));
   const toggleAll = () =>
-    setSelected(allChecked ? [] : visibleItems.map((it) => it._index));
+    setSelected(allChecked ? [] : displayedItems.map((it) => it._index));
 
   const lookupCost = (it: OrderItem): number => {
     const inv = inventories.find((i: any) =>
@@ -605,10 +677,37 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         </CardContent>
       </Card>
 
-      {/* Items table */}
+      {/* Items pipeline */}
       <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
         Items ({visibleItems.length})
       </Typography>
+      {/* Stage tabs — each item sits under the furthest stage it has reached;
+          "Not Started" holds items with no documents yet. */}
+      <Tabs
+        value={activeStage}
+        onChange={(_, v) => changeStage(v as Stage)}
+        variant="scrollable"
+        scrollButtons="auto"
+        sx={{ mb: 1, minHeight: 40, borderBottom: 1, borderColor: "divider", "& .MuiTab-root": { minHeight: 40, textTransform: "none" } }}
+      >
+        {STAGES.map((s) => (
+          <Tab
+            key={s.key}
+            value={s.key}
+            label={
+              <Stack direction="row" spacing={0.75} alignItems="center">
+                <span>{s.label}</span>
+                <Chip
+                  size="small"
+                  label={stageCounts[s.key]}
+                  color={s.key === activeStage ? "primary" : "default"}
+                  sx={{ height: 18, minWidth: 18, fontSize: "0.7rem", "& .MuiChip-label": { px: 0.75 } }}
+                />
+              </Stack>
+            }
+          />
+        ))}
+      </Tabs>
       <TableContainer sx={{ mb: 1 }}>
         <Table size="small">
           <TableHead>
@@ -631,16 +730,16 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
             </TableRow>
           </TableHead>
           <TableBody>
-            {visibleItems.length === 0 && (
+            {displayedItems.length === 0 && (
               <TableRow>
                 <TableCell colSpan={11 + (isRouteOrder ? 1 : 0) + (isProject ? 1 : 0)}>
                   <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: "center" }}>
-                    No items in this order.
+                    No items at this stage.
                   </Typography>
                 </TableCell>
               </TableRow>
             )}
-            {visibleItems.map((it) => (
+            {displayedItems.map((it) => (
               <TableRow key={it._index} hover sx={it.isTagGroup ? { bgcolor: "action.hover" } : undefined}>
                 <TableCell sx={{ p: 0, textAlign: "center" }}>
                   <Checkbox size="small" checked={selected.includes(it._index)} onChange={() => toggleRow(it._index)} />
@@ -716,12 +815,22 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                     const s = itemStatusFor(it.id as number | undefined);
                     const any = s.po || s.do || s.invoice || s.salesOrder;
                     if (!any) return <Typography variant="caption" color="text.disabled">—</Typography>;
+                    const d = linkedDocsFor(it.id as number | undefined);
+                    const doDelivered = d.do.some((x: any) => DELIVERED_STATUSES.includes(x.status));
+                    const invPaid = d.invoice.some((x: any) => x.status === "paid");
+                    const invSent = d.invoice.some((x: any) => x.status === "pending_payment");
                     return (
-                      <Stack direction="row" spacing={0.5} justifyContent="center">
+                      <Stack direction="row" spacing={0.5} justifyContent="center" flexWrap="wrap" useFlexGap>
                         {s.salesOrder && <Chip size="small" color="warning" variant="outlined" label="SO" />}
                         {s.po && <Chip size="small" color="success" variant="outlined" label="PO" />}
-                        {s.do && <Chip size="small" color="info" variant="outlined" label="DO" />}
-                        {s.invoice && <Chip size="small" color="primary" variant="outlined" label="INV" />}
+                        {s.do && (doDelivered
+                          ? <Chip size="small" color="info" label="Delivered" />
+                          : <Chip size="small" color="info" variant="outlined" label="DO" />)}
+                        {s.invoice && (invPaid
+                          ? <Chip size="small" color="success" label="Paid" />
+                          : invSent
+                          ? <Chip size="small" color="warning" label="Sent" />
+                          : <Chip size="small" color="primary" variant="outlined" label="INV" />)}
                       </Stack>
                     );
                   })()}

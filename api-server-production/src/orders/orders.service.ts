@@ -222,6 +222,28 @@ export class OrdersService {
       },
     });
     if (!order) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
+
+    // Enrich each linked-document entry with its CURRENT status so the order
+    // page can place items into pipeline stages (DO delivered, invoice
+    // sent/paid). Stored entries only carry id/name/templateId/itemIds; the
+    // live status is read fresh from the Document table here.
+    const ld: any = order.linkedDocuments || {};
+    const kinds = ['po', 'do', 'invoice', 'salesOrder'] as const;
+    const ids: string[] = [];
+    for (const k of kinds) for (const d of ld[k] || []) if (d?.id) ids.push(d.id);
+    if (ids.length) {
+      const docs = await this.prisma.document.findMany({
+        where: { id: { in: ids }, organizationId },
+        select: { id: true, status: true },
+      });
+      const statusById = new Map(docs.map((d) => [d.id, d.status]));
+      for (const k of kinds) {
+        if (Array.isArray(ld[k])) {
+          ld[k] = ld[k].map((d: any) => ({ ...d, status: statusById.get(d.id) ?? d.status ?? null }));
+        }
+      }
+      (order as any).linkedDocuments = ld;
+    }
     return order;
   }
 
