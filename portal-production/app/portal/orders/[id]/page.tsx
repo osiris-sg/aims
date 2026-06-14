@@ -465,7 +465,23 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
       // the user's selection drives what's included so tag groups aren't
       // auto-added (user must check the row to send to a doc).
       const pickedItems = visibleItems.filter((it) => selected.includes(it._index));
-      const flat = pickedItems.map((it, idx) => {
+      // Don't create a second doc of this type for an item that already has one
+      // (e.g. an item already in a DO can't be put into another DO). Skip such
+      // items; if none remain, abort with a notice.
+      const statusKey =
+        targetType === "SO" ? "salesOrder" : targetType === "PO" ? "po" : targetType === "DO" ? "do" : "invoice";
+      const eligibleItems = pickedItems.filter(
+        (it) => !itemStatusFor(it.id as number | undefined)[statusKey as "po" | "do" | "invoice" | "salesOrder"],
+      );
+      const skipped = pickedItems.length - eligibleItems.length;
+      if (eligibleItems.length === 0) {
+        toast.info(`All selected item(s) already have a ${targetType}.`);
+        return;
+      }
+      if (skipped > 0) {
+        toast.info(`Skipped ${skipped} item(s) that already have a ${targetType}.`);
+      }
+      const flat = eligibleItems.map((it, idx) => {
         const qty = Number(it.quantity || 1);
         // Pricing rules per outbound doc:
         //   PO        — Route Order = dealer (what we pay supplier); else cost.
@@ -558,7 +574,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         : targetType === "DO" ? "do"
         : targetType === "SO" ? "salesOrder"
         : "invoice";
-      const itemIds = pickedItems.map((it) => it.id).filter((id) => id != null);
+      const itemIds = eligibleItems.map((it) => it.id).filter((id) => id != null);
       await request(
         { path: `/orders/${order.id}/link`, method: "PATCH" },
         { docKind, docId: created.data.id, docName: created.data.name, templateId, itemIds },
@@ -581,7 +597,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
       );
       setSelected([]);
 
-      toast.success(`${targetType} created from ${pickedItems.length} item(s)`);
+      toast.success(`${targetType} created from ${eligibleItems.length} item(s)`);
       router.push(`/portal/documents/${resolvedType}/${templateId}/${created.data.id}`);
     } catch (err: any) {
       console.error(`Create ${targetType} from order failed:`, err);
@@ -589,6 +605,20 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     } finally {
       setCreating(null);
     }
+  };
+
+  // True when at least one selected item does NOT yet have a doc of this type —
+  // i.e. creating this doc would actually do something. Drives button enabling
+  // so you can't re-create a doc type for items that already have it.
+  const hasEligibleSelected = (targetType: "SO" | "PO" | "DO" | "INVOICE") => {
+    if (selected.length === 0) return false;
+    const statusKey =
+      targetType === "SO" ? "salesOrder" : targetType === "PO" ? "po" : targetType === "DO" ? "do" : "invoice";
+    return visibleItems.some(
+      (it) =>
+        selected.includes(it._index) &&
+        !itemStatusFor(it.id as number | undefined)[statusKey as "po" | "do" | "invoice" | "salesOrder"],
+    );
   };
 
   if (loading) {
@@ -909,7 +939,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           variant="outlined"
           startIcon={<AssignmentIcon />}
           onClick={() => handleCreateDoc("SO")}
-          disabled={selected.length === 0 || !!creating}
+          disabled={selected.length === 0 || !!creating || !hasEligibleSelected("SO")}
         >
           {creating === "SO" ? "Creating…" : "Create SO from selected"}
         </Button>
@@ -917,7 +947,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           variant="outlined"
           startIcon={<ShoppingCartIcon />}
           onClick={() => handleCreateDoc("PO")}
-          disabled={selected.length === 0 || !!creating}
+          disabled={selected.length === 0 || !!creating || !hasEligibleSelected("PO")}
         >
           {creating === "PO" ? "Creating…" : "Create PO from selected"}
         </Button>
@@ -925,7 +955,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           variant="outlined"
           startIcon={<LocalShippingIcon />}
           onClick={() => handleCreateDoc("DO")}
-          disabled={selected.length === 0 || !!creating}
+          disabled={selected.length === 0 || !!creating || !hasEligibleSelected("DO")}
         >
           {creating === "DO" ? "Creating…" : "Create DO from selected"}
         </Button>
@@ -933,7 +963,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           variant="contained"
           startIcon={<ReceiptIcon />}
           onClick={() => handleCreateDoc("INVOICE")}
-          disabled={selected.length === 0 || !!creating}
+          disabled={selected.length === 0 || !!creating || !hasEligibleSelected("INVOICE")}
         >
           {creating === "INVOICE" ? "Creating…" : "Create Invoice from selected"}
         </Button>
