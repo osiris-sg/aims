@@ -187,9 +187,10 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   }, [isProject, draftItems, order?.items]);
 
   // --- Pipeline stages -------------------------------------------------------
-  // Each item lives under one tab = the furthest stage it has reached. Stage is
-  // derived from which linked docs include the item and their live status
-  // (delivered / sent / paid), enriched server-side in orders.getById.
+  // Sequential/cumulative: an item shows under every stage it has reached, so an
+  // invoiced item also appears under DO Created and Delivered. Stage is derived
+  // from which linked docs include the item and their live status (delivered /
+  // sent / paid), enriched server-side in orders.getById. PO is optional.
   const STAGES: { key: Stage; label: string }[] = [
     { key: "new", label: "Not Started" },
     { key: "so", label: "SO" },
@@ -212,27 +213,44 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     [order?.linkedDocuments],
   );
 
-  const stageOf = useCallback(
-    (item: any): Stage => {
+  // Furthest stage an item has reached on the customer pipeline (PO excluded —
+  // it's an optional supplier-side branch). 0 = not started … 5 = sent/paid.
+  const furthestOf = useCallback(
+    (item: any): number => {
       const d = linkedDocsFor(item?.id);
       const invStatus = d.invoice.map((x: any) => x.status);
       const doStatus = d.do.map((x: any) => x.status);
-      if (invStatus.includes("paid") || invStatus.includes("pending_payment")) return "sentPaid";
-      if (d.invoice.length) return "invoice";
-      if (doStatus.some((s: string) => DELIVERED_STATUSES.includes(s))) return "delivered";
-      if (d.do.length) return "do";
-      if (d.po.length) return "po";
-      if (d.salesOrder.length) return "so";
-      return "new";
+      if (invStatus.includes("paid") || invStatus.includes("pending_payment")) return 5;
+      if (d.invoice.length) return 4;
+      if (doStatus.some((s: string) => DELIVERED_STATUSES.includes(s))) return 3;
+      if (d.do.length) return 2;
+      if (d.salesOrder.length) return 1;
+      return 0;
     },
     [linkedDocsFor],
   );
 
+  // Cumulative membership: an item belongs to a stage tab if it has reached AT
+  // LEAST that stage (so an invoiced item also appears under DO Created and
+  // Delivered). PO is the optional branch — shown only if the item has a PO.
+  const itemInStage = useCallback(
+    (item: any, stage: Stage): boolean => {
+      if (stage === "po") return linkedDocsFor(item?.id).po.length > 0;
+      const f = furthestOf(item);
+      if (stage === "new") return f === 0;
+      const rank: Record<string, number> = { so: 1, do: 2, delivered: 3, invoice: 4, sentPaid: 5 };
+      return f >= rank[stage];
+    },
+    [furthestOf, linkedDocsFor],
+  );
+
   const stageCounts = useMemo(() => {
     const counts: Record<Stage, number> = { new: 0, so: 0, po: 0, do: 0, delivered: 0, invoice: 0, sentPaid: 0 };
-    visibleItems.forEach((it) => { counts[stageOf(it)]++; });
+    visibleItems.forEach((it) => {
+      (Object.keys(counts) as Stage[]).forEach((s) => { if (itemInStage(it, s)) counts[s]++; });
+    });
     return counts;
-  }, [visibleItems, stageOf]);
+  }, [visibleItems, itemInStage]);
 
   const [activeStage, setActiveStage] = useState<Stage>("new");
   // When an order loads, jump to the first stage that actually has items.
@@ -244,8 +262,8 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   }, [order?.id]);
 
   const displayedItems = useMemo(
-    () => visibleItems.filter((it) => stageOf(it) === activeStage),
-    [visibleItems, stageOf, activeStage],
+    () => visibleItems.filter((it) => itemInStage(it, activeStage)),
+    [visibleItems, itemInStage, activeStage],
   );
 
   const changeStage = (s: Stage) => { setActiveStage(s); setSelected([]); };
