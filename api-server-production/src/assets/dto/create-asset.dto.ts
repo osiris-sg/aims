@@ -119,4 +119,8 @@ export class CreateAssetDto {
   @IsOptional()
   @Min(0)
   minQuantity?: number;
+
+  @IsString()
+  @IsOptional()
+  waterSgProductLine?: string;
 }

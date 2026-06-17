@@ -31,4 +31,8 @@ export class UpdateInventoryDto extends PartialType(CreateInventoryDto) {
   @IsString()
   @IsOptional()
   sku?: string;
+
+  @IsString()
+  @IsOptional()
+  cameraP2P?: string;
 }

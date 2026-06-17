@@ -57,7 +57,8 @@
     "backfill-biofuel-deployments": "ts-node scripts/backfill-biofuel-deployments.ts",
     "backfill-biofuel-deployments:dry": "ts-node scripts/backfill-biofuel-deployments.ts --dry-run",
     "number-existing-deployments": "ts-node scripts/number-existing-deployments.ts",
-    "backfill-isservice-on-documentitems": "ts-node scripts/backfill-isservice-on-documentitems.ts"
+    "backfill-isservice-on-documentitems": "ts-node scripts/backfill-isservice-on-documentitems.ts",
+    "set-sids-product-line": "ts-node scripts/set-sids-product-line.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
