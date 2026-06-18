@@ -6,7 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "nest build",
+    "build": "nest build && npx prisma db push",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
@@ -22,6 +22,8 @@
     "db:push": "npx prisma db push",
     "db:push:staging": "dotenv -e .env.staging -- npx prisma db push",
     "db:push:prod": "dotenv -e .env.production -- npx prisma db push",
+    "create-standard-quotation": "node scripts/create-standard-quotation.js",
+    "create-standard-quotation:prod": "dotenv -e .env.production -- node scripts/create-standard-quotation.js",
     "db:studio": "npx prisma studio",
     "db:studio:staging": "dotenv -e .env.staging -- npx prisma studio",
     "db:studio:prod": "dotenv -e .env.production -- npx prisma studio",
