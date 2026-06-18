@@ -60,6 +60,28 @@ const fileToDataUrl = (file: File): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
+// Best-effort one-shot GPS fix for the acknowledgement point. The DO_START
+// flow streams continuous pings via the Capgo background plugin; here we only
+// need a single coordinate at the moment of acknowledgement, so the
+// web-standard navigator.geolocation is the right tool (works in the Capacitor
+// Android WebView and needs no native plugin).
+//
+// Resolves to null on ANY failure — permission denied, no signal, timeout, or
+// the API being unavailable — so acknowledgement is never blocked by GPS. The
+// site call is best-effort; latitude/longitude may persist blank.
+const capturePosition = (): Promise<{ latitude: number; longitude: number } | null> =>
+  new Promise((resolve) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+    );
+  });
+
 /**
  * Acknowledge Delivery — second step of the two-step delivery flow. Enabled
  * only when a DO_START MSR exists for this DO and no DO_ACK has been
@@ -80,6 +102,7 @@ export default function DeliveryOrderAckPage() {
   const [photos, setPhotos] = useState<UploadedPhoto[]>([]);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [locating, setLocating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleFiles = async (files: FileList | null) => {
@@ -119,8 +142,14 @@ export default function DeliveryOrderAckPage() {
       // Fallback string when no notes are entered so the row isn't blank in
       // the office-side Field Reports view.
       const description = notes.trim() || "Delivery acknowledged";
-      // Location for the acknowledge point comes from the last background
-      // ping recorded against the parent DO_START — no inline GPS needed.
+      // Capture a one-shot GPS fix for the acknowledgement point so the
+      // coordinates persist on the MSR (the WaterSgService later forwards them
+      // to water-sg). Best-effort only: capturePosition resolves null on
+      // denial / no signal / timeout, in which case latitude/longitude are
+      // simply omitted and the acknowledgement proceeds unblocked.
+      setLocating(true);
+      const coords = await capturePosition();
+      setLocating(false);
       const res = await request(
         { path: "/maintenance-reports", method: "POST" },
         {
@@ -130,6 +159,7 @@ export default function DeliveryOrderAckPage() {
           photos: photos.map((p) => p.key),
           kind: "DO_ACK",
           documentId: doId,
+          ...(coords ? { latitude: coords.latitude, longitude: coords.longitude } : {}),
         },
         token,
       );
@@ -202,7 +232,7 @@ export default function DeliveryOrderAckPage() {
           fullWidth
           sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
         >
-          {submitting ? "Saving..." : "Continue to signature"}
+          {submitting ? (locating ? "Getting location…" : "Saving...") : "Continue to signature"}
         </Button>
       </Stack>
     </Box>
