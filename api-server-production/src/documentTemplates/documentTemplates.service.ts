@@ -192,6 +192,20 @@ export class DocumentTemplatesService {
   }
   async getDocumentTemplateByType(type: string, organizationId: string) {
     try {
+      // Prefer the org's explicit shared-pool selection (which may point at a
+      // template owned by another org). Falls through to legacy isActive below.
+      const selection = await this.prisma.organizationActiveTemplate.findUnique({
+        where: { organizationId_type: { organizationId, type } },
+      });
+      if (selection) {
+        const selected = await this.prisma.documentTemplate.findUnique({
+          where: { id: selection.templateId },
+        });
+        if (selected) {
+          return selected;
+        }
+      }
+
       const documentTemplate = await this.prisma.documentTemplate.findFirst({
         where: {
           type,
@@ -230,18 +244,58 @@ export class DocumentTemplatesService {
 
   async getTemplateVariantsByType(type: string, organizationId: string) {
     try {
+      // The admin panel queries with long-form document type codes (e.g.
+      // "QUOTATION"), but user-created designs are stored with their short
+      // variant codes (e.g. "QO1", "QO2"). Match on the long code OR any of
+      // its known variant codes so created templates actually surface here.
+      const typeToVariants: Record<string, string[]> = {
+        QUOTATION: ['QO1', 'QO2'],
+        DELIVERY_ORDER: ['DO'],
+        RETURN_DELIVERY_ORDER: ['RDO'],
+        INVOICE: ['TI', 'TI2'],
+        MAINTENANCE_SERVICE_REPORT: ['MSR'],
+        PURCHASE_ORDER: ['PO'],
+        PURCHASE_RETURN: ['PR'],
+        SALES_ORDER: ['SO'],
+        DEBIT_NOTE: ['DN'],
+        CREDIT_NOTE: ['CN'],
+        STOCK_ADJUSTMENT_IN: ['SAI'],
+        STOCK_ADJUSTMENT_OUT: ['SAO'],
+      };
+      const typeCandidates = Array.from(
+        new Set([type, ...(typeToVariants[type] || [])]),
+      );
+
+      // Templates are a cross-org shared pool: list every org's templates of
+      // this type so an admin can activate any of them for the current org.
       const variants = await this.prisma.documentTemplate.findMany({
         where: {
-          type,
-          organizationId,
+          type: { in: typeCandidates },
         },
-        orderBy: [
-          { isActive: 'desc' },
-          { designName: 'asc' },
-        ],
+        include: { organization: { select: { id: true, name: true } } },
+        orderBy: [{ designName: 'asc' }],
       });
 
-      return variants;
+      // Resolve which template is active *for this org*: the explicit per-org
+      // selection if present, else fall back to the legacy isActive flag on the
+      // org's own template (pre-shared-library behaviour).
+      const selection = await this.prisma.organizationActiveTemplate.findUnique({
+        where: { organizationId_type: { organizationId, type } },
+      });
+      let activeTemplateId = selection?.templateId;
+      if (!activeTemplateId) {
+        const legacy = variants.find(
+          (v) => v.organizationId === organizationId && v.isActive,
+        );
+        activeTemplateId = legacy?.id;
+      }
+
+      return variants.map((v) => ({
+        ...v,
+        // isActive now means "active for the requesting org", not the shared flag.
+        isActive: v.id === activeTemplateId,
+        ownerOrganizationName: v.organization?.name ?? null,
+      }));
     } catch (error) {
       console.error('Error fetching template variants:', error);
       throw new HttpException(error.message || 'Internal Server Error', HttpStatus.INTERNAL_SERVER_ERROR);
@@ -250,37 +304,24 @@ export class DocumentTemplatesService {
 
   async activateTemplateVariant(id: string, organizationId: string) {
     try {
-      // Get the template to activate
-      const template = await this.prisma.documentTemplate.findFirst({
-        where: {
-          id,
-          organizationId,
-        },
+      // The template may belong to ANY org (shared pool), so look it up by id
+      // only — not scoped to the requesting org.
+      const template = await this.prisma.documentTemplate.findUnique({
+        where: { id },
       });
 
       if (!template) {
         throw new HttpException('Template not found', HttpStatus.NOT_FOUND);
       }
 
-      // Deactivate all other templates of the same type
-      await this.prisma.documentTemplate.updateMany({
-        where: {
-          type: template.type,
-          organizationId,
-          id: { not: id },
-        },
-        data: {
-          isActive: false,
-        },
+      // Record the per-org selection (one active template per org per type).
+      await this.prisma.organizationActiveTemplate.upsert({
+        where: { organizationId_type: { organizationId, type: template.type } },
+        create: { organizationId, type: template.type, templateId: id },
+        update: { templateId: id },
       });
 
-      // Activate the selected template
-      const activated = await this.prisma.documentTemplate.update({
-        where: { id },
-        data: { isActive: true },
-      });
-
-      return activated;
+      return { ...template, isActive: true };
     } catch (error) {
       console.error('Error activating template variant:', error);
       throw new HttpException(error.message || 'Internal Server Error', HttpStatus.INTERNAL_SERVER_ERROR);

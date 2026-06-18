@@ -14,10 +14,29 @@ export interface DefaultTemplateSpec {
   type: string;
   templateVariant: string;
   name: string;
+  // Optional template `config` (column layout, labels, etc.) seeded onto the
+  // DocumentTemplate row. When omitted the document creator falls back to the
+  // per-type hardcoded layout.
+  config?: Record<string, unknown>;
 }
 
 export const DEFAULT_DOCUMENT_TEMPLATES: DefaultTemplateSpec[] = [
-  { type: 'QUOTATION', templateVariant: 'QO1', name: 'Quotation' },
+  {
+    type: 'QUOTATION',
+    templateVariant: 'QO1',
+    name: 'Quotation',
+    // Simple 5-column quotation layout: Description, Unit Cost, Qty, Tax, Amount.
+    config: {
+      tableColumnOrder: ['description', 'unitPrice', 'quantity', 'tax', 'amount'],
+      columnLabels: {
+        description: 'Description',
+        unitPrice: 'Unit Cost',
+        quantity: 'Qty',
+        tax: 'Tax',
+        amount: 'Amount',
+      },
+    },
+  },
   { type: 'SALES_ORDER', templateVariant: 'SO', name: 'Sales Order' },
   { type: 'DELIVERY_ORDER', templateVariant: 'DO', name: 'Delivery Order' },
   { type: 'INVOICE', templateVariant: 'TI', name: 'Invoice' },

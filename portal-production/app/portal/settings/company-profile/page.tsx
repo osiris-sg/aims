@@ -58,9 +58,6 @@ export default function OrganizationSettingsPage() {
       taxApplicable: (organization as any)?.taxApplicable ?? true,
       absorbTax: (organization as any)?.absorbTax ?? false,
       defaultCurrency: (organization as any)?.defaultCurrency || "SGD",
-      // QF quote rounding step — Project rounds Discounted Price down,
-      // Route Order rounds Nett down. 0 = off.
-      quoteRoundingStep: (organization as any)?.quoteRoundingStep ?? 10,
       // Per-doc-type defaults (keyed by canonical doc type code).
       // { [code]: { tnc, notes, footerMessage } }
       docTypeDefaults: (organization as any)?.docTypeDefaults || {},
@@ -140,7 +137,6 @@ export default function OrganizationSettingsPage() {
       taxApplicable: !!data.taxApplicable,
       absorbTax: !!data.absorbTax,
       defaultCurrency: (data.defaultCurrency || "SGD").toUpperCase(),
-      quoteRoundingStep: Math.max(0, parseInt(String(data.quoteRoundingStep ?? 10), 10) || 0),
       docTypeDefaults: data.docTypeDefaults || {},
       customDocumentTypes: data.customDocumentTypes,
       bankDetails: {
@@ -276,14 +272,6 @@ export default function OrganizationSettingsPage() {
               menuTitle="Default Currency"
               placeHolder="Select default currency"
               menuItems={CURRENCY_OPTIONS}
-            />
-            <FormInputBox
-              control={control}
-              name="quoteRoundingStep"
-              label="Quote Round-down Step"
-              placeHolder="0 = off, 10 = nearest 10, 100 = nearest 100"
-              type="number"
-              min={0}
             />
           </Box>
         )}

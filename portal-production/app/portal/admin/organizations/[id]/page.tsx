@@ -204,6 +204,24 @@ const DEFAULT_DOCUMENT_TYPES = [
   { code: "STOCK_ADJUSTMENT_OUT", name: "Stock Adjustment Out", description: "Stock adjustment outward", variants: ["SAO"] },
 ];
 
+const ALL_VARIANT_CODES = new Set(DEFAULT_DOCUMENT_TYPES.flatMap((dt) => dt.variants));
+
+// User-created designs store their variant code in `type` (e.g. "QO1") while
+// the schema defaults templateVariant/designName to "Default". Auto-created
+// rows do the opposite (type="QUOTATION", templateVariant="QO1"). Resolve the
+// real variant code by picking whichever field holds a known variant.
+const resolveTemplateVariant = (
+  template: { templateVariant?: string; type?: string; designName?: string } | null,
+  fallbackDocTypeCode?: string,
+): string => {
+  const match = [template?.templateVariant, template?.type, template?.designName].find(
+    (c) => c && ALL_VARIANT_CODES.has(c),
+  );
+  if (match) return match;
+  const dt = DEFAULT_DOCUMENT_TYPES.find((d) => d.code === fallbackDocTypeCode);
+  return dt?.variants[0] || "TI";
+};
+
 interface TabPanelProps {
   children?: React.ReactNode;
   index: number;
@@ -1961,13 +1979,23 @@ export default function OrganizationDetailPage() {
                             <Box sx={{ flex: 1 }}>
                               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                                 <Typography variant="subtitle1" fontWeight={500}>
-                                  {template.templateVariant || template.designName || "Default"}
+                                  {template.name || resolveTemplateVariant(template, selectedDocType)}
                                 </Typography>
                                 <Chip
-                                  label={template.designName || "Default"}
+                                  label={resolveTemplateVariant(template, selectedDocType)}
                                   size="small"
                                   variant="outlined"
                                 />
+                                {/* Templates are a cross-org shared pool — show
+                                    which org authored each so it's legible. */}
+                                {template.ownerOrganizationName && (
+                                  <Chip
+                                    label={`from ${template.ownerOrganizationName}`}
+                                    size="small"
+                                    color="info"
+                                    variant="outlined"
+                                  />
+                                )}
                               </Box>
                               {template.description && (
                                 <Typography variant="body2" color="text.secondary">
@@ -2026,7 +2054,7 @@ export default function OrganizationDetailPage() {
         <DialogTitle>
           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <Typography variant="h6">
-              Preview: {previewTemplate?.designName || "Template"}
+              Preview: {previewTemplate?.name || resolveTemplateVariant(previewTemplate, selectedDocType)}
             </Typography>
             <IconButton onClick={() => setPreviewTemplate(null)} size="small">
               <CancelIcon />
@@ -2093,8 +2121,19 @@ export default function OrganizationDetailPage() {
                 ) : (
                   // Fall back to default preview component
                   <CleanDocumentPreview
-                    documentType={(previewTemplate.templateVariant || previewTemplate.designName) as "QO1" | "DO" | "RDO" | "TI" | "TI2" | "MSR" | "SO" | "CN" | "DN" | "PO" | "PR" | "SAI" | "SAO"}
-                    data={mockData}
+                    documentType={resolveTemplateVariant(previewTemplate, selectedDocType) as "QO1" | "DO" | "RDO" | "TI" | "TI2" | "MSR" | "SO" | "CN" | "DN" | "PO" | "PR" | "SAI" | "SAO"}
+                    data={{
+                      ...mockData,
+                      // Forward each template's saved column layout so previews
+                      // differ per design (mirrors TabbedDocumentCreator). Without
+                      // this every QO1 design renders the same hardcoded layout.
+                      tableColumnOrder:
+                        previewTemplate.config?.tableColumnOrder ?? (mockData as { tableColumnOrder?: string[] }).tableColumnOrder,
+                      columnLabels:
+                        previewTemplate.config?.columnLabels ?? (mockData as { columnLabels?: Record<string, string> }).columnLabels,
+                      internalColumns:
+                        previewTemplate.config?.internalColumns ?? (mockData as { internalColumns?: string[] }).internalColumns,
+                    }}
                     organization={organization}
                   />
                 )}

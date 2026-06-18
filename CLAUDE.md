@@ -120,3 +120,27 @@ The root package.json only contains Xero integration dependencies.
 - Located in `containers/DocumentTemplates/components/`
 - Support dynamic field generation and customization
 - PDF generation with signature support
+
+#### Cross-Org Shared Template Library
+Document templates are a **cross-org shared pool**, not org-private:
+- `DocumentTemplate` rows each have an owner `organizationId`, but the admin
+  "Manage Templates" dialog (`app/portal/admin/organizations/[id]/page.tsx`)
+  lists **every org's** templates of a type so an admin can activate any of them
+  for the current org.
+- `OrganizationActiveTemplate(organizationId, type, templateId)` (unique on
+  `org,type`) records which shared template each org has activated. Activating a
+  template upserts this selection — it no longer flips the legacy `isActive`
+  boolean on the shared row.
+- Resolution (`getTemplateVariantsByType`, `getDocumentTemplateByType`, and the
+  AI-upload path in `documents.service.ts createFromExtraction`) reads the per-org
+  selection first, then **falls back to legacy `isActive`** for orgs with no
+  selection (so pre-existing orgs work without migration).
+- **Propagation:** editing a shared template changes it for every org that
+  activated it ("edit once → all orgs update"). It is NOT a clone model.
+- The `GET /documentTemplates/variants/:type` endpoint is cross-org; only admin
+  pages call it (no user-facing variant switcher), so it doesn't leak other orgs'
+  templates to regular users.
+- `CleanDocumentPreview` only differentiates designs by
+  `tableColumnOrder`/`columnLabels`/`internalColumns` (read from inside its
+  `data` prop) — not `styleConfig`/`formFields`/fonts. Seeded defaults live in
+  `api-server-production/src/organizations/default-templates.ts`.

@@ -1378,19 +1378,28 @@ export class DocumentsService {
     // variant with a thinner fieldConfig and the upload draft would look sparse.
     let templateId = documentTemplateId;
     if (!templateId) {
-      const tmpl = await this.prisma.documentTemplate.findFirst({
-        where: { type, organizationId },
-        select: { id: true },
-        orderBy: [
-          { isActive: 'desc' },
-          { isDefault: 'desc' },
-          { createdAt: 'desc' },
-        ],
+      // Prefer the org's shared-pool selection (may point at another org's
+      // template); fall back to the org's own active/default/newest template.
+      const selection = await this.prisma.organizationActiveTemplate.findUnique({
+        where: { organizationId_type: { organizationId, type } },
       });
-      if (!tmpl) {
-        throw new HttpException(`No document template found for type ${type}`, HttpStatus.NOT_FOUND);
+      if (selection) {
+        templateId = selection.templateId;
+      } else {
+        const tmpl = await this.prisma.documentTemplate.findFirst({
+          where: { type, organizationId },
+          select: { id: true },
+          orderBy: [
+            { isActive: 'desc' },
+            { isDefault: 'desc' },
+            { createdAt: 'desc' },
+          ],
+        });
+        if (!tmpl) {
+          throw new HttpException(`No document template found for type ${type}`, HttpStatus.NOT_FOUND);
+        }
+        templateId = tmpl.id;
       }
-      templateId = tmpl.id;
     }
 
     // Fuzzy customer match — case-insensitive contains, only auto-link if unique.

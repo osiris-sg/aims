@@ -1,4 +1,5 @@
 import { Injectable, Inject } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
 import { ClerkClient } from '@clerk/backend';
 import { DEFAULT_DOCUMENT_TEMPLATES } from './default-templates';
@@ -100,6 +101,7 @@ export class OrganizationsService {
           description: `${t.name} document template`,
           isActive: true,
           isDefault: true,
+          ...(t.config ? { config: t.config as Prisma.InputJsonValue } : {}),
         })),
       });
       console.log(`Seeded ${toCreate.length} default document templates for org ${organizationId}`);

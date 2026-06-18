@@ -184,7 +184,7 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isItemTaggingEnabled: isItemTaggingFlagOn, isConfirmQuotationEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled } = useOrganizationFeatures();
   // When the list-view feature is on, the back arrow returns to that doc type's
   // list page (e.g. /portal/sales/sales-orders) instead of the generic section
   // landing — so the sidebar highlight + browsing context stay consistent.
@@ -192,17 +192,10 @@ export default function TabbedDocumentCreator({
     (isDocumentListViewEnabled && getDocumentListRoute(docType)) || getParentRoute(docType);
   // When enabled, the document's Nett Total is rounded DOWN to the nearest 5.
   const roundNettDown = (n: number) => (isNettRoundDownEnabled ? Math.floor((Number(n) || 0) / 5) * 5 : (Number(n) || 0));
-  // Item tagging (checkbox column + Tag Items button) is scoped to quotation
-  // doc types only — that's where the FCU/CU pairing makes sense. The flag
-  // still gates org-level availability; the doc type narrows where it shows.
-  const isItemTaggingEnabled =
-    isItemTaggingFlagOn && (
-      documentType === "QUOTATION" ||
-      documentType === "QO" ||
-      documentType === "QO1" ||
-      documentType === "QO2" ||
-      documentType === "QT"
-    );
+  // Item tagging (checkbox column + Tag Items button) is removed from every
+  // document template — keep this false so the checkbox column and the
+  // "Tag Items" button never render anywhere.
+  const isItemTaggingEnabled = false;
 
   // Check if we're in template edit mode
   const pathname = usePathname();
