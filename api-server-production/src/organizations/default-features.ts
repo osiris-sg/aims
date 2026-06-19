@@ -26,4 +26,8 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   enableNettRoundDown: false,
   // Quotation "Project" picker (link a quotation to a project + create new).
   enableQuotationProjectLink: false,
+  // water-sg outbound site creation on DO sign-off (SIDS units only). Read by
+  // the trigger in maintenance-reports.service.sign(). Default OFF; enabled
+  // per-org (Biofuel) — no other org gets it.
+  enableWaterSgSites: false,
 };

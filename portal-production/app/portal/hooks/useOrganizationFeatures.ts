@@ -18,6 +18,7 @@ interface OrganizationFeatures {
   enableConfirmQuotation?: boolean;
   enableNettRoundDown?: boolean;
   enableQuotationProjectLink?: boolean;
+  enableWaterSgSites?: boolean;
   [key: string]: boolean | undefined;
 }
 
@@ -49,6 +50,9 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableNettRoundDown: false,
   // Quotation "Project" picker (link a quotation to a project + create new).
   enableQuotationProjectLink: false,
+  // water-sg outbound site creation on DO sign-off (SIDS units). Backend-only
+  // trigger; listed here so the flag appears in the admin switches for all orgs.
+  enableWaterSgSites: false,
 };
 
 interface OrganizationUIConfig {
