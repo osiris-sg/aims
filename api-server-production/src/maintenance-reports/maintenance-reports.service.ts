@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
+import { WaterSgService } from 'src/common/services/water-sg.service';
 import { EmailService } from '../email/email.service';
 import { DocumentsService } from '../documents/documents.service';
 import { CreateMaintenanceReportDto } from './dto/create-maintenance-report.dto';
@@ -18,6 +19,7 @@ export class MaintenanceReportsService {
     private readonly pdfGenerator: PdfGeneratorService,
     private readonly email: EmailService,
     private readonly documentsService: DocumentsService,
+    private readonly waterSg: WaterSgService,
   ) {}
 
   async create(dto: CreateMaintenanceReportDto, organizationId: string, technicianUserId: string) {
@@ -287,7 +289,7 @@ export class MaintenanceReportsService {
       throw new BadRequestException('Report already signed');
     }
 
-    return this.prisma.maintenanceServiceReport.update({
+    const updated = await this.prisma.maintenanceServiceReport.update({
       where: { id },
       data: {
         signature: dto.signature,
@@ -296,6 +298,105 @@ export class MaintenanceReportsService {
         status: 'completed',
       },
     });
+
+    // Fire-and-forget: a signed DO_ACK may create a matching site in water-sg.
+    // Never blocks or fails the signature — forwardAckToWaterSg swallows every
+    // error internally; the extra .catch is belt-and-suspenders against escape.
+    void this.forwardAckToWaterSg(updated, organizationId).catch((err) =>
+      this.logger.error(
+        `water-sg forward threw for report ${updated.id}: ${err?.message}`,
+        err?.stack,
+      ),
+    );
+
+    return updated;
+  }
+
+  /**
+   * Best-effort: when a DO acknowledgment is signed, mirror the delivered unit
+   * as a site in water-sg and record the returned id on the report
+   * (waterSgSiteId). Fire-and-forget — every failure is logged and swallowed so
+   * the signature response is unaffected.
+   *
+   * Gated twice: the org's enableWaterSgSites feature flag, and the unit's
+   * Asset.waterSgProductLine === 'SIDS'. Only DO_ACK rows carry an inventoryId
+   * + documentId, so SERVICE / DO_START rows fall out at the inventory guard.
+   */
+  private async forwardAckToWaterSg(
+    report: {
+      id: string;
+      inventoryId: string | null;
+      documentId: string | null;
+      latitude: number | null;
+      longitude: number | null;
+    },
+    organizationId: string,
+  ): Promise<void> {
+    try {
+      // Feature-flag gate (per-org). Absent flag => disabled.
+      const uiConfig = await this.prisma.organizationUIConfig.findUnique({
+        where: { organizationId },
+        select: { features: true },
+      });
+      const features = (uiConfig?.features as any) || {};
+      if (!features.enableWaterSgSites) return;
+
+      // No specific unit => nothing to map to a site.
+      if (!report.inventoryId) return;
+
+      // Resolve the unit + its asset's product line in one query.
+      const inv = await this.prisma.inventory.findUnique({
+        where: { id: report.inventoryId },
+        select: {
+          sku: true,
+          cameraP2P: true,
+          asset: { select: { waterSgProductLine: true } },
+        },
+      });
+
+      // Only SIDS units get a water-sg site. (!inv guard also narrows for TS.)
+      if (!inv || inv.asset?.waterSgProductLine !== 'SIDS') return;
+
+      // Site name = the DO's project name, falling back to the unit SKU.
+      const doc = report.documentId
+        ? await this.prisma.document.findUnique({
+            where: { id: report.documentId },
+            select: { project: { select: { name: true } } },
+          })
+        : null;
+      const name = doc?.project?.name ?? inv.sku;
+
+      // Send 0,0 when GPS is missing (the 2b decision) so the site still lands.
+      const payload = {
+        siteId: inv.sku,
+        name,
+        lat: report.latitude ?? 0,
+        lng: report.longitude ?? 0,
+        cameraP2P: inv.cameraP2P ?? null,
+        managerId: null,
+      };
+
+      const result = await this.waterSg.createSite(payload);
+
+      // Footprint: record the site id (fall back to the SKU we sent).
+      const siteId = result.id ?? payload.siteId;
+      await this.prisma.maintenanceServiceReport.update({
+        where: { id: report.id },
+        data: { waterSgSiteId: siteId },
+      });
+
+      this.logger.log(
+        `water-sg site created for report ${report.id}: siteId=${payload.siteId} ` +
+          `recordedId=${siteId} alreadyExists=${result.alreadyExists ?? false}`,
+      );
+    } catch (err: any) {
+      // Swallow: the signature is already saved; water-sg is best-effort.
+      this.logger.error(
+        `water-sg site creation failed for report ${report.id} ` +
+          `(inventoryId=${report.inventoryId ?? 'none'}): ${err?.message}`,
+        err?.stack,
+      );
+    }
   }
 
   async findById(id: string, organizationId: string) {

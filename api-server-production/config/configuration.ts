@@ -19,4 +19,8 @@ export default () => ({
     REDIRECT_URI: process.env.XERO_REDIRECT_URI,
     SCOPES: process.env.XERO_SCOPES || 'accounting.transactions accounting.contacts accounting.settings offline_access',
   },
+  WATER_SG: {
+    API_URL: process.env.WATER_SG_API_URL,
+    API_KEY: process.env.WATER_SG_API_KEY,
+  },
 });

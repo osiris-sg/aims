@@ -6,6 +6,7 @@ import { AuditService } from './audit.service';
 import { PrismaService } from './prisma.service';
 import { S3Service } from './services/s3.service';
 import { PdfGeneratorService } from './services/pdf-generator.service';
+import { WaterSgService } from './services/water-sg.service';
 
 @Module({
   imports: [ConfigModule],
@@ -16,6 +17,7 @@ import { PdfGeneratorService } from './services/pdf-generator.service';
     PrismaService,
     S3Service,
     PdfGeneratorService,
+    WaterSgService,
   ],
   exports: [
     XeroService,
@@ -23,6 +25,7 @@ import { PdfGeneratorService } from './services/pdf-generator.service';
     PrismaService,
     S3Service,
     PdfGeneratorService,
+    WaterSgService,
   ],
 })
 export class CommonModule {}

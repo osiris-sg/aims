@@ -1513,6 +1513,10 @@ model MaintenanceServiceReport {
   // Reverse-geocoded human-readable label (e.g. "12 Tuas South Ave 3").
   // Schema-ready for future enablement; v1 of the field flow leaves it null.
   locationLabel     String?
+  // Site ID returned by water-sg when a site is created from this
+  // acknowledgment. Null = no site created (gate off, not SIDS, or the
+  // best-effort POST failed). Additive audit footprint, never read by gating.
+  waterSgSiteId     String?
   // Sequential per-org SERVICE report number (paper-form analogue). Null for
   // DO_START / DO_ACK rows and for SERVICE rows created by the legacy flow.
   reportNumber      Int?
