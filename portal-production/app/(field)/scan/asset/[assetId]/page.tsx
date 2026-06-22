@@ -6,14 +6,16 @@ import { useAuth } from "@clerk/nextjs";
 import { Avatar, Box, Button, Card, CardActionArea, CardContent, Chip, CircularProgress, Stack, Typography, Alert } from "@mui/material";
 import BuildIcon from "@mui/icons-material/Build";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
-import AddBoxIcon from "@mui/icons-material/AddBox";
 import HandymanIcon from "@mui/icons-material/Handyman";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { request } from "@/helpers/request";
 
 interface ScanContext {
   asset: { id: string; name: string; skuKey: string; image?: string | null; description?: string | null };
   inventory: { id: string; sku: string; status: string; serialNumber: string | null; location: string | null } | null;
   latestDeliveryOrder: { id: string; name?: string | null; createdAt: string; status: string } | null;
+  deliveryStage: "start" | "ack_delivery" | "ack_install" | "completed" | null;
+  resolvedDeliveryOrder: { id: string; name?: string | null; status: string } | null;
   canStartDelivery: boolean;
   canAckDelivery: boolean;
   activeDeliveryStart: { id: string; createdAt: string; technicianName: string | null } | null;
@@ -83,8 +85,68 @@ export default function AssetActionChooser() {
     );
   }
 
-  const { asset, inventory, latestDeliveryOrder, installableDeliveryOrder, canAckInstall } = data;
+  const { asset, inventory, deliveryStage, resolvedDeliveryOrder } = data;
   const imageUrl = asset.image ? `${process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/"}${asset.image}` : undefined;
+
+  // Single morphing delivery card driven by deliveryStage. The backend resolves
+  // ONE delivery order (resolvedDeliveryOrder) and never re-picks, so a
+  // completed DO stays "Completed" and can't regress to Start.
+  const invQuery = inventory ? `?inventoryId=${encodeURIComponent(inventory.id)}` : "";
+  const doRef = resolvedDeliveryOrder?.name ?? resolvedDeliveryOrder?.id ?? "";
+
+  const deliveryCard: { title: string; subtitle: string; icon: React.ReactNode; onClick?: () => void } = (() => {
+    switch (deliveryStage) {
+      case "start":
+        return {
+          title: "Start Delivery",
+          subtitle: doRef,
+          icon: <LocalShippingIcon color="primary" sx={{ fontSize: 48 }} />,
+          onClick: () => router.push(`/scan/asset/${assetId}/delivery-start${invQuery}`),
+        };
+      case "ack_delivery":
+        return {
+          title: "Acknowledge Delivery",
+          subtitle: doRef,
+          icon: <LocalShippingIcon color="primary" sx={{ fontSize: 48 }} />,
+          onClick: () => {
+            if (resolvedDeliveryOrder) router.push(`/scan/asset/${assetId}/do/${resolvedDeliveryOrder.id}${invQuery}`);
+          },
+        };
+      case "ack_install":
+        return {
+          title: "Acknowledge Installation",
+          subtitle: doRef ? `${doRef} · delivered, awaiting installation` : "Delivered, awaiting installation",
+          icon: <HandymanIcon color="primary" sx={{ fontSize: 48 }} />,
+          onClick: () => {
+            if (resolvedDeliveryOrder) router.push(`/scan/asset/${assetId}/install/${resolvedDeliveryOrder.id}${invQuery}`);
+          },
+        };
+      case "completed":
+        return {
+          title: "Completed",
+          subtitle: doRef ? `${doRef} · delivered & installed` : "Delivered & installed",
+          icon: <CheckCircleIcon color="success" sx={{ fontSize: 48 }} />,
+        };
+      default:
+        // null stage: no delivery order for this asset/unit. Mirror the prior
+        // no-DO behaviour — a disabled "Start Delivery" card.
+        return {
+          title: "Start Delivery",
+          subtitle: "No open delivery order",
+          icon: <LocalShippingIcon color="disabled" sx={{ fontSize: 48 }} />,
+        };
+    }
+  })();
+
+  const deliveryCardInner = (
+    <CardContent sx={{ display: "flex", gap: 2.5, alignItems: "center", py: 3, minHeight: 96 }}>
+      {deliveryCard.icon}
+      <Box>
+        <Typography variant="h6" fontWeight={700}>{deliveryCard.title}</Typography>
+        <Typography variant="body2" color="text.secondary">{deliveryCard.subtitle}</Typography>
+      </Box>
+    </CardContent>
+  );
 
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 3 }}>
@@ -109,75 +171,20 @@ export default function AssetActionChooser() {
         What are you doing?
       </Typography>
 
-      {/* Smart delivery card — single button that morphs between Start and
-          Acknowledge based on the DO's current state. Disabled (with an
-          explanatory caption) when neither action is available: no open DO
-          on this asset, or the delivery cycle is already complete. */}
+      {/* Single morphing delivery card: Start → Acknowledge Delivery →
+          Acknowledge Installation → Completed, driven by deliveryStage. */}
       <Card variant="outlined">
-        <CardActionArea
-          onClick={() => {
-            const invQuery = inventory ? `?inventoryId=${encodeURIComponent(inventory.id)}` : "";
-            if (data.canStartDelivery) {
-              router.push(`/scan/asset/${assetId}/delivery-start${invQuery}`);
-            } else if (data.canAckDelivery && latestDeliveryOrder) {
-              router.push(`/scan/asset/${assetId}/do/${latestDeliveryOrder.id}${invQuery}`);
-            }
-          }}
-          disabled={!data.canStartDelivery && !data.canAckDelivery}
-        >
-          <CardContent sx={{ display: "flex", gap: 2.5, alignItems: "center", py: 3, minHeight: 96 }}>
-            {data.canAckDelivery ? (
-              <LocalShippingIcon color="primary" sx={{ fontSize: 48 }} />
-            ) : (
-              <AddBoxIcon color={data.canStartDelivery ? "primary" : "disabled"} sx={{ fontSize: 48 }} />
-            )}
-            <Box>
-              <Typography variant="h6" fontWeight={700}>
-                {data.canAckDelivery ? "Acknowledge Delivery" : "Start Delivery"}
-              </Typography>
-              {data.canStartDelivery ? (
-                <Typography variant="body2" color="text.secondary">
-                  {latestDeliveryOrder?.name ?? latestDeliveryOrder?.id} · {latestDeliveryOrder ? new Date(latestDeliveryOrder.createdAt).toLocaleDateString() : ""}
-                </Typography>
-              ) : data.canAckDelivery ? (
-                <Typography variant="body2" color="text.secondary">
-                  {latestDeliveryOrder?.name ?? latestDeliveryOrder?.id}
-                  {data.activeDeliveryStart?.technicianName ? ` · started by ${data.activeDeliveryStart.technicianName}` : data.activeDeliveryStart ? ` · started ${new Date(data.activeDeliveryStart.createdAt).toLocaleDateString()}` : ""}
-                </Typography>
-              ) : (
-                <Typography variant="body2" color="text.secondary">No open delivery order</Typography>
-              )}
-            </Box>
-          </CardContent>
-        </CardActionArea>
+        {deliveryCard.onClick ? (
+          <CardActionArea onClick={deliveryCard.onClick}>{deliveryCardInner}</CardActionArea>
+        ) : deliveryStage === "completed" ? (
+          // Completed: non-interactive but full-colour (not greyed) so it reads
+          // as a positive done state.
+          deliveryCardInner
+        ) : (
+          // No actionable DO: disabled / greyed.
+          <CardActionArea disabled>{deliveryCardInner}</CardActionArea>
+        )}
       </Card>
-
-      {/* Installation card — only rendered once delivery has been acknowledged
-          (canAckInstall: a completed DO_ACK exists, no DO_INSTALL yet). Hidden
-          otherwise so a permanently-disabled card doesn't clutter every scan. */}
-      {canAckInstall && installableDeliveryOrder && (
-        <Card variant="outlined">
-          <CardActionArea
-            onClick={() => {
-              if (!installableDeliveryOrder) return;
-              const invQuery = inventory ? `?inventoryId=${encodeURIComponent(inventory.id)}` : "";
-              router.push(`/scan/asset/${assetId}/install/${installableDeliveryOrder.id}${invQuery}`);
-            }}
-          >
-            <CardContent sx={{ display: "flex", gap: 2.5, alignItems: "center", py: 3, minHeight: 96 }}>
-              <HandymanIcon color="primary" sx={{ fontSize: 48 }} />
-              <Box>
-                <Typography variant="h6" fontWeight={700}>
-                  Acknowledge Installation
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {installableDeliveryOrder.name ?? installableDeliveryOrder.id} · delivered, awaiting installation
-                </Typography>
-              </Box>
-            </CardContent>
-          </CardActionArea>
-        </Card>
-      )}
 
       <Card variant="outlined">
         <CardActionArea onClick={() => {
