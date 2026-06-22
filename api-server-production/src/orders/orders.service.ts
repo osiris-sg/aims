@@ -202,15 +202,69 @@ export class OrdersService {
     return merged;
   }
 
+  /**
+   * Enrich each order's linkedDocuments entries with the linked Document's
+   * CURRENT status, so the order/list UI can place items into pipeline stages
+   * (DO delivered, invoice sent/paid). Stored entries only carry
+   * id/name/templateId/itemIds; live status is read fresh from the Document
+   * table here. Batched: ONE document.findMany across ALL passed orders (not
+   * N queries). Mutates the order object(s) in place. Accepts a single order
+   * or an array.
+   */
+  private async enrichLinkedDocStatuses<T extends { linkedDocuments?: any }>(
+    input: T | T[],
+    organizationId: string,
+  ): Promise<void> {
+    const orders = Array.isArray(input) ? input : [input];
+    const kinds = ['po', 'do', 'invoice', 'salesOrder'] as const;
+    const ids: string[] = [];
+    for (const order of orders) {
+      const ld: any = order.linkedDocuments;
+      if (!ld) continue;
+      for (const k of kinds) for (const d of ld[k] || []) if (d?.id) ids.push(d.id);
+    }
+    if (!ids.length) return;
+    const docs = await this.prisma.document.findMany({
+      where: { id: { in: ids }, organizationId },
+      select: { id: true, status: true },
+    });
+    const statusById = new Map(docs.map((d) => [d.id, d.status]));
+    for (const order of orders) {
+      const ld: any = order.linkedDocuments;
+      if (!ld) continue;
+      for (const k of kinds) {
+        if (Array.isArray(ld[k])) {
+          ld[k] = ld[k].map((d: any) => ({ ...d, status: statusById.get(d.id) ?? d.status ?? null }));
+        }
+      }
+      (order as any).linkedDocuments = ld;
+    }
+  }
+
   async list(organizationId: string) {
-    return this.prisma.order.findMany({
+    const orders = await this.prisma.order.findMany({
       where: { organizationId },
       orderBy: { createdAt: 'desc' },
       include: {
         customer: { select: { id: true, name: true, customerCode: true } },
-        sourceQuotation: { select: { id: true, name: true, status: true, type: true, documentTemplateId: true } },
+        // project reached via the source quotation's projectId (Order has no
+        // direct project link). Null when the quotation wasn't project-linked.
+        sourceQuotation: {
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            type: true,
+            documentTemplateId: true,
+            project: { select: { id: true, name: true } },
+          },
+        },
       },
     });
+    // List now enriches linked-doc statuses too, so the slim board can filter
+    // DO/Invoice pipeline stages client-side without an extra round-trip.
+    await this.enrichLinkedDocStatuses(orders, organizationId);
+    return orders;
   }
 
   async getById(id: string, organizationId: string) {
@@ -223,27 +277,8 @@ export class OrdersService {
     });
     if (!order) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
 
-    // Enrich each linked-document entry with its CURRENT status so the order
-    // page can place items into pipeline stages (DO delivered, invoice
-    // sent/paid). Stored entries only carry id/name/templateId/itemIds; the
-    // live status is read fresh from the Document table here.
-    const ld: any = order.linkedDocuments || {};
-    const kinds = ['po', 'do', 'invoice', 'salesOrder'] as const;
-    const ids: string[] = [];
-    for (const k of kinds) for (const d of ld[k] || []) if (d?.id) ids.push(d.id);
-    if (ids.length) {
-      const docs = await this.prisma.document.findMany({
-        where: { id: { in: ids }, organizationId },
-        select: { id: true, status: true },
-      });
-      const statusById = new Map(docs.map((d) => [d.id, d.status]));
-      for (const k of kinds) {
-        if (Array.isArray(ld[k])) {
-          ld[k] = ld[k].map((d: any) => ({ ...d, status: statusById.get(d.id) ?? d.status ?? null }));
-        }
-      }
-      (order as any).linkedDocuments = ld;
-    }
+    // Enrich linked-document entries with their CURRENT status (see helper).
+    await this.enrichLinkedDocStatuses(order, organizationId);
     return order;
   }
 
