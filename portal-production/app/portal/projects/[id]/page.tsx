@@ -161,7 +161,7 @@ interface ProjectDetail {
   };
 }
 
-type FieldReportKind = "SERVICE" | "DO_START" | "DO_ACK";
+type FieldReportKind = "SERVICE" | "DO_START" | "DO_ACK" | "DO_INSTALL";
 
 interface FieldReport {
   id: string;
@@ -199,12 +199,14 @@ const FIELD_REPORT_KIND_LABEL: Record<FieldReportKind, string> = {
   SERVICE: "Service",
   DO_START: "Delivery Started",
   DO_ACK: "Delivery Acknowledged",
+  DO_INSTALL: "Installation Acknowledged",
 };
 
 const FIELD_REPORT_KIND_COLOR: Record<FieldReportKind, "default" | "primary" | "info" | "success" | "warning"> = {
   SERVICE: "primary",
   DO_START: "info",
   DO_ACK: "success",
+  DO_INSTALL: "warning",
 };
 
 const formatCoordsForDisplay = (lat: number, lng: number) => {

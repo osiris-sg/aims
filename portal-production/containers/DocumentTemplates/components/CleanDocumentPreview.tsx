@@ -93,7 +93,7 @@ function DescriptionText({ text, sx = {} }: { text: string; sx?: any }) {
 
 interface FieldDeliveryReport {
   id: string;
-  kind: "DO_START" | "DO_ACK" | "SERVICE";
+  kind: "DO_START" | "DO_ACK" | "DO_INSTALL" | "SERVICE";
   photos: string[];
   signature: string | null;
   signedByName: string | null;
@@ -1398,6 +1398,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           {(() => {
             const doStart = maintenanceReports?.find((r) => r.kind === "DO_START") ?? null;
             const doAck = maintenanceReports?.find((r) => r.kind === "DO_ACK") ?? null;
+            const doInstall = maintenanceReports?.find((r) => r.kind === "DO_INSTALL") ?? null;
             const deliveryByName = doStart?.technicianName ?? doStart?.signedByName ?? null;
             // Shared box style for the content-above-the-ruled-line area.
             // Fixed height keeps the three ruled lines aligned horizontally
@@ -1435,6 +1436,34 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     )}
                   </Box>
                 </Box>
+
+                {/* Installation — customer signature from DO_INSTALL. Only
+                    rendered once an installation ack exists, so a DO that was
+                    only delivered keeps the original three-column layout. */}
+                {doInstall && (
+                  <Box sx={{ textAlign: "center", flex: 1 }}>
+                    <Box sx={slotSx}>
+                      {doInstall.signature && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={resolvePhotoSrc(doInstall.signature)}
+                          alt="Installation signature"
+                          style={{ maxHeight: 64, maxWidth: "80%", objectFit: "contain" }}
+                        />
+                      )}
+                    </Box>
+                    <Box sx={{ borderTop: "1px solid #000", width: "80%", mx: "auto", pt: 0.5 }}>
+                      <Typography sx={{ fontSize: "0.8125rem" }}>
+                        Installation
+                      </Typography>
+                      {doInstall.signedByName && (
+                        <Typography sx={{ fontSize: "0.6875rem", color: "#444", mt: 0.25 }}>
+                          {doInstall.signedByName}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Box>
+                )}
 
                 {/* Delivery By — technician name from DO_START */}
                 <Box sx={{ textAlign: "center", flex: 1 }}>
@@ -1525,7 +1554,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 {/* Header row: kind label + ISO timestamp + technician */}
                 <Box sx={{ display: "flex", gap: 2, alignItems: "baseline", mb: 1.5, flexWrap: "wrap" }}>
                   <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700 }}>
-                    {report.kind === "DO_START" ? "Delivery Started" : "Delivery Acknowledged"}
+                    {report.kind === "DO_START"
+                      ? "Delivery Started"
+                      : report.kind === "DO_INSTALL"
+                        ? "Installation Acknowledged"
+                        : "Delivery Acknowledged"}
                   </Typography>
                   <Typography sx={{ fontSize: "0.75rem", color: "#444" }}>
                     {new Date(report.createdAt).toLocaleString("en-GB", {
