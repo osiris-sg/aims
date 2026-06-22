@@ -2336,6 +2336,19 @@ export default function TabbedDocumentCreator({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, formData, autosaveActive]);
 
+  // Hold the editor render until the template field config resolves, so the
+  // loaded layout paints once instead of flashing the legacy fallback first.
+  // isLoadingFieldConfig clears on EVERY path of the loader effect (prop
+  // shortcut, no-token, and the try/catch's finally on both success and
+  // error), so this can never hang on the spinner.
+  if (isLoadingFieldConfig) {
+    return (
+      <Box sx={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 400 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}>
       {/* Concurrent-edit banner: read-only when someone else holds the lock. */}

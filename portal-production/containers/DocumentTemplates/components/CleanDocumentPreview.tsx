@@ -2644,7 +2644,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               <InfoRow label="UEN" value={data.customer?.gstRegNo || data.company?.gstRegNo || organization?.registrationNumber} minWidth="110px" fontSize="0.875rem" />
               <Box sx={{ display: "flex" }}>
                 <Typography sx={{ fontSize: "0.875rem", minWidth: "110px", lineHeight: 1.4, fontWeight: 600 }}>QUOTATION NO.</Typography>
-                <Typography sx={{ fontSize: "0.875rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}></Typography>
+                <Typography sx={{ fontSize: "0.875rem", ml: 0.5, mr: 1, lineHeight: 1.4 }}>:</Typography>
                 <Typography sx={{ fontSize: "0.875rem", flex: 1, lineHeight: 1.4, fontWeight: 600 }}>{data.documentInfo?.documentNumber || ""}</Typography>
               </Box>
               <InfoRow label="Date" value={formatDate(data.documentInfo?.date)} minWidth="110px" fontSize="0.875rem" />
