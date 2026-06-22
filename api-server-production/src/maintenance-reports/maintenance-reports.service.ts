@@ -309,6 +309,25 @@ export class MaintenanceReportsService {
       });
     }
 
+    // When a delivery acknowledgment is signed, advance the parent DO to
+    // delivered_not_installed — UNLESS it's already delivered_installed (don't
+    // let a late DO_ACK downgrade an installed DO). First automated writer of
+    // delivered_not_installed; DOs have no transition guard. This does NOT
+    // affect install gating: canAckInstall keys off a completed DO_ACK
+    // existing, not off Document.status.
+    if (updated.kind === 'DO_ACK' && updated.documentId) {
+      const doc = await this.prisma.document.findUnique({
+        where: { id: updated.documentId },
+        select: { status: true },
+      });
+      if (doc && doc.status !== 'delivered_installed') {
+        await this.prisma.document.update({
+          where: { id: updated.documentId },
+          data: { status: 'delivered_not_installed' },
+        });
+      }
+    }
+
     // Fire-and-forget: a signed DO_ACK may create a matching site in water-sg.
     // Never blocks or fails the signature — forwardAckToWaterSg swallows every
     // error internally; the extra .catch is belt-and-suspenders against escape.
