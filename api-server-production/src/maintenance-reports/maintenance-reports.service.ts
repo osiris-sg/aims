@@ -555,14 +555,23 @@ export class MaintenanceReportsService {
    * asset details, latest DO, gating booleans for the action chooser, and
    * recent reports.
    *
-   * Two-step delivery flow gating:
-   *   canStartDelivery  = a DO exists AND no DO_START MSR is linked to it yet.
-   *   canAckDelivery    = a DO_START MSR exists for the DO AND no DO_ACK yet.
+   * Delivery flow gating (per-DO strict). We resolve ONE delivery order — the
+   * most recent DELIVERY_ORDER for this asset/unit — then read a single
+   * `deliveryStage` from THAT DO's own reports + Document.status:
+   *   start        → DO exists, never started (no DO_START)
+   *   ack_delivery → DO_START exists, no completed DO_ACK yet
+   *   ack_install  → completed DO_ACK exists, no DO_INSTALL yet
+   *   completed    → DO_INSTALL exists OR status === 'delivered_installed'
+   *   null         → no DO for this asset/unit
+   * The legacy canStartDelivery / canAckDelivery / canAckInstall booleans are
+   * derived from this single stage for backward-compat.
    *
-   * Linkage is via MaintenanceServiceReport.documentId — added so that an
-   * asset with multiple DOs over time can have unambiguous delivery state per
-   * DO. Historic DO_ACK rows with null documentId are intentionally ignored
-   * by this gating (they're audit trail only).
+   * Because the stage is read from the resolved DO's own reports (never a
+   * second query that excludes acked DOs), a completed DO stays 'completed'
+   * and cannot regress to 'start' — fixing the re-start bug.
+   *
+   * Linkage is via MaintenanceServiceReport.documentId. Historic DO_ACK rows
+   * with null documentId are intentionally ignored (audit trail only).
    */
   async getScanContext(assetId: string, organizationId: string, inventoryId?: string) {
     const asset = await this.prisma.asset.findFirst({
@@ -580,10 +589,16 @@ export class MaintenanceReportsService {
         })
       : null;
 
-    // Pick the latest open DO. "Open" = no DO_ACK MSR linked. With the
-    // inventory refactor, DocumentItem rows can reference either the parent
-    // Asset (legacy / SKU-level DOs) or the specific Inventory unit, so we
-    // OR across both itemType values when an inventoryId is in scope.
+    // Resolve ONE delivery order and derive a single stage from ITS OWN
+    // reports — never a second query that excludes by report state. This is
+    // the fix for the re-start bug: previously an acked DO was dropped from
+    // the "open DO" lookup so a *different* DO could re-qualify for "start".
+    // Here we lock onto the most recent DO for this asset/unit by recency,
+    // then read its stage from its own DO_START/DO_ACK/DO_INSTALL reports.
+    //
+    // With the inventory refactor, DocumentItem rows can reference either the
+    // parent Asset (legacy / SKU-level DOs) or the specific Inventory unit, so
+    // we OR across both itemType values when an inventoryId is in scope.
     const itemFilter: Prisma.DocumentItemWhereInput = inventoryId
       ? {
           OR: [
@@ -593,79 +608,89 @@ export class MaintenanceReportsService {
         }
       : { itemId: assetId, itemType: 'ASSET' };
 
-    const latestDoItem = await this.prisma.documentItem.findFirst({
+    // The single DO we lock onto: most recent DELIVERY_ORDER matching the
+    // filter, WITHOUT any report-state exclusion (an acked / installed DO is
+    // intentionally still selected so we read its real stage, not skip it).
+    const resolvedDoItem = await this.prisma.documentItem.findFirst({
       where: {
         ...itemFilter,
-        document: {
-          organizationId,
-          type: 'DELIVERY_ORDER',
-          maintenanceReports: { none: { kind: 'DO_ACK', organizationId } },
-        },
+        document: { organizationId, type: 'DELIVERY_ORDER' },
       },
       orderBy: { document: { createdAt: 'desc' } },
       include: { document: true },
     });
-    const latestDeliveryOrder = latestDoItem?.document ?? null;
+    const resolvedDeliveryOrder = resolvedDoItem?.document ?? null;
 
-    let canStartDelivery = false;
-    let canAckDelivery = false;
+    // Single stage derived from the resolved DO's own reports + Document.status.
+    // Strict precedence: a completed DO stays 'completed' and can NEVER fall
+    // back to 'start' — the stage is read from THIS DO's reports/status, not by
+    // re-picking some other DO that happens to lack a DO_ACK.
+    let deliveryStage:
+      | 'start'
+      | 'ack_delivery'
+      | 'ack_install'
+      | 'completed'
+      | null = null;
     let activeDeliveryStart: {
       id: string;
       createdAt: Date;
       technicianName: string | null;
     } | null = null;
 
-    if (latestDeliveryOrder) {
-      const startMsr = await this.prisma.maintenanceServiceReport.findFirst({
-        where: {
-          documentId: latestDeliveryOrder.id,
-          kind: 'DO_START',
-          organizationId,
+    if (resolvedDeliveryOrder) {
+      // All reports for THIS DO. SERVICE rows carry a null documentId, so a
+      // documentId match only ever returns DO_START / DO_ACK / DO_INSTALL rows.
+      const msrs = await this.prisma.maintenanceServiceReport.findMany({
+        where: { documentId: resolvedDeliveryOrder.id, organizationId },
+        select: {
+          id: true,
+          kind: true,
+          status: true,
+          createdAt: true,
+          technicianName: true,
         },
-        select: { id: true, createdAt: true, technicianName: true },
         orderBy: { createdAt: 'desc' },
       });
 
-      if (!startMsr) {
-        // DO exists, never started. Start enabled, Ack disabled.
-        canStartDelivery = true;
+      const hasInstall = msrs.some((m) => m.kind === 'DO_INSTALL');
+      const hasCompletedAck = msrs.some(
+        (m) => m.kind === 'DO_ACK' && m.status === 'completed',
+      );
+      const startMsr = msrs.find((m) => m.kind === 'DO_START') ?? null;
+
+      if (hasInstall || resolvedDeliveryOrder.status === 'delivered_installed') {
+        // Terminal: installation recorded (or the DO already flipped to
+        // delivered_installed). Fully complete — nothing actionable, and this
+        // can never regress to 'start'.
+        deliveryStage = 'completed';
+      } else if (hasCompletedAck) {
+        // Delivery signed off; installation not yet recorded.
+        deliveryStage = 'ack_install';
+      } else if (startMsr) {
+        // Delivery started, not yet acknowledged. An unsigned/draft DO_ACK
+        // keeps us here (hasCompletedAck is false) so the ack can be completed.
+        deliveryStage = 'ack_delivery';
+        activeDeliveryStart = {
+          id: startMsr.id,
+          createdAt: startMsr.createdAt,
+          technicianName: startMsr.technicianName,
+        };
       } else {
-        // DO started — Ack enabled iff no matching DO_ACK yet.
-        const ackMsr = await this.prisma.maintenanceServiceReport.findFirst({
-          where: {
-            documentId: latestDeliveryOrder.id,
-            kind: 'DO_ACK',
-            organizationId,
-          },
-          select: { id: true },
-        });
-        activeDeliveryStart = ackMsr ? null : startMsr;
-        canAckDelivery = !ackMsr;
+        // DO exists, never started.
+        deliveryStage = 'start';
       }
     }
 
-    // Install eligibility: the most recent DO whose delivery has been
-    // acknowledged (a completed DO_ACK exists) but not yet installed (no
-    // DO_INSTALL). The "open DO" selector above excludes any DO that has a
-    // DO_ACK, so an installable DO needs its own lookup. One stage past
-    // canAckDelivery: DO_ACK exists → no DO_INSTALL yet.
-    const installDoItem = await this.prisma.documentItem.findFirst({
-      where: {
-        ...itemFilter,
-        document: {
-          organizationId,
-          type: 'DELIVERY_ORDER',
-          maintenanceReports: {
-            some: { kind: 'DO_ACK', status: 'completed', organizationId },
-            none: { kind: 'DO_INSTALL', organizationId },
-          },
-        },
-      },
-      orderBy: { document: { createdAt: 'desc' } },
-      include: { document: true },
-    });
-    const installableDeliveryOrder = installDoItem?.document ?? null;
-    const canAckInstall = !!installableDeliveryOrder;
+    // Backward-compat fields derived from the single stage so existing callers
+    // (the chooser's Start / Ack / Install cards) keep working while the
+    // frontend migrates to deliveryStage. All point at the ONE resolved DO and
+    // preserve the prior null-unless-actionable semantics.
+    const canStartDelivery = deliveryStage === 'start';
+    const canAckDelivery = deliveryStage === 'ack_delivery';
+    const canAckInstall = deliveryStage === 'ack_install';
+    const latestDeliveryOrder =
+      canStartDelivery || canAckDelivery ? resolvedDeliveryOrder : null;
+    const installableDeliveryOrder = canAckInstall ? resolvedDeliveryOrder : null;
 
     const recentReports = await this.prisma.maintenanceServiceReport.findMany({
       where: { assetId, organizationId },
@@ -676,6 +701,8 @@ export class MaintenanceReportsService {
     return {
       asset,
       inventory,
+      resolvedDeliveryOrder,
+      deliveryStage,
       latestDeliveryOrder,
       canStartDelivery,
       canAckDelivery,
