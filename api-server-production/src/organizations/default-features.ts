@@ -21,6 +21,8 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   enableItemTagging: false,
   enablePOAsProject: false,
   enableConfirmQuotation: false,
+  // Gates the rich Cappitech Orders flow; default false = slim Orders (Biofuel default).
+  enableCappitechOrders: false,
   enableDocumentListView: false,
   // Round each document's Nett Total DOWN to the nearest 5.
   enableNettRoundDown: false,
