@@ -373,8 +373,12 @@ export class InventoriesService {
         ? createInventoryDto.customSku.split(',').map(s => s.trim()).filter(Boolean)
         : await this.generateSkuRange(assetId, quantity, organizationId);
 
+      // customSku is a DTO-only input (the user's chosen SKU list) — it maps to
+      // `sku` below and is NOT a column on Inventory, so exclude it from the
+      // createMany data or Prisma rejects it as an unknown argument.
+      const { customSku: _customSku, ...inventoryData } = createInventoryDto;
       const inventoryItems = skuRange.map((sku) => ({
-        ...createInventoryDto,
+        ...inventoryData,
         assetId,
         sku,
         organizationId, // Automatically assign to user's organization
