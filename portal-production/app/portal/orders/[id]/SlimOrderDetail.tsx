@@ -37,8 +37,6 @@ import {
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ReceiptIcon from "@mui/icons-material/Receipt";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
-import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
-import AssignmentIcon from "@mui/icons-material/Assignment";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import moment from "moment";
 import { toast } from "react-toastify";
@@ -516,22 +514,6 @@ export default function SlimOrderDetail({ params }: { params: { id: string } }) 
         <Typography variant="body2" sx={{ alignSelf: "center", mr: 1 }}>
           {selected.length} selected →
         </Typography>
-        <Button
-          variant="outlined"
-          startIcon={<AssignmentIcon />}
-          onClick={() => handleCreateDoc("SO")}
-          disabled={selected.length === 0 || !!creating || !hasEligibleSelected("SO")}
-        >
-          {creating === "SO" ? "Creating…" : "Create SO from selected"}
-        </Button>
-        <Button
-          variant="outlined"
-          startIcon={<ShoppingCartIcon />}
-          onClick={() => handleCreateDoc("PO")}
-          disabled={selected.length === 0 || !!creating || !hasEligibleSelected("PO")}
-        >
-          {creating === "PO" ? "Creating…" : "Create PO from selected"}
-        </Button>
         <Button
           variant="outlined"
           startIcon={<LocalShippingIcon />}
