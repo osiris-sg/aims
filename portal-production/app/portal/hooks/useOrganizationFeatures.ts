@@ -16,6 +16,7 @@ interface OrganizationFeatures {
   enableAssetPoints?: boolean;
   enableItemTagging?: boolean;
   enableConfirmQuotation?: boolean;
+  enableCappitechOrders?: boolean;
   enableNettRoundDown?: boolean;
   enableQuotationProjectLink?: boolean;
   enableWaterSgSites?: boolean;
@@ -45,6 +46,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableItemTagging: false,
   enablePOAsProject: false,
   enableConfirmQuotation: false,
+  // Gates the rich Cappitech Orders flow; default false = slim Orders (Biofuel default).
+  enableCappitechOrders: false,
   enableDocumentListView: false,
   // Round each document's Nett Total DOWN to the nearest 5.
   enableNettRoundDown: false,
@@ -117,6 +120,7 @@ export function useOrganizationFeatures() {
     isAssetPointsEnabled: features.enableAssetPoints ?? false,
     isItemTaggingEnabled: features.enableItemTagging ?? false,
     isConfirmQuotationEnabled: features.enableConfirmQuotation ?? false,
+    isCappitechOrdersEnabled: features.enableCappitechOrders ?? false,
     isNettRoundDownEnabled: features.enableNettRoundDown ?? false,
     isQuotationProjectLinkEnabled: features.enableQuotationProjectLink ?? false,
   };
