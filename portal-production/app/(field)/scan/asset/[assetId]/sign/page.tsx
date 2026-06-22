@@ -18,6 +18,7 @@ export default function SignPage() {
   // Differentiates which flow the signature is for. Set by the upstream page:
   //   delivery-start → start background tracking after successful sign
   //   do             → stop background tracking after successful sign
+  //   install        → installation ack, no tracking change
   //   (omitted)      → service-report flow, no tracking change
   const flowKind = search?.get("kind");
   // Threaded through the whole flow (chooser → ack → sign → done) so the
@@ -76,6 +77,10 @@ export default function SignPage() {
         // eslint-disable-next-line no-console
         console.log("[sign] calling bgLocation.stop");
         void bgLocation.stop();
+      } else if (flowKind === "install") {
+        // Installation ack — no background tracking involved.
+        // eslint-disable-next-line no-console
+        console.log("[sign] install flow — no tracking change");
       } else {
         // eslint-disable-next-line no-console
         console.log("[sign] no flowKind match — service-report flow, no tracking change");

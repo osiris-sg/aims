@@ -7,6 +7,7 @@ import { Avatar, Box, Button, Card, CardActionArea, CardContent, Chip, CircularP
 import BuildIcon from "@mui/icons-material/Build";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import AddBoxIcon from "@mui/icons-material/AddBox";
+import HandymanIcon from "@mui/icons-material/Handyman";
 import { request } from "@/helpers/request";
 
 interface ScanContext {
@@ -16,6 +17,8 @@ interface ScanContext {
   canStartDelivery: boolean;
   canAckDelivery: boolean;
   activeDeliveryStart: { id: string; createdAt: string; technicianName: string | null } | null;
+  installableDeliveryOrder: { id: string; name?: string | null; createdAt: string; status: string } | null;
+  canAckInstall: boolean;
   recentServiceReports: Array<{ id: string; createdAt: string; status: string }>;
 }
 
@@ -80,7 +83,7 @@ export default function AssetActionChooser() {
     );
   }
 
-  const { asset, inventory, latestDeliveryOrder } = data;
+  const { asset, inventory, latestDeliveryOrder, installableDeliveryOrder, canAckInstall } = data;
   const imageUrl = asset.image ? `${process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/"}${asset.image}` : undefined;
 
   return (
@@ -148,6 +151,33 @@ export default function AssetActionChooser() {
           </CardContent>
         </CardActionArea>
       </Card>
+
+      {/* Installation card — only rendered once delivery has been acknowledged
+          (canAckInstall: a completed DO_ACK exists, no DO_INSTALL yet). Hidden
+          otherwise so a permanently-disabled card doesn't clutter every scan. */}
+      {canAckInstall && installableDeliveryOrder && (
+        <Card variant="outlined">
+          <CardActionArea
+            onClick={() => {
+              if (!installableDeliveryOrder) return;
+              const invQuery = inventory ? `?inventoryId=${encodeURIComponent(inventory.id)}` : "";
+              router.push(`/scan/asset/${assetId}/install/${installableDeliveryOrder.id}${invQuery}`);
+            }}
+          >
+            <CardContent sx={{ display: "flex", gap: 2.5, alignItems: "center", py: 3, minHeight: 96 }}>
+              <HandymanIcon color="primary" sx={{ fontSize: 48 }} />
+              <Box>
+                <Typography variant="h6" fontWeight={700}>
+                  Acknowledge Installation
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {installableDeliveryOrder.name ?? installableDeliveryOrder.id} · delivered, awaiting installation
+                </Typography>
+              </Box>
+            </CardContent>
+          </CardActionArea>
+        </Card>
+      )}
 
       <Card variant="outlined">
         <CardActionArea onClick={() => {
