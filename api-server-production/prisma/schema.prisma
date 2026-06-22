@@ -1588,4 +1588,5 @@ enum MaintenanceReportKind {
   SERVICE
   DO_START
   DO_ACK
+  DO_INSTALL
 }

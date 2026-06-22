@@ -29,7 +29,7 @@ export class CreateMaintenanceReportDto {
 
   @ApiPropertyOptional({
     description: 'Kind of field activity. Defaults to SERVICE if omitted.',
-    enum: ['SERVICE', 'DO_START', 'DO_ACK'],
+    enum: ['SERVICE', 'DO_START', 'DO_ACK', 'DO_INSTALL'],
   })
   @IsOptional()
   @IsEnum(MaintenanceReportKind)

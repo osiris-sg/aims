@@ -299,6 +299,16 @@ export class MaintenanceReportsService {
       },
     });
 
+    // When an installation acknowledgment is signed, advance the parent DO to
+    // delivered_installed. First automated writer of this status; DOs have no
+    // transition guard, so the write is accepted.
+    if (updated.kind === 'DO_INSTALL' && updated.documentId) {
+      await this.prisma.document.update({
+        where: { id: updated.documentId },
+        data: { status: 'delivered_installed' },
+      });
+    }
+
     // Fire-and-forget: a signed DO_ACK may create a matching site in water-sg.
     // Never blocks or fails the signature — forwardAckToWaterSg swallows every
     // error internally; the extra .catch is belt-and-suspenders against escape.
@@ -634,6 +644,29 @@ export class MaintenanceReportsService {
       }
     }
 
+    // Install eligibility: the most recent DO whose delivery has been
+    // acknowledged (a completed DO_ACK exists) but not yet installed (no
+    // DO_INSTALL). The "open DO" selector above excludes any DO that has a
+    // DO_ACK, so an installable DO needs its own lookup. One stage past
+    // canAckDelivery: DO_ACK exists → no DO_INSTALL yet.
+    const installDoItem = await this.prisma.documentItem.findFirst({
+      where: {
+        ...itemFilter,
+        document: {
+          organizationId,
+          type: 'DELIVERY_ORDER',
+          maintenanceReports: {
+            some: { kind: 'DO_ACK', status: 'completed', organizationId },
+            none: { kind: 'DO_INSTALL', organizationId },
+          },
+        },
+      },
+      orderBy: { document: { createdAt: 'desc' } },
+      include: { document: true },
+    });
+    const installableDeliveryOrder = installDoItem?.document ?? null;
+    const canAckInstall = !!installableDeliveryOrder;
+
     const recentReports = await this.prisma.maintenanceServiceReport.findMany({
       where: { assetId, organizationId },
       orderBy: { createdAt: 'desc' },
@@ -647,6 +680,8 @@ export class MaintenanceReportsService {
       canStartDelivery,
       canAckDelivery,
       activeDeliveryStart,
+      installableDeliveryOrder,
+      canAckInstall,
       recentServiceReports: recentReports,
     };
   }
