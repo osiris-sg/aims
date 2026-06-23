@@ -170,11 +170,11 @@ model Inventory {
   timelineItems  TimelineItem[]
   serviceReports MaintenanceServiceReport[]
 
-  // Backs the serial-match bind: a manufacturer serial is unique per asset, so
-  // create-and-bind can resolve an existing unit by (serialNumber, assetId).
-  // serialNumber is nullable — Postgres treats NULLs as distinct, so multiple
-  // units with no serial under the same asset remain allowed (intended).
-  @@unique([serialNumber, assetId])
+  // Backs the SKU-match bind: a SKU identifies one unit within an org, so
+  // create-and-bind can resolve an existing unit by (sku, organizationId).
+  // Enforces what generateSkuRange only assumed — a concurrent SKU collision
+  // now surfaces as a clean P2002 instead of a silent duplicate.
+  @@unique([sku, organizationId])
 }
 
 model Customer {

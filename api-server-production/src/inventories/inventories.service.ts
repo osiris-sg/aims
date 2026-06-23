@@ -324,16 +324,18 @@ export class InventoriesService {
     const tagConflictMessage = (owner: { sku: string; asset?: { skuKey?: string | null } | null }) =>
       `NFC tag is already bound to inventory ${owner.sku} (${owner.asset?.skuKey ?? 'unknown SKU'})`;
 
-    // Serial match — only when a non-blank serial is provided. Case-insensitive
-    // (the @@unique index is case-sensitive, so "AIS"/"ais" could both exist —
-    // hence the defensive multi-match guard below).
+    // Match the typed value against `sku` — only when non-blank. The field UI
+    // labels this "Serial number", but it functionally matches the unit SKU so
+    // office-created units (which carry the real serial in `sku`) reconcile.
+    // Case-insensitive (the @@unique index is case-sensitive, so "AIS"/"ais"
+    // could both exist — hence the defensive multi-match guard below).
     const serial = dto.serial?.trim();
     const matches = serial
       ? await this.prisma.inventory.findMany({
           where: {
             assetId: asset.id,
             organizationId,
-            serialNumber: { equals: serial, mode: 'insensitive' },
+            sku: { equals: serial, mode: 'insensitive' },
           },
           include: { asset: true },
         })
@@ -413,12 +415,12 @@ export class InventoriesService {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         const targetRaw = (error.meta as { target?: string[] | string } | undefined)?.target;
         const target = Array.isArray(targetRaw) ? targetRaw.join(',') : String(targetRaw ?? '');
-        // A (serialNumber, assetId) race — another bind created this serial
+        // A (sku, organizationId) race — another bind/create produced this SKU
         // between our match query and the write. Tell the caller to retry (it
         // will then resolve to the existing unit via the match path).
-        if (target.includes('serialNumber') || target.includes('assetId')) {
+        if (target.includes('sku')) {
           throw new HttpException(
-            'A unit with this serial already exists for this product — please retry to match it.',
+            'A unit with this SKU already exists in this organization — please retry to match it.',
             HttpStatus.CONFLICT,
           );
         }
