@@ -131,6 +131,11 @@ export default function BindTagPage() {
   const [createProjectName, setCreateProjectName] = useState("");
   const [creatingProject, setCreatingProject] = useState(false);
 
+  // Set when the backend returns ALREADY_TAGGED: the matched unit already has a
+  // different tag, so we ask the tech before overwriting (rebind orphans the
+  // old tag). Confirming re-submits the bind with confirmRebind: true.
+  const [rebindPrompt, setRebindPrompt] = useState<{ message: string; unitSku?: string } | null>(null);
+
   const [error, setError] = useState<string | null>(null);
 
   // Auto-select on exact match. When the AI extraction (or the tech's typing)
@@ -306,7 +311,9 @@ export default function BindTagPage() {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const res = await request(
-        { path: "/assets/extract-label", method: "POST" },
+        // AI label extraction (vision call) can run well past the JSON default,
+        // especially on a Render cold start — give it a longer per-call timeout.
+        { path: "/assets/extract-label", method: "POST", timeout: 120000 },
         { image: photoDataUrl },
         token,
       );
@@ -340,7 +347,7 @@ export default function BindTagPage() {
     }
   };
 
-  const createAndBind = async () => {
+  const createAndBind = async (confirmRebind = false) => {
     setError(null);
     if (!selectedAsset) return setError("Pick the product this unit is.");
 
@@ -354,14 +361,29 @@ export default function BindTagPage() {
           assetId: selectedAsset.id,
           serial: serial.trim() || undefined,
           nfcTagUid: uid,
+          ...(confirmRebind ? { confirmRebind: true } : {}),
         },
         token,
       );
-      // The request helper returns { success:false, message } on error rather
-      // than throwing — surface that as a real error so the tech sees the
-      // backend's actual reason (e.g. tag already bound) instead of a silent
-      // "no id returned" fallback.
+      // The request helper returns { success:false, message, code?, details? }
+      // on error rather than throwing. Branch on the backend's structured code.
       if (res?.success === false) {
+        const code = res?.code ?? res?.details?.code;
+        // The matched unit already has a DIFFERENT tag — ask before overwriting
+        // (rebinding orphans the old tag). The dialog re-submits with confirm.
+        if (code === "ALREADY_TAGGED") {
+          setRebindPrompt({
+            message: res?.message ?? "This unit already has a tag.",
+            unitSku: res?.details?.unitSku,
+          });
+          return; // finally resets `creating`; the dialog drives the retry
+        }
+        // Several units share this serial under the product — can't auto-pick.
+        if (code === "AMBIGUOUS_SERIAL") {
+          const cands = Array.isArray(res?.details?.candidates) ? res.details.candidates.join(", ") : "";
+          setError(`${res?.message ?? "Multiple matching units."}${cands ? ` (${cands})` : ""}`);
+          return;
+        }
         throw new Error(res?.message ?? "Failed to create inventory item.");
       }
       const payload = res?.data;
@@ -370,13 +392,24 @@ export default function BindTagPage() {
       if (!assetId || !inventoryId) {
         throw new Error("Unexpected response from server.");
       }
+
+      // Match-vs-create feedback so the tech knows whether a new unit was minted
+      // or the tag attached to an existing one (matched by serial).
+      const action = payload?.action;
+      const unitSku = payload?.inventory?.sku;
+      const successMsg =
+        action === "matched"
+          ? `Tag bound to existing unit ${unitSku}`
+          : `New unit ${unitSku} created and tagged`;
+
+      // Deploy gate: skip the project-deploy follow-on when we matched a unit
+      // that's already out (rental/sold) — re-deploying would double-deploy it.
+      const invStatus = payload?.inventory?.status;
+      const alreadyDeployed = action === "matched" && (invStatus === "rental" || invStatus === "sold");
+
       // Optional project deployment — best-effort. Creates a Deployment +
-      // single-item DO on the backend so the unit shows up on the project
-      // page's deployment cards (standalone Assignment rows don't render
-      // there). The bind has already succeeded at this point, so a failure
-      // here must never block the flow: log it, tell the tech the item was
-      // still created, and move on. The office can deploy it from the portal.
-      if (selectedProject) {
+      // single-item DO on the backend. A failure here never blocks the flow.
+      if (selectedProject && !alreadyDeployed) {
         try {
           const deployRes = await request(
             { path: `/projects/${selectedProject.id}/field-deploy`, method: "POST" },
@@ -386,14 +419,17 @@ export default function BindTagPage() {
           if (deployRes?.success === false) {
             throw new Error(deployRes?.message ?? "Deployment request failed");
           }
-          toast.success(`Item created and deployed to ${selectedProject.name}`);
+          toast.success(`${successMsg} · deployed to ${selectedProject.name}`);
         } catch (deployErr) {
           console.error("field deploy failed (binding succeeded):", deployErr);
-          toast.success("Item created");
+          toast.success(successMsg);
           toast.warning("Couldn't deploy to project — deploy it later from the portal.");
         }
       } else {
-        toast.success("Item created");
+        toast.success(successMsg);
+        if (selectedProject && alreadyDeployed) {
+          toast.info("Unit already deployed — tag bound, deployment skipped.");
+        }
       }
       // Jump straight to the action chooser — same destination as a scan of
       // an already-bound tag, so the create-then-act flow has no dead end.
@@ -671,7 +707,7 @@ export default function BindTagPage() {
             color="primary"
             fullWidth
             disabled={creating || !selectedAsset}
-            onClick={createAndBind}
+            onClick={() => createAndBind()}
             sx={FIELD_BUTTON_SX}
           >
             {creating ? "Creating..." : "Create & Bind"}
@@ -737,6 +773,33 @@ export default function BindTagPage() {
             startIcon={creatingProject ? <CircularProgress size={14} color="inherit" /> : <AddIcon />}
           >
             Create
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Rebind confirm — shown when the matched unit already has a different
+          tag. Confirming re-submits the bind with confirmRebind: true. */}
+      <Dialog open={!!rebindPrompt} onClose={() => !creating && setRebindPrompt(null)}>
+        <DialogTitle>Rebind tag?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            {rebindPrompt?.message} Rebind anyway?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRebindPrompt(null)} disabled={creating}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="warning"
+            disabled={creating}
+            onClick={() => {
+              setRebindPrompt(null);
+              createAndBind(true);
+            }}
+          >
+            {creating ? "Rebinding…" : "Rebind anyway"}
           </Button>
         </DialogActions>
       </Dialog>

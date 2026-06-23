@@ -33,13 +33,34 @@ export function parseJSON(response: Response) {
   return response.json();
 }
 
+// Default request timeout. axios.create() has NO timeout (0 = infinite), so a
+// stalled connection used to pend forever — leaving callers' `await` hanging
+// and their try/finally never running (e.g. the field bind button stuck on
+// "Creating…"). 30s recovers from a true hang while tolerating a slow request.
+const DEFAULT_TIMEOUT_MS = 30000;
+// Uploads (formData) move large payloads to S3 and run much longer — give them
+// a generous ceiling so a real upload isn't killed at the JSON default.
+const UPLOAD_TIMEOUT_MS = 120000;
+
 export class RequestService {
   private instance: AxiosInstance;
   constructor() {
-    this.instance = axios.create();
+    this.instance = axios.create({ timeout: DEFAULT_TIMEOUT_MS });
   }
 
   public sendRequest = async (_metadata: any, data: any, token?: string, customHeaders?: any, isClientSide: boolean = true, formData: boolean = false) => {
+    // Effective timeout: explicit per-call override (_metadata.timeout) wins;
+    // else uploads get the longer ceiling; else the JSON default. AbortController
+    // is belt-and-suspenders alongside axios's own `timeout` so a stalled
+    // connection actually aborts and the promise rejects (never pends forever).
+    const effectiveTimeout =
+      typeof _metadata?.timeout === "number"
+        ? _metadata.timeout
+        : formData
+        ? UPLOAD_TIMEOUT_MS
+        : DEFAULT_TIMEOUT_MS;
+    const abortController = new AbortController();
+    const abortTimer = setTimeout(() => abortController.abort(), effectiveTimeout);
     try {
       const metadata = { ..._metadata };
       const pathTokens = metadata.path.split("/:");
@@ -80,6 +101,8 @@ export class RequestService {
         withCredentials: true,
         headers: headers,
         isClientSide,
+        timeout: effectiveTimeout,
+        signal: abortController.signal,
         ...(["POST", "PUT", "PATCH", "DELETE"].includes(metadata.method) && {
           data: JSON.stringify(data),
         }),
@@ -99,16 +122,35 @@ export class RequestService {
 
       return result.data;
     } catch (error: any) {
+      // Distinguish a timeout/abort (our AbortController or axios's own timeout)
+      // from a normal failure, so callers can show "timed out, try again".
+      const timedOut =
+        error?.code === "ECONNABORTED" ||
+        error?.code === "ERR_CANCELED" ||
+        (typeof axios.isCancel === "function" && axios.isCancel(error)) ||
+        /timeout|aborted/i.test(String(error?.message || ""));
+      const message = timedOut
+        ? "Request timed out — please try again."
+        : error?.response?.data?.message || error?.message || "Something went wrong in request";
       store.dispatch(
-        notificationsActions.setNotification({
-          type: "error",
-          message: error?.response?.data?.message || error?.message || "Something went wrong in request",
-        })
+        notificationsActions.setNotification({ type: "error", message })
       );
+      // Surface the backend's structured error body so callers can branch on a
+      // code (e.g. create-and-bind's ALREADY_TAGGED / AMBIGUOUS_SERIAL). Purely
+      // additive — existing callers still read `success` / `message`.
+      const errorBody = error?.response?.data;
       return {
         success: false,
-        message: error?.response?.data?.message || error?.message || "Something went wrong in request",
+        message,
+        ...(timedOut && { timedOut: true }),
+        ...(errorBody && typeof errorBody === "object"
+          ? { code: (errorBody as any).code, details: errorBody }
+          : {}),
       };
+    } finally {
+      // Always clear the abort timer — on success, error, AND timeout — so we
+      // never leak a pending timer or abort an already-settled request.
+      clearTimeout(abortTimer);
     }
   };
 
