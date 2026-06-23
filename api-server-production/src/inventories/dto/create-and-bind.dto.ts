@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
 
 /**
  * Field create-and-bind: the technician scans an unbound NFC tag, photographs
@@ -25,4 +25,12 @@ export class CreateInventoryAndBindDto {
   @IsString()
   @IsNotEmpty()
   nfcTagUid: string;
+
+  // When the typed serial matches an existing unit that ALREADY has a different
+  // tag, the bind returns a 409 { code: 'ALREADY_TAGGED' } instead of silently
+  // overwriting. The field UI re-submits with confirmRebind: true to proceed
+  // (which unbinds the old tag and binds the new one to that existing unit).
+  @IsOptional()
+  @IsBoolean()
+  confirmRebind?: boolean;
 }

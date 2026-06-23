@@ -289,28 +289,24 @@ export class InventoriesService {
    *     existing suffix rather than counting rows — survives deletions.
    *   - The org-scope filter on the asset lookup prevents cross-org binding.
    */
+  /**
+   * Create-and-bind with serial matching. If the typed serial already exists
+   * under the chosen asset, bind the tag to THAT unit instead of minting a new
+   * one; otherwise create new (the only path that generates a SKU). Backed by
+   * the @@unique([serialNumber, assetId]) index (Inventory_serialNumber_assetId_key).
+   *
+   * Return shape (backward-compatible — the field UI reads `inventory.id` +
+   * `asset.id`): { inventory, asset, action: 'created' | 'matched', idempotent? }.
+   */
   async createAndBind(dto: CreateInventoryAndBindDto, organizationId: string) {
-    if (!dto.nfcTagUid?.trim()) {
+    const tag = dto.nfcTagUid?.trim();
+    if (!tag) {
       throw new HttpException('NFC UID is required', HttpStatus.BAD_REQUEST);
     }
 
-    // 1. Tag conflict check up front — fail fast before any writes.
-    const tagConflict = await this.prisma.inventory.findUnique({
-      where: { nfcTagUid: dto.nfcTagUid },
-      include: { asset: { select: { skuKey: true } } },
-    });
-    if (tagConflict) {
-      throw new HttpException(
-        `NFC tag is already bound to inventory ${tagConflict.sku} (${tagConflict.asset?.skuKey ?? 'unknown SKU'})`,
-        HttpStatus.CONFLICT,
-      );
-    }
-
-    // 2. Look up the chosen Asset. Org-scoped + soft-delete filter prevents
-    //    binding to anything outside the tech's org or to deleted catalog rows.
-    //    Include the category so we can copy its name onto Inventory.category
-    //    (the Inventory model has its own String category — distinct from the
-    //    Asset.categoryId FK relation).
+    // Resolve the chosen Asset first (org-scoped + soft-delete filter) — needed
+    // for both the serial match and the create path. category is copied onto
+    // Inventory.category (a String, distinct from Asset.categoryId).
     const asset = await this.prisma.asset.findFirst({
       where: { id: dto.assetId, organizationId, deletedAt: null },
       include: { category: { select: { name: true } } },
@@ -319,12 +315,86 @@ export class InventoriesService {
       throw new HttpException('Asset not found in this organization.', HttpStatus.NOT_FOUND);
     }
 
-    // 3. Next per-unit SKU. Reuses generateSkuRange so we share the same
-    //    "parse highest existing suffix, increment" logic as the bulk endpoint.
-    const [inventorySku] = await this.generateSkuRange(asset.id, 1, organizationId);
+    // Who currently holds this tag? (nfcTagUid is globally @unique.) Used for
+    // the conflict check — but exempted for the matched unit (idempotent path).
+    const tagOwner = await this.prisma.inventory.findUnique({
+      where: { nfcTagUid: tag },
+      include: { asset: { select: { skuKey: true } } },
+    });
+    const tagConflictMessage = (owner: { sku: string; asset?: { skuKey?: string | null } | null }) =>
+      `NFC tag is already bound to inventory ${owner.sku} (${owner.asset?.skuKey ?? 'unknown SKU'})`;
 
-    // 4. Create the inventory unit with the NFC tag in one write. The
-    //    @unique constraint on nfcTagUid makes this race-safe.
+    // Serial match — only when a non-blank serial is provided. Case-insensitive
+    // (the @@unique index is case-sensitive, so "AIS"/"ais" could both exist —
+    // hence the defensive multi-match guard below).
+    const serial = dto.serial?.trim();
+    const matches = serial
+      ? await this.prisma.inventory.findMany({
+          where: {
+            assetId: asset.id,
+            organizationId,
+            serialNumber: { equals: serial, mode: 'insensitive' },
+          },
+          include: { asset: true },
+        })
+      : [];
+
+    // ---- EXISTING-UNIT BIND (exactly one serial match) ----
+    if (matches.length === 1) {
+      const unit = matches[0];
+
+      // (a) Idempotent: this unit already carries the requested tag.
+      if (unit.nfcTagUid === tag) {
+        return { inventory: unit, asset, action: 'matched' as const, idempotent: true };
+      }
+      // The requested tag is bound to a DIFFERENT unit — can't steal it.
+      if (tagOwner && tagOwner.id !== unit.id) {
+        throw new HttpException(tagConflictMessage(tagOwner), HttpStatus.CONFLICT);
+      }
+      // (b) Unit already has a DIFFERENT tag — needs an explicit confirm to
+      //     rebind (overwriting orphans the old tag), surfaced as a structured
+      //     409 the field UI can turn into a confirm prompt.
+      if (unit.nfcTagUid && !dto.confirmRebind) {
+        throw new HttpException(
+          {
+            code: 'ALREADY_TAGGED',
+            message: `Unit ${unit.sku} already has a tag. Rebinding will unbind the old tag.`,
+            unitSku: unit.sku,
+            unitId: unit.id,
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
+      // (c) Bind: set ONLY nfcTagUid. SKU and status are left as-is (the unit
+      //     may already be rental/sold — do NOT reset it to instock).
+      const inventory = await this.prisma.inventory.update({
+        where: { id: unit.id },
+        data: { nfcTagUid: tag },
+        include: { asset: true },
+      });
+      return { inventory, asset, action: 'matched' as const };
+    }
+
+    // ---- MULTI-MATCH guard (should be prevented by the unique index, but the
+    //      index is case-sensitive while our match is case-insensitive) ----
+    if (matches.length > 1) {
+      throw new HttpException(
+        {
+          code: 'AMBIGUOUS_SERIAL',
+          message: `Multiple units (${matches.length}) match serial "${serial}" under this product — resolve manually.`,
+          candidates: matches.map((m) => m.sku),
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    // ---- CREATE NEW (blank serial OR no serial match) ----
+    // The tag must not already be bound to any unit.
+    if (tagOwner) {
+      throw new HttpException(tagConflictMessage(tagOwner), HttpStatus.CONFLICT);
+    }
+    // Next per-unit SKU (reuses the bulk endpoint's increment logic).
+    const [inventorySku] = await this.generateSkuRange(asset.id, 1, organizationId);
     try {
       const inventory = await this.prisma.inventory.create({
         data: {
@@ -333,15 +403,26 @@ export class InventoriesService {
           category: asset.category?.name ?? 'Equipment',
           status: 'instock',
           organizationId,
-          nfcTagUid: dto.nfcTagUid,
-          serialNumber: dto.serial?.trim() || null,
+          nfcTagUid: tag,
+          serialNumber: serial || null,
         },
         include: { asset: true },
       });
-      return { inventory, asset };
+      return { inventory, asset, action: 'created' as const };
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        // Race: another request bound this UID between the precheck and write.
+        const targetRaw = (error.meta as { target?: string[] | string } | undefined)?.target;
+        const target = Array.isArray(targetRaw) ? targetRaw.join(',') : String(targetRaw ?? '');
+        // A (serialNumber, assetId) race — another bind created this serial
+        // between our match query and the write. Tell the caller to retry (it
+        // will then resolve to the existing unit via the match path).
+        if (target.includes('serialNumber') || target.includes('assetId')) {
+          throw new HttpException(
+            'A unit with this serial already exists for this product — please retry to match it.',
+            HttpStatus.CONFLICT,
+          );
+        }
+        // Otherwise it's the nfcTagUid unique — the tag was bound concurrently.
         throw new HttpException('NFC tag is already bound to another inventory item.', HttpStatus.CONFLICT);
       }
       throw new HttpException(
