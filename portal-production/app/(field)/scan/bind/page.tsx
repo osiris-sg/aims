@@ -102,6 +102,9 @@ export default function BindTagPage() {
   // Review step
   const [assetOptions, setAssetOptions] = useState<AssetOption[]>([]);
   const [selectedAsset, setSelectedAsset] = useState<AssetOption | null>(null);
+  // Red-highlight the Product field when nothing is picked (the disabled-button
+  // trap). Set on blur / failed submit; cleared on a valid selection.
+  const [productError, setProductError] = useState(false);
   const [searchInput, setSearchInput] = useState("");
   const [searching, setSearching] = useState(false);
   const [serial, setSerial] = useState("");
@@ -536,7 +539,16 @@ export default function BindTagPage() {
             options={assetOptions}
             value={selectedAsset}
             inputValue={searchInput}
-            onChange={(_, picked) => setSelectedAsset(picked)}
+            onChange={(_, picked) => {
+              setSelectedAsset(picked);
+              // Reflect the pick IN the input box (not just helper text) so the
+              // selection is unmistakable; clear any "no product" error.
+              setSearchInput(picked ? `${picked.name} · ${picked.skuKey}` : "");
+              if (picked) setProductError(false);
+            }}
+            // Live validation: flag the field red if the tech leaves it without
+            // having selected a product from the list.
+            onBlur={() => setProductError(!selectedAsset)}
             // Gate on reason === 'input' so MUI's post-selection "reset" (which
             // fires with the formatted option label like "LION375 · LION375")
             // doesn't pollute the search query and trigger a useless backend
@@ -561,10 +573,13 @@ export default function BindTagPage() {
                 {...params}
                 label="Product"
                 placeholder="Search by name or SKU"
+                error={productError && !selectedAsset}
                 helperText={
-                  selectedAsset
-                    ? `Selected: ${selectedAsset.name} · ${selectedAsset.skuKey}`
-                    : "Type to filter the catalog."
+                  productError && !selectedAsset
+                    ? "Please select a product from the list."
+                    : selectedAsset
+                      ? `Selected: ${selectedAsset.name} · ${selectedAsset.skuKey}`
+                      : "Type to filter the catalog."
                 }
                 InputProps={{
                   ...params.InputProps,
