@@ -8,6 +8,7 @@ import BuildIcon from "@mui/icons-material/Build";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import HandymanIcon from "@mui/icons-material/Handyman";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import DescriptionIcon from "@mui/icons-material/Description";
 import { request } from "@/helpers/request";
 
 interface ScanContext {
@@ -185,6 +186,26 @@ export default function AssetActionChooser() {
           <CardActionArea disabled>{deliveryCardInner}</CardActionArea>
         )}
       </Card>
+
+      {/* View the linked delivery order, read-only. Shown only when a DO is
+          actually associated with this unit (any stage). */}
+      {resolvedDeliveryOrder && (
+        <Card variant="outlined">
+          <CardActionArea onClick={() => router.push(`/scan/asset/${assetId}/do/${resolvedDeliveryOrder.id}/view`)}>
+            <CardContent sx={{ display: "flex", gap: 2.5, alignItems: "center", py: 3, minHeight: 96 }}>
+              <DescriptionIcon color="primary" sx={{ fontSize: 48 }} />
+              <Box>
+                <Typography variant="h6" fontWeight={700}>
+                  View Delivery Order
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {resolvedDeliveryOrder.name ?? resolvedDeliveryOrder.id} — read-only
+                </Typography>
+              </Box>
+            </CardContent>
+          </CardActionArea>
+        </Card>
+      )}
 
       <Card variant="outlined">
         <CardActionArea onClick={() => {
