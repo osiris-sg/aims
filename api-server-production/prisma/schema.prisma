@@ -169,6 +169,12 @@ model Inventory {
   organization   Organization               @relation(fields: [organizationId], references: [id])
   timelineItems  TimelineItem[]
   serviceReports MaintenanceServiceReport[]
+
+  // Backs the serial-match bind: a manufacturer serial is unique per asset, so
+  // create-and-bind can resolve an existing unit by (serialNumber, assetId).
+  // serialNumber is nullable — Postgres treats NULLs as distinct, so multiple
+  // units with no serial under the same asset remain allowed (intended).
+  @@unique([serialNumber, assetId])
 }
 
 model Customer {
