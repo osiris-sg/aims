@@ -29,6 +29,10 @@ class FiltersDto {
   @IsString()
   @IsOptional()
   assetId?: string;
+
+  @IsString()
+  @IsOptional()
+  tagStatus?: string;
 }
 
 export class GetInventoryDto {

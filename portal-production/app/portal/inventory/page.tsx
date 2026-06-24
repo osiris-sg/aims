@@ -5,7 +5,7 @@ import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import type { FilterField } from "@/components/FilterDrawer";
 import { INVENTORY_STATUS } from "@/containers/Inventory/slice/constants";
-import { Box, Dialog, DialogTitle, DialogContent, DialogActions, Button, CircularProgress, Typography, IconButton } from "@mui/material";
+import { Box, Dialog, DialogTitle, DialogContent, DialogActions, Button, CircularProgress, Typography, IconButton, Chip } from "@mui/material";
 import { useRouter } from "next/navigation";
 import { ROUTES } from "@/routes";
 import AddInventoryItem from "./components/AddInventoryItem";
@@ -53,6 +53,7 @@ interface Inventory {
   category: string;
   createdAt: string;
   assetId: string;
+  nfcTagUid?: string | null;
   asset: {
     name: string;
     image: string;
@@ -70,11 +71,13 @@ export default function InventoryPage() {
     status: string;
     category: string;
     assetId: string;
+    tagStatus: string;
     createdOn: { startDate: Date | string | null; endDate: Date | string | null };
   }>({
     status: "",
     category: "",
     assetId: "",
+    tagStatus: "",
     createdOn: { startDate: null, endDate: null },
   });
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -88,6 +91,7 @@ export default function InventoryPage() {
       status: filters.status ? [filters.status] : [],
       category: filters.category ? [filters.category] : [],
       assetId: filters.assetId,
+      tagStatus: filters.tagStatus,
       createdOn: filters.createdOn,
     }),
     [filters],
@@ -106,6 +110,16 @@ export default function InventoryPage() {
     () => [
       { type: "dateRange", key: "createdOn", label: "Created On" },
       { type: "select", key: "status", label: "Status", options: INVENTORY_STATUS },
+      {
+        type: "select",
+        key: "tagStatus",
+        label: "Tagged",
+        options: [
+          { label: "All", value: "" },
+          { label: "Tagged", value: "tagged" },
+          { label: "Untagged", value: "untagged" },
+        ],
+      },
       {
         type: "select",
         key: "category",
@@ -185,6 +199,29 @@ export default function InventoryPage() {
       cell: (info: any) => {
         const value = info.getValue();
         return value ? new Date(value).toLocaleDateString() : "";
+      },
+    },
+    {
+      id: "tagged",
+      accessorKey: "nfcTagUid",
+      header: "Tagged",
+      cell: (info: any) => {
+        const uid = info.getValue();
+        return (
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+            <Chip
+              size="small"
+              label={uid ? "Tagged" : "Not tagged"}
+              color={uid ? "success" : "default"}
+              variant={uid ? "filled" : "outlined"}
+            />
+            {uid && (
+              <Typography variant="caption" sx={{ color: "text.secondary", fontFamily: "monospace" }}>
+                {uid}
+              </Typography>
+            )}
+          </Box>
+        );
       },
     },
     {

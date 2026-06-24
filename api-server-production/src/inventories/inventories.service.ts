@@ -69,6 +69,13 @@ export class InventoriesService {
         whereClause.assetId = filters.assetId;
       }
 
+      // Tag-presence filter (tagged → has an NFC UID; untagged → none)
+      if (filters?.tagStatus === 'tagged') {
+        whereClause.nfcTagUid = { not: null };
+      } else if (filters?.tagStatus === 'untagged') {
+        whereClause.nfcTagUid = null;
+      }
+
       const docs = await this.prisma.inventory.findMany({
         where: whereClause,
         skip,
