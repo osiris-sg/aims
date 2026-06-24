@@ -148,4 +148,16 @@ export class MaintenanceReportsController {
   ) {
     return this.service.getScanContext(assetId, org.id, inventoryId);
   }
+
+  /**
+   * Field-accessible read-only delivery-order view. Aggregates the DO config,
+   * its proof-of-delivery reports, the resolved template variant, and the field
+   * config in one org-scoped response so the field "View DO" page doesn't need
+   * the office document/template permissions.
+   */
+  @Get('do-view/:doId')
+  @Permissions('field-scan:access')
+  getDoView(@Param('doId') doId: string, @UserOrganization() org: { id: string }) {
+    return this.service.getDoView(doId, org.id);
+  }
 }

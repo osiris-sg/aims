@@ -13,7 +13,6 @@ import { Alert, Box, Button, CircularProgress, IconButton, Stack, Typography } f
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { request } from "@/helpers/request";
 import CleanDocumentPreview from "@/containers/DocumentTemplates/components/CleanDocumentPreview";
-import { getTemplateFormFields } from "@/containers/DocumentTemplates/utils/templateFieldSync";
 import { transformBackendDataForForm } from "@/containers/DocumentTemplates/utils/documentDataTransformer";
 
 export default function ViewDeliveryOrderPage() {
@@ -36,38 +35,25 @@ export default function ViewDeliveryOrderPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path: `/documents/${doId}`, method: "GET" }, {}, token);
+      // Single field-gated aggregator (field-scan:access) — returns the DO
+      // config, its proof-of-delivery reports, the resolved template variant,
+      // and the field config in one org-scoped response. Replaces the three
+      // office document/template calls the field-tech role can't hit.
+      const res = await request({ path: `/maintenance-reports/do-view/${doId}`, method: "GET" }, {}, token);
       if (res?.success === false || !res?.data) {
         throw new Error(res?.message ?? "Delivery order not found");
       }
-      const doc = res.data;
-
-      // Resolve the template variant (DO / RDO / …) so the renderer picks the
-      // right layout. Best-effort — fall back to "DO" if the template lookup fails.
-      let templateVariant = "DO";
-      const templateId = doc.documentTemplateId;
-      if (templateId) {
-        try {
-          const t = await request({ path: `/documentTemplates/${templateId}`, method: "GET" }, {}, token);
-          if (t?.success !== false && t?.data) {
-            templateVariant = t.data.templateVariant || t.data.designName || templateVariant;
-          }
-        } catch {
-          // keep the "DO" fallback
-        }
-      }
+      const { document, documentNumber, status, maintenanceReports: reports, templateVariant, fieldConfig } = res.data;
 
       // Same transform the office view uses, so the field render matches.
-      const fieldConfig = await getTemplateFormFields(templateVariant, templateId, token);
-      const config = doc.config || {};
-      const formData = transformBackendDataForForm(config, fieldConfig);
-      formData.name = doc.name;
-      formData.documentNumber = doc.name;
-      formData.status = doc.status;
+      const formData = transformBackendDataForForm(document?.config ?? {}, fieldConfig);
+      formData.name = documentNumber;
+      formData.documentNumber = documentNumber;
+      formData.status = status;
 
-      setVariant(templateVariant);
+      setVariant(templateVariant || "DO");
       setData(formData);
-      setMaintenanceReports(Array.isArray(doc.maintenanceReports) ? doc.maintenanceReports : []);
+      setMaintenanceReports(Array.isArray(reports) ? reports : []);
     } catch (e: any) {
       setError(e?.message ?? "Failed to load delivery order");
     } finally {

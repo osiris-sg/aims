@@ -1,10 +1,11 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
 import { WaterSgService } from 'src/common/services/water-sg.service';
 import { EmailService } from '../email/email.service';
 import { DocumentsService } from '../documents/documents.service';
+import { DocumentTemplatesService } from '../documentTemplates/documentTemplates.service';
 import { CreateMaintenanceReportDto } from './dto/create-maintenance-report.dto';
 import { SignMaintenanceReportDto } from './dto/sign-maintenance-report.dto';
 import { CreateLocationPingsDto } from './dto/location-ping.dto';
@@ -19,6 +20,7 @@ export class MaintenanceReportsService {
     private readonly pdfGenerator: PdfGeneratorService,
     private readonly email: EmailService,
     private readonly documentsService: DocumentsService,
+    private readonly documentTemplatesService: DocumentTemplatesService,
     private readonly waterSg: WaterSgService,
   ) {}
 
@@ -729,6 +731,48 @@ export class MaintenanceReportsService {
       installableDeliveryOrder,
       canAckInstall,
       recentServiceReports: recentReports,
+    };
+  }
+
+  /**
+   * Field-accessible read-only view of a delivery order. One round-trip for the
+   * field app's "View DO" screen, aggregating everything CleanDocumentPreview
+   * needs so field techs don't have to hit the office document/template
+   * endpoints (which require permissions the field-tech role lacks).
+   *
+   * Security: org-scoped via documentsService.getById's `where: { id,
+   * organizationId }` — a DO from another org returns null → 404 (we don't
+   * confirm existence across orgs). Also restricted to DELIVERY_ORDER so this
+   * field route can't be repurposed to read invoices/quotations by id.
+   */
+  async getDoView(doId: string, organizationId: string) {
+    const document = await this.documentsService.getById(doId, organizationId);
+    if (!document) throw new NotFoundException('Delivery order not found');
+    if (document.type !== 'DELIVERY_ORDER') {
+      throw new ForbiddenException('Not a delivery order');
+    }
+
+    let templateVariant = 'DO';
+    let fieldConfig: any = null;
+    if (document.documentTemplateId) {
+      const defs = await this.documentTemplatesService.getTemplateFieldDefinitions(document.documentTemplateId, organizationId);
+      fieldConfig = defs?.formFields ?? null;
+      templateVariant = defs?.templateVariant ?? templateVariant;
+    }
+
+    return {
+      document: {
+        id: document.id,
+        name: document.name,
+        status: document.status,
+        config: document.config,
+        documentTemplateId: document.documentTemplateId,
+      },
+      documentNumber: document.name,
+      status: document.status,
+      maintenanceReports: document.maintenanceReports,
+      templateVariant,
+      fieldConfig,
     };
   }
 

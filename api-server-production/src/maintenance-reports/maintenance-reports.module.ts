@@ -3,6 +3,7 @@ import { CommonModule } from 'src/common/common.module';
 import { PrismaService } from 'src/common/prisma.service';
 import { EmailModule } from '../email/email.module';
 import { DocumentsModule } from '../documents/documents.module';
+import { DocumentTemplatesModule } from '../documentTemplates/documentTemplates.module';
 import { MaintenanceReportsController } from './maintenance-reports.controller';
 import { MaintenanceReportsService } from './maintenance-reports.service';
 
@@ -12,7 +13,9 @@ import { MaintenanceReportsService } from './maintenance-reports.service';
   // when paymentRequired === false.
   // DocumentsModule exports DocumentsService.createBasicDocument used to spin
   // off an Invoice document from an MSR with paymentRequired === true.
-  imports: [CommonModule, EmailModule, DocumentsModule],
+  // DocumentTemplatesModule exports DocumentTemplatesService for the
+  // field-accessible do-view aggregator (resolves variant + field config).
+  imports: [CommonModule, EmailModule, DocumentsModule, DocumentTemplatesModule],
   controllers: [MaintenanceReportsController],
   providers: [MaintenanceReportsService, PrismaService],
 })
