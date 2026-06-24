@@ -168,32 +168,6 @@ export default function AssetActionChooser() {
         </Box>
       </Stack>
 
-      {/* TEMP deploy-verification marker — UNCONDITIONAL, zero data dependency.
-          If this is visible on the device, the new bundle is being served.
-          If it's absent, the deploy pipeline (not the code) is the problem. */}
-      <Box
-        sx={{
-          alignSelf: "flex-start",
-          bgcolor: "#d32f2f",
-          color: "#fff",
-          fontWeight: 700,
-          fontSize: 12,
-          letterSpacing: 0.5,
-          px: 1.25,
-          py: 0.5,
-          borderRadius: 1,
-        }}
-      >
-        BUILD: viewdo-test-1
-      </Box>
-
-      {/* TEMP runtime-value probe — shows the actual resolvedDeliveryOrder /
-          deliveryStage the device received, so we can tell data-null from
-          stale-bundle at a glance. */}
-      <Box sx={{ fontSize: 10, opacity: 0.6, mt: -1.5 }}>
-        DO:{resolvedDeliveryOrder ? resolvedDeliveryOrder.name : "null"} stage:{String(deliveryStage)}
-      </Box>
-
       {/* Top-of-screen View DO action — gated on resolvedDeliveryOrder, placed
           beside the header for quick access. Belt-and-suspenders with the
           between-cards card below. */}
