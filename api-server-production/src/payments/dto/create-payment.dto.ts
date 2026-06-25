@@ -1,5 +1,25 @@
-import { IsString, IsNumber, IsDateString, IsOptional, IsNotEmpty } from 'class-validator';
+import { IsString, IsNumber, IsDateString, IsOptional, IsNotEmpty, IsArray } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+
+export class PaymentAttachmentDto {
+  @ApiProperty()
+  @IsString()
+  fileKey: string;
+
+  @ApiProperty()
+  @IsString()
+  fileName: string;
+
+  @ApiProperty({ required: false })
+  @IsString()
+  @IsOptional()
+  mimeType?: string;
+
+  @ApiProperty({ required: false })
+  @IsString()
+  @IsOptional()
+  label?: string;
+}
 
 export class CreatePaymentDto {
   @ApiProperty({ description: 'Customer ID' })
@@ -36,4 +56,9 @@ export class CreatePaymentDto {
   @IsString()
   @IsOptional()
   notes?: string;
+
+  @ApiProperty({ description: 'Payment proof attachments (already uploaded via /uploads/image)', required: false, type: [PaymentAttachmentDto] })
+  @IsArray()
+  @IsOptional()
+  attachments?: PaymentAttachmentDto[];
 }

@@ -78,6 +78,7 @@ model Organization {
   fixedAssets           FixedAsset[]
   budgets               Budget[]
   bills                 Bill[]
+  billPayments          BillPayment[]
   bankImports           BankStatementImport[]
   xeroAccountMappings   XeroAccountMapping[]
   xeroSyncRuns          XeroSyncRun[]
@@ -223,8 +224,9 @@ model Supplier {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id])
+  organization   Organization  @relation(fields: [organizationId], references: [id])
   bills          Bill[]
+  billPayments   BillPayment[]
 
   @@unique([email, organizationId])
   @@unique([id, organizationId])
@@ -326,6 +328,11 @@ model Document {
   projectId           String? @db.Uuid
   // Deployment link — for invoices/DOs that belong to a specific rental/sale event
   projectDeploymentId String? @db.Uuid
+
+  // Generic file attachments (supplier PDFs, payment receipts, supporting
+  // docs). Same shape as Bill.attachments:
+  //   [{ fileKey, fileName, mimeType, label?, uploadedAt, uploadedBy }]
+  attachments         Json?
 
   organization       Organization               @relation(fields: [organizationId], references: [id])
   project            Project?                   @relation(fields: [projectId], references: [id])
@@ -822,6 +829,9 @@ model Payment {
   paymentMethod  String // cash, check, transfer, etc
   reference      String? // check number, transfer reference
   notes          String?
+  // Same shape as Bill.attachments / BillPayment.attachments — the
+  // customer payment proof (deposit slip, bank transfer screenshot).
+  attachments    Json?
   createdBy      String // user ID who recorded payment
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -1309,6 +1319,11 @@ model Bill {
   voidedAt       DateTime?
   voidedBy       String?
 
+  // Files attached at any point in the bill lifecycle — the supplier's
+  // original invoice PDF, supporting docs, receipts. Shape:
+  //   [{ fileKey, fileName, mimeType, label?, uploadedAt, uploadedBy }]
+  attachments    Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   createdBy String?
@@ -1321,6 +1336,44 @@ model Bill {
   @@index([organizationId, billDate])
   @@index([supplierId])
   @@index([sourcePoId])
+}
+
+// AP-side payment voucher — one row per payment made against a supplier bill.
+// Mirrors the AR `Payment` table but on the bill/supplier side. A single bill
+// may have many BillPayment rows (partial payments); the bill is PAID when
+// sum(amount) reaches the bill total.
+//
+// `billId` references a Document row with type='BILL' (no FK constraint —
+// bills now live in the unified Document table, and we use the same id space).
+// On create the service auto-posts a JournalEntry (Dr AP control / Cr bank
+// account) and stamps `journalEntryId` here for traceability.
+model BillPayment {
+  id              String   @id @default(uuid())
+  organizationId  String
+  billId          String   // → Document.id where type='BILL'
+  supplierId      String   @db.Uuid
+  amount          Float
+  paymentDate     DateTime
+  paymentMethod   String   // cash | cheque | transfer | giro | other
+  reference       String?  // cheque number / TT reference / paynow ref
+  notes           String?
+  // ChartOfAccount.id of the cash/bank account credited. Picker should
+  // filter via JournalService.isCashOrBankAccount.
+  bankAccountId   String
+  // JE auto-posted on create — null only briefly between insert and post.
+  journalEntryId  String?
+  // Payment proof — cheque scan, bank TT advice, paynow screenshot.
+  attachments     Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdBy       String
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier     Supplier     @relation(fields: [supplierId], references: [id])
+
+  @@index([organizationId, paymentDate])
+  @@index([billId])
+  @@index([supplierId])
 }
 
 // ============================================================

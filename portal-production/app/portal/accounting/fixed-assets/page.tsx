@@ -14,23 +14,16 @@ import {
   MenuItem,
   Paper,
   Stack,
-  Switch,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TextField,
   Tooltip,
   Typography,
 } from "@mui/material";
-import AddIcon from "@mui/icons-material/Add";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import EditIcon from "@mui/icons-material/Edit";
 import CloseIcon from "@mui/icons-material/Close";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
+import PageTable from "@/components/PageTable";
 
 type FA = {
   id: string;
@@ -67,6 +60,12 @@ export default function FixedAssetsPage() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<FA | null>(null);
 
+  // PageTable-driven state
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(25);
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<any>({});
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -89,35 +88,121 @@ export default function FixedAssetsPage() {
     return { count: active.length, totalCost };
   }, [items]);
 
+  const visible = useMemo(() => {
+    const q = (search || "").trim().toLowerCase();
+    if (!q) return items;
+    return items.filter(
+      (f) =>
+        f.code.toLowerCase().includes(q) ||
+        f.name.toLowerCase().includes(q) ||
+        (f.category || "").toLowerCase().includes(q),
+    );
+  }, [items, search]);
+
+  useEffect(() => { setPage(1); }, [search]);
+
+  const pageCount = Math.max(1, Math.ceil(visible.length / limit));
+  const paged = useMemo(
+    () => visible.slice((page - 1) * limit, page * limit),
+    [visible, page, limit],
+  );
+
+  const columns = useMemo(() => [
+    {
+      accessorKey: "code",
+      header: "Code",
+      cell: ({ row }: any) => (
+        <Box sx={{ fontFamily: "monospace", fontWeight: 600 }}>{row.original.code}</Box>
+      ),
+    },
+    {
+      accessorKey: "name",
+      header: "Name",
+      cell: ({ row }: any) => {
+        const f: FA = row.original;
+        return (
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 500 }}>{f.name}</Typography>
+            {f.category && (
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>{f.category}</Typography>
+            )}
+          </Box>
+        );
+      },
+    },
+    {
+      accessorKey: "method",
+      header: "Method",
+      cell: ({ row }: any) => (
+        <Chip size="small" variant="outlined" label={METHOD_LABELS[row.original.method] || row.original.method} sx={{ fontSize: "0.7rem" }} />
+      ),
+    },
+    {
+      accessorKey: "cost",
+      header: "Cost",
+      cell: ({ row }: any) => (
+        <Box sx={{ textAlign: "right", fontFamily: "monospace" }}>{fmt(row.original.cost)}</Box>
+      ),
+    },
+    {
+      accessorKey: "accumulated",
+      header: "Accumulated",
+      cell: ({ row }: any) => {
+        const accumulated = (row.original.entries || []).reduce((s: number, e: any) => s + e.amount, 0);
+        return (
+          <Box sx={{ textAlign: "right", fontFamily: "monospace", color: "text.secondary" }}>
+            {accumulated > 0 ? `( ${fmt(accumulated)} )` : "—"}
+          </Box>
+        );
+      },
+    },
+    {
+      accessorKey: "bookValue",
+      header: "Book value",
+      cell: ({ row }: any) => {
+        const f: FA = row.original;
+        const accumulated = (f.entries || []).reduce((s, e) => s + e.amount, 0);
+        return (
+          <Box sx={{ textAlign: "right", fontFamily: "monospace", fontWeight: 600 }}>
+            {fmt(f.cost - accumulated)}
+          </Box>
+        );
+      },
+    },
+    {
+      accessorKey: "inServiceDate",
+      header: "In service",
+      cell: ({ row }: any) => (
+        <Box sx={{ fontSize: "0.8125rem" }}>{new Date(row.original.inServiceDate).toLocaleDateString()}</Box>
+      ),
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }: any) => {
+        const f: FA = row.original;
+        if (f.disposedAt) return <Chip size="small" label="Disposed" color="default" variant="outlined" sx={{ fontSize: "0.65rem" }} />;
+        if (f.isActive) return <Chip size="small" label="Active" color="success" variant="outlined" sx={{ fontSize: "0.65rem" }} />;
+        return <Chip size="small" label="Inactive" color="default" variant="outlined" sx={{ fontSize: "0.65rem" }} />;
+      },
+    },
+    {
+      accessorKey: "actions",
+      header: "",
+      cell: ({ row }: any) => (
+        <Stack direction="row" justifyContent="flex-end">
+          <Tooltip title="Edit">
+            <IconButton size="small" onClick={() => { setEditing(row.original); setEditorOpen(true); }}>
+              <EditIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+      ),
+    },
+  ], []);
+
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-        <Box>
-          <Typography variant="h5" sx={{ fontWeight: 700 }}>
-            Fixed Assets Register
-          </Typography>
-          <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            Vehicles, machinery, office equipment. Depreciation auto-posts during Month-End Close.
-          </Typography>
-        </Box>
-        <Stack direction="row" gap={1}>
-          <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={load}>
-            Refresh
-          </Button>
-          <Button
-            startIcon={<AddIcon />}
-            variant="contained"
-            size="small"
-            onClick={() => {
-              setEditing(null);
-              setEditorOpen(true);
-            }}
-          >
-            New Fixed Asset
-          </Button>
-        </Stack>
-      </Stack>
-
       <Stack direction="row" gap={2}>
         <Paper variant="outlined" sx={{ p: 1.5, minWidth: 160 }}>
           <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", fontWeight: 700, fontSize: "0.65rem" }}>
@@ -131,83 +216,31 @@ export default function FixedAssetsPage() {
           </Typography>
           <Typography sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.25rem" }}>{fmt(summary.totalCost)}</Typography>
         </Paper>
+        <Box sx={{ flex: 1 }} />
+        <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={load} sx={{ alignSelf: "flex-start" }}>
+          Refresh
+        </Button>
       </Stack>
 
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ fontWeight: 700, width: 100 }}>Code</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Method</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700 }}>Cost</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700 }}>Accumulated</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700 }}>Book value</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>In service</TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 80 }}>Status</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700 }} />
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {loading && (
-              <TableRow>
-                <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
-                  <CircularProgress size={20} />
-                </TableCell>
-              </TableRow>
-            )}
-            {!loading && items.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={9} align="center" sx={{ py: 4, color: "text.secondary" }}>
-                  No fixed assets yet. Click "New Fixed Asset" or flag a PO line as isFixedAsset to auto-create.
-                </TableCell>
-              </TableRow>
-            )}
-            {items.map((f) => {
-              const accumulated = (f.entries || []).reduce((s, e) => s + e.amount, 0);
-              const bookValue = f.cost - accumulated;
-              return (
-                <TableRow key={f.id} hover sx={{ opacity: f.isActive ? 1 : 0.5 }}>
-                  <TableCell sx={{ fontFamily: "monospace", fontWeight: 600 }}>{f.code}</TableCell>
-                  <TableCell>
-                    <Box>
-                      <Typography variant="body2" sx={{ fontWeight: 500 }}>{f.name}</Typography>
-                      {f.category && (
-                        <Typography variant="caption" sx={{ color: "text.secondary" }}>{f.category}</Typography>
-                      )}
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Chip size="small" variant="outlined" label={METHOD_LABELS[f.method] || f.method} sx={{ fontSize: "0.7rem" }} />
-                  </TableCell>
-                  <TableCell align="right" sx={{ fontFamily: "monospace" }}>{fmt(f.cost)}</TableCell>
-                  <TableCell align="right" sx={{ fontFamily: "monospace", color: "text.secondary" }}>
-                    {accumulated > 0 ? `( ${fmt(accumulated)} )` : "—"}
-                  </TableCell>
-                  <TableCell align="right" sx={{ fontFamily: "monospace", fontWeight: 600 }}>{fmt(bookValue)}</TableCell>
-                  <TableCell sx={{ fontSize: "0.8125rem" }}>{new Date(f.inServiceDate).toLocaleDateString()}</TableCell>
-                  <TableCell>
-                    {f.disposedAt ? (
-                      <Chip size="small" label="Disposed" color="default" variant="outlined" sx={{ fontSize: "0.65rem" }} />
-                    ) : f.isActive ? (
-                      <Chip size="small" label="Active" color="success" variant="outlined" sx={{ fontSize: "0.65rem" }} />
-                    ) : (
-                      <Chip size="small" label="Inactive" color="default" variant="outlined" sx={{ fontSize: "0.65rem" }} />
-                    )}
-                  </TableCell>
-                  <TableCell align="right">
-                    <Tooltip title="Edit">
-                      <IconButton size="small" onClick={() => { setEditing(f); setEditorOpen(true); }}>
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </TableContainer>
+      <PageTable
+        columns={columns}
+        data={paged}
+        tableName="Fixed Assets Register"
+        subTitle="Vehicles, machinery, office equipment. Depreciation auto-posts during Month-End Close."
+        buttonName="New Fixed Asset"
+        onAddClick={() => { setEditing(null); setEditorOpen(true); }}
+        loading={loading}
+        page={page}
+        limit={limit}
+        search={search}
+        filters={filters}
+        setPage={setPage}
+        setLimit={setLimit}
+        setSearch={setSearch}
+        setFilters={setFilters}
+        pageCount={pageCount}
+        totalDocs={visible.length}
+      />
 
       <FAEditor
         open={editorOpen}

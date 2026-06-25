@@ -26,6 +26,7 @@ import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
 import { useCreatePayment, PAYMENT_METHODS } from "@/app/portal/hooks/api/usePayments";
+import AttachmentUploader, { Attachment } from "@/components/AttachmentUploader";
 import { useGetCustomers } from "@/app/portal/hooks/api";
 import moment from "moment";
 
@@ -61,6 +62,7 @@ export default function RecordPaymentDialog({
   const [paymentMethod, setPaymentMethod] = useState("cash");
   const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [customerInvoices, setCustomerInvoices] = useState<any[]>([]);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
   const [invoiceSummary, setInvoiceSummary] = useState<any>(null);
@@ -200,6 +202,7 @@ export default function RecordPaymentDialog({
       paymentMethod,
       reference: reference.trim() || undefined,
       notes: notes.trim() || undefined,
+      attachments: attachments.length ? attachments : undefined,
     };
 
     try {
@@ -383,6 +386,17 @@ export default function RecordPaymentDialog({
           rows={3}
           placeholder="Additional notes about this payment"
         />
+
+        {/* Payment proof — deposit slip, bank screenshot, etc. */}
+        <Box sx={{ mt: 2 }}>
+          <AttachmentUploader
+            folder={`payments/invoice-${selectedInvoice?.id || "new"}`}
+            value={attachments}
+            onChange={setAttachments}
+            label="Payment Proof"
+            compact
+          />
+        </Box>
       </DialogContent>
 
       <DialogActions sx={{ p: 2 }}>

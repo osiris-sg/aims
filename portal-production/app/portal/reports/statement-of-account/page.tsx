@@ -1,17 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Paper,
   Typography,
   Button,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TextField,
   Grid,
   MenuItem,
@@ -20,13 +14,13 @@ import {
   InputLabel,
   Card,
   CardContent,
-  Divider,
   Alert,
   CircularProgress,
 } from '@mui/material';
 import { Download as DownloadIcon, Print as PrintIcon } from '@mui/icons-material';
 import { useGetCustomers } from '@/app/portal/hooks/api';
 import { useGenerateSOA } from '@/app/portal/hooks/api';
+import PageTable from '@/components/PageTable';
 
 interface Customer {
   id: string;
@@ -86,6 +80,12 @@ export default function StatementOfAccountPage() {
   const [statementData, setStatementData] = useState<StatementData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // PageTable-driven state
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(25);
+  const [search, setSearch] = useState('');
+  const [filters, setFilters] = useState<any>({});
+
   // Fetch customers with new hook
   const { customers = [], isLoading: loadingCustomers } = useGetCustomers({ limit: 1000 });
 
@@ -111,9 +111,9 @@ export default function StatementOfAccountPage() {
       const result = await generateSOAMutation.mutateAsync(params);
       setStatementData(result);
     } catch (err: unknown) {
-      const error = err as Error;
-      console.error('Failed to generate statement:', error);
-      setError(error.message || 'Failed to generate statement');
+      const e = err as Error;
+      console.error('Failed to generate statement:', e);
+      setError(e.message || 'Failed to generate statement');
     }
   };
 
@@ -132,8 +132,8 @@ export default function StatementOfAccountPage() {
       // Direct download approach
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
       window.open(`${apiUrl}/statements/soa?${params.toString()}`, '_blank');
-    } catch (error) {
-      console.error('Failed to download CSV:', error);
+    } catch (e) {
+      console.error('Failed to download CSV:', e);
     }
   };
 
@@ -151,6 +151,57 @@ export default function StatementOfAccountPage() {
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString('en-US');
   };
+
+  const transactions: Transaction[] = statementData?.transactions || [];
+
+  const visible = useMemo(() => {
+    const q = (search || '').trim().toLowerCase();
+    if (!q) return transactions;
+    return transactions.filter(
+      (t) =>
+        (t.reference || '').toLowerCase().includes(q) ||
+        (t.description || '').toLowerCase().includes(q),
+    );
+  }, [transactions, search]);
+
+  useEffect(() => { setPage(1); }, [search, statementData]);
+
+  const pageCount = Math.max(1, Math.ceil(visible.length / limit));
+  const paged = useMemo(
+    () => visible.slice((page - 1) * limit, page * limit),
+    [visible, page, limit],
+  );
+
+  const columns = useMemo(() => [
+    { accessorKey: 'date', header: 'Date', cell: ({ row }: any) => formatDate(row.original.date) },
+    { accessorKey: 'reference', header: 'Reference', cell: ({ row }: any) => row.original.reference },
+    { accessorKey: 'description', header: 'Description', cell: ({ row }: any) => row.original.description },
+    {
+      accessorKey: 'debit',
+      header: 'Debit',
+      cell: ({ row }: any) => (
+        <Box sx={{ textAlign: 'right' }}>
+          {row.original.debit > 0 ? formatCurrency(row.original.debit) : '-'}
+        </Box>
+      ),
+    },
+    {
+      accessorKey: 'credit',
+      header: 'Credit',
+      cell: ({ row }: any) => (
+        <Box sx={{ textAlign: 'right' }}>
+          {row.original.credit > 0 ? formatCurrency(row.original.credit) : '-'}
+        </Box>
+      ),
+    },
+    {
+      accessorKey: 'balance',
+      header: 'Balance',
+      cell: ({ row }: any) => (
+        <Box sx={{ textAlign: 'right' }}>{formatCurrency(row.original.balance)}</Box>
+      ),
+    },
+  ], []);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -335,44 +386,25 @@ export default function StatementOfAccountPage() {
           </Grid>
 
           {/* Transactions Table */}
-          <TableContainer sx={{ mb: 3 }}>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Date</TableCell>
-                  <TableCell>Reference</TableCell>
-                  <TableCell>Description</TableCell>
-                  <TableCell align="right">Debit</TableCell>
-                  <TableCell align="right">Credit</TableCell>
-                  <TableCell align="right">Balance</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {statementData.transactions.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} align="center">
-                      No transactions found
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  statementData.transactions.map((transaction) => (
-                    <TableRow key={transaction.id}>
-                      <TableCell>{formatDate(transaction.date)}</TableCell>
-                      <TableCell>{transaction.reference}</TableCell>
-                      <TableCell>{transaction.description}</TableCell>
-                      <TableCell align="right">
-                        {transaction.debit > 0 ? formatCurrency(transaction.debit) : '-'}
-                      </TableCell>
-                      <TableCell align="right">
-                        {transaction.credit > 0 ? formatCurrency(transaction.credit) : '-'}
-                      </TableCell>
-                      <TableCell align="right">{formatCurrency(transaction.balance)}</TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          <Box sx={{ mb: 3 }}>
+            <PageTable
+              columns={columns}
+              data={paged}
+              tableName="Transactions"
+              subTitle="Activity in the selected period"
+              loading={generateSOAMutation.isPending}
+              page={page}
+              limit={limit}
+              search={search}
+              filters={filters}
+              setPage={setPage}
+              setLimit={setLimit}
+              setSearch={setSearch}
+              setFilters={setFilters}
+              pageCount={pageCount}
+              totalDocs={visible.length}
+            />
+          </Box>
 
           {/* Monthly Summary */}
           {statementData.monthlyBalances && statementData.monthlyBalances.length > 0 && (

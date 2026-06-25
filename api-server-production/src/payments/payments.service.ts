@@ -41,6 +41,11 @@ export class PaymentsService {
       // Create payment and transaction in a transaction
       const result = await this.prisma.$transaction(async (tx) => {
         // Create the payment record
+        const stampedAttachments = (createPaymentDto.attachments || []).map((a) => ({
+          ...a,
+          uploadedAt: new Date().toISOString(),
+          uploadedBy: userId,
+        }));
         const payment = await tx.payment.create({
           data: {
             organizationId,
@@ -51,6 +56,7 @@ export class PaymentsService {
             paymentMethod: createPaymentDto.paymentMethod,
             reference: createPaymentDto.reference,
             notes: createPaymentDto.notes,
+            attachments: stampedAttachments.length ? (stampedAttachments as any) : undefined,
             createdBy: userId,
           },
           include: {

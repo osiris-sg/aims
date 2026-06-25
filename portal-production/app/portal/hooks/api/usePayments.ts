@@ -177,6 +177,7 @@ export function useCreatePayment() {
       paymentMethod: string;
       reference?: string;
       notes?: string;
+      attachments?: Array<{ fileKey: string; fileName: string; mimeType?: string; label?: string }>;
     }) => {
       const token = await getToken();
       if (!token) throw new Error('No authentication token available');

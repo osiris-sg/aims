@@ -42,21 +42,14 @@ export class BankRecService {
   ) {}
 
   // List ChartOfAccount entries that look like bank/cash. Used by the UI's
-  // account picker. Heuristic: CA1xx / CA600 / CA004 / CA006, OR isControl
-  // + name contains "bank"/"cash".
+  // account picker. Detection is delegated to JournalService.isCashOrBankAccount
+  // so every cash-aware code path uses the same rule.
   async listBankAccounts(organizationId: string) {
     const all = await this.prisma.chartOfAccount.findMany({
       where: { organizationId, isActive: true, category: 'BALANCE_SHEET' },
       orderBy: { code: 'asc' },
     });
-    return all.filter(
-      (a) =>
-        a.code === 'CA004' ||
-        a.code === 'CA600' ||
-        a.code === 'CA006' ||
-        /^CA1\d{2}$/.test(a.code) ||
-        /bank|cash/i.test(a.name),
-    );
+    return all.filter((a) => this.journal.isCashOrBankAccount(a));
   }
 
   // List imports for an account (history).

@@ -47,14 +47,16 @@ export default function AccountingSetupPage() {
   const authedFetch = useCallback(
     async (path: string, init?: RequestInit) => {
       const token = await getToken();
-      return fetch(`${apiBase}${path}`, {
-        ...init,
-        headers: {
-          ...(init?.headers || {}),
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const headers: Record<string, string> = {
+        ...(init?.headers as Record<string, string> | undefined),
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      };
+      if (typeof window !== "undefined") {
+        const activeOrgId = window.sessionStorage.getItem("aims-admin-active-org");
+        if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
+      }
+      return fetch(`${apiBase}${path}`, { ...init, headers });
     },
     [apiBase, getToken]
   );

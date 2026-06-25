@@ -1,25 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Box,
   Paper,
   Typography,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TablePagination,
   TextField,
   Button,
-  CircularProgress,
   Autocomplete,
-  Card,
-  CardContent,
-  Tooltip,
-  Chip,
   Grid2,
 } from "@mui/material";
 import {
@@ -31,6 +19,7 @@ import {
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
+import PageTable from "@/components/PageTable";
 
 interface PriceHistoryItem {
   id: string;
@@ -65,23 +54,19 @@ export default function PriceHistoryReportPage() {
   const [priceHistory, setPriceHistory] = useState<PriceHistoryItem[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [items, setItems] = useState<Item[]>([]);
-  const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
+
+  // PageTable-driven state (page is 1-based to match PageTable contract)
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(25);
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<any>({});
   const [totalCount, setTotalCount] = useState(0);
 
-  // Filters
+  // Filters (form state — only applied to fetch on Search/Reset)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
-  const [searchTerm, setSearchTerm] = useState("");
-
-  useEffect(() => {
-    fetchCustomers();
-    fetchItems();
-    fetchPriceHistory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const fetchCustomers = async () => {
     try {
@@ -89,12 +74,9 @@ export default function PriceHistoryReportPage() {
       if (!token) return;
 
       const response = await request(
-        {
-          path: "/customers",
-          method: "GET",
-        },
+        { path: "/customers", method: "GET" },
         {},
-        token
+        token,
       );
 
       if (response?.data) {
@@ -111,12 +93,9 @@ export default function PriceHistoryReportPage() {
       if (!token) return;
 
       const response = await request(
-        {
-          path: "/inventory",
-          method: "GET",
-        },
+        { path: "/inventory", method: "GET" },
         {},
-        token
+        token,
       );
 
       if (response?.data) {
@@ -141,17 +120,14 @@ export default function PriceHistoryReportPage() {
       if (selectedItem) params.append("itemCode", selectedItem.sku);
       if (startDate) params.append("startDate", startDate);
       if (endDate) params.append("endDate", endDate);
-      if (searchTerm) params.append("search", searchTerm);
-      params.append("page", (page + 1).toString());
-      params.append("limit", rowsPerPage.toString());
+      if (search) params.append("search", search);
+      params.append("page", page.toString());
+      params.append("limit", limit.toString());
 
       const response = await request(
-        {
-          path: `/price-history?${params.toString()}`,
-          method: "GET",
-        },
+        { path: `/price-history?${params.toString()}`, method: "GET" },
         {},
-        token
+        token,
       );
 
       if (response?.success && response.data) {
@@ -166,8 +142,20 @@ export default function PriceHistoryReportPage() {
     }
   };
 
+  useEffect(() => {
+    fetchCustomers();
+    fetchItems();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Re-fetch whenever pagination or search changes (PageTable owns these).
+  useEffect(() => {
+    fetchPriceHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, limit, search]);
+
   const handleSearch = () => {
-    setPage(0);
+    setPage(1);
     fetchPriceHistory();
   };
 
@@ -176,8 +164,8 @@ export default function PriceHistoryReportPage() {
     setSelectedItem(null);
     setStartDate("");
     setEndDate("");
-    setSearchTerm("");
-    setPage(0);
+    setSearch("");
+    setPage(1);
     fetchPriceHistory();
   };
 
@@ -191,19 +179,15 @@ export default function PriceHistoryReportPage() {
       if (selectedItem) params.append("itemCode", selectedItem.sku);
       if (startDate) params.append("startDate", startDate);
       if (endDate) params.append("endDate", endDate);
-      if (searchTerm) params.append("search", searchTerm);
+      if (search) params.append("search", search);
 
       const response = await request(
-        {
-          path: `/price-history/export?${params.toString()}`,
-          method: "GET",
-        },
+        { path: `/price-history/export?${params.toString()}`, method: "GET" },
         {},
-        token
+        token,
       );
 
       if (response?.success && response.data) {
-        // Create a blob and download
         const blob = new Blob([response.data], { type: "text/csv" });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -224,15 +208,6 @@ export default function PriceHistoryReportPage() {
     }
   };
 
-  const handleChangePage = (_event: unknown, newPage: number) => {
-    setPage(newPage);
-  };
-
-  const handleChangeRowsPerPage = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
-    setPage(0);
-  };
-
   const formatDate = (date: string) => {
     if (!date) return "";
     const d = new Date(date);
@@ -242,6 +217,38 @@ export default function PriceHistoryReportPage() {
       year: "numeric",
     });
   };
+
+  const pageCount = Math.max(1, Math.ceil(totalCount / limit));
+
+  const columns = useMemo(() => [
+    { accessorKey: "itemCode", header: "Item Code", cell: ({ row }: any) => row.original.itemCode },
+    { accessorKey: "itemDescription", header: "Description", cell: ({ row }: any) => row.original.itemDescription },
+    { accessorKey: "documentNumber", header: "Document No.", cell: ({ row }: any) => row.original.documentNumber },
+    { accessorKey: "documentDate", header: "Date", cell: ({ row }: any) => formatDate(row.original.documentDate) },
+    { accessorKey: "customerName", header: "Customer", cell: ({ row }: any) => row.original.customerName },
+    {
+      accessorKey: "quantity",
+      header: "Quantity",
+      cell: ({ row }: any) => <Box sx={{ textAlign: "right" }}>{row.original.quantity}</Box>,
+    },
+    { accessorKey: "uom", header: "UOM", cell: ({ row }: any) => row.original.uom },
+    {
+      accessorKey: "unitPrice",
+      header: "Unit Price",
+      cell: ({ row }: any) => (
+        <Box sx={{ textAlign: "right" }}>${row.original.unitPrice.toFixed(2)}</Box>
+      ),
+    },
+    {
+      accessorKey: "total",
+      header: "Total",
+      cell: ({ row }: any) => (
+        <Box sx={{ textAlign: "right" }}>
+          ${(row.original.quantity * row.original.unitPrice).toFixed(2)}
+        </Box>
+      ),
+    },
+  ], []);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -299,7 +306,7 @@ export default function PriceHistoryReportPage() {
               renderInput={(params) => <TextField {...params} label="Item" fullWidth />}
             />
           </Grid2>
-          <Grid2 size={{ xs: 12, md: 2 }}>
+          <Grid2 size={{ xs: 12, md: 3 }}>
             <TextField
               label="Start Date"
               type="date"
@@ -309,7 +316,7 @@ export default function PriceHistoryReportPage() {
               InputLabelProps={{ shrink: true }}
             />
           </Grid2>
-          <Grid2 size={{ xs: 12, md: 2 }}>
+          <Grid2 size={{ xs: 12, md: 3 }}>
             <TextField
               label="End Date"
               type="date"
@@ -317,15 +324,6 @@ export default function PriceHistoryReportPage() {
               onChange={(e) => setEndDate(e.target.value)}
               fullWidth
               InputLabelProps={{ shrink: true }}
-            />
-          </Grid2>
-          <Grid2 size={{ xs: 12, md: 2 }}>
-            <TextField
-              label="Search"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              fullWidth
-              placeholder="Search items..."
             />
           </Grid2>
           <Grid2 size={{ xs: 12 }}>
@@ -347,69 +345,23 @@ export default function PriceHistoryReportPage() {
       </Paper>
 
       {/* Price History Table */}
-      <Paper sx={{ width: "100%", overflow: "hidden" }}>
-        <TableContainer sx={{ maxHeight: 600 }}>
-          <Table stickyHeader>
-            <TableHead>
-              <TableRow>
-                <TableCell>Item Code</TableCell>
-                <TableCell>Description</TableCell>
-                <TableCell>Document No.</TableCell>
-                <TableCell>Date</TableCell>
-                <TableCell>Customer</TableCell>
-                <TableCell align="right">Quantity</TableCell>
-                <TableCell>UOM</TableCell>
-                <TableCell align="right">Unit Price</TableCell>
-                <TableCell align="right">Total</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={9} align="center">
-                    <CircularProgress />
-                  </TableCell>
-                </TableRow>
-              ) : priceHistory.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={9} align="center">
-                    <Typography variant="body2" color="text.secondary">
-                      No price history found
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                priceHistory.map((history) => (
-                  <TableRow key={history.id} hover>
-                    <TableCell>{history.itemCode}</TableCell>
-                    <TableCell>{history.itemDescription}</TableCell>
-                    <TableCell>{history.documentNumber}</TableCell>
-                    <TableCell>{formatDate(history.documentDate)}</TableCell>
-                    <TableCell>{history.customerName}</TableCell>
-                    <TableCell align="right">{history.quantity}</TableCell>
-                    <TableCell>{history.uom}</TableCell>
-                    <TableCell align="right">${history.unitPrice.toFixed(2)}</TableCell>
-                    <TableCell align="right">
-                      ${(history.quantity * history.unitPrice).toFixed(2)}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-        {!loading && priceHistory.length > 0 && (
-          <TablePagination
-            rowsPerPageOptions={[10, 25, 50, 100]}
-            component="div"
-            count={totalCount}
-            rowsPerPage={rowsPerPage}
-            page={page}
-            onPageChange={handleChangePage}
-            onRowsPerPageChange={handleChangeRowsPerPage}
-          />
-        )}
-      </Paper>
+      <PageTable
+        columns={columns}
+        data={priceHistory}
+        tableName="Price History"
+        subTitle="Historical pricing across documents"
+        loading={loading}
+        page={page}
+        limit={limit}
+        search={search}
+        filters={filters}
+        setPage={setPage}
+        setLimit={setLimit}
+        setSearch={setSearch}
+        setFilters={setFilters}
+        pageCount={pageCount}
+        totalDocs={totalCount}
+      />
     </Box>
   );
 }

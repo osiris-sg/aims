@@ -17,6 +17,14 @@ export type AnomalyFinding = {
   detail?: string;
   count?: number;
   link?: string;
+  // Optional per-item breakdown so the Hub can render a click-into-each list
+  // and the destination page can filter to exactly the offending journals.
+  items?: Array<{
+    journalNumber: string;
+    label: string; // e.g. "Customer Name — 26-00211"
+    amount?: number;
+    date?: string; // YYYY-MM-DD
+  }>;
 };
 
 @Injectable()
@@ -121,9 +129,13 @@ export class AnomaliesService {
     ];
   }
 
-  // --------- 3. Missing tax on invoices ---------
-  // When the org has a non-zero tax rate but recent invoice journals have no
-  // tax line, that's often a wrong tax code on a line item.
+  // --------- 3. Missing tax on customer invoices ---------
+  // Only flag *receivable* (customer-facing) invoices that are still unpaid —
+  // these are the ones where missing GST = real revenue/compliance risk that
+  // can still be corrected. Skip:
+  //   - Payable invoices (vendor bills from non-GST suppliers legitimately
+  //     have no tax line; flagging them creates noise).
+  //   - Fully-paid receivables (can't add GST retroactively after settlement).
   private async detectMissingTax(organizationId: string): Promise<AnomalyFinding[]> {
     const org = await this.prisma.organization.findUnique({
       where: { id: organizationId },
@@ -131,10 +143,17 @@ export class AnomaliesService {
     });
     if (!org?.taxRate || org.taxRate <= 0) return [];
 
+    // Resolve the org's debtor (AR) control account code from settings.
+    const setting = await this.prisma.accountingSetting.findUnique({
+      where: { organizationId },
+      select: { controlAccounts: true },
+    });
+    const controls = (setting?.controlAccounts as Record<string, string> | null) ?? {};
+    const debtorCode = controls.debtorControl;
+    if (!debtorCode) return []; // Nothing to anchor on — skip silently.
+
     const since = new Date(Date.now() - 30 * DAY_MS);
 
-    // Find posted invoices in the last 30 days whose journal entry has no line
-    // touching a tax-coded account (heuristic: account code starts with CL9 or TX).
     const entries = await this.prisma.journalEntry.findMany({
       where: {
         organizationId,
@@ -145,21 +164,79 @@ export class AnomaliesService {
       include: { lines: { include: { account: true } } },
     });
 
-    const missing = entries.filter(
+    // 1) Keep only receivable invoices: JE debits the AR control account.
+    const receivables = entries.filter((e) =>
+      e.lines.some((l) => l.account.code === debtorCode && l.debit > 0),
+    );
+
+    // 2) Of those, drop ones that already have a tax line.
+    const noTax = receivables.filter(
       (e) =>
         !e.lines.some(
           (l) => /^CL9/.test(l.account.code) || /^TX/.test(l.account.code) || l.account.accountType === 'TAX_LIABILITY',
         ),
     );
+    if (noTax.length === 0) return [];
 
-    if (missing.length === 0) return [];
+    // 3) Drop ones that are fully paid. Match by reference token (e.g. the
+    //    invoice number "26-00211") appearing in any later PAYMENT JE — same
+    //    convention Xero uses, and the same heuristic that imports preserve.
+    const refsToCheck = noTax
+      .map((e) => (e.reference || '').split(/[\s/]+/).find((tok) => tok.length >= 4))
+      .filter((r): r is string => Boolean(r));
+
+    const paymentMatches = refsToCheck.length
+      ? await this.prisma.journalEntry.findMany({
+          where: {
+            organizationId,
+            status: 'POSTED',
+            type: 'PAYMENT',
+            OR: refsToCheck.map((r) => ({
+              OR: [{ reference: { contains: r } }, { description: { contains: r } }],
+            })),
+          },
+          select: { reference: true, description: true },
+        })
+      : [];
+
+    const paidRefs = new Set<string>();
+    for (const r of refsToCheck) {
+      if (paymentMatches.some((p) => (p.reference || '').includes(r) || (p.description || '').includes(r))) {
+        paidRefs.add(r);
+      }
+    }
+
+    const unpaid = noTax.filter((e) => {
+      const tok = (e.reference || '').split(/[\s/]+/).find((t) => t.length >= 4);
+      return !tok || !paidRefs.has(tok);
+    });
+    if (unpaid.length === 0) return [];
+
+    // Extract a customer-ish label from the description (Xero format:
+    // "Customer Name | Line description"; falls back to the full description).
+    const labelOf = (desc?: string | null) => {
+      if (!desc) return 'Unknown';
+      const head = desc.split('|')[0]?.trim();
+      return (head || desc).slice(0, 60);
+    };
+
+    const items = unpaid.map((e) => ({
+      journalNumber: e.journalNumber,
+      label: `${labelOf(e.description)}${e.reference ? ` — ${e.reference}` : ''}`,
+      amount: e.totalDebit,
+      date: e.entryDate.toISOString().slice(0, 10),
+    }));
+
+    const journalNumbers = items.map((i) => i.journalNumber).join(',');
+
     return [
       {
         severity: 'warning',
-        title: `${missing.length} recent invoice${missing.length === 1 ? '' : 's'} posted without tax`,
-        detail: `Org tax rate is ${org.taxRate}% — these may be missing GST. Spot-check.`,
-        count: missing.length,
-        link: '/portal/accounting/reports?tab=audit',
+        title: `${unpaid.length} unpaid customer invoice${unpaid.length === 1 ? '' : 's'} posted without GST`,
+        detail: `Org tax rate is ${org.taxRate}% — still outstanding and correctable.`,
+        count: unpaid.length,
+        link: `/portal/accounting/audit-trail?journalNumbers=${encodeURIComponent(journalNumbers)}`,
+        items,
       },
     ];
   }

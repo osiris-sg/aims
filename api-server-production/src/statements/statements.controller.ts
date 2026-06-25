@@ -3,6 +3,7 @@ import {
   Post,
   Body,
   Get,
+  Query,
   UseGuards,
   Req,
   Res,
@@ -72,5 +73,46 @@ export class StatementsController {
     }
 
     return this.statementsService.getAgingSummary(organizationId);
+  }
+
+  // --------- Supplier Statement of Account (AP-side mirror of /soa) ---------
+  @Post('supplier-soa')
+  @Permissions('statements:read')
+  @ApiOperation({ summary: 'Generate Statement of Account for a supplier' })
+  async generateSupplierSOA(
+    @Body() body: { supplierId: string; startDate?: string; endDate?: string; includeAging?: boolean },
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.statementsService.generateSupplierSOA(body, organizationId);
+  }
+
+  // --------- Sales by Customer summary ---------
+  @Get('sales-by-customer')
+  @Permissions('statements:read')
+  @ApiOperation({ summary: 'Aggregated sales totals per customer for a period' })
+  salesByCustomer(
+    @Req() req: RequestWithOrganization,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.statementsService.salesByCustomer(organizationId, startDate, endDate);
+  }
+
+  // --------- Purchases by Supplier summary ---------
+  @Get('purchases-by-supplier')
+  @Permissions('statements:read')
+  @ApiOperation({ summary: 'Aggregated purchase totals per supplier for a period' })
+  purchasesBySupplier(
+    @Req() req: RequestWithOrganization,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.statementsService.purchasesBySupplier(organizationId, startDate, endDate);
   }
 }

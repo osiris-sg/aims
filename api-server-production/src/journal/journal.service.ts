@@ -14,19 +14,48 @@ export class JournalService {
 
   // ---------- Numbering ----------
 
+  // ----------------------------------------------------------------------
+  // Cash/Bank detection — used by hubStats, cashFlow, and anywhere else
+  // that needs to know if an account represents real money. Works for any
+  // CoA layout (AIMS default, Xero-imported, custom) by layering:
+  //   1) AIMS default code patterns (CA004/CA006/CA600/CA1xx)
+  //   2) FOREIGN_BANK accountType
+  //   3) CURRENT_ASSET + name contains "bank" / "cash"
+  // Add controls.cashAccount / controls.bankAccount overrides if/when an org
+  // needs explicit control over what counts as cash.
+  // ----------------------------------------------------------------------
+  isCashOrBankAccount(a: { code: string; name?: string | null; accountType?: string | null }): boolean {
+    if (a.code === 'CA004' || a.code === 'CA600' || a.code === 'CA006' || /^CA1\d{2}$/.test(a.code)) return true;
+    if (a.accountType === 'FOREIGN_BANK') return true;
+    if (a.accountType === 'CURRENT_ASSET' && a.name) {
+      const n = a.name.toLowerCase();
+      return /\bbank\b/.test(n) || /\bcash\b/.test(n);
+    }
+    return false;
+  }
+
   private async nextJournalNumber(organizationId: string, prefix = 'JV'): Promise<string> {
-    // Look up the highest existing journalNumber matching the prefix.
-    const last = await this.prisma.journalEntry.findFirst({
+    // Scan recent JV-* entries and pick the highest whose tail is purely
+    // numeric. Earlier seeds + reversing entries use suffixes like
+    // JV-INV-000001 / JV-PAY-000002 / JV-OPEN-2026, which would lex-sort
+    // ABOVE the canonical JV-000001 and break parseInt — leading to a
+    // unique-constraint loop where the auto-generator keeps suggesting an
+    // already-taken low number.
+    const candidates = await this.prisma.journalEntry.findMany({
       where: { organizationId, journalNumber: { startsWith: `${prefix}-` } },
       orderBy: { journalNumber: 'desc' },
+      take: 200,
       select: { journalNumber: true },
     });
 
     let nextSeq = 1;
-    if (last?.journalNumber) {
-      const tail = last.journalNumber.replace(`${prefix}-`, '');
+    for (const c of candidates) {
+      const tail = c.journalNumber.slice(prefix.length + 1); // skip "JV-"
+      if (!/^\d+$/.test(tail)) continue; // skip suffixed numbers like INV-000001
       const n = parseInt(tail, 10);
-      if (!Number.isNaN(n)) nextSeq = n + 1;
+      if (Number.isNaN(n)) continue;
+      nextSeq = n + 1;
+      break;
     }
     return `${prefix}-${String(nextSeq).padStart(6, '0')}`;
   }
@@ -102,43 +131,63 @@ export class JournalService {
       }
     }
 
-    const journalNumber = dto.journalNumber || (await this.nextJournalNumber(organizationId));
+    // Retry on unique-constraint collisions: concurrent calls to nextJournalNumber
+    // can both observe the same "highest" entry and pick the same number, or a
+    // stray suffixed entry can shadow the canonical sequence. Cap at 5 retries.
+    let lastError: any;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const journalNumber = dto.journalNumber || (await this.nextJournalNumber(organizationId));
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          const entry = await tx.journalEntry.create({
+            data: {
+              organizationId,
+              journalNumber,
+              entryDate: new Date(dto.entryDate),
+              type: dto.type,
+              reference: dto.reference,
+              description: dto.description,
+              currency: dto.currency || 'SGD',
+              sourceDocumentId: dto.sourceDocumentId,
+              sourcePaymentId: dto.sourcePaymentId,
+              totalDebit,
+              totalCredit,
+              status: options?.autoPost ? 'POSTED' : 'DRAFT',
+              postedAt: options?.autoPost ? new Date() : null,
+              postedBy: options?.autoPost ? userId : null,
+              createdBy: userId,
+              lines: {
+                create: dto.lines.map((l, i) => ({
+                  accountId: l.accountId,
+                  lineNumber: i + 1,
+                  description: l.description,
+                  debit: Number(l.debit) || 0,
+                  credit: Number(l.credit) || 0,
+                  foreignAmount: l.foreignAmount,
+                  exchangeRate: l.exchangeRate,
+                })),
+              },
+            },
+            include: { lines: { include: { account: true } } },
+          });
 
-    return this.prisma.$transaction(async (tx) => {
-      const entry = await tx.journalEntry.create({
-        data: {
-          organizationId,
-          journalNumber,
-          entryDate: new Date(dto.entryDate),
-          type: dto.type,
-          reference: dto.reference,
-          description: dto.description,
-          currency: dto.currency || 'SGD',
-          sourceDocumentId: dto.sourceDocumentId,
-          sourcePaymentId: dto.sourcePaymentId,
-          totalDebit,
-          totalCredit,
-          status: options?.autoPost ? 'POSTED' : 'DRAFT',
-          postedAt: options?.autoPost ? new Date() : null,
-          postedBy: options?.autoPost ? userId : null,
-          createdBy: userId,
-          lines: {
-            create: dto.lines.map((l, i) => ({
-              accountId: l.accountId,
-              lineNumber: i + 1,
-              description: l.description,
-              debit: Number(l.debit) || 0,
-              credit: Number(l.credit) || 0,
-              foreignAmount: l.foreignAmount,
-              exchangeRate: l.exchangeRate,
-            })),
-          },
-        },
-        include: { lines: { include: { account: true } } },
-      });
-
-      return entry;
-    });
+          return entry;
+        });
+      } catch (e: any) {
+        lastError = e;
+        // Only retry on the journalNumber unique-constraint conflict, and only
+        // when the caller didn't supply an explicit number (otherwise retrying
+        // would just collide again).
+        const isUniqueConflict =
+          e?.code === 'P2002' &&
+          Array.isArray(e?.meta?.target) &&
+          (e.meta.target as string[]).some((t) => t === 'journalNumber');
+        if (!isUniqueConflict || dto.journalNumber) throw e;
+        // Loop again — nextJournalNumber will now see our colliding row as
+        // the new highest and pick the next one.
+      }
+    }
+    throw lastError;
   }
 
   // ---------- Read ----------
@@ -268,6 +317,7 @@ export class JournalService {
       code: string;
       name: string;
       category: string;
+      accountType: string;
       normalBalance: string;
       debit: number;
       credit: number;
@@ -282,6 +332,7 @@ export class JournalService {
         code: a.code,
         name: a.name,
         category: a.category,
+        accountType: a.accountType,
         normalBalance: a.normalBalance,
         debit: 0,
         credit: 0,
@@ -391,14 +442,7 @@ export class JournalService {
     const creditorCode = controls.creditorControl || 'CL001';
     const taxCode = controls.taxLiabilities || 'CL900';
 
-    // Cash / Bank = current-asset accounts with codes matching cash/bank pattern.
-    const cashRows = tb.rows.filter(
-      (r) =>
-        r.code === 'CA004' ||
-        r.code === 'CA600' ||
-        /^CA1\d{2}$/.test(r.code) ||
-        r.code === 'CA006',
-    );
+    const cashRows = tb.rows.filter((r) => this.isCashOrBankAccount(r));
     const cashBalance = cashRows.reduce((s, r) => s + r.balance, 0);
     const arBalance = tb.rows.find((r) => r.code === debtorCode)?.balance ?? 0;
     const apBalance = tb.rows.find((r) => r.code === creditorCode)?.balance ?? 0;
@@ -801,15 +845,12 @@ export class JournalService {
     const netIncome = ROUND(periodRevenue - periodExpense);
 
     // Working capital movements (operating).
-    // AR (CURRENT_ASSET CA001-style) — increase reduces cash.
-    // Inventory — increase reduces cash.
-    // AP / accrued (CURRENT_LIABILITY) — increase boosts cash.
-    const isCashAccount = (code: string) =>
-      code === 'CA004' || code === 'CA600' || /^CA1\d{2}$/.test(code) || code === 'CA006';
-
+    // AR — increase reduces cash. Inventory — increase reduces cash.
+    // AP / accrued — increase boosts cash. Cash itself is excluded; that's
+    // the bottom-line we're reconciling to, not an adjustment.
     const operatingMovements = movements.filter(
       (m) =>
-        !isCashAccount(m.code) &&
+        !this.isCashOrBankAccount(m) &&
         (m.accountType === 'CURRENT_ASSET' ||
           m.accountType === 'CURRENT_LIABILITY' ||
           m.accountType === 'TAX_LIABILITY'),
@@ -863,10 +904,10 @@ export class JournalService {
 
     // Beginning cash + net change = ending cash (verification).
     const beginningCash = ROUND(
-      [...beginMap.values()].filter((r) => isCashAccount(r.code)).reduce((s, r) => s + r.balance, 0),
+      [...beginMap.values()].filter((r) => this.isCashOrBankAccount(r)).reduce((s, r) => s + r.balance, 0),
     );
     const endingCash = ROUND(
-      [...endMap.values()].filter((r) => isCashAccount(r.code)).reduce((s, r) => s + r.balance, 0),
+      [...endMap.values()].filter((r) => this.isCashOrBankAccount(r)).reduce((s, r) => s + r.balance, 0),
     );
     const netChange = ROUND(operatingCash + investingCash + financingCash);
     const reconciles = ROUND(beginningCash + netChange) === endingCash;

@@ -116,4 +116,42 @@ export class BillsController {
   ) {
     return this.service.extractFromFile(requireOrgId(req), body.base64, body.mediaType ?? 'application/pdf');
   }
+
+  // ---------- Payment Voucher ----------
+  @Get(':id/payments')
+  @Permissions('bills:read')
+  listPayments(@Req() req: RequestWithOrganization, @Param('id') id: string) {
+    return this.service.listPayments(requireOrgId(req), id);
+  }
+
+  @Post(':id/payments')
+  @Permissions('bills:update')
+  @ApiOperation({ summary: 'Record a payment against a POSTED bill — creates BillPayment + JE + updates amountPaid' })
+  recordPayment(
+    @Req() req: RequestWithOrganization,
+    @Param('id') id: string,
+    @Body() body: {
+      amount: number;
+      paymentDate: string;
+      paymentMethod: string;
+      bankAccountId: string;
+      reference?: string;
+      notes?: string;
+      attachments?: Array<{ fileKey: string; fileName: string; mimeType?: string; label?: string }>;
+    },
+  ) {
+    return this.service.recordPayment(requireOrgId(req), id, body, req.auth?.userId || 'unknown');
+  }
+
+  // ---------- Attachments on the bill itself ----------
+  @Post(':id/attachments')
+  @Permissions('bills:update')
+  @ApiOperation({ summary: 'Append files (already uploaded via /uploads/image) to the bill' })
+  addAttachments(
+    @Req() req: RequestWithOrganization,
+    @Param('id') id: string,
+    @Body() body: { files: Array<{ fileKey: string; fileName: string; mimeType?: string; label?: string }> },
+  ) {
+    return this.service.addAttachments(requireOrgId(req), id, body.files || [], req.auth?.userId || 'unknown');
+  }
 }

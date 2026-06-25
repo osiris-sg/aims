@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   Box,
   Button,
@@ -10,7 +11,6 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
-  InputAdornment,
   MenuItem,
   Paper,
   Stack,
@@ -27,12 +27,11 @@ import {
 import RefreshIcon from "@mui/icons-material/Refresh";
 import PrintIcon from "@mui/icons-material/Print";
 import VisibilityIcon from "@mui/icons-material/Visibility";
-import SearchIcon from "@mui/icons-material/Search";
 import CloseIcon from "@mui/icons-material/Close";
-import AddIcon from "@mui/icons-material/Add";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import JournalEntryDialog from "../_lib/JournalEntryDialog";
+import PageTable from "@/components/PageTable";
 
 type Account = { id: string; code: string; name: string };
 
@@ -76,22 +75,43 @@ function statusColor(s: string): "default" | "primary" | "success" | "error" {
 
 export default function AuditTrailPage() {
   const { request } = useAccountingApi();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(false);
-  const [filters, setFilters] = useState({ type: "", status: "", startDate: "", endDate: "" });
-  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [selected, setSelected] = useState<JournalEntry | null>(null);
   const [newOpen, setNewOpen] = useState(false);
 
+  // PageTable-driven state
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(25);
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<any>({});
+
+  // ?journalNumbers=JV-XERO-22533,JV-XERO-22619 — set by the Hub action queue
+  // when it links into a specific subset (e.g. unpaid no-GST invoices).
+  const pinnedJournalNumbers = useMemo(() => {
+    const raw = searchParams?.get("journalNumbers");
+    if (!raw) return null;
+    const list = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    return list.length ? new Set(list) : null;
+  }, [searchParams]);
+
+  const clearPinned = () => router.push("/portal/accounting/audit-trail");
+
   const queryString = useMemo(() => {
     const p = new URLSearchParams();
-    if (filters.type) p.set("type", filters.type);
-    if (filters.status) p.set("status", filters.status);
-    if (filters.startDate) p.set("startDate", filters.startDate);
-    if (filters.endDate) p.set("endDate", filters.endDate);
+    if (typeFilter) p.set("type", typeFilter);
+    if (statusFilter) p.set("status", statusFilter);
+    if (startDate) p.set("startDate", startDate);
+    if (endDate) p.set("endDate", endDate);
     p.set("limit", "200");
     return p.toString();
-  }, [filters]);
+  }, [typeFilter, statusFilter, startDate, endDate]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -131,28 +151,114 @@ export default function AuditTrailPage() {
   };
 
   const visible = useMemo(() => {
+    let base = entries;
+    if (pinnedJournalNumbers) {
+      base = base.filter((e) => pinnedJournalNumbers.has(e.journalNumber));
+    }
     const q = search.trim().toLowerCase();
-    if (!q) return entries;
-    return entries.filter(
+    if (!q) return base;
+    return base.filter(
       (e) =>
         e.journalNumber.toLowerCase().includes(q) ||
         (e.reference || "").toLowerCase().includes(q) ||
         (e.description || "").toLowerCase().includes(q),
     );
-  }, [entries, search]);
+  }, [entries, search, pinnedJournalNumbers]);
+
+  useEffect(() => { setPage(1); }, [search, typeFilter, statusFilter, startDate, endDate]);
+
+  const pageCount = Math.max(1, Math.ceil(visible.length / limit));
+  const paged = useMemo(
+    () => visible.slice((page - 1) * limit, page * limit),
+    [visible, page, limit],
+  );
+
+  const columns = useMemo(() => [
+    {
+      accessorKey: "journalNumber",
+      header: "Entry #",
+      cell: ({ row }: any) => <Box sx={{ fontFamily: "monospace" }}>{row.original.journalNumber}</Box>,
+    },
+    {
+      accessorKey: "entryDate",
+      header: "Date",
+      cell: ({ row }: any) => new Date(row.original.entryDate).toLocaleDateString(),
+    },
+    { accessorKey: "type", header: "Type", cell: ({ row }: any) => row.original.type },
+    { accessorKey: "reference", header: "Reference", cell: ({ row }: any) => row.original.reference || "" },
+    {
+      accessorKey: "description",
+      header: "Description",
+      cell: ({ row }: any) => (
+        <Box sx={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {row.original.description}
+        </Box>
+      ),
+    },
+    {
+      accessorKey: "totalDebit",
+      header: "Debit",
+      cell: ({ row }: any) => (
+        <Box sx={{ textAlign: "right", fontFamily: "monospace" }}>{fmt(row.original.totalDebit)}</Box>
+      ),
+    },
+    {
+      accessorKey: "totalCredit",
+      header: "Credit",
+      cell: ({ row }: any) => (
+        <Box sx={{ textAlign: "right", fontFamily: "monospace" }}>{fmt(row.original.totalCredit)}</Box>
+      ),
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }: any) => (
+        <Chip size="small" label={row.original.status} color={statusColor(row.original.status)} variant="outlined" />
+      ),
+    },
+    {
+      accessorKey: "actions",
+      header: "Actions",
+      cell: ({ row }: any) => {
+        const e: JournalEntry = row.original;
+        return (
+          <Stack direction="row" gap={0.25} justifyContent="flex-end" alignItems="center">
+            <Tooltip title="View lines">
+              <IconButton size="small" onClick={() => setSelected(e)}>
+                <VisibilityIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            {e.status === "DRAFT" && (
+              <Button size="small" onClick={() => post(e.id)}>
+                Post
+              </Button>
+            )}
+            {e.status !== "VOID" && (
+              <Button size="small" color="error" onClick={() => voidEntry(e.id)}>
+                Void
+              </Button>
+            )}
+          </Stack>
+        );
+      },
+    },
+  ], []);
 
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Box>
-          <Typography variant="h5" sx={{ fontWeight: 700 }}>
-            Audit Trail
-          </Typography>
-          <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            Chronological log of every journal entry — invoices, payments, manual vouchers, voids.
-          </Typography>
-        </Box>
-      </Stack>
+      {pinnedJournalNumbers && (
+        <Paper variant="outlined" sx={{ p: 1.5, bgcolor: (t) => t.palette.warning.light + "22", borderColor: "warning.main" }}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" gap={2}>
+            <Typography variant="body2">
+              Filtered to <strong>{pinnedJournalNumbers.size}</strong> journal{pinnedJournalNumbers.size === 1 ? "" : "s"} from
+              the Hub action queue: <code>{Array.from(pinnedJournalNumbers).join(", ")}</code>
+            </Typography>
+            <Button size="small" variant="outlined" onClick={clearPinned}>
+              Clear filter
+            </Button>
+          </Stack>
+        </Paper>
+      )}
 
       <Paper variant="outlined" sx={{ p: 1.5 }}>
         <Stack direction="row" gap={2} flexWrap="wrap" alignItems="center">
@@ -160,8 +266,8 @@ export default function AuditTrailPage() {
             select
             size="small"
             label="Type"
-            value={filters.type}
-            onChange={(e) => setFilters((f) => ({ ...f, type: e.target.value }))}
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
             sx={{ minWidth: 160 }}
           >
             {TYPES.map((t) => (
@@ -174,8 +280,8 @@ export default function AuditTrailPage() {
             select
             size="small"
             label="Status"
-            value={filters.status}
-            onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
             sx={{ minWidth: 160 }}
           >
             {STATUSES.map((s) => (
@@ -189,30 +295,16 @@ export default function AuditTrailPage() {
             type="date"
             label="From"
             InputLabelProps={{ shrink: true }}
-            value={filters.startDate}
-            onChange={(e) => setFilters((f) => ({ ...f, startDate: e.target.value }))}
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
           />
           <TextField
             size="small"
             type="date"
             label="To"
             InputLabelProps={{ shrink: true }}
-            value={filters.endDate}
-            onChange={(e) => setFilters((f) => ({ ...f, endDate: e.target.value }))}
-          />
-          <TextField
-            size="small"
-            label="Locate"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            sx={{ minWidth: 200 }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              ),
-            }}
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
           />
           <Box sx={{ flex: 1 }} />
           <Button startIcon={<PrintIcon />} variant="outlined" size="small" onClick={() => window.print()}>
@@ -221,83 +313,28 @@ export default function AuditTrailPage() {
           <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={load}>
             Refresh
           </Button>
-          <Button
-            startIcon={<AddIcon />}
-            variant="contained"
-            size="small"
-            onClick={() => setNewOpen(true)}
-          >
-            New Entry
-          </Button>
         </Stack>
       </Paper>
 
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small" stickyHeader>
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ fontWeight: 700 }}>Entry #</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Type</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Reference</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700 }}>Debit</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700 }}>Credit</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700 }}>Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {loading && (
-              <TableRow>
-                <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
-                  <CircularProgress size={20} />
-                </TableCell>
-              </TableRow>
-            )}
-            {!loading && visible.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={9} align="center" sx={{ py: 4, color: "text.secondary" }}>
-                  No entries match — confirm an invoice or record a payment to populate the audit trail.
-                </TableCell>
-              </TableRow>
-            )}
-            {visible.map((e) => (
-              <TableRow key={e.id} hover>
-                <TableCell sx={{ fontFamily: "monospace" }}>{e.journalNumber}</TableCell>
-                <TableCell>{new Date(e.entryDate).toLocaleDateString()}</TableCell>
-                <TableCell>{e.type}</TableCell>
-                <TableCell>{e.reference}</TableCell>
-                <TableCell sx={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {e.description}
-                </TableCell>
-                <TableCell align="right" sx={{ fontFamily: "monospace" }}>{fmt(e.totalDebit)}</TableCell>
-                <TableCell align="right" sx={{ fontFamily: "monospace" }}>{fmt(e.totalCredit)}</TableCell>
-                <TableCell>
-                  <Chip size="small" label={e.status} color={statusColor(e.status)} variant="outlined" />
-                </TableCell>
-                <TableCell align="right">
-                  <Tooltip title="View lines">
-                    <IconButton size="small" onClick={() => setSelected(e)}>
-                      <VisibilityIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                  {e.status === "DRAFT" && (
-                    <Button size="small" onClick={() => post(e.id)} sx={{ ml: 0.5 }}>
-                      Post
-                    </Button>
-                  )}
-                  {e.status !== "VOID" && (
-                    <Button size="small" color="error" onClick={() => voidEntry(e.id)} sx={{ ml: 0.5 }}>
-                      Void
-                    </Button>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
+      <PageTable
+        columns={columns}
+        data={paged}
+        tableName="Audit Trail"
+        subTitle="Chronological log of every journal entry — invoices, payments, manual vouchers, voids."
+        buttonName="New Entry"
+        onAddClick={() => setNewOpen(true)}
+        loading={loading}
+        page={page}
+        limit={limit}
+        search={search}
+        filters={filters}
+        setPage={setPage}
+        setLimit={setLimit}
+        setSearch={setSearch}
+        setFilters={setFilters}
+        pageCount={pageCount}
+        totalDocs={visible.length}
+      />
 
       <EntryDialog entry={selected} onClose={() => setSelected(null)} />
       <JournalEntryDialog open={newOpen} onClose={() => setNewOpen(false)} onCreated={load} />

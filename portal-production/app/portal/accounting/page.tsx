@@ -55,6 +55,7 @@ type Hub = {
     detail?: string;
     count?: number;
     link?: string;
+    items?: Array<{ journalNumber: string; label: string; amount?: number; date?: string }>;
   }>;
   insights: Array<{ tone: "positive" | "negative" | "neutral"; text: string }>;
 };
@@ -513,9 +514,49 @@ function ActionQueueCard({
                   {item.title}
                 </Typography>
                 {item.detail && (
-                  <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                  <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>
                     {item.detail}
                   </Typography>
+                )}
+                {item.items && item.items.length > 0 && (
+                  <Stack gap={0.25} sx={{ mt: 0.75 }}>
+                    {item.items.slice(0, 5).map((sub) => (
+                      <Stack
+                        key={sub.journalNumber}
+                        direction="row"
+                        gap={1}
+                        alignItems="baseline"
+                        sx={{
+                          cursor: "pointer",
+                          color: "text.secondary",
+                          "&:hover": { color: "primary.main", textDecoration: "underline" },
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onNavigate(
+                            `/portal/accounting/audit-trail?journalNumbers=${encodeURIComponent(sub.journalNumber)}`
+                          );
+                        }}
+                      >
+                        <Typography variant="caption" sx={{ fontFamily: "monospace", fontSize: "0.7rem" }}>
+                          {sub.journalNumber}
+                        </Typography>
+                        <Typography variant="caption" sx={{ flex: 1, fontSize: "0.75rem" }}>
+                          {sub.label}
+                        </Typography>
+                        {sub.amount !== undefined && (
+                          <Typography variant="caption" sx={{ fontFamily: "monospace", fontSize: "0.7rem" }}>
+                            ${sub.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </Typography>
+                        )}
+                      </Stack>
+                    ))}
+                    {item.items.length > 5 && (
+                      <Typography variant="caption" sx={{ color: "text.disabled", fontSize: "0.7rem" }}>
+                        +{item.items.length - 5} more — open audit trail to see all
+                      </Typography>
+                    )}
+                  </Stack>
                 )}
               </Box>
               {item.link && <ArrowOutwardIcon sx={{ fontSize: "0.875rem", color: "text.secondary" }} />}

@@ -1,32 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Box,
-  Button,
   Chip,
   CircularProgress,
   IconButton,
-  Paper,
   Stack,
   Switch,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Tooltip,
   Typography,
 } from "@mui/material";
-import AddIcon from "@mui/icons-material/Add";
-import RefreshIcon from "@mui/icons-material/Refresh";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import EditIcon from "@mui/icons-material/Edit";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import RecurringTemplateDialog from "./_components/RecurringTemplateDialog";
+import PageTable from "@/components/PageTable";
 
 type Template = {
   id: string;
@@ -48,6 +39,12 @@ export default function RecurringPage() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<Template | null>(null);
   const [runningId, setRunningId] = useState<string | null>(null);
+
+  // PageTable-driven state
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(25);
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<any>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -101,124 +98,146 @@ export default function RecurringPage() {
     }
   };
 
+  const visible = useMemo(() => {
+    const q = (search || "").trim().toLowerCase();
+    if (!q) return items;
+    return items.filter(
+      (t) =>
+        t.name.toLowerCase().includes(q) ||
+        (t.description || "").toLowerCase().includes(q) ||
+        (t.reference || "").toLowerCase().includes(q),
+    );
+  }, [items, search]);
+
+  useEffect(() => { setPage(1); }, [search]);
+
+  const pageCount = Math.max(1, Math.ceil(visible.length / limit));
+  const paged = useMemo(
+    () => visible.slice((page - 1) * limit, page * limit),
+    [visible, page, limit],
+  );
+
+  const columns = useMemo(() => [
+    {
+      accessorKey: "isActive",
+      header: "Active",
+      cell: ({ row }: any) => {
+        const t: Template = row.original;
+        return <Switch size="small" checked={t.isActive} onChange={() => toggleActive(t)} />;
+      },
+    },
+    {
+      accessorKey: "name",
+      header: "Name",
+      cell: ({ row }: any) => {
+        const t: Template = row.original;
+        const isDue = new Date(t.nextRunDate) <= new Date() && t.isActive;
+        return (
+          <Stack direction="row" gap={1} alignItems="center">
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 500 }}>{t.name}</Typography>
+              {t.description && (
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>{t.description}</Typography>
+              )}
+            </Box>
+            {isDue && <Chip size="small" label="Due" color="warning" variant="outlined" sx={{ fontSize: "0.65rem", height: 18 }} />}
+          </Stack>
+        );
+      },
+    },
+    {
+      accessorKey: "frequency",
+      header: "Frequency",
+      cell: ({ row }: any) => (
+        <Chip size="small" variant="outlined" label={row.original.frequency} sx={{ fontSize: "0.7rem" }} />
+      ),
+    },
+    {
+      accessorKey: "nextRunDate",
+      header: "Next run",
+      cell: ({ row }: any) => (
+        <Box sx={{ fontFamily: "monospace", fontSize: "0.8125rem" }}>
+          {new Date(row.original.nextRunDate).toLocaleDateString()}
+        </Box>
+      ),
+    },
+    {
+      accessorKey: "lastRunAt",
+      header: "Last run",
+      cell: ({ row }: any) => (
+        <Box sx={{ fontFamily: "monospace", fontSize: "0.8125rem", color: "text.secondary" }}>
+          {row.original.lastRunAt ? new Date(row.original.lastRunAt).toLocaleDateString() : "—"}
+        </Box>
+      ),
+    },
+    {
+      accessorKey: "lines",
+      header: "Lines",
+      cell: ({ row }: any) => (
+        <Box sx={{ textAlign: "right" }}>
+          {Array.isArray(row.original.lines) ? row.original.lines.length : 0}
+        </Box>
+      ),
+    },
+    {
+      accessorKey: "actions",
+      header: "Actions",
+      cell: ({ row }: any) => {
+        const t: Template = row.original;
+        return (
+          <Stack direction="row" gap={0.25} justifyContent="flex-end">
+            <Tooltip title="Run now">
+              <span>
+                <IconButton
+                  size="small"
+                  onClick={() => runNow(t)}
+                  disabled={runningId === t.id}
+                >
+                  {runningId === t.id ? (
+                    <CircularProgress size={14} />
+                  ) : (
+                    <PlayArrowIcon fontSize="small" />
+                  )}
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title="Edit">
+              <IconButton size="small" onClick={() => { setEditing(t); setEditorOpen(true); }}>
+                <EditIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Delete">
+              <IconButton size="small" onClick={() => remove(t)}>
+                <DeleteOutlineIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        );
+      },
+    },
+  ], [runningId]);
+
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-        <Box>
-          <Typography variant="h5" sx={{ fontWeight: 700 }}>
-            Recurring Journals
-          </Typography>
-          <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            Templates that auto-create DRAFT journal entries on a schedule. Drafts always need review before posting.
-          </Typography>
-        </Box>
-        <Stack direction="row" gap={1}>
-          <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={load}>
-            Refresh
-          </Button>
-          <Button
-            startIcon={<AddIcon />}
-            variant="contained"
-            size="small"
-            onClick={() => {
-              setEditing(null);
-              setEditorOpen(true);
-            }}
-          >
-            New Template
-          </Button>
-        </Stack>
-      </Stack>
-
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ fontWeight: 700, width: 80 }}>Active</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Frequency</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Next run</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Last run</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700 }}>Lines</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700 }}>Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {loading && (
-              <TableRow>
-                <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
-                  <CircularProgress size={20} />
-                </TableCell>
-              </TableRow>
-            )}
-            {!loading && items.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={7} align="center" sx={{ py: 4, color: "text.secondary" }}>
-                  No recurring templates yet. Click "New Template" to create one.
-                </TableCell>
-              </TableRow>
-            )}
-            {items.map((t) => {
-              const isDue = new Date(t.nextRunDate) <= new Date() && t.isActive;
-              return (
-                <TableRow key={t.id} hover>
-                  <TableCell>
-                    <Switch size="small" checked={t.isActive} onChange={() => toggleActive(t)} />
-                  </TableCell>
-                  <TableCell>
-                    <Stack direction="row" gap={1} alignItems="center">
-                      <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>{t.name}</Typography>
-                        {t.description && (
-                          <Typography variant="caption" sx={{ color: "text.secondary" }}>{t.description}</Typography>
-                        )}
-                      </Box>
-                      {isDue && <Chip size="small" label="Due" color="warning" variant="outlined" sx={{ fontSize: "0.65rem", height: 18 }} />}
-                    </Stack>
-                  </TableCell>
-                  <TableCell>
-                    <Chip size="small" variant="outlined" label={t.frequency} sx={{ fontSize: "0.7rem" }} />
-                  </TableCell>
-                  <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem" }}>
-                    {new Date(t.nextRunDate).toLocaleDateString()}
-                  </TableCell>
-                  <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8125rem", color: "text.secondary" }}>
-                    {t.lastRunAt ? new Date(t.lastRunAt).toLocaleDateString() : "—"}
-                  </TableCell>
-                  <TableCell align="right">{Array.isArray(t.lines) ? t.lines.length : 0}</TableCell>
-                  <TableCell align="right">
-                    <Tooltip title="Run now">
-                      <span>
-                        <IconButton
-                          size="small"
-                          onClick={() => runNow(t)}
-                          disabled={runningId === t.id}
-                        >
-                          {runningId === t.id ? (
-                            <CircularProgress size={14} />
-                          ) : (
-                            <PlayArrowIcon fontSize="small" />
-                          )}
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                    <Tooltip title="Edit">
-                      <IconButton size="small" onClick={() => { setEditing(t); setEditorOpen(true); }}>
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Delete">
-                      <IconButton size="small" onClick={() => remove(t)}>
-                        <DeleteOutlineIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </TableContainer>
+      <PageTable
+        columns={columns}
+        data={paged}
+        tableName="Recurring Journals"
+        subTitle="Templates that auto-create DRAFT journal entries on a schedule. Drafts always need review before posting."
+        buttonName="New Template"
+        onAddClick={() => { setEditing(null); setEditorOpen(true); }}
+        loading={loading}
+        page={page}
+        limit={limit}
+        search={search}
+        filters={filters}
+        setPage={setPage}
+        setLimit={setLimit}
+        setSearch={setSearch}
+        setFilters={setFilters}
+        pageCount={pageCount}
+        totalDocs={visible.length}
+      />
 
       <RecurringTemplateDialog
         open={editorOpen}

@@ -31,6 +31,7 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../../../accounting/_lib/api";
+import AttachmentUploader, { Attachment } from "@/components/AttachmentUploader";
 
 // ---------------------------------------------------------------------------
 // Create / view bill. Three entry paths:
@@ -90,6 +91,7 @@ export default function BillEditorDialog({
   const [taxAmount, setTaxAmount] = useState("0");
   const [lines, setLines] = useState<LineForm[]>([newLine()]);
   const [inboundChannel, setInboundChannel] = useState<string>("MANUAL");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const isReadOnly = !!editing && editing.status !== "DRAFT" && editing.status !== "PENDING_APPROVAL";
@@ -119,6 +121,7 @@ export default function BillEditorDialog({
       setDescription(editing.description || "");
       setTaxAmount(String(editing.taxAmount || 0));
       setInboundChannel(editing.inboundChannel || "MANUAL");
+      setAttachments(Array.isArray(editing.attachments) ? editing.attachments : []);
       const ls: any[] = Array.isArray(editing.lines) ? editing.lines : [];
       setLines(
         ls.length > 0
@@ -141,6 +144,7 @@ export default function BillEditorDialog({
       setTaxAmount("0");
       setLines([newLine()]);
       setInboundChannel("MANUAL");
+      setAttachments([]);
     }
   }, [open, editing, loadSuppliersAndAccounts]);
 
@@ -235,12 +239,27 @@ export default function BillEditorDialog({
         })),
         inboundChannel,
       };
+      let billId: string | undefined;
       if (editing) {
         await request(`/bills/${editing.id}`, { method: "PATCH", body: JSON.stringify(body) });
+        billId = editing.id;
         toast.success("Bill updated");
       } else {
-        await request("/bills", { method: "POST", body: JSON.stringify(body) });
+        const created: any = await request("/bills", { method: "POST", body: JSON.stringify(body) });
+        billId = created?.id;
         toast.success("Bill saved as DRAFT");
+      }
+      // Persist attachments after we have the bill id. Sends the full list
+      // so the backend can dedupe; harmless if no new files were added.
+      if (billId && attachments.length > 0) {
+        try {
+          await request(`/bills/${billId}/attachments`, {
+            method: "POST",
+            body: JSON.stringify({ files: attachments }),
+          });
+        } catch (e: any) {
+          toast.warn(`Bill saved but attachment update failed: ${e?.message || "unknown"}`);
+        }
       }
       onSaved();
     } catch (e: any) {
@@ -515,6 +534,22 @@ export default function BillEditorDialog({
             This bill is {editing?.status?.replace("_", " ")} — view-only. Void it to make changes.
           </Alert>
         )}
+
+        {/* Attachments — the supplier's original PDF + supporting docs. */}
+        <Box sx={{ mt: 3, pt: 2, borderTop: "1px solid", borderColor: "divider" }}>
+          <AttachmentUploader
+            folder={`bills/${editing?.id || "new"}/source`}
+            value={attachments}
+            onChange={setAttachments}
+            label="Source Documents"
+            disabled={isReadOnly}
+          />
+          {!editing && attachments.length > 0 && (
+            <Typography variant="caption" sx={{ color: "text.secondary", mt: 1, display: "block" }}>
+              Files will attach after saving.
+            </Typography>
+          )}
+        </Box>
       </DialogContent>
 
       <DialogActions sx={{ px: 3, py: 2 }}>

@@ -37,6 +37,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import CloseIcon from "@mui/icons-material/Close";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
+import PageTable from "@/components/PageTable";
 
 // ---------------------------------------------------------------------------
 // Bank reconciliation workspace.
@@ -111,6 +112,12 @@ export default function BankReconciliationPage() {
   const [csvDialogOpen, setCsvDialogOpen] = useState(false);
   const [postDialogLine, setPostDialogLine] = useState<StatementLine | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // PageTable-driven state for the statement-line table
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(25);
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<any>({});
 
   // Initial: load bank accounts
   useEffect(() => {
@@ -255,6 +262,152 @@ export default function BankReconciliationPage() {
     return c;
   }, [visibleLines]);
 
+  // Apply search to lines before paging.
+  const visibleFiltered = useMemo(() => {
+    const q = (search || "").trim().toLowerCase();
+    if (!q) return visibleLines;
+    return visibleLines.filter(
+      (l) =>
+        (l.description || "").toLowerCase().includes(q) ||
+        (l.reference || "").toLowerCase().includes(q),
+    );
+  }, [visibleLines, search]);
+
+  useEffect(() => { setPage(1); }, [search, activeImportId]);
+
+  const pageCount = Math.max(1, Math.ceil(visibleFiltered.length / limit));
+  const pagedLines = useMemo(
+    () => visibleFiltered.slice((page - 1) * limit, page * limit),
+    [visibleFiltered, page, limit],
+  );
+
+  const lineColumns = useMemo(() => [
+    {
+      accessorKey: "date",
+      header: "Date",
+      cell: ({ row }: any) => (
+        <Box sx={{ fontSize: "0.8125rem" }}>{new Date(row.original.date).toLocaleDateString()}</Box>
+      ),
+    },
+    {
+      accessorKey: "description",
+      header: "Description",
+      cell: ({ row }: any) => (
+        <Box sx={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {row.original.description}
+        </Box>
+      ),
+    },
+    {
+      accessorKey: "reference",
+      header: "Reference",
+      cell: ({ row }: any) => (
+        <Box sx={{ fontSize: "0.8125rem", color: "text.secondary" }}>{row.original.reference || "—"}</Box>
+      ),
+    },
+    {
+      accessorKey: "amount",
+      header: "Amount",
+      cell: ({ row }: any) => {
+        const dir = row.original.amount > 0 ? "in" : "out";
+        const amtColor = dir === "in" ? "success.main" : "error.main";
+        return (
+          <Box sx={{ textAlign: "right", fontFamily: "monospace", fontWeight: 600, color: amtColor }}>
+            {dir === "in" ? "+" : "−"} {fmt(Math.abs(row.original.amount))}
+          </Box>
+        );
+      },
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }: any) => (
+        <Chip
+          size="small"
+          variant="outlined"
+          label={row.original.status.replace("_", " ")}
+          color={
+            row.original.status === "MATCHED"
+              ? "success"
+              : row.original.status === "POSTED_NEW"
+              ? "info"
+              : row.original.status === "IGNORED"
+              ? "default"
+              : "warning"
+          }
+          sx={{ fontSize: "0.7rem" }}
+        />
+      ),
+    },
+    {
+      accessorKey: "match",
+      header: "Match / Suggestion",
+      cell: ({ row }: any) => {
+        const line: StatementLine = row.original;
+        return (
+          <Box sx={{ fontSize: "0.8125rem" }}>
+            {line.matchedJournalLine && (
+              <Box sx={{ color: "text.secondary" }}>
+                <Box component="span" sx={{ fontFamily: "monospace", fontWeight: 600 }}>
+                  {line.matchedJournalLine.journalEntry.journalNumber}
+                </Box>
+                {" · "}
+                {new Date(line.matchedJournalLine.journalEntry.entryDate).toLocaleDateString()}
+              </Box>
+            )}
+            {line.status === "PENDING" && line.suggestionReason && (
+              <Tooltip title={line.suggestionReason}>
+                <Chip
+                  size="small"
+                  label={`Suggest: ${(line.suggestionConfidence ?? 0) * 100 | 0}%`}
+                  variant="outlined"
+                  color="info"
+                  sx={{ fontSize: "0.65rem", height: 18 }}
+                />
+              </Tooltip>
+            )}
+          </Box>
+        );
+      },
+    },
+    {
+      accessorKey: "actions",
+      header: "Actions",
+      cell: ({ row }: any) => {
+        const line: StatementLine = row.original;
+        const isMatched = line.status === "MATCHED" || line.status === "POSTED_NEW";
+        return (
+          <Stack direction="row" gap={0.25} justifyContent="flex-end">
+            {line.status === "PENDING" && (
+              <>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => setPostDialogLine(line)}
+                  sx={{ mr: 0.5, textTransform: "none", fontSize: "0.7rem", py: 0.25 }}
+                >
+                  Post as new
+                </Button>
+                <Tooltip title="Ignore (e.g. duplicate, opening balance)">
+                  <IconButton size="small" onClick={() => ignoreLine(line)}>
+                    <VisibilityOffIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </>
+            )}
+            {isMatched && (
+              <Tooltip title="Unmatch">
+                <IconButton size="small" onClick={() => unmatchLine(line)}>
+                  <LinkOffIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Stack>
+        );
+      },
+    },
+  ], []);
+
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
       <Box>
@@ -394,49 +547,23 @@ export default function BankReconciliationPage() {
 
       {/* Statement-line table */}
       {activeImport && (
-        <TableContainer component={Paper} variant="outlined">
-          <Table size="small" stickyHeader>
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Reference</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 700 }}>Amount</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Match / Suggestion</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 700 }}>Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {loading && (
-                <TableRow>
-                  <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
-                    <CircularProgress size={20} />
-                  </TableCell>
-                </TableRow>
-              )}
-              {!loading && visibleLines.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={7} align="center" sx={{ py: 4, color: "text.secondary" }}>
-                    No lines in this import.
-                  </TableCell>
-                </TableRow>
-              )}
-              {visibleLines.map((line) => (
-                <LineRow
-                  key={line.id}
-                  line={line}
-                  accounts={accounts}
-                  request={request}
-                  onChanged={loadActive}
-                  onOpenPostDialog={() => setPostDialogLine(line)}
-                  onIgnore={() => ignoreLine(line)}
-                  onUnmatch={() => unmatchLine(line)}
-                />
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+        <PageTable
+          columns={lineColumns}
+          data={pagedLines}
+          tableName="Statement lines"
+          subTitle="Match against posted journal entries, or post new entries for charges and interest."
+          loading={loading}
+          page={page}
+          limit={limit}
+          search={search}
+          filters={filters}
+          setPage={setPage}
+          setLimit={setLimit}
+          setSearch={setSearch}
+          setFilters={setFilters}
+          pageCount={pageCount}
+          totalDocs={visibleFiltered.length}
+        />
       )}
 
       <CsvImportDialog
@@ -492,106 +619,6 @@ function Stat({
       </Typography>
       <Typography sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.125rem", mt: 0.25 }}>{value}</Typography>
     </Paper>
-  );
-}
-
-function LineRow({
-  line,
-  accounts: _accounts,
-  request: _request,
-  onChanged: _onChanged,
-  onOpenPostDialog,
-  onIgnore,
-  onUnmatch,
-}: {
-  line: StatementLine;
-  accounts: Account[];
-  request: any;
-  onChanged: () => void;
-  onOpenPostDialog: () => void;
-  onIgnore: () => void;
-  onUnmatch: () => void;
-}) {
-  const isMatched = line.status === "MATCHED" || line.status === "POSTED_NEW";
-  const dir = line.amount > 0 ? "in" : "out";
-  const amtColor = dir === "in" ? "success.main" : "error.main";
-
-  return (
-    <TableRow hover>
-      <TableCell sx={{ fontSize: "0.8125rem" }}>{new Date(line.date).toLocaleDateString()}</TableCell>
-      <TableCell sx={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {line.description}
-      </TableCell>
-      <TableCell sx={{ fontSize: "0.8125rem", color: "text.secondary" }}>{line.reference || "—"}</TableCell>
-      <TableCell align="right" sx={{ fontFamily: "monospace", fontWeight: 600, color: amtColor }}>
-        {dir === "in" ? "+" : "−"} {fmt(Math.abs(line.amount))}
-      </TableCell>
-      <TableCell>
-        <Chip
-          size="small"
-          variant="outlined"
-          label={line.status.replace("_", " ")}
-          color={
-            line.status === "MATCHED"
-              ? "success"
-              : line.status === "POSTED_NEW"
-              ? "info"
-              : line.status === "IGNORED"
-              ? "default"
-              : "warning"
-          }
-          sx={{ fontSize: "0.7rem" }}
-        />
-      </TableCell>
-      <TableCell sx={{ fontSize: "0.8125rem" }}>
-        {line.matchedJournalLine && (
-          <Box sx={{ color: "text.secondary" }}>
-            <Box component="span" sx={{ fontFamily: "monospace", fontWeight: 600 }}>
-              {line.matchedJournalLine.journalEntry.journalNumber}
-            </Box>
-            {" · "}
-            {new Date(line.matchedJournalLine.journalEntry.entryDate).toLocaleDateString()}
-          </Box>
-        )}
-        {line.status === "PENDING" && line.suggestionReason && (
-          <Tooltip title={line.suggestionReason}>
-            <Chip
-              size="small"
-              label={`Suggest: ${(line.suggestionConfidence ?? 0) * 100 | 0}%`}
-              variant="outlined"
-              color="info"
-              sx={{ fontSize: "0.65rem", height: 18 }}
-            />
-          </Tooltip>
-        )}
-      </TableCell>
-      <TableCell align="right">
-        {line.status === "PENDING" && (
-          <>
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={onOpenPostDialog}
-              sx={{ mr: 0.5, textTransform: "none", fontSize: "0.7rem", py: 0.25 }}
-            >
-              Post as new
-            </Button>
-            <Tooltip title="Ignore (e.g. duplicate, opening balance)">
-              <IconButton size="small" onClick={onIgnore}>
-                <VisibilityOffIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          </>
-        )}
-        {isMatched && (
-          <Tooltip title="Unmatch">
-            <IconButton size="small" onClick={onUnmatch}>
-              <LinkOffIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        )}
-      </TableCell>
-    </TableRow>
   );
 }
 

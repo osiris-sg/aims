@@ -9,7 +9,6 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
-  InputAdornment,
   Paper,
   Stack,
   Table,
@@ -24,7 +23,6 @@ import {
 } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import PrintIcon from "@mui/icons-material/Print";
-import SearchIcon from "@mui/icons-material/Search";
 import CloseIcon from "@mui/icons-material/Close";
 import LogoutIcon from "@mui/icons-material/Logout";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
@@ -34,6 +32,7 @@ import LocalAtmIcon from "@mui/icons-material/LocalAtm";
 import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
+import PageTable from "@/components/PageTable";
 
 type Account = {
   id: string;
@@ -98,8 +97,13 @@ export default function GeneralLedgerPage() {
   const [tb, setTb] = useState<TrialBalance | null>(null);
   const [loading, setLoading] = useState(false);
   const [cutOffDate, setCutOffDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
-  const [filter, setFilter] = useState("");
   const [drilldown, setDrilldown] = useState<Account | null>(null);
+
+  // PageTable-driven state
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(50);
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<any>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -174,37 +178,67 @@ export default function GeneralLedgerPage() {
     };
   }, [merged]);
 
-  // Locate by description filter
+  // Locate by description filter (now driven by PageTable's search)
   const visible = useMemo(() => {
-    const q = filter.trim().toLowerCase();
+    const q = search.trim().toLowerCase();
     if (!q) return merged;
     return merged.filter((m) => m.code.toLowerCase().includes(q) || m.name.toLowerCase().includes(q));
-  }, [merged, filter]);
+  }, [merged, search]);
 
-  const totals = useMemo(() => {
-    return visible.reduce(
-      (acc, r) => ({
-        debit: acc.debit + r.debit,
-        credit: acc.credit + r.credit,
-      }),
-      { debit: 0, credit: 0 },
-    );
-  }, [visible]);
+  useEffect(() => { setPage(1); }, [search]);
+
+  const pageCount = Math.max(1, Math.ceil(visible.length / limit));
+  const paged = useMemo(
+    () => visible.slice((page - 1) * limit, page * limit),
+    [visible, page, limit],
+  );
+
+  const columns = useMemo(() => [
+    {
+      accessorKey: "code",
+      header: "Account",
+      cell: ({ row }: any) => (
+        <Box
+          sx={{
+            fontFamily: "monospace",
+            fontWeight: 600,
+            color: "primary.main",
+            textDecoration: "underline",
+            textUnderlineOffset: 3,
+            cursor: "pointer",
+          }}
+          onClick={() => setDrilldown({
+            id: row.original.accountId,
+            code: row.original.code,
+            name: row.original.name,
+            accountType: row.original.accountType,
+            category: row.original.category,
+            normalBalance: row.original.normalBalance,
+          })}
+        >
+          {row.original.code}
+        </Box>
+      ),
+    },
+    { accessorKey: "name", header: "Description", cell: ({ row }: any) => row.original.name },
+    {
+      accessorKey: "debit",
+      header: "Debit",
+      cell: ({ row }: any) => (
+        <Box sx={{ textAlign: "right", fontFamily: "monospace" }}>{fmt(row.original.debit)}</Box>
+      ),
+    },
+    {
+      accessorKey: "credit",
+      header: "Credit",
+      cell: ({ row }: any) => (
+        <Box sx={{ textAlign: "right", fontFamily: "monospace" }}>{fmt(row.original.credit)}</Box>
+      ),
+    },
+  ], []);
 
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
-      {/* Page title */}
-      <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Box>
-          <Typography variant="h5" sx={{ fontWeight: 700 }}>
-            General Ledger
-          </Typography>
-          <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            Click any account row to invoke its detailed ledger.
-          </Typography>
-        </Box>
-      </Stack>
-
       {/* KPI cards row */}
       <Box
         sx={{
@@ -289,110 +323,23 @@ export default function GeneralLedgerPage() {
         </Typography>
       </Paper>
 
-      {/* Account list table */}
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small" stickyHeader>
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ fontWeight: 700, width: 120 }}>Account</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700, width: 140 }}>
-                Debit
-              </TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700, width: 140 }}>
-                Credit
-              </TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {loading && (
-              <TableRow>
-                <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
-                  <CircularProgress size={20} />
-                </TableCell>
-              </TableRow>
-            )}
-            {!loading && visible.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={4} align="center" sx={{ py: 4, color: "text.secondary" }}>
-                  No accounts match.
-                </TableCell>
-              </TableRow>
-            )}
-            {!loading &&
-              visible.map((r) => (
-                <TableRow
-                  key={r.accountId}
-                  hover
-                  sx={{ cursor: "pointer" }}
-                  onClick={() =>
-                    setDrilldown({
-                      id: r.accountId,
-                      code: r.code,
-                      name: r.name,
-                      accountType: r.accountType,
-                      category: r.category,
-                      normalBalance: r.normalBalance,
-                    })
-                  }
-                >
-                  <TableCell
-                    sx={{
-                      fontFamily: "monospace",
-                      fontWeight: 600,
-                      color: "primary.main",
-                      textDecoration: "underline",
-                      textUnderlineOffset: 3,
-                    }}
-                  >
-                    {r.code}
-                  </TableCell>
-                  <TableCell>{r.name}</TableCell>
-                  <TableCell align="right" sx={{ fontFamily: "monospace" }}>
-                    {fmt(r.debit)}
-                  </TableCell>
-                  <TableCell align="right" sx={{ fontFamily: "monospace" }}>
-                    {fmt(r.credit)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            {!loading && visible.length > 0 && (
-              <TableRow sx={{ "& td": { borderTop: 2, borderTopColor: "divider", borderBottom: 0 } }}>
-                <TableCell />
-                <TableCell align="right" sx={{ fontWeight: 700 }}>
-                  TOTAL
-                </TableCell>
-                <TableCell align="right" sx={{ fontFamily: "monospace", fontWeight: 700 }}>
-                  {fmtKpi(totals.debit)}
-                </TableCell>
-                <TableCell align="right" sx={{ fontFamily: "monospace", fontWeight: 700 }}>
-                  {fmtKpi(totals.credit)}
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
-
-      {/* Footer: Locate by Desc */}
-      <Paper variant="outlined" sx={{ p: 1.5 }}>
-        <Stack direction="row" gap={2} alignItems="center">
-          <TextField
-            size="small"
-            label="Locate By Desc"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            sx={{ minWidth: 280 }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              ),
-            }}
-          />
-        </Stack>
-      </Paper>
+      <PageTable
+        columns={columns}
+        data={paged}
+        tableName="General Ledger"
+        subTitle="Click any account row to invoke its detailed ledger."
+        loading={loading}
+        page={page}
+        limit={limit}
+        search={search}
+        filters={filters}
+        setPage={setPage}
+        setLimit={setLimit}
+        setSearch={setSearch}
+        setFilters={setFilters}
+        pageCount={pageCount}
+        totalDocs={visible.length}
+      />
 
       {/* Drill-down dialog */}
       <DrilldownDialog account={drilldown} onClose={() => setDrilldown(null)} cutOffDate={cutOffDate} />

@@ -112,14 +112,20 @@ export const ConfigurationProvider: React.FC<ConfigurationProviderProps> = ({ ch
         throw new Error("No authentication token");
       }
 
+      // Build headers — also forward X-Active-Org-Id (the admin org-switch
+      // header from sessionStorage) so the backend guard returns modules for
+      // the org guru is "Viewing as", not the home org.
+      const cfgHeaders: Record<string, string> = {
+        Authorization: `Bearer ${token}`,
+        "x-organization-id": organization.id,
+      };
+      if (typeof window !== "undefined") {
+        const activeOrgId = window.sessionStorage.getItem("aims-admin-active-org");
+        if (activeOrgId) cfgHeaders["X-Active-Org-Id"] = activeOrgId;
+      }
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/configuration/complete`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "x-organization-id": organization.id,
-          },
-        }
+        { headers: cfgHeaders }
       );
 
       if (!response.ok) {

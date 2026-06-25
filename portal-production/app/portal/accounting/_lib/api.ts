@@ -22,14 +22,16 @@ export function useAccountingApi(): { request: AccountingRequest } {
   const request: AccountingRequest = useCallback(
     async <T = any>(path: string, init?: FetchInit): Promise<T> => {
       const token = await getToken();
-      const res = await fetch(`${apiBase}${path}`, {
-        ...init,
-        headers: {
-          "Content-Type": "application/json",
-          ...(init?.headers || {}),
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...(init?.headers as Record<string, string> | undefined),
+        Authorization: `Bearer ${token}`,
+      };
+      if (typeof window !== "undefined") {
+        const activeOrgId = window.sessionStorage.getItem("aims-admin-active-org");
+        if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
+      }
+      const res = await fetch(`${apiBase}${path}`, { ...init, headers });
       const text = await res.text();
       let json: any = null;
       try {
