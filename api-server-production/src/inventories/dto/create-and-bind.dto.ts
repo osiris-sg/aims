@@ -33,4 +33,10 @@ export class CreateInventoryAndBindDto {
   @IsOptional()
   @IsBoolean()
   confirmRebind?: boolean;
+
+  // S3 key of the nameplate photo (uploaded via the uploads service before the
+  // bind). Stored in the bind provenance record so the unit is backtrackable.
+  @IsString()
+  @IsOptional()
+  photoKey?: string;
 }

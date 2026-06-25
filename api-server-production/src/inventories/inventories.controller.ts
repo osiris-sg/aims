@@ -10,11 +10,15 @@ import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 
-// Extend Request type to include userOrganization
+// Extend Request type to include userOrganization + the Clerk-resolved user
+// (clerk strategy attaches the User row at request.user — see clerk.strategy.ts).
 interface RequestWithOrganization extends Request {
   userOrganization?: {
     id: string;
     name: string;
+  };
+  user?: {
+    id: string;
   };
 }
 
@@ -112,7 +116,8 @@ export class InventoriesController {
     if (!organizationId) {
       throw new Error('User is not assigned to any organization');
     }
-    return await this.inventoriesService.createAndBind(body, organizationId);
+    const technicianUserId = req.user?.id;
+    return await this.inventoriesService.createAndBind(body, organizationId, technicianUserId);
   }
 
   @Put('update')

@@ -305,7 +305,7 @@ export class InventoriesService {
    * Return shape (backward-compatible — the field UI reads `inventory.id` +
    * `asset.id`): { inventory, asset, action: 'created' | 'matched', idempotent? }.
    */
-  async createAndBind(dto: CreateInventoryAndBindDto, organizationId: string) {
+  async createAndBind(dto: CreateInventoryAndBindDto, organizationId: string, technicianUserId?: string) {
     const tag = dto.nfcTagUid?.trim();
     if (!tag) {
       throw new HttpException('NFC UID is required', HttpStatus.BAD_REQUEST);
@@ -337,15 +337,22 @@ export class InventoriesService {
     // Case-insensitive (the @@unique index is case-sensitive, so "AIS"/"ais"
     // could both exist — hence the defensive multi-match guard below).
     const serial = dto.serial?.trim();
-    const matches = serial
-      ? await this.prisma.inventory.findMany({
-          where: {
-            assetId: asset.id,
-            organizationId,
-            sku: { equals: serial, mode: 'insensitive' },
-          },
-          include: { asset: true },
-        })
+    // Normalized match: strip all non-alphanumerics (spaces, dashes) and
+    // lowercase, so "AF100 0034", "AF100-0034" and "af1000034" all reconcile to
+    // the same office unit. Prisma can't normalize in a where-clause, so fetch
+    // the asset's units (a few dozen) and match in JS — against BOTH sku and
+    // serialNumber, since office units may carry the identifier in either.
+    const normalize = (s: string) => s.replace(/[^a-z0-9]/gi, '').toLowerCase();
+    const normInput = serial ? normalize(serial) : '';
+    const matches = normInput
+      ? (
+          await this.prisma.inventory.findMany({
+            where: { assetId: asset.id, organizationId },
+            include: { asset: true },
+          })
+        ).filter(
+          (u) => normalize(u.sku) === normInput || (!!u.serialNumber && normalize(u.serialNumber) === normInput),
+        )
       : [];
 
     // ---- EXISTING-UNIT BIND (exactly one serial match) ----
@@ -374,13 +381,16 @@ export class InventoriesService {
           HttpStatus.CONFLICT,
         );
       }
-      // (c) Bind: set ONLY nfcTagUid. SKU and status are left as-is (the unit
-      //     may already be rental/sold — do NOT reset it to instock).
+      // (c) Bind: set nfcTagUid. SKU and status are left as-is (the unit may
+      //     already be rental/sold — do NOT reset it to instock). Backfill
+      //     serialNumber from the typed/extracted serial when the matched unit
+      //     has none (office units often hold the identifier only in `sku`).
       const inventory = await this.prisma.inventory.update({
         where: { id: unit.id },
-        data: { nfcTagUid: tag },
+        data: { nfcTagUid: tag, ...(unit.serialNumber ? {} : serial ? { serialNumber: serial } : {}) },
         include: { asset: true },
       });
+      await this.logBindProvenance(inventory.id, 'matched', dto, technicianUserId);
       return { inventory, asset, action: 'matched' as const };
     }
 
@@ -417,6 +427,7 @@ export class InventoriesService {
         },
         include: { asset: true },
       });
+      await this.logBindProvenance(inventory.id, 'created', dto, technicianUserId);
       return { inventory, asset, action: 'created' as const };
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -438,6 +449,36 @@ export class InventoriesService {
         error?.message ?? 'Failed to create and bind inventory item',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
+    }
+  }
+
+  /**
+   * Best-effort provenance for a field create-and-bind: records the raw input,
+   * tag, technician, and nameplate photo key as a TimelineItem JSON blob so the
+   * unit is backtrackable. MUST NEVER fail the bind — any error is swallowed.
+   */
+  private async logBindProvenance(
+    inventoryId: string,
+    action: 'created' | 'matched',
+    dto: CreateInventoryAndBindDto,
+    technicianUserId?: string,
+  ) {
+    try {
+      await this.prisma.timelineItem.create({
+        data: {
+          inventoryId,
+          message: JSON.stringify({
+            action,
+            rawSerial: dto.serial ?? null,
+            tag: dto.nfcTagUid,
+            technicianUserId: technicianUserId ?? null,
+            photoKey: dto.photoKey ?? null,
+            createdAt: new Date().toISOString(),
+          }),
+        },
+      });
+    } catch (err) {
+      console.warn(`Bind provenance write failed for inventory ${inventoryId}:`, err?.message ?? err);
     }
   }
 

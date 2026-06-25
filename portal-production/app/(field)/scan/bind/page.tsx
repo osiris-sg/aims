@@ -24,6 +24,7 @@ import CameraAltIcon from "@mui/icons-material/CameraAlt";
 import AddIcon from "@mui/icons-material/Add";
 import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
+import { uploadImage } from "@/helpers/imageUploader";
 
 interface AssetOption {
   id: string;
@@ -358,6 +359,18 @@ export default function BindTagPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
+      // Best-effort: persist the nameplate photo so the bind is backtrackable.
+      // A failed upload must NOT block the bind — proceed with photoKey omitted.
+      let photoKey: string | undefined;
+      if (photoDataUrl) {
+        try {
+          const blob = await (await fetch(photoDataUrl)).blob();
+          const key = await uploadImage({ blob, folderName: "inventory-bind", token });
+          photoKey = key || undefined;
+        } catch (err) {
+          console.warn("Nameplate photo upload failed; binding without it.", err);
+        }
+      }
       const res = await request(
         { path: "/inventories/create-and-bind", method: "POST" },
         {
@@ -365,6 +378,7 @@ export default function BindTagPage() {
           serial: serial.trim() || undefined,
           nfcTagUid: uid,
           ...(confirmRebind ? { confirmRebind: true } : {}),
+          ...(photoKey ? { photoKey } : {}),
         },
         token,
       );
