@@ -381,13 +381,12 @@ export class InventoriesService {
           HttpStatus.CONFLICT,
         );
       }
-      // (c) Bind: set nfcTagUid. SKU and status are left as-is (the unit may
-      //     already be rental/sold — do NOT reset it to instock). Backfill
-      //     serialNumber from the typed/extracted serial when the matched unit
-      //     has none (office units often hold the identifier only in `sku`).
+      // (c) Bind: set ONLY nfcTagUid. SKU and status are left as-is (the unit
+      //     may already be rental/sold — do NOT reset it to instock). Identity
+      //     lives in `sku`, so there's nothing else to write on a match.
       const inventory = await this.prisma.inventory.update({
         where: { id: unit.id },
-        data: { nfcTagUid: tag, ...(unit.serialNumber ? {} : serial ? { serialNumber: serial } : {}) },
+        data: { nfcTagUid: tag },
         include: { asset: true },
       });
       await this.logBindProvenance(inventory.id, 'matched', dto, technicianUserId);
@@ -412,8 +411,13 @@ export class InventoriesService {
     if (tagOwner) {
       throw new HttpException(tagConflictMessage(tagOwner), HttpStatus.CONFLICT);
     }
-    // Next per-unit SKU (reuses the bulk endpoint's increment logic).
-    const [inventorySku] = await this.generateSkuRange(asset.id, 1, organizationId);
+    // Identifier-as-SKU: when the tech provides an identifier, it IS the SKU
+    // (the fleet stores every identifier in `sku`, e.g. MG20240037). The
+    // normalized match above already ran, so a provided identifier reaching here
+    // matched nothing — it's genuinely new. Only the no-identifier case falls
+    // back to an auto-numbered SKU (LION375-NNN). serialNumber stays null —
+    // identity is sku-only by design.
+    const inventorySku = serial || (await this.generateSkuRange(asset.id, 1, organizationId))[0];
     try {
       const inventory = await this.prisma.inventory.create({
         data: {
@@ -423,7 +427,6 @@ export class InventoriesService {
           status: 'instock',
           organizationId,
           nfcTagUid: tag,
-          serialNumber: serial || null,
         },
         include: { asset: true },
       });
