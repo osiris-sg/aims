@@ -630,7 +630,13 @@ export class ProjectsService {
 
           // DO number — same `{prefix}{yyyy}{mm}-NNN` pattern as
           // createBasicDocument, excluding revision docs from the serial scan.
-          const lastDoc = await tx.document.findFirst({
+          // Compute the max NUMERIC suffix in JS rather than `orderBy {name:'desc'}`:
+          // a string sort would pick a non-numeric name like "DO202606-TEST01"
+          // (T > 0), whose suffix fails the digit match, resetting the serial to
+          // 001 and deterministically colliding with the existing DO202606-001.
+          // Only strict `{prefix}NNN` names count toward the max; anything else
+          // (TEST01, etc.) is ignored.
+          const prefixDocs = await tx.document.findMany({
             where: {
               organizationId,
               documentTemplateId: template.id,
@@ -638,10 +644,18 @@ export class ProjectsService {
               baseDocumentId: null,
             },
             select: { name: true },
-            orderBy: { name: 'desc' },
           });
-          const lastSerial = lastDoc?.name?.match(/-(\d+)$/);
-          const serial = String(lastSerial ? parseInt(lastSerial[1], 10) + 1 : 1).padStart(3, '0');
+          const escapedPrefix = namePrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const serialRe = new RegExp(`^${escapedPrefix}(\\d+)$`);
+          let maxSerial = 0;
+          for (const d of prefixDocs) {
+            const m = d.name?.match(serialRe);
+            if (m) {
+              const n = parseInt(m[1], 10);
+              if (n > maxSerial) maxSerial = n;
+            }
+          }
+          const serial = String(maxSerial + 1).padStart(3, '0');
 
           const document = await tx.document.create({
             data: {
