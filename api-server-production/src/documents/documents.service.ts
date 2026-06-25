@@ -946,6 +946,16 @@ export class DocumentsService {
                   endDate: dto.config.endDate || null,
                 },
               });
+            } else if (existingAssignment.endDate) {
+              // The unit was soft-closed on this project (e.g. moved off via
+              // field-deploy) and is now re-added by this DO. Reopen it —
+              // consistent with field-deploy — instead of leaving it closed.
+              // ONLY soft-closed rows are touched; an already-active assignment
+              // is left exactly as before (the prior no-op skip).
+              await this.prisma.assignment.update({
+                where: { id: existingAssignment.id },
+                data: { endDate: null, startDate: dto.config.startDate || null },
+              });
             }
           }),
         );

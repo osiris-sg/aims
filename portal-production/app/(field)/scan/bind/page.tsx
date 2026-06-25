@@ -419,14 +419,11 @@ export default function BindTagPage() {
           ? `Tag bound to existing unit ${unitSku}`
           : `New unit ${unitSku} created and tagged`;
 
-      // Deploy gate: skip the project-deploy follow-on when we matched a unit
-      // that's already out (rental/sold) — re-deploying would double-deploy it.
-      const invStatus = payload?.inventory?.status;
-      const alreadyDeployed = action === "matched" && (invStatus === "rental" || invStatus === "sold");
-
-      // Optional project deployment — best-effort. Creates a Deployment +
-      // single-item DO on the backend. A failure here never blocks the flow.
-      if (selectedProject && !alreadyDeployed) {
+      // Project deployment — best-effort. The backend enforces "one unit, one
+      // active project": it skips if already on the selected project, adds if on
+      // none, or soft-moves (closes the old assignment) if on another. We always
+      // call it and branch on the returned status; a failure never blocks the bind.
+      if (selectedProject) {
         try {
           const deployRes = await request(
             { path: `/projects/${selectedProject.id}/field-deploy`, method: "POST" },
@@ -436,7 +433,12 @@ export default function BindTagPage() {
           if (deployRes?.success === false) {
             throw new Error(deployRes?.message ?? "Deployment request failed");
           }
-          toast.success(`${successMsg} · deployed to ${selectedProject.name}`);
+          const deployStatus = (deployRes?.data ?? deployRes)?.status;
+          const projName = selectedProject.name;
+          toast.success(successMsg);
+          if (deployStatus === "moved") toast.info(`Moved to ${projName}`);
+          else if (deployStatus === "already_on_project") toast.info(`Already on ${projName}`);
+          else toast.success(`Deployed to ${projName}`);
         } catch (deployErr) {
           console.error("field deploy failed (binding succeeded):", deployErr);
           toast.success(successMsg);
@@ -444,9 +446,6 @@ export default function BindTagPage() {
         }
       } else {
         toast.success(successMsg);
-        if (selectedProject && alreadyDeployed) {
-          toast.info("Unit already deployed — tag bound, deployment skipped.");
-        }
       }
       // Jump straight to the action chooser — same destination as a scan of
       // an already-bound tag, so the create-then-act flow has no dead end.

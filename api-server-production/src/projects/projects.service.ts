@@ -154,6 +154,8 @@ export class ProjectsService {
             select: { id: true, name: true, address: true, customer: true },
           },
           assignments: {
+            // Only ACTIVE assignments (soft-closed ones carry an endDate).
+            where: { endDate: null },
             include: {
               inventory: { select: { sku: true, status: true } },
               asset: { select: { id: true, name: true, skuKey: true, uom: true } },
@@ -165,6 +167,7 @@ export class ProjectsService {
             include: {
               sourceDocument: { select: { id: true, name: true, type: true, createdAt: true } },
               assignments: {
+                where: { endDate: null }, // active only — hide soft-closed (moved-away) units
                 include: {
                   asset: { select: { id: true, name: true, skuKey: true, uom: true } },
                   inventory: { select: { id: true, sku: true, status: true } },
@@ -443,6 +446,7 @@ export class ProjectsService {
       include: {
         sourceDocument: { select: { id: true, name: true } },
         assignments: {
+          where: { endDate: null }, // active only — hide soft-closed (moved-away) units
           include: {
             asset: { select: { id: true, name: true, skuKey: true } },
             inventory: { select: { id: true, sku: true } },
@@ -578,6 +582,28 @@ export class ProjectsService {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         return await this.prisma.$transaction(async (tx) => {
+          // One unit, one ACTIVE project. "Active" = an assignment with no
+          // endDate. Decide skip / add / soft-move BEFORE allocating anything.
+          const active = await tx.assignment.findMany({
+            where: { inventoryId, endDate: null },
+            select: { id: true, projectId: true },
+          });
+
+          // CASE 1 — already active on the selected project: skip. No deployment
+          // is created (avoids an orphan deployment + duplicate assignment).
+          if (active.some((a) => a.projectId === projectId)) {
+            return { status: 'already_on_project' as const, deployment: null };
+          }
+
+          // CASE 3 — active on OTHER project(s): soft-close them (endDate=now)
+          // so the unit only ever has one active project. History is preserved.
+          if (active.length) {
+            await tx.assignment.updateMany({
+              where: { inventoryId, endDate: null, projectId: { not: projectId } },
+              data: { endDate: now },
+            });
+          }
+
           // Deployment — auto-numbered per project (count + 1).
           const taken = await tx.projectDeployment.count({ where: { projectId } });
           const deployment = await tx.projectDeployment.create({
@@ -592,16 +618,14 @@ export class ProjectsService {
             },
           });
 
-          // Link the unit to the project + this deployment. This Assignment is
-          // the real asset↔project association the office reads (deployments →
-          // assignments → inventory); ProjectDeployment alone has no inventory
-          // ref. Upsert on @@unique([projectId, inventoryId]) so a re-deploy
-          // re-points the existing assignment to the new deployment instead of
-          // throwing P2002 — keeping the retry loop scoped to deploymentNumber
-          // collisions only.
+          // (Re)open the assignment for the selected project — the real
+          // unit↔project link the office reads. endDate:null on the UPDATE branch
+          // re-activates a previously soft-closed row (a move-back), respecting
+          // @@unique([projectId, inventoryId]); the upsert also means no P2002
+          // from the assignment, so the retry loop only guards deploymentNumber.
           await tx.assignment.upsert({
             where: { projectId_inventoryId: { projectId, inventoryId } },
-            update: { projectDeploymentId: deployment.id, startDate: now },
+            update: { projectDeploymentId: deployment.id, startDate: now, endDate: null },
             create: {
               projectId,
               inventoryId,
@@ -615,7 +639,7 @@ export class ProjectsService {
             data: { status: inventoryStatus },
           });
 
-          return { deployment };
+          return { status: active.length ? ('moved' as const) : ('added' as const), deployment };
         });
       } catch (err) {
         // Unique race on deploymentNumber (count+1 per project) — recompute + retry.
@@ -667,6 +691,7 @@ export class ProjectsService {
       include: {
         sourceDocument: { select: { id: true, name: true, type: true, createdAt: true } },
         assignments: {
+          where: { endDate: null }, // active only — hide soft-closed (moved-away) units
           include: {
             asset: { select: { id: true, name: true, skuKey: true, uom: true } },
             inventory: { select: { id: true, sku: true, status: true } },
@@ -833,6 +858,8 @@ export class ProjectsService {
         },
         include: {
           assignments: {
+            // Only ACTIVE assignments (soft-closed ones carry an endDate).
+            where: { endDate: null },
             include: {
               inventory: { select: { sku: true, status: true } },
               asset: { select: { id: true, name: true, skuKey: true, uom: true } },
@@ -901,6 +928,8 @@ export class ProjectsService {
         },
         include: {
           assignments: {
+            // Only ACTIVE assignments (soft-closed ones carry an endDate).
+            where: { endDate: null },
             include: {
               inventory: { select: { sku: true, status: true } },
               asset: { select: { id: true, name: true, skuKey: true, uom: true } },
