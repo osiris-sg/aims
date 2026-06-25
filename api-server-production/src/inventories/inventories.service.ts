@@ -417,7 +417,7 @@ export class InventoriesService {
     // matched nothing — it's genuinely new. Only the no-identifier case falls
     // back to an auto-numbered SKU (LION375-NNN). serialNumber stays null —
     // identity is sku-only by design.
-    const inventorySku = serial || (await this.generateSkuRange(asset.id, 1, organizationId))[0];
+    const inventorySku = serial ? serial.toUpperCase() : (await this.generateSkuRange(asset.id, 1, organizationId))[0];
     try {
       const inventory = await this.prisma.inventory.create({
         data: {
