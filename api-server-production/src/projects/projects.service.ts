@@ -4,7 +4,7 @@ import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 // import { DeleteProjectDto } from './dto/delete-project.dto';
 import { GetProjectDto } from './dto/get-project.dto';
-import { Prisma, DeploymentType, DeploymentStatus, ItemType } from '@prisma/client';
+import { Prisma, DeploymentType, DeploymentStatus } from '@prisma/client';
 import { ProjectStatus } from '@prisma/client';
 import { InventoryStatus } from '@prisma/client';
 
@@ -567,49 +567,13 @@ export class ProjectsService {
       throw new HttpException('assetId does not match the inventory item', HttpStatus.BAD_REQUEST);
     }
 
-    // DO template — same resolution order as documents.createFromExtraction.
-    const template = await this.prisma.documentTemplate.findFirst({
-      where: { organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } },
-      select: { id: true, type: true, templateVariant: true },
-      orderBy: [{ isActive: 'desc' }, { isDefault: 'desc' }, { createdAt: 'desc' }],
-    });
-    if (!template) {
-      throw new HttpException('No Delivery Order template configured for this organization', HttpStatus.NOT_FOUND);
-    }
-
-    // Org defaults seeded into the DO config — mirrors createBasicDocument so
-    // the office sees a normal-looking DO when they open it in the editor.
-    const organization = await this.prisma.organization.findUnique({
-      where: { id: organizationId },
-      select: { customDocumentTypes: true, logo: true, defaultStamp: true },
-    });
-
+    // Assignment-only: this flow creates a ProjectDeployment and flips the unit
+    // status. It does NOT auto-create a Delivery Order — sourceDocumentId stays
+    // null, and DOs can be attached later from the office via
+    // Document.projectDeploymentId. (The DO-driven Start/Ack/Install delivery
+    // flow is unaffected; it works off manually-created DOs.)
     const description = `${inventory.asset.name} - ${inventory.sku}`;
     const now = new Date();
-    const customTypes = organization?.customDocumentTypes as Record<string, string> | null;
-    const namePrefix = `${template.templateVariant || customTypes?.[template.type] || template.type}${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}-`;
-
-    // `inventoryItemId` is the legacy items[] key (overloaded for INVENTORY
-    // and ASSET) — see documents.service.syncDocumentItems.
-    const config: any = {
-      date: now.toISOString(),
-      items: [
-        {
-          inventoryItemId: inventoryId,
-          sku: inventory.sku,
-          description: inventory.asset.name,
-          quantity: 1,
-          uom: inventory.asset.uom,
-          serialNumbers: inventory.serialNumber ? [inventory.serialNumber] : [],
-        },
-      ],
-    };
-    if (organization?.logo) config.logo = organization.logo;
-    if (organization?.defaultStamp) config.stamp = { company: organization.defaultStamp };
-    if (project.customer) {
-      config.customerId = project.customer.id;
-      config.customer = project.customer;
-    }
 
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
@@ -628,64 +592,21 @@ export class ProjectsService {
             },
           });
 
-          // DO number — same `{prefix}{yyyy}{mm}-NNN` pattern as
-          // createBasicDocument, excluding revision docs from the serial scan.
-          // Compute the max NUMERIC suffix in JS rather than `orderBy {name:'desc'}`:
-          // a string sort would pick a non-numeric name like "DO202606-TEST01"
-          // (T > 0), whose suffix fails the digit match, resetting the serial to
-          // 001 and deterministically colliding with the existing DO202606-001.
-          // Only strict `{prefix}NNN` names count toward the max; anything else
-          // (TEST01, etc.) is ignored.
-          const prefixDocs = await tx.document.findMany({
-            where: {
-              organizationId,
-              documentTemplateId: template.id,
-              name: { startsWith: namePrefix },
-              baseDocumentId: null,
-            },
-            select: { name: true },
-          });
-          const escapedPrefix = namePrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const serialRe = new RegExp(`^${escapedPrefix}(\\d+)$`);
-          let maxSerial = 0;
-          for (const d of prefixDocs) {
-            const m = d.name?.match(serialRe);
-            if (m) {
-              const n = parseInt(m[1], 10);
-              if (n > maxSerial) maxSerial = n;
-            }
-          }
-          const serial = String(maxSerial + 1).padStart(3, '0');
-
-          const document = await tx.document.create({
-            data: {
-              name: `${namePrefix}${serial}`,
-              documentTemplateId: template.id,
-              type: template.type,
-              organizationId,
-              config,
-              revisionNumber: 0,
+          // Link the unit to the project + this deployment. This Assignment is
+          // the real asset↔project association the office reads (deployments →
+          // assignments → inventory); ProjectDeployment alone has no inventory
+          // ref. Upsert on @@unique([projectId, inventoryId]) so a re-deploy
+          // re-points the existing assignment to the new deployment instead of
+          // throwing P2002 — keeping the retry loop scoped to deploymentNumber
+          // collisions only.
+          await tx.assignment.upsert({
+            where: { projectId_inventoryId: { projectId, inventoryId } },
+            update: { projectDeploymentId: deployment.id, startDate: now },
+            create: {
               projectId,
+              inventoryId,
               projectDeploymentId: deployment.id,
-            },
-          });
-
-          // Audit pointer: this DO is the document that started the deployment.
-          await tx.projectDeployment.update({
-            where: { id: deployment.id },
-            data: { sourceDocumentId: document.id },
-          });
-
-          await tx.documentItem.create({
-            data: {
-              documentId: document.id,
-              itemId: inventoryId,
-              itemType: ItemType.INVENTORY,
-              sku: inventory.sku,
-              description: inventory.asset.name,
-              quantity: 1,
-              uom: inventory.asset.uom,
-              lineNumber: 1,
+              startDate: now,
             },
           });
 
@@ -694,20 +615,17 @@ export class ProjectsService {
             data: { status: inventoryStatus },
           });
 
-          return {
-            deployment: { ...deployment, sourceDocumentId: document.id },
-            document: { id: document.id, name: document.name, type: document.type },
-          };
+          return { deployment };
         });
       } catch (err) {
-        // Unique race on deploymentNumber or document name — recompute + retry.
+        // Unique race on deploymentNumber (count+1 per project) — recompute + retry.
         if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
           continue;
         }
         throw err;
       }
     }
-    throw new HttpException('Could not allocate deployment/DO numbers after 3 attempts', HttpStatus.CONFLICT);
+    throw new HttpException('Could not allocate a deployment number after 3 attempts', HttpStatus.CONFLICT);
   }
 
   async attachDocumentToDeployment(
