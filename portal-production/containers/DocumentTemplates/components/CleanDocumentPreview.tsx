@@ -133,6 +133,14 @@ export default function CleanDocumentPreview(props: CleanDocumentPreviewProps) {
     () =>
       createTheme({
         ...parentTheme,
+        palette: {
+          ...parentTheme.palette,
+          // Force printed-document body text to solid black. Otherwise the doc
+          // inherits the app theme's text.primary — which in dark mode is a
+          // light grey (#DFE3EE) — washing out the quotation/PDF. Scoped to
+          // docTheme, so the rest of the app's theming is unaffected.
+          text: { ...parentTheme.palette.text, primary: "#000" },
+        },
         typography: {
           ...parentTheme.typography,
           fontWeightRegular: 400,
@@ -151,8 +159,12 @@ export default function CleanDocumentPreview(props: CleanDocumentPreviewProps) {
           ...parentTheme.components,
           MuiTableCell: {
             styleOverrides: {
-              root: { fontWeight: 400 },
-              head: { fontWeight: 600 },
+              // Solid-black cells. MUI TableCell otherwise pulls its colour from
+              // palette.text.primary (light grey in dark mode), washing out the
+              // printed line-item table. Belt-and-suspenders with the palette
+              // override above.
+              root: { fontWeight: 400, color: "#000" },
+              head: { fontWeight: 600, color: "#000" },
             },
           },
         },
@@ -3082,7 +3094,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                       Director signature image / script-font name renders here.
                       Vertical space reserved below; replace this Box with the
                       <img>/script when the signature asset is wired. */}
-                  <Box sx={{ height: 72 }} />
+                  <Box sx={{ height: 72, borderBottom: "1px solid #000", mb: 0.5 }} />
                   <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Eugene Lee (Director)</Typography>
                   <Typography sx={{ fontSize: "0.8125rem" }}>Mobile: 9818 9200</Typography>
                 </Box>
@@ -3094,7 +3106,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     {data.customer?.name || data.customerName || ""}
                   </Typography>
                   {/* Customer signature / company chop space */}
-                  <Box sx={{ height: 72 }} />
+                  <Box sx={{ height: 72, borderBottom: "1px solid #000", mb: 0.5 }} />
                   <Typography sx={{ fontSize: "0.8125rem" }}>Company Chop &amp; Authorized Signature</Typography>
                   <Typography sx={{ fontSize: "0.8125rem", mt: 1 }}>Contact Personnel : </Typography>
                   <Typography sx={{ fontSize: "0.8125rem" }}>Contact No. : </Typography>
