@@ -497,6 +497,33 @@ export default function Quotation1Template(props: Props) {
                         <FormInputBox control={control} name="title" label="Title" placeHolder="Enter title" size="small" labelArriangment="vertical" viewMode={isViewMode} />
                       )}
                     </Box>
+                    {/* Per-quote rate-column header. Bound to the DOCUMENT form
+                        (control) so it persists to THIS doc's
+                        config.columnLabels.unitPrice — NOT the shared template
+                        form (methods), which would change the column label for
+                        every org. Hidden while editing the template itself. */}
+                    {!(isEditPath && !documentId) && (
+                      <Box sx={{ maxWidth: 320, mb: 2 }}>
+                        <FormSelect
+                          control={control}
+                          name="columnLabels.unitPrice"
+                          label="Rate Column Header"
+                          menuTitle="Choose rate column header"
+                          size="small"
+                          labelArriangment="vertical"
+                          viewMode={isViewMode}
+                          menuItems={[
+                            { label: "Unit Rates S$", value: "Unit Rates S$" },
+                            { label: "Unit Price S$", value: "Unit Price S$" },
+                            { label: "Monthly Rental Rates S$", value: "Monthly Rental Rates S$" },
+                            { label: "Monthly Rental / Sales Rates S$", value: "Monthly Rental / Sales Rates S$" },
+                            { label: "Sales Unit Rates S$", value: "Sales Unit Rates S$" },
+                            { label: "Unit Rates/m³ S$", value: "Unit Rates/m³ S$" },
+                            { label: "Unit Rates Per Load S$", value: "Unit Rates Per Load S$" },
+                          ]}
+                        />
+                      </Box>
+                    )}
                     <Box mt={isViewMode ? 3 : 2} mb={1}>
                       <Box sx={{ width: "100%", maxWidth: "100%", overflow: "hidden" }}>
                         <Table key={`table-${columns.length}-${columnOrder?.join("-") || "default"}-${JSON.stringify(columnLabels)}`} columns={columns} data={[...fields]} isNoSelectionColumn={true} />

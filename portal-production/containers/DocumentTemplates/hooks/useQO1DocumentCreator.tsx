@@ -267,6 +267,11 @@ export default function useQO1DocumentCreator() {
         logo: logoKey || document?.config.logo,
         stamp: { company: companyStampKey || document?.config?.stamp?.company },
         signature: uploadedSignatures,
+        // Preserve the full column-label set. The Rate-Column-Header dropdown
+        // only writes columnLabels.unitPrice; merge over the doc's existing
+        // labels so siblings (no/description/uom/quantity/amount) can't be
+        // dropped if RHF prunes the un-touched subtree.
+        columnLabels: { ...(document?.config?.columnLabels || {}), ...(data?.columnLabels || {}) },
       };
 
       if (documentId) {
