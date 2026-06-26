@@ -3048,6 +3048,70 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           </Box>
 
 
+          {isBiofuelQuotation ? (
+            /* ===== Biofuel quotation FOOTER (dedicated; isolated from osiris QO1 / Cappitech QF) ===== */
+            <Box sx={{ mt: 2 }}>
+              {/* 1. PROJECT line — tolerant read (nested||flat); blank for now,
+                  populates when quotations link to projects. Label always shown. */}
+              <Typography sx={{ fontSize: "0.8125rem", mb: 1.5 }}>
+                Project: {data.projectName || data.documentInfo?.projectName || data.project?.name || ""}
+              </Typography>
+
+              {/* 2. Numbered terms — 1 & 3 hardcoded; 2 reads data.paymentTerms
+                  (DB-confirmed real key) with 'CASH' fallback. */}
+              <Box sx={{ mb: 2 }}>
+                <Typography sx={{ fontSize: "0.8125rem" }}>1. All the above prices exclude GST</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>2. Payment terms: {data.paymentTerms || "CASH"}</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>3. Delivery date: To be advised</Typography>
+              </Box>
+
+              {/* 3. Courtesy closing (hardcoded) */}
+              <Typography sx={{ fontSize: "0.8125rem", mb: 3 }}>
+                We trust that the above meets your requirements and look forward to receiving your favourable reply soon. Should you have any further queries regarding the above, please do not hesitate to contact the undersigned. Thank you.
+              </Typography>
+
+              {/* 4. Dual signature block — LEFT Biofuel / RIGHT customer (50/50) */}
+              <Box sx={{ display: "flex", justifyContent: "space-between", gap: 4, mb: 4, pageBreakInside: "avoid", breakInside: "avoid" }}>
+                {/* LEFT — Biofuel */}
+                <Box sx={{ width: "48%" }}>
+                  <Typography sx={{ fontSize: "0.8125rem", mb: 0.5 }}>Yours faithfully</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>
+                    {organization?.name || "Biofuel Industries Pte Ltd"}
+                  </Typography>
+                  {/* ===== SIGNATURE PLACEHOLDER (next task) =====
+                      Director signature image / script-font name renders here.
+                      Vertical space reserved below; replace this Box with the
+                      <img>/script when the signature asset is wired. */}
+                  <Box sx={{ height: 72 }} />
+                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Eugene Lee (Director)</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem" }}>Mobile: 9818 9200</Typography>
+                </Box>
+
+                {/* RIGHT — customer acceptance */}
+                <Box sx={{ width: "48%" }}>
+                  <Typography sx={{ fontSize: "0.8125rem", mb: 0.5 }}>I/We hereby accepts the above offer</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>
+                    {data.customer?.name || data.customerName || ""}
+                  </Typography>
+                  {/* Customer signature / company chop space */}
+                  <Box sx={{ height: 72 }} />
+                  <Typography sx={{ fontSize: "0.8125rem" }}>Company Chop &amp; Authorized Signature</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem", mt: 1 }}>Contact Personnel : </Typography>
+                  <Typography sx={{ fontSize: "0.8125rem" }}>Contact No. : </Typography>
+                </Box>
+              </Box>
+
+              {/* 5. Company footer — hardcoded Biofuel constants. GST 200303416N
+                  matches the existing :514/:792 Biofuel fallback. */}
+              <Box sx={{ mt: 3, pt: 1, borderTop: "1px solid rgba(0,0,0,0.2)", textAlign: "center", pageBreakInside: "avoid", breakInside: "avoid" }}>
+                <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700 }}>BIOFUEL INDUSTRIES PTE LTD</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>Office: 22 Tuas Avenue 2, Singapore 639453</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>Tel: 8902 0505</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>GST REG. NO. 200303416N</Typography>
+              </Box>
+            </Box>
+          ) : (
+            <>
           {(() => {
             // Orgs that have configured per-doc-type defaults (Company Profile
             // → Doc Defaults) carry a footerMessage on the doc. For those (e.g.
@@ -3147,6 +3211,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 sx={{ fontSize: "0.8125rem", lineHeight: 1.6, textAlign: "center", fontStyle: "italic" }}
               />
             </Box>
+          )}
+            </>
           )}
 
         </Box>
