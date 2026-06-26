@@ -1,11 +1,15 @@
 generator client {
   provider        = "prisma-client-js"
-  previewFeatures = ["driverAdapters"]
+  previewFeatures = ["driverAdapters", "postgresqlExtensions"]
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  // pg_trgm backs the GIN trigram indexes on *.name (fast ILIKE-contains search).
+  // Only pg_trgm is declared — the DB has no other user extensions (just the
+  // built-in plpgsql, which Prisma never manages), so db:push drops nothing.
+  extensions = [pg_trgm]
 }
 
 model Organization {
@@ -208,6 +212,8 @@ model Customer {
   @@unique([id, organizationId])
   @@unique([customerCode, organizationId])
   @@index([salesmanId])
+  // Fast case-insensitive substring search (ILIKE %term%) on customer name.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 model Supplier {
@@ -358,6 +364,9 @@ model Document {
   @@index([organizationId, status])
   @@index([projectId])
   @@index([projectDeploymentId])
+  // Fast case-insensitive substring search (ILIKE %term%) on document number/name
+  // — powers the projects-search "documents.some.name" arm over ~4.2k docs.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 // Junction table for document items - enables efficient queries for stock movements
@@ -485,6 +494,8 @@ model Project {
   @@unique([projectNumber, organizationId])
   @@index([organizationId, status])
   @@index([customerId])
+  // Fast case-insensitive substring search (ILIKE %term%) on project name.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 // A deployment groups one rental/sale event under a project.
