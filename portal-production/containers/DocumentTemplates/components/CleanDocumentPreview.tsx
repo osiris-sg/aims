@@ -2580,6 +2580,23 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
       return "S'PORE DOLLAR " + result.trim() + ' ONLY.';
     };
 
+    // Biofuel quotations use a dedicated header layout (company top-left + a
+    // richer right-side meta block: Validity / Currency / Sale person / Mobile /
+    // Email + "Quotation for"). Gated on the DOCUMENT's org so a Biofuel quote
+    // renders this header regardless of who views it (osiris QO1 / Cappitech QF
+    // untouched). The viewers inject the doc's org as data.documentOrganizationId
+    // (doc.config strips organizationId at save). We fall back to the
+    // organization prop only when the doc org is absent (e.g. the live editor,
+    // where the active org IS the doc's org-to-be).
+    const BIOFUEL_ORG_ID = "52e90ba8-bfbd-48b0-bb76-4f9667bf74f1";
+    const docOrgId =
+      (data as any)?.documentOrganizationId || (data as any)?.organizationId;
+    const isBiofuelQuotation =
+      docOrgId === BIOFUEL_ORG_ID ||
+      (!docOrgId &&
+        (organization?.id === BIOFUEL_ORG_ID ||
+          organization?.name === "Biofuel Industries Pte Ltd"));
+
     return (
       <Paper
         data-print-paper
@@ -2603,6 +2620,69 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           },
         }}
       >
+        {isBiofuelQuotation ? (
+          /* ===== Biofuel quotation header (dedicated; isolated from osiris QO1 / Cappitech QF) ===== */
+          <>
+            {/* Company — TOP-LEFT */}
+            <Box sx={{ textAlign: "left", mb: 2 }}>
+              <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
+                {data.company?.name || organization?.name || ""}
+              </Typography>
+              <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
+                {data.company?.address || organization?.address || ""}
+              </Typography>
+              <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
+                Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
+              </Typography>
+              <Typography sx={{ fontSize: "0.8125rem" }}>
+                GST Reg No: {data.company?.gstRegNo || organization?.registrationNumber || ""}
+              </Typography>
+            </Box>
+
+            {/* Customer (To / Attention) + right-side quotation meta */}
+            <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1, alignItems: "flex-start" }}>
+              {/* Left — To + Attention */}
+              <Box sx={{ width: "48%" }}>
+                <Typography sx={{ fontSize: "0.875rem", fontWeight: 600, mb: 0.5 }}>To :</Typography>
+                <Typography sx={{ fontSize: "0.875rem", fontWeight: 600 }}>
+                  {data.customer?.name || data.customerName || ""}
+                </Typography>
+                <Typography sx={{ fontSize: "0.875rem", whiteSpace: "pre-line", mb: 0.5 }}>
+                  {data.billTo || data.customer?.address || data.customerAddress || ""}
+                </Typography>
+                <InfoRow label="Attention" value={data.attention?.name} minWidth="90px" fontSize="0.875rem" />
+                <InfoRow label="Mobile" value={data.attention?.phoneNumber} minWidth="90px" fontSize="0.875rem" />
+                <InfoRow label="Email" value={data.attention?.email} minWidth="90px" fontSize="0.875rem" />
+              </Box>
+
+              {/* Right — QUOTATION meta */}
+              <Box sx={{ width: "48%", display: "flex", justifyContent: "flex-end" }}>
+                <Box sx={{ lineHeight: 1.4 }}>
+                  <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 1 }}>QUOTATION</Typography>
+                  <InfoRow label="Quotation No." value={data.documentInfo?.documentNumber} minWidth="120px" fontSize="0.875rem" />
+                  <InfoRow label="Quotation Date" value={formatDate(data.documentInfo?.date)} minWidth="120px" fontSize="0.875rem" />
+                  <InfoRow label="Validity Term" value={data.validityTerm} minWidth="120px" fontSize="0.875rem" />
+                  <InfoRow label="Currency" value={data.documentInfo?.currency || data.currency} minWidth="120px" fontSize="0.875rem" />
+                  {/* Salesperson contact (NOT the customer's — that lives in the
+                      left Attention block). Mobile/Email come from the editor's
+                      "Sale person" fields: name="mobile" / name="salePersonEmail". */}
+                  <InfoRow label="Sale person" value={data.documentInfo?.salesPerson} minWidth="120px" fontSize="0.875rem" />
+                  <InfoRow label="Mobile" value={data.mobile} minWidth="120px" fontSize="0.875rem" />
+                  <InfoRow label="Email" value={data.salePersonEmail} minWidth="120px" fontSize="0.875rem" />
+                </Box>
+              </Box>
+            </Box>
+
+            {/* Quotation for (the RE / subject field) */}
+            <InfoRow label="Quotation for" value={data.documentInfo?.subject} minWidth="120px" fontSize="0.875rem" />
+
+            {/* Intro */}
+            <Typography sx={{ fontSize: "0.8125rem", mt: 1, mb: 2 }}>
+              We are pleased to submit our quotation with the following terms and conditions for your consideration and acceptance.
+            </Typography>
+          </>
+        ) : (
+          <>
         {/* Company Header - Centered */}
         <Box sx={{ textAlign: "center", mb: 2 }}>
           <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
@@ -2670,6 +2750,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         <Typography sx={{ fontSize: "0.8125rem", mb: 2 }}>
           We are pleased to quote you herewith the following items required by you. They are ;-
         </Typography>
+          </>
+        )}
 
         {/* Items Table */}
         <TableContainer sx={{ mb: 3 }}>

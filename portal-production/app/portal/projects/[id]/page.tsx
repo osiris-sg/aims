@@ -1570,7 +1570,10 @@ function DocumentPreviewDialog({
         {doc && !loading && !error && (
           <CleanDocumentPreview
             documentType={doc.type}
-            data={doc.config ?? {}}
+            // Inject the document's own org so CleanDocumentPreview can gate the
+            // Biofuel quotation header on the DOCUMENT's org (config strips
+            // organizationId at save, so it isn't inside doc.config).
+            data={{ ...(doc.config ?? {}), documentOrganizationId: doc.organizationId }}
             organization={organization}
             maintenanceReports={doc.maintenanceReports ?? []}
           />

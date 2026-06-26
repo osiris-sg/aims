@@ -2124,6 +2124,10 @@ export default function OrganizationDetailPage() {
                     documentType={resolveTemplateVariant(previewTemplate, selectedDocType) as "QO1" | "DO" | "RDO" | "TI" | "TI2" | "MSR" | "SO" | "CN" | "DN" | "PO" | "PR" | "SAI" | "SAO"}
                     data={{
                       ...mockData,
+                      // Gate the Biofuel quotation header on the TEMPLATE's owner
+                      // org, so previewing a Biofuel-owned template shows the
+                      // Biofuel header regardless of which org is being managed.
+                      documentOrganizationId: previewTemplate.organizationId,
                       // Forward each template's saved column layout so previews
                       // differ per design (mirrors TabbedDocumentCreator). Without
                       // this every QO1 design renders the same hardcoded layout.
