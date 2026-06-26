@@ -259,6 +259,8 @@ model DocumentTemplate {
   styleConfig     Json? // Styling configuration
   taggedAssets    AssetTemplateTag[]
   organization    Organization?      @relation(fields: [organizationId], references: [id])
+  // Per-org activation selections (cascade-cleaned on template delete).
+  activeSelections OrganizationActiveTemplate[]
 
   @@index([organizationId, type, isActive])
   @@index([organizationId, type])
@@ -274,10 +276,19 @@ model OrganizationActiveTemplate {
   organizationId String
   type           String // Document type, e.g. "QUOTATION"
   templateId     String   @db.Uuid
+  // Multiple templates can be active per org+type. isPrimary marks the ONE used
+  // as the default for headless creation (AI upload / quick-create) and the
+  // pre-selected option in the creation picker. At most one primary per org+type
+  // (enforced in the service, not the DB).
+  isPrimary      Boolean  @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  @@unique([organizationId, type])
+  // FK to the activated template so deleting a template cascades its selection
+  // rows (fixes dangling OAT rows on template delete).
+  template DocumentTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, type, templateId])
   @@index([templateId])
 }
 

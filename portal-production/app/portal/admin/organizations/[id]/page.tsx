@@ -802,10 +802,11 @@ export default function OrganizationDetailPage() {
 
       if (response.success !== false) {
         const templates = response.data || response || [];
-        const activeTemplate = templates.find((t: any) => t.isActive);
+        // Multiple templates can be active now; the badge just reflects whether
+        // the org has activated at least one for this type.
         return {
           total: templates.length,
-          active: !!activeTemplate,
+          active: templates.some((t: any) => t.isActive),
         };
       }
       return { total: 0, active: false };
@@ -919,6 +920,52 @@ export default function OrganizationDetailPage() {
     } catch (error) {
       console.error("Error activating template:", error);
       toast.error("Failed to activate template");
+    }
+  };
+
+  const handleDeactivateTemplate = async (templateId: string) => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await request(
+        { path: `/documentTemplates/variants/${templateId}/deactivate`, method: "POST" },
+        {},
+        token,
+        { "x-organization-id": organizationId }
+      );
+
+      if (response.success !== false) {
+        toast.success("Template deactivated");
+        handleManageTemplates(selectedDocType);
+        fetchAllTemplateCounts();
+      }
+    } catch (error) {
+      console.error("Error deactivating template:", error);
+      toast.error("Failed to deactivate template");
+    }
+  };
+
+  const handleSetPrimaryTemplate = async (templateId: string) => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await request(
+        { path: `/documentTemplates/variants/${templateId}/primary`, method: "POST" },
+        {},
+        token,
+        { "x-organization-id": organizationId }
+      );
+
+      if (response.success !== false) {
+        toast.success("Set as primary (default) template");
+        handleManageTemplates(selectedDocType);
+        fetchAllTemplateCounts();
+      }
+    } catch (error) {
+      console.error("Error setting primary template:", error);
+      toast.error("Failed to set primary template");
     }
   };
 
@@ -1936,7 +1983,7 @@ export default function OrganizationDetailPage() {
           ) : (
             <Box>
               <Alert severity="info" sx={{ mb: 2 }}>
-                Select which template design should be active for this document type. Only one template can be active at a time.
+                Select which templates are available for this document type — users pick among the active ones when creating a document. Mark one as the primary (default) used for the pre-selection and automated/AI-upload creation.
               </Alert>
 
               {templates.length === 0 ? (
@@ -1952,27 +1999,22 @@ export default function OrganizationDetailPage() {
                           position: "relative",
                         }}
                       >
-                        {template.isActive && (
-                          <Chip
-                            icon={<CheckCircleIcon />}
-                            label="Active"
-                            color="primary"
-                            size="small"
-                            sx={{
-                              position: "absolute",
-                              top: 8,
-                              right: 8,
-                              zIndex: 1,
-                            }}
-                          />
+                        {(template.isActive || template.isPrimary) && (
+                          <Box sx={{ position: "absolute", top: 8, right: 8, zIndex: 1, display: "flex", gap: 0.5 }}>
+                            {template.isPrimary && (
+                              <Chip icon={<CheckCircleIcon />} label="Primary" color="success" size="small" />
+                            )}
+                            {template.isActive && (
+                              <Chip icon={<CheckCircleIcon />} label="Active" color="primary" size="small" />
+                            )}
+                          </Box>
                         )}
 
                         <CardContent>
                           <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
                             <IconButton
                               color={template.isActive ? "primary" : "default"}
-                              onClick={() => !template.isActive && handleActivateTemplate(template.id)}
-                              disabled={template.isActive}
+                              onClick={() => (template.isActive ? handleDeactivateTemplate(template.id) : handleActivateTemplate(template.id))}
                             >
                               {template.isActive ? <CheckCircleIcon /> : <RadioButtonUncheckedIcon />}
                             </IconButton>
@@ -2014,7 +2056,28 @@ export default function OrganizationDetailPage() {
                             >
                               Preview
                             </Button>
-                            {!template.isActive && (
+                            {template.isActive ? (
+                              <>
+                                {!template.isPrimary && (
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    color="success"
+                                    onClick={() => handleSetPrimaryTemplate(template.id)}
+                                  >
+                                    Set as primary
+                                  </Button>
+                                )}
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  color="error"
+                                  onClick={() => handleDeactivateTemplate(template.id)}
+                                >
+                                  Deactivate
+                                </Button>
+                              </>
+                            ) : (
                               <Button
                                 size="small"
                                 variant="contained"

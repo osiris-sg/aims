@@ -192,45 +192,41 @@ export class DocumentTemplatesService {
   }
   async getDocumentTemplateByType(type: string, organizationId: string) {
     try {
-      // Prefer the org's explicit shared-pool selection (which may point at a
-      // template owned by another org). Falls through to legacy isActive below.
-      const selection = await this.prisma.organizationActiveTemplate.findUnique({
-        where: { organizationId_type: { organizationId, type } },
+      // Multiple templates can be active for an org+type. Headless/default
+      // resolution must still return exactly ONE: prefer the primary selection,
+      // else the isDefault among the selected, else the newest selected.
+      const selections = await this.prisma.organizationActiveTemplate.findMany({
+        where: { organizationId, type },
       });
-      if (selection) {
-        const selected = await this.prisma.documentTemplate.findUnique({
-          where: { id: selection.templateId },
-        });
-        if (selected) {
-          return selected;
+      if (selections.length > 0) {
+        const primary = selections.find((s) => s.isPrimary);
+        if (primary) {
+          const t = await this.prisma.documentTemplate.findUnique({ where: { id: primary.templateId } });
+          if (t) return t;
         }
+        const selected = await this.prisma.documentTemplate.findMany({
+          where: { id: { in: selections.map((s) => s.templateId) } },
+          orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+        });
+        if (selected.length > 0) return selected[0];
       }
 
-      const documentTemplate = await this.prisma.documentTemplate.findFirst({
-        where: {
-          type,
-          organizationId,
-          isActive: true, // Get the active template
-        },
+      // No selection: fall back to the cross-org default (Standard Quotation is
+      // isDefault, available to every org), then the org's legacy isActive
+      // template, then any template of the type.
+      const fallback = await this.prisma.documentTemplate.findFirst({
+        where: { OR: [{ type, isDefault: true }, { type, organizationId, isActive: true }] },
+        orderBy: [{ isDefault: 'desc' }, { isActive: 'desc' }, { createdAt: 'desc' }],
       });
+      if (fallback) return fallback;
 
-      if (!documentTemplate) {
-        // If no active template, try to get any template of this type
-        const anyTemplate = await this.prisma.documentTemplate.findFirst({
-          where: {
-            type,
-            organizationId,
-          },
-        });
-
-        if (!anyTemplate) {
-          throw new HttpException(`Document Template of type "${type}" not found`, HttpStatus.NOT_FOUND);
-        }
-
-        return anyTemplate;
+      const anyTemplate = await this.prisma.documentTemplate.findFirst({
+        where: { type, organizationId },
+      });
+      if (!anyTemplate) {
+        throw new HttpException(`Document Template of type "${type}" not found`, HttpStatus.NOT_FOUND);
       }
-
-      return documentTemplate;
+      return anyTemplate;
     } catch (error) {
       // Preserve the real status (e.g. 404 not-found) instead of masking
       // every error as a 500.
@@ -279,21 +275,24 @@ export class DocumentTemplatesService {
       // Resolve which template is active *for this org*: the explicit per-org
       // selection if present, else fall back to the legacy isActive flag on the
       // org's own template (pre-shared-library behaviour).
-      const selection = await this.prisma.organizationActiveTemplate.findUnique({
-        where: { organizationId_type: { organizationId, type } },
+      const selections = await this.prisma.organizationActiveTemplate.findMany({
+        where: { organizationId, type },
       });
-      let activeTemplateId = selection?.templateId;
-      if (!activeTemplateId) {
+      const activeIds = new Set(selections.map((s) => s.templateId));
+      const primaryId = selections.find((s) => s.isPrimary)?.templateId;
+      // Legacy fallback only when the org has made no explicit selections yet.
+      if (activeIds.size === 0) {
         const legacy = variants.find(
           (v) => v.organizationId === organizationId && v.isActive,
         );
-        activeTemplateId = legacy?.id;
+        if (legacy) activeIds.add(legacy.id);
       }
 
       return variants.map((v) => ({
         ...v,
-        // isActive now means "active for the requesting org", not the shared flag.
-        isActive: v.id === activeTemplateId,
+        // isActive now means "active for the requesting org" (multi-select).
+        isActive: activeIds.has(v.id),
+        isPrimary: v.id === primaryId,
         ownerOrganizationName: v.organization?.name ?? null,
       }));
     } catch (error) {
@@ -314,16 +313,100 @@ export class DocumentTemplatesService {
         throw new HttpException('Template not found', HttpStatus.NOT_FOUND);
       }
 
-      // Record the per-org selection (one active template per org per type).
+      // ADD this template to the org's active set (multi-active). Idempotent on
+      // the (org, type, templateId) unique key — re-activating is a no-op.
       await this.prisma.organizationActiveTemplate.upsert({
-        where: { organizationId_type: { organizationId, type: template.type } },
+        where: { organizationId_type_templateId: { organizationId, type: template.type, templateId: id } },
         create: { organizationId, type: template.type, templateId: id },
-        update: { templateId: id },
+        update: {},
       });
 
       return { ...template, isActive: true };
     } catch (error) {
       console.error('Error activating template variant:', error);
+      throw new HttpException(error.message || 'Internal Server Error', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  // Remove a template from the org's active set.
+  async deactivateTemplateVariant(id: string, organizationId: string) {
+    try {
+      const template = await this.prisma.documentTemplate.findUnique({ where: { id } });
+      if (!template) {
+        throw new HttpException('Template not found', HttpStatus.NOT_FOUND);
+      }
+      await this.prisma.organizationActiveTemplate.deleteMany({
+        where: { organizationId, type: template.type, templateId: id },
+      });
+      return { ...template, isActive: false };
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      console.error('Error deactivating template variant:', error);
+      throw new HttpException(error.message || 'Internal Server Error', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  // Mark one active template as the primary/default for an org+type. Implies
+  // activation, and clears isPrimary on the org+type's other selections (at most
+  // one primary per org+type).
+  async setPrimaryTemplateVariant(id: string, organizationId: string) {
+    try {
+      const template = await this.prisma.documentTemplate.findUnique({ where: { id } });
+      if (!template) {
+        throw new HttpException('Template not found', HttpStatus.NOT_FOUND);
+      }
+      await this.prisma.$transaction([
+        this.prisma.organizationActiveTemplate.upsert({
+          where: { organizationId_type_templateId: { organizationId, type: template.type, templateId: id } },
+          create: { organizationId, type: template.type, templateId: id, isPrimary: true },
+          update: { isPrimary: true },
+        }),
+        this.prisma.organizationActiveTemplate.updateMany({
+          where: { organizationId, type: template.type, templateId: { not: id } },
+          data: { isPrimary: false },
+        }),
+      ]);
+      return { ...template, isPrimary: true };
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      console.error('Error setting primary template variant:', error);
+      throw new HttpException(error.message || 'Internal Server Error', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  // Active templates available to an org for a type, for the creation picker:
+  // the org's explicit selections UNION isDefault templates (e.g. Standard
+  // Quotation, available to every org) UNION the org's legacy isActive template.
+  // Returns one row per template (deduped) with isPrimary marked.
+  async getActiveTemplatesByType(type: string, organizationId: string) {
+    try {
+      const selections = await this.prisma.organizationActiveTemplate.findMany({
+        where: { organizationId, type },
+      });
+      const activeIds = selections.map((s) => s.templateId);
+      const primaryId = selections.find((s) => s.isPrimary)?.templateId;
+
+      const templates = await this.prisma.documentTemplate.findMany({
+        where: {
+          OR: [
+            // Empty `in []` matches nothing; sentinel keeps the clause harmless.
+            { id: { in: activeIds.length ? activeIds : ['00000000-0000-0000-0000-000000000000'] } },
+            { type, isDefault: true },
+            { type, organizationId, isActive: true },
+          ],
+        },
+        include: { organization: { select: { id: true, name: true } } },
+        orderBy: [{ designName: 'asc' }],
+      });
+
+      return templates.map((t) => ({
+        ...t,
+        isActive: true,
+        isPrimary: t.id === primaryId,
+        ownerOrganizationName: t.organization?.name ?? null,
+      }));
+    } catch (error) {
+      console.error('Error fetching active templates:', error);
       throw new HttpException(error.message || 'Internal Server Error', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }

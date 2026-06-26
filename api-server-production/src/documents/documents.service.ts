@@ -1388,20 +1388,32 @@ export class DocumentsService {
     // variant with a thinner fieldConfig and the upload draft would look sparse.
     let templateId = documentTemplateId;
     if (!templateId) {
-      // Prefer the org's shared-pool selection (may point at another org's
-      // template); fall back to the org's own active/default/newest template.
-      const selection = await this.prisma.organizationActiveTemplate.findUnique({
-        where: { organizationId_type: { organizationId, type } },
+      // Multiple templates can be active per org+type; resolve exactly ONE for
+      // this headless path: prefer the primary selection, else the isDefault
+      // among the selected, else the newest selected. Falls back to the cross-org
+      // default (Standard) then the org's own active/default/newest template.
+      const selections = await this.prisma.organizationActiveTemplate.findMany({
+        where: { organizationId, type },
       });
-      if (selection) {
-        templateId = selection.templateId;
+      if (selections.length > 0) {
+        const primary = selections.find((s) => s.isPrimary);
+        if (primary) {
+          templateId = primary.templateId;
+        } else {
+          const sel = await this.prisma.documentTemplate.findFirst({
+            where: { id: { in: selections.map((s) => s.templateId) } },
+            select: { id: true },
+            orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+          });
+          templateId = sel?.id ?? selections[0].templateId;
+        }
       } else {
         const tmpl = await this.prisma.documentTemplate.findFirst({
-          where: { type, organizationId },
+          where: { OR: [{ type, isDefault: true }, { type, organizationId }] },
           select: { id: true },
           orderBy: [
-            { isActive: 'desc' },
             { isDefault: 'desc' },
+            { isActive: 'desc' },
             { createdAt: 'desc' },
           ],
         });

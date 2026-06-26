@@ -57,6 +57,19 @@ export class DocumentTemplatesController {
     return await this.documentTemplatesService.getTemplateVariantsByType(type, organizationId);
   }
 
+  // Active templates available to the USER'S org for a type — for the creation
+  // picker (org selections ∪ isDefault). User-scoped (no header override), so it
+  // never leaks other orgs' templates. Specific route, before :id.
+  @Get('active/:type')
+  @Permissions('documentTemplates:read')
+  async getActiveTemplatesByType(@Param('type') type: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentTemplatesService.getActiveTemplatesByType(type, organizationId);
+  }
+
   @Get('mock-data/:type')
   @Permissions('documentTemplates:read')
   async getMockDataForType(@Param('type') type: string) {
@@ -114,6 +127,26 @@ export class DocumentTemplatesController {
       throw new Error('User is not assigned to any organization');
     }
     return await this.documentTemplatesService.activateTemplateVariant(id, organizationId);
+  }
+
+  @Post('variants/:id/deactivate')
+  @Permissions('documentTemplates:update')
+  async deactivateTemplateVariant(@Param('id') id: string, @Req() req: RequestWithOrganization, @Headers('x-organization-id') headerOrgId?: string) {
+    const organizationId = headerOrgId || req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentTemplatesService.deactivateTemplateVariant(id, organizationId);
+  }
+
+  @Post('variants/:id/primary')
+  @Permissions('documentTemplates:update')
+  async setPrimaryTemplateVariant(@Param('id') id: string, @Req() req: RequestWithOrganization, @Headers('x-organization-id') headerOrgId?: string) {
+    const organizationId = headerOrgId || req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentTemplatesService.setPrimaryTemplateVariant(id, organizationId);
   }
 
   @Post('variants/:id/duplicate')
