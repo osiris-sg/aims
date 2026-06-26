@@ -185,9 +185,10 @@ export default function DynamicSidebarContent() {
     });
     const isOpen = (openMenus[module.moduleCode] ?? false) || hasActiveSubmenu;
 
-    // Parent click navigates only for the GL module — other parents keep the
-    // legacy toggle-only behavior. Add module codes here to opt them in.
-    const NAVIGATE_ON_PARENT_CLICK = new Set(['ACCOUNTING']);
+    // Parent click only toggles the submenu (the same flow every document
+    // module uses) — it does NOT auto-navigate to a landing page. Add a module
+    // code here to opt it back into navigate-to-first-submenu behavior.
+    const NAVIGATE_ON_PARENT_CLICK = new Set<string>([]);
     const parentNavigates = hasSubMenus && NAVIGATE_ON_PARENT_CLICK.has(module.moduleCode);
     const parentHref = parentNavigates
       ? resolveSubmenuRoute(module, module.config.subMenus[0])
