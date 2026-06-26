@@ -1,7 +1,7 @@
 import { IsNotEmpty, IsNumber, IsString, IsOptional, ValidateNested, IsDateString, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
-import { InventoryStatus } from '@prisma/client';
-// left off
+import { ProjectStatus } from '@prisma/client';
+
 class DateRangeDto {
   @IsDateString()
   @IsOptional()
@@ -13,22 +13,26 @@ class DateRangeDto {
 }
 
 class FiltersDto {
+  // Project status (pending | ongoing | completed) — NOT InventoryStatus. The
+  // previous @IsEnum(InventoryStatus) rejected every project status with a 400.
+  @IsEnum(ProjectStatus)
+  @IsOptional()
+  status?: ProjectStatus;
+
+  @IsString()
+  @IsOptional()
+  customerId?: string;
+
+  // Date-range filters on Project.startDate / Project.endDate.
   @ValidateNested()
   @Type(() => DateRangeDto)
   @IsOptional()
-  createdOn: DateRangeDto;
+  startDate?: DateRangeDto;
 
-  @IsEnum(InventoryStatus)
+  @ValidateNested()
+  @Type(() => DateRangeDto)
   @IsOptional()
-  status: InventoryStatus;
-
-  @IsString()
-  @IsOptional()
-  category: string;
-
-  @IsString()
-  @IsOptional()
-  customerId: string;
+  endDate?: DateRangeDto;
 }
 
 export class GetProjectDto {

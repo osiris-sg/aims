@@ -92,6 +92,33 @@ export class ProjectsService {
         }
       }
 
+      // Project status filter (pending | ongoing | completed).
+      if (filters?.status) {
+        whereClause.status = filters.status;
+      }
+
+      // Date-range filters on the project's own start/end dates. The upper bound
+      // is taken to end-of-day so a date-only range is inclusive.
+      const endOfDay = (d: string | Date) => {
+        const x = new Date(d);
+        x.setHours(23, 59, 59, 999);
+        return x;
+      };
+      const startRange = filters?.startDate;
+      if (startRange?.startDate || startRange?.endDate) {
+        whereClause.startDate = {
+          ...(startRange.startDate ? { gte: new Date(startRange.startDate) } : {}),
+          ...(startRange.endDate ? { lte: endOfDay(startRange.endDate) } : {}),
+        };
+      }
+      const endRange = filters?.endDate;
+      if (endRange?.startDate || endRange?.endDate) {
+        whereClause.endDate = {
+          ...(endRange.startDate ? { gte: new Date(endRange.startDate) } : {}),
+          ...(endRange.endDate ? { lte: endOfDay(endRange.endDate) } : {}),
+        };
+      }
+
       const projects = await this.prisma.project.findMany({
         where: whereClause,
         skip,

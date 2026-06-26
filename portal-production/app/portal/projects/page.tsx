@@ -110,14 +110,16 @@ export default function ProjectsPage() {
     },
   ];
 
-  // Backend understands status + startDate (date range). customerId + endDate
-  // are applied client-side below so we don't depend on new backend filter keys.
+  // All four filters are applied server-side (status/customerId/startDate/endDate
+  // map to Project fields in getProjects), so results are correct across pages.
   const apiFilters = useMemo(
     () => ({
       status: filters.status || undefined,
+      customerId: filters.customerId || undefined,
       startDate: filters.startDate,
+      endDate: filters.endDate,
     }),
-    [filters.status, filters.startDate],
+    [filters.status, filters.customerId, filters.startDate, filters.endDate],
   );
 
   const fetchProjects = async () => {
@@ -143,28 +145,6 @@ export default function ProjectsPage() {
 
   // Customers dropdown for the Customer filter
   const { customers = [] } = useGetCustomers({ limit: 1000 });
-
-  // Client-side post-filter for customerId + endDate range.
-  const filteredProjects = useMemo(() => {
-    const customerFilter = filters.customerId || "";
-    const endStart = filters.endDate?.startDate ? new Date(filters.endDate.startDate) : null;
-    const endEnd = filters.endDate?.endDate ? new Date(filters.endDate.endDate) : null;
-    if (endEnd) endEnd.setHours(23, 59, 59, 999);
-    if (!customerFilter && !endStart && !endEnd) return projects.docs;
-    return (projects.docs || []).filter((p: any) => {
-      if (customerFilter) {
-        const pid = p.customerId || p.customer?.id;
-        if (pid !== customerFilter) return false;
-      }
-      if (endStart || endEnd) {
-        const projectEnd = p.endDate ? new Date(p.endDate) : null;
-        if (!projectEnd) return false;
-        if (endStart && projectEnd < endStart) return false;
-        if (endEnd && projectEnd > endEnd) return false;
-      }
-      return true;
-    });
-  }, [projects.docs, filters.customerId, filters.endDate]);
 
   const filterConfig: FilterField[] = useMemo(
     () => [
@@ -222,7 +202,7 @@ export default function ProjectsPage() {
     <MainCard>
       <PageTable
         columns={columns}
-        data={filteredProjects}
+        data={projects.docs}
         tableName="Projects"
         subTitle="Items Detail Information"
         buttonName="Add Project"
@@ -238,7 +218,7 @@ export default function ProjectsPage() {
         onAddClick={() => router.push(ROUTES.CREATE_PROJECT)}
         filterConfig={filterConfig}
         pageCount={projects.totalPagesCount}
-        totalDocs={filters.customerId || filters.endDate?.startDate || filters.endDate?.endDate ? filteredProjects.length : projects.totalDocuments}
+        totalDocs={projects.totalDocuments}
       />
 
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
