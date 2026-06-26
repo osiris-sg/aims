@@ -2659,22 +2659,28 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               <Box sx={{ width: "48%", display: "flex", justifyContent: "flex-end" }}>
                 <Box sx={{ lineHeight: 1.4 }}>
                   <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 1 }}>QUOTATION</Typography>
-                  <InfoRow label="Quotation No." value={data.documentInfo?.documentNumber} minWidth="120px" fontSize="0.875rem" />
-                  <InfoRow label="Quotation Date" value={formatDate(data.documentInfo?.date)} minWidth="120px" fontSize="0.875rem" />
-                  <InfoRow label="Validity Term" value={data.validityTerm} minWidth="120px" fontSize="0.875rem" />
+                  <InfoRow label="Quotation No." value={data.documentInfo?.documentNumber || data.documentNumber} minWidth="120px" fontSize="0.875rem" />
+                  <InfoRow label="Quotation Date" value={formatDate(data.documentInfo?.date || data.date)} minWidth="120px" fontSize="0.875rem" />
+                  {/* Path-tolerant: nested (editor/transformed shape) first, then
+                      flat top-level keys real stored configs use in the raw
+                      office-viewer path (DB-confirmed: salesPerson, validityPeriod
+                      top-level). */}
+                  <InfoRow label="Validity Term" value={data.validityTerm || data.validityPeriod} minWidth="120px" fontSize="0.875rem" />
                   <InfoRow label="Currency" value={data.documentInfo?.currency || data.currency} minWidth="120px" fontSize="0.875rem" />
                   {/* Salesperson contact (NOT the customer's — that lives in the
                       left Attention block). Mobile/Email come from the editor's
-                      "Sale person" fields: name="mobile" / name="salePersonEmail". */}
-                  <InfoRow label="Sale person" value={data.documentInfo?.salesPerson} minWidth="120px" fontSize="0.875rem" />
-                  <InfoRow label="Mobile" value={data.mobile} minWidth="120px" fontSize="0.875rem" />
-                  <InfoRow label="Email" value={data.salePersonEmail} minWidth="120px" fontSize="0.875rem" />
+                      "Sale person" fields: name="mobile" / name="salePersonEmail"
+                      (stored flat top-level; no salePersonMobile key exists). */}
+                  <InfoRow label="Sale person" value={data.documentInfo?.salesPerson || data.salesPerson} minWidth="120px" fontSize="0.875rem" />
+                  <InfoRow label="Mobile" value={data.mobile || data.documentInfo?.mobile} minWidth="120px" fontSize="0.875rem" />
+                  <InfoRow label="Email" value={data.salePersonEmail || data.documentInfo?.salePersonEmail} minWidth="120px" fontSize="0.875rem" />
                 </Box>
               </Box>
             </Box>
 
-            {/* Quotation for (the RE / subject field) */}
-            <InfoRow label="Quotation for" value={data.documentInfo?.subject} minWidth="120px" fontSize="0.875rem" />
+            {/* Quotation for (the RE / subject field) — nested||flat (real configs
+                store `subject` top-level). */}
+            <InfoRow label="Quotation for" value={data.documentInfo?.subject || data.subject} minWidth="120px" fontSize="0.875rem" />
 
             {/* Intro */}
             <Typography sx={{ fontSize: "0.8125rem", mt: 1, mb: 2 }}>

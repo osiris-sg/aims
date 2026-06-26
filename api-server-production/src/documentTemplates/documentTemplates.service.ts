@@ -648,10 +648,21 @@ export class DocumentTemplatesService {
           date: new Date().toISOString().split('T')[0],
           documentNumber: 'QO-2024-001',
           referenceNo: 'RFQ-2024-456',
+          salesPerson: 'Eugene Lee',
+          subject: 'SALES OF SIDS WITH TSS SENSOR',
         },
         quotationNo: 'QO-2024-001',
         validityTerm: '30 days',
         currency: 'SGD',
+        // Salesperson contact (Biofuel header right-side meta reads these flat).
+        mobile: '9818 9200',
+        salePersonEmail: 'eugene@biofuelindustries.sg',
+        // Customer contact (Biofuel header left Attention block reads attention.*).
+        attention: {
+          name: 'Ms Sample Customer',
+          phoneNumber: '8888 8888',
+          email: 'customer@example.com',
+        },
         items: [
           {
             id: 1,
