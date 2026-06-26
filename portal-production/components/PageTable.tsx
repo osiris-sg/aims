@@ -154,14 +154,20 @@ export default function PageTable(props: Props) {
 
         <Box
           sx={(t) => ({
+            // Scroll the table internally on BOTH axes when content exceeds the
+            // box. (Was `overflow: "hidden"`, which overrode overflowX and clipped
+            // rows beyond the visible height — no vertical scrollbar.) `minHeight:
+            // 0` lets this flex child shrink below its content so the inner scroll
+            // actually engages inside a bounded (flex: 1 / height: 100%) layout.
             overflowX: "auto",
+            overflowY: "auto",
+            minHeight: 0,
             width: "100%",
             backgroundColor: "background.paper",
             padding: 0,
             borderRadius: "8px",
             border: `1px solid ${alpha(t.palette.outlineVariant, 0.1)}`,
             flex: 1,
-            overflow: "hidden",
           })}
         >
           <Table columns={columns} data={data} onRowSelect={() => {}} loading={loading} subRowAccessor={subRowAccessor} />

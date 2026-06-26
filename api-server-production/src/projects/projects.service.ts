@@ -67,6 +67,11 @@ export class ProjectsService {
           // Also match a project when one of its tagged documents matches —
           // e.g. typing a quotation/DO number surfaces the project it's on.
           { documents: { some: { name: { contains: search, mode: 'insensitive' } } } },
+          // Match by customer — direct FK and the legacy siteOffice→customer path
+          // (projects use both). Name OR auto-generated customerCode (e.g. CA001).
+          { customer: { name: { contains: search, mode: 'insensitive' } } },
+          { customer: { customerCode: { contains: search, mode: 'insensitive' } } },
+          { siteOffice: { customer: { name: { contains: search, mode: 'insensitive' } } } },
         ];
       }
 

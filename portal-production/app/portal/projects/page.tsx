@@ -58,6 +58,9 @@ export default function ProjectsPage() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
+  // Debounced copy of `search`. The input updates `search` on every keystroke
+  // (responsive), but the server fetch only runs ~350ms after typing stops.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filters, setFilters] = useState<{
     status: string;
     customerId: string;
@@ -125,7 +128,7 @@ export default function ProjectsPage() {
       const token = await getToken();
       if (!token) return;
 
-      const response = await request({ path: "/projects", method: "POST" }, { page, limit, search, filters: apiFilters, organizationId }, token);
+      const response = await request({ path: "/projects", method: "POST" }, { page, limit, search: debouncedSearch, filters: apiFilters, organizationId }, token);
 
       if (response.success) {
         console.log("Projects response:", response.data);
@@ -204,9 +207,16 @@ export default function ProjectsPage() {
     }
   };
 
+  // Push `search` into `debouncedSearch` 350ms after the last keystroke — only
+  // the fetch below waits; the input stays instant.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
   useEffect(() => {
     fetchProjects();
-  }, [page, limit, search, filters, organizationId]);
+  }, [page, limit, debouncedSearch, filters, organizationId]);
 
   return (
     <MainCard>
