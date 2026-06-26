@@ -2731,8 +2731,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 const alignFor = (col: string) =>
                   col === "quantity" ? "center" :
                   col === "unitPrice" || col === "listPrice" || col === "amount" ? "right" : "left";
-                const valueFor = (col: string, item: any) => {
+                const valueFor = (col: string, item: any, index: number) => {
                   switch (col) {
+                    case "no": return index + 1; // auto-number S/No in the custom-column branch
                     case "item": return item.itemCode || item.code || "";
                     case "taggedAsset": return item.taggedAssetCode || "";
                     case "cuModel": return item.cuCode || "";
@@ -2772,7 +2773,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                         <TableRow key={index} sx={{ verticalAlign: "top" }}>
                           {configColumns.map((col) => (
                             <TableCell key={col} sx={{ textAlign: alignFor(col), verticalAlign: "top" }}>
-                              {valueFor(col, item)}
+                              {valueFor(col, item, index)}
                             </TableCell>
                           ))}
                         </TableRow>
