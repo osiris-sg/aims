@@ -374,7 +374,7 @@ function TurnView({ turn, onApply }: { turn: Turn; onApply: (p: ProposalPatch) =
         <Box sx={{ flex: 1, minWidth: 0 }}>
           {turn.content && (
             <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", fontWeight: isUser ? 500 : 400 }}>
-              {turn.content}
+              {isUser ? turn.content : renderInlineMarkdown(turn.content)}
             </Typography>
           )}
           {turn.files && turn.files.length > 0 && (
@@ -521,4 +521,61 @@ function KeyVals({ obj }: { obj: Record<string, any> }) {
 
 function stripHtml(s: string): string {
   return String(s || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// Tiny inline-markdown renderer: **bold**, *italic*, `code`, and bare URLs.
+// Processes each line independently so newlines from pre-wrap still work.
+function renderInlineMarkdown(text: string): React.ReactNode {
+  if (!text) return null;
+  const pattern = /(\*\*[^*\n]+\*\*|\*[^*\n]+\*|`[^`\n]+`|https?:\/\/[^\s)]+)/g;
+  const lines = text.split("\n");
+  return lines.map((line, lineIdx) => {
+    const parts: React.ReactNode[] = [];
+    let lastIdx = 0;
+    let m: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((m = pattern.exec(line)) !== null) {
+      if (m.index > lastIdx) parts.push(line.slice(lastIdx, m.index));
+      const token = m[0];
+      if (token.startsWith("**") && token.endsWith("**")) {
+        parts.push(
+          <Box component="strong" key={`b${m.index}`} sx={{ fontWeight: 700 }}>
+            {token.slice(2, -2)}
+          </Box>,
+        );
+      } else if (token.startsWith("*") && token.endsWith("*")) {
+        parts.push(
+          <Box component="em" key={`i${m.index}`} sx={{ fontStyle: "italic" }}>
+            {token.slice(1, -1)}
+          </Box>,
+        );
+      } else if (token.startsWith("`") && token.endsWith("`")) {
+        parts.push(
+          <Box
+            component="code"
+            key={`c${m.index}`}
+            sx={{ fontFamily: "monospace", fontSize: "0.85em", px: 0.5, py: 0.125, borderRadius: 0.5, bgcolor: (t) => alpha(t.palette.text.primary, 0.06) }}
+          >
+            {token.slice(1, -1)}
+          </Box>,
+        );
+      } else if (/^https?:\/\//.test(token)) {
+        parts.push(
+          <a key={`u${m.index}`} href={token} target="_blank" rel="noopener noreferrer">
+            {token}
+          </a>,
+        );
+      } else {
+        parts.push(token);
+      }
+      lastIdx = m.index + token.length;
+    }
+    if (lastIdx < line.length) parts.push(line.slice(lastIdx));
+    return (
+      <span key={lineIdx}>
+        {parts}
+        {lineIdx < lines.length - 1 ? "\n" : null}
+      </span>
+    );
+  });
 }
