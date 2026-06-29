@@ -8,8 +8,8 @@ export default function Page() {
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
-        width: "100%",
-        height: "100%",
+        width: "100vw",
+        minHeight: "100vh",
         flexDirection: "column",
         gap: 2,
       }}
