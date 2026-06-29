@@ -8,6 +8,7 @@ import { request } from "@/helpers/request";
 import { Box, CircularProgress } from "@mui/material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import DocumentListView from "./DocumentListView";
+import { useTemplatePicker } from "./useTemplatePicker";
 
 interface GoToLatestDocumentProps {
   documentTypes: string[]; // e.g., ["SO", "SALES_ORDER"] - types to filter by
@@ -26,6 +27,7 @@ export default function GoToLatestDocument({
   const { getToken } = useAuth();
   const { organization } = useOrganization();
   const { isDocumentListViewEnabled, isLoading: featuresLoading } = useOrganizationFeatures();
+  const { resolveTemplate, dialog: templatePickerDialog } = useTemplatePicker();
   const [, setError] = useState<string | null>(null);
   const hasRedirected = useRef(false);
 
@@ -67,19 +69,13 @@ export default function GoToLatestDocument({
           // No documents found - auto-create one
           console.log(`No ${documentLabel} found, auto-creating...`);
 
-          // Get template ID for this document type
-          const templateResponse = await request(
-            { path: `/documentTemplates/type/${createDocumentType}`, method: "GET" },
-            {},
-            token ?? undefined
-          );
-
-          if (!templateResponse.success || !templateResponse.data?.id) {
+          // Resolve via the shared picker (self-gating: popup only if >1 active).
+          // null = no template OR the user cancelled → abort the auto-create.
+          const templateId = await resolveTemplate(createDocumentType);
+          if (!templateId) {
             setError(`No template found for ${documentLabel}`);
             return;
           }
-
-          const templateId = templateResponse.data.id;
 
           // Create the document
           const createResponse = await request(
@@ -110,7 +106,7 @@ export default function GoToLatestDocument({
     };
 
     fetchAndRedirect();
-  }, [organization?.id, documentTypes, documentLabel, createDocumentType, getToken, router, isDocumentListViewEnabled, featuresLoading]);
+  }, [organization?.id, documentTypes, documentLabel, createDocumentType, getToken, router, isDocumentListViewEnabled, featuresLoading, resolveTemplate]);
 
   // Wait for feature flag to load before deciding which UI to render —
   // otherwise we'd briefly redirect, then unmount and show the list view.
@@ -133,7 +129,9 @@ export default function GoToLatestDocument({
     );
   }
 
-  // Legacy behavior — auto-redirect to latest (or auto-create if none).
+  // Legacy behavior — auto-redirect to latest (or auto-create if none). The
+  // template picker may surface here when the auto-create hits a type with >1
+  // active template.
   return (
     <Box
       sx={{
@@ -144,6 +142,7 @@ export default function GoToLatestDocument({
       }}
     >
       <CircularProgress size={32} />
+      {templatePickerDialog}
     </Box>
   );
 }

@@ -32,6 +32,7 @@ import moment from "moment";
 import { toast } from "react-toastify";
 import DocumentUploadDialog from "./DocumentUploadDialog";
 import { useDeleteDocument } from "@/app/portal/hooks/api";
+import { useTemplatePicker } from "./useTemplatePicker";
 
 interface Props {
   documentTypes: string[];
@@ -147,6 +148,7 @@ export default function DocumentListView({
   const router = useRouter();
   const { getToken } = useAuth();
   const { organization } = useOrganization();
+  const { resolveTemplate, dialog: templatePickerDialog } = useTemplatePicker();
 
   const [docs, setDocs] = useState<DocumentRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -214,14 +216,11 @@ export default function DocumentListView({
     setCreating(true);
     try {
       const token = await getToken();
-      const tmpl = await request(
-        { path: `/documentTemplates/type/${createDocumentType}`, method: "GET" },
-        {},
-        token ?? undefined
-      );
-      const templateId = tmpl?.data?.id;
+      // Resolve the template via the shared picker: 1 active → straight through,
+      // >1 → popup, 0 → single-resolve fallback. null = no template OR the user
+      // cancelled the popup → abort without creating anything.
+      const templateId = await resolveTemplate(createDocumentType);
       if (!templateId) {
-        toast.error(`No template found for ${documentLabel}`);
         return;
       }
       const created = await request(
@@ -467,6 +466,8 @@ export default function DocumentListView({
           </Button>
         </DialogActions>
       </Dialog>
+
+      {templatePickerDialog}
     </MainCard>
   );
 }
