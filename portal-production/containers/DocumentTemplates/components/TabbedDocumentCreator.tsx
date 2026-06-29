@@ -67,6 +67,8 @@ import {
   Route as RouteIcon,
 } from "@mui/icons-material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import DocumentAssistantDrawer, { ProposalPatch } from "./DocumentAssistantDrawer";
+import { AutoAwesome as AutoAwesomeIcon } from "@mui/icons-material";
 import CleanDocumentPreview from "./CleanDocumentPreview";
 import RouteOrderPointsEditor from "./RouteOrderPointsEditor";
 // Shared dialog — same component used by the Field Reports tab on the
@@ -675,6 +677,47 @@ export default function TabbedDocumentCreator({
     markEdited();
     setItemsState(update);
   }, [markEdited]);
+
+  // ---- AI Document Assistant ----
+  const [assistantOpen, setAssistantOpen] = useState(false);
+
+  // Apply a proposal (or section of one) from the assistant into the form.
+  // Each part is merged non-destructively; proposed line items are appended
+  // (mapped to the editor's item shape) so existing rows aren't clobbered.
+  const handleApplyProposal = useCallback((patch: ProposalPatch) => {
+    if (!patch) return;
+    if (patch.documentInfo || patch.customer || patch.note != null || patch.termsAndConditions != null || patch.footerMessage != null) {
+      setFormData((prev: any) => ({
+        ...prev,
+        ...(patch.documentInfo ? { documentInfo: { ...prev.documentInfo, ...patch.documentInfo } } : {}),
+        ...(patch.customer ? { customer: { ...prev.customer, ...patch.customer } } : {}),
+        ...(patch.note != null ? { note: patch.note } : {}),
+        ...(patch.termsAndConditions != null ? { termsAndConditions: patch.termsAndConditions } : {}),
+        ...(patch.footerMessage != null ? { footerMessage: patch.footerMessage } : {}),
+      }));
+    }
+    if (Array.isArray(patch.items) && patch.items.length) {
+      const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
+      const base = Date.now();
+      const mapped = patch.items.map((it, i) => {
+        const quantity = Number(it.quantity) || 0;
+        const unitPrice = Number(it.unitPrice) || 0;
+        return {
+          id: base + i,
+          itemCode: "",
+          inventoryItemId: "",
+          description: it.description || "",
+          quantity,
+          unitPrice,
+          uom: it.uom || "",
+          tax: isInvoiceType ? undefined : (it.tax != null ? String(it.tax) : "9"),
+          amount: quantity * unitPrice,
+        };
+      });
+      setItems((prev: any[]) => [...(prev || []), ...mapped]);
+      toast.success(`Added ${mapped.length} item${mapped.length > 1 ? "s" : ""} from the assistant`);
+    }
+  }, [setFormData, setItems, documentType]);
 
   // Linked-project change handler used by the QUOTATION project picker.
   // Purely local state update — the actual PATCH to
@@ -2732,6 +2775,17 @@ export default function TabbedDocumentCreator({
           <Button size="small" variant="outlined" startIcon={<PrintIcon />} onClick={handlePrint}>
             Print / PDF
           </Button>
+          {!isTemplateEditMode && (
+            <Button
+              size="small"
+              variant={assistantOpen ? "contained" : "outlined"}
+              startIcon={<AutoAwesomeIcon />}
+              onClick={() => setAssistantOpen((o) => !o)}
+              color="secondary"
+            >
+              Ask AI
+            </Button>
+          )}
           {!isDocumentConfirmed && (
             <Button
               size="small"
@@ -5272,6 +5326,20 @@ export default function TabbedDocumentCreator({
           router.push(`/portal/documents/${urlType}/${doc.templateId}/${doc.id}`);
         }}
       />
+
+      {/* AI Document Assistant sidebar — always available in the editor */}
+      {!isTemplateEditMode && (
+        <DocumentAssistantDrawer
+          open={assistantOpen}
+          onClose={() => setAssistantOpen(false)}
+          documentType={documentType}
+          documentId={(existingData?.id || documentId) as string | undefined}
+          formData={formData}
+          items={items}
+          organization={organization}
+          onApplyProposal={handleApplyProposal}
+        />
+      )}
 
       {/* Extract Quotation Dialog - for DO */}
       <ExtractQuotationDialog

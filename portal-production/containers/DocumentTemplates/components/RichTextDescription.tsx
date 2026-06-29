@@ -72,6 +72,21 @@ export default function RichTextDescription({
     }
   }, [pastDescriptions, updateDropdownPos]);
 
+  // Strip all formatting on paste — insert clipboard as plain text only,
+  // so styles from the copied source (Word, web pages, etc.) are discarded.
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const text = e.clipboardData.getData("text/plain");
+    // insertText keeps the action undoable and respects the caret position
+    document.execCommand("insertText", false, text);
+    if (editorRef.current) {
+      const html = editorRef.current.innerHTML;
+      const isEmpty = html === "<br>" || html === "" || html === "<div><br></div>";
+      onChange(isEmpty ? "" : html);
+      filterSuggestions(editorRef.current.textContent || "");
+    }
+  }, [onChange, filterSuggestions]);
+
   const handleInput = useCallback(() => {
     if (!editorRef.current) return;
     const html = editorRef.current.innerHTML;
@@ -177,6 +192,7 @@ export default function RichTextDescription({
             contentEditable
             suppressContentEditableWarning
             onInput={handleInput}
+            onPaste={handlePaste}
             onFocus={handleFocus}
             data-placeholder={placeholder}
             sx={{

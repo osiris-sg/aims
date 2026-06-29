@@ -47,6 +47,7 @@ import { BudgetsModule } from './budgets/budgets.module';
 import { BillsModule } from './bills/bills.module';
 import { BankRecModule } from './bank-rec/bank-rec.module';
 import { XeroSyncModule } from './xero-sync/xero-sync.module';
+import { DocumentAssistantModule } from './document-assistant/document-assistant.module';
 
 @Module({
   imports: [
@@ -84,6 +85,7 @@ import { XeroSyncModule } from './xero-sync/xero-sync.module';
     JournalModule,
     MaintenanceReportsModule,
     AskModule,
+    DocumentAssistantModule,
     AnomaliesModule,
     CloseModule,
     RecurringModule,

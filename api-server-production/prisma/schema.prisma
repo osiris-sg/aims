@@ -369,6 +369,8 @@ model Document {
   baseDocument Document?  @relation("DocumentRevisions", fields: [baseDocumentId], references: [id])
   revisions    Document[] @relation("DocumentRevisions")
 
+  embedding DocumentEmbedding? // Semantic-search vector for the AI assistant
+
   @@unique([name, organizationId, documentTemplateId])
   @@index([baseDocumentId])
   @@index([organizationId, type])
@@ -378,6 +380,26 @@ model Document {
   // Fast case-insensitive substring search (ILIKE %term%) on document number/name
   // — powers the projects-search "documents.some.name" arm over ~4.2k docs.
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+// Semantic memory for the AI Document Assistant. One row per Document; the
+// embedding (OpenAI text-embedding-3-small, 1536 dims) is stored as a plain
+// double-precision array and ranked by cosine similarity in Node — no pgvector
+// extension required. Kept fresh lazily by EmbeddingsService.syncOrgEmbeddings.
+model DocumentEmbedding {
+  id             String   @id @default(uuid())
+  organizationId String
+  documentId     String   @unique @db.Uuid
+  type           String
+  customerId     String?
+  textSnippet    String
+  embedding      Float[]
+  updatedAt      DateTime @updatedAt
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, type])
+  @@index([organizationId, customerId])
 }
 
 // Junction table for document items - enables efficient queries for stock movements
