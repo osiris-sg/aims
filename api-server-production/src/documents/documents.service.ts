@@ -986,7 +986,7 @@ export class DocumentsService {
   }
 
   /**
-   * Attach, move, or detach a QUOTATION document's Project link.
+   * Attach, move, or detach a quotation or delivery-order document's Project link.
    * - projectId = "<uuid>" : link / re-link (overwrite if already linked).
    * - projectId = null     : unlink (set Document.projectId to null).
    */
@@ -1000,9 +1000,11 @@ export class DocumentsService {
       select: { id: true, type: true, projectId: true },
     });
     if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
-    if (doc.type !== 'QUOTATION') {
+    // DO rows are stored as type 'DO'; some paths also use 'DELIVERY_ORDER'
+    // (see the project page DO filter), so accept both.
+    if (!['QUOTATION', 'DO', 'DELIVERY_ORDER'].includes(doc.type)) {
       throw new HttpException(
-        `Only QUOTATION documents can be linked to a project (got "${doc.type}")`,
+        `Only quotations and delivery orders can be linked to a project (got "${doc.type}")`,
         HttpStatus.BAD_REQUEST,
       );
     }
