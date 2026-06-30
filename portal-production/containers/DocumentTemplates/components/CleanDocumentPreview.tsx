@@ -3084,9 +3084,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 <Typography sx={{ fontSize: "0.8125rem" }}>3. Delivery date: To be advised</Typography>
               </Box>
 
-              {/* 3. Courtesy closing (hardcoded) */}
+              {/* 3. Courtesy closing — sourced from the org's Doc Defaults footer
+                  (docTypeDefaults.QUOTATION.footerMessage, inherited into the
+                  doc's footerMessage and editable per-quote). Falls back to the
+                  house default so quotes with no footer set still show the
+                  standard closing. */}
               <Typography sx={{ fontSize: "0.8125rem", mb: 3 }}>
-                We trust that the above meets your requirements and look forward to receiving your favourable reply soon. Should you have any further queries regarding the above, please do not hesitate to contact the undersigned. Thank you.
+                {data.footerMessage || data.documentInfo?.footerMessage || "We trust that the above meets your requirements and look forward to receiving your favourable reply soon. Should you have any further queries regarding the above, please do not hesitate to contact the undersigned. Thank you."}
               </Typography>
 
               {/* 4. Dual signature block — LEFT Biofuel / RIGHT customer (50/50) */}

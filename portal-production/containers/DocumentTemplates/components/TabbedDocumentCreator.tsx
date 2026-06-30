@@ -595,7 +595,12 @@ export default function TabbedDocumentCreator({
       || "",
     footerMessage: existingData?.documentInfo?.footerMessage
       || existingData?.footerMessage
+      // Doc Defaults are keyed by the canonical doc type (e.g. "QUOTATION"), but
+      // documentType here is the template VARIANT ("QO1"/"QF"). Check the variant
+      // first (back-compat) then fall back to actualDocumentType so the footer
+      // default actually inherits for variant-based quotes.
       || ((organization as any)?.docTypeDefaults?.[documentType]?.footerMessage)
+      || ((organization as any)?.docTypeDefaults?.[actualDocumentType as string]?.footerMessage)
       || "",
     bankDetails: existingData?.bankDetails || "",
     remarks: existingData?.remarks || "",

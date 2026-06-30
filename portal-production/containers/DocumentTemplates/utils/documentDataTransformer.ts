@@ -119,6 +119,10 @@ export function transformFormDataForBackend(
   // Add any additional flat fields that might exist in form
   const flatFields = [
     'note', 'termsAndConditions', 'remarks', 'agreementText',
+    // Doc footer message (Doc Defaults footer / per-quote edit). Persist it so a
+    // per-document footer edit survives save/reload (inherit-when-empty handles
+    // the default; the edit wins once set).
+    'footerMessage',
     'dueDate', 'collectFrom', 'startDate', 'endDate',
     'signature', 'gstRegNo', 'paymentTerms',
     // Address fields
