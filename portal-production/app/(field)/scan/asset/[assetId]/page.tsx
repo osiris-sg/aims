@@ -10,12 +10,35 @@ import HandymanIcon from "@mui/icons-material/Handyman";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DescriptionIcon from "@mui/icons-material/Description";
 import { request } from "@/helpers/request";
+import { toast } from "react-toastify";
+
+type DeliveryItemStatus = "not_delivered" | "delivering" | "not_installed" | "completed";
+
+interface DeliveryItem {
+  id: string;
+  lineNumber: number | null;
+  sku: string | null;
+  description: string | null;
+  // Unit identity surfaced by getScanContext (Phase 5 part 1) so ANY row is
+  // independently actionable — not just the scanned one.
+  inventoryId: string | null;
+  itemId: string;
+  itemType: "INVENTORY" | "ASSET";
+  deliveryStatus: DeliveryItemStatus;
+  canStart: boolean;
+  canAck: boolean;
+  canInstall: boolean;
+  canSkip: boolean;
+}
 
 interface ScanContext {
   asset: { id: string; name: string; skuKey: string; image?: string | null; description?: string | null };
   inventory: { id: string; sku: string; status: string; serialNumber: string | null; location: string | null } | null;
   latestDeliveryOrder: { id: string; name?: string | null; createdAt: string; status: string } | null;
   deliveryStage: "start" | "ack_delivery" | "ack_install" | "completed" | null;
+  // Per-item delivery rows for the resolved DO (Phase 5). Optional — absent on
+  // legacy/non-DO contexts, where the single morphing card is the fallback.
+  deliveryItems?: DeliveryItem[];
   resolvedDeliveryOrder: { id: string; name?: string | null; status: string } | null;
   canStartDelivery: boolean;
   canAckDelivery: boolean;
@@ -24,6 +47,14 @@ interface ScanContext {
   canAckInstall: boolean;
   recentServiceReports: Array<{ id: string; createdAt: string; status: string }>;
 }
+
+// Per-item status → chip label + colour for the delivery-items list.
+const STATUS_CHIP: Record<DeliveryItemStatus, { label: string; color: "default" | "warning" | "info" | "success" }> = {
+  not_delivered: { label: "Not delivered", color: "default" },
+  delivering: { label: "Delivering", color: "warning" },
+  not_installed: { label: "Delivered", color: "info" },
+  completed: { label: "Completed", color: "success" },
+};
 
 export default function AssetActionChooser() {
   const params = useParams();
@@ -35,6 +66,10 @@ export default function AssetActionChooser() {
   const [data, setData] = useState<ScanContext | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Bumped after a per-item action (e.g. skip install) to re-fetch the context
+  // so the list reflects the new statuses. skippingId guards the tapped row.
+  const [reloadKey, setReloadKey] = useState(0);
+  const [skippingId, setSkippingId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,7 +102,30 @@ export default function AssetActionChooser() {
     return () => {
       cancelled = true;
     };
-  }, [assetId, getToken, inventoryId]);
+  }, [assetId, getToken, inventoryId, reloadKey]);
+
+  // Skip-install for ONE item (reuses the existing Phase-3 endpoint). Advances
+  // that row not_installed → completed (installSkipped) and may trip the DO
+  // completion gate. Re-fetches the context on success so the list updates.
+  const handleSkipInstall = async (doId: string, unitId: string, rowId: string) => {
+    setSkippingId(rowId);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request(
+        { path: `/maintenance-reports/do-skip-install/${doId}`, method: "POST" },
+        { inventoryId: unitId },
+        token,
+      );
+      if (res?.success === false) throw new Error(res.message ?? "Failed to skip install");
+      toast.success("Installation skipped");
+      setReloadKey((k) => k + 1);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to skip install");
+    } finally {
+      setSkippingId(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -88,6 +146,12 @@ export default function AssetActionChooser() {
 
   const { asset, inventory, deliveryStage, resolvedDeliveryOrder } = data;
   const imageUrl = asset.image ? `${process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/"}${asset.image}` : undefined;
+
+  // Per-item delivery list (Phase 5). The scanned unit (search param / resolved
+  // inventory) is highlighted; every other row shows its status so the tech sees
+  // the rest of the items on this DO. Each row acts on ITS OWN unit id.
+  const deliveryItems = data.deliveryItems ?? [];
+  const scannedUnitId = inventory?.id ?? inventoryId ?? null;
 
   // Single morphing delivery card driven by deliveryStage. The backend resolves
   // ONE delivery order (resolvedDeliveryOrder) and never re-picks, so a
@@ -201,6 +265,103 @@ export default function AssetActionChooser() {
           <CardActionArea disabled>{deliveryCardInner}</CardActionArea>
         )}
       </Card>
+
+      {/* Per-item delivery list (Phase 5). Augments the single morphing card:
+          one row per item on the resolved DO, each with a status chip + the
+          action available from ITS OWN status, acting on ITS OWN unit id. Hidden
+          when getScanContext returns no deliveryItems (legacy/non-DO) → the card
+          above remains the fallback. */}
+      {deliveryItems.length > 0 && (
+        <Box>
+          <Typography variant="subtitle1" fontWeight={600} sx={{ mt: 2, mb: 1 }}>
+            Items on this delivery ({deliveryItems.length})
+          </Typography>
+          <Stack spacing={1}>
+            {deliveryItems.map((row) => {
+              const unitId = row.inventoryId || row.itemId;
+              const isScanned =
+                scannedUnitId != null &&
+                (row.inventoryId === scannedUnitId || row.itemId === scannedUnitId);
+              const chip = STATUS_CHIP[row.deliveryStatus] ?? { label: row.deliveryStatus, color: "default" as const };
+              const doId = resolvedDeliveryOrder?.id;
+              const invQ = `?inventoryId=${encodeURIComponent(unitId)}`;
+              return (
+                <Card
+                  key={row.id}
+                  variant="outlined"
+                  sx={isScanned ? { borderColor: "primary.main", borderWidth: 2 } : undefined}
+                >
+                  <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
+                    <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Typography variant="body2" fontWeight={600} noWrap>
+                          {row.description || row.sku || `Item ${row.lineNumber ?? ""}`}
+                        </Typography>
+                        {row.sku && row.description && (
+                          <Typography variant="caption" color="text.secondary" noWrap display="block">
+                            {row.sku}
+                          </Typography>
+                        )}
+                      </Box>
+                      {isScanned && <Chip size="small" label="Scanned" color="primary" variant="outlined" />}
+                      <Chip size="small" label={chip.label} color={chip.color} />
+                    </Stack>
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                      {row.canStart && doId && (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          startIcon={<LocalShippingIcon />}
+                          onClick={() => router.push(`/scan/asset/${assetId}/delivery-start${invQ}`)}
+                        >
+                          Start
+                        </Button>
+                      )}
+                      {row.canAck && doId && (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          startIcon={<LocalShippingIcon />}
+                          onClick={() => router.push(`/scan/asset/${assetId}/do/${doId}${invQ}`)}
+                        >
+                          Acknowledge
+                        </Button>
+                      )}
+                      {row.canInstall && doId && (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          startIcon={<HandymanIcon />}
+                          onClick={() => router.push(`/scan/asset/${assetId}/install/${doId}${invQ}`)}
+                        >
+                          Install
+                        </Button>
+                      )}
+                      {row.canSkip && doId && (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="inherit"
+                          disabled={skippingId === row.id}
+                          onClick={() => handleSkipInstall(doId, unitId, row.id)}
+                        >
+                          {skippingId === row.id ? "Skipping…" : "Skip install"}
+                        </Button>
+                      )}
+                      {row.deliveryStatus === "completed" && (
+                        <Stack direction="row" alignItems="center" spacing={0.5} sx={{ color: "success.main" }}>
+                          <CheckCircleIcon fontSize="small" />
+                          <Typography variant="body2">Completed</Typography>
+                        </Stack>
+                      )}
+                    </Stack>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </Stack>
+        </Box>
+      )}
 
       {/* View the linked delivery order, read-only. Shown only when a DO is
           actually associated with this unit (any stage). */}

@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
-import { Prisma, MaintenanceReportKind, DeliveryStatus } from '@prisma/client';
+import { Prisma, MaintenanceReportKind, DeliveryStatus, ItemType } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
 import { WaterSgService } from 'src/common/services/water-sg.service';
@@ -799,6 +799,12 @@ export class MaintenanceReportsService {
       lineNumber: number | null;
       sku: string | null;
       description: string | null;
+      // Unit identity so the field UI can advance ANY specific row by its own
+      // unit id (not just the scanned one). inventoryId is the typed FK (Phase 1)
+      // with itemId as the legacy/back-compat fallback; itemType disambiguates.
+      inventoryId: string | null;
+      itemId: string;
+      itemType: ItemType;
       deliveryStatus: DeliveryStatus;
       canStart: boolean;
       canAck: boolean;
@@ -815,6 +821,9 @@ export class MaintenanceReportsService {
         lineNumber: it.lineNumber,
         sku: it.sku,
         description: it.description,
+        inventoryId: it.inventoryId,
+        itemId: it.itemId,
+        itemType: it.itemType,
         deliveryStatus: it.deliveryStatus,
         canStart: it.deliveryStatus === DeliveryStatus.not_delivered,
         canAck: it.deliveryStatus === DeliveryStatus.delivering,
