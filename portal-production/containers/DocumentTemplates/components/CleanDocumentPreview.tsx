@@ -2643,7 +2643,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               component="img"
               src={BIOFUEL_LOGO_DATA_URI}
               alt="Biofuel logo"
-              sx={{ height: 70, width: "auto", display: "block", mb: 1.5 }}
+              sx={{ width: 120, height: "auto", objectFit: "contain", display: "block", mb: 1 }}
             />
             {/* Company — TOP-LEFT */}
             <Box sx={{ textAlign: "left", mb: 2 }}>
