@@ -366,6 +366,7 @@ model Document {
   maintenanceReports MaintenanceServiceReport[] // Field-side reports (DO_START / DO_ACK) linked to this document
   msrInvoices        MaintenanceServiceReport[] @relation("MsrInvoice") // Service reports that produced THIS invoice
   orderSources       Order[]                    @relation("OrderSourceQuotation") // Orders auto-created when this quotation was confirmed
+  deliveryShareLinks DeliveryShareLink[] // Guest (no-login) delivery links scoped to THIS delivery order
 
   // Self-relation for revisions: base document -> many revisions
   baseDocument Document?  @relation("DocumentRevisions", fields: [baseDocumentId], references: [id])
@@ -382,6 +383,23 @@ model Document {
   // Fast case-insensitive substring search (ILIKE %term%) on document number/name
   // — powers the projects-search "documents.some.name" arm over ~4.2k docs.
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+// Guest delivery share link — a no-login, single-DO scoped token. A driver with
+// the token can view + advance + photo ONLY the delivery order referenced here;
+// org/scope is resolved from `document`, never from a session. Token is
+// crypto-random (see PublicDeliveryService). expiresAt/revokedAt are hooks for
+// later enforcement (not enforced yet).
+model DeliveryShareLink {
+  id         String    @id @default(uuid())
+  token      String    @unique // unguessable, crypto-random
+  documentId String    @db.Uuid
+  document   Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime? // hook for later (not enforced yet)
+  revokedAt  DateTime? // hook for later (not enforced yet)
+
+  @@index([documentId])
 }
 
 // Semantic memory for the AI Document Assistant. One row per Document; the

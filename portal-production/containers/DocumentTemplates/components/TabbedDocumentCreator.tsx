@@ -2643,6 +2643,56 @@ export default function TabbedDocumentCreator({
               Extract
             </Button>
           )}
+          {/* Phase 6 — Share delivery link (guest, no-login) + Bulk complete.
+              Both only for a SAVED delivery order (need a documentId). */}
+          {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (existingData?.id || documentId) && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<ContentCopyIcon />}
+              onClick={async () => {
+                try {
+                  const token = await getToken();
+                  if (!token) { toast.error("Authentication required"); return; }
+                  const id = existingData?.id || documentId;
+                  const res = await request({ path: `/documents/${id}/delivery-share-link`, method: "POST" }, {}, token);
+                  const body = res?.data ?? res;
+                  const full = body?.url || (body?.path ? `${window.location.origin}${body.path}` : "");
+                  if (full && navigator.clipboard?.writeText) {
+                    await navigator.clipboard.writeText(full);
+                    toast.success("Delivery link copied to clipboard");
+                  } else {
+                    toast.info(full || "Delivery link created");
+                  }
+                } catch {
+                  toast.error("Failed to create delivery link");
+                }
+              }}
+            >
+              Share delivery link
+            </Button>
+          )}
+          {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (existingData?.id || documentId) && (
+            <Button
+              size="small"
+              variant="outlined"
+              color="success"
+              onClick={async () => {
+                if (!window.confirm("Mark ALL items on this delivery order as completed? This deducts stock for any not-yet-delivered items and triggers the invoice.")) return;
+                try {
+                  const token = await getToken();
+                  if (!token) { toast.error("Authentication required"); return; }
+                  const id = existingData?.id || documentId;
+                  await request({ path: `/documents/${id}/bulk-complete-do`, method: "POST" }, {}, token);
+                  toast.success("Delivery order completed");
+                } catch {
+                  toast.error("Failed to complete delivery order");
+                }
+              }}
+            >
+              Bulk complete
+            </Button>
+          )}
           {/* Extract from Quotation Button - Only for SO/SALES_ORDER */}
           {(documentType === "SO" || documentType === "SALES_ORDER" || documentType?.toUpperCase() === "SALES_ORDER") && (
             <Button

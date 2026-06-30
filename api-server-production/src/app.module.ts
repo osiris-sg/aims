@@ -15,6 +15,7 @@ import { SuppliersModule } from './suppliers/suppliers.module';
 import { PrismaService } from './common/prisma.service';
 import { DocumentTemplatesModule } from './documentTemplates/documentTemplates.module';
 import { UploadsModule } from './uploads/uploads.module';
+import { PublicDeliveryModule } from './public-delivery/public-delivery.module';
 import { DocumentsModule } from './documents/documents.module';
 import { TimelineItemsModule } from './timeline-items/timeline-items.module';
 import { RolesModule } from './roles/roles.module';
@@ -95,6 +96,7 @@ import { DocumentAssistantModule } from './document-assistant/document-assistant
     BillsModule,
     BankRecModule,
     XeroSyncModule,
+    PublicDeliveryModule,
   ],
   controllers: [AppController],
   providers: [
