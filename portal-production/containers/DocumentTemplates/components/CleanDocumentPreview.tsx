@@ -4,7 +4,7 @@
 import React, { useMemo } from "react";
 import { Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from "@mui/material";
 import { createTheme, ThemeProvider, useTheme } from "@mui/material/styles";
-import { BIOFUEL_SIGNATURE_DATA_URI, BIOFUEL_STAMP_DATA_URI } from "../../DocumentsTemplateView/biofuelAssets";
+import { BIOFUEL_SIGNATURE_DATA_URI, BIOFUEL_STAMP_DATA_URI, BIOFUEL_LOGO_DATA_URI } from "../../DocumentsTemplateView/biofuelAssets";
 
 // Font handling:
 // - Using Carlito from Google Fonts (open-source, metric-compatible with Calibri)
@@ -2636,6 +2636,15 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         {isBiofuelQuotation ? (
           /* ===== Biofuel quotation header (dedicated; isolated from osiris QO1 / Cappitech QF) ===== */
           <>
+            {/* Biofuel logo — base64 data URI (biofuelAssets) so it renders in
+                BOTH browser-print and the puppeteer PDF. Very top-left, above
+                the company block. width:auto keeps the PNG's aspect ratio. */}
+            <Box
+              component="img"
+              src={BIOFUEL_LOGO_DATA_URI}
+              alt="Biofuel logo"
+              sx={{ height: 70, width: "auto", display: "block", mb: 1.5 }}
+            />
             {/* Company — TOP-LEFT */}
             <Box sx={{ textAlign: "left", mb: 2 }}>
               <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
@@ -2994,7 +3003,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         {/* Bottom Section — follows directly after items so totals
             don't get pushed to an empty page on long quotations. */}
         <Box sx={{ mt: 2 }}>
-          {/* Totals - Right aligned, kept together on print */}
+          {/* Totals - Right aligned, kept together on print. Hidden for Biofuel
+              quotations (their template omits the Sub-Total/Total block); shown
+              for all other orgs. */}
+          {!isBiofuelQuotation && (
           <Box sx={{ display: "flex", justifyContent: "flex-end", borderTop: "1px solid #000", pt: 1, pageBreakInside: "avoid", breakInside: "avoid" }}>
             <Box sx={{ minWidth: 200 }}>
               {isQfQuote ? (
@@ -3052,6 +3064,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               )}
             </Box>
           </Box>
+          )}
 
           {/* Amount in Words — hidden for Biofuel quotations (their template
               omits the words line); still shown for all other orgs. */}
