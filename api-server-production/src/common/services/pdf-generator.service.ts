@@ -313,7 +313,7 @@ export class PdfGeneratorService {
     <div class="header">
       <div>
         ${data.logo ? `<div class="company-logo"><img src="${data.logo}" alt="Logo"></div>` : ''}
-        <div class="title">Tax Invoice</div>
+        <div class="title">${data.isQuotation ? 'Quotation' : 'Tax Invoice'}</div>
         <div class="customer-info">
           <div class="customer-name">${data.customer?.name || ''}</div>
           <div class="customer-address">
@@ -325,11 +325,11 @@ export class PdfGeneratorService {
 
       <div class="invoice-details">
         <div class="detail-row">
-          <div class="detail-label">Invoice Date</div>
+          <div class="detail-label">${data.isQuotation ? 'Date' : 'Invoice Date'}</div>
           <div class="detail-value">${formatDate(data.documentInfo?.date)}</div>
         </div>
         <div class="detail-row">
-          <div class="detail-label">Invoice Number</div>
+          <div class="detail-label">${data.isQuotation ? 'Quotation Number' : 'Invoice Number'}</div>
           <div class="detail-value">${data.documentInfo?.documentNumber || ''}</div>
         </div>
         ${data.documentInfo?.referenceNo ? `
@@ -417,7 +417,7 @@ export class PdfGeneratorService {
     </div>
 
     <div class="payment-section">
-      <div class="payment-title">Due Date: ${formatDate(data.dueDate) || '30 Nov 2024'}</div>
+      ${data.isQuotation ? '' : `<div class="payment-title">Due Date: ${formatDate(data.dueDate)}</div>`}
       <div class="payment-detail">All Cheque should be crossed and made payable to: ${data.company?.name || ''}</div>
       <div class="payment-detail">By Bank Transfer: ${data.bankDetails?.bankName || 'Standard Chartered Bank'}</div>
       <div class="payment-detail">Branch: ${data.bankDetails?.branch || '12 Marina Boulevard, Marina Bay Financial Centre Tower 1'}</div>

@@ -10,7 +10,8 @@ export interface SendInvoiceEmailParams {
   message: string;
   invoiceNumber: string;
   invoiceAmount: number;
-  dueDate: string;
+  dueDate?: string;
+  isQuotation?: boolean;
   customerName: string;
   organizationName: string;
   pdfUrl?: string;
@@ -54,7 +55,7 @@ export class EmailService {
    * Generate HTML email template for invoice
    */
   private generateInvoiceEmailHtml(params: SendInvoiceEmailParams): string {
-    const { message, invoiceNumber, invoiceAmount, dueDate, customerName, paymentLink } = params;
+    const { message, invoiceNumber, invoiceAmount, dueDate, customerName, paymentLink, isQuotation } = params;
 
     return `
       <!DOCTYPE html>
@@ -119,7 +120,7 @@ export class EmailService {
         </head>
         <body>
           <div class="header">
-            <h2 style="margin: 0; color: #1976d2;">Invoice from ${params.organizationName}</h2>
+            <h2 style="margin: 0; color: #1976d2;">${isQuotation ? 'Quotation' : 'Invoice'} from ${params.organizationName}</h2>
           </div>
 
           <div class="content">
@@ -128,9 +129,9 @@ export class EmailService {
             <div class="message">${message}</div>
 
             <div class="invoice-details">
-              <p><strong>Invoice Number:</strong> ${invoiceNumber}</p>
+              <p><strong>${isQuotation ? 'Quotation' : 'Invoice'} Number:</strong> ${invoiceNumber}</p>
               <p><strong>Amount:</strong> SGD ${invoiceAmount.toFixed(2)}</p>
-              <p><strong>Due Date:</strong> ${dueDate}</p>
+              ${isQuotation ? '' : `<p><strong>Due Date:</strong> ${dueDate}</p>`}
             </div>
 
             ${paymentLink ? `
@@ -140,7 +141,7 @@ export class EmailService {
               <p style="font-size: 14px; color: #666;">You can also use the link below to see your invoice and its payment details.</p>
             ` : ''}
 
-            <p style="margin-top: 20px;">Please find the invoice attached as a PDF.</p>
+            <p style="margin-top: 20px;">Please find the ${isQuotation ? 'quotation' : 'invoice'} attached as a PDF.</p>
 
             <p style="margin-top: 20px;">If you have any questions, please don't hesitate to contact us.</p>
 
@@ -200,7 +201,7 @@ export class EmailService {
 
             emailData.attachments = [
               {
-                filename: `${params.invoiceNumber}.pdf`,
+                filename: `${params.isQuotation ? 'Quotation-' : ''}${params.invoiceNumber}.pdf`,
                 content: pdfBase64,
               },
             ];

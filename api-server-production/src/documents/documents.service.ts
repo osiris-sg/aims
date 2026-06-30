@@ -2472,10 +2472,14 @@ export class DocumentsService {
       }, 0);
 
       // Get invoice number and due date
-      const invoiceNumber = document.name || documentInfo?.documentNumber || `INV-${documentId.substring(0, 8)}`;
-      const dueDate = config?.dueDate
-        ? moment(config.dueDate).format('DD MMM YYYY')
-        : moment().add(30, 'days').format('DD MMM YYYY');
+      const invoiceNumber = document.name || documentInfo?.documentNumber || `${isQuotation ? 'QO' : 'INV'}-${documentId.substring(0, 8)}`;
+      // Invoices carry a due date (real, or +30d default). Quotations have none —
+      // pass undefined so the email body + PDF omit the Due Date row entirely.
+      const dueDate = isQuotation
+        ? undefined
+        : config?.dueDate
+          ? moment(config.dueDate).format('DD MMM YYYY')
+          : moment().add(30, 'days').format('DD MMM YYYY');
 
       // 5. Generate or get PDF URL
       let pdfUrl: string | undefined;
@@ -2495,6 +2499,10 @@ export class DocumentsService {
             documentInfo,
             items,
             config,
+            // Type-aware: quotations title as "Quotation" and omit the due-date
+            // row; invoices keep "Tax Invoice" + the real due date.
+            isQuotation,
+            dueDate,
           });
 
           // Generate PDF
@@ -2526,6 +2534,7 @@ export class DocumentsService {
         invoiceNumber,
         invoiceAmount: totalAmount,
         dueDate,
+        isQuotation,
         customerName: customer.name || 'Customer',
         organizationName: document.organization.name,
         pdfUrl,
