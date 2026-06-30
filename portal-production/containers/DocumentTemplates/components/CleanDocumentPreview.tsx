@@ -2636,30 +2636,29 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         {isBiofuelQuotation ? (
           /* ===== Biofuel quotation header (dedicated; isolated from osiris QO1 / Cappitech QF) ===== */
           <>
-            {/* Header top row: company details (LEFT) + logo (top-RIGHT). The
-                logo is a base64 data URI (biofuelAssets) so it renders in BOTH
-                browser-print and the puppeteer PDF; width-driven (height auto,
-                objectFit contain) → small letterhead size, aspect preserved.
-                The redundant bold "Biofuel Industries Pte Ltd" name line is
-                intentionally omitted here — the logo carries the brand. */}
-            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 2 }}>
-              <Box sx={{ textAlign: "left" }}>
-                <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
-                  {data.company?.address || organization?.address || ""}
-                </Typography>
-                <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
-                  Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
-                </Typography>
-                <Typography sx={{ fontSize: "0.8125rem" }}>
-                  GST Reg No: {data.company?.gstRegNo || organization?.registrationNumber || ""}
-                </Typography>
-              </Box>
-              <Box
-                component="img"
-                src={BIOFUEL_LOGO_DATA_URI}
-                alt="Biofuel logo"
-                sx={{ width: 120, height: "auto", objectFit: "contain", display: "block", flexShrink: 0, ml: 2 }}
-              />
+            {/* Biofuel logo — TOP-LEFT letterhead. Base64 data URI
+                (biofuelAssets) so it renders in BOTH browser-print and the
+                puppeteer PDF; width-driven (height auto, objectFit contain)
+                keeps it small with aspect preserved. The redundant bold
+                "Biofuel Industries Pte Ltd" name line is intentionally omitted
+                here — the logo carries the brand. */}
+            <Box
+              component="img"
+              src={BIOFUEL_LOGO_DATA_URI}
+              alt="Biofuel logo"
+              sx={{ width: 120, height: "auto", objectFit: "contain", display: "block", mb: 1 }}
+            />
+            {/* Company — TOP-LEFT (address / Tel / GST; no name line) */}
+            <Box sx={{ textAlign: "left", mb: 2 }}>
+              <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
+                {data.company?.address || organization?.address || ""}
+              </Typography>
+              <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
+                Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
+              </Typography>
+              <Typography sx={{ fontSize: "0.8125rem" }}>
+                GST Reg No: {data.company?.gstRegNo || organization?.registrationNumber || ""}
+              </Typography>
             </Box>
 
             {/* Customer (To / Attention) + right-side quotation meta */}
@@ -3084,9 +3083,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             /* ===== Biofuel quotation FOOTER (dedicated; isolated from osiris QO1 / Cappitech QF) ===== */
             <Box sx={{ mt: 2 }}>
               {/* 1. PROJECT line — tolerant read (nested||flat); blank for now,
-                  populates when quotations link to projects. Label always shown. */}
+                  populates when quotations link to projects. "Project:" label
+                  removed to match the Excel reference; value-only. */}
               <Typography sx={{ fontSize: "0.8125rem", mb: 1.5 }}>
-                Project: {data.projectName || data.documentInfo?.projectName || data.project?.name || ""}
+                {data.projectName || data.documentInfo?.projectName || data.project?.name || ""}
               </Typography>
 
               {/* 2. Numbered terms — 1 & 3 hardcoded; 2 reads data.paymentTerms
@@ -3110,12 +3110,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>
                     {organization?.name || "Biofuel Industries Pte Ltd"}
                   </Typography>
-                  {/* Company stamp + director signature, side by side, sitting
-                      on the signature line. Base64 data URIs (biofuelAssets) so
-                      they render in both browser-print and puppeteer PDF. */}
+                  {/* Director signature (LEFT) + company stamp (RIGHT), side by
+                      side, sitting on the signature line. Base64 data URIs
+                      (biofuelAssets) so they render in both browser-print and
+                      puppeteer PDF. */}
                   <Box sx={{ display: "flex", alignItems: "flex-end", gap: 1, height: 72, mb: 0.5, borderBottom: "1px solid #000" }}>
-                    <Box component="img" src={BIOFUEL_STAMP_DATA_URI} alt="Company stamp" sx={{ width: 75, maxHeight: 70, objectFit: "contain" }} />
                     <Box component="img" src={BIOFUEL_SIGNATURE_DATA_URI} alt="Director signature" sx={{ width: 120, maxHeight: 70, objectFit: "contain" }} />
+                    <Box component="img" src={BIOFUEL_STAMP_DATA_URI} alt="Company stamp" sx={{ width: 75, maxHeight: 70, objectFit: "contain" }} />
                   </Box>
                   <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Eugene Lee (Director)</Typography>
                   <Typography sx={{ fontSize: "0.8125rem" }}>Mobile: 9818 9200</Typography>
