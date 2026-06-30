@@ -34,76 +34,214 @@ export class DocumentsService {
    */
   private async syncDocumentItems(documentId: string, config: any, organizationId: string) {
     try {
-      const items = config?.items;
-      if (!items || !Array.isArray(items)) {
-        // No items to sync, delete any existing DocumentItems for this document
-        await this.prisma.documentItem.deleteMany({
-          where: { documentId },
-        });
-        return;
-      }
+      const rawItems = config?.items;
+      // An absent/malformed items[] is treated as "no desired rows" and routed
+      // through the SAME reconciliation below (desired = []), so in-flight rows
+      // are still protected — strictly safer than the old delete-everything.
+      const items: any[] = Array.isArray(rawItems) ? rawItems : [];
 
-      // Delete existing DocumentItems for this document first
-      await this.prisma.documentItem.deleteMany({
-        where: { documentId },
-      });
+      // Resolve an item's type once, cached for duplicate SKUs. Inventory is
+      // checked first, then Asset — mirrors the legacy behavior. Returns null
+      // for ids present in neither table (skipped, exactly as before).
+      const typeCache = new Map<string, ItemType | null>();
+      const resolveType = async (itemId: string): Promise<ItemType | null> => {
+        if (typeCache.has(itemId)) return typeCache.get(itemId)!;
+        let resolved: ItemType | null = null;
+        const inv = await this.prisma.inventory.findUnique({ where: { id: itemId } });
+        if (inv) {
+          resolved = ItemType.INVENTORY;
+        } else {
+          const asset = await this.prisma.asset.findUnique({ where: { id: itemId } });
+          if (asset) resolved = ItemType.ASSET;
+        }
+        typeCache.set(itemId, resolved);
+        return resolved;
+      };
 
-      // Create new DocumentItems for each item in config
-      const documentItemsData: any[] = [];
-
+      // Build the DESIRED row set from config.items[]. config.items is the
+      // source of truth for the renderer / Xero / totals and is NEVER touched
+      // here — we only reconcile the DocumentItem TABLE against it. Each desired
+      // row carries its positional lineNumber (1-based) + resolved itemType and
+      // inventory/asset FK backfill.
+      type Desired = {
+        itemId: string;
+        itemType: ItemType;
+        inventoryId: string | null;
+        assetId: string | null;
+        lineNumber: number;
+        content: {
+          sku: string | null;
+          description: string | null;
+          quantity: number;
+          unitPrice: number;
+          discount: number;
+          amount: number;
+          uom: string | null;
+          isService: boolean;
+          isFixedAsset: boolean;
+        };
+      };
+      const desired: Desired[] = [];
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
         const itemId = item.inventoryItemId || item.assetId;
-
-        if (!itemId) continue; // Skip items without an ID
-
-        // Determine item type by checking which table it exists in
-        let itemType: ItemType = ItemType.INVENTORY;
-
-        // Check if it's an inventory item
-        const inventoryItem = await this.prisma.inventory.findUnique({
-          where: { id: itemId },
-        });
-
-        if (!inventoryItem) {
-          // Not in inventory, check if it's an asset
-          const assetItem = await this.prisma.asset.findUnique({
-            where: { id: itemId },
-          });
-
-          if (assetItem) {
-            itemType = ItemType.ASSET;
-          } else {
-            // Item not found in either table, skip
-            console.warn(`DocumentItem sync: Item ${itemId} not found in Inventory or Asset table, skipping`);
-            continue;
-          }
+        if (!itemId) continue; // Skip items without an ID (e.g. service lines)
+        const itemType = await resolveType(itemId);
+        if (!itemType) {
+          console.warn(`DocumentItem sync: Item ${itemId} not found in Inventory or Asset table, skipping`);
+          continue;
         }
-
-        documentItemsData.push({
-          documentId,
+        desired.push({
           itemId,
           itemType,
-          sku: item.sku || item.skuKey || null,
-          description: item.description || null,
-          quantity: parseFloat(item.quantity) || 0,
-          unitPrice: parseFloat(item.unitPrice) || 0,
-          discount: parseFloat(item.discount) || 0,
-          amount: parseFloat(item.amount) || 0,
-          uom: item.uom || null,
+          // Backfill the typed FK from itemId + itemType (the new Phase 1
+          // columns); itemId/itemType themselves are still written for the
+          // ~15 back-compat readers.
+          inventoryId: itemType === ItemType.INVENTORY ? itemId : null,
+          assetId: itemType === ItemType.ASSET ? itemId : null,
           lineNumber: i + 1,
-          isService: !!item.isService,
+          content: {
+            sku: item.sku || item.skuKey || null,
+            description: item.description || null,
+            quantity: parseFloat(item.quantity) || 0,
+            unitPrice: parseFloat(item.unitPrice) || 0,
+            discount: parseFloat(item.discount) || 0,
+            amount: parseFloat(item.amount) || 0,
+            uom: item.uom || null,
+            isService: !!item.isService,
+            isFixedAsset: !!item.isFixedAsset,
+          },
         });
       }
 
-      // Batch create DocumentItems
-      if (documentItemsData.length > 0) {
+      const existing = await this.prisma.documentItem.findMany({
+        where: { documentId },
+      });
+
+      // ── Pairing (preserving reconciliation) ──────────────────────────────
+      // Match desired ↔ existing by itemId ONLY — never by lineNumber, which is
+      // positional and shifts on reorder (matching on it would reset delivery
+      // state every time a line moves).
+      //
+      // Duplicate-SKU tiebreak: when one itemId has multiple existing and/or
+      // multiple desired rows, pair them deterministically —
+      //   • existing rows sorted MOST-ADVANCED first
+      //     (completed > not_installed > delivering > not_delivered),
+      //     tie-broken by lineNumber asc;
+      //   • desired rows taken in document order (lineNumber asc);
+      //   • zip the two: the first min(E,D) pair up.
+      // This keeps delivery progress on the already-advanced rows; any surplus
+      // existing rows (the least-advanced, hence most likely not_delivered) fall
+      // into the "removed" bucket — so dropping one of N duplicate lines retires
+      // a not-yet-delivered copy rather than an in-flight one.
+      const RANK: Record<string, number> = {
+        not_delivered: 0,
+        delivering: 1,
+        not_installed: 2,
+        completed: 3,
+      };
+      const existingByItem = new Map<string, typeof existing>();
+      for (const row of existing) {
+        const arr = existingByItem.get(row.itemId) || [];
+        arr.push(row);
+        existingByItem.set(row.itemId, arr);
+      }
+      for (const arr of existingByItem.values()) {
+        arr.sort((a, b) => {
+          const rb = RANK[b.deliveryStatus] ?? 0;
+          const ra = RANK[a.deliveryStatus] ?? 0;
+          if (rb !== ra) return rb - ra; // most-advanced first
+          return (a.lineNumber ?? 0) - (b.lineNumber ?? 0);
+        });
+      }
+      const desiredByItem = new Map<string, Desired[]>();
+      for (const d of desired) {
+        const arr = desiredByItem.get(d.itemId) || [];
+        arr.push(d);
+        desiredByItem.set(d.itemId, arr);
+      }
+
+      const matched: Array<{ id: string; desired: Desired }> = [];
+      const toCreate: Desired[] = [];
+      const removed: typeof existing = [];
+      const allItemIds = new Set<string>([...existingByItem.keys(), ...desiredByItem.keys()]);
+      for (const itemId of allItemIds) {
+        const ex = existingByItem.get(itemId) || [];
+        const de = desiredByItem.get(itemId) || [];
+        const pairCount = Math.min(ex.length, de.length);
+        for (let k = 0; k < pairCount; k++) matched.push({ id: ex[k].id, desired: de[k] });
+        for (let k = pairCount; k < de.length; k++) toCreate.push(de[k]);
+        for (let k = pairCount; k < ex.length; k++) removed.push(ex[k]);
+      }
+
+      // ── Apply ────────────────────────────────────────────────────────────
+      // Park every surviving row's lineNumber to null FIRST so reassigning
+      // positions (including same-itemId swaps) can never trip the
+      // @@unique([documentId, itemId, lineNumber]) constraint mid-flight —
+      // NULLs are distinct under a Postgres unique index.
+      if (existing.length > 0) {
+        await this.prisma.documentItem.updateMany({
+          where: { documentId },
+          data: { lineNumber: null },
+        });
+      }
+
+      // Removed rows: delete ONLY if still not_delivered. In-flight rows
+      // (delivering / not_installed / completed) are KEPT — a document edit must
+      // not silently destroy delivery progress — and a warning is logged. (Their
+      // lineNumber stays null: they no longer have a position in config.items.)
+      const removedNotDelivered = removed.filter((r) => r.deliveryStatus === 'not_delivered');
+      const removedInFlight = removed.filter((r) => r.deliveryStatus !== 'not_delivered');
+      if (removedNotDelivered.length > 0) {
+        await this.prisma.documentItem.deleteMany({
+          where: { id: { in: removedNotDelivered.map((r) => r.id) } },
+        });
+      }
+      for (const r of removedInFlight) {
+        console.warn(
+          `DocumentItem sync: item ${r.itemId} (status=${r.deliveryStatus}) was removed from document ${documentId}'s config but is in-flight — keeping the row instead of deleting.`,
+        );
+      }
+
+      // Matched rows: UPDATE content + lineNumber + FK backfill, and PRESERVE
+      // every delivery column (deliveryStatus, deductedAt, deliveringAt,
+      // deliveredAt, completedAt, installSkipped) by OMITTING them from the
+      // update payload.
+      for (const m of matched) {
+        const d = m.desired;
+        await this.prisma.documentItem.update({
+          where: { id: m.id },
+          data: {
+            itemId: d.itemId,
+            itemType: d.itemType,
+            inventoryId: d.inventoryId,
+            assetId: d.assetId,
+            lineNumber: d.lineNumber,
+            ...d.content,
+          },
+        });
+      }
+
+      // New rows: CREATE with the default deliveryStatus = not_delivered
+      // (omitted ⇒ DB default) and installSkipped = false.
+      if (toCreate.length > 0) {
         await this.prisma.documentItem.createMany({
-          data: documentItemsData,
+          data: toCreate.map((d) => ({
+            documentId,
+            itemId: d.itemId,
+            itemType: d.itemType,
+            inventoryId: d.inventoryId,
+            assetId: d.assetId,
+            lineNumber: d.lineNumber,
+            ...d.content,
+          })),
           skipDuplicates: true,
         });
-        console.log(`📋 DocumentItem sync: Created ${documentItemsData.length} items for document ${documentId}`);
       }
+
+      console.log(
+        `📋 DocumentItem sync (preserving): doc ${documentId} — ${matched.length} updated, ${toCreate.length} created, ${removedNotDelivered.length} removed, ${removedInFlight.length} in-flight kept`,
+      );
     } catch (error) {
       console.error('Failed to sync DocumentItems:', error);
       // Don't throw - this is a background sync operation
