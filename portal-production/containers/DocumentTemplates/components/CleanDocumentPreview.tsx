@@ -4,6 +4,7 @@
 import React, { useMemo } from "react";
 import { Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from "@mui/material";
 import { createTheme, ThemeProvider, useTheme } from "@mui/material/styles";
+import { BIOFUEL_SIGNATURE_DATA_URI, BIOFUEL_STAMP_DATA_URI } from "../../DocumentsTemplateView/biofuelAssets";
 
 // Font handling:
 // - Using Carlito from Google Fonts (open-source, metric-compatible with Calibri)
@@ -3052,12 +3053,15 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             </Box>
           </Box>
 
-          {/* Amount in Words */}
-          <Box sx={{ mt: 2, mb: 2 }}>
-            <Typography sx={{ fontSize: "0.8125rem" }}>
-              {numberToWords(finalAmount)}
-            </Typography>
-          </Box>
+          {/* Amount in Words — hidden for Biofuel quotations (their template
+              omits the words line); still shown for all other orgs. */}
+          {!isBiofuelQuotation && (
+            <Box sx={{ mt: 2, mb: 2 }}>
+              <Typography sx={{ fontSize: "0.8125rem" }}>
+                {numberToWords(finalAmount)}
+              </Typography>
+            </Box>
+          )}
 
 
           {isBiofuelQuotation ? (
@@ -3090,11 +3094,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>
                     {organization?.name || "Biofuel Industries Pte Ltd"}
                   </Typography>
-                  {/* ===== SIGNATURE PLACEHOLDER (next task) =====
-                      Director signature image / script-font name renders here.
-                      Vertical space reserved below; replace this Box with the
-                      <img>/script when the signature asset is wired. */}
-                  <Box sx={{ height: 72, borderBottom: "1px solid #000", mb: 0.5 }} />
+                  {/* Company stamp + director signature, side by side, sitting
+                      on the signature line. Base64 data URIs (biofuelAssets) so
+                      they render in both browser-print and puppeteer PDF. */}
+                  <Box sx={{ display: "flex", alignItems: "flex-end", gap: 1, height: 72, mb: 0.5, borderBottom: "1px solid #000" }}>
+                    <Box component="img" src={BIOFUEL_STAMP_DATA_URI} alt="Company stamp" sx={{ width: 75, maxHeight: 70, objectFit: "contain" }} />
+                    <Box component="img" src={BIOFUEL_SIGNATURE_DATA_URI} alt="Director signature" sx={{ width: 120, maxHeight: 70, objectFit: "contain" }} />
+                  </Box>
                   <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Eugene Lee (Director)</Typography>
                   <Typography sx={{ fontSize: "0.8125rem" }}>Mobile: 9818 9200</Typography>
                 </Box>
