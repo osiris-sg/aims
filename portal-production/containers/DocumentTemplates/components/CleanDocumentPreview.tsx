@@ -2676,13 +2676,12 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                       top-level). */}
                   <InfoRow label="Validity Term" value={data.validityTerm || data.validityPeriod} minWidth="120px" fontSize="0.875rem" />
                   <InfoRow label="Currency" value={data.documentInfo?.currency || data.currency} minWidth="120px" fontSize="0.875rem" />
-                  {/* Salesperson contact (NOT the customer's — that lives in the
-                      left Attention block). The per-quote editable Biofuel
-                      fields (formData.salesPerson / formData.salesMobile, default
-                      Eugene Lee / 9818 9200) are authoritative here, falling back
-                      to the salesman-picker (documentInfo.salesPerson) / legacy
-                      mobile keys for back-compat. */}
-                  <InfoRow label="Sale person" value={data.salesPerson || data.documentInfo?.salesPerson} minWidth="120px" fontSize="0.875rem" />
+                  {/* Salesperson (NOT the customer's — that's the left Attention
+                      block). The NAME comes from the Salesman Code field
+                      (documentInfo.salesPerson); the Mobile is the per-quote
+                      editable salesMobile (default 9818 9200). Legacy keys kept
+                      as back-compat fallbacks. */}
+                  <InfoRow label="Sale person" value={data.documentInfo?.salesPerson || data.salesPerson} minWidth="120px" fontSize="0.875rem" />
                   <InfoRow label="Mobile" value={data.salesMobile || data.mobile || data.documentInfo?.mobile} minWidth="120px" fontSize="0.875rem" />
                   <InfoRow label="Email" value={data.salePersonEmail || data.documentInfo?.salePersonEmail} minWidth="120px" fontSize="0.875rem" />
                 </Box>
@@ -2810,7 +2809,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   if (col === "fcuModel") return items.some((it: any) => (Array.isArray(it.fcus) && it.fcus.length > 0) || String(it.fcuCode || "").trim() !== "");
                   return true;
                 };
-                const configColumns = rawConfigColumns.filter((c) => !internalColumns.includes(c)).filter(columnHasData);
+                const configColumns = rawConfigColumns
+                  .filter((c) => !internalColumns.includes(c))
+                  .filter(columnHasData)
+                  // S/No column removed from ALL quotations — auto-numbered in the
+                  // DB. This whole block is the QO/QUOTATION render branch, so an
+                  // unconditional drop here == every quotation (matches the
+                  // editor's isQuotation-gated filter).
+                  .filter((c) => c !== "no");
                 const labelFor = (col: string) =>
                   configLabels[col] ||
                   (col === "item" ? "Item" :

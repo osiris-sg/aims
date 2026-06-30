@@ -575,6 +575,16 @@ export default function TabbedDocumentCreator({
     },
     billTo: existingData?.billTo || "",
     deliveryTo: existingData?.deliveryTo || "",
+    // Top-level attention (contact person / number / email) — initialised from
+    // the saved config.attention so it ROUND-TRIPS through reload + confirm.
+    // The transformer already persists AND rehydrates config.attention; this
+    // editor-side init was missing, which is why attention vanished after
+    // confirming a quotation (the confirmed view re-mounts with empty attention).
+    attention: {
+      name: existingData?.attention?.name || "",
+      phoneNumber: existingData?.attention?.phoneNumber || "",
+      email: existingData?.attention?.email || "",
+    },
     // Items data
     items: existingData?.items || [],
     // Source document tracking (for quotation/DO extraction)
@@ -920,18 +930,16 @@ export default function TabbedDocumentCreator({
     }
   }, [organization, formData.company?.gstRegNo]);
 
-  // Biofuel quotations: seed the editable Sale person / Mobile header fields to
-  // the house defaults (Eugene Lee / 9818 9200) when empty. Runs once when the
-  // org/type resolve (deps are isBiofuel/isQuotation, NOT formData), so after
-  // the initial seed the user can freely edit — even clear — within the session
-  // without it re-seeding. Per-quote only; no write-back to the customer/global.
+  // Biofuel quotations: seed the salesperson MOBILE to the house default
+  // (9818 9200) when empty. The salesperson NAME comes from the Salesman Code
+  // field (documentInfo.salesPerson), so it's no longer seeded here. Runs once
+  // when org/type resolve (deps are isBiofuel/isQuotation, NOT formData), so the
+  // user can freely edit/clear within the session. Per-quote only.
   useEffect(() => {
     if (!isBiofuel || !isQuotation) return;
     setFormDataState((prev: any) => {
-      const patch: any = {};
-      if (prev.salesPerson == null || prev.salesPerson === "") patch.salesPerson = "Eugene Lee";
-      if (prev.salesMobile == null || prev.salesMobile === "") patch.salesMobile = "9818 9200";
-      return Object.keys(patch).length ? { ...prev, ...patch } : prev;
+      if (prev.salesMobile != null && prev.salesMobile !== "") return prev;
+      return { ...prev, salesMobile: "9818 9200" };
     });
   }, [isBiofuel, isQuotation]);
 
@@ -955,6 +963,21 @@ export default function TabbedDocumentCreator({
       });
     }
   }, [existingData?.documentInfo]);
+
+  // Sync top-level attention from existingData when it loads async (mirrors the
+  // documentInfo sync above). Only fills when the current attention is empty, so
+  // it never clobbers an in-progress edit. Belt-and-suspenders with the useState
+  // init for the case where existingData arrives after mount.
+  useEffect(() => {
+    const ea = existingData?.attention;
+    if (ea && typeof ea === "object") {
+      setFormDataState((prev: any) => {
+        const cur = prev.attention || {};
+        if (cur.name || cur.phoneNumber || cur.email) return prev;
+        return { ...prev, attention: { name: ea.name || "", phoneNumber: ea.phoneNumber || "", email: ea.email || "" } };
+      });
+    }
+  }, [existingData?.attention]);
 
   const addNewItem = () => {
     const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
@@ -3271,8 +3294,14 @@ export default function TabbedDocumentCreator({
                   </Box>
                   <Divider sx={{ mb: 0.5 }} />
                   <Collapse in={!isFieldsCollapsed} timeout="auto" unmountOnExit>
+                  {/* CONTACT (documentInfo.contact) is filtered out of quotations
+                      below — redundant: contact is handled via Customer Code →
+                      attention. The renderer falls back to attention.* so the
+                      footer/header contact still resolves. */}
                   <DynamicFormFields
-                    fields={tab.fields}
+                    fields={isQuotation
+                      ? tab.fields.filter((f: any) => f.fieldName !== "documentInfo.contact" && f.fieldName !== "contact")
+                      : tab.fields}
                     formData={formData}
                     setFormData={setFormData}
                     hideDiscount={isRouteOrderPO}
@@ -3305,27 +3334,18 @@ export default function TabbedDocumentCreator({
                     }}
                   />
                   </Collapse>
-                  {/* Biofuel quotation header: editable Sale person + Mobile
-                      (default Eugene Lee / 9818 9200, seeded above). Renders once
-                      (first tab) for Biofuel quotations only; binds to flat
-                      formData fields that persist via the transformer + rehydrate
-                      on reload. Per-quote — no customer/global write-back. */}
+                  {/* Salesperson MOBILE for the quotation header (default
+                      9818 9200, seeded above; editable per-quote, persisted via
+                      salesMobile). The salesperson NAME is the Salesman Code
+                      field above — no separate name input here. Biofuel
+                      quotations only, rendered once (first tab). */}
                   {isBiofuel && isQuotation && index === 0 && (
                     <Box sx={{ mt: 1.5 }}>
                       <Divider sx={{ mb: 1 }} />
                       <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary" }}>
-                        Sales contact (quotation header)
+                        Salesperson mobile (quotation header)
                       </Typography>
                       <Grid container spacing={1} sx={{ mt: 0.25 }}>
-                        <Grid item xs={12} md={6}>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            label="Sale person"
-                            value={formData.salesPerson ?? ""}
-                            onChange={(e) => setFormData({ ...formData, salesPerson: e.target.value })}
-                          />
-                        </Grid>
                         <Grid item xs={12} md={6}>
                           <TextField
                             fullWidth
@@ -3984,7 +4004,10 @@ export default function TabbedDocumentCreator({
                                 : ["item", "description", "quantity", "unitPrice", "tax", "amount"];
                               const defaultColumns = ((configuredColumns && configuredColumns.length > 0)
                                 ? configuredColumns
-                                : baseDefaultColumns).filter((c: string) => !(isRouteOrderPO && c === "discount"));
+                                : baseDefaultColumns)
+                                .filter((c: string) => !(isRouteOrderPO && c === "discount"))
+                                // S/No removed from quotations — auto-numbered in the DB/renderer.
+                                .filter((c: string) => !(isQuotation && c === "no"));
                               return (isTemplateEditMode ? templateWatch("tableColumnOrder") : defaultColumns).map((columnId: string) => {
                                 // Skip tax column for invoices
                                 if (isInvoiceType && columnId === "tax") return null;
@@ -4090,7 +4113,10 @@ export default function TabbedDocumentCreator({
                                   : ["item", "description", "quantity", "unitPrice", "tax", "amount"];
                                 const defaultColumns = ((configuredColumns && configuredColumns.length > 0)
                                   ? configuredColumns
-                                  : baseDefaultColumns).filter((c: string) => !(isRouteOrderPO && c === "discount"));
+                                  : baseDefaultColumns)
+                                  .filter((c: string) => !(isRouteOrderPO && c === "discount"))
+                                  // S/No removed from quotations — auto-numbered in the DB/renderer.
+                                  .filter((c: string) => !(isQuotation && c === "no"));
                                 return (isTemplateEditMode ? templateWatch("tableColumnOrder") : defaultColumns).map((columnId: string) => {
                                   // Skip tax column for invoices
                                   if (isInvoiceType && columnId === "tax") return null;
