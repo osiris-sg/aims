@@ -2648,19 +2648,6 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               alt="Biofuel logo"
               sx={{ width: 120, height: "auto", objectFit: "contain", display: "block", mb: 1 }}
             />
-            {/* Company — TOP-LEFT (address / Tel / GST; no name line) */}
-            <Box sx={{ textAlign: "left", mb: 2 }}>
-              <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
-                {data.company?.address || organization?.address || ""}
-              </Typography>
-              <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
-                Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
-              </Typography>
-              <Typography sx={{ fontSize: "0.8125rem" }}>
-                GST Reg No: {data.company?.gstRegNo || organization?.registrationNumber || ""}
-              </Typography>
-            </Box>
-
             {/* Customer (To / Attention) + right-side quotation meta */}
             <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1, alignItems: "flex-start" }}>
               {/* Left — To + Attention */}
