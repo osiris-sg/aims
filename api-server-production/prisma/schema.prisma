@@ -136,6 +136,7 @@ model Asset {
   quantityAdjustments QuantityAdjustment[]
   assignments         Assignment[]
   serviceReports      MaintenanceServiceReport[]
+  documentItems       DocumentItem[]
 
   @@unique([skuKey, organizationId, deletedAt])
 }
@@ -174,6 +175,7 @@ model Inventory {
   organization   Organization               @relation(fields: [organizationId], references: [id])
   timelineItems  TimelineItem[]
   serviceReports MaintenanceServiceReport[]
+  documentItems  DocumentItem[]
 
   // Backs the SKU-match bind: a SKU identifies one unit within an org, so
   // create-and-bind can resolve an existing unit by (sku, organizationId).
@@ -427,6 +429,18 @@ model DocumentItem {
   // it enters the depreciation schedule. User completes method + useful life
   // on the FA detail page after creation.
   isFixedAsset Boolean @default(false)
+  // Per-item delivery tracking (Phase 1). Additive — existing itemId/itemType
+  // remain the back-compat link; these new columns drive the per-item DO flow.
+  deliveryStatus DeliveryStatus @default(not_delivered)
+  deductedAt     DateTime?
+  deliveringAt   DateTime?
+  deliveredAt    DateTime?
+  completedAt    DateTime?
+  installSkipped Boolean        @default(false)
+  inventoryId    String?        @db.Uuid
+  inventory      Inventory?     @relation(fields: [inventoryId], references: [id])
+  assetId        String?        @db.Uuid
+  asset          Asset?         @relation(fields: [assetId], references: [id])
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -441,6 +455,13 @@ model DocumentItem {
 enum ItemType {
   INVENTORY
   ASSET
+}
+
+enum DeliveryStatus {
+  not_delivered
+  delivering
+  not_installed
+  completed
 }
 
 model Role {
