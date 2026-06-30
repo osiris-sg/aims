@@ -395,6 +395,31 @@ export class DocumentsController {
     }
   }
 
+  // Office BULK-COMPLETE for a Delivery Order (Phase 4b): mark all deliverable
+  // items completed (idempotent per-item deduction), then the completion gate
+  // fires → DO completes → invoice. Required for non-taggable items the field
+  // can't scan.
+  @Post(':id/bulk-complete-do')
+  @Permissions('documents:update')
+  async bulkCompleteDeliveryOrder(
+    @Param('id') documentId: string,
+    @Req() req: RequestWithOrganization,
+  ) {
+    try {
+      const organizationId = req.userOrganization?.id;
+      if (!organizationId) {
+        throw new HttpException('User is not assigned to any organization', HttpStatus.FORBIDDEN);
+      }
+      return await this.documentsService.bulkCompleteDeliveryOrder(documentId, organizationId);
+    } catch (error) {
+      console.error('Error bulk-completing Delivery Order:', error);
+      throw new HttpException(
+        error.message || 'Failed to bulk-complete Delivery Order',
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   @Post(':id/confirm-invoice')
   @Permissions('documents:update')
   async confirmInvoice(

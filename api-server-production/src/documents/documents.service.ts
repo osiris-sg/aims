@@ -2,7 +2,7 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { PrismaService } from 'src/common/prisma.service';
 import { CreateDocumentWithTimelineDto } from './dto/create-document-with-timeline.dto';
-import { InventoryStatus, DocumentStatus, TransactionType, ItemType } from '@prisma/client';
+import { InventoryStatus, DocumentStatus, TransactionType, ItemType, DeliveryStatus } from '@prisma/client';
 import { XeroService } from 'src/common/xero.service';
 import { PriceHistoryService } from '../price-history/price-history.service';
 import { TransactionsService } from '../transactions/transactions.service';
@@ -2567,6 +2567,340 @@ export class DocumentsService {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Per-item Delivery Order flow (Phases 3 + 4)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Deduct stock for ONE DocumentItem — IDEMPOTENTLY. The `deductedAt` column is
+   * the idempotency guard: a conditional updateMany ({ deductedAt: null })
+   * atomically CLAIMS the deduction in the same transaction as the stock
+   * decrement, so an item can never double-deduct whether it arrives via a
+   * per-item DO_ACK scan OR the office bulk-complete button. Returns true only
+   * when this call actually performed the deduction.
+   *
+   * Handles BOTH item types (must not regress asset deduction): INVENTORY
+   * decrements Inventory.quantity (via inventoryId), ASSET decrements
+   * Asset.quantity (via assetId). Falls back to itemId when the typed FK is null
+   * (rows created before Phase 2 backfilled the FKs).
+   */
+  private async deductDocumentItemStock(
+    item: {
+      id: string;
+      itemId: string;
+      itemType: ItemType;
+      inventoryId: string | null;
+      assetId: string | null;
+      quantity: number | null;
+    },
+    documentId: string,
+    documentName: string | null,
+    organizationId: string,
+  ): Promise<boolean> {
+    const quantity = item.quantity || 0;
+    const inventoryId =
+      item.itemType === ItemType.INVENTORY ? item.inventoryId ?? item.itemId : null;
+    const assetId =
+      item.itemType === ItemType.ASSET ? item.assetId ?? item.itemId : null;
+
+    return this.prisma.$transaction(async (tx) => {
+      // Atomically claim the deduction. deductedAt:null guard ⇒ exactly-once.
+      const claim = await tx.documentItem.updateMany({
+        where: { id: item.id, deductedAt: null },
+        data: { deductedAt: new Date() },
+      });
+      if (claim.count === 0) return false; // already deducted — idempotent no-op
+      if (quantity <= 0) return true; // claimed; nothing to decrement
+
+      if (inventoryId) {
+        const inv = await tx.inventory.findUnique({
+          where: { id: inventoryId },
+          select: { quantity: true },
+        });
+        if (inv) {
+          const newQty = Math.max(0, (inv.quantity || 0) - quantity);
+          await tx.inventory.update({ where: { id: inventoryId }, data: { quantity: newQty } });
+          await tx.timelineItem.create({
+            data: {
+              message: `Stock deducted: ${quantity} units for Delivery Order ${documentName || documentId.substring(0, 8)}`,
+              inventoryId,
+              documentId,
+              pdfUrl: null,
+            },
+          });
+        }
+      } else if (assetId) {
+        const asset = await tx.asset.findUnique({
+          where: { id: assetId },
+          select: { quantity: true },
+        });
+        if (asset) {
+          const newQty = Math.max(0, (asset.quantity || 0) - quantity);
+          await tx.asset.update({ where: { id: assetId }, data: { quantity: newQty } });
+        }
+      }
+      return true;
+    });
+  }
+
+  /**
+   * Advance ONE scanned item through the per-item delivery lifecycle. Resolves
+   * the target DocumentItem on the DO from the scanned unit (inventoryId FK,
+   * else itemId for un-backfilled/asset-level rows). Duplicate-SKU tiebreak:
+   * among rows whose CURRENT status is the action's predecessor, pick the
+   * lowest lineNumber — i.e. the LEAST-advanced eligible copy — so repeated
+   * scans of the same SKU advance the copies one at a time.
+   *
+   *   start   not_delivered → delivering    (deliveringAt)
+   *   ack     delivering    → not_installed  (deliveredAt) + DEDUCT STOCK (3c)
+   *   install not_installed → completed      (completedAt) + completion gate
+   *   skip    not_installed → completed      (completedAt, installSkipped) + gate
+   */
+  async advanceDeliveryItem(
+    documentId: string,
+    inventoryId: string,
+    action: 'start' | 'ack' | 'install' | 'skip',
+    organizationId: string,
+  ) {
+    const document = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true, name: true },
+    });
+    if (!document) {
+      throw new HttpException('Delivery Order not found', HttpStatus.NOT_FOUND);
+    }
+
+    const predecessor: Record<typeof action, DeliveryStatus> = {
+      start: DeliveryStatus.not_delivered,
+      ack: DeliveryStatus.delivering,
+      install: DeliveryStatus.not_installed,
+      skip: DeliveryStatus.not_installed,
+    };
+
+    // Resolve the scanned unit's parent asset so we also match SKU-level DOs
+    // (DocumentItem rows can reference the specific Inventory unit OR the parent
+    // Asset — see getScanContext's itemFilter). Match: inventoryId FK, OR itemId
+    // == unit (un-backfilled INVENTORY rows), OR an ASSET row for the parent.
+    const unit = await this.prisma.inventory.findUnique({
+      where: { id: inventoryId },
+      select: { assetId: true },
+    });
+    const itemMatch: any[] = [{ inventoryId }, { itemId: inventoryId }];
+    if (unit?.assetId) itemMatch.push({ itemId: unit.assetId, itemType: ItemType.ASSET });
+
+    const rows = await this.prisma.documentItem.findMany({
+      where: { documentId, OR: itemMatch },
+    });
+    const target = rows
+      .filter((r) => r.deliveryStatus === predecessor[action])
+      .sort((a, b) => (a.lineNumber ?? 0) - (b.lineNumber ?? 0))[0];
+
+    if (!target) {
+      // Nothing eligible — already advanced past this step, or the scanned unit
+      // isn't on this DO. No-op (keeps repeated scans safe).
+      console.warn(
+        `advanceDeliveryItem: no eligible row for doc ${documentId}, unit ${inventoryId}, action ${action}`,
+      );
+      return null;
+    }
+
+    const now = new Date();
+    if (action === 'start') {
+      await this.prisma.documentItem.update({
+        where: { id: target.id },
+        data: { deliveryStatus: DeliveryStatus.delivering, deliveringAt: now },
+      });
+    } else if (action === 'ack') {
+      await this.prisma.documentItem.update({
+        where: { id: target.id },
+        data: { deliveryStatus: DeliveryStatus.not_installed, deliveredAt: now },
+      });
+      // Per-item deduction happens HERE (idempotent), not in a whole-DO loop.
+      await this.deductDocumentItemStock(target, documentId, document.name, organizationId);
+    } else if (action === 'install') {
+      await this.prisma.documentItem.update({
+        where: { id: target.id },
+        data: { deliveryStatus: DeliveryStatus.completed, completedAt: now },
+      });
+      await this.maybeCompleteDeliveryOrderAndInvoice(documentId, organizationId);
+    } else if (action === 'skip') {
+      await this.prisma.documentItem.update({
+        where: { id: target.id },
+        data: { deliveryStatus: DeliveryStatus.completed, installSkipped: true, completedAt: now },
+      });
+      await this.maybeCompleteDeliveryOrderAndInvoice(documentId, organizationId);
+    }
+
+    return this.prisma.documentItem.findUnique({ where: { id: target.id } });
+  }
+
+  /**
+   * Completion gate (Phase 4a), DEADLOCK-SAFE. After any item reaches
+   * completed, check whether ALL DELIVERABLE items are completed. Service items
+   * (isService=true) are EXCLUDED from the gate (treated as auto-complete). A DO
+   * with no deliverable items (all-service) completes immediately. On
+   * satisfaction the DO is marked terminal and an invoice is fired (idempotent).
+   *
+   * NOTE: DocumentStatus has no `completed` value; `delivered_installed` is the
+   * terminal DO status (already written by the DO_INSTALL sign() path), so that
+   * is what "DO complete" maps to here.
+   *
+   * ONE-WAY: completion → invoice is never auto-unwound (reversal = manual
+   * credit note).
+   */
+  private async maybeCompleteDeliveryOrderAndInvoice(
+    documentId: string,
+    organizationId: string,
+  ) {
+    const items = await this.prisma.documentItem.findMany({
+      where: { documentId },
+      select: { isService: true, deliveryStatus: true },
+    });
+    const deliverable = items.filter((i) => !i.isService);
+    const allDone =
+      deliverable.length === 0 ||
+      deliverable.every((i) => i.deliveryStatus === DeliveryStatus.completed);
+    if (!allDone) return;
+
+    await this.prisma.document.update({
+      where: { id: documentId },
+      data: { status: DocumentStatus.delivered_installed },
+    });
+
+    await this.createInvoiceFromDeliveryOrder(documentId, organizationId);
+  }
+
+  /**
+   * Create an invoice from a completed DO (Phase 4c) — IDEMPOTENT.
+   * Idempotency guard: skip if an INVOICE already references this DO via
+   * config.sourceDocumentId (JSON path). Document has no sourceDocumentId column
+   * and no VOID status, so the existence of any such INVOICE means "already
+   * invoiced". The new invoice carries config.sourceDocumentId = DO.id so both
+   * the guard and the DO↔invoice link work.
+   */
+  async createInvoiceFromDeliveryOrder(documentId: string, organizationId: string) {
+    const existing = await this.prisma.document.findFirst({
+      where: {
+        organizationId,
+        type: 'INVOICE',
+        config: { path: ['sourceDocumentId'], equals: documentId },
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      console.log(`🧾 DO→INVOICE: invoice ${existing.id} already exists for DO ${documentId}; skipping.`);
+      return existing;
+    }
+
+    const doDoc = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+    });
+    if (!doDoc) {
+      throw new HttpException('Delivery Order not found', HttpStatus.NOT_FOUND);
+    }
+    const doConfig: any = doDoc.config || {};
+
+    const templateId = await this.resolveTemplateIdForType('INVOICE', organizationId);
+
+    // Carry the DO config forward (items/customer/etc.), stamp the source link
+    // + a fresh date. config.items remains the source of truth downstream.
+    const invoiceConfig = {
+      ...doConfig,
+      date: new Date().toISOString(),
+      sourceDocumentId: documentId,
+      sourceDocumentNumber: doDoc.name ?? undefined,
+      sourceDocumentType: 'DELIVERY_ORDER',
+    };
+
+    const invoice = await this.createBasicDocument(
+      templateId,
+      'INVOICE',
+      organizationId,
+      invoiceConfig,
+      doDoc.projectId ?? undefined,
+    );
+    console.log(`🧾 DO→INVOICE: created invoice ${invoice.id} from DO ${documentId}`);
+    return invoice;
+  }
+
+  /**
+   * Resolve exactly ONE template id for a type, mirroring createFromExtraction's
+   * priority: active selection (primary → isDefault → newest among selected),
+   * else the cross-org default / org's own default-active-newest.
+   */
+  private async resolveTemplateIdForType(type: string, organizationId: string): Promise<string> {
+    const selections = await this.prisma.organizationActiveTemplate.findMany({
+      where: { organizationId, type },
+    });
+    if (selections.length > 0) {
+      const primary = selections.find((s) => s.isPrimary);
+      if (primary) return primary.templateId;
+      const sel = await this.prisma.documentTemplate.findFirst({
+        where: { id: { in: selections.map((s) => s.templateId) } },
+        select: { id: true },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+      });
+      return sel?.id ?? selections[0].templateId;
+    }
+    const tmpl = await this.prisma.documentTemplate.findFirst({
+      where: { OR: [{ type, isDefault: true }, { type, organizationId }] },
+      select: { id: true },
+      orderBy: [{ isDefault: 'desc' }, { isActive: 'desc' }, { createdAt: 'desc' }],
+    });
+    if (!tmpl) {
+      throw new HttpException(`No document template found for type ${type}`, HttpStatus.NOT_FOUND);
+    }
+    return tmpl.id;
+  }
+
+  /**
+   * Office BULK-COMPLETE (Phase 4b) — required for non-taggable items the field
+   * can't scan. Marks every deliverable item on the DO → completed, deducting
+   * each via the SAME idempotent per-item path (deductedAt guards double-deduct
+   * for items already scanned). Service items are skipped. Then the completion
+   * gate fires → DO completes → invoice.
+   */
+  async bulkCompleteDeliveryOrder(documentId: string, organizationId: string) {
+    const document = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true, name: true, type: true },
+    });
+    if (!document) {
+      throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+    }
+    if (document.type !== 'DO' && document.type !== 'DELIVERY_ORDER') {
+      throw new HttpException('This endpoint is only for Delivery Orders', HttpStatus.BAD_REQUEST);
+    }
+
+    const items = await this.prisma.documentItem.findMany({ where: { documentId } });
+    let deductedCount = 0;
+    for (const item of items) {
+      if (item.isService) continue; // services aren't delivered/deducted
+      const didDeduct = await this.deductDocumentItemStock(
+        item,
+        documentId,
+        document.name,
+        organizationId,
+      );
+      if (didDeduct) deductedCount++;
+      if (item.deliveryStatus !== DeliveryStatus.completed) {
+        await this.prisma.documentItem.update({
+          where: { id: item.id },
+          data: { deliveryStatus: DeliveryStatus.completed, completedAt: new Date() },
+        });
+      }
+    }
+
+    await this.maybeCompleteDeliveryOrderAndInvoice(documentId, organizationId);
+
+    return {
+      success: true,
+      message: 'Delivery Order bulk-completed',
+      itemCount: items.length,
+      deductedCount,
+    };
+  }
+
   /**
    * Confirm a Delivery Order and always deduct stock
    * DO confirmation always triggers stock deduction
@@ -2604,73 +2938,19 @@ export class DocumentsService {
       const items = config?.items || [];
       console.log('📦 DO CONFIRM: Processing', items.length, 'items');
 
-      // Always deduct stock when DO is confirmed
-      console.log('📦 DO CONFIRM: Deducting stock');
+      // Always deduct stock when DO is confirmed — but via the SHARED idempotent
+      // per-item path (the same function used by per-item DO_ACK scans and
+      // bulk-complete). deductedAt guards against double-deduction, so confirming
+      // a DO whose items were already (partly) scanned won't deduct twice.
+      console.log('📦 DO CONFIRM: Deducting stock (idempotent per-item)');
 
-        await Promise.all(
-          items.map(async (item: any) => {
-            if (!item.inventoryItemId) {
-              console.warn('⚠️ DO CONFIRM: Item missing inventoryItemId, skipping');
-              return;
-            }
+      const docItems = await this.prisma.documentItem.findMany({ where: { documentId } });
+      for (const item of docItems) {
+        if (item.isService) continue; // services aren't delivered/deducted
+        await this.deductDocumentItemStock(item, documentId, document.name, organizationId);
+      }
 
-            const quantity = parseFloat(item.quantity) || 0;
-            if (quantity <= 0) {
-              console.warn('⚠️ DO CONFIRM: Item has no quantity, skipping:', item.inventoryItemId);
-              return;
-            }
-
-            // Try to find in Inventory table first (Asset Tracking Mode ON)
-            let inventory = await this.prisma.inventory.findUnique({
-              where: { id: item.inventoryItemId },
-            });
-
-            if (inventory) {
-              // Deduct from inventory quantity
-              const currentQty = inventory.quantity || 0;
-              const newQty = Math.max(0, currentQty - quantity); // Don't go below 0
-
-              await this.prisma.inventory.update({
-                where: { id: item.inventoryItemId },
-                data: { quantity: newQty },
-              });
-
-              console.log(`✅ DO CONFIRM: Updated inventory ${item.inventoryItemId}: ${currentQty} - ${quantity} = ${newQty}`);
-
-              // Create timeline entry for the stock deduction
-              await this.prisma.timelineItem.create({
-                data: {
-                  message: `Stock deducted: ${quantity} units for Delivery Order ${document.name || documentId.substring(0, 8)}`,
-                  inventoryId: item.inventoryItemId,
-                  documentId: documentId,
-                  pdfUrl: null,
-                },
-              });
-            } else {
-              // Try to find in Asset table (Products Mode - Asset Tracking OFF)
-              const asset = await this.prisma.asset.findUnique({
-                where: { id: item.inventoryItemId },
-              });
-
-              if (asset) {
-                // Deduct from asset quantity
-                const currentQty = asset.quantity || 0;
-                const newQty = Math.max(0, currentQty - quantity); // Don't go below 0
-
-                await this.prisma.asset.update({
-                  where: { id: item.inventoryItemId },
-                  data: { quantity: newQty },
-                });
-
-                console.log(`✅ DO CONFIRM: Updated asset ${item.inventoryItemId}: ${currentQty} - ${quantity} = ${newQty}`);
-              } else {
-                console.warn('⚠️ DO CONFIRM: Neither inventory nor asset found:', item.inventoryItemId);
-              }
-            }
-          })
-        );
-
-        console.log('✅ DO CONFIRM: Stock deduction completed');
+      console.log('✅ DO CONFIRM: Stock deduction completed');
 
       // Update document with confirmation data and set status to confirmed
       const updatedConfig = {

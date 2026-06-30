@@ -160,4 +160,19 @@ export class MaintenanceReportsController {
   getDoView(@Param('doId') doId: string, @UserOrganization() org: { id: string }) {
     return this.service.getDoView(doId, org.id);
   }
+
+  /**
+   * Field SKIP-INSTALL action (Phase 3b). The tech skips installation for the
+   * scanned unit on a DO: the matching item jumps from not_installed → completed
+   * (installSkipped=true) and the DO completion gate may fire.
+   */
+  @Post('do-skip-install/:doId')
+  @Permissions('field-scan:access')
+  skipDeliveryInstall(
+    @Param('doId') doId: string,
+    @Body() body: { inventoryId: string },
+    @UserOrganization() org: { id: string },
+  ) {
+    return this.service.skipDeliveryInstall(doId, body.inventoryId, org.id);
+  }
 }

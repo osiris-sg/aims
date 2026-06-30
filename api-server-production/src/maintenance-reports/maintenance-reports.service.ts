@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, MaintenanceReportKind, DeliveryStatus } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
 import { WaterSgService } from 'src/common/services/water-sg.service';
@@ -69,7 +69,12 @@ export class MaintenanceReportsService {
     // Non-revamped flows (DO_START, DO_ACK, legacy SERVICE) skip the
     // sequential numbering entirely.
     if (!isRevampedServiceSubmission) {
-      return this.prisma.maintenanceServiceReport.create({ data: baseData });
+      const created = await this.prisma.maintenanceServiceReport.create({ data: baseData });
+      // Per-item DO delivery transition (Phase 3): DO_START → delivering; an
+      // inline-signed DO_ACK/DO_INSTALL (signature in the create payload) →
+      // ack/install. An UNSIGNED DO_ACK/DO_INSTALL transitions later in sign().
+      await this.applyDeliveryItemTransition(created, organizationId);
+      return created;
     }
 
     // Sequential per-org report number. Race protection: unique index on
@@ -330,6 +335,11 @@ export class MaintenanceReportsService {
       }
     }
 
+    // Per-item DO delivery transition (Phase 3): a signed DO_ACK deducts stock
+    // + moves the item to not_installed; a signed DO_INSTALL completes it (and
+    // may trip the completion gate → invoice). Awaited but non-fatal.
+    await this.applyDeliveryItemTransition(updated, organizationId);
+
     // Fire-and-forget: a signed DO_ACK may create a matching site in water-sg.
     // Never blocks or fails the signature — forwardAckToWaterSg swallows every
     // error internally; the extra .catch is belt-and-suspenders against escape.
@@ -341,6 +351,72 @@ export class MaintenanceReportsService {
     );
 
     return updated;
+  }
+
+  /**
+   * Bridge a DO field report to the per-item delivery state machine in
+   * documents.service. DO_START → 'start' (delivering, fired at creation); a
+   * COMPLETED DO_ACK → 'ack' (deduct stock + not_installed); a COMPLETED
+   * DO_INSTALL → 'install' (completed + completion gate). Requires both
+   * documentId + inventoryId (the scanned unit). Errors are logged, never
+   * thrown — the report write must not roll back on a downstream transition
+   * failure.
+   */
+  private async applyDeliveryItemTransition(
+    report: {
+      id: string;
+      kind: MaintenanceReportKind;
+      status: string;
+      documentId: string | null;
+      inventoryId: string | null;
+    },
+    organizationId: string,
+  ): Promise<void> {
+    if (!report.documentId || !report.inventoryId) return;
+    try {
+      if (report.kind === 'DO_START') {
+        await this.documentsService.advanceDeliveryItem(
+          report.documentId,
+          report.inventoryId,
+          'start',
+          organizationId,
+        );
+      } else if (report.kind === 'DO_ACK' && report.status === 'completed') {
+        await this.documentsService.advanceDeliveryItem(
+          report.documentId,
+          report.inventoryId,
+          'ack',
+          organizationId,
+        );
+      } else if (report.kind === 'DO_INSTALL' && report.status === 'completed') {
+        await this.documentsService.advanceDeliveryItem(
+          report.documentId,
+          report.inventoryId,
+          'install',
+          organizationId,
+        );
+      }
+    } catch (err: any) {
+      this.logger.error(
+        `Per-item delivery transition failed for report ${report.id} (kind=${report.kind}): ${err?.message}`,
+        err?.stack,
+      );
+    }
+  }
+
+  /**
+   * Field SKIP-INSTALL action (Phase 3b): the tech marks the scanned unit's
+   * installation as skipped — the item goes straight to completed
+   * (installSkipped=true) and the completion gate may fire. Delegates to the
+   * same per-item state machine as the scan transitions.
+   */
+  async skipDeliveryInstall(documentId: string, inventoryId: string, organizationId: string) {
+    return this.documentsService.advanceDeliveryItem(
+      documentId,
+      inventoryId,
+      'skip',
+      organizationId,
+    );
   }
 
   /**
@@ -713,6 +789,40 @@ export class MaintenanceReportsService {
       canStartDelivery || canAckDelivery ? resolvedDeliveryOrder : null;
     const installableDeliveryOrder = canAckInstall ? resolvedDeliveryOrder : null;
 
+    // Per-item delivery state (Phase 3d). The resolved DO's DocumentItems for
+    // the scanned unit (same itemFilter as the DO lock), each with its current
+    // deliveryStatus + the actions available from that status. The scan picks
+    // WHICH item by the scanned tag → inventoryId/itemId. Additive — the legacy
+    // DO-level booleans above are preserved for the not-yet-migrated chooser.
+    let deliveryItems: Array<{
+      id: string;
+      lineNumber: number | null;
+      sku: string | null;
+      description: string | null;
+      deliveryStatus: DeliveryStatus;
+      canStart: boolean;
+      canAck: boolean;
+      canInstall: boolean;
+      canSkip: boolean;
+    }> = [];
+    if (resolvedDeliveryOrder) {
+      const doItems = await this.prisma.documentItem.findMany({
+        where: { documentId: resolvedDeliveryOrder.id, ...itemFilter },
+        orderBy: { lineNumber: 'asc' },
+      });
+      deliveryItems = doItems.map((it) => ({
+        id: it.id,
+        lineNumber: it.lineNumber,
+        sku: it.sku,
+        description: it.description,
+        deliveryStatus: it.deliveryStatus,
+        canStart: it.deliveryStatus === DeliveryStatus.not_delivered,
+        canAck: it.deliveryStatus === DeliveryStatus.delivering,
+        canInstall: it.deliveryStatus === DeliveryStatus.not_installed,
+        canSkip: it.deliveryStatus === DeliveryStatus.not_installed,
+      }));
+    }
+
     const recentReports = await this.prisma.maintenanceServiceReport.findMany({
       where: { assetId, organizationId },
       orderBy: { createdAt: 'desc' },
@@ -724,6 +834,8 @@ export class MaintenanceReportsService {
       inventory,
       resolvedDeliveryOrder,
       deliveryStage,
+      // Per-item delivery rows for the scanned unit (Phase 3d).
+      deliveryItems,
       latestDeliveryOrder,
       canStartDelivery,
       canAckDelivery,
