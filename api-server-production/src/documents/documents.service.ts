@@ -2290,17 +2290,21 @@ export class DocumentsService {
         throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
       }
 
-      // 2. Validate it's an invoice
+      // 2. Validate it's an invoice or a quotation. Quotations reuse the same
+      // Resend + PDF pipeline; only the guards differ (see below).
       const invoiceTypes = ['INVOICE', 'TI', 'TI2'];
-      if (!invoiceTypes.includes(document.type)) {
+      const quotationTypes = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'];
+      const isQuotation = quotationTypes.includes(document.type);
+      if (!invoiceTypes.includes(document.type) && !isQuotation) {
         throw new HttpException(
-          'Only invoices can be sent via email',
+          'Only invoices or quotations can be sent via email',
           HttpStatus.BAD_REQUEST,
         );
       }
 
-      // 3. Validate status is 'confirmed'
-      if (document.status !== 'confirmed') {
+      // 3. Validate status is 'confirmed' — invoices only. Quotations can be
+      // emailed at any status (no confirm step is required to send a quote).
+      if (!isQuotation && document.status !== 'confirmed') {
         throw new HttpException(
           'Only confirmed invoices can be sent. Please confirm the invoice first.',
           HttpStatus.BAD_REQUEST,
@@ -2397,19 +2401,23 @@ export class DocumentsService {
         );
       }
 
-      // 7. Update document status to 'pending_payment' (email has been sent)
-      await this.prisma.document.update({
-        where: {
-          id: documentId,
-        },
-        data: {
-          status: DocumentStatus.pending_payment,
-        },
-      });
+      // 7. Update document status to 'pending_payment' (email has been sent).
+      // Invoices only — quotations have no such status, so their status is
+      // left untouched after sending.
+      if (!isQuotation) {
+        await this.prisma.document.update({
+          where: {
+            id: documentId,
+          },
+          data: {
+            status: DocumentStatus.pending_payment,
+          },
+        });
+      }
 
       return {
         success: true,
-        message: 'Invoice email sent successfully',
+        message: `${isQuotation ? 'Quotation' : 'Invoice'} email sent successfully`,
         messageId: emailResult.messageId,
       };
     } catch (error) {

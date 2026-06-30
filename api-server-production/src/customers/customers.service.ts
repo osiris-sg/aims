@@ -1,5 +1,5 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { CreateCustomerDto } from './dto/create-customer.dto';
+import { CreateCustomerDto, CustomerContactDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { GetCustomerDto } from './dto/get-customer.dto';
 import { DeleteCustomerDto } from './dto/delete-customer.dto';
@@ -220,6 +220,40 @@ export class CustomersService {
         include: { contacts: { orderBy: { createdAt: 'asc' } } },
       });
     } catch (error) {
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  // Create a single Point-of-Contact for an existing customer (additive).
+  // Tenant-guarded: the customer must belong to the caller's organization.
+  async createCustomerContact(
+    customerId: string,
+    dto: CustomerContactDto,
+    organizationId: string,
+  ) {
+    try {
+      const customer = await this.prisma.customer.findFirst({
+        where: { id: customerId, organizationId },
+        select: { id: true },
+      });
+      if (!customer) {
+        throw new HttpException('Customer not found', HttpStatus.NOT_FOUND);
+      }
+      if (!dto.name || dto.name.trim() === '') {
+        throw new HttpException('Contact name is required', HttpStatus.BAD_REQUEST);
+      }
+      return await this.prisma.customerContact.create({
+        data: {
+          name: dto.name,
+          phone: dto.phone ?? null,
+          email: dto.email ?? null,
+          designation: dto.designation ?? null,
+          isPrimary: !!dto.isPrimary,
+          customerId,
+        },
+      });
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }

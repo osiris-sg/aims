@@ -2664,7 +2664,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   {data.billTo || data.customer?.address || data.customerAddress || ""}
                 </Typography>
                 <InfoRow label="Attention" value={data.attention?.name} minWidth="90px" fontSize="0.875rem" />
-                <InfoRow label="Mobile" value={data.attention?.phoneNumber} minWidth="90px" fontSize="0.875rem" />
+                <InfoRow label="Mobile" value={data.attention?.phoneNumber || data.attention?.phone || data.contactNumber} minWidth="90px" fontSize="0.875rem" />
                 <InfoRow label="Email" value={data.attention?.email} minWidth="90px" fontSize="0.875rem" />
               </Box>
 
@@ -3114,8 +3114,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   {/* Customer signature / company chop space */}
                   <Box sx={{ height: 72, borderBottom: "1px solid #000", mb: 0.5 }} />
                   <Typography sx={{ fontSize: "0.8125rem" }}>Company Chop &amp; Authorized Signature</Typography>
-                  <Typography sx={{ fontSize: "0.8125rem", mt: 1 }}>Contact Personnel : </Typography>
-                  <Typography sx={{ fontSize: "0.8125rem" }}>Contact No. : </Typography>
+                  <Typography sx={{ fontSize: "0.8125rem", mt: 1 }}>Contact Personnel : {data.attention?.name || data.documentInfo?.contact || ""}</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem" }}>Contact No. : {data.attention?.phoneNumber || data.attention?.phone || ""}</Typography>
                 </Box>
               </Box>
 

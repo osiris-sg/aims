@@ -2910,9 +2910,10 @@ export default function TabbedDocumentCreator({
               Confirm Document
             </Button>
           )}
-          {/* Send Email button for invoices (draft or confirmed, not pending_payment) */}
+          {/* Send Email button for invoices (draft or confirmed, not
+              pending_payment) and quotations (any status — no confirm step). */}
           {documentStatus !== "pending_payment" &&
-           (documentType === "TI" || documentType === "TI2" || documentType === "INVOICE") && (
+           (documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || isQuotation) && (
             <Button
               size="small"
               variant="contained"
@@ -5034,7 +5035,7 @@ export default function TabbedDocumentCreator({
       />
 
       {/* Send Email Dialog */}
-      {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE") && (
+      {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || isQuotation) && (
         <SendInvoiceEmailDialog
           open={sendEmailDialogOpen}
           onClose={() => setSendEmailDialogOpen(false)}
@@ -5053,7 +5054,9 @@ export default function TabbedDocumentCreator({
           customer={{
             id: formData.customer?.id || "",
             name: formData.customer?.name || "",
-            email: formData.customer?.email || ""
+            // Recipient default: the picked contact's email (attention.email)
+            // first, then the customer's own email as fallback.
+            email: (formData as any).attention?.email || formData.customer?.email || ""
           }}
         />
       )}

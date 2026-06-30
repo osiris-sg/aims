@@ -15,8 +15,16 @@ import {
   Typography,
   InputAdornment,
   IconButton,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import { Search as SearchIcon } from '@mui/icons-material';
+import { useAuth } from '@clerk/nextjs';
+import { request } from '@/helpers/request';
+import { toast } from 'react-toastify';
 import { FieldDefinition } from '../types/templateFieldTypes';
 
 // Salesman interface
@@ -88,6 +96,81 @@ function CustomerCodeField({
       setCustomerCodeInput(val);
     }
   }, [selectedCustomer?.customerCode, formData, fieldName, storeMode]);
+
+  // ── Points-of-Contact (POC): auto-fill + inline create ──────────────────
+  const { getToken } = useAuth();
+
+  // Optimistically-added contacts (post-save), keyed by customer id, merged
+  // with the server-provided list so a freshly created POC shows immediately
+  // in the dropdown without a full customer refetch.
+  const [localContacts, setLocalContacts] = React.useState<Record<string, any[]>>({});
+  const effectiveContacts: any[] = [
+    ...(Array.isArray(selectedCustomer?.contacts) ? selectedCustomer.contacts : []),
+    ...((selectedCustomer && localContacts[selectedCustomer.id]) || []),
+  ];
+
+  // Picking (or creating) a POC fills documentInfo.contact (name - phone) AND
+  // the header/footer attention fields. ⚠️ The model field is `phone`; the
+  // form field is `attention.phoneNumber` — map across the name mismatch here.
+  const fillAttentionFromPoc = (poc: any) => {
+    let next = setNestedVal(formData, 'documentInfo.contact', contactLabel(poc));
+    next = setNestedVal(next, 'attention.name', poc?.name ?? '');
+    next = setNestedVal(next, 'attention.phoneNumber', poc?.phone ?? '');
+    next = setNestedVal(next, 'attention.email', poc?.email ?? '');
+    setFormData(next);
+  };
+
+  // Inline "+ Add contact" dialog state.
+  const emptyContact = { name: '', phone: '', email: '', designation: '' };
+  const [contactDialogOpen, setContactDialogOpen] = React.useState(false);
+  const [savingContact, setSavingContact] = React.useState(false);
+  const [newContact, setNewContact] = React.useState(emptyContact);
+
+  const handleSaveContact = async () => {
+    if (!selectedCustomer?.id) {
+      toast.error('Select a customer first');
+      return;
+    }
+    if (!newContact.name.trim()) {
+      toast.error('Contact name is required');
+      return;
+    }
+    setSavingContact(true);
+    try {
+      const token = await getToken();
+      const res = await request(
+        { path: `/customers/${selectedCustomer.id}/contacts`, method: 'POST' },
+        {
+          name: newContact.name.trim(),
+          phone: newContact.phone.trim() || null,
+          email: newContact.email.trim() || null,
+          designation: newContact.designation.trim() || null,
+        },
+        token || undefined,
+      );
+      if (res?.success === false) {
+        throw new Error(res.message || 'Failed to add contact');
+      }
+      // Endpoint returns the created CustomerContact directly (with id).
+      const created = res?.id ? res : res?.data;
+      if (!created?.id) {
+        throw new Error('Failed to add contact');
+      }
+      // Persisted → show in dropdown (optimistic) + auto-fill immediately.
+      setLocalContacts((prev) => ({
+        ...prev,
+        [selectedCustomer.id]: [...(prev[selectedCustomer.id] || []), created],
+      }));
+      fillAttentionFromPoc(created);
+      toast.success('Contact added');
+      setContactDialogOpen(false);
+      setNewContact(emptyContact);
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to add contact');
+    } finally {
+      setSavingContact(false);
+    }
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -164,38 +247,111 @@ function CustomerCodeField({
           {selectedCustomer.name}
         </Typography>
       )}
-      {/* Points-of-Contact ("Attn To") dropdown — appears when the selected
-          customer has POCs. Picking one fills the document's Contact field
-          (documentInfo.contact) with the POC's name + phone number. */}
-      {storeMode === 'object' && Array.isArray(selectedCustomer?.contacts) && selectedCustomer.contacts.length > 0 && (
-        <FormControl size="small" sx={{ minWidth: 150 }}>
-          <Select
-            displayEmpty
-            value={
-              selectedCustomer.contacts.find(
-                (c: any) => contactLabel(c) === getNestedVal(formData, 'documentInfo.contact'),
-              )?.id || ''
-            }
-            onChange={(e) => {
-              const poc = selectedCustomer.contacts.find((c: any) => c.id === e.target.value);
-              if (!poc) return;
-              setFormData(setNestedVal(formData, 'documentInfo.contact', contactLabel(poc)));
-            }}
-            sx={{ ...inputSx, fontSize: '0.75rem' }}
-            renderValue={(val) => {
-              const poc = selectedCustomer.contacts.find((c: any) => c.id === val);
-              return poc ? poc.name : <span style={{ color: '#9e9e9e' }}>Attn To…</span>;
-            }}
+      {/* Points-of-Contact ("Attn To") dropdown + inline "+ Add contact".
+          Picking or creating a POC fills documentInfo.contact (name - phone)
+          AND the attention.{name,phoneNumber,email} header/footer fields. The
+          dropdown only renders when the customer has POCs; the typed attention
+          fields remain the fallback (and manual override) for the no-contact
+          case. The "+ Add contact" button shows whenever a customer is
+          selected so the first POC can be created inline. */}
+      {storeMode === 'object' && selectedCustomer && (
+        <>
+          {effectiveContacts.length > 0 && (
+            <FormControl size="small" sx={{ minWidth: 150 }}>
+              <Select
+                displayEmpty
+                value={
+                  effectiveContacts.find(
+                    (c: any) => contactLabel(c) === getNestedVal(formData, 'documentInfo.contact'),
+                  )?.id || ''
+                }
+                onChange={(e) => {
+                  const poc = effectiveContacts.find((c: any) => c.id === e.target.value);
+                  if (!poc) return;
+                  fillAttentionFromPoc(poc);
+                }}
+                sx={{ ...inputSx, fontSize: '0.75rem' }}
+                renderValue={(val) => {
+                  const poc = effectiveContacts.find((c: any) => c.id === val);
+                  return poc ? poc.name : <span style={{ color: '#9e9e9e' }}>Attn To…</span>;
+                }}
+              >
+                {effectiveContacts.map((c: any) => (
+                  <MenuItem key={c.id} value={c.id} sx={{ fontSize: '0.8rem' }}>
+                    {c.name}
+                    {c.designation ? ` — ${c.designation}` : ''}
+                    {c.phone ? ` (${c.phone})` : ''}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+
+          <Button
+            size="small"
+            onClick={() => setContactDialogOpen(true)}
+            sx={{ fontSize: '0.7rem', textTransform: 'none', minWidth: 'auto', px: 0.75, whiteSpace: 'nowrap' }}
           >
-            {selectedCustomer.contacts.map((c: any) => (
-              <MenuItem key={c.id} value={c.id} sx={{ fontSize: '0.8rem' }}>
-                {c.name}
-                {c.designation ? ` — ${c.designation}` : ''}
-                {c.phone ? ` (${c.phone})` : ''}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+            + Add contact
+          </Button>
+
+          <Dialog
+            open={contactDialogOpen}
+            onClose={() => !savingContact && setContactDialogOpen(false)}
+            maxWidth="xs"
+            fullWidth
+          >
+            <DialogTitle sx={{ fontSize: '1rem' }}>
+              Add contact{selectedCustomer?.name ? ` — ${selectedCustomer.name}` : ''}
+            </DialogTitle>
+            <DialogContent>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+                <TextField
+                  label="Name"
+                  required
+                  size="small"
+                  value={newContact.name}
+                  onChange={(e) => setNewContact({ ...newContact, name: e.target.value })}
+                  autoFocus
+                  fullWidth
+                />
+                <TextField
+                  label="Phone"
+                  size="small"
+                  value={newContact.phone}
+                  onChange={(e) => setNewContact({ ...newContact, phone: e.target.value })}
+                  fullWidth
+                />
+                <TextField
+                  label="Email"
+                  size="small"
+                  value={newContact.email}
+                  onChange={(e) => setNewContact({ ...newContact, email: e.target.value })}
+                  fullWidth
+                />
+                <TextField
+                  label="Designation"
+                  size="small"
+                  value={newContact.designation}
+                  onChange={(e) => setNewContact({ ...newContact, designation: e.target.value })}
+                  fullWidth
+                />
+              </Box>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setContactDialogOpen(false)} disabled={savingContact}>
+                Cancel
+              </Button>
+              <Button
+                variant="contained"
+                onClick={handleSaveContact}
+                disabled={savingContact || !newContact.name.trim()}
+              >
+                {savingContact ? 'Saving…' : 'Save'}
+              </Button>
+            </DialogActions>
+          </Dialog>
+        </>
       )}
     </Box>
   );

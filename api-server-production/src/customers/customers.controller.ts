@@ -1,6 +1,6 @@
 import { Controller, Post, Body, Delete, Put, Get, Param, Req, UseGuards } from '@nestjs/common';
 import { CustomersService } from './customers.service';
-import { CreateCustomerDto } from './dto/create-customer.dto';
+import { CreateCustomerDto, CustomerContactDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { GetCustomerDto } from './dto/get-customer.dto';
 import { DeleteCustomerDto } from './dto/delete-customer.dto';
@@ -82,6 +82,23 @@ export class CustomersController {
       throw new Error('User is not assigned to any organization');
     }
     return await this.customersService.deleteCustomers(deleteCustomerDto, organizationId);
+  }
+
+  // Create a single Point-of-Contact for an existing customer. Backs the
+  // inline "+ Add contact" flow on the quotation editor — additive, unlike
+  // the wholesale replace-on-update in updateCustomers.
+  @Post(':customerId/contacts')
+  @Permissions('customers:update')
+  async createCustomerContact(
+    @Param('customerId') customerId: string,
+    @Body() dto: CustomerContactDto,
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.customersService.createCustomerContact(customerId, dto, organizationId);
   }
 
   @Get(':customerId/site-offices')
