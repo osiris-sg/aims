@@ -197,7 +197,7 @@ function CustomerCodeField({
   };
 
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', flex: 1, gap: 1 }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', flex: 1, gap: 1 }}>
       <TextField
         value={selectedCustomer ? (selectedCustomer.customerCode || '') : customerCodeInput}
         onChange={(e) => {
@@ -294,6 +294,35 @@ function CustomerCodeField({
           >
             + Add contact
           </Button>
+
+          {/* Editable contact (Attention) — populated once by the POC dropdown /
+              inline-create above (fillAttentionFromPoc), then freely editable
+              per-quote. Bound to formData.attention.*; saved to doc.config.attention
+              only — editing here never writes back to the CustomerContact/customer
+              record (setFormData only mutates form/document state). */}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, width: '100%', mt: 0.25 }}>
+            <TextField
+              label="Contact Person"
+              size="small"
+              value={getNestedVal(formData, 'attention.name') || ''}
+              onChange={(e) => setFormData(setNestedVal(formData, 'attention.name', e.target.value))}
+              sx={{ ...inputSx, flex: 1, minWidth: 140 }}
+            />
+            <TextField
+              label="Contact No."
+              size="small"
+              value={getNestedVal(formData, 'attention.phoneNumber') || ''}
+              onChange={(e) => setFormData(setNestedVal(formData, 'attention.phoneNumber', e.target.value))}
+              sx={{ ...inputSx, flex: 1, minWidth: 120 }}
+            />
+            <TextField
+              label="Email"
+              size="small"
+              value={getNestedVal(formData, 'attention.email') || ''}
+              onChange={(e) => setFormData(setNestedVal(formData, 'attention.email', e.target.value))}
+              sx={{ ...inputSx, flex: 1, minWidth: 160 }}
+            />
+          </Box>
 
           <Dialog
             open={contactDialogOpen}

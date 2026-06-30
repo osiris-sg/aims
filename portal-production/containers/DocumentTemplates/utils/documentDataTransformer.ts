@@ -55,6 +55,9 @@ export function transformFormDataForBackend(
     result.customerName = formData.customer.name || '';
     result.customerCode = formData.customer.customerCode || '';
     result.customerAddress = formData.customer.address || '';
+    // Persist the customer email too — the round-trip previously had no path for
+    // it, so it was lost on save (and blank on the next load).
+    result.customerEmail = formData.customer.email || '';
   }
 
   // Handle items array - ensure we get the items from the formData
@@ -140,6 +143,26 @@ export function transformFormDataForBackend(
     }
   });
 
+  // Persist the editable contact / "Attn To" fields (formData.attention) so they
+  // survive REGARDLESS of template field-defs. QO has no deliveryAddress.attention
+  // field-def, so without this the contact (name/phoneNumber/email) is dropped.
+  // For DO/RDO the deliveryAddress field-def block above already populated
+  // result.attention — spread that LAST so delivery-address behaviour is unchanged
+  // (it wins for name/phoneNumber); the contact only fills otherwise-empty gaps.
+  if (formData.attention && typeof formData.attention === 'object') {
+    result.attention = {
+      name: formData.attention.name ?? '',
+      phoneNumber: formData.attention.phoneNumber ?? '',
+      email: formData.attention.email ?? '',
+      ...(result.attention || {}),
+    };
+  }
+
+  // Persist the contact display string (documentInfo.contact) from the POC dropdown.
+  if (formData.documentInfo?.contact !== undefined) {
+    result.contact = formData.documentInfo.contact;
+  }
+
   // Handle GST registration number
   result.gstRegNo = formData.company?.gstRegNo || organization?.registrationNumber || '';
 
@@ -214,6 +237,22 @@ export function transformBackendDataForForm(
     result.deliveryAddress.address = backendData.deliveryTo;
   }
 
+  // Rehydrate the editable contact / "Attn To" fields (formData.attention) from
+  // config.attention so the contact inputs repopulate on reload (normalise to the
+  // {name,phoneNumber,email} shape the inputs read).
+  if (backendData.attention && typeof backendData.attention === 'object') {
+    result.attention = {
+      name: backendData.attention.name || '',
+      phoneNumber: backendData.attention.phoneNumber || '',
+      email: backendData.attention.email || '',
+    };
+  }
+
+  // Rehydrate the contact display string (documentInfo.contact) if saved.
+  if (backendData.contact !== undefined || backendData.documentInfo?.contact !== undefined) {
+    result.documentInfo.contact = backendData.contact ?? backendData.documentInfo?.contact ?? '';
+  }
+
   // Ensure documentInfo has documentNumber from name field
   if (backendData.name) {
     result.documentInfo.documentNumber = backendData.name;
@@ -228,6 +267,7 @@ export function transformBackendDataForForm(
       name: backendData.customerName || '',
       customerCode: backendData.customerCode || '',
       address: backendData.customerAddress || '',
+      email: backendData.customerEmail || '',
     };
     console.log('Reconstructed customer object:', result.customer);
   }
