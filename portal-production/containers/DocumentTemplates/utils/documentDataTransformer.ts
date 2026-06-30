@@ -134,7 +134,12 @@ export function transformFormDataForBackend(
     // DO confirmation fields
     'fromDONo', 'toDONo',
     // Delivery Order specific fields
-    'issueBy', 'issuedBy', 'receivedBy', 'checkedBy', 'approvedBy'
+    'issueBy', 'issuedBy', 'receivedBy', 'checkedBy', 'approvedBy',
+    // Quotation header salesperson contact (Biofuel editable Sale person /
+    // Mobile). Emitted from formData regardless of template field-defs so they
+    // round-trip (same additive pattern as the attention/contact fix); on load
+    // transformBackendDataForForm spreads them back via `...backendData`.
+    'salesPerson', 'salesMobile'
   ];
 
   flatFields.forEach(field => {

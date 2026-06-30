@@ -2636,29 +2636,30 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         {isBiofuelQuotation ? (
           /* ===== Biofuel quotation header (dedicated; isolated from osiris QO1 / Cappitech QF) ===== */
           <>
-            {/* Biofuel logo — base64 data URI (biofuelAssets) so it renders in
-                BOTH browser-print and the puppeteer PDF. Very top-left, above
-                the company block. width:auto keeps the PNG's aspect ratio. */}
-            <Box
-              component="img"
-              src={BIOFUEL_LOGO_DATA_URI}
-              alt="Biofuel logo"
-              sx={{ width: 120, height: "auto", objectFit: "contain", display: "block", mb: 1 }}
-            />
-            {/* Company — TOP-LEFT */}
-            <Box sx={{ textAlign: "left", mb: 2 }}>
-              <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
-                {data.company?.name || organization?.name || ""}
-              </Typography>
-              <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
-                {data.company?.address || organization?.address || ""}
-              </Typography>
-              <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
-                Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
-              </Typography>
-              <Typography sx={{ fontSize: "0.8125rem" }}>
-                GST Reg No: {data.company?.gstRegNo || organization?.registrationNumber || ""}
-              </Typography>
+            {/* Header top row: company details (LEFT) + logo (top-RIGHT). The
+                logo is a base64 data URI (biofuelAssets) so it renders in BOTH
+                browser-print and the puppeteer PDF; width-driven (height auto,
+                objectFit contain) → small letterhead size, aspect preserved.
+                The redundant bold "Biofuel Industries Pte Ltd" name line is
+                intentionally omitted here — the logo carries the brand. */}
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 2 }}>
+              <Box sx={{ textAlign: "left" }}>
+                <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
+                  {data.company?.address || organization?.address || ""}
+                </Typography>
+                <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
+                  Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
+                </Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>
+                  GST Reg No: {data.company?.gstRegNo || organization?.registrationNumber || ""}
+                </Typography>
+              </Box>
+              <Box
+                component="img"
+                src={BIOFUEL_LOGO_DATA_URI}
+                alt="Biofuel logo"
+                sx={{ width: 120, height: "auto", objectFit: "contain", display: "block", flexShrink: 0, ml: 2 }}
+              />
             </Box>
 
             {/* Customer (To / Attention) + right-side quotation meta */}
@@ -2690,11 +2691,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   <InfoRow label="Validity Term" value={data.validityTerm || data.validityPeriod} minWidth="120px" fontSize="0.875rem" />
                   <InfoRow label="Currency" value={data.documentInfo?.currency || data.currency} minWidth="120px" fontSize="0.875rem" />
                   {/* Salesperson contact (NOT the customer's — that lives in the
-                      left Attention block). Mobile/Email come from the editor's
-                      "Sale person" fields: name="mobile" / name="salePersonEmail"
-                      (stored flat top-level; no salePersonMobile key exists). */}
-                  <InfoRow label="Sale person" value={data.documentInfo?.salesPerson || data.salesPerson} minWidth="120px" fontSize="0.875rem" />
-                  <InfoRow label="Mobile" value={data.mobile || data.documentInfo?.mobile} minWidth="120px" fontSize="0.875rem" />
+                      left Attention block). The per-quote editable Biofuel
+                      fields (formData.salesPerson / formData.salesMobile, default
+                      Eugene Lee / 9818 9200) are authoritative here, falling back
+                      to the salesman-picker (documentInfo.salesPerson) / legacy
+                      mobile keys for back-compat. */}
+                  <InfoRow label="Sale person" value={data.salesPerson || data.documentInfo?.salesPerson} minWidth="120px" fontSize="0.875rem" />
+                  <InfoRow label="Mobile" value={data.salesMobile || data.mobile || data.documentInfo?.mobile} minWidth="120px" fontSize="0.875rem" />
                   <InfoRow label="Email" value={data.salePersonEmail || data.documentInfo?.salePersonEmail} minWidth="120px" fontSize="0.875rem" />
                 </Box>
               </Box>

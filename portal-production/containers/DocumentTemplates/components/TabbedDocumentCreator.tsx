@@ -337,6 +337,13 @@ export default function TabbedDocumentCreator({
     documentType === "QO2" ||
     documentType === "QT";
 
+  // Biofuel org gate — drives the Biofuel-only quotation header fields
+  // (editable Sale person / Mobile, defaulting to Eugene Lee / 9818 9200).
+  const BIOFUEL_ORG_ID = "52e90ba8-bfbd-48b0-bb76-4f9667bf74f1";
+  const isBiofuel =
+    organization?.id === BIOFUEL_ORG_ID ||
+    organization?.name === "Biofuel Industries Pte Ltd";
+
   // Delivery route dialog state (DO-only). Opens with the linked DO_START
   // MaintenanceServiceReport's id; the shared DeliveryRouteDialog handles
   // the fetch + polling internally. Must be declared AFTER isDeliveryOrder
@@ -540,6 +547,9 @@ export default function TabbedDocumentCreator({
     // Details tab data
     projectId: existingData?.projectId || "",
     salesPerson: existingData?.documentInfo?.salesPerson || existingData?.salesPerson || "",
+    // Biofuel quotation header mobile (editable, default seeded below). Flat
+    // top-level so it round-trips via the transformer's flatFields whitelist.
+    salesMobile: existingData?.salesMobile || "",
     salesContact: existingData?.salesContact || "",
     salesEmail: existingData?.salesEmail || "",
     paymentTerms: existingData?.documentInfo?.paymentTerms || existingData?.paymentTerms || "30 days",
@@ -904,6 +914,21 @@ export default function TabbedDocumentCreator({
       }));
     }
   }, [organization, formData.company?.gstRegNo]);
+
+  // Biofuel quotations: seed the editable Sale person / Mobile header fields to
+  // the house defaults (Eugene Lee / 9818 9200) when empty. Runs once when the
+  // org/type resolve (deps are isBiofuel/isQuotation, NOT formData), so after
+  // the initial seed the user can freely edit — even clear — within the session
+  // without it re-seeding. Per-quote only; no write-back to the customer/global.
+  useEffect(() => {
+    if (!isBiofuel || !isQuotation) return;
+    setFormDataState((prev: any) => {
+      const patch: any = {};
+      if (prev.salesPerson == null || prev.salesPerson === "") patch.salesPerson = "Eugene Lee";
+      if (prev.salesMobile == null || prev.salesMobile === "") patch.salesMobile = "9818 9200";
+      return Object.keys(patch).length ? { ...prev, ...patch } : prev;
+    });
+  }, [isBiofuel, isQuotation]);
 
   // Sync documentInfo fields from existingData when it loads async
   useEffect(() => {
@@ -3225,6 +3250,39 @@ export default function TabbedDocumentCreator({
                     }}
                   />
                   </Collapse>
+                  {/* Biofuel quotation header: editable Sale person + Mobile
+                      (default Eugene Lee / 9818 9200, seeded above). Renders once
+                      (first tab) for Biofuel quotations only; binds to flat
+                      formData fields that persist via the transformer + rehydrate
+                      on reload. Per-quote — no customer/global write-back. */}
+                  {isBiofuel && isQuotation && index === 0 && (
+                    <Box sx={{ mt: 1.5 }}>
+                      <Divider sx={{ mb: 1 }} />
+                      <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary" }}>
+                        Sales contact (quotation header)
+                      </Typography>
+                      <Grid container spacing={1} sx={{ mt: 0.25 }}>
+                        <Grid item xs={12} md={6}>
+                          <TextField
+                            fullWidth
+                            size="small"
+                            label="Sale person"
+                            value={formData.salesPerson ?? ""}
+                            onChange={(e) => setFormData({ ...formData, salesPerson: e.target.value })}
+                          />
+                        </Grid>
+                        <Grid item xs={12} md={6}>
+                          <TextField
+                            fullWidth
+                            size="small"
+                            label="Mobile"
+                            value={formData.salesMobile ?? ""}
+                            onChange={(e) => setFormData({ ...formData, salesMobile: e.target.value })}
+                          />
+                        </Grid>
+                      </Grid>
+                    </Box>
+                  )}
                 </CardContent>
               </Card>
             </TabPanel>
