@@ -35,6 +35,7 @@ export interface IngestInvoice {
   disposedWeightKg?: number;
   chargedWeightKg?: number;
   ratePerTonne?: number;
+  minLoadTonnes?: number; // "Min. Load (T)" column — sent in a later payload variant
   subtotal?: number;
   gstAmount?: number;
   totalCharge?: number;

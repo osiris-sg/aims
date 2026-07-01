@@ -772,7 +772,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
   }
 
   // TI2 - Elshis-style Tax Invoice Layout
-  if (documentType === "TI2" || documentType === "INVOICE") {
+  if (documentType === "TI2" || documentType === "INVOICE" || documentType === "JPSG_DISPOSAL") {
     // Biofuel invoice branding — same doc-org gating as the Biofuel quotation
     // (viewers inject data.documentOrganizationId; fall back to the active org
     // in the live editor, where the active org IS the doc's org-to-be).
@@ -784,6 +784,162 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
       (!invDocOrgId &&
         (organization?.id === BIOFUEL_ORG_ID ||
           organization?.name === "Biofuel Industries Pte Ltd"));
+
+    // --- JPSG weighbridge "Invoice for SOIL DISPOSAL" bespoke layout ---------
+    // Triggered when the (Biofuel) invoice's template carries the JPSG custom
+    // columns. Renders the weighbridge disposal invoice exactly (Vehicle No +
+    // timestamp / Material Type / Weight (T) / Unit Rate / Min. Load / Amount),
+    // leaving every other invoice on the standard TI2 layout below.
+    const isJpsgDisposal =
+      documentType === "JPSG_DISPOSAL" ||
+      (Array.isArray((data as any)?.tableColumnOrder) &&
+        (data as any).tableColumnOrder.includes("vehicleNo"));
+    if (isJpsgDisposal) {
+      const round2 = (n: number) => Math.round(n * 100) / 100;
+      const jpsgSubtotal = items.reduce((a: number, it: any) => a + (Number(it.amount) || 0), 0);
+      const jpsgGstPercent = data.documentInfo?.gstPercent ?? 9;
+      const jpsgGst = round2((jpsgSubtotal * jpsgGstPercent) / 100);
+      const jpsgTotal = round2(jpsgSubtotal + jpsgGst);
+      const num = (v: any, dp: number) => (v == null || v === "" ? "" : Number(v).toFixed(dp));
+      return (
+        <Paper
+          data-print-paper
+          sx={{
+            width: "210mm",
+            minHeight: "297mm",
+            margin: "0 auto",
+            p: "20mm",
+            backgroundColor: "white",
+            fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
+            fontWeight: 400,
+            fontSize: "0.8125rem",
+            lineHeight: 1.6,
+            color: "#000",
+            display: "flex",
+            flexDirection: "column",
+            "@media print": { margin: 0, padding: 0, boxShadow: "none" },
+          }}
+        >
+          {/* Letterhead — logo left, company block right */}
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 2, pb: 1, borderBottom: "2px solid #1f3a5f" }}>
+            <Box component="img" src={BIOFUEL_LOGO_DATA_URI} alt="Biofuel logo" sx={{ width: 150, height: "auto", objectFit: "contain", display: "block" }} />
+            <Box sx={{ textAlign: "right", lineHeight: 1.5 }}>
+              <Typography sx={{ fontSize: "0.9375rem", fontWeight: 700 }}>Biofuel Industries Pte. Ltd</Typography>
+              <Typography sx={{ fontSize: "0.75rem" }}>Office: 22 Tuas Ave 2, Singapore 639453</Typography>
+              <Typography sx={{ fontSize: "0.75rem" }}>Tel: +65 8902 0505</Typography>
+              <Typography sx={{ fontSize: "0.75rem" }}>GST Reg. No. 200303416N</Typography>
+            </Box>
+          </Box>
+
+          {/* Customer block (left) + Invoice meta (right) */}
+          <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2, alignItems: "flex-start" }}>
+            <Box sx={{ width: "50%" }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700 }}>
+                {data.customer?.name || data.customerName || ""}
+              </Typography>
+              <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
+                {data.billTo || data.customer?.address || ""}
+              </Typography>
+              {(data.customer?.uen) && (
+                <Typography sx={{ fontSize: "0.8125rem" }}>UEN: {data.customer.uen}</Typography>
+              )}
+              <Box sx={{ mt: 0.5 }}>
+                <InfoRow label="Attention" value={data.attention?.name} minWidth="70px" fontSize="0.8125rem" />
+                <InfoRow label="Mobile" value={data.attention?.phone || data.attention?.phoneNumber} minWidth="70px" fontSize="0.8125rem" />
+                <InfoRow label="Email" value={data.attention?.email} minWidth="70px" fontSize="0.8125rem" />
+              </Box>
+            </Box>
+            <Box sx={{ width: "45%", pl: 4 }}>
+              <InfoRow label="INVOICE NO." value={data.documentInfo?.documentNumber} minWidth="95px" fontSize="0.8125rem" />
+              <InfoRow label="Invoice Date" value={formatDate(data.documentInfo?.date)} minWidth="95px" fontSize="0.8125rem" />
+              <InfoRow label="Period" value={data.documentInfo?.period} minWidth="95px" fontSize="0.8125rem" />
+              <InfoRow label="Currency" value={data.documentInfo?.currency || "SGD"} minWidth="95px" fontSize="0.8125rem" />
+            </Box>
+          </Box>
+
+          {/* Title */}
+          <Typography sx={{ fontSize: "0.9375rem", mb: 1 }}>
+            Invoice for <Box component="span" sx={{ fontWeight: 700 }}>SOIL DISPOSAL</Box>
+          </Typography>
+
+          {/* Line-item table */}
+          <TableContainer sx={{ mb: 2 }}>
+            <Table
+              sx={{
+                "& .MuiTableCell-root": { border: "none", padding: "8px 8px", fontSize: "0.8125rem", verticalAlign: "top" },
+                "& .MuiTableHead-root .MuiTableCell-root": { borderBottom: "2px solid #000", fontWeight: 600 },
+                "@media print": { "& thead": { display: "table-row-group" } },
+              }}
+            >
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ width: "6%" }}>S/No.</TableCell>
+                  <TableCell sx={{ width: "18%" }}>Vehicle No.</TableCell>
+                  <TableCell sx={{ width: "20%" }}>Material Type</TableCell>
+                  <TableCell sx={{ width: "12%", textAlign: "right" }}>Weight (T)</TableCell>
+                  <TableCell sx={{ width: "14%", textAlign: "right" }}>Unit Rate (S$)</TableCell>
+                  <TableCell sx={{ width: "13%", textAlign: "right" }}>Min. Load (T)</TableCell>
+                  <TableCell sx={{ width: "17%", textAlign: "right" }}>Amount (S$)</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {items.map((item: any, index: number) => (
+                  <TableRow key={index} sx={{ verticalAlign: "top" }}>
+                    <TableCell>{index + 1}.</TableCell>
+                    <TableCell>
+                      <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700 }}>{item.vehicleNo || ""}</Typography>
+                      {item.vehicleTimestamp && (
+                        <Typography sx={{ fontSize: "0.6875rem", color: "#666" }}>{item.vehicleTimestamp}</Typography>
+                      )}
+                    </TableCell>
+                    <TableCell>{item.materialType || ""}</TableCell>
+                    <TableCell sx={{ textAlign: "right" }}>{num(item.weightT, 3)}</TableCell>
+                    <TableCell sx={{ textAlign: "right" }}>{num(item.unitRate, 2)}</TableCell>
+                    <TableCell sx={{ textAlign: "right" }}>{num(item.minLoad, 3)}</TableCell>
+                    <TableCell sx={{ textAlign: "right" }}>{num(item.amount, 2)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+
+          {/* Totals */}
+          <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 3 }}>
+            <Box sx={{ minWidth: 260, borderTop: "1px solid #000", pt: 1 }}>
+              <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
+                <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Subtotal (S$):</Typography>
+                <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>{jpsgSubtotal.toFixed(2)}</Typography>
+              </Box>
+              <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
+                <Typography sx={{ fontSize: "0.8125rem" }}>GST {jpsgGstPercent}% (S$):</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>{jpsgGst.toFixed(2)}</Typography>
+              </Box>
+              <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.5, borderTop: "1px solid #000", mt: 0.3 }}>
+                <Typography sx={{ fontSize: "0.875rem", fontWeight: 700 }}>Total (S$):</Typography>
+                <Typography sx={{ fontSize: "0.875rem", fontWeight: 700 }}>{jpsgTotal.toFixed(2)}</Typography>
+              </Box>
+            </Box>
+          </Box>
+
+          {/* Payment method note */}
+          <Box sx={{ border: "1px solid #e6d27a", backgroundColor: "#fdf8e3", borderRadius: 1, p: 1.5, mb: 2 }}>
+            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, color: "#8a6d00", mb: 0.3 }}>Payment Method</Typography>
+            <Typography sx={{ fontSize: "0.8125rem", color: "#8a6d00" }}>
+              This amount has been deducted from your account credits.
+            </Typography>
+          </Box>
+
+          {/* Footer */}
+          <Box sx={{ mt: "auto", pt: 2, borderTop: "2px solid #1f3a5f" }}>
+            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700 }}>Biofuel Industries Pte. Ltd</Typography>
+            <Typography sx={{ fontSize: "0.75rem", color: "#555" }}>Office: 22 Tuas Ave 2, Singapore 639453</Typography>
+            <Typography sx={{ fontSize: "0.75rem", color: "#555" }}>Business Contact No.: +65 8902 0505</Typography>
+            <Typography sx={{ fontSize: "0.75rem", color: "#555" }}>GST Reg. No. 200303416N</Typography>
+          </Box>
+        </Paper>
+      );
+    }
+
     return (
       <Paper
         data-print-paper

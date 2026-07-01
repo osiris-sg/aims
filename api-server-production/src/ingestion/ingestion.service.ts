@@ -24,7 +24,7 @@ const BIOFUEL_UEN = '200303416N';
 // "Sales - Disposable of waste materials" in Biofuel's chart of accounts.
 const DISPOSAL_REVENUE_ACCOUNT = '209';
 
-interface PerInvoiceResult {
+export interface PerInvoiceResult {
   invoiceNumber: string;
   transactionId: string;
   outcome: 'created' | 'updated' | 'failed';
@@ -138,11 +138,19 @@ export class IngestionService {
     const gstPercent =
       subTotal > 0 ? Math.round((gstAmount / subTotal) * 100) : 9;
 
-    const chargedTonnes = this.num(inv.chargedWeightKg) / 1000;
+    const weightT = this.num(inv.chargedWeightKg) / 1000;
+    const unitRate = this.num(inv.ratePerTonne);
+    const minLoad = this.num(inv.minLoadTonnes);
     const description =
       `${inv.materialType ?? 'Waste'} disposal — ${this.num(inv.chargedWeightKg)} kg ` +
-      `@ $${this.num(inv.ratePerTonne)}/tonne` +
+      `@ $${unitRate}/tonne` +
       (inv.licensePlate ? ` (plate ${inv.licensePlate})` : '');
+
+    // Invoice date = when the batch was sent (generated); period = the disposal
+    // day (a prepaid_daily batch is a single day, so both ends are the batch date).
+    const client = inv.client || {};
+    const docDateIso = this.toIso(payload.sentAt) || batchDateIso;
+    const periodStr = this.formatDay(batchDateIso);
 
     const config: Prisma.InputJsonValue = {
       date: batchDateIso,
@@ -151,9 +159,19 @@ export class IngestionService {
       items: [
         {
           lineNumber: 1,
+          // --- JPSG soil-disposal columns (rendered by the CleanDocumentPreview
+          //     JPSG branch, keyed to the template's tableColumnOrder) ---
+          no: 1,
+          vehicleNo: inv.licensePlate ?? '',
+          vehicleTimestamp: inv.timestamp ?? '',
+          materialType: inv.materialType ?? '',
+          weightT,
+          unitRate,
+          minLoad,
+          // --- Standard fields kept for GL posting + generic renderers ---
           description,
-          quantity: chargedTonnes,
-          unitPrice: this.num(inv.ratePerTonne),
+          quantity: weightT,
+          unitPrice: unitRate,
           amount: subTotal,
           taxAmount: gstAmount,
           accountCode: DISPOSAL_REVENUE_ACCOUNT,
@@ -162,14 +180,31 @@ export class IngestionService {
           discount: 0,
         },
       ],
-      customer: { id: customer.id, name: customer.name },
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        address: client.address ?? '',
+        uen: client.uen ?? '',
+      },
       customerId: customer.id,
+      billTo: client.address ?? '',
+      attention: {
+        name: client.attention ?? '',
+        phone: client.mobile ?? '',
+        email: client.email ?? '',
+      },
       // Canonical total fields the posting flow reads (documents.service
       // confirmInvoice / journal-auto-post):
       subTotal,
       gstAmount,
       nettTotal,
-      documentInfo: { currency: 'SGD', gstPercent },
+      documentInfo: {
+        documentNumber: inv.invoiceNumber,
+        date: docDateIso,
+        period: periodStr,
+        currency: 'SGD',
+        gstPercent,
+      },
       // Weighbridge audit trail:
       weighbridge: {
         transactionId: inv.transactionId,
@@ -403,19 +438,29 @@ export class IngestionService {
   // Helpers
   // -------------------------------------------------------------------------
   private async resolveInvoiceTemplateId(organizationId: string): Promise<string> {
-    const active = await this.prisma.documentTemplate.findFirst({
-      where: { organizationId, type: 'INVOICE', isActive: true },
+    // Prefer the bespoke JPSG soil-disposal invoice template (custom columns:
+    // Vehicle No / Weight (T) / Unit Rate / Min. Load / Amount). Seed it with
+    // scripts/create-jpsg-invoice-template.ts.
+    const jpsg = await this.prisma.documentTemplate.findFirst({
+      where: { organizationId, type: 'INVOICE', templateVariant: 'JPSG_DISPOSAL' },
       orderBy: { createdAt: 'asc' },
       select: { id: true },
     });
-    if (active) return active.id;
-    const any = await this.prisma.documentTemplate.findFirst({
-      where: { organizationId, type: 'INVOICE' },
-      orderBy: { createdAt: 'asc' },
-      select: { id: true },
+    if (jpsg) return jpsg.id;
+    throw new BadRequestException(
+      'JPSG_DISPOSAL invoice template not found for this org — run scripts/create-jpsg-invoice-template.ts first',
+    );
+  }
+
+  private formatDay(iso: string): string {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const day = d.toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
     });
-    if (any) return any.id;
-    throw new BadRequestException('No INVOICE document template found for this organization');
+    return `${day} – ${day}`;
   }
 
   private num(v: any, fallback = 0): number {

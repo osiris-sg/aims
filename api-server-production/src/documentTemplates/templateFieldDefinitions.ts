@@ -341,6 +341,66 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
     ],
   },
 
+  // JPSG_DISPOSAL - Biofuel weighbridge "Invoice for SOIL DISPOSAL".
+  // Header fields only; the line-item columns (Vehicle No / Weight (T) / Unit
+  // Rate / Min. Load / Amount) are driven by the template config.tableColumnOrder.
+  JPSG_DISPOSAL: {
+    tabs: [
+      {
+        tabId: "general",
+        tabLabel: "General",
+        fields: [
+          {
+            fieldName: "documentInfo.documentNumber",
+            displayLabel: "Invoice No.",
+            fieldType: "text",
+            required: true,
+          },
+          {
+            fieldName: "documentInfo.date",
+            displayLabel: "Invoice Date",
+            fieldType: "date",
+            required: true,
+          },
+          {
+            fieldName: "documentInfo.period",
+            displayLabel: "Period",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "customer",
+            displayLabel: "Customer code",
+            fieldType: "customer",
+            required: true,
+            dataSource: "customers",
+          },
+          {
+            fieldName: "billTo",
+            displayLabel: "Bill to",
+            fieldType: "textarea",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.currency",
+            displayLabel: "Currency",
+            fieldType: "select",
+            required: false,
+            defaultValue: "SGD",
+            dataSource: "currencies",
+          },
+          {
+            fieldName: "documentInfo.gstPercent",
+            displayLabel: "GST",
+            fieldType: "number",
+            required: false,
+            defaultValue: 9.0,
+          },
+        ],
+      },
+    ],
+  },
+
   // DO - Delivery Order
   DO: {
     tabs: [
