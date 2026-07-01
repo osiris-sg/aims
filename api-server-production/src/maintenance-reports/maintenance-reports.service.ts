@@ -806,16 +806,28 @@ export class MaintenanceReportsService {
       itemId: string;
       itemType: ItemType;
       deliveryStatus: DeliveryStatus;
+      // True for the row THIS scan resolved to, so the field UI can highlight it
+      // and tag it "Scanned" among the full sibling list.
+      isScanned: boolean;
       canStart: boolean;
       canAck: boolean;
       canInstall: boolean;
       canSkip: boolean;
     }> = [];
     if (resolvedDeliveryOrder) {
+      // ALL items on the resolved DO — deliberately NOT scoped to the scanned
+      // unit (dropping itemFilter). The field list must show every sibling item
+      // with its own status; the scanned row is flagged via isScanned below,
+      // matched with the SAME predicate itemFilter uses to lock the DO.
       const doItems = await this.prisma.documentItem.findMany({
-        where: { documentId: resolvedDeliveryOrder.id, ...itemFilter },
+        where: { documentId: resolvedDeliveryOrder.id },
         orderBy: { lineNumber: 'asc' },
       });
+      const isScannedRow = (it: (typeof doItems)[number]) =>
+        (inventoryId != null &&
+          (it.inventoryId === inventoryId ||
+            (it.itemId === inventoryId && it.itemType === ItemType.INVENTORY))) ||
+        (it.itemId === assetId && it.itemType === ItemType.ASSET);
       deliveryItems = doItems.map((it) => ({
         id: it.id,
         lineNumber: it.lineNumber,
@@ -825,6 +837,7 @@ export class MaintenanceReportsService {
         itemId: it.itemId,
         itemType: it.itemType,
         deliveryStatus: it.deliveryStatus,
+        isScanned: isScannedRow(it),
         canStart: it.deliveryStatus === DeliveryStatus.not_delivered,
         canAck: it.deliveryStatus === DeliveryStatus.delivering,
         canInstall: it.deliveryStatus === DeliveryStatus.not_installed,

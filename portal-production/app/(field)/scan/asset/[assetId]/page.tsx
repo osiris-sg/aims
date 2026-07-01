@@ -10,7 +10,6 @@ import HandymanIcon from "@mui/icons-material/Handyman";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DescriptionIcon from "@mui/icons-material/Description";
 import { request } from "@/helpers/request";
-import { toast } from "react-toastify";
 
 type DeliveryItemStatus = "not_delivered" | "delivering" | "not_installed" | "completed";
 
@@ -66,10 +65,6 @@ export default function AssetActionChooser() {
   const [data, setData] = useState<ScanContext | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  // Bumped after a per-item action (e.g. skip install) to re-fetch the context
-  // so the list reflects the new statuses. skippingId guards the tapped row.
-  const [reloadKey, setReloadKey] = useState(0);
-  const [skippingId, setSkippingId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,30 +97,7 @@ export default function AssetActionChooser() {
     return () => {
       cancelled = true;
     };
-  }, [assetId, getToken, inventoryId, reloadKey]);
-
-  // Skip-install for ONE item (reuses the existing Phase-3 endpoint). Advances
-  // that row not_installed → completed (installSkipped) and may trip the DO
-  // completion gate. Re-fetches the context on success so the list updates.
-  const handleSkipInstall = async (doId: string, unitId: string, rowId: string) => {
-    setSkippingId(rowId);
-    try {
-      const token = await getToken();
-      if (!token) throw new Error("Not signed in");
-      const res = await request(
-        { path: `/maintenance-reports/do-skip-install/${doId}`, method: "POST" },
-        { inventoryId: unitId },
-        token,
-      );
-      if (res?.success === false) throw new Error(res.message ?? "Failed to skip install");
-      toast.success("Installation skipped");
-      setReloadKey((k) => k + 1);
-    } catch (e: any) {
-      toast.error(e?.message ?? "Failed to skip install");
-    } finally {
-      setSkippingId(null);
-    }
-  };
+  }, [assetId, getToken, inventoryId]);
 
   if (loading) {
     return (
@@ -278,13 +250,10 @@ export default function AssetActionChooser() {
           </Typography>
           <Stack spacing={1}>
             {deliveryItems.map((row) => {
-              const unitId = row.inventoryId || row.itemId;
               const isScanned =
                 scannedUnitId != null &&
                 (row.inventoryId === scannedUnitId || row.itemId === scannedUnitId);
               const chip = STATUS_CHIP[row.deliveryStatus] ?? { label: row.deliveryStatus, color: "default" as const };
-              const doId = resolvedDeliveryOrder?.id;
-              const invQ = `?inventoryId=${encodeURIComponent(unitId)}`;
               return (
                 <Card
                   key={row.id}
@@ -305,55 +274,6 @@ export default function AssetActionChooser() {
                       </Box>
                       {isScanned && <Chip size="small" label="Scanned" color="primary" variant="outlined" />}
                       <Chip size="small" label={chip.label} color={chip.color} />
-                    </Stack>
-                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                      {row.canStart && doId && (
-                        <Button
-                          size="small"
-                          variant="contained"
-                          startIcon={<LocalShippingIcon />}
-                          onClick={() => router.push(`/scan/asset/${assetId}/delivery-start${invQ}`)}
-                        >
-                          Start
-                        </Button>
-                      )}
-                      {row.canAck && doId && (
-                        <Button
-                          size="small"
-                          variant="contained"
-                          startIcon={<LocalShippingIcon />}
-                          onClick={() => router.push(`/scan/asset/${assetId}/do/${doId}${invQ}`)}
-                        >
-                          Acknowledge
-                        </Button>
-                      )}
-                      {row.canInstall && doId && (
-                        <Button
-                          size="small"
-                          variant="contained"
-                          startIcon={<HandymanIcon />}
-                          onClick={() => router.push(`/scan/asset/${assetId}/install/${doId}${invQ}`)}
-                        >
-                          Install
-                        </Button>
-                      )}
-                      {row.canSkip && doId && (
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          color="inherit"
-                          disabled={skippingId === row.id}
-                          onClick={() => handleSkipInstall(doId, unitId, row.id)}
-                        >
-                          {skippingId === row.id ? "Skipping…" : "Skip install"}
-                        </Button>
-                      )}
-                      {row.deliveryStatus === "completed" && (
-                        <Stack direction="row" alignItems="center" spacing={0.5} sx={{ color: "success.main" }}>
-                          <CheckCircleIcon fontSize="small" />
-                          <Typography variant="body2">Completed</Typography>
-                        </Stack>
-                      )}
                     </Stack>
                   </CardContent>
                 </Card>

@@ -2966,24 +2966,11 @@ export class DocumentsService {
         );
       }
 
-      // Get items from document config
+      // Confirming a DO no longer deducts stock. Deduction happens ONLY per-item:
+      // on Acknowledge (advanceDeliveryItem action==='ack') and via bulk-complete
+      // — so an item that was never delivered is never deducted. The idempotent
+      // deductedAt guard on deductDocumentItemStock still protects those paths.
       const config: any = document.config;
-      const items = config?.items || [];
-      console.log('📦 DO CONFIRM: Processing', items.length, 'items');
-
-      // Always deduct stock when DO is confirmed — but via the SHARED idempotent
-      // per-item path (the same function used by per-item DO_ACK scans and
-      // bulk-complete). deductedAt guards against double-deduction, so confirming
-      // a DO whose items were already (partly) scanned won't deduct twice.
-      console.log('📦 DO CONFIRM: Deducting stock (idempotent per-item)');
-
-      const docItems = await this.prisma.documentItem.findMany({ where: { documentId } });
-      for (const item of docItems) {
-        if (item.isService) continue; // services aren't delivered/deducted
-        await this.deductDocumentItemStock(item, documentId, document.name, organizationId);
-      }
-
-      console.log('✅ DO CONFIRM: Stock deduction completed');
 
       // Update document with confirmation data and set status to confirmed
       const updatedConfig = {
@@ -2991,7 +2978,8 @@ export class DocumentsService {
         fromDONo: confirmData.fromDONo,
         toDONo: confirmData.toDONo,
         confirmedAt: new Date().toISOString(),
-        stockDeducted: true,
+        // Confirm no longer deducts — stock deducts per-item on delivery.
+        stockDeducted: false,
       };
 
       const updatedDocument = await this.prisma.document.update({
@@ -3010,8 +2998,8 @@ export class DocumentsService {
       return {
         success: true,
         document: updatedDocument,
-        stockDeducted: true,
-        message: 'Delivery Order confirmed and stock deducted',
+        stockDeducted: false,
+        message: 'Delivery Order confirmed',
       };
     } catch (error) {
       console.error('❌ DO CONFIRM: Error:', error);
