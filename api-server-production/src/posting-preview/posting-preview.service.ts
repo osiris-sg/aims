@@ -5,6 +5,24 @@ import { ChartOfAccountsService } from '../accounting/chart-of-accounts.service'
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 const EPS = 0.005;
 
+// Line descriptions can carry rich-text HTML (e.g. "<b>Jurong Port Pass
+// Application</b><ul><li>…</li></ul>"). Strip it to plain text so the AI reads
+// the real content and the preview dialog shows clean text.
+function stripHtml(s?: string | null): string {
+  return (s || '')
+    .replace(/<\s*br\s*\/?>/gi, ' ')
+    .replace(/<\/(p|div|li|ul|ol)>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export type PreviewLine = {
   role: 'receivable' | 'payable' | 'line' | 'tax';
   lineIndex?: number;
@@ -116,7 +134,7 @@ export class PostingPreviewService {
     if (needIdx.length > 0) {
       const batch = await this.coa.suggestAccountsBatch(
         organizationId,
-        needIdx.map(({ l }) => l.description || ''),
+        needIdx.map(({ l }) => stripHtml(l.description)),
         ['SALES', 'INCOME'],
       );
       needIdx.forEach(({ i }, k) => {
@@ -147,7 +165,7 @@ export class PostingPreviewService {
     for (const [i, l] of docLines.entries()) {
       const amt = ROUND(l.amount || 0);
       sumCredit += amt;
-      const desc = l.description || `Invoice ${docNo}`.trim();
+      const desc = stripHtml(l.description) || `Invoice ${docNo}`.trim();
       if (l.accountId || l.accountCode) {
         const a = await this.prisma.chartOfAccount.findFirst({
           where: { organizationId, ...(l.accountId ? { id: l.accountId } : { code: l.accountCode as string }) },

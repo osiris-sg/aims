@@ -50,6 +50,7 @@ import { PostingPreviewModule } from './posting-preview/posting-preview.module';
 import { BankRecModule } from './bank-rec/bank-rec.module';
 import { XeroSyncModule } from './xero-sync/xero-sync.module';
 import { DocumentAssistantModule } from './document-assistant/document-assistant.module';
+import { IngestionModule } from './ingestion/ingestion.module';
 
 @Module({
   imports: [
@@ -99,6 +100,7 @@ import { DocumentAssistantModule } from './document-assistant/document-assistant
     BankRecModule,
     XeroSyncModule,
     PublicDeliveryModule,
+    IngestionModule,
   ],
   controllers: [AppController],
   providers: [

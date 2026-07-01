@@ -5,6 +5,18 @@ import { AnomaliesService } from '../anomalies/anomalies.service';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 
+// First day of the fiscal year that contains `asOf`, given the fiscal-year-end
+// (e.g. 30 June → returns 1 July). Used for the P&L → Retained Earnings rollover.
+function fiscalYearStart(asOf: Date, fyEndMonth: number, fyEndDay: number): Date {
+  const y = asOf.getFullYear();
+  const fyEndThisYear = new Date(y, fyEndMonth - 1, fyEndDay, 23, 59, 59, 999);
+  const lastFyEnd = asOf > fyEndThisYear ? fyEndThisYear : new Date(y - 1, fyEndMonth - 1, fyEndDay, 23, 59, 59, 999);
+  const start = new Date(lastFyEnd);
+  start.setDate(start.getDate() + 1);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
 @Injectable()
 export class JournalService {
   constructor(
@@ -304,16 +316,27 @@ export class JournalService {
   // ---------- Reports ----------
 
   async trialBalance(organizationId: string, asOfDate?: Date) {
-    const where: any = { organizationId, status: 'POSTED' };
-    if (asOfDate) where.entryDate = { lte: asOfDate };
+    const asOf = asOfDate ?? new Date();
+    const where: any = { organizationId, status: 'POSTED', entryDate: { lte: asOf } };
 
-    // Aggregate in Postgres (SUM per account) instead of pulling every posted
-    // line into Node — for large GLs (tens of thousands of lines) this is the
-    // difference between ~40ms / 150 rows and ~1.2s / 33k rows over the wire.
-    const [grouped, accounts] = await Promise.all([
+    // Fiscal-year-end drives the P&L → Retained Earnings rollover (Xero-style):
+    // P&L accounts show only the CURRENT fiscal year; prior years' net profit is
+    // rolled into Retained Earnings so the TB presents like Xero.
+    const setting = await this.prisma.accountingSetting.findUnique({
+      where: { organizationId },
+      select: { fiscalYearEndDay: true, fiscalYearEndMonth: true, controlAccounts: true },
+    });
+    const fyEndDay = setting?.fiscalYearEndDay ?? 31;
+    const fyEndMonth = setting?.fiscalYearEndMonth ?? 12;
+    const reCode = (setting?.controlAccounts as any)?.retainedProfits || '960';
+    const fyStart = fiscalYearStart(asOf, fyEndMonth, fyEndDay);
+
+    // Aggregate in Postgres (SUM per account) — all-time-to-asOf + current-FY.
+    const [grouped, currentGrouped, accounts] = await Promise.all([
+      this.prisma.journalEntryLine.groupBy({ by: ['accountId'], where: { journalEntry: where }, _sum: { debit: true, credit: true } }),
       this.prisma.journalEntryLine.groupBy({
         by: ['accountId'],
-        where: { journalEntry: where },
+        where: { journalEntry: { organizationId, status: 'POSTED', entryDate: { gte: fyStart, lte: asOf } } },
         _sum: { debit: true, credit: true },
       }),
       this.prisma.chartOfAccount.findMany({
@@ -323,34 +346,53 @@ export class JournalService {
     ]);
 
     const acctById = new Map(accounts.map((a) => [a.id, a]));
+    const curById = new Map(currentGrouped.map((g) => [g.accountId, { debit: ROUND(g._sum.debit ?? 0), credit: ROUND(g._sum.credit ?? 0) }]));
 
+    let priorProfit = 0; // credit-positive: prior-year revenue − expense
     const rows = grouped
       .map((g) => {
         const a = acctById.get(g.accountId);
         if (!a) return null;
-        const debit = ROUND(g._sum.debit ?? 0);
-        const credit = ROUND(g._sum.credit ?? 0);
+        let debit = ROUND(g._sum.debit ?? 0);
+        let credit = ROUND(g._sum.credit ?? 0);
+        if (a.category === 'PNL') {
+          // Split: prior-year portion rolls to RE; the row shows current FY only.
+          const cur = curById.get(g.accountId) || { debit: 0, credit: 0 };
+          const priorDebit = ROUND(debit - cur.debit);
+          const priorCredit = ROUND(credit - cur.credit);
+          priorProfit = ROUND(priorProfit + (priorCredit - priorDebit));
+          debit = cur.debit;
+          credit = cur.credit;
+        }
         const balance = ROUND(a.normalBalance === 'DEBIT' ? debit - credit : credit - debit);
-        return {
-          accountId: a.id,
-          code: a.code,
-          name: a.name,
-          category: a.category,
-          accountType: a.accountType,
-          normalBalance: a.normalBalance,
-          debit,
-          credit,
-          balance,
-        };
+        return { accountId: a.id, code: a.code, name: a.name, category: a.category, accountType: a.accountType, normalBalance: a.normalBalance, debit, credit, balance };
       })
       .filter((r): r is NonNullable<typeof r> => r !== null);
+
+    // Roll accumulated prior-year P&L into Retained Earnings (create the row if
+    // the account exists but had no direct activity).
+    if (Math.abs(priorProfit) >= 0.005) {
+      let re = rows.find((r) => r.code === reCode);
+      if (!re) {
+        const reAcct = accounts.find((a) => a.code === reCode);
+        if (reAcct) {
+          re = { accountId: reAcct.id, code: reAcct.code, name: reAcct.name, category: reAcct.category, accountType: reAcct.accountType, normalBalance: reAcct.normalBalance, debit: 0, credit: 0, balance: 0 };
+          rows.push(re);
+        }
+      }
+      if (re) {
+        if (priorProfit >= 0) re.credit = ROUND(re.credit + priorProfit);
+        else re.debit = ROUND(re.debit - priorProfit);
+        re.balance = ROUND(re.normalBalance === 'DEBIT' ? re.debit - re.credit : re.credit - re.debit);
+      }
+    }
 
     rows.sort((a, b) => a.code.localeCompare(b.code));
 
     const totalDebit = ROUND(rows.reduce((s, r) => s + r.debit, 0));
     const totalCredit = ROUND(rows.reduce((s, r) => s + r.credit, 0));
 
-    return { asOfDate: asOfDate ?? null, rows, totalDebit, totalCredit, isBalanced: totalDebit === totalCredit };
+    return { asOfDate: asOfDate ?? null, rows, totalDebit, totalCredit, isBalanced: Math.abs(totalDebit - totalCredit) < 0.02 };
   }
 
   async generalLedger(organizationId: string, accountId: string, opts?: { startDate?: Date; endDate?: Date }) {

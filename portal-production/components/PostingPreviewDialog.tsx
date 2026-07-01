@@ -206,7 +206,21 @@ export default function PostingPreviewDialog({
                             </Stack>
                           )}
                         </TableCell>
-                        <TableCell sx={{ color: "text.secondary", fontSize: "0.8rem" }}>{l.description}</TableCell>
+                        <TableCell sx={{ color: "text.secondary", fontSize: "0.8rem" }}>
+                          <Tooltip title={l.description || ""} placement="top-start">
+                            <Box
+                              sx={{
+                                display: "-webkit-box",
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: "vertical",
+                                overflow: "hidden",
+                                maxWidth: 380,
+                              }}
+                            >
+                              {l.description}
+                            </Box>
+                          </Tooltip>
+                        </TableCell>
                         <TableCell align="right" sx={{ fontFamily: "monospace" }}>
                           {l.debit > 0 ? fmt(l.debit) : ""}
                         </TableCell>
