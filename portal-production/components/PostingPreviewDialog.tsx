@@ -43,7 +43,7 @@ export type PreviewLine = {
   debit: number;
   credit: number;
   description: string;
-  source: "existing" | "ai" | "fallback" | "control";
+  source: "existing" | "ai" | "learned" | "fallback" | "control";
   confidence?: number;
   reason?: string;
 };
@@ -69,6 +69,7 @@ export default function PostingPreviewDialog({
   title = "Review accounts",
   onClose,
   onConfirm,
+  onLearn,
 }: {
   open: boolean;
   loading: boolean;
@@ -77,6 +78,9 @@ export default function PostingPreviewDialog({
   title?: string;
   onClose: () => void;
   onConfirm: (picks: Array<{ lineIndex: number; accountId: string | null; accountCode: string | null }>) => void;
+  // Called with the lines the user re-coded (chosen account ≠ what was suggested)
+  // so the backend can learn description → account. Fire-and-forget.
+  onLearn?: (corrections: Array<{ text: string; accountCode: string }>) => void;
 }) {
   // Local override of the account per editable line, keyed by lineIndex → code.
   const [codeByLine, setCodeByLine] = useState<Record<number, string | null>>({});
@@ -106,6 +110,18 @@ export default function PostingPreviewDialog({
         const acct = code ? acctByCode.get(code) : undefined;
         return { lineIndex: l.lineIndex as number, accountCode: code, accountId: acct?.id ?? null };
       });
+    // Teach the memory: lines where the chosen account differs from what was
+    // suggested (the accountant overrode the AI/learned pick).
+    if (onLearn) {
+      const corrections = preview.lines
+        .filter((l) => l.role === "line" && l.lineIndex != null)
+        .filter((l) => {
+          const chosen = codeByLine[l.lineIndex as number] ?? null;
+          return chosen && chosen !== l.accountCode && (l.description || "").trim();
+        })
+        .map((l) => ({ text: l.description, accountCode: codeByLine[l.lineIndex as number] as string }));
+      if (corrections.length) onLearn(corrections);
+    }
     onConfirm(picks);
   };
 
@@ -183,6 +199,18 @@ export default function PostingPreviewDialog({
                                     variant="outlined"
                                     icon={<AutoAwesomeIcon sx={{ fontSize: 14 }} />}
                                     label={l.confidence != null ? `${Math.round(l.confidence * 100)}%` : "AI"}
+                                    sx={{ height: 22 }}
+                                  />
+                                </Tooltip>
+                              )}
+                              {l.source === "learned" && (
+                                <Tooltip title={l.reason || "Learned from your past coding"}>
+                                  <Chip
+                                    size="small"
+                                    color="success"
+                                    variant="outlined"
+                                    icon={<AutoAwesomeIcon sx={{ fontSize: 14 }} />}
+                                    label="learned"
                                     sx={{ height: 22 }}
                                   />
                                 </Tooltip>

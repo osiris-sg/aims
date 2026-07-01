@@ -2205,6 +2205,18 @@ export default function TabbedDocumentCreator({
     toast.success("Accounts applied — review and confirm when ready");
   };
 
+  // Teach the account-coding memory when the accountant overrides a suggestion,
+  // so next time the same description is coded the same way. Fire-and-forget.
+  const learnInvoiceCorrections = async (corrections: Array<{ text: string; accountCode: string }>) => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+      await request({ path: "/posting-preview/learn", method: "POST" }, { side: "SALES", corrections }, token);
+    } catch {
+      /* non-blocking */
+    }
+  };
+
   const handleDuplicateDocument = async () => {
     try {
       const token = await getToken();
@@ -5278,6 +5290,7 @@ export default function TabbedDocumentCreator({
         title="Review invoice posting"
         onClose={() => setInvoicePreviewOpen(false)}
         onConfirm={applyInvoiceReview}
+        onLearn={learnInvoiceCorrections}
       />
 
       {/* Price History Popup */}

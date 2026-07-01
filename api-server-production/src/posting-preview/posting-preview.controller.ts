@@ -30,4 +30,14 @@ export class PostingPreviewController {
   preview(@Req() req: RequestWithOrganization, @Body() body: PreviewDto) {
     return this.service.preview(requireOrgId(req), body);
   }
+
+  // Record accountant corrections (description → chosen account) so future
+  // lines get coded the same way. Body: { side?: 'SALES'|'PURCHASE',
+  // corrections: [{ text, accountCode, accountId? }] }.
+  @Post('learn')
+  @Permissions('journal:read')
+  @ApiOperation({ summary: 'Teach the account-coding memory from accountant corrections' })
+  learn(@Req() req: RequestWithOrganization, @Body() body: { side?: string; corrections?: any[] }) {
+    return this.service.learn(requireOrgId(req), (body?.side || 'SALES').toUpperCase(), body?.corrections || []);
+  }
 }

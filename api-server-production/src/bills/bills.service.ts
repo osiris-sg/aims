@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
 import { JournalService } from '../journal/journal.service';
 import { ChartOfAccountsService } from '../accounting/chart-of-accounts.service';
+import { AccountMemoryService } from '../account-memory/account-memory.service';
 
 // ---------------------------------------------------------------------------
 // Bills (Accounts Payable) — supplier-side equivalent of invoices.
@@ -63,6 +64,7 @@ export class BillsService {
     private readonly prisma: PrismaService,
     private readonly journal: JournalService,
     private readonly coa: ChartOfAccountsService,
+    private readonly memory: AccountMemoryService,
   ) {}
 
   // ---- Bill template resolver (cached per org) ----
@@ -439,7 +441,7 @@ export class BillsService {
       debit: number;
       credit: number;
       description: string;
-      source: 'existing' | 'ai' | 'fallback' | 'control';
+      source: 'existing' | 'ai' | 'learned' | 'fallback' | 'control';
       confidence?: number;
       reason?: string;
     }>;
@@ -488,19 +490,24 @@ export class BillsService {
     if (!creditor) warnings.push(`Trade Payables account (${creditorCode}) not found — set it in Accounting Setup.`);
     if (taxAmount > 0 && !taxAccount) warnings.push(`Tax account (${taxCode}) not found — input-tax line is unassigned.`);
 
-    // AI-suggest accounts only for lines that don't already have one.
+    // Suggest accounts only for lines that don't already have one. Learned
+    // corrections (accountant memory) win; the rest go to the AI.
     const needIdx = billLines.map((l, i) => ({ l, i })).filter(({ l }) => !l.accountId);
-    const suggestions: Array<{ accountId: string; code: string; name: string; confidence: number; reason: string } | null> =
+    const suggestions: Array<{ accountId: string | null; code: string; name: string; confidence: number; reason: string; source: 'learned' | 'ai' } | null> =
       billLines.map(() => null);
     if (needIdx.length > 0) {
-      const batch = await this.coa.suggestAccountsBatch(
-        organizationId,
-        needIdx.map(({ l }) => l.description || ''),
-        ['PURCHASE', 'EXPENSE', 'EXCHANGE_GAIN_LOSS'],
-      );
-      needIdx.forEach(({ i }, k) => {
-        suggestions[i] = batch[k];
+      const learned = await this.memory.resolveBatch(organizationId, 'PURCHASE', needIdx.map(({ l }) => l.description || ''));
+      const stillNeed: Array<{ l: any; i: number }> = [];
+      needIdx.forEach((ni, k) => {
+        if (learned[k]) suggestions[ni.i] = { accountId: learned[k]!.accountId, code: learned[k]!.code, name: learned[k]!.name, confidence: learned[k]!.confidence, reason: learned[k]!.reason, source: 'learned' };
+        else stillNeed.push(ni);
       });
+      if (stillNeed.length > 0) {
+        const batch = await this.coa.suggestAccountsBatch(organizationId, stillNeed.map(({ l }) => l.description || ''), ['PURCHASE', 'EXPENSE', 'EXCHANGE_GAIN_LOSS']);
+        stillNeed.forEach(({ i }, k) => {
+          if (batch[k]) suggestions[i] = { ...batch[k]!, source: 'ai' };
+        });
+      }
     }
 
     const outLines: Array<{
@@ -512,7 +519,7 @@ export class BillsService {
       debit: number;
       credit: number;
       description: string;
-      source: 'existing' | 'ai' | 'fallback' | 'control';
+      source: 'existing' | 'ai' | 'learned' | 'fallback' | 'control';
       confidence?: number;
       reason?: string;
     }> = [];
@@ -531,7 +538,7 @@ export class BillsService {
         outLines.push({ role: 'line', lineIndex: i, accountId: a?.id ?? null, accountCode: a?.code ?? null, accountName: a?.name ?? null, debit: amt, credit: 0, description: desc, source: 'existing' });
       } else if (suggestions[i]) {
         const s = suggestions[i]!;
-        outLines.push({ role: 'line', lineIndex: i, accountId: s.accountId, accountCode: s.code, accountName: s.name, debit: amt, credit: 0, description: desc, source: 'ai', confidence: s.confidence, reason: s.reason });
+        outLines.push({ role: 'line', lineIndex: i, accountId: s.accountId, accountCode: s.code, accountName: s.name, debit: amt, credit: 0, description: desc, source: s.source, confidence: s.confidence, reason: s.reason });
       } else if (fallbackPurchase) {
         outLines.push({ role: 'line', lineIndex: i, accountId: fallbackPurchase.id, accountCode: fallbackPurchase.code, accountName: fallbackPurchase.name, debit: amt, credit: 0, description: desc, source: 'fallback', reason: 'Default purchase account (no AI suggestion)' });
       } else {

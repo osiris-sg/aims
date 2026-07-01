@@ -631,6 +631,12 @@ export default function BillEditorDialog({
         accounts={accounts}
         onClose={() => setPreviewOpen(false)}
         onConfirm={applyReview}
+        onLearn={(corrections) =>
+          request("/posting-preview/learn", {
+            method: "POST",
+            body: JSON.stringify({ side: "PURCHASE", corrections }),
+          }).catch(() => {})
+        }
       />
     </Dialog>
   );

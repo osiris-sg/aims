@@ -422,6 +422,27 @@ model DocumentEmbedding {
   @@index([organizationId, customerId])
 }
 
+// Learned account-coding memory. When an accountant overrides the AI's
+// suggested GL account in the posting-review, we record (description → account)
+// here so next time the same/similar line is coded the same way — deterministic
+// exact/keyword match first, then embedding cosine (reuses EmbeddingsService).
+model AccountMemory {
+  id             String   @id @default(uuid())
+  organizationId String
+  side           String   @default("SALES") // SALES (invoices) | PURCHASE (bills)
+  text           String                      // original line description at correction time
+  normalizedText String                      // lowercased + punctuation-stripped, for exact/keyword match
+  accountCode    String
+  accountId      String?
+  count          Int      @default(1)
+  embedding      Float[]                      // semantic vector (empty if OpenAI key absent)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, side, normalizedText])
+  @@index([organizationId, side])
+}
+
 // Junction table for document items - enables efficient queries for stock movements
 model DocumentItem {
   id          String   @id @default(uuid()) @db.Uuid

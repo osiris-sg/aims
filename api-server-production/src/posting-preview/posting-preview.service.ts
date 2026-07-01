@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { ChartOfAccountsService } from '../accounting/chart-of-accounts.service';
+import { AccountMemoryService } from '../account-memory/account-memory.service';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 const EPS = 0.005;
@@ -32,7 +33,7 @@ export type PreviewLine = {
   debit: number;
   credit: number;
   description: string;
-  source: 'existing' | 'ai' | 'fallback' | 'control';
+  source: 'existing' | 'ai' | 'learned' | 'fallback' | 'control';
   confidence?: number;
   reason?: string;
 };
@@ -69,7 +70,14 @@ export class PostingPreviewService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly coa: ChartOfAccountsService,
+    private readonly memory: AccountMemoryService,
   ) {}
+
+  /** Record accountant corrections so future lines get coded the same way. */
+  async learn(organizationId: string, side: string, corrections: Array<{ text?: string; accountCode?: string; accountId?: string | null }>) {
+    const saved = await this.memory.record(organizationId, side, corrections);
+    return { saved };
+  }
 
   private async getControls(organizationId: string): Promise<Record<string, string>> {
     const s = await this.prisma.accountingSetting.findUnique({ where: { organizationId } });
@@ -127,19 +135,24 @@ export class PostingPreviewService {
     if (!debtor) warnings.push(`Accounts Receivable control (${debtorCode}) not found — set it in Accounting Setup.`);
     if (tax > 0 && !taxAccount) warnings.push(`Tax account (${taxCode}) not found — GST line is unassigned.`);
 
-    // AI-suggest revenue accounts only for lines without one (by id or code).
+    // Suggest an account for lines without one (by id or code). Learned
+    // corrections (accountant memory) win; only the still-unresolved go to the AI.
     const needIdx = docLines.map((l, i) => ({ l, i })).filter(({ l }) => !l.accountId && !l.accountCode);
-    const suggestions: Array<{ accountId: string; code: string; name: string; confidence: number; reason: string } | null> =
+    const suggestions: Array<{ accountId: string | null; code: string; name: string; confidence: number; reason: string; source: 'learned' | 'ai' } | null> =
       docLines.map(() => null);
     if (needIdx.length > 0) {
-      const batch = await this.coa.suggestAccountsBatch(
-        organizationId,
-        needIdx.map(({ l }) => stripHtml(l.description)),
-        ['SALES', 'INCOME'],
-      );
-      needIdx.forEach(({ i }, k) => {
-        suggestions[i] = batch[k];
+      const learned = await this.memory.resolveBatch(organizationId, 'SALES', needIdx.map(({ l }) => stripHtml(l.description)));
+      const stillNeed: Array<{ l: any; i: number }> = [];
+      needIdx.forEach((ni, k) => {
+        if (learned[k]) suggestions[ni.i] = { accountId: learned[k]!.accountId, code: learned[k]!.code, name: learned[k]!.name, confidence: learned[k]!.confidence, reason: learned[k]!.reason, source: 'learned' };
+        else stillNeed.push(ni);
       });
+      if (stillNeed.length > 0) {
+        const batch = await this.coa.suggestAccountsBatch(organizationId, stillNeed.map(({ l }) => stripHtml(l.description)), ['SALES', 'INCOME']);
+        stillNeed.forEach(({ i }, k) => {
+          if (batch[k]) suggestions[i] = { ...batch[k]!, source: 'ai' };
+        });
+      }
     }
 
     const out: PreviewLine[] = [];
@@ -174,7 +187,7 @@ export class PostingPreviewService {
         out.push({ role: 'line', lineIndex: i, accountId: a?.id ?? null, accountCode: a?.code ?? null, accountName: a?.name ?? null, debit: 0, credit: amt, description: desc, source: 'existing' });
       } else if (suggestions[i]) {
         const s = suggestions[i]!;
-        out.push({ role: 'line', lineIndex: i, accountId: s.accountId, accountCode: s.code, accountName: s.name, debit: 0, credit: amt, description: desc, source: 'ai', confidence: s.confidence, reason: s.reason });
+        out.push({ role: 'line', lineIndex: i, accountId: s.accountId, accountCode: s.code, accountName: s.name, debit: 0, credit: amt, description: desc, source: s.source, confidence: s.confidence, reason: s.reason });
       } else if (fallbackSales) {
         out.push({ role: 'line', lineIndex: i, accountId: fallbackSales.id, accountCode: fallbackSales.code, accountName: fallbackSales.name, debit: 0, credit: amt, description: desc, source: 'fallback', reason: 'Default sales account (no AI suggestion)' });
       } else {
