@@ -78,7 +78,7 @@ const capturePosition = (): Promise<{ latitude: number; longitude: number } | nu
   });
 
 /**
- * Acknowledge Installation — the stage after delivery acknowledgement. Enabled
+ * Complete Installation — the stage after delivery acknowledgement. Enabled
  * only when a completed DO_ACK MSR exists for this DO and no DO_INSTALL has been
  * submitted yet (see canAckInstall in getScanContext).
  *
@@ -171,7 +171,7 @@ export default function InstallationAckPage() {
 
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 3 }}>
-      <Typography variant="h6" fontWeight={700}>Acknowledge Installation</Typography>
+      <Typography variant="h6" fontWeight={700}>Complete Installation</Typography>
       <Typography variant="body2" color="text.secondary">DO {doId}</Typography>
 
       <TextField

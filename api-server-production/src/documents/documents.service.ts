@@ -2,7 +2,7 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { PrismaService } from 'src/common/prisma.service';
 import { CreateDocumentWithTimelineDto } from './dto/create-document-with-timeline.dto';
-import { InventoryStatus, DocumentStatus, TransactionType, ItemType, DeliveryStatus } from '@prisma/client';
+import { InventoryStatus, DocumentStatus, TransactionType, ItemType, DeliveryStatus, DeploymentType } from '@prisma/client';
 import { XeroService } from 'src/common/xero.service';
 import { PriceHistoryService } from '../price-history/price-history.service';
 import { TransactionsService } from '../transactions/transactions.service';
@@ -2643,6 +2643,30 @@ export class DocumentsService {
         data: { deductedAt: new Date() },
       });
       if (claim.count === 0) return false; // already deducted — idempotent no-op
+
+      // Flip the delivered unit's status, mirroring the legacy DO submit path
+      // (documents.service DO → rental) + the deployment rental-vs-sale rule
+      // (projects.service:584 — SALE → sold, else rental). Idempotent: only from
+      // instock, so re-runs / already-moved units are no-ops. Rides the SAME
+      // deductedAt claim as the deduction ⇒ exactly-once per item, and runs
+      // regardless of line quantity (a delivered unit is rental/sold either way).
+      // Serialized (inventory) units only — asset-level quantity rows have no
+      // per-unit status to flip.
+      if (inventoryId) {
+        const dep = await tx.document.findUnique({
+          where: { id: documentId },
+          select: { projectDeployment: { select: { type: true } } },
+        });
+        const deliveredStatus =
+          dep?.projectDeployment?.type === DeploymentType.SALE
+            ? InventoryStatus.sold
+            : InventoryStatus.rental;
+        await tx.inventory.updateMany({
+          where: { id: inventoryId, status: InventoryStatus.instock },
+          data: { status: deliveredStatus },
+        });
+      }
+
       if (quantity <= 0) return true; // claimed; nothing to decrement
 
       if (inventoryId) {

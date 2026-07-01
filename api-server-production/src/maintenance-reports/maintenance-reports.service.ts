@@ -806,6 +806,10 @@ export class MaintenanceReportsService {
       itemId: string;
       itemType: ItemType;
       deliveryStatus: DeliveryStatus;
+      // The physical unit's SKU (e.g. "ZZTEST-AST-001"), resolved from the linked
+      // Inventory row — DocumentItem.sku is often null, so the field list shows
+      // this as the per-row sub-label under the line description.
+      unitSku: string | null;
       // True for the row THIS scan resolved to, so the field UI can highlight it
       // and tag it "Scanned" among the full sibling list.
       isScanned: boolean;
@@ -822,6 +826,7 @@ export class MaintenanceReportsService {
       const doItems = await this.prisma.documentItem.findMany({
         where: { documentId: resolvedDeliveryOrder.id },
         orderBy: { lineNumber: 'asc' },
+        include: { inventory: { select: { sku: true } } },
       });
       const isScannedRow = (it: (typeof doItems)[number]) =>
         (inventoryId != null &&
@@ -837,6 +842,7 @@ export class MaintenanceReportsService {
         itemId: it.itemId,
         itemType: it.itemType,
         deliveryStatus: it.deliveryStatus,
+        unitSku: it.inventory?.sku ?? null,
         isScanned: isScannedRow(it),
         canStart: it.deliveryStatus === DeliveryStatus.not_delivered,
         canAck: it.deliveryStatus === DeliveryStatus.delivering,

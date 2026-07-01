@@ -17,6 +17,9 @@ interface DeliveryItem {
   id: string;
   lineNumber: number | null;
   sku: string | null;
+  // Physical unit SKU from getScanContext (resolved from the linked Inventory
+  // row); shown as the row sub-label. DocumentItem.sku is often null.
+  unitSku?: string | null;
   description: string | null;
   // Unit identity surfaced by getScanContext (Phase 5 part 1) so ANY row is
   // independently actionable — not just the scanned one.
@@ -151,7 +154,7 @@ export default function AssetActionChooser() {
         };
       case "ack_install":
         return {
-          title: "Acknowledge Installation",
+          title: "Complete Installation",
           subtitle: doRef ? `${doRef} · delivered, awaiting installation` : "Delivered, awaiting installation",
           icon: <HandymanIcon color="primary" sx={{ fontSize: 48 }} />,
           onClick: () => {
@@ -204,27 +207,12 @@ export default function AssetActionChooser() {
         </Box>
       </Stack>
 
-      {/* Top-of-screen View DO action — gated on resolvedDeliveryOrder, placed
-          beside the header for quick access. Belt-and-suspenders with the
-          between-cards card below. */}
-      {resolvedDeliveryOrder && (
-        <Button
-          variant="outlined"
-          size="small"
-          startIcon={<DescriptionIcon />}
-          onClick={() => router.push(`/scan/asset/${assetId}/do/${resolvedDeliveryOrder.id}/view`)}
-          sx={{ alignSelf: "flex-start" }}
-        >
-          View DO ({resolvedDeliveryOrder.name ?? resolvedDeliveryOrder.id})
-        </Button>
-      )}
-
       <Typography variant="subtitle1" fontWeight={600} sx={{ mt: 2 }}>
         What are you doing?
       </Typography>
 
-      {/* Single morphing delivery card: Start → Acknowledge Delivery →
-          Acknowledge Installation → Completed, driven by deliveryStage. */}
+      {/* Single morphing delivery card: Start Delivery → Acknowledge Delivery →
+          Complete Installation → Completed, driven by deliveryStage. */}
       <Card variant="outlined">
         {deliveryCard.onClick ? (
           <CardActionArea onClick={deliveryCard.onClick}>{deliveryCardInner}</CardActionArea>
@@ -264,11 +252,11 @@ export default function AssetActionChooser() {
                     <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
                       <Box sx={{ minWidth: 0, flex: 1 }}>
                         <Typography variant="body2" fontWeight={600} noWrap>
-                          {row.description || row.sku || `Item ${row.lineNumber ?? ""}`}
+                          {row.description || row.unitSku || `Item ${row.lineNumber ?? ""}`}
                         </Typography>
-                        {row.sku && row.description && (
+                        {row.unitSku && (
                           <Typography variant="caption" color="text.secondary" noWrap display="block">
-                            {row.sku}
+                            {row.unitSku}
                           </Typography>
                         )}
                       </Box>
