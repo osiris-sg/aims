@@ -215,6 +215,10 @@ export default function TabbedDocumentCreator({
 
   // Main tabs
   const [mainTabValue, setMainTabValue] = useState(0);
+  // Guest delivery share link — held here so the URL is ALWAYS shown in a
+  // copyable dialog after generation, independent of whether the auto-copy
+  // (navigator.clipboard) succeeds. Null = dialog closed.
+  const [shareLinkUrl, setShareLinkUrl] = useState<string | null>(null);
   // Collapse the General/Details fields panel to give the Items table more space.
   const [isFieldsCollapsed, setIsFieldsCollapsed] = useState(false);
   // Items section tabs
@@ -2796,21 +2800,34 @@ export default function TabbedDocumentCreator({
               variant="outlined"
               startIcon={<ContentCopyIcon />}
               onClick={async () => {
+                const token = await getToken();
+                if (!token) { toast.error("Authentication required"); return; }
+                const id = existingData?.id || documentId;
+                // 1) Generate the link. A failure HERE is the real backend error.
+                let full = "";
                 try {
-                  const token = await getToken();
-                  if (!token) { toast.error("Authentication required"); return; }
-                  const id = existingData?.id || documentId;
                   const res = await request({ path: `/documents/${id}/delivery-share-link`, method: "POST" }, {}, token);
                   const body = res?.data ?? res;
-                  const full = body?.url || (body?.path ? `${window.location.origin}${body.path}` : "");
-                  if (full && navigator.clipboard?.writeText) {
+                  full = body?.url || (body?.path ? `${window.location.origin}${body.path}` : "");
+                } catch (e: any) {
+                  toast.error(e?.response?.data?.message || e?.message || "Failed to create delivery link");
+                  return;
+                }
+                if (!full) { toast.error("Delivery link created but no URL was returned"); return; }
+                // 2) Link exists → always surface it in a copyable dialog so it's
+                //    usable regardless of the clipboard outcome.
+                setShareLinkUrl(full);
+                // 3) Best-effort auto-copy in its OWN try/catch. A rejected
+                //    clipboard write (user-activation lapses across the awaited
+                //    request, or an unfocused tab) must NOT read as a creation
+                //    failure — the dialog still shows the URL for manual copy.
+                try {
+                  if (navigator.clipboard?.writeText) {
                     await navigator.clipboard.writeText(full);
                     toast.success("Delivery link copied to clipboard");
-                  } else {
-                    toast.info(full || "Delivery link created");
                   }
                 } catch {
-                  toast.error("Failed to create delivery link");
+                  toast.info("Delivery link ready — copy it from the dialog");
                 }
               }}
             >
@@ -5280,6 +5297,49 @@ export default function TabbedDocumentCreator({
         onConfirm={handleConfirmInvoice}
         documentNumber={formData.name || formData.documentInfo?.documentNumber || ""}
       />
+
+      {/* Guest delivery share link — shown after generation so the URL is always
+          usable even if auto-copy failed. The Copy button here is a direct user
+          gesture (no preceding await), so it copies reliably. */}
+      <Dialog open={!!shareLinkUrl} onClose={() => setShareLinkUrl(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Guest delivery link</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Anyone with this link can view and update this delivery order — no login required.
+          </Typography>
+          <TextField
+            value={shareLinkUrl ?? ""}
+            fullWidth
+            size="small"
+            InputProps={{ readOnly: true }}
+            onFocus={(e) => e.target.select()}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShareLinkUrl(null)}>Close</Button>
+          <Button
+            startIcon={<OpenInNewIcon />}
+            onClick={() => { if (shareLinkUrl) window.open(shareLinkUrl, "_blank", "noopener"); }}
+          >
+            Open
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<ContentCopyIcon />}
+            onClick={async () => {
+              if (!shareLinkUrl) return;
+              try {
+                await navigator.clipboard.writeText(shareLinkUrl);
+                toast.success("Copied");
+              } catch {
+                toast.info("Select the link above and copy manually");
+              }
+            }}
+          >
+            Copy
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* AI posting-preview ("Review") dialog for invoices */}
       <PostingPreviewDialog
