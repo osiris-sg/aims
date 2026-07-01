@@ -2808,7 +2808,16 @@ export default function TabbedDocumentCreator({
                 try {
                   const res = await request({ path: `/documents/${id}/delivery-share-link`, method: "POST" }, {}, token);
                   const body = res?.data ?? res;
-                  full = body?.url || (body?.path ? `${window.location.origin}${body.path}` : "");
+                  // Build an ABSOLUTE guest URL so the copied link is complete for
+                  // external recipients. The backend's body.url is only absolute
+                  // when PORTAL_URL is set (else it's a bare "/guest/..." path), and
+                  // window.location.origin is unreliable here — the office app can
+                  // run in a Capacitor WebView / preview host that isn't the public
+                  // site. So base off NEXT_PUBLIC_APP_URL, defaulting to the prod
+                  // host; the token/path come from the response.
+                  const base = (process.env.NEXT_PUBLIC_APP_URL || "https://www.ai-ms.io").replace(/\/$/, "");
+                  const path = body?.path || (body?.token ? `/guest/delivery/${body.token}` : "");
+                  full = path ? `${base}${path}` : (body?.url ?? "");
                 } catch (e: any) {
                   toast.error(e?.response?.data?.message || e?.message || "Failed to create delivery link");
                   return;
