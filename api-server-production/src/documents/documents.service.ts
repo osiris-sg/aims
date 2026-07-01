@@ -9,6 +9,7 @@ import { TransactionsService } from '../transactions/transactions.service';
 import { EmailService } from '../email/email.service';
 import { JournalAutoPostService } from '../journal/journal-auto-post.service';
 import { OrdersService } from '../orders/orders.service';
+import { DocumentTemplatesService } from '../documentTemplates/documentTemplates.service';
 import { SendInvoiceEmailDto } from '../email/dto/send-invoice-email.dto';
 import { S3Service } from 'src/common/services/s3.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
@@ -26,6 +27,7 @@ export class DocumentsService {
     private s3Service: S3Service,
     private pdfGeneratorService: PdfGeneratorService,
     private ordersService: OrdersService,
+    private documentTemplatesService: DocumentTemplatesService,
   ) {}
 
   /**
@@ -250,7 +252,7 @@ export class DocumentsService {
 
   async getById(id: string, organizationId: string) {
     try {
-      return await this.prisma.document.findFirst({
+      const document = await this.prisma.document.findFirst({
         where: {
           id,
           organizationId,
@@ -280,6 +282,28 @@ export class DocumentsService {
           },
         },
       });
+
+      if (!document) return document;
+
+      // Fold the template + its field definitions into this response so opening a
+      // document is ONE round-trip instead of three (was: GET doc → GET template →
+      // GET template/fields). Resolved in-region here; the two extra client fetches
+      // are eliminated. Best-effort: if the template can't be resolved in this org,
+      // omit the bundle and the client falls back to its legacy per-request path.
+      let templateBundle: Awaited<ReturnType<DocumentTemplatesService['getTemplateBundle']>> = null;
+      if (document.documentTemplateId) {
+        try {
+          templateBundle = await this.documentTemplatesService.getTemplateBundle(document.documentTemplateId, organizationId);
+        } catch (error) {
+          console.warn(`getById: could not resolve template bundle for ${document.documentTemplateId}: ${error?.message ?? error}`);
+        }
+      }
+
+      return {
+        ...document,
+        template: templateBundle?.template ?? null,
+        fieldDefinitions: templateBundle?.fieldDefinitions ?? null,
+      };
     } catch (error) {
       throw new HttpException(`Fetch by ID failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }

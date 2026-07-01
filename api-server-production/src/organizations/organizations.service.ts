@@ -4,6 +4,7 @@ import { PrismaService } from '../common/prisma.service';
 import { ClerkClient } from '@clerk/backend';
 import { DEFAULT_DOCUMENT_TEMPLATES } from './default-templates';
 import { DEFAULT_ORG_FEATURES } from './default-features';
+import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 
 @Injectable()
 export class OrganizationsService {
@@ -253,7 +254,7 @@ export class OrganizationsService {
   }
 
   async assignUserToOrganization(userId: string, organizationId: string, salesmanCode?: string) {
-    return this.prisma.userOrganization.upsert({
+    const result = await this.prisma.userOrganization.upsert({
       where: {
         userId_organizationId: {
           userId,
@@ -272,10 +273,13 @@ export class OrganizationsService {
         isActive: true,
       },
     });
+    // Membership changed — drop the guard's cached org so it takes effect now.
+    ClerkAuthGuard.invalidateUser(userId);
+    return result;
   }
 
   async removeUserFromOrganization(userId: string, organizationId: string) {
-    return this.prisma.userOrganization.update({
+    const result = await this.prisma.userOrganization.update({
       where: {
         userId_organizationId: {
           userId,
@@ -287,6 +291,9 @@ export class OrganizationsService {
         updatedAt: new Date(),
       },
     });
+    // Membership revoked — drop the guard's cached org so it takes effect now.
+    ClerkAuthGuard.invalidateUser(userId);
+    return result;
   }
 
   async getUserRolesInOrganization(userId: string, organizationId: string) {
@@ -306,7 +313,7 @@ export class OrganizationsService {
   }
 
   async assignRoleToUserInOrganization(userId: string, roleId: string, organizationId: string) {
-    return this.prisma.userRole.create({
+    const result = await this.prisma.userRole.create({
       data: {
         userId,
         roleId,
@@ -320,6 +327,9 @@ export class OrganizationsService {
         },
       },
     });
+    // Access changed — drop the guard's cached roles so it takes effect now.
+    ClerkAuthGuard.invalidateUser(userId);
+    return result;
   }
 
   async getSalesmenByOrganization(organizationId: string) {

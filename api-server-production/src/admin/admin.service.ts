@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { mergeModulesWithCatalog, getCatalogModule } from '../configuration/module-catalog';
+import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 
 @Injectable()
 export class AdminService {
@@ -636,6 +637,9 @@ export class AdminService {
         }),
       ),
     );
+
+    // Access changed — drop the guard's cached roles so it takes effect now.
+    ClerkAuthGuard.invalidateUser(userId);
 
     return {
       id: userId,

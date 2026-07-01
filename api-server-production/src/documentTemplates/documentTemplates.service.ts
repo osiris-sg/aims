@@ -494,6 +494,36 @@ export class DocumentTemplatesService {
   }
 
   /**
+   * Fetch a template plus its resolved field definitions in a SINGLE query.
+   * Lets documents.getById fold the old doc → template → fields waterfall into
+   * one response so the client makes one round-trip instead of three.
+   *
+   * Returns null if the template isn't found in this org — the caller then omits
+   * the bundle and the client falls back to its legacy per-request fetch (which
+   * itself degrades to variant defaults), so behavior is unchanged in that case.
+   */
+  async getTemplateBundle(id: string, organizationId: string) {
+    const template = await this.prisma.documentTemplate.findFirst({
+      where: { id, organizationId },
+    });
+    if (!template) return null;
+
+    const config = template.config as any;
+    const variant = template.templateVariant || template.designName || template.type;
+    const hasCustomFields = !!config?.formFields;
+
+    return {
+      template,
+      fieldDefinitions: {
+        formFields: hasCustomFields ? config.formFields : getTemplateFields(variant),
+        source: hasCustomFields ? 'database' : 'default',
+        templateId: template.id,
+        templateVariant: variant,
+      },
+    };
+  }
+
+  /**
    * Update field definitions for a template
    * Stores the field definitions in config.formFields
    */

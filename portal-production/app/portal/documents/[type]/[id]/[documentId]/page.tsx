@@ -92,13 +92,18 @@ export default function page() {
       }
 
       let templateVariant = Array.isArray(urlType) ? urlType[0] : urlType;
-      let templateData = null;
+      const templateId = response.data.documentTemplateId;
 
-      // Fetch template (with caching)
-      if (response.data.documentTemplateId) {
-        const templateId = response.data.documentTemplateId;
+      // Fast path: GET /documents/:id now folds in the template + field
+      // definitions (one round-trip). Fall back to the cached/legacy fetches only
+      // when the backend didn't include them.
+      let templateData = response.data.template ?? null;
+      let fetchedFieldConfig = response.data.fieldDefinitions?.formFields ?? null;
 
-        if (templateCache.has(templateId)) {
+      if (templateId) {
+        if (templateData) {
+          templateCache.set(templateId, templateData);
+        } else if (templateCache.has(templateId)) {
           templateData = templateCache.get(templateId);
         } else {
           try {
@@ -121,9 +126,10 @@ export default function page() {
         }
       }
 
-      // Get field definitions
-      const templateId = response.data.documentTemplateId;
-      const fetchedFieldConfig = await getTemplateFormFields(templateVariant, templateId, token);
+      // Get field definitions (fallback only — server usually supplies these now)
+      if (!fetchedFieldConfig) {
+        fetchedFieldConfig = await getTemplateFormFields(templateVariant, templateId, token);
+      }
 
       // Transform data
       const config = response.data.config || {};

@@ -6,6 +6,7 @@ import { GetUsersDto } from './dto/get-users.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ClerkClient } from '@clerk/backend';
+import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 
 interface UserRoleWithDetails extends UserRole {
   role: Role & {
@@ -187,6 +188,9 @@ export class UsersService {
       },
     });
 
+    // Access changed — drop the guard's cached roles so it takes effect now.
+    ClerkAuthGuard.invalidateUser(userId);
+
     return userRole.role;
   }
 
@@ -206,6 +210,9 @@ export class UsersService {
     await this.prisma.userRole.delete({
       where: { id: userRole.id },
     });
+
+    // Access changed — drop the guard's cached roles so it takes effect now.
+    ClerkAuthGuard.invalidateUser(userId);
 
     return { message: 'Role removed successfully' };
   }
@@ -295,6 +302,9 @@ export class UsersService {
         }),
       ),
     );
+
+    // Access changed — drop the guard's cached roles so it takes effect now.
+    ClerkAuthGuard.invalidateUser(userId);
 
     return {
       id: userId,
@@ -437,6 +447,9 @@ export class UsersService {
       );
     }
 
+    // Access may have changed — drop the guard's cached roles so it takes effect now.
+    ClerkAuthGuard.invalidateUser(userId);
+
     // Fetch updated user roles with details
     const updatedUserRoles = await this.prisma.userRole.findMany({
       where: { userId },
@@ -478,6 +491,9 @@ export class UsersService {
     await this.prisma.userRole.deleteMany({
       where: { userId },
     });
+
+    // Access revoked — drop the guard's cached roles so it takes effect now.
+    ClerkAuthGuard.invalidateUser(userId);
 
     try {
       await this.clerkClient.users.deleteUser(userId);

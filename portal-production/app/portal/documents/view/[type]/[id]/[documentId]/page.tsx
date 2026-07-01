@@ -52,13 +52,19 @@ export default function ViewDocumentPage() {
       }
 
       let templateVariant = Array.isArray(type) ? type[0] : (type as string);
-      let templateData = null;
+      const templateId = response.data.documentTemplateId;
 
-      // Fetch template to get the correct variant
-      if (response.data.documentTemplateId) {
+      // Fast path: GET /documents/:id now folds in the template + field
+      // definitions, so opening a document is ONE round-trip. Only fall back to
+      // the legacy per-request fetches when the backend didn't include them
+      // (older API, or a template that couldn't be resolved server-side).
+      let templateData = response.data.template ?? null;
+      let fetchedFieldConfig = response.data.fieldDefinitions?.formFields ?? null;
+
+      if (templateId && !templateData) {
         try {
           const templateResponse = await request(
-            { path: `/documentTemplates/${response.data.documentTemplateId}`, method: "GET" },
+            { path: `/documentTemplates/${templateId}`, method: "GET" },
             {},
             token
           );
@@ -68,15 +74,15 @@ export default function ViewDocumentPage() {
         } catch (error) {
           console.error("Error fetching template:", error);
         }
-
-        if (templateData) {
-          templateVariant = templateData.templateVariant || templateData.designName || templateVariant;
-        }
       }
 
-      // Get field definitions
-      const templateId = response.data.documentTemplateId;
-      const fetchedFieldConfig = await getTemplateFormFields(templateVariant, templateId, token);
+      if (templateData) {
+        templateVariant = templateData.templateVariant || templateData.designName || templateVariant;
+      }
+
+      if (!fetchedFieldConfig) {
+        fetchedFieldConfig = await getTemplateFormFields(templateVariant, templateId, token);
+      }
       setFieldConfig(fetchedFieldConfig);
 
       // Transform data
