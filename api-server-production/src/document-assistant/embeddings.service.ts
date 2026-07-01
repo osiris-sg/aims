@@ -16,6 +16,10 @@ const EMBED_MODEL = 'text-embedding-3-small'; // 1536 dims
 // Cap how many stale/missing docs we embed per search call so a cold org
 // doesn't blow the request budget — the backfill script handles bulk.
 const SYNC_LIMIT = 40;
+// Skip re-scanning/re-embedding an org more than once per window. A single
+// chat can call search_past_documents several times; without this each call
+// re-ran the full stale-doc scan. Freshness lag is at most this window.
+const SYNC_THROTTLE_MS = 60_000;
 
 export type SimilarDoc = {
   documentId: string;
@@ -30,6 +34,8 @@ export type SimilarDoc = {
 export class EmbeddingsService {
   private readonly logger = new Logger(EmbeddingsService.name);
   private openai: OpenAI | null;
+  // orgId -> last sync timestamp (ms). Process-local; throttles syncOrgEmbeddings.
+  private readonly lastSyncAt = new Map<string, number>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -77,6 +83,17 @@ export class EmbeddingsService {
     return res.data[0]?.embedding ?? null;
   }
 
+  // Embed many texts in a SINGLE OpenAI request (the API accepts an array),
+  // returning vectors aligned to the input order. Replaces N sequential calls.
+  async embedBatch(texts: string[]): Promise<(number[] | null)[]> {
+    if (!this.openai || !texts.length) return texts.map(() => null);
+    // OpenAI rejects empty strings — substitute a space to keep index alignment.
+    const input = texts.map((t) => (t || '').trim() || ' ');
+    const res = await this.openai.embeddings.create({ model: EMBED_MODEL, input });
+    const byIndex = new Map(res.data.map((d) => [d.index, d.embedding]));
+    return texts.map((_, i) => byIndex.get(i) ?? null);
+  }
+
   static cosine(a: number[], b: number[]): number {
     if (!a?.length || !b?.length || a.length !== b.length) return 0;
     let dot = 0;
@@ -92,8 +109,17 @@ export class EmbeddingsService {
   }
 
   // Embed any of the org's documents whose embedding is missing or stale.
+  // Throttled per org, and embeds the whole stale batch in ONE OpenAI call
+  // (was up to 40 sequential calls — the dominant latency spike on search).
   async syncOrgEmbeddings(organizationId: string, limit = SYNC_LIMIT): Promise<void> {
     if (!this.openai) return;
+
+    const now = Date.now();
+    const last = this.lastSyncAt.get(organizationId) ?? 0;
+    if (now - last < SYNC_THROTTLE_MS) return;
+    // Claim the window up-front so concurrent searches don't all sync at once.
+    this.lastSyncAt.set(organizationId, now);
+
     const docs = await this.prisma.document.findMany({
       where: { organizationId },
       select: { id: true, name: true, type: true, config: true, updatedAt: true },
@@ -106,21 +132,30 @@ export class EmbeddingsService {
     });
     const byDoc = new Map(existing.map((e) => [e.documentId, e.updatedAt]));
 
-    const stale = docs.filter((d) => {
-      const emb = byDoc.get(d.id);
-      return !emb || emb < d.updatedAt;
-    });
+    const stale = docs
+      .filter((d) => {
+        const emb = byDoc.get(d.id);
+        return !emb || emb < d.updatedAt;
+      })
+      .slice(0, limit);
     if (!stale.length) return;
 
-    for (const d of stale.slice(0, limit)) {
-      try {
-        const snippet = this.buildSnippet(d);
-        const vector = await this.embed(snippet);
-        if (!vector) continue;
-        await this.upsert(organizationId, d, snippet, vector);
-      } catch (e: any) {
-        this.logger.warn(`Embed failed for doc ${d.id}: ${e?.message || e}`);
-      }
+    try {
+      const snippets = stale.map((d) => this.buildSnippet(d));
+      const vectors = await this.embedBatch(snippets); // single OpenAI request
+      await Promise.all(
+        stale.map((d, i) => {
+          const vector = vectors[i];
+          if (!vector) return Promise.resolve();
+          return this.upsert(organizationId, d, snippets[i], vector).catch((e: any) =>
+            this.logger.warn(`Embed upsert failed for doc ${d.id}: ${e?.message || e}`),
+          );
+        }),
+      );
+    } catch (e: any) {
+      // On failure, clear the throttle so the next search can retry sooner.
+      this.lastSyncAt.delete(organizationId);
+      this.logger.warn(`Batch embed failed for org ${organizationId}: ${e?.message || e}`);
     }
   }
 

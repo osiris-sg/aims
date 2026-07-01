@@ -41,6 +41,15 @@ export type AssistantResult = {
 
 export type ChatAttachment = { name?: string; mediaType: string; base64: string };
 
+// Events streamed to the editor's Ask-AI drawer over SSE.
+export type StreamEvent =
+  | { type: 'text'; delta: string }
+  | { type: 'status'; tool: string }
+  | { type: 'sources'; sources: AssistantSource[] }
+  | { type: 'proposal'; proposal: ProposalPatch }
+  | { type: 'error'; message: string }
+  | { type: 'done' };
+
 export type ChatRequest = {
   documentType: string;
   documentId?: string;
@@ -60,7 +69,37 @@ export class DocumentAssistantService {
     private readonly embeddings: EmbeddingsService,
   ) {}
 
+  // Non-streaming entry point — runs the loop and returns the whole result.
   async chat(organizationId: string, req: ChatRequest): Promise<AssistantResult> {
+    return this.runConversation(organizationId, req);
+  }
+
+  // Streaming entry point — same loop, but pushes incremental events (text
+  // deltas, tool status, sources, proposal) to `emit` as they happen. Always
+  // finishes with a terminal `done` event; errors are surfaced as `error`.
+  async chatStream(
+    organizationId: string,
+    req: ChatRequest,
+    emit: (e: StreamEvent) => void,
+  ): Promise<void> {
+    try {
+      await this.runConversation(organizationId, req, emit);
+    } catch (e: any) {
+      this.logger.error(`chatStream failed: ${e?.message || e}`);
+      emit({ type: 'error', message: e?.message || 'Assistant failed' });
+    } finally {
+      emit({ type: 'done' });
+    }
+  }
+
+  // Core tool-call loop, shared by both entry points. Streams from Claude every
+  // iteration; `emit` receives text deltas and tool status (a no-op for the
+  // non-streaming path). Returns the accumulated result.
+  private async runConversation(
+    organizationId: string,
+    req: ChatRequest,
+    emit: (e: StreamEvent) => void = () => {},
+  ): Promise<AssistantResult> {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       throw new HttpException(
@@ -71,46 +110,19 @@ export class DocumentAssistantService {
 
     const client = new Anthropic({ apiKey });
     const tools = this.buildTools();
+    // Cache the (static) tool definitions across requests, and the system prefix
+    // across this request's tool-loop iterations. Render order is tools → system
+    // → messages, so a breakpoint on the last tool caches the tool schemas and a
+    // breakpoint on the system block caches tools+system up to that point.
+    if (tools.length) {
+      (tools[tools.length - 1] as any).cache_control = { type: 'ephemeral' };
+    }
     const toolCalls: Array<{ name: string; input: any }> = [];
     const sources: AssistantSource[] = [];
-    // Proposals from multiple propose_document_fields calls are merged.
-    let proposal: ProposalPatch | null = null;
-    const mergeProposal = (patch: ProposalPatch) => {
-      const prev = proposal || {};
-      proposal = {
-        ...prev,
-        ...patch,
-        documentInfo: { ...(prev.documentInfo || {}), ...(patch.documentInfo || {}) },
-        customer: { ...(prev.customer || {}), ...(patch.customer || {}) },
-        // items replace wholesale — a later call supersedes an earlier line set
-        items: patch.items ?? prev.items,
-      };
-    };
+    const merger = this.createProposalMerger();
 
     const systemPrompt = this.buildSystemPrompt(req);
-
-    // First user turn carries the message plus any uploaded files (PDF/image).
-    const firstContent: any[] = [];
-    for (const att of req.attachments || []) {
-      const isPdf = att.mediaType === 'application/pdf';
-      if (isPdf) {
-        firstContent.push({
-          type: 'document',
-          source: { type: 'base64', media_type: 'application/pdf', data: att.base64 },
-        });
-      } else {
-        firstContent.push({
-          type: 'image',
-          source: { type: 'base64', media_type: att.mediaType || 'image/jpeg', data: att.base64 },
-        });
-      }
-    }
-    firstContent.push({ type: 'text', text: req.message });
-
-    const messages: Anthropic.MessageParam[] = [
-      ...(req.history || []).map((m) => ({ role: m.role, content: m.content })),
-      { role: 'user', content: firstContent },
-    ];
+    const messages = this.buildInitialMessages(req);
 
     let iteration = 0;
     let finalText = '';
@@ -118,21 +130,24 @@ export class DocumentAssistantService {
     while (iteration < MAX_ITERATIONS) {
       iteration += 1;
 
-      const response = await client.messages.create({
+      const stream = client.messages.stream({
         model: MODEL,
         max_tokens: 3000,
-        system: systemPrompt,
+        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
         tools,
         messages,
       });
+      let iterText = '';
+      stream.on('text', (delta: string) => {
+        iterText += delta;
+        emit({ type: 'text', delta });
+      });
+      const response = await stream.finalMessage();
 
-      const textBlocks = response.content.filter((b) => b.type === 'text');
+      // The last text-producing turn is the answer (mirrors prior behavior).
+      if (iterText) finalText = iterText;
+
       const toolUseBlocks = response.content.filter((b) => b.type === 'tool_use');
-
-      if (textBlocks.length) {
-        finalText = textBlocks.map((b) => (b as any).text).join('\n');
-      }
-
       if (response.stop_reason !== 'tool_use' || toolUseBlocks.length === 0) {
         break;
       }
@@ -143,13 +158,14 @@ export class DocumentAssistantService {
       for (const block of toolUseBlocks) {
         const tu = block as Anthropic.ToolUseBlock;
         toolCalls.push({ name: tu.name, input: tu.input });
+        emit({ type: 'status', tool: tu.name });
         try {
           const result = await this.runTool(
             organizationId,
             req,
             tu.name,
             tu.input as any,
-            mergeProposal,
+            merger.merge,
             sources,
           );
           toolResults.push({
@@ -168,7 +184,12 @@ export class DocumentAssistantService {
         }
       }
       messages.push({ role: 'user', content: toolResults });
+      if (sources.length) emit({ type: 'sources', sources: [...sources] });
     }
+
+    const proposal = merger.get();
+    if (proposal) emit({ type: 'proposal', proposal });
+    if (sources.length) emit({ type: 'sources', sources });
 
     return {
       answer: finalText || 'No response.',
@@ -176,6 +197,49 @@ export class DocumentAssistantService {
       sources,
       toolCalls,
     };
+  }
+
+  // Build the initial message list: prior text history + the new user turn
+  // (which carries any uploaded PDF/image attachments as content blocks).
+  private buildInitialMessages(req: ChatRequest): Anthropic.MessageParam[] {
+    const firstContent: any[] = [];
+    for (const att of req.attachments || []) {
+      const isPdf = att.mediaType === 'application/pdf';
+      if (isPdf) {
+        firstContent.push({
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: att.base64 },
+        });
+      } else {
+        firstContent.push({
+          type: 'image',
+          source: { type: 'base64', media_type: att.mediaType || 'image/jpeg', data: att.base64 },
+        });
+      }
+    }
+    firstContent.push({ type: 'text', text: req.message });
+
+    return [
+      ...(req.history || []).map((m) => ({ role: m.role, content: m.content })),
+      { role: 'user', content: firstContent },
+    ];
+  }
+
+  // Accumulates proposals from multiple propose_document_fields calls into one.
+  private createProposalMerger() {
+    let proposal: ProposalPatch | null = null;
+    const merge = (patch: ProposalPatch) => {
+      const prev = proposal || {};
+      proposal = {
+        ...prev,
+        ...patch,
+        documentInfo: { ...(prev.documentInfo || {}), ...(patch.documentInfo || {}) },
+        customer: { ...(prev.customer || {}), ...(patch.customer || {}) },
+        // items replace wholesale — a later call supersedes an earlier line set
+        items: patch.items ?? prev.items,
+      };
+    };
+    return { merge, get: () => proposal };
   }
 
   // ---------- Prompt ----------

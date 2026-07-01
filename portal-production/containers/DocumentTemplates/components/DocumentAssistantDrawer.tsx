@@ -25,7 +25,6 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import CheckIcon from "@mui/icons-material/Check";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
-import { request } from "@/helpers/request";
 
 // Proposal patch shape — mirrors the backend ProposalPatch.
 export type ProposalPatch = {
@@ -73,6 +72,20 @@ const SUGGESTIONS = [
   "Draft line items and a short client-friendly summary",
 ];
 
+// Human-readable status shown while a given tool runs mid-conversation.
+function statusForTool(tool: string): string {
+  switch (tool) {
+    case "search_past_documents":
+      return "Searching past documents…";
+    case "get_customer_history":
+      return "Reading customer history…";
+    case "propose_document_fields":
+      return "Preparing suggestions…";
+    default:
+      return "Working…";
+  }
+}
+
 function fileToBase64(file: File): Promise<PendingFile> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -101,12 +114,17 @@ export default function DocumentAssistantDrawer({
   const [loading, setLoading] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  // The in-flight assistant reply, updated live as SSE events arrive. Committed
+  // into `turns` when the stream completes.
+  const [streaming, setStreaming] = useState<Turn | null>(null);
+  // Human-readable status for the current step ("Searching past documents…").
+  const [statusLabel, setStatusLabel] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [turns.length, loading]);
+  }, [turns.length, loading, streaming?.content, statusLabel]);
 
   const customerId = formData?.customer?.id || "";
 
@@ -125,43 +143,100 @@ export default function DocumentAssistantDrawer({
       const attachments = pendingFiles;
       setPendingFiles([]);
 
+      // Accumulator mirrored into `streaming` state for live rendering.
+      const acc: Turn = { role: "assistant", content: "", proposal: null, sources: [] };
+      setStreaming({ ...acc });
+      setStatusLabel("Thinking…");
+
       try {
         const token = await getToken();
-        const res: any = await request(
-          { path: "/document-assistant/chat", method: "POST" },
-          {
-            documentType,
-            documentId,
-            customerId,
-            message: trimmed || "Please use the attached file to fill in this document.",
-            draft: { formData, items },
-            history,
-            attachments,
-          },
-          token ?? undefined,
-        );
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        // Mirror the axios request() helper: admin org-switch header from session.
+        if (typeof window !== "undefined") {
+          const activeOrgId = window.sessionStorage.getItem("aims-admin-active-org");
+          if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
+        }
 
-        const result = res?.success ? res.data : res;
-        if (!result || (res && res.success === false)) {
-          throw new Error(res?.message || "Assistant failed");
+        const resp = await fetch(
+          `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/document-assistant/chat/stream`,
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              documentType,
+              documentId,
+              customerId,
+              message: trimmed || "Please use the attached file to fill in this document.",
+              draft: { formData, items },
+              history,
+              attachments,
+            }),
+          },
+        );
+        if (!resp.ok || !resp.body) throw new Error(`Assistant failed (${resp.status})`);
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        // Parse the SSE stream: frames are separated by a blank line.
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const frames = buffer.split("\n\n");
+          buffer = frames.pop() || "";
+          for (const frame of frames) {
+            const dataLine = frame.split("\n").find((l) => l.startsWith("data:"));
+            if (!dataLine) continue;
+            let evt: any;
+            try {
+              evt = JSON.parse(dataLine.slice(5).trim());
+            } catch {
+              continue;
+            }
+            if (evt.type === "text") {
+              acc.content += evt.delta;
+              setStatusLabel(null);
+              setStreaming({ ...acc });
+            } else if (evt.type === "status") {
+              setStatusLabel(statusForTool(evt.tool));
+            } else if (evt.type === "sources") {
+              acc.sources = evt.sources || [];
+              setStreaming({ ...acc });
+            } else if (evt.type === "proposal") {
+              acc.proposal = evt.proposal || null;
+              setStreaming({ ...acc });
+            } else if (evt.type === "error") {
+              throw new Error(evt.message || "Assistant failed");
+            }
+          }
         }
 
         setTurns((prev) => [
           ...prev,
           {
             role: "assistant",
-            content: result.answer || "",
-            proposal: result.proposal || null,
-            sources: result.sources || [],
+            content: acc.content || (acc.proposal ? "" : "No response."),
+            proposal: acc.proposal || null,
+            sources: acc.sources || [],
           },
         ]);
       } catch (e: any) {
         toast.error(e?.message || "Assistant failed");
         setTurns((prev) => [
           ...prev,
-          { role: "assistant", content: "Sorry — something went wrong. Please try again." },
+          {
+            role: "assistant",
+            content: acc.content || "Sorry — something went wrong. Please try again.",
+            proposal: acc.proposal || null,
+            sources: acc.sources || [],
+          },
         ]);
       } finally {
+        setStreaming(null);
+        setStatusLabel(null);
         setLoading(false);
       }
     },
@@ -272,10 +347,18 @@ export default function DocumentAssistantDrawer({
           {turns.map((turn, i) => (
             <TurnView key={i} turn={turn} onApply={onApplyProposal} />
           ))}
-          {loading && (
+          {/* Live assistant reply (streamed) — shown once it has any content. */}
+          {streaming &&
+            (streaming.content ||
+              streaming.proposal ||
+              (streaming.sources && streaming.sources.length > 0)) && (
+              <TurnView turn={streaming} onApply={onApplyProposal} />
+            )}
+          {/* Current step: "Thinking…" then real tool status ("Searching…"). */}
+          {loading && statusLabel && (
             <Stack direction="row" gap={1} alignItems="center" sx={{ color: "text.secondary" }}>
               <CircularProgress size={14} />
-              <Typography variant="body2">Thinking…</Typography>
+              <Typography variant="body2">{statusLabel}</Typography>
             </Stack>
           )}
           <div ref={scrollRef} />
