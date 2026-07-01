@@ -4354,6 +4354,17 @@ export default function TabbedDocumentCreator({
                                           <TextField
                                             {...params}
                                             placeholder="Select or type SKU"
+                                            // OSI-13: nudge the user when the AI upload suggested
+                                            // in-stock units for this line but couldn't auto-link
+                                            // one (SKU/description match only ever suggests). The
+                                            // suggested SKUs are already in this picker's list.
+                                            helperText={
+                                              !item.inventoryItemId &&
+                                              Array.isArray(item.suggestedInventoryIds) &&
+                                              item.suggestedInventoryIds.length > 0
+                                                ? `${item.suggestedInventoryIds.length} suggested unit(s) — pick from list`
+                                                : undefined
+                                            }
                                           />
                                         )}
                                       />

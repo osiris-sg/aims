@@ -19,6 +19,8 @@ import {
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import DownloadIcon from "@mui/icons-material/Download";
 import DeleteIcon from "@mui/icons-material/Delete";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import DocumentUploadDialog from "@/app/portal/components/DocumentUploadDialog";
 import { useRouter } from "next/navigation";
 import moment from "moment";
 import { toast } from "react-toastify";
@@ -104,6 +106,10 @@ export default function SalesDocumentList({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [documentToDelete, setDocumentToDelete] = useState<Document | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  // OSI-13: upload → AI-extract → pre-fill draft (same entry as the generic
+  // document list). documentLabel strips the "New " prefix off createButtonLabel.
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const uploadDocumentLabel = (createButtonLabel || createDocumentType).replace(/^(new|create)\s+/i, "");
 
   // Fetch documents with new hook
   const { documents = [], isLoading, error, refetch } = useGetDocuments();
@@ -412,7 +418,30 @@ export default function SalesDocumentList({
         pageCount={Math.ceil(filteredDocuments.length / limit)}
         totalDocs={filteredDocuments.length}
         headerContent={headerContent}
-        actionButtons={actionButtons}
+        actionButtons={[
+          ...(createDocumentType
+            ? [
+                <Button
+                  key="upload-extract"
+                  variant="outlined"
+                  startIcon={<CloudUploadIcon />}
+                  onClick={() => setUploadOpen(true)}
+                >
+                  Upload {uploadDocumentLabel}
+                </Button>,
+              ]
+            : []),
+          ...(actionButtons ?? []),
+        ]}
+      />
+
+      {/* OSI-13: upload a document → AI extract → pre-fill a draft of this type
+          (extracts as delivery_order for the DO list), then route to the editor. */}
+      <DocumentUploadDialog
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        documentType={createDocumentType}
+        documentLabel={uploadDocumentLabel}
       />
 
       {/* Delete Confirmation Dialog */}

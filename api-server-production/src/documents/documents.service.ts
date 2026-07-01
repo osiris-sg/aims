@@ -1539,6 +1539,131 @@ export class DocumentsService {
    * - Falls back to the type's default DocumentTemplate when no templateId is given.
    * Returns { id, templateId, type, matched: { customerId, projectId, poDocumentId } }.
    */
+  // OSI-13: resolve extracted DELIVERY_ORDER line items to real inventory units.
+  //  • AUTO-ASSIGN only on an EXACT serial match to a SINGLE in-stock unit in
+  //    this org → emits one config line per matched unit (quantity 1) with
+  //    inventoryItemId set, so the EXISTING syncDocumentItems materialises a
+  //    deliverable DocumentItem row (no change to that path). syncDocumentItems
+  //    is one-unit-per-line, so a multi-serial extracted line is SPLIT into
+  //    per-unit lines here.
+  //  • SUGGEST (never auto-assign) for the remainder: in-stock units of an asset
+  //    whose name matches the description, attached as suggestedInventoryIds for
+  //    the editor's quick-pick — inventoryItemId is left UNSET (non-deliverable
+  //    until a human confirms). SKU/description NEVER auto-assign.
+  //  • Strictly org-scoped; nothing cross-org.
+  private async matchExtractedItemsToInventory(
+    extractedItems: any[],
+    organizationId: string,
+  ): Promise<{
+    items: any[];
+    summary: { matched: number; suggested: number; unmatched: number };
+  }> {
+    const out: any[] = [];
+    let matched = 0;
+    let suggested = 0;
+    let unmatched = 0;
+    let lineId = 0;
+
+    for (const it of Array.isArray(extractedItems) ? extractedItems : []) {
+      const description: string = (it?.description ?? '').toString();
+      const uom = it?.unit || undefined;
+      const tax =
+        typeof it?.tax === 'number' ? it.tax : parseFloat(it?.tax) || undefined;
+      const qty =
+        typeof it?.quantity === 'number' ? it.quantity : parseFloat(it?.quantity) || 0;
+      const unitPrice =
+        typeof it?.unitPrice === 'number' ? it.unitPrice : parseFloat(it?.unitPrice) || 0;
+      const amount =
+        typeof it?.amount === 'number' ? it.amount : parseFloat(it?.amount) || 0;
+      const perUnit = unitPrice || (qty > 0 ? amount / qty : 0);
+      const serials: string[] = Array.isArray(it?.serialNumbers)
+        ? it.serialNumbers.map((s: any) => String(s ?? '').trim()).filter(Boolean)
+        : [];
+
+      // 1) Exact serial → SINGLE in-stock unit ⇒ auto-assign (one line per unit).
+      const matchedUnitIds = new Set<string>();
+      const unmatchedSerials: string[] = [];
+      for (const serial of serials) {
+        const units = await this.prisma.inventory.findMany({
+          where: {
+            organizationId,
+            serialNumber: serial,
+            status: InventoryStatus.instock,
+          },
+          select: { id: true },
+          take: 2, // stop at 2 to reject ambiguous serials
+        });
+        if (units.length === 1 && !matchedUnitIds.has(units[0].id)) {
+          matchedUnitIds.add(units[0].id);
+          out.push({
+            id: ++lineId,
+            description,
+            quantity: 1,
+            unitPrice: perUnit,
+            amount: perUnit,
+            uom,
+            tax,
+            serialNumber: serial,
+            inventoryItemId: units[0].id, // ⇒ syncDocumentItems makes a real row
+          });
+          matched++;
+        } else {
+          unmatchedSerials.push(serial);
+        }
+      }
+
+      // 2) Remaining quantity ⇒ ONE non-deliverable line (no inventoryItemId) +
+      //    description-based suggestions for the editor.
+      const matchedCount = matchedUnitIds.size;
+      const leftover =
+        matchedCount === 0
+          ? qty > 0
+            ? qty
+            : 1
+          : Math.max(0, (qty || matchedCount) - matchedCount);
+      if (leftover > 0) {
+        let suggestedInventoryIds: string[] = [];
+        if (description.trim()) {
+          const assets = await this.prisma.asset.findMany({
+            where: {
+              organizationId,
+              name: { contains: description.trim(), mode: 'insensitive' },
+            },
+            select: { id: true },
+            take: 3,
+          });
+          if (assets.length) {
+            const units = await this.prisma.inventory.findMany({
+              where: {
+                organizationId,
+                assetId: { in: assets.map((a) => a.id) },
+                status: InventoryStatus.instock,
+              },
+              select: { id: true },
+              take: 5,
+            });
+            suggestedInventoryIds = units.map((u) => u.id);
+          }
+        }
+        out.push({
+          id: ++lineId,
+          description,
+          quantity: leftover,
+          unitPrice: perUnit,
+          amount: perUnit * leftover,
+          uom,
+          tax,
+          ...(unmatchedSerials.length ? { serialNumbers: unmatchedSerials } : {}),
+          ...(suggestedInventoryIds.length ? { suggestedInventoryIds } : {}),
+        });
+        if (suggestedInventoryIds.length) suggested++;
+        else unmatched++;
+      }
+    }
+
+    return { items: out, summary: { matched, suggested, unmatched } };
+  }
+
   async createFromExtraction(
     organizationId: string,
     type: string,
@@ -1625,6 +1750,37 @@ export class DocumentsService {
       }
     }
 
+    // OSI-13: for a DELIVERY_ORDER, auto-match line items to inventory
+    // (serial-exact → inventoryItemId; else suggestions). Other document types
+    // keep the plain 1:1 mapping so QO/INVOICE behaviour is unchanged.
+    const isDeliveryOrder = type === 'DO' || type === 'DELIVERY_ORDER';
+    let itemMatchSummary:
+      | { matched: number; suggested: number; unmatched: number }
+      | null = null;
+    let configItems: any[];
+    if (isDeliveryOrder) {
+      const res = await this.matchExtractedItemsToInventory(
+        extracted?.items,
+        organizationId,
+      );
+      configItems = res.items;
+      itemMatchSummary = res.summary;
+    } else {
+      configItems = (Array.isArray(extracted?.items) ? extracted.items : []).map(
+        (it: any, idx: number) => ({
+          id: idx + 1,
+          description: it?.description || '',
+          quantity:
+            typeof it?.quantity === 'number' ? it.quantity : parseFloat(it?.quantity) || 0,
+          unitPrice:
+            typeof it?.unitPrice === 'number' ? it.unitPrice : parseFloat(it?.unitPrice) || 0,
+          amount: typeof it?.amount === 'number' ? it.amount : parseFloat(it?.amount) || 0,
+          uom: it?.unit || undefined,
+          tax: typeof it?.tax === 'number' ? it.tax : parseFloat(it?.tax) || undefined,
+        }),
+      );
+    }
+
     // Map extracted → AIMS document config shape.
     const config: any = {
       customer: {
@@ -1638,17 +1794,19 @@ export class DocumentsService {
         date: extracted?.document?.date || undefined,
         dueDate: extracted?.document?.dueDate || undefined,
         reference: extracted?.document?.reference || undefined,
+        // OSI-13 (PART 2): carry the extracted delivery date onto the DO — the
+        // preview reads documentInfo.deliveryDate; previously dropped.
+        ...(isDeliveryOrder && extracted?.additionalFields?.deliveryDate
+          ? { deliveryDate: extracted.additionalFields.deliveryDate }
+          : {}),
       },
+      // OSI-13 (PART 2): carry the extracted delivery ADDRESS onto the DO — the
+      // editor/preview read deliveryAddress.address (an object); previously dropped.
+      ...(isDeliveryOrder && extracted?.additionalFields?.deliveryAddress
+        ? { deliveryAddress: { address: extracted.additionalFields.deliveryAddress } }
+        : {}),
       references: extracted?.references || {},
-      items: (Array.isArray(extracted?.items) ? extracted.items : []).map((it: any, idx: number) => ({
-        id: idx + 1,
-        description: it?.description || '',
-        quantity: typeof it?.quantity === 'number' ? it.quantity : parseFloat(it?.quantity) || 0,
-        unitPrice: typeof it?.unitPrice === 'number' ? it.unitPrice : parseFloat(it?.unitPrice) || 0,
-        amount: typeof it?.amount === 'number' ? it.amount : parseFloat(it?.amount) || 0,
-        uom: it?.unit || undefined,
-        tax: typeof it?.tax === 'number' ? it.tax : parseFloat(it?.tax) || undefined,
-      })),
+      items: configItems,
       totals: extracted?.totals || {},
       notes: extracted?.notes || undefined,
       source: {
@@ -1677,6 +1835,9 @@ export class DocumentsService {
         customerId: matchedCustomerId,
         projectId: matchedProjectId,
         poDocumentId: matchedPoDocumentId,
+        // OSI-13: item→inventory auto-match summary so the UI can report
+        // "N linked, M suggested, K need a unit".
+        ...(itemMatchSummary ? { items: itemMatchSummary } : {}),
       },
     };
   }
