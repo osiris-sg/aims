@@ -28,16 +28,20 @@ export interface IngestInvoice {
   invoiceNumber: string;
   client: IngestClient;
   subClient?: IngestClient | null;
+  pickupLocation?: string | null;
   licensePlate?: string;
   materialType?: string;
   entryWeightKg?: number;
   exitWeightKg?: number;
   disposedWeightKg?: number;
   chargedWeightKg?: number;
+  minLoadKg?: number; // real feed — "Min. Load" in kg (÷1000 for the (T) column)
   ratePerTonne?: number;
-  minLoadTonnes?: number; // "Min. Load (T)" column — sent in a later payload variant
-  subtotal?: number;
+  minLoadTonnes?: number; // legacy fallback (already in tonnes)
+  soilSubtotal?: number; // real feed — soil-disposal subtotal
+  subtotal?: number; // legacy fallback
   gstAmount?: number;
+  transport?: number | null; // optional extra transport charge (total = soilSubtotal + transport + gst)
   totalCharge?: number;
   timestamp?: string;
 }

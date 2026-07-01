@@ -132,7 +132,8 @@ export class IngestionService {
     );
 
     // --- Amounts (prefer explicit payload numbers) -----------------------
-    const subTotal = this.num(inv.subtotal);
+    // Real feed uses `soilSubtotal`; keep legacy `subtotal` as fallback.
+    const subTotal = this.num(inv.soilSubtotal ?? inv.subtotal);
     const gstAmount = this.num(inv.gstAmount);
     const nettTotal = this.num(inv.totalCharge, subTotal + gstAmount);
     const gstPercent =
@@ -140,7 +141,10 @@ export class IngestionService {
 
     const weightT = this.num(inv.chargedWeightKg) / 1000;
     const unitRate = this.num(inv.ratePerTonne);
-    const minLoad = this.num(inv.minLoadTonnes);
+    // Real feed sends Min. Load in kg (`minLoadKg`) → convert to tonnes for the
+    // "Min. Load (T)" column; fall back to legacy `minLoadTonnes` if present.
+    const minLoad =
+      inv.minLoadKg != null ? this.num(inv.minLoadKg) / 1000 : this.num(inv.minLoadTonnes);
     const description =
       `${inv.materialType ?? 'Waste'} disposal — ${this.num(inv.chargedWeightKg)} kg ` +
       `@ $${unitRate}/tonne` +
@@ -210,11 +214,14 @@ export class IngestionService {
         transactionId: inv.transactionId,
         licensePlate: inv.licensePlate ?? null,
         materialType: inv.materialType ?? null,
+        pickupLocation: inv.pickupLocation ?? null,
         entryWeightKg: this.num(inv.entryWeightKg),
         exitWeightKg: this.num(inv.exitWeightKg),
         disposedWeightKg: this.num(inv.disposedWeightKg),
         chargedWeightKg: this.num(inv.chargedWeightKg),
+        minLoadKg: inv.minLoadKg ?? null,
         ratePerTonne: this.num(inv.ratePerTonne),
+        transport: inv.transport ?? null,
         timestamp: inv.timestamp ?? null,
       },
       // GL posting is deferred to the accountant Posting Queue:

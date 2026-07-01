@@ -1,0 +1,75 @@
+{
+  "_note": "REAL weighbridge prepaid_daily payload shape (guru, 2026-07-01). Field-name deltas vs current ingestion parsing: per-invoice `subtotal` is now `soilSubtotal`; `minLoadTonnes` is now `minLoadKg` (kg → divide by 1000 for the Min. Load (T) column, e.g. 16000 = 16.000 T). New optional fields: pickupLocation, subClient, transport, grandTotal.transportSubtotal. ingestion.service.ts must be updated to read these before the live feed works.",
+  "type": "prepaid_daily",
+  "date": "2026-06-26",
+  "sentAt": "2026-07-01T08:00:00.000Z",
+  "platform": {
+    "name": "Biofuel Industries Pte. Ltd.",
+    "uen": "200303416N",
+    "address": "22 Tuas Ave 2, Singapore 639453",
+    "contactNumber": "+65 8902 0505"
+  },
+  "invoices": [
+    {
+      "transactionId": "2959be51-5fa3-4420-bd93-577695157923",
+      "invoiceNumber": "BIPL-JPSG-INV-20260626-0054",
+      "client": {
+        "name": "SHENGYI DEVELOPMENT SG PTE LTD.",
+        "uen": "201917012D",
+        "address": "30 CECIL STREET #14-01 PRUDENTIAL TOWER",
+        "attention": "Zhong Kun",
+        "mobile": "9368 6044",
+        "email": "zhongkun@kuntaisg.com"
+      },
+      "subClient": null,
+      "pickupLocation": "RWS",
+      "licensePlate": "XD6280M",
+      "materialType": "Mixed Soil",
+      "entryWeightKg": 28510,
+      "exitWeightKg": 11500,
+      "disposedWeightKg": 17010,
+      "chargedWeightKg": 17010,
+      "minLoadKg": 16000,
+      "ratePerTonne": 18.00,
+      "soilSubtotal": 306.18,
+      "gstAmount": 27.56,
+      "transport": null,
+      "totalCharge": 333.74,
+      "timestamp": "26/06/2026, 14:50"
+    },
+    {
+      "transactionId": "d313cc3c-d514-40c8-95fc-a49849ac99e4",
+      "invoiceNumber": "BIPL-JPSG-INV-20260626-0122",
+      "client": {
+        "name": "Ee hup construction pte ltd",
+        "uen": "197902194k",
+        "address": "22a Beatty road",
+        "attention": "Shengjie Lin",
+        "mobile": "98340745",
+        "email": "linshengjie84@gmail.com"
+      },
+      "subClient": null,
+      "pickupLocation": "44 Faber walk",
+      "licensePlate": "XE7645H",
+      "materialType": "Mixed Soil",
+      "entryWeightKg": 29890,
+      "exitWeightKg": 12100,
+      "disposedWeightKg": 17790,
+      "chargedWeightKg": 17790,
+      "minLoadKg": 16000,
+      "ratePerTonne": 16.00,
+      "soilSubtotal": 284.64,
+      "gstAmount": 25.62,
+      "transport": null,
+      "totalCharge": 310.26,
+      "timestamp": "26/06/2026, 19:17"
+    }
+  ],
+  "totalInvoices": 19,
+  "grandTotal": {
+    "soilSubtotal": 5957.28,
+    "gst": 536.16,
+    "transportSubtotal": null,
+    "total": 6493.44
+  }
+}
