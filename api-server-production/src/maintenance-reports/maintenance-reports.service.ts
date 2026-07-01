@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenEx
 import { Prisma, MaintenanceReportKind, DeliveryStatus, ItemType } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
-import { WaterSgService } from 'src/common/services/water-sg.service';
+import { WaterSgService, WaterSgCreateSiteResult } from 'src/common/services/water-sg.service';
 import { EmailService } from '../email/email.service';
 import { DocumentsService } from '../documents/documents.service';
 import { DocumentTemplatesService } from '../documentTemplates/documentTemplates.service';
@@ -426,8 +426,9 @@ export class MaintenanceReportsService {
    * the signature response is unaffected.
    *
    * Gated twice: the org's enableWaterSgSites feature flag, and the unit's
-   * Asset.waterSgProductLine === 'SIDS'. Only DO_ACK rows carry an inventoryId
-   * + documentId, so SERVICE / DO_START rows fall out at the inventory guard.
+   * Asset.waterSgProductLine ∈ {SIDS, ESS, ECM} (each dispatches to its own
+   * water-sg endpoint below). Only DO_ACK rows carry an inventoryId + documentId,
+   * so SERVICE / DO_START rows fall out at the inventory guard.
    */
   private async forwardAckToWaterSg(
     report: {
@@ -461,39 +462,74 @@ export class MaintenanceReportsService {
         },
       });
 
-      // Only SIDS units get a water-sg site. (!inv guard also narrows for TS.)
-      if (!inv || inv.asset?.waterSgProductLine !== 'SIDS') return;
+      // Only SIDS/ESS/ECM units get a water-sg site — each product line dispatches
+      // to its own endpoint below. (!inv guard also narrows for TS.)
+      const productLine = inv?.asset?.waterSgProductLine;
+      if (!inv || !['SIDS', 'ESS', 'ECM'].includes(productLine ?? '')) return;
 
-      // Site name = the DO's project name, falling back to the unit SKU.
+      // Site name = the DO's project name, falling back to the unit SKU. The
+      // customer name (direct-FK path) is read on the same query so ESS can send
+      // it without an extra round-trip; SIDS/ECM ignore it.
       const doc = report.documentId
         ? await this.prisma.document.findUnique({
             where: { id: report.documentId },
-            select: { project: { select: { name: true } } },
+            select: {
+              project: {
+                select: { name: true, customer: { select: { name: true } } },
+              },
+            },
           })
         : null;
       const name = doc?.project?.name ?? inv.sku;
+      const customerName = doc?.project?.customer?.name ?? undefined;
 
       // Send 0,0 when GPS is missing (the 2b decision) so the site still lands.
-      const payload = {
-        siteId: inv.sku,
-        name,
-        lat: report.latitude ?? 0,
-        lng: report.longitude ?? 0,
-        cameraP2P: inv.cameraP2P ?? null,
-        managerId: null,
-      };
+      const lat = report.latitude ?? 0;
+      const lng = report.longitude ?? 0;
 
-      const result = await this.waterSg.createSite(payload);
+      // Dispatch per product line. SIDS is byte-for-byte unchanged (same payload
+      // → createSite → /api/site); ESS and ECM post their own shapes to their own
+      // endpoints. All three return the created/existing site id the same way.
+      let result: WaterSgCreateSiteResult;
+      if (productLine === 'SIDS') {
+        const payload = {
+          siteId: inv.sku,
+          name,
+          lat,
+          lng,
+          cameraP2P: inv.cameraP2P ?? null,
+          managerId: null,
+        };
+        result = await this.waterSg.createSite(payload);
+      } else if (productLine === 'ESS') {
+        result = await this.waterSg.createEssSite({
+          siteId: inv.sku,
+          siteName: name,
+          lat,
+          lng,
+          batteryCount: 3,
+          ...(customerName ? { customer: customerName } : {}),
+        });
+      } else {
+        // ECM
+        result = await this.waterSg.createEcmSite({
+          siteId: inv.sku,
+          name,
+          lat,
+          lng,
+          managerId: null,
+        });
+      }
 
       // Footprint: record the site id (fall back to the SKU we sent).
-      const siteId = result.id ?? payload.siteId;
+      const siteId = result.id ?? inv.sku;
       await this.prisma.maintenanceServiceReport.update({
         where: { id: report.id },
         data: { waterSgSiteId: siteId },
       });
 
       this.logger.log(
-        `water-sg site created for report ${report.id}: siteId=${payload.siteId} ` +
+        `water-sg site created for report ${report.id}: siteId=${inv.sku} ` +
           `recordedId=${siteId} alreadyExists=${result.alreadyExists ?? false}`,
       );
     } catch (err: any) {
