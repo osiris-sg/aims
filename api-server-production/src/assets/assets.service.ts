@@ -38,6 +38,7 @@ export class AssetsService {
             { name: { contains: search, mode: 'insensitive' } },
             { skuKey: { contains: search, mode: 'insensitive' } },
             { description: { contains: search, mode: 'insensitive' } },
+            { category: { name: { contains: search, mode: 'insensitive' } } },
           ];
         }
       }

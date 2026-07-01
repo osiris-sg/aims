@@ -26,7 +26,16 @@ export class InventoriesService {
 
       // Search filter
       if (search) {
-        whereClause.OR = [{ sku: { contains: search, mode: 'insensitive' } }, { asset: { name: { contains: search, mode: 'insensitive' } } }];
+        whereClause.OR = [
+          { sku: { contains: search, mode: 'insensitive' } },
+          { serialNumber: { contains: search, mode: 'insensitive' } },
+          // denormalized category name on the inventory row itself
+          { category: { contains: search, mode: 'insensitive' } },
+          { asset: { name: { contains: search, mode: 'insensitive' } } },
+          { asset: { description: { contains: search, mode: 'insensitive' } } },
+          // canonical category via the asset's category relation
+          { asset: { category: { name: { contains: search, mode: 'insensitive' } } } },
+        ];
       }
 
       // Date range filter

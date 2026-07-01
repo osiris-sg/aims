@@ -538,6 +538,23 @@ export default function InvoicesPage() {
         return true;
       });
     }
+    // Search across the meaningful fields (was previously a no-op).
+    const term = (search || "").trim().toLowerCase();
+    if (term) {
+      docs = docs.filter((d) => {
+        const hay = [
+          (d as any).name,
+          (d as any).associated_customer,
+          (d as any).associated_item,
+          (d as any).documentType,
+          (d as any).status,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return hay.includes(term);
+      });
+    }
     return docs;
   })();
 
