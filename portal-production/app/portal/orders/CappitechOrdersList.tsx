@@ -104,6 +104,7 @@ export function CappitechOrdersList() {
           o.customer?.name,
           o.customer?.customerCode,
           o.sourceQuotation?.name,
+          o.orderType,
           o.status,
         ]
           .filter(Boolean)

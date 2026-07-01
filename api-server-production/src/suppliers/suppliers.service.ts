@@ -22,6 +22,7 @@ export class SuppliersService {
           { email: { contains: search, mode: 'insensitive' } },
           { phone: { contains: search, mode: 'insensitive' } },
           { address: { contains: search, mode: 'insensitive' } },
+          { gstRegNo: { contains: search, mode: 'insensitive' } },
         ];
       }
 

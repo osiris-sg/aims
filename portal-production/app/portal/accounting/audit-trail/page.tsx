@@ -161,7 +161,14 @@ export default function AuditTrailPage() {
       (e) =>
         e.journalNumber.toLowerCase().includes(q) ||
         (e.reference || "").toLowerCase().includes(q) ||
-        (e.description || "").toLowerCase().includes(q),
+        (e.description || "").toLowerCase().includes(q) ||
+        (e.type || "").toLowerCase().includes(q) ||
+        (e.lines || []).some(
+          (l) =>
+            (l.account?.code || "").toLowerCase().includes(q) ||
+            (l.account?.name || "").toLowerCase().includes(q) ||
+            ((l as any).description || "").toLowerCase().includes(q),
+        ),
     );
   }, [entries, search, pinnedJournalNumbers]);
 

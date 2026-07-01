@@ -98,7 +98,9 @@ export default function BillsPage() {
       rows = rows.filter(
         (b) =>
           b.billNumber.toLowerCase().includes(q) ||
-          (b.supplier?.name || "").toLowerCase().includes(q),
+          (b.supplier?.name || "").toLowerCase().includes(q) ||
+          ((b as any).inboundChannel || "").toLowerCase().includes(q) ||
+          (b.status || "").toLowerCase().includes(q),
       );
     }
     return rows;
