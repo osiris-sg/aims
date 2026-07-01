@@ -31,7 +31,22 @@ import { Button } from "@mui/material";
 import moment from "moment";
 import { toast } from "react-toastify";
 import DocumentUploadDialog from "./DocumentUploadDialog";
-import { useDeleteDocument } from "@/app/portal/hooks/api";
+import { useDeleteDocument, useGetCustomers } from "@/app/portal/hooks/api";
+import type { FilterField } from "@/components/FilterDrawer";
+
+// Document statuses (NOT the legacy inventory statuses the old `availableFilters`
+// path produced). Customer is appended at runtime.
+const DOC_STATUS_OPTIONS = [
+  { value: "draft", label: "Draft" },
+  { value: "confirmed", label: "Confirmed" },
+  { value: "pending_delivery", label: "Pending Delivery" },
+  { value: "delivered_not_installed", label: "Delivered (Not Installed)" },
+  { value: "delivered_installed", label: "Delivered & Installed" },
+  { value: "pending_payment", label: "Pending Payment" },
+  { value: "paid", label: "Paid" },
+  { value: "pending_return", label: "Pending Return" },
+  { value: "returned", label: "Returned" },
+];
 import { useTemplatePicker } from "./useTemplatePicker";
 
 interface Props {
@@ -158,8 +173,25 @@ export default function DocumentListView({
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({
     status: "",
+    customerId: "",
     createdOn: { startDate: null, endDate: null },
   });
+
+  // Customers for the Customer filter dropdown (stable, unfiltered options).
+  const { customers: filterCustomers = [] } = useGetCustomers({ limit: 1000 });
+  const customerNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    (filterCustomers || []).forEach((c: any) => m.set(c.id, c.name));
+    return m;
+  }, [filterCustomers]);
+  const filterConfig: FilterField[] = useMemo(
+    () => [
+      { type: "dateRange", key: "createdOn", label: "Created On" },
+      { type: "select", key: "status", label: "Status", options: DOC_STATUS_OPTIONS },
+      { type: "select", key: "customerId", label: "Customer", options: (filterCustomers || []).map((c: any) => ({ value: c.id, label: c.name })) },
+    ],
+    [filterCustomers],
+  );
   const [uploadOpen, setUploadOpen] = useState(false);
   const [docToDelete, setDocToDelete] = useState<DocumentRow | null>(null);
 
@@ -256,8 +288,17 @@ export default function DocumentListView({
     const endDate = filters?.createdOn?.endDate ? new Date(filters.createdOn.endDate) : null;
     if (endDate) endDate.setHours(23, 59, 59, 999);
 
+    const customerFilter = (filters?.customerId || "").trim();
+    const selectedCustomerName = customerFilter ? customerNameById.get(customerFilter) : "";
+
     return docs.filter((d) => {
       if (statusFilter && (d.status || "").toLowerCase() !== statusFilter.toLowerCase()) return false;
+      if (customerFilter) {
+        // Docs carry the customer NAME (associated_customer), rarely an id.
+        const docCustId = (d as any).customerId || (d as any).customer?.id;
+        const docCustName = (d as any).associated_customer || (d as any).customer?.name;
+        if (!((docCustId && docCustId === customerFilter) || (!!selectedCustomerName && docCustName === selectedCustomerName))) return false;
+      }
       if (startDate && new Date(d.createdAt) < startDate) return false;
       if (endDate && new Date(d.createdAt) > endDate) return false;
       if (term) {
@@ -275,7 +316,7 @@ export default function DocumentListView({
       }
       return true;
     });
-  }, [docs, search, filters]);
+  }, [docs, search, filters, customerNameById]);
 
   const stats = React.useMemo(() => {
     const monthStart = moment().startOf("month");
@@ -396,7 +437,7 @@ export default function DocumentListView({
         setLimit={setLimit}
         setSearch={setSearch}
         setFilters={handleSetFilters}
-        availableFilters={["status", "createdOn"]}
+        filterConfig={filterConfig}
         pageCount={1}
         totalDocs={filteredDocs.length}
         headerContent={
