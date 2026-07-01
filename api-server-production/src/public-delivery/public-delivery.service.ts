@@ -146,10 +146,15 @@ export class PublicDeliveryService {
         id: true,
         itemId: true,
         itemType: true,
+        inventoryId: true,
         sku: true,
         description: true,
         quantity: true,
         deliveryStatus: true,
+        // Physical unit SKU from the linked Inventory (DocumentItem.sku is often
+        // null) — the guest list shows it as the per-row sub-label, matching the
+        // field getScanContext projection.
+        inventory: { select: { sku: true } },
       },
     });
 
@@ -161,7 +166,10 @@ export class PublicDeliveryService {
         id: it.id,
         itemId: it.itemId,
         itemType: it.itemType,
+        // Unit id the guest passes to /report + /advance (typed FK, else itemId).
+        inventoryId: it.inventoryId,
         sku: it.sku,
+        unitSku: it.inventory?.sku ?? null,
         description: it.description,
         quantity: it.quantity,
         deliveryStatus: it.deliveryStatus,

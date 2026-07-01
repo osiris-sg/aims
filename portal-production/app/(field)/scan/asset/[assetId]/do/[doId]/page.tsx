@@ -3,92 +3,20 @@
 import React, { useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Box, Button, IconButton, ImageList, ImageListItem, Stack, TextField, Typography, CircularProgress, Alert } from "@mui/material";
-import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
-import DeleteIcon from "@mui/icons-material/Delete";
+import { Alert, Box, Button, Stack, TextField, Typography } from "@mui/material";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
-
-interface UploadedPhoto {
-  key: string;
-  previewUrl: string;
-}
-
-// Phone-camera JPEGs run 4–8 MB. Resize to 1280px wide at JPEG q0.7 — typically
-// ~200–400 KB — before the multipart upload, otherwise the S3 PUT is painfully
-// slow on field LTE and the office gets oversized assets it never zooms into.
-//
-// Uses canvas.toBlob() rather than canvas.toDataURL() + fetch(dataUrl).blob():
-// the round-trip via fetch() on a data URL produces a Blob with an empty
-// `.type` in the Capacitor Android WebView, which downstream uploadImage maps
-// to a ".unknown" extension and the backend silently drops. toBlob guarantees
-// the type we asked for.
-const compressImageToBlob = (
-  dataUrl: string,
-  maxWidth = 1280,
-  quality = 0.7,
-): Promise<Blob> => {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      let w = img.width;
-      let h = img.height;
-      if (w > maxWidth) {
-        h = (h * maxWidth) / w;
-        w = maxWidth;
-      }
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      ctx?.drawImage(img, 0, 0, w, h);
-      canvas.toBlob(
-        (blob) => resolve(blob ?? new Blob([], { type: "image/jpeg" })),
-        "image/jpeg",
-        quality,
-      );
-    };
-    img.src = dataUrl;
-  });
-};
-
-const fileToDataUrl = (file: File): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-
-// Best-effort one-shot GPS fix for the acknowledgement point. The DO_START
-// flow streams continuous pings via the Capgo background plugin; here we only
-// need a single coordinate at the moment of acknowledgement, so the
-// web-standard navigator.geolocation is the right tool (works in the Capacitor
-// Android WebView and needs no native plugin).
-//
-// Resolves to null on ANY failure — permission denied, no signal, timeout, or
-// the API being unavailable — so acknowledgement is never blocked by GPS. The
-// site call is best-effort; latitude/longitude may persist blank.
-const capturePosition = (): Promise<{ latitude: number; longitude: number } | null> =>
-  new Promise((resolve) => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
-      resolve(null);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
-    );
-  });
+import { capturePosition } from "@/helpers/geolocation";
+import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
 
 /**
  * Acknowledge Delivery — second step of the two-step delivery flow. Enabled
  * only when a DO_START MSR exists for this DO and no DO_ACK has been
  * submitted yet (see canAckDelivery in getScanContext).
  *
- * For v1 we record this as a MaintenanceServiceReport with kind=DO_ACK and a
- * backend stores it against the asset and the existing report list shows it.
+ * Records a MaintenanceServiceReport with kind=DO_ACK, then routes to the
+ * shared signature page. Photo capture + one-shot GPS come from the shared
+ * PhotoCaptureField / capturePosition (also used by the guest delivery flow).
  */
 export default function DeliveryOrderAckPage() {
   const params = useParams();
@@ -99,36 +27,18 @@ export default function DeliveryOrderAckPage() {
   const doId = params?.doId as string;
   const inventoryId = search?.get("inventoryId") ?? null;
   const [notes, setNotes] = useState("");
-  const [photos, setPhotos] = useState<UploadedPhoto[]>([]);
+  const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [locating, setLocating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    setError(null);
-    setUploading(true);
-    try {
-      const token = await getToken();
-      if (!token) throw new Error("Not signed in");
-      const newPhotos: UploadedPhoto[] = [];
-      for (const file of Array.from(files)) {
-        const originalDataUrl = await fileToDataUrl(file);
-        const compressedBlob = await compressImageToBlob(originalDataUrl);
-        const key = await uploadImage({ blob: compressedBlob, folderName: "do-ack", token });
-        if (key) newPhotos.push({ key, previewUrl: URL.createObjectURL(compressedBlob) });
-      }
-      setPhotos((prev) => [...prev, ...newPhotos]);
-    } catch (e: any) {
-      setError(e?.message ?? "Upload failed");
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const removePhoto = (index: number) => {
-    setPhotos((prev) => prev.filter((_, i) => i !== index));
+  // Clerk-auth'd upload closure handed to the shared PhotoCaptureField — the
+  // component stays auth-agnostic; the token lives here (folder: do-ack).
+  const uploadDoAck = async (blob: Blob): Promise<string | null> => {
+    const token = await getToken();
+    if (!token) throw new Error("Not signed in");
+    return uploadImage({ blob, folderName: "do-ack", token });
   };
 
   const continueToSign = async () => {
@@ -137,16 +47,13 @@ export default function DeliveryOrderAckPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      // Description now holds just the technician's notes; the activity kind
-      // is discriminated by MSR.kind = DO_ACK rather than a description prefix.
-      // Fallback string when no notes are entered so the row isn't blank in
-      // the office-side Field Reports view.
+      // Description holds just the technician's notes; the activity kind is
+      // discriminated by MSR.kind = DO_ACK. Fallback string when no notes are
+      // entered so the row isn't blank in the office-side Field Reports view.
       const description = notes.trim() || "Delivery acknowledged";
-      // Capture a one-shot GPS fix for the acknowledgement point so the
-      // coordinates persist on the MSR (the WaterSgService later forwards them
-      // to water-sg). Best-effort only: capturePosition resolves null on
-      // denial / no signal / timeout, in which case latitude/longitude are
-      // simply omitted and the acknowledgement proceeds unblocked.
+      // Best-effort one-shot GPS at the acknowledgement point (persisted on the
+      // MSR; WaterSgService later forwards it). Resolves null on denial/no
+      // signal/timeout, so acknowledgement is never blocked.
       setLocating(true);
       const coords = await capturePosition();
       setLocating(false);
@@ -191,35 +98,14 @@ export default function DeliveryOrderAckPage() {
         onChange={(e) => setNotes(e.target.value)}
       />
 
-      <Box>
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-          <Typography variant="subtitle2">Proof of delivery ({photos.length})</Typography>
-          {uploading && <CircularProgress size={16} />}
-        </Stack>
-
-        {photos.length > 0 && (
-          <ImageList cols={3} gap={8} sx={{ mb: 2 }}>
-            {photos.map((p, idx) => (
-              <ImageListItem key={p.key} sx={{ position: "relative" }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={p.previewUrl} alt="" style={{ borderRadius: 4, objectFit: "cover", aspectRatio: "1/1" }} />
-                <IconButton
-                  size="small"
-                  onClick={() => removePhoto(idx)}
-                  sx={{ position: "absolute", top: 4, right: 4, bgcolor: "rgba(0,0,0,0.6)", color: "white" }}
-                >
-                  <DeleteIcon fontSize="small" />
-                </IconButton>
-              </ImageListItem>
-            ))}
-          </ImageList>
-        )}
-
-        <Button component="label" variant="outlined" startIcon={<AddPhotoAlternateIcon />} disabled={uploading} fullWidth>
-          Add photos
-          <input type="file" accept="image/*" multiple capture="environment" hidden onChange={(e) => handleFiles(e.target.files)} />
-        </Button>
-      </Box>
+      <PhotoCaptureField
+        label="Proof of delivery"
+        photos={photos}
+        onChange={setPhotos}
+        upload={uploadDoAck}
+        onError={(m) => setError(m || null)}
+        onUploadingChange={setUploading}
+      />
 
       {error && <Alert severity="error">{error}</Alert>}
 

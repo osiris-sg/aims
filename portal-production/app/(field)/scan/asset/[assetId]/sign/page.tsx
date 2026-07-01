@@ -3,9 +3,9 @@
 import React, { useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import SignatureCanvas from "react-signature-canvas";
 import { Alert, Box, Button, Stack, TextField, Typography } from "@mui/material";
 import { request } from "@/helpers/request";
+import SignaturePadField, { SignaturePadHandle } from "@/components/delivery/SignaturePadField";
 import { useBackgroundLocationContext } from "../../../../context/BackgroundLocationContext";
 
 export default function SignPage() {
@@ -24,7 +24,7 @@ export default function SignPage() {
   // Threaded through the whole flow (chooser → ack → sign → done) so the
   // done page's "Back to this asset" link can restore the full scan context.
   const inventoryId = search?.get("inventoryId") ?? null;
-  const sigRef = useRef<SignatureCanvas>(null);
+  const sigRef = useRef<SignaturePadHandle>(null);
   const [signedByName, setSignedByName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +50,7 @@ export default function SignPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const signature = sigRef.current.getTrimmedCanvas().toDataURL("image/png");
+      const signature = sigRef.current.toDataUrl();
       await request(
         { path: `/maintenance-reports/${reportId}/sign`, method: "POST" },
         { signature, signedByName: signedByName.trim() || undefined },
@@ -109,21 +109,7 @@ export default function SignPage() {
         onChange={(e) => setSignedByName(e.target.value)}
       />
 
-      <Box
-        sx={{
-          border: "1px dashed",
-          borderColor: "divider",
-          borderRadius: 1,
-          bgcolor: "background.paper",
-          touchAction: "none",
-        }}
-      >
-        <SignatureCanvas
-          ref={sigRef}
-          penColor="black"
-          canvasProps={{ width: 360, height: 200, style: { width: "100%", height: 200 } }}
-        />
-      </Box>
+      <SignaturePadField ref={sigRef} />
 
       {error && <Alert severity="error">{error}</Alert>}
 
