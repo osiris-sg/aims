@@ -735,46 +735,98 @@ export class MaintenanceReportsService {
     } | null = null;
 
     if (resolvedDeliveryOrder) {
-      // All reports for THIS DO. SERVICE rows carry a null documentId, so a
-      // documentId match only ever returns DO_START / DO_ACK / DO_INSTALL rows.
-      const msrs = await this.prisma.maintenanceServiceReport.findMany({
-        where: { documentId: resolvedDeliveryOrder.id, organizationId },
-        select: {
-          id: true,
-          kind: true,
-          status: true,
-          createdAt: true,
-          technicianName: true,
-        },
-        orderBy: { createdAt: 'desc' },
-      });
+      // Option B: when the scan resolved to a SPECIFIC unit, the big card must
+      // reflect THAT item's state — not a DO-wide MSR aggregate. Previously the
+      // stage was derived from ALL reports on the DO, so once ANY item was acked
+      // every scan showed 'ack_install' — even an un-delivered sibling. Instead,
+      // derive the stage from the scanned DocumentItem's per-item deliveryStatus
+      // (the same source of truth deliveryItems[] uses), matched with the same
+      // predicate as itemFilter / isScanned.
+      const scannedItem = inventoryId
+        ? await this.prisma.documentItem.findFirst({
+            where: {
+              documentId: resolvedDeliveryOrder.id,
+              OR: [
+                { inventoryId },
+                { itemId: inventoryId, itemType: ItemType.INVENTORY },
+                { itemId: assetId, itemType: ItemType.ASSET },
+              ],
+            },
+            select: { deliveryStatus: true },
+            orderBy: { lineNumber: 'asc' },
+          })
+        : null;
 
-      const hasInstall = msrs.some((m) => m.kind === 'DO_INSTALL');
-      const hasCompletedAck = msrs.some(
-        (m) => m.kind === 'DO_ACK' && m.status === 'completed',
-      );
-      const startMsr = msrs.find((m) => m.kind === 'DO_START') ?? null;
-
-      if (hasInstall || resolvedDeliveryOrder.status === 'delivered_installed') {
-        // Terminal: installation recorded (or the DO already flipped to
-        // delivered_installed). Fully complete — nothing actionable, and this
-        // can never regress to 'start'.
-        deliveryStage = 'completed';
-      } else if (hasCompletedAck) {
-        // Delivery signed off; installation not yet recorded.
-        deliveryStage = 'ack_install';
-      } else if (startMsr) {
-        // Delivery started, not yet acknowledged. An unsigned/draft DO_ACK
-        // keeps us here (hasCompletedAck is false) so the ack can be completed.
-        deliveryStage = 'ack_delivery';
-        activeDeliveryStart = {
-          id: startMsr.id,
-          createdAt: startMsr.createdAt,
-          technicianName: startMsr.technicianName,
-        };
+      if (scannedItem) {
+        // Per-item stage: map the scanned item's deliveryStatus → the card's
+        // stage vocabulary (mirrors the not_delivered/delivering/not_installed/
+        // completed lifecycle in advanceDeliveryItem).
+        deliveryStage =
+          scannedItem.deliveryStatus === DeliveryStatus.completed
+            ? 'completed'
+            : scannedItem.deliveryStatus === DeliveryStatus.not_installed
+              ? 'ack_install'
+              : scannedItem.deliveryStatus === DeliveryStatus.delivering
+                ? 'ack_delivery'
+                : 'start'; // not_delivered
+        // "Started by" info for the ack_delivery card, scoped to THIS unit's own
+        // DO_START report (not any sibling's).
+        if (deliveryStage === 'ack_delivery') {
+          const startMsr = await this.prisma.maintenanceServiceReport.findFirst({
+            where: {
+              documentId: resolvedDeliveryOrder.id,
+              organizationId,
+              kind: 'DO_START',
+              inventoryId,
+            },
+            orderBy: { createdAt: 'desc' },
+            select: { id: true, createdAt: true, technicianName: true },
+          });
+          if (startMsr) activeDeliveryStart = startMsr;
+        }
       } else {
-        // DO exists, never started.
-        deliveryStage = 'start';
+        // FALLBACK (unchanged): asset-level scan / no specific scanned item —
+        // derive the DO-level stage from all its reports + Document.status.
+        // SERVICE rows carry a null documentId, so a documentId match only ever
+        // returns DO_START / DO_ACK / DO_INSTALL rows.
+        const msrs = await this.prisma.maintenanceServiceReport.findMany({
+          where: { documentId: resolvedDeliveryOrder.id, organizationId },
+          select: {
+            id: true,
+            kind: true,
+            status: true,
+            createdAt: true,
+            technicianName: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+
+        const hasInstall = msrs.some((m) => m.kind === 'DO_INSTALL');
+        const hasCompletedAck = msrs.some(
+          (m) => m.kind === 'DO_ACK' && m.status === 'completed',
+        );
+        const startMsr = msrs.find((m) => m.kind === 'DO_START') ?? null;
+
+        if (hasInstall || resolvedDeliveryOrder.status === 'delivered_installed') {
+          // Terminal: installation recorded (or the DO already flipped to
+          // delivered_installed). Fully complete — can never regress to 'start'.
+          deliveryStage = 'completed';
+        } else if (hasCompletedAck) {
+          // Delivery signed off; installation not yet recorded.
+          deliveryStage = 'ack_install';
+        } else if (startMsr) {
+          // Delivery started, not yet acknowledged. An unsigned/draft DO_ACK
+          // keeps us here (hasCompletedAck is false) so the ack can be completed.
+          deliveryStage = 'ack_delivery';
+          activeDeliveryStart = {
+            id: startMsr.id,
+            createdAt: startMsr.createdAt,
+            technicianName: startMsr.technicianName,
+          };
+        } else {
+          // DO exists, never started.
+          deliveryStage = 'start';
+        }
       }
     }
 
