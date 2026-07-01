@@ -44,6 +44,11 @@ export class CustomersService {
         }
       }
 
+      // Salesman filter (id-to-id on Customer.salesmanId), server-side.
+      if ((filters as any)?.salesmanId) {
+        whereClause.salesmanId = (filters as any).salesmanId;
+      }
+
       const customers = await this.prisma.customer.findMany({
         where: whereClause,
         skip,

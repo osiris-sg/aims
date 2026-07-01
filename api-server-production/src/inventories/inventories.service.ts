@@ -22,8 +22,6 @@ export class InventoriesService {
 
       const skip = (page - 1) * limit;
 
-      console.log('received category:', filters?.category);
-
       const whereClause: any = { organizationId };
 
       // Search filter
@@ -54,13 +52,17 @@ export class InventoriesService {
         }
       }
 
-      // Category filter (supports array or single value)
+      // Category filter (supports array or single value). The filter dropdown
+      // sends Category IDs, but Inventory.category is a denormalized category
+      // NAME that can drift (e.g. "Water" vs "Water Treatment"). Match on the
+      // asset's category relation instead so the selected ID actually resolves.
       if (filters?.category) {
         const categoryValues = Array.isArray(filters.category) ? filters.category.filter(c => c !== '') : [filters.category].filter(c => c !== '');
-        if (categoryValues.length === 1) {
-          whereClause.category = categoryValues[0];
-        } else if (categoryValues.length > 1) {
-          whereClause.category = { in: categoryValues };
+        if (categoryValues.length > 0) {
+          whereClause.asset = {
+            ...(whereClause.asset || {}),
+            categoryId: categoryValues.length === 1 ? categoryValues[0] : { in: categoryValues },
+          };
         }
       }
 

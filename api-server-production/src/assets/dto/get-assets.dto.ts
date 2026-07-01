@@ -10,6 +10,11 @@ class FiltersDto {
   @IsBoolean()
   @IsOptional()
   isTracked?: boolean;
+
+  // Created-on date range { startDate, endDate }. Applied server-side so the
+  // filter spans all pages (not just the current one).
+  @IsOptional()
+  createdOn?: { startDate?: string | Date | null; endDate?: string | Date | null };
 }
 
 export class GetAssetDto {

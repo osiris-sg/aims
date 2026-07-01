@@ -61,6 +61,19 @@ export class AssetsService {
         whereClause.isTracked = filters.isTracked;
       }
 
+      // Created-on date range (server-side so it spans all pages)
+      if (filters?.createdOn?.startDate || filters?.createdOn?.endDate) {
+        whereClause.createdAt = {};
+        if (filters.createdOn.startDate) {
+          whereClause.createdAt.gte = new Date(filters.createdOn.startDate);
+        }
+        if (filters.createdOn.endDate) {
+          const end = new Date(filters.createdOn.endDate);
+          end.setHours(23, 59, 59, 999);
+          whereClause.createdAt.lte = end;
+        }
+      }
+
       const assets = await this.prisma.asset.findMany({
         where: whereClause,
         skip,

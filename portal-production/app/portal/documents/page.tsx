@@ -57,6 +57,27 @@ const DOCUMENT_TYPE_OPTIONS = [
   { value: "MATERIAL_SERVICE_REPORT", label: "Material Service Report" },
 ];
 
+// Document.type is stored inconsistently — a mix of canonical long names
+// ("DELIVERY_ORDER", "QUOTATION") and short variant codes ("DO", "PO", "TI2").
+// Canonicalize both the stored value and the filter value before comparing so
+// e.g. selecting "Purchase Order" matches docs stored as "PO".
+const DOCUMENT_TYPE_ALIASES: Record<string, string> = {
+  QO1: "QUOTATION", QO2: "QUOTATION", QO: "QUOTATION", QT: "QUOTATION", QUOTATION: "QUOTATION",
+  DO: "DELIVERY_ORDER", DELIVERY_ORDER: "DELIVERY_ORDER",
+  RDO: "RECEIVED_DELIVERY_ORDER", RECEIVED_DELIVERY_ORDER: "RECEIVED_DELIVERY_ORDER",
+  PO: "PURCHASE_ORDER", PURCHASE_ORDER: "PURCHASE_ORDER",
+  PR: "PURCHASE_RETURN", PURCHASE_RETURN: "PURCHASE_RETURN",
+  TKI: "TAKE_IN", TAKE_IN: "TAKE_IN",
+  MSR: "MATERIAL_SERVICE_REPORT", MATERIAL_SERVICE_REPORT: "MATERIAL_SERVICE_REPORT",
+  SO: "SALES_ORDER", SALES_ORDER: "SALES_ORDER",
+  TI: "INVOICE", TI2: "INVOICE", INVOICE: "INVOICE",
+  CN: "CREDIT_NOTE", DN: "DEBIT_NOTE", SAI: "STOCK_ADJUSTMENT_IN", SAO: "STOCK_ADJUSTMENT_OUT", BILL: "BILL",
+};
+const canonDocType = (t: any) => {
+  const key = String(t || "").toUpperCase();
+  return DOCUMENT_TYPE_ALIASES[key] || key;
+};
+
 export default function DocumentsPage() {
   const router = useRouter();
   const [page, setPage] = useState(1);
@@ -98,7 +119,7 @@ export default function DocumentsPage() {
     return (documents || []).filter((doc: any) => {
       if (doc.documentType === "INVOICE") return false;
       if (statusFilter && (doc.status || "").toLowerCase() !== statusFilter.toLowerCase()) return false;
-      if (typeFilter && (doc.documentType || "") !== typeFilter) return false;
+      if (typeFilter && canonDocType(doc.documentType) !== canonDocType(typeFilter)) return false;
       if (customerFilter) {
         // documents API returns associated_customer as a string label, not an id.
         // Fall back to comparing on customerId if present.

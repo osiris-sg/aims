@@ -16,6 +16,12 @@ class FiltersDto {
   @Type(() => DateRangeDto)
   @IsOptional()
   createdOn: DateRangeDto;
+
+  // Salesman = Customer.salesmanId (UserOrganization id). Applied server-side so
+  // the filter spans all pages.
+  @IsString()
+  @IsOptional()
+  salesmanId?: string;
 }
 
 export class GetCustomerDto {

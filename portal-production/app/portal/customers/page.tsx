@@ -56,29 +56,28 @@ export default function CustomersPage() {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | undefined>();
   const [isEditMode, setIsEditMode] = useState(false);
 
-  // Backend understands createdOn; salesmanId is applied client-side below.
-  const apiFilters = useMemo(() => ({ createdOn: filters.createdOn }), [filters.createdOn]);
+  // Both createdOn and salesmanId are applied server-side so filters span all
+  // pages (not just the current one) and counts stay consistent.
+  const apiFilters = useMemo(
+    () => ({ createdOn: filters.createdOn, salesmanId: filters.salesmanId || undefined }),
+    [filters.createdOn, filters.salesmanId],
+  );
 
-  // Fetch customers with new hook
-  const { customers: rawCustomers = [], total: rawTotal = 0, isLoading, refetch } = useGetCustomers({ page, limit, search, filters: apiFilters });
+  // Fetch customers with new hook (server already applied the filters).
+  const { customers = [], total = 0, isLoading, refetch } = useGetCustomers({ page, limit, search, filters: apiFilters });
 
-  // Post-filter for salesmanId (backend doesn't filter on it yet).
-  const customers = useMemo(() => {
-    if (!filters.salesmanId) return rawCustomers;
-    return (rawCustomers || []).filter((c: any) => c.salesman?.id === filters.salesmanId);
-  }, [rawCustomers, filters.salesmanId]);
-  const total = filters.salesmanId ? customers.length : rawTotal;
-
-  // Derive unique salesman options from the fetched customers.
+  // Separate unfiltered fetch to build a STABLE salesman dropdown (deriving
+  // options from the filtered page would collapse to just the selected one).
+  const { customers: allCustomers = [] } = useGetCustomers({ limit: 1000 });
   const salesmenOptions = useMemo(() => {
     const seen = new Map<string, string>();
-    (rawCustomers || []).forEach((c: any) => {
+    (allCustomers || []).forEach((c: any) => {
       if (c.salesman?.id && !seen.has(c.salesman.id)) {
         seen.set(c.salesman.id, `${c.salesman.name}${c.salesman.salesmanCode ? ` (${c.salesman.salesmanCode})` : ""}`);
       }
     });
     return Array.from(seen.entries()).map(([value, label]) => ({ value, label }));
-  }, [rawCustomers]);
+  }, [allCustomers]);
 
   const filterConfig: FilterField[] = useMemo(
     () => [

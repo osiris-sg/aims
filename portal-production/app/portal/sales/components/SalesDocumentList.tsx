@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useGetDocuments, useDeleteDocument } from "@/app/portal/hooks/api";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import type { FilterField } from "@/components/FilterDrawer";
 import {
   Box,
   IconButton,
@@ -44,6 +45,26 @@ interface Filters {
     endDate: string | null;
   };
 }
+
+// Filter drawer config for sales documents — document statuses (NOT the legacy
+// inventory statuses) + a date range. Category is omitted (sales docs have none).
+const SALES_FILTER_CONFIG: FilterField[] = [
+  { type: "dateRange", key: "createdOn", label: "Created On" },
+  {
+    type: "select",
+    key: "status",
+    label: "Status",
+    options: [
+      { value: "draft", label: "Draft" },
+      { value: "confirmed", label: "Confirmed" },
+      { value: "pending_delivery", label: "Pending Delivery" },
+      { value: "delivered_not_installed", label: "Delivered (Not Installed)" },
+      { value: "delivered_installed", label: "Delivered & Installed" },
+      { value: "pending_return", label: "Pending Return" },
+      { value: "returned", label: "Returned" },
+    ],
+  },
+];
 
 export interface SalesDocumentListProps {
   documentTypes: string[];
@@ -89,10 +110,30 @@ export default function SalesDocumentList({
   // Fetch documents with new hook
   const { documents = [], isLoading, error, refetch } = useGetDocuments();
 
-  // Filter documents by the specified document types
-  const filteredDocuments = documents.filter((doc: any) =>
-    documentTypes.includes(doc.documentType)
-  );
+  // Filter documents by the specified document types, plus the filter-drawer
+  // selections + search (previously stored but never applied).
+  const filteredDocuments = documents.filter((doc: any) => {
+    if (!documentTypes.includes(doc.documentType)) return false;
+    if (filters.status && (doc.status || "").toLowerCase() !== filters.status.toLowerCase()) return false;
+    const start = filters.createdOn?.startDate ? new Date(filters.createdOn.startDate) : null;
+    const end = filters.createdOn?.endDate ? new Date(filters.createdOn.endDate) : null;
+    if (end) end.setHours(23, 59, 59, 999);
+    if (start || end) {
+      const c = doc.createdAt ? new Date(doc.createdAt) : null;
+      if (!c) return false;
+      if (start && c < start) return false;
+      if (end && c > end) return false;
+    }
+    const term = (search || "").trim().toLowerCase();
+    if (term) {
+      const hay = [doc.name, doc.associated_customer, doc.associated_item, doc.documentType, doc.status]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      if (!hay.includes(term)) return false;
+    }
+    return true;
+  });
 
   // Delete document mutation
   const deleteDocumentMutation = useDeleteDocument();
@@ -341,7 +382,7 @@ export default function SalesDocumentList({
         setLimit={setLimit}
         setSearch={setSearch}
         setFilters={handleSetFilters}
-        availableFilters={["status", "category", "createdOn"]}
+        filterConfig={SALES_FILTER_CONFIG}
         pageCount={Math.ceil(filteredDocuments.length / limit)}
         totalDocs={filteredDocuments.length}
         headerContent={headerContent}

@@ -3,7 +3,7 @@
 "use client";
 import { useDispatch, useSelector } from "react-redux";
 import { inventoryActions } from "../slice";
-import { selectInventories, selectInventoriesLoading, selectInventoriesError, selectFilters, selectCategories } from "../slice/selectors";
+import { selectInventories, selectInventoriesLoading, selectInventoriesError, selectFilters } from "../slice/selectors";
 import { useState, useEffect, useCallback } from "react";
 import { useOrganization } from "@hooks/useOrganization";
 import { useAuth } from "@clerk/nextjs";
@@ -24,17 +24,16 @@ export const useGetInventories = () => {
   const serializeDate = (date: Date) => {
     return JSON.parse(JSON.stringify(date));
   };
-  const categories = useSelector(selectCategories);
   const setFilters = (filters: Filters) => {
-    const category = categories.find((category) => category.id === filters.category);
-
+    // Pass the category ID straight through — the backend now matches on
+    // asset.categoryId (it previously expected a category name).
     const newFilters = {
       ...filters,
       createdOn: {
         startDate: serializeDate(filters.createdOn.startDate as Date),
         endDate: serializeDate(filters.createdOn.endDate as Date),
       },
-      category: category ? category.name : "",
+      category: filters.category || "",
     };
 
     dispatch(inventoryActions.updateFilters(newFilters));

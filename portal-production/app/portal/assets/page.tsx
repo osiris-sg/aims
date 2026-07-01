@@ -37,10 +37,11 @@ export default function AssetsPage() {
   // ON = tracked assets, OFF = untracked products (organization-wide setting)
   const { isAssetTrackingModeEnabled } = useOrganizationFeatures();
 
-  // Backend understands `category`; pass it along. createdOn is applied client-side
-  // below so we don't depend on a new backend filter key.
+  // Both category and createdOn are applied server-side so filters span all
+  // pages (not just the current page) and counts stay consistent.
   const apiFilters = {
     category: filters.category ? [filters.category] : [],
+    createdOn: filters.createdOn,
   };
 
   // Fetch assets with new hook (for table view)
@@ -51,20 +52,8 @@ export default function AssetsPage() {
     filters: apiFilters,
   });
 
-  // Post-filter for keys the backend doesn't know about (createdOn).
-  const filteredAssets = useMemo(() => {
-    const startDate = filters.createdOn?.startDate ? new Date(filters.createdOn.startDate) : null;
-    const endDate = filters.createdOn?.endDate ? new Date(filters.createdOn.endDate) : null;
-    if (endDate) endDate.setHours(23, 59, 59, 999);
-    if (!startDate && !endDate) return assets;
-    return (assets || []).filter((a: any) => {
-      const created = a.createdAt ? new Date(a.createdAt) : null;
-      if (!created) return false;
-      if (startDate && created < startDate) return false;
-      if (endDate && created > endDate) return false;
-      return true;
-    });
-  }, [assets, filters.createdOn]);
+  // Server already applied the filters; render the fetched rows as-is.
+  const filteredAssets = assets;
 
   // Fetch hierarchy assets (for hierarchy view) - we'll need to add this to the hook if not present
   // For now, using the table data

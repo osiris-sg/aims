@@ -6,6 +6,7 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import type { FilterField } from "@/components/FilterDrawer";
 import { Box, IconButton, Alert, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from "@mui/material";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import DownloadIcon from "@mui/icons-material/Download";
@@ -69,6 +70,24 @@ interface Filters {
   };
   [key: string]: any;
 }
+
+// Filter drawer config for invoices — document statuses (NOT the legacy
+// inventory statuses the old `availableFilters` path produced) + a date range.
+// Category is intentionally omitted (invoices have none).
+const INVOICE_FILTER_CONFIG: FilterField[] = [
+  { type: "dateRange", key: "createdOn", label: "Created On" },
+  {
+    type: "select",
+    key: "status",
+    label: "Status",
+    options: [
+      { value: "draft", label: "Draft" },
+      { value: "confirmed", label: "Confirmed" },
+      { value: "pending_payment", label: "Pending Payment" },
+      { value: "paid", label: "Paid" },
+    ],
+  },
+];
 
 export default function InvoicesPage() {
   const router = useRouter();
@@ -481,8 +500,25 @@ export default function InvoicesPage() {
   // Filter invoices by AR tab. Computed live so user-edits to paymentSummary
   // (after recording a payment) update the visible row set.
   const visibleDocs = (() => {
-    if (arTab === "all") return documents.docs;
-    return documents.docs.filter((d) => arStatusOf(d) === arTab);
+    let docs = arTab === "all" ? documents.docs : documents.docs.filter((d) => arStatusOf(d) === arTab);
+    // Apply the filter-drawer selections (previously stored but never applied).
+    const statusFilter = filters.status;
+    if (statusFilter) {
+      docs = docs.filter((d) => (d.status || "").toLowerCase() === statusFilter.toLowerCase());
+    }
+    const start = filters.createdOn?.startDate ? new Date(filters.createdOn.startDate) : null;
+    const end = filters.createdOn?.endDate ? new Date(filters.createdOn.endDate) : null;
+    if (end) end.setHours(23, 59, 59, 999);
+    if (start || end) {
+      docs = docs.filter((d) => {
+        const c = (d as any).createdAt ? new Date((d as any).createdAt) : null;
+        if (!c) return false;
+        if (start && c < start) return false;
+        if (end && c > end) return false;
+        return true;
+      });
+    }
+    return docs;
   })();
 
   const arCounts = (() => {
@@ -719,8 +755,8 @@ export default function InvoicesPage() {
         setLimit={setLimit}
         setSearch={setSearch}
         setFilters={handleSetFilters}
-        availableFilters={["status", "category", "createdOn"]}
-        pageCount={documents.totalPages}
+        filterConfig={INVOICE_FILTER_CONFIG}
+        pageCount={Math.ceil(visibleDocs.length / limit)}
         totalDocs={visibleDocs.length}
         actionButtons={actionButtons}
         headerContent={
