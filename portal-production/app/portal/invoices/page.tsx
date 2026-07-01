@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
@@ -14,7 +14,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import LinkIcon from "@mui/icons-material/Link";
 import PaymentIcon from "@mui/icons-material/Payment";
 import { Tab, Tabs, Chip, alpha } from "@mui/material";
-import { useDeleteDocument } from "@/app/portal/hooks/api";
+import { useDeleteDocument, useGetCustomers } from "@/app/portal/hooks/api";
 import { useRouter } from "next/navigation";
 import moment from "moment";
 import { toast } from "react-toastify";
@@ -71,22 +71,15 @@ interface Filters {
   [key: string]: any;
 }
 
-// Filter drawer config for invoices — document statuses (NOT the legacy
-// inventory statuses the old `availableFilters` path produced) + a date range.
+// Base filter fields for invoices — document statuses (NOT the legacy inventory
+// statuses the old `availableFilters` path produced) + a date range. The
+// Customer field is appended at runtime (its options are the org's customers).
 // Category is intentionally omitted (invoices have none).
-const INVOICE_FILTER_CONFIG: FilterField[] = [
-  { type: "dateRange", key: "createdOn", label: "Created On" },
-  {
-    type: "select",
-    key: "status",
-    label: "Status",
-    options: [
-      { value: "draft", label: "Draft" },
-      { value: "confirmed", label: "Confirmed" },
-      { value: "pending_payment", label: "Pending Payment" },
-      { value: "paid", label: "Paid" },
-    ],
-  },
+const INVOICE_STATUS_OPTIONS = [
+  { value: "draft", label: "Draft" },
+  { value: "confirmed", label: "Confirmed" },
+  { value: "pending_payment", label: "Pending Payment" },
+  { value: "paid", label: "Paid" },
 ];
 
 export default function InvoicesPage() {
@@ -499,12 +492,39 @@ export default function InvoicesPage() {
 
   // Filter invoices by AR tab. Computed live so user-edits to paymentSummary
   // (after recording a payment) update the visible row set.
+  // Customers for the Customer filter dropdown (unfiltered, stable options).
+  const { customers: filterCustomers = [] } = useGetCustomers({ limit: 1000 });
+  const customerNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    (filterCustomers || []).forEach((c: any) => m.set(c.id, c.name));
+    return m;
+  }, [filterCustomers]);
+  const invoiceFilterConfig: FilterField[] = useMemo(
+    () => [
+      { type: "dateRange", key: "createdOn", label: "Created On" },
+      { type: "select", key: "status", label: "Status", options: INVOICE_STATUS_OPTIONS },
+      { type: "select", key: "customerId", label: "Customer", options: (filterCustomers || []).map((c: any) => ({ value: c.id, label: c.name })) },
+    ],
+    [filterCustomers],
+  );
+
   const visibleDocs = (() => {
     let docs = arTab === "all" ? documents.docs : documents.docs.filter((d) => arStatusOf(d) === arTab);
     // Apply the filter-drawer selections (previously stored but never applied).
     const statusFilter = filters.status;
     if (statusFilter) {
       docs = docs.filter((d) => (d.status || "").toLowerCase() === statusFilter.toLowerCase());
+    }
+    const customerFilter = filters.customerId;
+    if (customerFilter) {
+      // Invoice docs carry the customer NAME (associated_customer), rarely an id
+      // — match on either.
+      const name = customerNameById.get(customerFilter);
+      docs = docs.filter((d) => {
+        const docCustId = (d as any).customerId || (d as any).customer?.id;
+        const docCustName = (d as any).associated_customer || (d as any).customer?.name;
+        return (docCustId && docCustId === customerFilter) || (!!name && docCustName === name);
+      });
     }
     const start = filters.createdOn?.startDate ? new Date(filters.createdOn.startDate) : null;
     const end = filters.createdOn?.endDate ? new Date(filters.createdOn.endDate) : null;
@@ -755,7 +775,7 @@ export default function InvoicesPage() {
         setLimit={setLimit}
         setSearch={setSearch}
         setFilters={handleSetFilters}
-        filterConfig={INVOICE_FILTER_CONFIG}
+        filterConfig={invoiceFilterConfig}
         pageCount={Math.ceil(visibleDocs.length / limit)}
         totalDocs={visibleDocs.length}
         actionButtons={actionButtons}

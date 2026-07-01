@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import { useGetDocuments, useDeleteDocument } from "@/app/portal/hooks/api";
+import React, { useState, useMemo } from "react";
+import { useGetDocuments, useDeleteDocument, useGetCustomers } from "@/app/portal/hooks/api";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import type { FilterField } from "@/components/FilterDrawer";
@@ -46,25 +46,23 @@ interface Filters {
   };
 }
 
-// Filter drawer config for sales documents — document statuses (NOT the legacy
-// inventory statuses) + a date range. Category is omitted (sales docs have none).
-const SALES_FILTER_CONFIG: FilterField[] = [
-  { type: "dateRange", key: "createdOn", label: "Created On" },
-  {
-    type: "select",
-    key: "status",
-    label: "Status",
-    options: [
-      { value: "draft", label: "Draft" },
-      { value: "confirmed", label: "Confirmed" },
-      { value: "pending_delivery", label: "Pending Delivery" },
-      { value: "delivered_not_installed", label: "Delivered (Not Installed)" },
-      { value: "delivered_installed", label: "Delivered & Installed" },
-      { value: "pending_return", label: "Pending Return" },
-      { value: "returned", label: "Returned" },
-    ],
-  },
+// Document statuses (NOT the legacy inventory statuses) for the sales filter
+// drawer. Customer + (when the list spans >1 type) Document Type are appended
+// at runtime. Category is omitted (sales docs have none).
+const SALES_STATUS_OPTIONS = [
+  { value: "draft", label: "Draft" },
+  { value: "confirmed", label: "Confirmed" },
+  { value: "pending_delivery", label: "Pending Delivery" },
+  { value: "delivered_not_installed", label: "Delivered (Not Installed)" },
+  { value: "delivered_installed", label: "Delivered & Installed" },
+  { value: "pending_return", label: "Pending Return" },
+  { value: "returned", label: "Returned" },
 ];
+
+const prettyDocType = (t: string) =>
+  String(t || "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (m) => m.toUpperCase());
 
 export interface SalesDocumentListProps {
   documentTypes: string[];
@@ -110,10 +108,38 @@ export default function SalesDocumentList({
   // Fetch documents with new hook
   const { documents = [], isLoading, error, refetch } = useGetDocuments();
 
+  // Customers for the Customer filter dropdown (stable, unfiltered options).
+  const { customers: filterCustomers = [] } = useGetCustomers({ limit: 1000 });
+  const customerNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    (filterCustomers || []).forEach((c: any) => m.set(c.id, c.name));
+    return m;
+  }, [filterCustomers]);
+
+  const filterConfig: FilterField[] = useMemo(() => {
+    const cfg: FilterField[] = [
+      { type: "dateRange", key: "createdOn", label: "Created On" },
+      { type: "select", key: "status", label: "Status", options: SALES_STATUS_OPTIONS },
+      { type: "select", key: "customerId", label: "Customer", options: (filterCustomers || []).map((c: any) => ({ value: c.id, label: c.name })) },
+    ];
+    // Only useful when this list shows more than one document type.
+    if ((documentTypes?.length || 0) > 1) {
+      cfg.push({ type: "select", key: "documentType", label: "Document Type", options: documentTypes.map((t) => ({ value: t, label: prettyDocType(t) })) });
+    }
+    return cfg;
+  }, [filterCustomers, documentTypes]);
+
   // Filter documents by the specified document types, plus the filter-drawer
   // selections + search (previously stored but never applied).
   const filteredDocuments = documents.filter((doc: any) => {
     if (!documentTypes.includes(doc.documentType)) return false;
+    if ((filters as any).documentType && doc.documentType !== (filters as any).documentType) return false;
+    if ((filters as any).customerId) {
+      const name = customerNameById.get((filters as any).customerId);
+      const docCustId = doc.customerId || doc.customer?.id;
+      const docCustName = doc.associated_customer || doc.customer?.name;
+      if (!((docCustId && docCustId === (filters as any).customerId) || (!!name && docCustName === name))) return false;
+    }
     if (filters.status && (doc.status || "").toLowerCase() !== filters.status.toLowerCase()) return false;
     const start = filters.createdOn?.startDate ? new Date(filters.createdOn.startDate) : null;
     const end = filters.createdOn?.endDate ? new Date(filters.createdOn.endDate) : null;
@@ -382,7 +408,7 @@ export default function SalesDocumentList({
         setLimit={setLimit}
         setSearch={setSearch}
         setFilters={handleSetFilters}
-        filterConfig={SALES_FILTER_CONFIG}
+        filterConfig={filterConfig}
         pageCount={Math.ceil(filteredDocuments.length / limit)}
         totalDocs={filteredDocuments.length}
         headerContent={headerContent}
