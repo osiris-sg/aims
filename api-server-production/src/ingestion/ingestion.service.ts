@@ -354,12 +354,15 @@ export class IngestionService {
       }
     }
 
-    // 3) Create from the client block.
+    // 3) Create from the client block. The client's attention/mobile/email are
+    // the point-of-contact — they go on a CustomerContact, NOT on the Customer's
+    // own email/phone fields (those stay empty; Customer holds name/UEN/address).
+    const contactName = (client.attention || '').trim();
     const contacts =
-      client.attention && client.attention.trim()
+      contactName || client.mobile || client.email
         ? [
             {
-              name: client.attention.trim(),
+              name: contactName || name || uen,
               phone: client.mobile ?? null,
               email: client.email ?? null,
               isPrimary: true,
@@ -370,8 +373,6 @@ export class IngestionService {
       const createdCustomer = await this.customers.createCustomers(
         {
           name: name || uen,
-          email: client.email ?? null,
-          phone: client.mobile ?? null,
           address: client.address ?? null,
           gstRegNo: uen || null,
           contacts,
@@ -382,7 +383,7 @@ export class IngestionService {
       cache.set(cacheKey, shaped);
       return { customer: shaped, created: true };
     } catch (err: any) {
-      // Likely a unique-email collision — fall back to an existing customer by name.
+      // Fall back to an existing customer by name if the create collided.
       const fallback = name
         ? await this.prisma.customer.findFirst({
             where: { organizationId, name: { equals: name, mode: 'insensitive' } },
