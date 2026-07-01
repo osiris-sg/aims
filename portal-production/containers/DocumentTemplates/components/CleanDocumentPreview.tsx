@@ -773,6 +773,17 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
 
   // TI2 - Elshis-style Tax Invoice Layout
   if (documentType === "TI2" || documentType === "INVOICE") {
+    // Biofuel invoice branding — same doc-org gating as the Biofuel quotation
+    // (viewers inject data.documentOrganizationId; fall back to the active org
+    // in the live editor, where the active org IS the doc's org-to-be).
+    const BIOFUEL_ORG_ID = "52e90ba8-bfbd-48b0-bb76-4f9667bf74f1";
+    const invDocOrgId =
+      (data as any)?.documentOrganizationId || (data as any)?.organizationId;
+    const isBiofuelInvoice =
+      invDocOrgId === BIOFUEL_ORG_ID ||
+      (!invDocOrgId &&
+        (organization?.id === BIOFUEL_ORG_ID ||
+          organization?.name === "Biofuel Industries Pte Ltd"));
     return (
       <Paper
         data-print-paper
@@ -796,28 +807,47 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           },
         }}
       >
-        {/* Company Header - Centered */}
-        <Box sx={{ textAlign: "center", mb: 2 }}>
-          <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
-            {data.company?.name || organization?.name || "ELSHIS INTERNATIONAL PTE LTD"}
-          </Typography>
-          <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
-            GST Reg No: {data.company?.gstRegNo || organization?.registrationNumber || "200303416N"}
-            {data.company?.coRegNo && ` Co. Reg No: ${data.company.coRegNo}`}
-          </Typography>
-          <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
-            {data.company?.address || organization?.address || "No. 2 Kelling Ave, 01-07 Kelling Beltra Complex,"}
-          </Typography>
-          {data.company?.address2 && (
-            <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
-              {data.company.address2}
+        {/* Company Header — Biofuel: logo top-left + company block top-right
+            (matches the Biofuel invoice letterhead). Other orgs: centered. */}
+        {isBiofuelInvoice ? (
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 2, pb: 1, borderBottom: "1px solid rgba(0,0,0,0.35)" }}>
+            <Box
+              component="img"
+              src={BIOFUEL_LOGO_DATA_URI}
+              alt="Biofuel logo"
+              sx={{ width: 150, height: "auto", objectFit: "contain", display: "block" }}
+            />
+            <Box sx={{ textAlign: "right", lineHeight: 1.5 }}>
+              <Typography sx={{ fontSize: "0.9375rem", fontWeight: 700 }}>Biofuel Industries Pte. Ltd</Typography>
+              <Typography sx={{ fontSize: "0.75rem" }}>Office: 22 Tuas Ave 2, Singapore 639453</Typography>
+              <Typography sx={{ fontSize: "0.75rem" }}>Tel: +65 8902 0505</Typography>
+              <Typography sx={{ fontSize: "0.75rem" }}>GST Reg. No. 200303416N</Typography>
+            </Box>
+          </Box>
+        ) : (
+          /* Company Header - Centered */
+          <Box sx={{ textAlign: "center", mb: 2 }}>
+            <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
+              {data.company?.name || organization?.name || "ELSHIS INTERNATIONAL PTE LTD"}
             </Typography>
-          )}
-          <Typography sx={{ fontSize: "0.8125rem" }}>
-            Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
-            {data.company?.fax && ` Fax: ${data.company.fax}`}
-          </Typography>
-        </Box>
+            <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
+              GST Reg No: {data.company?.gstRegNo || organization?.registrationNumber || "200303416N"}
+              {data.company?.coRegNo && ` Co. Reg No: ${data.company.coRegNo}`}
+            </Typography>
+            <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
+              {data.company?.address || organization?.address || "No. 2 Kelling Ave, 01-07 Kelling Beltra Complex,"}
+            </Typography>
+            {data.company?.address2 && (
+              <Typography sx={{ fontSize: "0.8125rem", mb: 0.2 }}>
+                {data.company.address2}
+              </Typography>
+            )}
+            <Typography sx={{ fontSize: "0.8125rem" }}>
+              Tel: {data.company?.phoneNumber || organization?.phoneNumber || ""}
+              {data.company?.fax && ` Fax: ${data.company.fax}`}
+            </Typography>
+          </Box>
+        )}
 
         {/* Customer and Invoice Details Section */}
         <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1, alignItems: "flex-start" }}>
@@ -832,6 +862,15 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
                 {data.billTo || data.customer?.address || data.customerAddress || ""}
               </Typography>
+              {/* Attention — from the linked point of contact (attention.*), the
+                  same source the Biofuel quotation uses. Empty rows auto-hide. */}
+              {isBiofuelInvoice && (
+                <Box sx={{ mt: 0.5 }}>
+                  <InfoRow label="Attention" value={data.attention?.name} minWidth="70px" fontSize="0.8125rem" />
+                  <InfoRow label="Mobile" value={data.attention?.phoneNumber || data.attention?.phone || data.contactNumber} minWidth="70px" fontSize="0.8125rem" />
+                  <InfoRow label="Email" value={data.attention?.email} minWidth="70px" fontSize="0.8125rem" />
+                </Box>
+              )}
             </Box>
 
             {/* Deliver To - hidden when deliver to address is empty */}
