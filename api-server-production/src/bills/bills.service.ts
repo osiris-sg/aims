@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
 import { JournalService } from '../journal/journal.service';
+import { ChartOfAccountsService } from '../accounting/chart-of-accounts.service';
 
 // ---------------------------------------------------------------------------
 // Bills (Accounts Payable) — supplier-side equivalent of invoices.
@@ -61,6 +62,7 @@ export class BillsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly journal: JournalService,
+    private readonly coa: ChartOfAccountsService,
   ) {}
 
   // ---- Bill template resolver (cached per org) ----
@@ -412,6 +414,152 @@ export class BillsService {
     return this.findOne(organizationId, id);
   }
 
+  // ---- AI posting preview (dry-run — does NOT write anything) ----
+  // Mirrors post()'s journal construction but, for any line lacking an
+  // accountId, asks the categorization AI to suggest the best expense/purchase
+  // account. Returns the full proposed double-entry (Dr expense lines + Dr input
+  // tax / Cr Trade Payables) with per-line provenance so the UI can show an
+  // editable preview before the user confirms. Best-effort: AI failure falls
+  // back to the default purchase account, never throws.
+  async previewPosting(
+    organizationId: string,
+    dto: {
+      lines?: Array<{ description?: string; amount?: number; accountId?: string | null }>;
+      taxAmount?: number;
+      totalAmount?: number;
+      billNumber?: string;
+    },
+  ): Promise<{
+    lines: Array<{
+      role: 'line' | 'tax' | 'payable';
+      lineIndex?: number;
+      accountId: string | null;
+      accountCode: string | null;
+      accountName: string | null;
+      debit: number;
+      credit: number;
+      description: string;
+      source: 'existing' | 'ai' | 'fallback' | 'control';
+      confidence?: number;
+      reason?: string;
+    }>;
+    totalDebit: number;
+    totalCredit: number;
+    balanced: boolean;
+    warnings: string[];
+  }> {
+    const warnings: string[] = [];
+    const billLines = Array.isArray(dto.lines) ? dto.lines : [];
+    const taxAmount = ROUND(dto.taxAmount || 0);
+    const billNumber = dto.billNumber || '';
+
+    const settings = await this.prisma.accountingSetting.findUnique({ where: { organizationId } });
+    const controls = (settings?.controlAccounts as any) || {};
+    const creditorCode = controls.creditorControl || 'CL001';
+    const taxCode = controls.taxLiabilities || 'CL900';
+
+    const [creditor, taxAccount, fallbackPurchase] = await Promise.all([
+      this.prisma.chartOfAccount.findFirst({
+        where: { organizationId, code: creditorCode, isActive: true },
+        select: { id: true, code: true, name: true },
+      }),
+      taxAmount > 0
+        ? this.prisma.chartOfAccount.findFirst({
+            where: { organizationId, code: taxCode, isActive: true },
+            select: { id: true, code: true, name: true },
+          })
+        : Promise.resolve(null),
+      this.prisma.chartOfAccount
+        .findFirst({
+          where: { organizationId, accountType: 'PURCHASE', isActive: true },
+          orderBy: { code: 'asc' },
+          select: { id: true, code: true, name: true },
+        })
+        .then((p) =>
+          p ||
+          this.prisma.chartOfAccount.findFirst({
+            where: { organizationId, accountType: 'EXPENSE', isActive: true },
+            orderBy: { code: 'asc' },
+            select: { id: true, code: true, name: true },
+          }),
+        ),
+    ]);
+
+    if (!creditor) warnings.push(`Trade Payables account (${creditorCode}) not found — set it in Accounting Setup.`);
+    if (taxAmount > 0 && !taxAccount) warnings.push(`Tax account (${taxCode}) not found — input-tax line is unassigned.`);
+
+    // AI-suggest accounts only for lines that don't already have one.
+    const needIdx = billLines.map((l, i) => ({ l, i })).filter(({ l }) => !l.accountId);
+    const suggestions: Array<{ accountId: string; code: string; name: string; confidence: number; reason: string } | null> =
+      billLines.map(() => null);
+    if (needIdx.length > 0) {
+      const batch = await this.coa.suggestAccountsBatch(
+        organizationId,
+        needIdx.map(({ l }) => l.description || ''),
+        ['PURCHASE', 'EXPENSE', 'EXCHANGE_GAIN_LOSS'],
+      );
+      needIdx.forEach(({ i }, k) => {
+        suggestions[i] = batch[k];
+      });
+    }
+
+    const outLines: Array<{
+      role: 'line' | 'tax' | 'payable';
+      lineIndex?: number;
+      accountId: string | null;
+      accountCode: string | null;
+      accountName: string | null;
+      debit: number;
+      credit: number;
+      description: string;
+      source: 'existing' | 'ai' | 'fallback' | 'control';
+      confidence?: number;
+      reason?: string;
+    }> = [];
+
+    let sumDebit = 0;
+    for (const [i, l] of billLines.entries()) {
+      const amt = ROUND(l.amount || 0);
+      sumDebit += amt;
+      const desc = l.description || `Bill ${billNumber}`.trim();
+
+      if (l.accountId) {
+        const a = await this.prisma.chartOfAccount.findFirst({
+          where: { id: l.accountId, organizationId },
+          select: { id: true, code: true, name: true },
+        });
+        outLines.push({ role: 'line', lineIndex: i, accountId: a?.id ?? null, accountCode: a?.code ?? null, accountName: a?.name ?? null, debit: amt, credit: 0, description: desc, source: 'existing' });
+      } else if (suggestions[i]) {
+        const s = suggestions[i]!;
+        outLines.push({ role: 'line', lineIndex: i, accountId: s.accountId, accountCode: s.code, accountName: s.name, debit: amt, credit: 0, description: desc, source: 'ai', confidence: s.confidence, reason: s.reason });
+      } else if (fallbackPurchase) {
+        outLines.push({ role: 'line', lineIndex: i, accountId: fallbackPurchase.id, accountCode: fallbackPurchase.code, accountName: fallbackPurchase.name, debit: amt, credit: 0, description: desc, source: 'fallback', reason: 'Default purchase account (no AI suggestion)' });
+      } else {
+        warnings.push(`Line ${i + 1}: no account could be resolved (no AI suggestion and no default purchase account).`);
+        outLines.push({ role: 'line', lineIndex: i, accountId: null, accountCode: null, accountName: null, debit: amt, credit: 0, description: desc, source: 'fallback' });
+      }
+    }
+
+    if (taxAmount > 0) {
+      sumDebit += taxAmount;
+      outLines.push({ role: 'tax', accountId: taxAccount?.id ?? null, accountCode: taxAccount?.code ?? null, accountName: taxAccount?.name ?? null, debit: taxAmount, credit: 0, description: `Input tax — ${billNumber}`.trim(), source: 'control' });
+    }
+
+    // Credit side: prefer the bill's explicit gross; otherwise force balance to
+    // the computed debit total.
+    const gross = ROUND(dto.totalAmount != null ? dto.totalAmount : sumDebit);
+    outLines.push({ role: 'payable', accountId: creditor?.id ?? null, accountCode: creditor?.code ?? null, accountName: creditor?.name ?? null, debit: 0, credit: gross, description: `Bill ${billNumber} — Trade Payables`.trim(), source: 'control' });
+
+    const totalDebit = ROUND(sumDebit);
+    const totalCredit = gross;
+    const balanced = totalDebit === totalCredit;
+    if (!balanced) {
+      warnings.push(`Entry is out of balance: Dr ${totalDebit.toFixed(2)} vs Cr ${totalCredit.toFixed(2)}. Check that line amounts + tax equal the bill total.`);
+    }
+
+    return { lines: outLines, totalDebit, totalCredit, balanced, warnings };
+  }
+
   async voidBill(organizationId: string, id: string, userId?: string) {
     const bill = await this.findOne(organizationId, id);
     if (bill.status === 'VOID') return bill;
@@ -495,6 +643,62 @@ export class BillsService {
   }
 
   // ---------- PDF / LLM extraction (unchanged) ----------
+  // Normalize a company name for fuzzy comparison: lowercase, strip all
+  // punctuation to single spaces. "OSIRIS TECHNOLOGY PTE. LTD." and
+  // "Osiris Technology Pte Ltd" both become "osiris technology pte ltd".
+  private normalizeName(s: string): string {
+    return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  // The "core" name with common company suffixes dropped, so "Acme Pte Ltd"
+  // and "Acme Pte. Ltd. (SG)" still match on the distinctive part ("acme").
+  private coreName(s: string): string {
+    return this.normalizeName(s)
+      .replace(/\b(pte|ltd|llp|inc|co|company|limited|corporation|corp|sdn|bhd|pvt|private)\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  // Best-effort fuzzy supplier match used by bill extraction. Tolerant of
+  // punctuation/format differences and partial names; returns null below a
+  // confidence floor so a wrong supplier is never silently auto-selected.
+  private async matchSupplier(organizationId: string, supplierName: string) {
+    const target = this.normalizeName(supplierName);
+    const targetCore = this.coreName(supplierName);
+    if (!target) return null;
+
+    const suppliers = await this.prisma.supplier.findMany({
+      where: { organizationId },
+      select: { id: true, name: true },
+    });
+
+    let best: { id: string; name: string } | null = null;
+    let bestScore = 0;
+    for (const s of suppliers) {
+      const n = this.normalizeName(s.name);
+      const core = this.coreName(s.name);
+      let score = 0;
+      if (n && n === target) score = 1;
+      else if (n && (n.includes(target) || target.includes(n))) score = 0.95;
+      else if (core && targetCore && (core === targetCore || core.includes(targetCore) || targetCore.includes(core))) score = 0.9;
+      else {
+        // Token (Jaccard) overlap on the core tokens.
+        const a = new Set(targetCore.split(' ').filter(Boolean));
+        const b = new Set(core.split(' ').filter(Boolean));
+        if (a.size && b.size) {
+          let inter = 0;
+          for (const t of a) if (b.has(t)) inter++;
+          score = inter / new Set([...a, ...b]).size;
+        }
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        best = { id: s.id, name: s.name };
+      }
+    }
+    return bestScore >= 0.6 ? best : null;
+  }
+
   async extractFromFile(
     organizationId: string,
     base64Data: string,
@@ -545,10 +749,7 @@ Use null when you can't read a field. Do not include any prose outside the JSON.
       return {
         ...parsed,
         supplierIdGuess: parsed.supplierName
-          ? (await this.prisma.supplier.findFirst({
-              where: { organizationId, name: { contains: parsed.supplierName, mode: 'insensitive' } },
-              select: { id: true, name: true },
-            })) || null
+          ? await this.matchSupplier(organizationId, parsed.supplierName)
           : null,
         meta: { extractedBy: 'claude-sonnet-4-6', detectedMedia },
       };

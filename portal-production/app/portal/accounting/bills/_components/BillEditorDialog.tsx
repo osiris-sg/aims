@@ -30,8 +30,9 @@ import CloseIcon from "@mui/icons-material/Close";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import { toast } from "react-toastify";
-import { useAccountingApi } from "../../../accounting/_lib/api";
+import { useAccountingApi } from "../../_lib/api";
 import AttachmentUploader, { Attachment } from "@/components/AttachmentUploader";
+import PostingPreviewDialog, { PreviewResult } from "@/components/PostingPreviewDialog";
 
 // ---------------------------------------------------------------------------
 // Create / view bill. Three entry paths:
@@ -83,6 +84,9 @@ export default function BillEditorDialog({
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [saving, setSaving] = useState(false);
   const [extracting, setExtracting] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewData, setPreviewData] = useState<PreviewResult | null>(null);
   const [supplierId, setSupplierId] = useState<string | null>(null);
   const [billNumber, setBillNumber] = useState("");
   const [billDate, setBillDate] = useState(todayIso);
@@ -99,10 +103,12 @@ export default function BillEditorDialog({
   const loadSuppliersAndAccounts = useCallback(async () => {
     try {
       const [sup, acc] = await Promise.all([
-        request<{ data: Supplier[] } | Supplier[]>("/suppliers"),
+        // Supplier list is a paginated POST (page/limit), not a GET. limit high
+        // enough to fill the picker for any org.
+        request<any>("/suppliers", { method: "POST", body: JSON.stringify({ page: 1, limit: 1000 }) }),
         request<Account[]>("/accounting/accounts"),
       ]);
-      const supList = Array.isArray(sup) ? sup : (sup as any)?.data || [];
+      const supList: Supplier[] = Array.isArray(sup) ? sup : sup?.docs || sup?.data || [];
       setSuppliers(supList);
       setAccounts((acc || []).filter((a) => a.isActive).sort((a, b) => a.code.localeCompare(b.code)));
     } catch (e: any) {
@@ -267,6 +273,46 @@ export default function BillEditorDialog({
     } finally {
       setSaving(false);
     }
+  };
+
+  // Open the AI account-review dialog (dry-run — saves/posts nothing).
+  const openReview = async () => {
+    if (lines.length === 0 || lines.every((l) => !l.amount)) return toast.error("Add at least one line first");
+    setPreviewOpen(true);
+    setPreviewLoading(true);
+    setPreviewData(null);
+    try {
+      const res = await request<PreviewResult>("/bills/preview-posting", {
+        method: "POST",
+        body: JSON.stringify({
+          billNumber: billNumber.trim(),
+          taxAmount: parseFloat(taxAmount) || 0,
+          totalAmount,
+          lines: lines.map((l) => ({
+            description: l.description || undefined,
+            amount: parseFloat(l.amount) || 0,
+            accountId: l.accountId || undefined,
+          })),
+        }),
+      });
+      setPreviewData(res);
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't get account suggestions");
+      setPreviewOpen(false);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  // Confirm the review: write the chosen accounts back onto the bill lines and
+  // close the dialog. Does NOT save or post — the user keeps editing and saves
+  // when ready.
+  const applyReview = (picks: Array<{ lineIndex: number; accountId: string | null; accountCode: string | null }>) => {
+    const override: Record<number, string | null> = {};
+    for (const p of picks) override[p.lineIndex] = p.accountId;
+    setLines((rows) => rows.map((r, i) => (i in override ? { ...r, accountId: override[i] } : r)));
+    setPreviewOpen(false);
+    toast.success("Accounts applied — review and save when ready");
   };
 
   return (
@@ -558,6 +604,16 @@ export default function BillEditorDialog({
         </Button>
         {!isReadOnly && (
           <Button
+            variant="outlined"
+            startIcon={<AutoAwesomeIcon />}
+            onClick={openReview}
+            disabled={saving || extracting}
+          >
+            Review
+          </Button>
+        )}
+        {!isReadOnly && (
+          <Button
             variant="contained"
             onClick={submit}
             disabled={saving || extracting}
@@ -567,6 +623,15 @@ export default function BillEditorDialog({
           </Button>
         )}
       </DialogActions>
+
+      <PostingPreviewDialog
+        open={previewOpen}
+        loading={previewLoading}
+        preview={previewData}
+        accounts={accounts}
+        onClose={() => setPreviewOpen(false)}
+        onConfirm={applyReview}
+      />
     </Dialog>
   );
 }

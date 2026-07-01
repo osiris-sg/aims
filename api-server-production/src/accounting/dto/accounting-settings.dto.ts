@@ -72,6 +72,47 @@ export class UpdateAccountingSettingsDto {
   @IsString()
   taxReference?: string;
 
+  // ---- Xero-parity financial settings ----
+  @ApiPropertyOptional({ enum: ['ACCRUAL', 'CASH'] })
+  @IsOptional()
+  @IsString()
+  taxBasis?: string;
+
+  @ApiPropertyOptional({ enum: ['MONTHLY', 'QUARTERLY', 'ANNUALLY'] })
+  @IsOptional()
+  @IsString()
+  taxPeriod?: string;
+
+  @ApiPropertyOptional({ description: 'Tax Defaults — For Sales (true = inclusive)' })
+  @IsOptional()
+  @IsBoolean()
+  salesTaxInclusive?: boolean;
+
+  @ApiPropertyOptional({ description: 'Tax Defaults — For Purchases (true = inclusive)' })
+  @IsOptional()
+  @IsBoolean()
+  purchasesTaxInclusive?: boolean;
+
+  @ApiPropertyOptional({ description: 'Financial year end day (1-31)' })
+  @IsOptional()
+  @IsNumber()
+  fiscalYearEndDay?: number;
+
+  @ApiPropertyOptional({ description: 'Financial year end month (1-12)' })
+  @IsOptional()
+  @IsNumber()
+  fiscalYearEndMonth?: number;
+
+  @ApiPropertyOptional({ example: 'Asia/Singapore' })
+  @IsOptional()
+  @IsString()
+  timeZone?: string;
+
+  @ApiPropertyOptional({ description: 'Period lock cut-off (inclusive) — entries on/before are read-only' })
+  @IsOptional()
+  @IsDateString()
+  lockedThroughDate?: string;
+
   @ApiPropertyOptional({ description: 'Account code ranges per section' })
   @IsOptional()
   @IsObject()

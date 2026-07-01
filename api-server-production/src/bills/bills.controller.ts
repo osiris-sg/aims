@@ -69,6 +69,16 @@ export class BillsController {
     return this.service.create(requireOrgId(req), req.auth?.userId, body);
   }
 
+  // Dry-run: returns the AI-suggested journal entry (Dr expense lines + tax /
+  // Cr Trade Payables) for a draft bill WITHOUT posting. Powers the editable
+  // "Review posting" preview dialog before the user confirms.
+  @Post('preview-posting')
+  @Permissions('bills:read')
+  @ApiOperation({ summary: 'AI-suggested journal-entry preview for a draft bill (does not post)' })
+  previewPosting(@Req() req: RequestWithOrganization, @Body() body: any) {
+    return this.service.previewPosting(requireOrgId(req), body);
+  }
+
   @Patch(':id')
   @Permissions('bills:update')
   update(@Req() req: RequestWithOrganization, @Param('id') id: string, @Body() body: any) {

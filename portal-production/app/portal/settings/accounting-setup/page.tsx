@@ -11,12 +11,14 @@ import {
   Typography,
 } from "@mui/material";
 import SettingsIcon from "@mui/icons-material/SettingsSuggest";
+import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import Inventory2Icon from "@mui/icons-material/Inventory2";
 import BusinessIcon from "@mui/icons-material/Business";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
 import DefaultSettingsTab from "./components/DefaultSettingsTab";
+import FinancialSettingsTab from "./components/FinancialSettingsTab";
 import AccountsDefinitionTab from "./components/AccountsDefinitionTab";
 import InventoryCostTab from "./components/InventoryCostTab";
 import CostCentersTab from "./components/CostCentersTab";
@@ -149,6 +151,7 @@ export default function AccountingSetupPage() {
         <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
           <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)}>
             <Tab icon={<SettingsIcon />} iconPosition="start" label="Default Settings" />
+            <Tab icon={<AccountBalanceIcon />} iconPosition="start" label="Financial Settings" />
             <Tab icon={<AccountTreeIcon />} iconPosition="start" label="Accounts Definition" />
             <Tab icon={<Inventory2Icon />} iconPosition="start" label="Inventory Cost" />
             <Tab icon={<BusinessIcon />} iconPosition="start" label="Cost Centers" />
@@ -160,6 +163,10 @@ export default function AccountingSetupPage() {
         </TabPanel>
 
         <TabPanel value={tabValue} index={1}>
+          <FinancialSettingsTab settings={settings} loading={loading} onSave={saveSettings} />
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={2}>
           <AccountsDefinitionTab
             settings={settings}
             accounts={accounts}
@@ -172,11 +179,11 @@ export default function AccountingSetupPage() {
           />
         </TabPanel>
 
-        <TabPanel value={tabValue} index={2}>
+        <TabPanel value={tabValue} index={3}>
           <InventoryCostTab />
         </TabPanel>
 
-        <TabPanel value={tabValue} index={3}>
+        <TabPanel value={tabValue} index={4}>
           <CostCentersTab />
         </TabPanel>
       </Paper>

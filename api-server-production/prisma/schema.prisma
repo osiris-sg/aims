@@ -1123,7 +1123,15 @@ model AccountingSetting {
   // ---------- Tax Settings ----------
   taxRegistrationNumber String?
   taxDefaultPercentage  Float?  @default(9)
-  taxReference          String? @default("GST") // GST / VAT / etc.
+  taxReference          String? @default("GST") // GST / VAT / etc. (Tax ID display name)
+  // Xero-parity financial settings (consolidated "Financial Settings" tab).
+  taxBasis              String? @default("ACCRUAL")   // ACCRUAL (invoice) | CASH (payment)
+  taxPeriod             String? @default("QUARTERLY") // MONTHLY | QUARTERLY | ANNUALLY
+  salesTaxInclusive     Boolean @default(false)       // Tax Defaults — For Sales (inclusive vs exclusive)
+  purchasesTaxInclusive Boolean @default(false)       // Tax Defaults — For Purchases
+  fiscalYearEndDay      Int?    @default(31)           // Financial Year End (e.g. 30 June → 30 / 6)
+  fiscalYearEndMonth    Int?    @default(12)
+  timeZone              String? @default("Asia/Singapore")
 
   // ---------- Accounts Definition ----------
   // Code-range windows (e.g. { sales: { from: "S0001", to: "S9999" }, ... })

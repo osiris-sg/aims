@@ -88,6 +88,7 @@ import ConfirmAdjustmentDialog, { ConfirmAdjustmentData } from "./ConfirmAdjustm
 import ConfirmDODialog, { ConfirmDOData } from "./ConfirmDODialog";
 import ConfirmPRDialog, { ConfirmPRData } from "./ConfirmPRDialog";
 import ConfirmInvoiceDialog, { ConfirmInvoiceData } from "./ConfirmInvoiceDialog";
+import PostingPreviewDialog, { PreviewResult, PreviewAccount } from "@/components/PostingPreviewDialog";
 import CustomerSelectDialog from "./CustomerSelectDialog";
 import SalesmanSelectDialog from "./SalesmanSelectDialog";
 import PriceHistoryPopup from "@/components/PriceHistory/PriceHistoryPopup";
@@ -230,6 +231,11 @@ export default function TabbedDocumentCreator({
   const [confirmDODialogOpen, setConfirmDODialogOpen] = useState(false);
   const [confirmPRDialogOpen, setConfirmPRDialogOpen] = useState(false);
   const [confirmInvoiceDialogOpen, setConfirmInvoiceDialogOpen] = useState(false);
+  // AI posting-preview ("Review") state for invoices.
+  const [invoicePreviewOpen, setInvoicePreviewOpen] = useState(false);
+  const [invoicePreviewLoading, setInvoicePreviewLoading] = useState(false);
+  const [invoicePreviewData, setInvoicePreviewData] = useState<PreviewResult | null>(null);
+  const [invoiceAccounts, setInvoiceAccounts] = useState<PreviewAccount[]>([]);
   const [isConfirming, setIsConfirming] = useState(false);
   // Confirm-quotation dialog state. On confirm we resolve the auto-created
   // Order (matched by sourceQuotationId) and offer a one-click jump to it.
@@ -2129,6 +2135,76 @@ export default function TabbedDocumentCreator({
     }
   };
 
+  // Open the AI posting-preview ("Review") for the invoice — a dry-run that
+  // suggests a revenue account per line. Saves/posts nothing.
+  const openInvoiceReview = async () => {
+    const hasLines = (items || []).some((it: any) => parseFloat(it.amount) > 0);
+    if (!hasLines) {
+      toast.error("Add at least one line with an amount first");
+      return;
+    }
+    setInvoicePreviewOpen(true);
+    setInvoicePreviewLoading(true);
+    setInvoicePreviewData(null);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      // Load the chart of accounts for the picker (once).
+      if (invoiceAccounts.length === 0) {
+        const accRes: any = await request({ path: "/accounting/accounts", method: "GET" }, {}, token);
+        const list: PreviewAccount[] = (accRes?.data || accRes || [])
+          .filter((a: any) => a.isActive)
+          .map((a: any) => ({ id: a.id, code: a.code, name: a.name }));
+        setInvoiceAccounts(list);
+      }
+      const taxAmount =
+        parseFloat(
+          (formData as any)?.gstAmount ??
+            (formData as any)?.summary?.taxAmount ??
+            (formData as any)?.documentInfo?.gstAmount ??
+            0,
+        ) || 0;
+      const res: any = await request(
+        { path: "/posting-preview", method: "POST" },
+        {
+          type: documentType,
+          documentNumber: (formData as any)?.name || (formData as any)?.documentInfo?.documentNumber,
+          taxAmount,
+          lines: (items || []).map((it: any) => ({
+            description: it.description || undefined,
+            amount: parseFloat(it.amount) || 0,
+            accountCode: it.accountCode || undefined,
+          })),
+        },
+        token,
+      );
+      if (res?.success) {
+        setInvoicePreviewData(res.data);
+      } else {
+        toast.error(res?.message || "Couldn't get account suggestions");
+        setInvoicePreviewOpen(false);
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't get account suggestions");
+      setInvoicePreviewOpen(false);
+    } finally {
+      setInvoicePreviewLoading(false);
+    }
+  };
+
+  // Confirm the review: write the chosen account code back onto each invoice
+  // line and close. Does NOT post — the user keeps editing / confirms the
+  // invoice when ready.
+  const applyInvoiceReview = (
+    picks: Array<{ lineIndex: number; accountId: string | null; accountCode: string | null }>,
+  ) => {
+    const override: Record<number, string | null> = {};
+    for (const p of picks) override[p.lineIndex] = p.accountCode;
+    setItems((rows: any[]) => rows.map((r, i) => (i in override ? { ...r, accountCode: override[i] } : r)));
+    setInvoicePreviewOpen(false);
+    toast.success("Accounts applied — review and confirm when ready");
+  };
+
   const handleDuplicateDocument = async () => {
     try {
       const token = await getToken();
@@ -2970,6 +3046,19 @@ export default function TabbedDocumentCreator({
               color="success"
             >
               Confirm Delivery Order
+            </Button>
+          )}
+          {/* AI posting-preview ("Review") for Invoices — suggests a revenue
+              account per line before confirming. */}
+          {!isDocumentConfirmed && !isTemplateEditMode && isInvoiceType && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<AutoAwesomeIcon />}
+              onClick={openInvoiceReview}
+              disabled={invoicePreviewLoading}
+            >
+              Review
             </Button>
           )}
           {/* Confirm button for Invoices */}
@@ -5149,6 +5238,17 @@ export default function TabbedDocumentCreator({
         onClose={() => !isConfirming && setConfirmInvoiceDialogOpen(false)}
         onConfirm={handleConfirmInvoice}
         documentNumber={formData.name || formData.documentInfo?.documentNumber || ""}
+      />
+
+      {/* AI posting-preview ("Review") dialog for invoices */}
+      <PostingPreviewDialog
+        open={invoicePreviewOpen}
+        loading={invoicePreviewLoading}
+        preview={invoicePreviewData}
+        accounts={invoiceAccounts}
+        title="Review invoice posting"
+        onClose={() => setInvoicePreviewOpen(false)}
+        onConfirm={applyInvoiceReview}
       />
 
       {/* Price History Popup */}

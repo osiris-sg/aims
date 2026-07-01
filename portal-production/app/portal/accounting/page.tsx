@@ -283,7 +283,7 @@ export default function AccountingHubPage() {
             variant="outlined"
             startIcon={<OpenInNewIcon />}
             component={Link}
-            href="/portal/inventory/bills"
+            href="/portal/accounting/bills"
           >
             Bills (AP)
           </Button>

@@ -79,6 +79,19 @@ export class JournalController {
     return this.service.trialBalance(requireOrgId(req), asOfDate ? new Date(asOfDate) : undefined);
   }
 
+  // Per-account debit/credit/net movement for a date range — powers the
+  // Xero-style General Ledger summary (all accounts in one scroll).
+  @Get('reports/account-activity')
+  @Permissions('journal:read')
+  @ApiQuery({ name: 'startDate', required: false })
+  @ApiQuery({ name: 'endDate', required: false })
+  accountActivity(@Req() req: RequestWithOrganization, @Query() q: any) {
+    return this.service.accountActivityReport(requireOrgId(req), {
+      startDate: q.startDate ? new Date(q.startDate) : undefined,
+      endDate: q.endDate ? new Date(q.endDate) : undefined,
+    });
+  }
+
   @Get('reports/general-ledger/:accountId')
   @Permissions('journal:read')
   @ApiQuery({ name: 'startDate', required: false })

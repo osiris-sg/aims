@@ -17,9 +17,6 @@ import { useForm, Controller } from "react-hook-form";
 
 type SettingsForm = {
   baseCurrency: string;
-  taxRegistrationNumber: string;
-  taxDefaultPercentage: number;
-  taxReference: string;
   activateLastSoldPrice: boolean;
   activateLastBuyPrice: boolean;
   enablePerpetualInventory: boolean;
@@ -64,9 +61,6 @@ interface Props {
 export default function DefaultSettingsTab({ settings, loading, onSave }: Props) {
   const defaults: SettingsForm = {
     baseCurrency: settings?.baseCurrency || "SGD",
-    taxRegistrationNumber: settings?.taxRegistrationNumber || "",
-    taxDefaultPercentage: settings?.taxDefaultPercentage ?? 9,
-    taxReference: settings?.taxReference || "GST",
     activateLastSoldPrice: settings?.activateLastSoldPrice ?? true,
     activateLastBuyPrice: settings?.activateLastBuyPrice ?? true,
     enablePerpetualInventory: settings?.enablePerpetualInventory ?? false,
@@ -97,9 +91,6 @@ export default function DefaultSettingsTab({ settings, loading, onSave }: Props)
   const onSubmit = async (data: SettingsForm) => {
     await onSave({
       baseCurrency: data.baseCurrency,
-      taxRegistrationNumber: data.taxRegistrationNumber,
-      taxDefaultPercentage: Number(data.taxDefaultPercentage) || 0,
-      taxReference: data.taxReference,
       activateLastSoldPrice: !!data.activateLastSoldPrice,
       activateLastBuyPrice: !!data.activateLastBuyPrice,
       enablePerpetualInventory: !!data.enablePerpetualInventory,
@@ -253,40 +244,21 @@ export default function DefaultSettingsTab({ settings, loading, onSave }: Props)
         </Grid2>
       </Section>
 
-      <Divider />
-
-      {/* ---------- Tax Settings ---------- */}
-      <Section title="Tax Settings">
-        <Grid2 container spacing={2}>
-          <Grid2 size={{ xs: 12, md: 4 }}>
-            <Controller
-              control={control}
-              name="taxRegistrationNumber"
-              render={({ field }) => (
-                <TextField {...field} label="Tax Registration Number" size="small" fullWidth />
-              )}
-            />
-          </Grid2>
-          <Grid2 size={{ xs: 12, md: 4 }}>
-            <Controller
-              control={control}
-              name="taxDefaultPercentage"
-              render={({ field }) => (
-                <TextField {...field} type="number" label="Default Tax %" size="small" fullWidth />
-              )}
-            />
-          </Grid2>
-          <Grid2 size={{ xs: 12, md: 4 }}>
-            <Controller
-              control={control}
-              name="taxReference"
-              render={({ field }) => (
-                <TextField {...field} label="Tax Reference (GST / VAT / …)" size="small" fullWidth />
-              )}
-            />
-          </Grid2>
-        </Grid2>
-      </Section>
+      <Box
+        sx={{
+          mt: 1,
+          p: 1.5,
+          borderRadius: 1,
+          border: 1,
+          borderStyle: "dashed",
+          borderColor: "divider",
+          color: "text.secondary",
+          fontSize: "0.8rem",
+        }}
+      >
+        Tax settings (GST number, rate, basis, tax defaults) have moved to the{" "}
+        <strong>Financial Settings</strong> tab.
+      </Box>
 
       <Box>
         <Button type="submit" variant="contained" color="primary">

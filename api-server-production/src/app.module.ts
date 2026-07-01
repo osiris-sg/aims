@@ -46,6 +46,7 @@ import { CostCentersModule } from './cost-centers/cost-centers.module';
 import { FixedAssetsModule } from './fixed-assets/fixed-assets.module';
 import { BudgetsModule } from './budgets/budgets.module';
 import { BillsModule } from './bills/bills.module';
+import { PostingPreviewModule } from './posting-preview/posting-preview.module';
 import { BankRecModule } from './bank-rec/bank-rec.module';
 import { XeroSyncModule } from './xero-sync/xero-sync.module';
 import { DocumentAssistantModule } from './document-assistant/document-assistant.module';
@@ -94,6 +95,7 @@ import { DocumentAssistantModule } from './document-assistant/document-assistant
     FixedAssetsModule,
     BudgetsModule,
     BillsModule,
+    PostingPreviewModule,
     BankRecModule,
     XeroSyncModule,
     PublicDeliveryModule,

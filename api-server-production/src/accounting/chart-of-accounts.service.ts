@@ -217,4 +217,100 @@ Return JSON array.`;
 
     return { suggestions };
   }
+
+  /**
+   * Batch version of suggestAccount: categorize many line descriptions in a
+   * single Claude call. `allowedTypes` restricts the candidate accounts (e.g.
+   * ['PURCHASE','EXPENSE','EXCHANGE_GAIN_LOSS'] for supplier bills, or
+   * ['SALES','INCOME'] for sales invoices). Returns one suggestion (or null)
+   * per input description, INDEX-ALIGNED with the input array.
+   *
+   * Best-effort: returns an all-null array on any failure (no API key, no
+   * candidate accounts, LLM/parse error) so callers can fall back to a default
+   * account without the posting preview breaking.
+   */
+  async suggestAccountsBatch(
+    organizationId: string,
+    descriptions: string[],
+    allowedTypes: string[],
+  ): Promise<
+    Array<{ accountId: string; code: string; name: string; confidence: number; reason: string } | null>
+  > {
+    const result: Array<{ accountId: string; code: string; name: string; confidence: number; reason: string } | null> =
+      descriptions.map(() => null);
+    if (descriptions.length === 0) return result;
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return result;
+
+    const accounts = await this.prisma.chartOfAccount.findMany({
+      where: { organizationId, isActive: true, category: 'PNL', accountType: { in: allowedTypes } },
+      select: { id: true, code: true, name: true, accountType: true },
+      orderBy: { code: 'asc' },
+    });
+    if (accounts.length === 0) return result;
+
+    const candidateList = accounts.map((a) => `${a.code}|${a.name}|${a.accountType}`).join('\n');
+    const numbered = descriptions.map((d, i) => `${i}: ${d ?? ''}`).join('\n');
+
+    const client = new Anthropic({ apiKey });
+    const system = `You categorize accounting line items by picking the best chart-of-accounts match for EACH line.
+
+Output ONLY a JSON array — one object per input line, each with:
+  - "index": the integer line index from the input
+  - "code": exact account code from the candidate list (or null if nothing fits)
+  - "confidence": number 0-1 (1 = perfect match)
+  - "reason": one short clause explaining the choice
+
+Never invent codes. Never include accounts not in the list. Cover every index.`;
+
+    const userPrompt = `Lines (index: description):
+${numbered}
+
+Candidate accounts (code|name|type):
+${candidateList}
+
+Return a JSON array with one object per line index.`;
+
+    let raw = '';
+    try {
+      const response = await client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2000,
+        system,
+        messages: [{ role: 'user', content: userPrompt }],
+      });
+      const textBlock = response.content.find((b) => b.type === 'text');
+      raw = textBlock && 'text' in textBlock ? (textBlock as any).text.trim() : '';
+    } catch (e: any) {
+      Logger.error(`Batch categorization LLM call failed: ${e?.message}`, undefined, 'ChartOfAccountsService');
+      return result;
+    }
+
+    const jsonMatch = raw.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return result;
+
+    let parsed: Array<{ index: number; code: string | null; confidence: number; reason: string }> = [];
+    try {
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch {
+      return result;
+    }
+
+    const byCode = new Map(accounts.map((a) => [a.code, a]));
+    for (const p of parsed) {
+      if (typeof p.index !== 'number' || p.index < 0 || p.index >= result.length) continue;
+      if (!p.code) continue;
+      const acct = byCode.get(p.code);
+      if (!acct) continue;
+      result[p.index] = {
+        accountId: acct.id,
+        code: acct.code,
+        name: acct.name,
+        confidence: typeof p.confidence === 'number' ? Math.max(0, Math.min(1, p.confidence)) : 0.5,
+        reason: typeof p.reason === 'string' ? p.reason : '',
+      };
+    }
+    return result;
+  }
 }

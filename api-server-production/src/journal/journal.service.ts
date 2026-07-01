@@ -612,6 +612,12 @@ export class JournalService {
 
   // Sum debits/credits per account between (startDate, endDate]. Used as the
   // building block for both P&L (period activity) and Balance Sheet (cumulative).
+  // Public wrapper so the GL summary report can read per-account period
+  // movements (the underlying helper is also used by P&L / Balance Sheet).
+  async accountActivityReport(organizationId: string, opts: { startDate?: Date; endDate?: Date }) {
+    return this.accountActivity(organizationId, opts);
+  }
+
   private async accountActivity(
     organizationId: string,
     opts: { startDate?: Date; endDate?: Date },

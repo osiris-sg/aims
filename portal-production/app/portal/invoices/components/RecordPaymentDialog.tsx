@@ -150,9 +150,12 @@ export default function RecordPaymentDialog({
       );
 
       if (response.success) {
-        setInvoiceSummary(response);
-        // Auto-populate the remaining balance
-        setAmount(response.remainingBalance.toFixed(2));
+        // The backend wraps every response in { success, data } (global
+        // CustomResponseInterceptor), so the summary fields live under .data.
+        const summary = response.data ?? response;
+        setInvoiceSummary(summary);
+        // Auto-populate the remaining balance (guard against a missing field).
+        setAmount(Number(summary.remainingBalance ?? 0).toFixed(2));
       }
     } catch (error) {
       console.error("Error fetching invoice summary:", error);

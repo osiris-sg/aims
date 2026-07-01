@@ -43,7 +43,6 @@ export const MODULE_CATALOG: CatalogModule[] = [
         { key: 'products', label: 'Products' },
         { key: 'purchases', label: 'Purchases' },
         { key: 'purchases-return', label: 'Purchases Return' },
-        { key: 'bills', label: 'Bills (AP)' },
         { key: 'adjustment-in', label: 'Stock Adjustment In' },
         { key: 'adjustment-out', label: 'Stock Adjustment Out' },
         { key: 'reports', label: 'Reports' },
@@ -145,6 +144,9 @@ export const MODULE_CATALOG: CatalogModule[] = [
         // sub-page hosts the old GL / TB / P&L / BS / GST / Audit pages as tabs
         // so they remain reachable but don't pollute the nav.
         { key: 'list', label: 'Dashboard' },
+        { key: 'ledger', label: 'General Ledger' },
+        { key: 'receivables', label: 'Accounts Receivable' },
+        { key: 'payables', label: 'Accounts Payable' },
         { key: 'reports', label: 'Reports' },
         { key: 'setup', label: 'Setup', href: '/portal/settings/accounting-setup' },
       ],

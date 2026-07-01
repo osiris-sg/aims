@@ -3297,33 +3297,41 @@ export class DocumentsService {
         );
       }
 
-      // Calculate invoice total amount from config.items
       const config: any = document.config;
       const items = config?.items || [];
 
-      const invoiceAmount = items.reduce((sum: number, item: any) => {
+      // Native invoices total up their line items. Xero-imported invoices have
+      // no line items — their authoritative gross/outstanding live on the
+      // config (xeroGross / xeroBalance), set during migration + AR reconcile.
+      const itemsTotal = items.reduce((sum: number, item: any) => {
         const amount =
           parseFloat(item.amount) ||
           parseFloat(item.quantity) * parseFloat(item.unitPrice) ||
           0;
         return sum + amount;
       }, 0);
+      const isXero = !!config?.xeroImported;
+      const invoiceAmount = isXero ? Number(config.xeroGross ?? itemsTotal) : itemsTotal;
 
-      // Get all payments for this document
+      // Native Payment rows recorded against this invoice.
       const payments = await this.prisma.payment.findMany({
-        where: {
-          documentId,
-          organizationId,
-        },
+        where: { documentId, organizationId },
       });
+      const nativePaid = payments.reduce((sum, payment) => sum + parseFloat(payment.amount.toString()), 0);
 
-      // Calculate total paid
-      const totalPaid = payments.reduce((sum, payment) => {
-        return sum + parseFloat(payment.amount.toString());
-      }, 0);
-
-      // Calculate remaining balance
-      const remainingBalance = invoiceAmount - totalPaid;
+      // For Xero invoices, outstanding = xeroBalance minus any NEW native
+      // payments recorded since migration. For native invoices it's the usual
+      // gross minus payments.
+      let totalPaid: number;
+      let remainingBalance: number;
+      if (isXero) {
+        const xeroBalance = Number(config.xeroBalance ?? 0);
+        remainingBalance = xeroBalance - nativePaid;
+        totalPaid = invoiceAmount - remainingBalance;
+      } else {
+        totalPaid = nativePaid;
+        remainingBalance = invoiceAmount - totalPaid;
+      }
 
       return {
         success: true,

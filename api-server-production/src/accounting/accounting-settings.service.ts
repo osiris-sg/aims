@@ -38,10 +38,27 @@ export class AccountingSettingsService {
     const data: any = { ...dto };
     if (dto.yearOpeningDate) data.yearOpeningDate = new Date(dto.yearOpeningDate);
     if (dto.monthOpeningDate) data.monthOpeningDate = new Date(dto.monthOpeningDate);
+    if (dto.lockedThroughDate !== undefined) {
+      data.lockedThroughDate = dto.lockedThroughDate ? new Date(dto.lockedThroughDate) : null;
+    }
 
-    return this.prisma.accountingSetting.update({
+    const updated = await this.prisma.accountingSetting.update({
       where: { organizationId },
       data,
     });
+
+    // Keep the legacy Organization-level tax fields in sync so existing readers
+    // (document editor, GST report) stay consistent — single source of truth is
+    // now the Financial Settings tab, but both fields are written.
+    const orgPatch: any = {};
+    if (dto.taxDefaultPercentage !== undefined) orgPatch.taxRate = dto.taxDefaultPercentage;
+    if (dto.salesTaxInclusive !== undefined) orgPatch.absorbTax = dto.salesTaxInclusive;
+    if (Object.keys(orgPatch).length > 0) {
+      await this.prisma.organization.update({ where: { id: organizationId }, data: orgPatch }).catch(() => {
+        // non-fatal — settings still saved on AccountingSetting
+      });
+    }
+
+    return updated;
   }
 }

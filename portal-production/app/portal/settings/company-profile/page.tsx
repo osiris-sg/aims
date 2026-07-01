@@ -78,7 +78,7 @@ export default function OrganizationSettingsPage() {
   const { control, handleSubmit, reset, setValue } = useForm<any>({ defaultValues });
   const customDocumentTypes = useWatch({ control, name: "customDocumentTypes" }) || {};
 
-  const [activeTab, setActiveTab] = useState<"general" | "tax" | "bank" | "branding" | "documents" | "docDefaults">("general");
+  const [activeTab, setActiveTab] = useState<"general" | "bank" | "branding" | "documents" | "docDefaults">("general");
 
   // When organization data becomes available, re-populate the form
   useEffect(() => {
@@ -133,9 +133,10 @@ export default function OrganizationSettingsPage() {
       address: data.address,
       phoneNumber: data.phoneNumber,
       registrationNumber: data.registrationNumber,
-      taxRate: parseFloat(data.taxRate) || 0,
+      // Tax rate + inclusive/exclusive now live in Accounting Setup → Financial
+      // Settings (single source of truth). Only the per-doc "tax applicable"
+      // default remains org-level.
       taxApplicable: !!data.taxApplicable,
-      absorbTax: !!data.absorbTax,
       defaultCurrency: (data.defaultCurrency || "SGD").toUpperCase(),
       docTypeDefaults: data.docTypeDefaults || {},
       customDocumentTypes: data.customDocumentTypes,
@@ -222,7 +223,6 @@ export default function OrganizationSettingsPage() {
 
   const tabs: { value: typeof activeTab; label: string }[] = [
     { value: "general", label: "General" },
-    { value: "tax", label: "Tax Defaults" },
     { value: "bank", label: "Bank Details" },
     { value: "branding", label: "Branding" },
     { value: "documents", label: "Document Names" },
@@ -273,40 +273,6 @@ export default function OrganizationSettingsPage() {
               placeHolder="Select default currency"
               menuItems={CURRENCY_OPTIONS}
             />
-          </Box>
-        )}
-
-        {activeTab === "tax" && (
-          <Box>
-            <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>
-              Tax Defaults
-            </Typography>
-            <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
-              New documents inherit these settings. You can still override per-document inside the editor.
-            </Typography>
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-              <Controller
-                control={control}
-                name="taxApplicable"
-                render={({ field }) => (
-                  <FormControlLabel
-                    control={<Switch checked={!!field.value} onChange={(e) => field.onChange(e.target.checked)} />}
-                    label="Tax Applicable by default"
-                  />
-                )}
-              />
-              <FormInputBox control={control} name="taxRate" label="Tax Rate (%)" placeHolder="Enter tax rate (e.g., 9 for 9%)" type="number" min={0} />
-              <Controller
-                control={control}
-                name="absorbTax"
-                render={({ field }) => (
-                  <FormControlLabel
-                    control={<Switch checked={!!field.value} onChange={(e) => field.onChange(e.target.checked)} />}
-                    label="Absorb Tax in Total (tax-inclusive pricing)"
-                  />
-                )}
-              />
-            </Box>
           </Box>
         )}
 
