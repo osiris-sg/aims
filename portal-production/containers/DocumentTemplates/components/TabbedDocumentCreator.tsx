@@ -2362,6 +2362,35 @@ export default function TabbedDocumentCreator({
       router.push(backRoute);
       return;
     }
+
+    // Auto-delete a brand-new, UNTOUCHED, EMPTY draft on exit instead of leaving
+    // an orphaned blank document behind. Strictly guarded: only a real persisted
+    // draft the user never edited (isDirtyRef false), with no line items and no
+    // customer selected — never a template, a read-only view, or anything with
+    // content. Best-effort; navigation is never blocked.
+    const exitDocId = existingData?.id || documentId;
+    const isUntouchedEmptyDraft =
+      !!exitDocId &&
+      !isTemplateEditMode &&
+      !initialPreviewMode &&
+      !isDirtyRef.current &&
+      !isAutosavingRef.current &&
+      saveStatus !== "saving" &&
+      (items?.length ?? 0) === 0 &&
+      !formData?.customer?.id;
+    if (isUntouchedEmptyDraft) {
+      try {
+        const token = await getToken();
+        if (token) {
+          await request({ path: `/documents/delete/${exitDocId}`, method: "DELETE" }, {}, token);
+        }
+      } catch {
+        // ignore — leaving an empty draft is acceptable if delete fails
+      }
+      router.push(backRoute);
+      return;
+    }
+
     const pending = isDirtyRef.current || isAutosavingRef.current || saveStatus === "saving";
     if (!pending) {
       router.push(backRoute);
