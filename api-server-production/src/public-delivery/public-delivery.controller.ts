@@ -75,4 +75,39 @@ export class PublicDeliveryController {
   ) {
     return this.publicDeliveryService.uploadPhoto(token, file);
   }
+
+  /**
+   * PUBLIC — create a delivery MSR (DO_START / DO_ACK / DO_INSTALL) on the
+   * token's DO. Org/doc/asset are resolved from the token in the service; the
+   * body carries only kind + the scanned unit + proof fields.
+   */
+  @Public()
+  @Post('public/delivery/:token/report')
+  async createReport(
+    @Param('token') token: string,
+    @Body()
+    body: {
+      kind?: string;
+      inventoryId?: string;
+      description?: string;
+      photos?: string[];
+      signature?: string;
+      signedByName?: string;
+      latitude?: number;
+      longitude?: number;
+    },
+  ) {
+    return this.publicDeliveryService.createReport(token, body);
+  }
+
+  /** PUBLIC — sign (complete) a delivery MSR that belongs to the token's DO. */
+  @Public()
+  @Post('public/delivery/:token/report/:reportId/sign')
+  async signReport(
+    @Param('token') token: string,
+    @Param('reportId') reportId: string,
+    @Body() body: { signature?: string; signedByName?: string },
+  ) {
+    return this.publicDeliveryService.signReport(token, reportId, body);
+  }
 }

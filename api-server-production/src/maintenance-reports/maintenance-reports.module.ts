@@ -18,5 +18,9 @@ import { MaintenanceReportsService } from './maintenance-reports.service';
   imports: [CommonModule, EmailModule, DocumentsModule, DocumentTemplatesModule],
   controllers: [MaintenanceReportsController],
   providers: [MaintenanceReportsService, PrismaService],
+  // Exported so PublicDeliveryModule can reuse create()/sign() for the guest
+  // (token-scoped, login-less) delivery flow — same MSR pipeline as the
+  // authenticated field flow, including the advanceDeliveryItem bridge.
+  exports: [MaintenanceReportsService],
 })
 export class MaintenanceReportsModule {}

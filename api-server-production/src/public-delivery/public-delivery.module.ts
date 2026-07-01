@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { DocumentsModule } from '../documents/documents.module';
+import { MaintenanceReportsModule } from '../maintenance-reports/maintenance-reports.module';
 import { UploadsService } from '../uploads/uploads.service';
 import { PublicDeliveryController } from './public-delivery.controller';
 import { PublicDeliveryService } from './public-delivery.service';
@@ -8,8 +9,10 @@ import { PublicDeliveryService } from './public-delivery.service';
 @Module({
   // DocumentsModule exports DocumentsService (advanceDeliveryItem). UploadsService
   // is added directly here (it only depends on the global ConfigService) for the
-  // token-scoped POD photo upload.
-  imports: [DocumentsModule],
+  // token-scoped POD photo upload. MaintenanceReportsModule exports
+  // MaintenanceReportsService so guests create/sign the SAME MSRs as the field
+  // flow (one-way import: MaintenanceReports → Documents, no cycle back here).
+  imports: [DocumentsModule, MaintenanceReportsModule],
   controllers: [PublicDeliveryController],
   providers: [PublicDeliveryService, PrismaService, UploadsService],
 })
