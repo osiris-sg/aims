@@ -293,7 +293,8 @@ export const useAddAssetFormHandler = () => {
       description: data.description,
       image: data.image || undefined, // Keep image as is, don't send if undefined
       isTracked: data.isTracked,
-      quantity: data.quantity ?? 0, // blank starting stock → 0
+      // Blank/invalid starting stock → 0; backend requires a non-negative integer.
+      quantity: Number.isFinite(Number(data.quantity)) ? Math.max(0, Math.floor(Number(data.quantity))) : 0,
       minQuantity: data.minQuantity,
       price: data.price,
       costPrice: data.costPrice,
