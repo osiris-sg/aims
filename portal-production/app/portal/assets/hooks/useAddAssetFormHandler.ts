@@ -67,18 +67,11 @@ const assetSchema = z.object({
   customPrices: z.array(customPriceSchema).optional(),
   points: z.coerce.number().min(0).optional(),
   isTracked: z.boolean().default(true),
-  // Use coerce to convert string input to number
+  // Use coerce to convert string input to number. Optional for everyone —
+  // untracked products can start at 0 stock; the Quantity field is just for an
+  // optional starting stock. Defaults to 0 on submit when left blank.
   quantity: z.coerce.number().min(0).optional(),
   minQuantity: z.coerce.number().min(0).optional(),
-}).refine((data) => {
-  // Quantity is required when isTracked is false
-  if (data.isTracked === false && (data.quantity === undefined || data.quantity === null || isNaN(data.quantity))) {
-    return false;
-  }
-  return true;
-}, {
-  message: "Quantity is required for untracked products",
-  path: ["quantity"],
 });
 
 // Schema for the actual data we send to the backend
@@ -246,7 +239,7 @@ export const useAddAssetFormHandler = () => {
 
   const handleNext = async () => {
     if (activeStep === 0) {
-      // Validate first step fields
+      // Validate first-step required fields (quantity is optional — see schema).
       const { name, skuKey, categoryId, uom } = methods.getValues();
       if (!name || !skuKey || !categoryId || !uom) {
         await methods.trigger(["name", "skuKey", "categoryId", "uom"]);
@@ -300,7 +293,7 @@ export const useAddAssetFormHandler = () => {
       description: data.description,
       image: data.image || undefined, // Keep image as is, don't send if undefined
       isTracked: data.isTracked,
-      quantity: data.quantity,
+      quantity: data.quantity ?? 0, // blank starting stock → 0
       minQuantity: data.minQuantity,
       price: data.price,
       costPrice: data.costPrice,

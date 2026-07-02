@@ -52,16 +52,15 @@ export default function AssetCreation() {
         required
       />
 
-      {/* Quantity Field - Always shown since assets start as products */}
+      {/* Quantity Field - optional starting stock (defaults to 0 if left blank). */}
       <FormInputBox
         control={control}
         name="quantity"
         label="Quantity"
-        placeHolder="Enter initial quantity"
-        bottomText="Set the starting stock quantity for this product"
+        placeHolder="Enter starting stock (optional)"
+        bottomText="Optional starting stock quantity — leave blank to start at 0"
         type="number"
         min={0}
-        required
       />
     </Stack>
   );
