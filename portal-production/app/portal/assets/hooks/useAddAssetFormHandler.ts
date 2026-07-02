@@ -371,9 +371,12 @@ export const useAddAssetFormHandler = () => {
         console.error("Error updating asset:", error);
       }
     } else {
-      // Create new asset
+      // Create new asset. Coerce quantity here too — the create path sends raw
+      // `data` (not formDataWithStatus), so a blank number field's NaN would
+      // otherwise reach the backend and fail its integer/min-0 validation.
       const success = await createAsset({
         ...data,
+        quantity: Number.isFinite(Number(data.quantity)) ? Math.max(0, Math.floor(Number(data.quantity))) : 0,
       });
       if (success) {
         router.push(ROUTES.ASSETS);
