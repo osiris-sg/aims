@@ -106,7 +106,7 @@ import { useGetInventoriesForItemTable } from "../hooks/useGetInventoriesForItem
 import { getTemplateFormFields } from "../utils/templateFieldSync";
 import { useGetDocuments } from "@/app/portal/hooks/api";
 import { TemplateFieldConfig } from "../types/templateFieldTypes";
-import { getDocumentListRoute } from "@/app/portal/components/documentRoutes"; // co-pkg: depends on fa8351c
+import { getDocumentListRoute, getListRouteFromPathname } from "@/app/portal/components/documentRoutes"; // co-pkg: depends on fa8351c
 
 // Helper to determine the parent route based on document type
 const getParentRoute = (docType: string): string => {
@@ -191,8 +191,14 @@ export default function TabbedDocumentCreator({
   // When the list-view feature is on, the back arrow returns to that doc type's
   // list page (e.g. /portal/sales/sales-orders) instead of the generic section
   // landing — so the sidebar highlight + browsing context stay consistent.
-  const resolveBackRoute = (docType: string) =>
-    (isDocumentListViewEnabled && getDocumentListRoute(docType)) || getParentRoute(docType);
+  // Resolve from the URL type first (always the canonical type, e.g. INVOICE):
+  // confirmed docs' stored templateVariant may not be in LIST_ROUTES, which
+  // used to drop them onto the generic /portal/sales instead of the real list.
+  const resolveBackRoute = (docType: string) => {
+    const fromUrl =
+      typeof window !== "undefined" ? getListRouteFromPathname(window.location.pathname) : null;
+    return (isDocumentListViewEnabled && (fromUrl || getDocumentListRoute(docType))) || getParentRoute(docType);
+  };
   // When enabled, the document's Nett Total is rounded DOWN to the nearest 5.
   const roundNettDown = (n: number) => (isNettRoundDownEnabled ? Math.floor((Number(n) || 0) / 5) * 5 : (Number(n) || 0));
   // Item tagging (checkbox column + Tag Items button) is removed from every
@@ -2644,7 +2650,7 @@ export default function TabbedDocumentCreator({
           >
             {isTemplateEditMode
               ? existingData?.name || `${getDocumentTitle()} Template`
-              : formData.name || formData.documentInfo.documentNumber || `${getDocumentTitle()} - New`}
+              : formData.documentInfo?.documentNumber || formData.name || `${getDocumentTitle()} - New`}
           </Typography>
         </Box>
         <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexShrink: 0, flexWrap: "nowrap" }}>
