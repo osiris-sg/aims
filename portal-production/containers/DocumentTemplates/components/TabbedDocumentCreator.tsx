@@ -230,7 +230,12 @@ export default function TabbedDocumentCreator({
   // Items section tabs
   const [itemsTabValue, setItemsTabValue] = useState(0);
   const documentStatus = existingData?.status || "draft";
-  const isDocumentConfirmed = documentStatus === "confirmed";
+  // A document is editable ONLY while it is a draft. Once it moves past draft —
+  // "confirmed" and every post-confirm status (pending_payment, paid,
+  // pending_delivery, delivered_*, pending_return, returned, cancelled, …) — it
+  // is locked to the read-only preview. Named "confirmed" for history; it really
+  // means "not a draft" so all downstream lock/preview gates cover those states.
+  const isDocumentConfirmed = documentStatus !== "draft";
   const isDocumentEditable = !isDocumentConfirmed && !isTemplateEditMode;
 
   // Force preview mode for confirmed documents or when initialPreviewMode is set
@@ -2380,7 +2385,8 @@ export default function TabbedDocumentCreator({
   const handleBackClick = async () => {
     const backRoute = resolveBackRoute(documentType);
     const documentStatus = existingData?.status || "draft";
-    if (documentStatus === "confirmed") {
+    // Any non-draft (locked) document: nothing to save/clean up — just leave.
+    if (documentStatus !== "draft") {
       router.push(backRoute);
       return;
     }
