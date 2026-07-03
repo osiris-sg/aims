@@ -168,10 +168,15 @@ export class DocumentExtractionController {
       const buffer = Buffer.from(arrayBuffer);
       const base64Image = buffer.toString('base64');
 
-      // Extract data using OpenAI
+      // Extract data using Claude; pass the fetched content-type as the media
+      // type so PDFs/PNGs are handled correctly (defaults to image/jpeg).
+      const mediaType = (response.headers.get('content-type') || 'image/jpeg')
+        .split(';')[0]
+        .trim();
       const extractedData = await this.documentExtractionService.extractDocumentData(
         base64Image,
-        documentType
+        documentType,
+        mediaType
       );
 
       return {

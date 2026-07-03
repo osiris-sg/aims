@@ -1,8 +1,5 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
-import { OpenAI } from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
-import { ConfigService } from '@nestjs/config';
-const pdfParse = require('pdf-parse');
 
 export enum DocumentType {
   INVOICE = 'invoice',
@@ -127,90 +124,25 @@ export interface SupplierReconciliationData {
 
 @Injectable()
 export class DocumentExtractionService {
-  private openai: OpenAI;
+  // All extraction runs through Claude (claude-sonnet-4-6) via
+  // _extractStructuredJson; ANTHROPIC_API_KEY is read there per call.
 
-  constructor(private configService: ConfigService) {
-    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
-
-    if (!apiKey || apiKey === 'your_openai_api_key_here') {
-      console.warn('⚠️ OpenAI API key not configured. Document extraction will not work.');
-      this.openai = null;
-    } else {
-      this.openai = new OpenAI({
-        apiKey: apiKey,
-      });
-    }
-  }
-
+  // base64 + mediaType overload (used by the extract-url path). Rebuilds a
+  // file-like buffer and routes through the same Claude helper as file uploads.
   async extractDocumentData(
     imageBase64: string,
-    documentType: DocumentType = DocumentType.INVOICE
+    documentType: DocumentType = DocumentType.INVOICE,
+    mediaType: string = 'image/jpeg',
   ): Promise<ExtractedDocumentData> {
-    if (!this.openai) {
-      throw new HttpException(
-        'OpenAI API key not configured. Please add your API key to the .env file.',
-        HttpStatus.SERVICE_UNAVAILABLE
-      );
-    }
-
-    try {
-      console.log(`📄 Starting ${documentType} extraction with OpenAI Vision API`);
-
-      const systemPrompt = this.getSystemPrompt(documentType);
-      const userPrompt = this.getUserPrompt(documentType);
-
-      const response = await this.openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: userPrompt
-              },
-              {
-                type: "image_url",
-                image_url: {
-                  url: `data:image/jpeg;base64,${imageBase64}`,
-                  detail: "high"
-                }
-              }
-            ]
-          }
-        ],
-        max_tokens: 2000,
-        temperature: 0.1, // Low temperature for more consistent extraction
-        response_format: { type: "json_object" }
-      });
-
-      const extractedData = JSON.parse(response.choices[0].message.content);
-      console.log(`✅ ${documentType} data extracted successfully`);
-
-      return this.validateAndCleanData({
-        ...extractedData,
-        documentType
-      });
-
-    } catch (error) {
-      console.error(`❌ Error extracting ${documentType} data:`, error);
-
-      if (error.response?.status === 401) {
-        throw new HttpException(
-          'Invalid OpenAI API key. Please check your configuration.',
-          HttpStatus.UNAUTHORIZED
-        );
-      }
-
-      throw new HttpException(
-        `Failed to extract ${documentType} data: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
+    console.log(`📄 Starting ${documentType} extraction with Claude`);
+    const raw = await this._extractStructuredJson(
+      { buffer: Buffer.from(imageBase64, 'base64'), mimetype: mediaType },
+      this.getSystemPrompt(documentType),
+      this.getUserPrompt(documentType),
+      0,
+    );
+    console.log(`✅ ${documentType} data extracted successfully`);
+    return this.validateAndCleanData({ ...raw, documentType });
   }
 
   private getSystemPrompt(documentType: DocumentType): string {
@@ -380,168 +312,20 @@ export class DocumentExtractionService {
     return isNaN(num) ? undefined : num;
   }
 
+  // One path for images AND PDFs — Claude reads PDFs natively (no pdf-to-png
+  // or pdf-parse). The file's mimetype selects a document vs image block
+  // inside _extractStructuredJson.
   async processDocumentFile(
     file: Express.Multer.File,
     documentType: DocumentType = DocumentType.INVOICE
   ): Promise<ExtractedDocumentData> {
-    // Check if file is a PDF
-    if (file.mimetype === 'application/pdf') {
-      return this.processPdfDocument(file, documentType);
-    }
-
-    // For image files, convert to base64 and extract
-    const base64Image = file.buffer.toString('base64');
-    return this.extractDocumentData(base64Image, documentType);
-  }
-
-  private async processPdfDocument(
-    file: Express.Multer.File,
-    documentType: DocumentType
-  ): Promise<ExtractedDocumentData> {
-    if (!this.openai) {
-      throw new HttpException(
-        'OpenAI API key not configured. Please add your API key to the .env file.',
-        HttpStatus.SERVICE_UNAVAILABLE
-      );
-    }
-
-    try {
-      console.log('📄 Processing PDF document');
-
-      // Extract text from PDF
-      const pdfData = await pdfParse(file.buffer);
-      const pdfText = pdfData.text;
-
-      console.log(`📄 Extracted ${pdfText.length} characters from PDF`);
-
-      // Check if PDF has meaningful text content
-      // If text is too short or empty, it's likely an image-based PDF
-      if (!pdfText || pdfText.trim().length < 50) {
-        console.log('📄 PDF appears to be image-based or has minimal text. Using image extraction...');
-
-        // For image-based PDFs, we need to convert PDF pages to images
-        const { pdfToPng } = require('pdf-to-png-converter');
-
-        // Try to get the first page as an image
-        try {
-          // Convert PDF to PNG images
-          console.log('🔄 Converting PDF pages to images...');
-          const pngPages = await pdfToPng(file.buffer, {
-            disableFontFace: true,
-            useSystemFonts: false,
-            viewportScale: 2.0, // Higher resolution for better OCR
-            pagesToProcess: [1], // Process only first page for invoices
-            strictPagesToProcess: false
-          });
-
-          if (!pngPages || pngPages.length === 0) {
-            throw new Error('Failed to convert PDF to images');
-          }
-
-          // Get the first page as base64
-          const firstPage = pngPages[0];
-          const base64Image = firstPage.content.toString('base64');
-
-          console.log('📸 Successfully converted PDF to image, sending to Vision API...');
-
-          // Use vision API with the converted PNG image
-          const response = await this.openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-              {
-                role: "system",
-                content: this.getSystemPrompt(documentType)
-              },
-              {
-                role: "user",
-                content: [
-                  {
-                    type: "text",
-                    text: this.getUserPrompt(documentType)
-                  },
-                  {
-                    type: "image_url",
-                    image_url: {
-                      url: `data:image/png;base64,${base64Image}`,
-                      detail: "high"
-                    }
-                  }
-                ]
-              }
-            ],
-            max_tokens: 2000,
-            temperature: 0.1,
-            response_format: { type: "json_object" }
-          });
-
-          const extractedData = JSON.parse(response.choices[0].message.content);
-          console.log('✅ PDF data extracted successfully using vision API');
-
-          return this.validateAndCleanData({
-            ...extractedData,
-            documentType
-          });
-        } catch (visionError) {
-          console.error('❌ Vision API failed for PDF:', visionError);
-          // If vision API doesn't work, return a more helpful error
-          throw new HttpException(
-            'Failed to process the PDF document. Error: ' + visionError.message,
-            HttpStatus.BAD_REQUEST
-          );
-        }
-      }
-
-      // For text-based PDFs, proceed with text extraction
-      // Limit text length to avoid token limits
-      const maxTextLength = 10000;
-      const truncatedText = pdfText.length > maxTextLength
-        ? pdfText.substring(0, maxTextLength) + '...'
-        : pdfText;
-
-      // Use OpenAI to extract structured data from the text
-      const response = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: this.getSystemPrompt(documentType),
-          },
-          {
-            role: 'user',
-            content: `${this.getUserPrompt(documentType)}
-
-            Document text:
-            ${truncatedText}`,
-          },
-        ],
-        response_format: { type: 'json_object' },
-        temperature: 0.1,
-        max_tokens: 2000,
-      });
-
-      const extractedData = JSON.parse(response.choices[0].message.content);
-      console.log('✅ PDF text data extracted successfully');
-
-      // Clean the extracted data
-      const cleaned = this.validateAndCleanData({
-        ...extractedData,
-        documentType
-      });
-
-      return cleaned;
-    } catch (error) {
-      console.error('❌ Error processing PDF:', error);
-
-      // If it's our custom error, re-throw it
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      throw new HttpException(
-        `Failed to extract data from PDF: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
+    const raw = await this._extractStructuredJson(
+      file,
+      this.getSystemPrompt(documentType),
+      this.getUserPrompt(documentType),
+      0,
+    );
+    return this.validateAndCleanData({ ...raw, documentType });
   }
 
   // ────────────────────────────────────────────────────────────────────────
@@ -604,9 +388,10 @@ Rules:
   // pdf-to-png needed), images as an "image" block, and parse a JSON object
   // out of the response. Returns a raw object that the caller validates.
   private async _extractStructuredJson(
-    file: Express.Multer.File,
+    file: { buffer: Buffer; mimetype: string },
     systemPrompt: string,
     userPrompt: string,
+    temperature?: number,
   ): Promise<any> {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
@@ -634,6 +419,8 @@ Rules:
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 3000,
+      // Doc extraction passes 0 (deterministic); recon omits it (unchanged).
+      ...(temperature !== undefined ? { temperature } : {}),
       system: systemPrompt,
       messages: [{ role: 'user', content }],
     });
