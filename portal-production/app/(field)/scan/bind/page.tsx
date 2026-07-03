@@ -148,9 +148,16 @@ export default function BindTagPage() {
   // dropdown. Guarded by `!selectedAsset` so this doesn't fight a manual pick.
   useEffect(() => {
     if (selectedAsset || !searchInput.trim() || !assetOptions.length) return;
-    const q = searchInput.trim().toLowerCase();
+    // NORMALIZED exact match: strip non-alphanumerics + lowercase — the SAME
+    // scheme createAndBind uses for serials (inventories.service.ts). Lets an
+    // AI-extracted "AF 100" auto-select the catalog "AF100" (space vs none).
+    // EXACT after normalization ONLY — no contains/prefix, so a partial like
+    // "AF" never auto-picks "AF100" mid-typing, and near-SKUs don't collide.
+    const norm = (s: string) => (s ?? "").replace(/[^a-z0-9]/gi, "").toLowerCase();
+    const q = norm(searchInput);
+    if (!q) return;
     const exact = assetOptions.find(
-      (a) => a.name.toLowerCase() === q || a.skuKey.toLowerCase() === q,
+      (a) => norm(a.name) === q || norm(a.skuKey) === q,
     );
     if (exact) setSelectedAsset(exact);
   }, [assetOptions, searchInput, selectedAsset]);
