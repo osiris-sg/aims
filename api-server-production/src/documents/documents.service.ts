@@ -2,10 +2,9 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { PrismaService } from 'src/common/prisma.service';
 import { CreateDocumentWithTimelineDto } from './dto/create-document-with-timeline.dto';
-import { InventoryStatus, DocumentStatus, TransactionType, ItemType, DeliveryStatus, DeploymentType } from '@prisma/client';
+import { InventoryStatus, DocumentStatus, ItemType, DeliveryStatus, DeploymentType } from '@prisma/client';
 import { XeroService } from 'src/common/xero.service';
 import { PriceHistoryService } from '../price-history/price-history.service';
-import { TransactionsService } from '../transactions/transactions.service';
 import { EmailService } from '../email/email.service';
 import { JournalAutoPostService } from '../journal/journal-auto-post.service';
 import { OrdersService } from '../orders/orders.service';
@@ -21,7 +20,6 @@ export class DocumentsService {
     private prisma: PrismaService,
     private xeroService: XeroService,
     private priceHistoryService: PriceHistoryService,
-    private transactionsService: TransactionsService,
     private emailService: EmailService,
     private journalAutoPost: JournalAutoPostService,
     private s3Service: S3Service,
@@ -727,41 +725,11 @@ export class DocumentsService {
           // Don't fail the document update if price history fails
         }
 
-        // Create accounting transaction for the invoice
-        try {
-          const config: any = configAsPlainObject || existingDocument.config;
-          const customer = config?.customer;
-          const documentInfo = config?.documentInfo;
-
-          if (customer && customer.id) {
-            // Calculate total amount from items
-            const items = config?.items || [];
-            const totalAmount = items.reduce((sum: number, item: any) => {
-              const amount = parseFloat(item.amount) || (parseFloat(item.quantity) * parseFloat(item.unitPrice)) || 0;
-              return sum + amount;
-            }, 0);
-
-            if (totalAmount > 0) {
-              await this.transactionsService.create({
-                customerId: customer.id,
-                transactionType: TransactionType.INVOICE,
-                documentId: id,
-                transactionDate: documentInfo?.date || new Date().toISOString(),
-                reference: updatedDocument.name || documentInfo?.documentNumber || `Invoice ${id.substring(0, 8)}`,
-                description: `Invoice ${updatedDocument.name || id.substring(0, 8)}`,
-                debit: totalAmount,
-                credit: 0,
-              }, organizationId);
-
-              console.log('✅ Accounting transaction created for invoice:', id, 'Amount:', totalAmount);
-            }
-          }
-        } catch (error) {
-          console.error('Failed to create accounting transaction:', error);
-          // Don't fail the document update if transaction creation fails
-        }
-
-        // GL auto-post for invoices is handled by confirmInvoice(); not duplicated here.
+        // NOTE: The Transaction / CustomerBalance sub-ledger has been RETIRED.
+        // AR is now derived directly from the Document table (this invoice's
+        // config carries the amount + outstanding balance), so the SOA, aging,
+        // and AI tools all read one source. We no longer write a Transaction
+        // row here. GL auto-post for invoices is handled by confirmInvoice().
       }
 
       // If document is being confirmed and is a Purchase Order, update inventory quantities
@@ -1187,18 +1155,13 @@ export class DocumentsService {
 
   async deleteDocument(id: string, organizationId: string) {
     try {
-      // First, delete any associated accounting transactions
+      // Transaction sub-ledger retired — nothing to clean up there. (Payments
+      // referencing this document are handled by their own FK/flow.)
       try {
-        await this.prisma.transaction.deleteMany({
-          where: {
-            documentId: id,
-            organizationId,
-          },
-        });
-        console.log('✅ Deleted accounting transactions for document:', id);
+        // no-op
       } catch (error) {
-        console.error('Failed to delete accounting transactions:', error);
-        // Continue with document deletion even if transaction deletion fails
+        console.error('Failed during document pre-delete cleanup:', error);
+        // Continue with document deletion even if cleanup fails
       }
 
       // Delete the document
@@ -1994,6 +1957,116 @@ export class DocumentsService {
       });
     } catch (error) {
       throw new HttpException(`Fetch all documents failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  // Server-side paginated / filtered / sorted document list. ADDITIVE — the
+  // legacy getAllDocuments (fetch-all) stays for the editor's prev/next
+  // navigation and other consumers. Customer/item live in the `config` JSON;
+  // customer is filtered/searched via JSON paths (recent docs store
+  // config.customer.id). Sort is limited to real columns (name/createdAt/
+  // status/type) since Prisma orderBy can't target JSON paths.
+  async getDocumentsPaginated(
+    organizationId: string,
+    opts: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      documentTypes?: string[]; // include ONLY these (variant codes)
+      excludeTypes?: string[]; // OR exclude these (Documents page hides invoices)
+      status?: string | string[];
+      customerId?: string;
+      createdOn?: { startDate?: string | Date | null; endDate?: string | Date | null };
+      sortBy?: 'name' | 'createdAt' | 'status' | 'type';
+      sortDir?: 'asc' | 'desc';
+    } = {},
+  ) {
+    try {
+      const page = Math.max(1, opts.page || 1);
+      const limit = Math.min(200, Math.max(1, opts.limit || 20));
+      const skip = (page - 1) * limit;
+
+      const where: any = { organizationId };
+      const and: any[] = [];
+
+      if (opts.documentTypes?.length) where.type = { in: opts.documentTypes };
+      else if (opts.excludeTypes?.length) where.type = { notIn: opts.excludeTypes };
+
+      if (opts.status) {
+        const s = (Array.isArray(opts.status) ? opts.status : [opts.status]).filter(Boolean);
+        if (s.length === 1) where.status = s[0];
+        else if (s.length > 1) where.status = { in: s };
+      }
+
+      if (opts.customerId) {
+        and.push({
+          OR: [
+            { config: { path: ['customer', 'id'], equals: opts.customerId } },
+            { config: { path: ['customerId'], equals: opts.customerId } },
+          ],
+        });
+      }
+
+      if (opts.createdOn?.startDate || opts.createdOn?.endDate) {
+        where.createdAt = {};
+        if (opts.createdOn.startDate) where.createdAt.gte = new Date(opts.createdOn.startDate);
+        if (opts.createdOn.endDate) {
+          const end = new Date(opts.createdOn.endDate);
+          end.setHours(23, 59, 59, 999);
+          where.createdAt.lte = end;
+        }
+      }
+
+      const term = (opts.search || '').trim();
+      if (term) {
+        and.push({
+          OR: [
+            { name: { contains: term, mode: 'insensitive' } },
+            { type: { contains: term, mode: 'insensitive' } },
+            { config: { path: ['customer', 'name'], string_contains: term } },
+          ],
+        });
+      }
+
+      if (and.length) where.AND = and;
+
+      const sortBy = ['name', 'createdAt', 'status', 'type'].includes(opts.sortBy as string)
+        ? (opts.sortBy as string)
+        : 'createdAt';
+      const sortDir = opts.sortDir === 'asc' ? 'asc' : 'desc';
+
+      const [rows, total] = await Promise.all([
+        this.prisma.document.findMany({ where, orderBy: { [sortBy]: sortDir }, skip, take: limit }),
+        this.prisma.document.count({ where }),
+      ]);
+
+      const customerIds = rows
+        .map((d: any) => (d.config as any)?.customer?.id || (d.config as any)?.customerId)
+        .filter(Boolean);
+      const customers = customerIds.length
+        ? await this.prisma.customer.findMany({ where: { id: { in: [...new Set(customerIds)] } }, select: { id: true, name: true } })
+        : [];
+      const customerMap = new Map(customers.map((c) => [c.id, c.name]));
+
+      const docs = rows.map((doc: any) => {
+        const config = doc.config as any;
+        const cid = config?.customer?.id || config?.customerId;
+        return {
+          id: doc.id,
+          name: doc.name,
+          associated_item: config?.items?.[0]?.sku ?? 'N/A',
+          associated_customer: (cid && customerMap.get(cid)) || config?.customer?.name || 'N/A',
+          documentType: doc.type,
+          templateId: doc.documentTemplateId,
+          status: doc.status,
+          createdAt: doc.createdAt,
+          config: doc.config,
+        };
+      });
+
+      return { docs, total, page, limit, totalPages: Math.ceil(total / limit) };
+    } catch (error) {
+      throw new HttpException(`Fetch documents failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 

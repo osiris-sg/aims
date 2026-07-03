@@ -1,7 +1,6 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { GenerateSOADto } from './dto/generate-soa.dto';
-import { Prisma } from '@prisma/client';
 
 export interface AgingBucket {
   current: number;   // 0-30 days
@@ -16,154 +15,104 @@ export class StatementsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Generate Statement of Account for a customer
+   * Generate Statement of Account for a customer — reconstructed from the
+   * Document table (INVOICE + CREDIT_NOTE) + Payment records, NOT the retired
+   * Transaction/CustomerBalance sub-ledger. Ties to Xero AR (sum of xeroBalance).
+   *
+   * For Xero-imported invoices, the paid+credited portion (gross − xeroBalance)
+   * is shown as a single "Payment/credits" settlement line (Xero folds credit
+   * notes into the invoice's AmountDue, so listing CN docs separately would
+   * double-count). For AIMS-native orgs, standalone CREDIT_NOTE docs and Payment
+   * rows are listed as their own credit lines.
    */
   async generateSOA(generateSOADto: GenerateSOADto, organizationId: string) {
     try {
-      // Get customer details
       const customer = await this.prisma.customer.findFirst({
-        where: {
-          id: generateSOADto.customerId,
-          organizationId,
-        },
+        where: { id: generateSOADto.customerId, organizationId },
       });
+      if (!customer) throw new HttpException('Customer not found', HttpStatus.NOT_FOUND);
 
-      if (!customer) {
-        throw new HttpException('Customer not found', HttpStatus.NOT_FOUND);
-      }
+      const startDate = generateSOADto.startDate ? new Date(generateSOADto.startDate) : null;
+      const endDate = generateSOADto.endDate ? new Date(generateSOADto.endDate) : new Date();
+      const R = (n: number) => Math.round(n * 100) / 100;
 
-      // Build transaction query
-      const where: Prisma.TransactionWhereInput = {
-        customerId: generateSOADto.customerId,
-        organizationId,
+      const docs = await this.prisma.document.findMany({
+        where: {
+          organizationId,
+          type: { in: ['INVOICE', 'CREDIT_NOTE'] },
+          OR: [
+            { config: { path: ['customerId'], equals: customer.id } },
+            { config: { path: ['customer', 'id'], equals: customer.id } },
+          ],
+        },
+        select: { id: true, name: true, type: true, createdAt: true, config: true },
+      });
+      const payments = await this.prisma.payment.findMany({
+        where: { organizationId, customerId: customer.id },
+        orderBy: { paymentDate: 'asc' },
+      });
+      const isXero = docs.some((d) => (d.config as any)?.xeroImported);
+
+      type Tx = { date: Date; reference: string; description: string; transactionType: string; debit: number; credit: number; balance: number; documentType?: string; paymentMethod?: string };
+      const all: Tx[] = [];
+      let openingBalance = 0;
+      const add = (d: Date, tx: Tx, netEffect: number) => {
+        if (startDate && d < startDate) { openingBalance += netEffect; return; }
+        if (d > endDate) return;
+        all.push(tx);
       };
 
-      if (generateSOADto.startDate || generateSOADto.endDate) {
-        where.transactionDate = {};
-        if (generateSOADto.startDate) {
-          where.transactionDate.gte = new Date(generateSOADto.startDate);
-        }
-        if (generateSOADto.endDate) {
-          where.transactionDate.lte = new Date(generateSOADto.endDate);
+      for (const doc of docs) {
+        const c: any = doc.config || {};
+        if (c.voided) continue;
+        const d = c.date ? new Date(c.date) : doc.createdAt;
+        const gross = R(c.xeroGross ?? c.totalAmount ?? 0);
+        if (gross <= 0) continue;
+        if (doc.type === 'INVOICE') {
+          add(d, { date: d, reference: doc.name || '(no #)', description: `Invoice ${doc.name || ''}`.trim(), transactionType: 'INVOICE', debit: gross, credit: 0, balance: 0, documentType: 'INVOICE' }, gross);
+          const paid = R(gross - R(c.xeroBalance ?? gross));
+          if (isXero && paid > 0.005) {
+            add(d, { date: d, reference: doc.name || '', description: `Payment / credits applied — ${doc.name || ''}`.trim(), transactionType: 'PAYMENT', debit: 0, credit: paid, balance: 0, documentType: 'PAYMENT' }, -paid);
+          }
+        } else if (doc.type === 'CREDIT_NOTE' && !isXero) {
+          add(d, { date: d, reference: doc.name || '', description: `Credit Note ${doc.name || ''}`.trim(), transactionType: 'CREDIT_NOTE', debit: 0, credit: gross, balance: 0, documentType: 'CREDIT_NOTE' }, -gross);
         }
       }
-
-      // Get transactions
-      const transactions = await this.prisma.transaction.findMany({
-        where,
-        orderBy: {
-          transactionDate: 'asc',
-        },
-        include: {
-          document: {
-            select: {
-              name: true,
-              type: true,
-            },
-          },
-          payment: {
-            select: {
-              paymentMethod: true,
-              reference: true,
-            },
-          },
-        },
-      });
-
-      // Get customer balance
-      const customerBalance = await this.prisma.customerBalance.findFirst({
-        where: {
-          customerId: generateSOADto.customerId,
-          organizationId,
-        },
-      });
-
-      // Calculate opening balance (if date range specified)
-      let openingBalance = 0;
-      if (generateSOADto.startDate) {
-        const priorTransactions = await this.prisma.transaction.findMany({
-          where: {
-            customerId: generateSOADto.customerId,
-            organizationId,
-            transactionDate: {
-              lt: new Date(generateSOADto.startDate),
-            },
-          },
-          orderBy: {
-            transactionDate: 'desc',
-          },
-          take: 1,
-        });
-
-        if (priorTransactions.length > 0) {
-          openingBalance = priorTransactions[0].balance;
-        } else {
-          openingBalance = customerBalance?.openingBalance || 0;
-        }
-      } else {
-        openingBalance = customerBalance?.openingBalance || 0;
+      for (const p of payments) {
+        add(p.paymentDate, { date: p.paymentDate, reference: p.reference || p.id.slice(0, 8), description: `Payment via ${p.paymentMethod || ''}${p.reference ? ` ref ${p.reference}` : ''}`.trim(), transactionType: 'PAYMENT', debit: 0, credit: p.amount, balance: 0, documentType: 'PAYMENT', paymentMethod: p.paymentMethod }, -p.amount);
       }
 
-      // Calculate current balance
-      const currentBalance = customerBalance?.currentBalance || 0;
+      all.sort((a, b) => a.date.getTime() - b.date.getTime());
+      let running = R(openingBalance);
+      for (const t of all) { running = R(running + t.debit - t.credit); t.balance = running; }
+      const currentBalance = running;
 
-      // Generate aging analysis if requested
+      const monthlyBalances = this.groupTransactionsByMonth(all, openingBalance);
       let agingAnalysis: AgingBucket | null = null;
-      if (generateSOADto.includeAging !== false) {
-        agingAnalysis = await this.calculateAging(generateSOADto.customerId, organizationId);
-      }
+      if (generateSOADto.includeAging !== false) agingAnalysis = await this.calculateAging(customer.id, organizationId);
 
-      // Group transactions by month for summary
-      const monthlyBalances = this.groupTransactionsByMonth(transactions, openingBalance);
+      if (generateSOADto.format === 'csv') return this.generateCSV(customer, all, openingBalance, currentBalance, monthlyBalances);
 
-      // Format based on requested format
-      if (generateSOADto.format === 'csv') {
-        return this.generateCSV(customer, transactions, openingBalance, currentBalance, monthlyBalances);
-      }
-
-      // Default JSON format
       return {
         success: true,
         data: {
-          customer: {
-            id: customer.id,
-            name: customer.name,
-            email: customer.email,
-            phone: customer.phone,
-            address: customer.address,
-          },
+          customer: { id: customer.id, name: customer.name, email: customer.email, phone: customer.phone, address: customer.address },
           statement: {
-            openingBalance,
+            openingBalance: R(openingBalance),
             currentBalance,
-            totalDebit: transactions.reduce((sum, t) => sum + t.debit, 0),
-            totalCredit: transactions.reduce((sum, t) => sum + t.credit, 0),
-            transactionCount: transactions.length,
+            totalDebit: R(all.reduce((s, t) => s + t.debit, 0)),
+            totalCredit: R(all.reduce((s, t) => s + t.credit, 0)),
+            transactionCount: all.length,
           },
-          transactions: transactions.map(t => ({
-            id: t.id,
-            date: t.transactionDate,
-            reference: t.reference || t.document?.name || 'N/A',
-            description: t.description,
-            transactionType: t.transactionType,
-            debit: t.debit,
-            credit: t.credit,
-            balance: t.balance,
-            documentType: t.document?.type,
-            paymentMethod: t.payment?.paymentMethod,
-          })),
+          transactions: all.map((t) => ({ date: t.date, reference: t.reference, description: t.description, transactionType: t.transactionType, debit: t.debit, credit: t.credit, balance: t.balance, documentType: t.documentType, paymentMethod: t.paymentMethod })),
           monthlyBalances,
           agingAnalysis,
           generatedAt: new Date(),
         },
       };
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new HttpException(
-        `Failed to generate statement: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(`Failed to generate statement: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
@@ -173,52 +122,38 @@ export class StatementsService {
   async calculateAging(customerId: string, organizationId: string): Promise<AgingBucket> {
     try {
       const today = new Date();
-      const aging: AgingBucket = {
-        current: 0,
-        days30: 0,
-        days60: 0,
-        days90: 0,
-        days120Plus: 0,
-      };
+      const aging: AgingBucket = { current: 0, days30: 0, days60: 0, days90: 0, days120Plus: 0 };
 
-      // Get all unpaid invoices (transactions with positive balance)
-      const invoices = await this.prisma.transaction.findMany({
+      // Unpaid INVOICE documents (outstanding balance > 0), aged by due date.
+      const invoices = await this.prisma.document.findMany({
         where: {
-          customerId,
           organizationId,
-          transactionType: 'INVOICE',
+          type: 'INVOICE',
+          OR: [
+            { config: { path: ['customerId'], equals: customerId } },
+            { config: { path: ['customer', 'id'], equals: customerId } },
+          ],
         },
-        orderBy: {
-          transactionDate: 'asc',
-        },
+        select: { config: true, createdAt: true },
       });
 
-      // For each invoice, calculate days outstanding and categorize
-      for (const invoice of invoices) {
-        const daysDiff = Math.floor(
-          (today.getTime() - new Date(invoice.transactionDate).getTime()) / (1000 * 60 * 60 * 24),
-        );
-
-        // Determine which bucket this invoice falls into
-        if (daysDiff <= 30) {
-          aging.current += invoice.debit;
-        } else if (daysDiff <= 60) {
-          aging.days30 += invoice.debit;
-        } else if (daysDiff <= 90) {
-          aging.days60 += invoice.debit;
-        } else if (daysDiff <= 120) {
-          aging.days90 += invoice.debit;
-        } else {
-          aging.days120Plus += invoice.debit;
-        }
+      for (const inv of invoices) {
+        const c: any = inv.config || {};
+        if (c.voided) continue;
+        const owed = Number(c.xeroBalance ?? 0);
+        if (owed <= 0.005) continue;
+        const ref = c.dueDate ? new Date(c.dueDate) : c.date ? new Date(c.date) : inv.createdAt;
+        const days = Math.floor((today.getTime() - ref.getTime()) / (1000 * 60 * 60 * 24));
+        if (days <= 30) aging.current += owed;
+        else if (days <= 60) aging.days30 += owed;
+        else if (days <= 90) aging.days60 += owed;
+        else if (days <= 120) aging.days90 += owed;
+        else aging.days120Plus += owed;
       }
-
-      return aging;
+      const R = (n: number) => Math.round(n * 100) / 100;
+      return { current: R(aging.current), days30: R(aging.days30), days60: R(aging.days60), days90: R(aging.days90), days120Plus: R(aging.days120Plus) };
     } catch (error) {
-      throw new HttpException(
-        `Failed to calculate aging: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new HttpException(`Failed to calculate aging: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
@@ -230,7 +165,7 @@ export class StatementsService {
     let runningBalance = openingBalance;
 
     for (const transaction of transactions) {
-      const monthKey = new Date(transaction.transactionDate).toISOString().substring(0, 7); // YYYY-MM
+      const monthKey = new Date(transaction.date).toISOString().substring(0, 7); // YYYY-MM
 
       if (!monthlyMap.has(monthKey)) {
         monthlyMap.set(monthKey, { debit: 0, credit: 0, balance: 0 });
@@ -276,8 +211,8 @@ export class StatementsService {
     // Transaction rows
     for (const transaction of transactions) {
       rows.push([
-        new Date(transaction.transactionDate).toLocaleDateString(),
-        transaction.reference || transaction.document?.name || 'N/A',
+        new Date(transaction.date).toLocaleDateString(),
+        transaction.reference || 'N/A',
         transaction.description,
         transaction.debit ? transaction.debit.toFixed(2) : '0.00',
         transaction.credit ? transaction.credit.toFixed(2) : '0.00',
@@ -315,29 +250,36 @@ export class StatementsService {
    */
   async getAgingSummary(organizationId: string) {
     try {
-      // Get all customers with balances
-      const customers = await this.prisma.customer.findMany({
-        where: {
-          organizationId,
-        },
-        include: {
-          customerBalance: true,
-        },
+      // Outstanding balances derived from unpaid INVOICE documents (not the
+      // retired CustomerBalance table). One pass, grouped by customer.
+      const invoices = await this.prisma.document.findMany({
+        where: { organizationId, type: 'INVOICE' },
+        select: { config: true, createdAt: true },
       });
-
-      const agingSummary = await Promise.all(
-        customers
-          .filter(c => c.customerBalance && c.customerBalance.currentBalance > 0)
-          .map(async (customer) => {
-            const aging = await this.calculateAging(customer.id, organizationId);
-            return {
-              customerId: customer.id,
-              customerName: customer.name,
-              currentBalance: customer.customerBalance.currentBalance,
-              aging,
-            };
-          }),
-      );
+      const today = new Date();
+      const byCust = new Map<string, { name: string; balance: number; aging: AgingBucket }>();
+      for (const inv of invoices) {
+        const c: any = inv.config || {};
+        if (c.voided) continue;
+        const owed = Number(c.xeroBalance ?? 0);
+        if (owed <= 0.005) continue;
+        const cId = c.customerId || c.customer?.id;
+        if (!cId) continue;
+        if (!byCust.has(cId)) byCust.set(cId, { name: c.customer?.name || 'Unknown', balance: 0, aging: { current: 0, days30: 0, days60: 0, days90: 0, days120Plus: 0 } });
+        const e = byCust.get(cId)!;
+        e.balance += owed;
+        const ref = c.dueDate ? new Date(c.dueDate) : c.date ? new Date(c.date) : inv.createdAt;
+        const days = Math.floor((today.getTime() - ref.getTime()) / (1000 * 60 * 60 * 24));
+        if (days <= 30) e.aging.current += owed;
+        else if (days <= 60) e.aging.days30 += owed;
+        else if (days <= 90) e.aging.days60 += owed;
+        else if (days <= 120) e.aging.days90 += owed;
+        else e.aging.days120Plus += owed;
+      }
+      const R = (n: number) => Math.round(n * 100) / 100;
+      const agingSummary = [...byCust.entries()]
+        .map(([customerId, e]) => ({ customerId, customerName: e.name, currentBalance: R(e.balance), aging: { current: R(e.aging.current), days30: R(e.aging.days30), days60: R(e.aging.days60), days90: R(e.aging.days90), days120Plus: R(e.aging.days120Plus) } }))
+        .sort((a, b) => b.currentBalance - a.currentBalance);
 
       // Calculate totals
       const totalAging: AgingBucket = {

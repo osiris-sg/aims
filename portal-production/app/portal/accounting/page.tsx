@@ -31,7 +31,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "./_lib/api";
 import JournalEntryDialog from "./_lib/JournalEntryDialog";
-import AskBar from "./_lib/AskBar";
+import AccountingAssistantDrawer from "./_lib/AccountingAssistantDrawer";
 import CloseWizardDialog from "./_lib/CloseWizardDialog";
 import LockIcon from "@mui/icons-material/Lock";
 
@@ -70,6 +70,7 @@ export default function AccountingHubPage() {
   const [loading, setLoading] = useState(true);
   const [newJournalOpen, setNewJournalOpen] = useState(false);
   const [closeWizardOpen, setCloseWizardOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -119,13 +120,22 @@ export default function AccountingHubPage() {
             Snapshot as of {new Date(hub.asOf).toLocaleString()}
           </Typography>
         </Box>
-        <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={load}>
-          Refresh
-        </Button>
+        <Stack direction="row" gap={1}>
+          <Button
+            startIcon={<AutoAwesomeIcon />}
+            variant={assistantOpen ? "contained" : "outlined"}
+            size="small"
+            onClick={() => setAssistantOpen((o) => !o)}
+          >
+            Ask AI
+          </Button>
+          <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={load}>
+            Refresh
+          </Button>
+        </Stack>
       </Stack>
 
-      {/* Conversational Ask bar */}
-      <AskBar />
+      <AccountingAssistantDrawer open={assistantOpen} onClose={() => setAssistantOpen(false)} />
 
       {/* KPI row */}
       <Box
@@ -286,6 +296,15 @@ export default function AccountingHubPage() {
             href="/portal/accounting/bills"
           >
             Bills (AP)
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<OpenInNewIcon />}
+            component={Link}
+            href="/portal/accounting/posting-queue"
+          >
+            Posting Queue
           </Button>
           <Button
             size="small"

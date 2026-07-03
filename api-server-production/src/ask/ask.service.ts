@@ -2,6 +2,7 @@ import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { JournalService } from '../journal/journal.service';
 import { ChartOfAccountsService } from '../accounting/chart-of-accounts.service';
+import { PrismaService } from '../common/prisma.service';
 
 // ---------------------------------------------------------------------------
 // Conversational accounting agent. The frontend "Ask" bar POSTs a question
@@ -32,6 +33,7 @@ export class AskService {
   constructor(
     private readonly journal: JournalService,
     private readonly accounts: ChartOfAccountsService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async ask(organizationId: string, question: string, history?: Array<{ role: 'user' | 'assistant'; content: string }>): Promise<AskResult> {
@@ -48,17 +50,7 @@ export class AskService {
     const toolCalls: Array<{ name: string; input: any }> = [];
     const attachments: Attachment[] = [];
 
-    const systemPrompt = `You are an accounting assistant for the AIMS platform. Today is ${new Date().toISOString().slice(0, 10)}.
-
-When answering financial questions:
-- Call tools to get real numbers. Never make up figures.
-- Cite specific amounts with 2-decimal precision and the org's base currency.
-- Keep prose concise (1-3 sentences). Use tools' data, not prose, for tables.
-- If a question is ambiguous about period, default to the current month or year-to-date and say which you used.
-- When listing transactions/accounts, return data via the 'show_table' final-output tool so the UI can render it.
-- When highlighting a single key number, use 'show_kpi'.
-- When the answer points to a full report page, use 'show_link' so the user can drill in.
-- If the question isn't accounting-related or can't be answered with available tools, say so plainly.`;
+    const systemPrompt = this.buildSystemPrompt();
 
     const messages: Anthropic.MessageParam[] = [
       ...(history || []).map((m) => ({ role: m.role, content: m.content })),
@@ -126,6 +118,82 @@ When answering financial questions:
       attachments,
       toolCalls,
     };
+  }
+
+  private buildSystemPrompt(): string {
+    return `You are an accounting assistant for the AIMS platform. Today is ${new Date().toISOString().slice(0, 10)}.
+
+You can answer both high-level questions (P&L, balance sheet, trial balance, GST, net profit, cash) AND detailed receivables/payables/invoice questions. For "who owes me", "aged receivables", "AR/AP by customer/supplier", "unpaid/overdue invoices", or "how much does X owe", use get_aged_receivables / get_aged_payables / list_invoices / get_customer_statement — these read the actual invoices and bills (with per-invoice balances tied to Xero), not just the GL.
+
+When answering financial questions:
+- Call tools to get real numbers. Never make up figures.
+- Cite specific amounts with 2-decimal precision and the org's base currency.
+- Keep prose concise (1-3 sentences). Use tools' data, not prose, for tables.
+- If a question is ambiguous about period, default to the current month or year-to-date and say which you used.
+- When listing transactions/accounts, return data via the 'show_table' final-output tool so the UI can render it.
+- When highlighting a single key number, use 'show_kpi'.
+- When the answer points to a full report page, use 'show_link' so the user can drill in.
+- If the question isn't accounting-related or can't be answered with available tools, say so plainly.`;
+  }
+
+  // Streaming variant: emits SSE-style events so the UI can narrate the agent's
+  // steps ("Reading receivables…") and stream the answer live. Event shapes:
+  //   { type: 'status', tool }        — a tool is about to run
+  //   { type: 'text', delta }         — a chunk of the answer
+  //   { type: 'attachment', attachment } — a KPI card / table / link to render
+  //   { type: 'error', message } / { type: 'done' }
+  async askStream(
+    organizationId: string,
+    question: string,
+    history: Array<{ role: 'user' | 'assistant'; content: string }> | undefined,
+    emit: (e: any) => void,
+  ): Promise<void> {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      emit({ type: 'error', message: 'Ask is not configured (missing ANTHROPIC_API_KEY)' });
+      return;
+    }
+    const client = new Anthropic({ apiKey });
+    const tools = this.buildTools();
+    const systemPrompt = this.buildSystemPrompt();
+    const attachments: Attachment[] = [];
+    const messages: Anthropic.MessageParam[] = [
+      ...(history || []).map((m) => ({ role: m.role, content: m.content })),
+      { role: 'user', content: question },
+    ];
+
+    try {
+      for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+        const stream = client.messages.stream({ model: MODEL, max_tokens: 2048, system: systemPrompt, tools, messages });
+        stream.on('text', (delta) => emit({ type: 'text', delta }));
+        const response = await stream.finalMessage();
+
+        const toolUseBlocks = response.content.filter((b) => b.type === 'tool_use');
+        if (response.stop_reason !== 'tool_use' || toolUseBlocks.length === 0) break;
+
+        messages.push({ role: 'assistant', content: response.content });
+        const toolResults: Anthropic.ToolResultBlockParam[] = [];
+        const before = attachments.length;
+        for (const block of toolUseBlocks) {
+          const tu = block as Anthropic.ToolUseBlock;
+          if (!['show_kpi', 'show_table', 'show_link'].includes(tu.name)) emit({ type: 'status', tool: tu.name });
+          try {
+            const result = await this.runTool(organizationId, tu.name, tu.input as any, attachments);
+            toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(result).slice(0, 100_000) });
+          } catch (e: any) {
+            this.logger.error(`Tool ${tu.name} failed: ${e?.message || e}`);
+            toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: `Error: ${e?.message || 'tool failed'}`, is_error: true });
+          }
+        }
+        for (const att of attachments.slice(before)) emit({ type: 'attachment', attachment: att });
+        messages.push({ role: 'user', content: toolResults });
+      }
+    } catch (e: any) {
+      this.logger.error(`askStream failed: ${e?.message || e}`);
+      emit({ type: 'error', message: e?.message || 'Assistant failed' });
+    } finally {
+      emit({ type: 'done' });
+    }
   }
 
   // ---------- Tool catalog ----------
@@ -264,6 +332,38 @@ When answering financial questions:
           required: ['href', 'label'],
         },
       },
+      {
+        name: 'get_aged_receivables',
+        description:
+          "Outstanding receivables from unpaid sales invoices, grouped by customer with aging buckets (current / 1-30 / 31-60 / 61-90 / 90+ days). Use for 'who owes me the most', 'aged receivables', 'AR by customer', 'total receivables', 'most overdue customers'. Optional customerName filters to one customer.",
+        input_schema: { type: 'object', properties: { customerName: { type: 'string', description: 'optional — only customers whose name contains this' } } },
+      },
+      {
+        name: 'get_aged_payables',
+        description:
+          "Outstanding payables from unpaid bills, grouped by supplier with aging buckets. Use for 'who do I owe', 'aged payables', 'AP by supplier', 'total payables'. Optional supplierName filter.",
+        input_schema: { type: 'object', properties: { supplierName: { type: 'string' } } },
+      },
+      {
+        name: 'list_invoices',
+        description:
+          "List individual sales invoices with filters — returns invoice number, customer, date, total, outstanding balance, status. Use for 'show unpaid invoices', 'invoices for customer X', 'overdue invoices', 'biggest outstanding invoices'.",
+        input_schema: {
+          type: 'object',
+          properties: {
+            customerName: { type: 'string', description: 'filter to a customer (name contains)' },
+            status: { type: 'string', description: 'paid | unpaid | overdue | all (default all)' },
+            startDate: { type: 'string', description: 'YYYY-MM-DD' },
+            endDate: { type: 'string', description: 'YYYY-MM-DD' },
+            limit: { type: 'number', description: 'default 50, max 200' },
+          },
+        },
+      },
+      {
+        name: 'get_customer_statement',
+        description: "A single customer's invoices and total outstanding balance. Use for 'statement for customer X', 'how much does X owe me', 'X's account'.",
+        input_schema: { type: 'object', properties: { customerName: { type: 'string' } }, required: ['customerName'] },
+      },
     ];
   }
 
@@ -335,6 +435,18 @@ When answering financial questions:
         });
       }
 
+      case 'get_aged_receivables':
+        return this.agedReceivables(organizationId, input.customerName);
+
+      case 'get_aged_payables':
+        return this.agedPayables(organizationId, input.supplierName);
+
+      case 'list_invoices':
+        return this.listInvoices(organizationId, input);
+
+      case 'get_customer_statement':
+        return this.listInvoices(organizationId, { customerName: input.customerName, status: 'all', limit: 200, statement: true });
+
       // -------- Presentation tools --------
       case 'show_kpi':
         attachments.push({ type: 'kpi', label: input.label, value: input.value, sub: input.sub });
@@ -356,5 +468,96 @@ When answering financial questions:
       default:
         return { error: `Unknown tool: ${name}` };
     }
+  }
+
+  // ---------- AR / AP / invoice queries (read the Document table) ----------
+
+  private static R = (n: number) => Math.round(n * 100) / 100;
+
+  private ageBucket(ref: Date, today: Date): 'current' | '1-30' | '31-60' | '61-90' | '90+' {
+    const days = Math.floor((today.getTime() - ref.getTime()) / 86400000);
+    if (days <= 0) return 'current';
+    if (days <= 30) return '1-30';
+    if (days <= 60) return '31-60';
+    if (days <= 90) return '61-90';
+    return '90+';
+  }
+
+  private async agedReceivables(organizationId: string, customerName?: string) {
+    const docs = await this.prisma.document.findMany({
+      where: { organizationId, type: 'INVOICE', status: 'pending_payment' },
+      select: { config: true },
+    });
+    const today = new Date();
+    const q = (customerName || '').toLowerCase();
+    const byCust = new Map<string, { total: number; current: number; d1_30: number; d31_60: number; d61_90: number; d90p: number; count: number }>();
+    let grand = 0;
+    for (const d of docs) {
+      const c: any = d.config || {};
+      if (c.voided) continue;
+      const bal = Number(c.xeroBalance || 0);
+      if (bal <= 0.005) continue;
+      const name = c.customer?.name || '(no customer)';
+      if (q && !name.toLowerCase().includes(q)) continue;
+      const ref = new Date(c.dueDate || c.date || today);
+      const b = this.ageBucket(ref, today);
+      if (!byCust.has(name)) byCust.set(name, { total: 0, current: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90p: 0, count: 0 });
+      const e = byCust.get(name)!;
+      e.total += bal; e.count++;
+      e[b === 'current' ? 'current' : b === '1-30' ? 'd1_30' : b === '31-60' ? 'd31_60' : b === '61-90' ? 'd61_90' : 'd90p'] += bal;
+      grand += bal;
+    }
+    const R = AskService.R;
+    const rows = [...byCust.entries()]
+      .map(([customer, e]) => ({ customer, invoices: e.count, total: R(e.total), current: R(e.current), '1-30': R(e.d1_30), '31-60': R(e.d31_60), '61-90': R(e.d61_90), '90+': R(e.d90p) }))
+      .sort((a, b) => b.total - a.total);
+    return { totalReceivables: R(grand), customerCount: rows.length, byCustomer: rows.slice(0, 100) };
+  }
+
+  private async agedPayables(organizationId: string, supplierName?: string) {
+    const docs = await this.prisma.document.findMany({ where: { organizationId, type: 'BILL' }, select: { config: true } });
+    const today = new Date();
+    const q = (supplierName || '').toLowerCase();
+    const bySup = new Map<string, { total: number; count: number }>();
+    let grand = 0;
+    for (const d of docs) {
+      const c: any = d.config || {};
+      if (c.voided) continue;
+      const bal = Number(c.balance ?? c.xeroBalance ?? 0);
+      if (bal <= 0.005) continue;
+      const name = c.supplier?.name || '(no supplier)';
+      if (q && !name.toLowerCase().includes(q)) continue;
+      if (!bySup.has(name)) bySup.set(name, { total: 0, count: 0 });
+      const e = bySup.get(name)!; e.total += bal; e.count++; grand += bal;
+    }
+    const R = AskService.R;
+    const rows = [...bySup.entries()].map(([supplier, e]) => ({ supplier, bills: e.count, total: R(e.total) })).sort((a, b) => b.total - a.total);
+    return { totalPayables: R(grand), supplierCount: rows.length, bySupplier: rows.slice(0, 100) };
+  }
+
+  private async listInvoices(organizationId: string, input: { customerName?: string; status?: string; startDate?: string; endDate?: string; limit?: number; statement?: boolean }) {
+    const where: any = { organizationId, type: 'INVOICE' };
+    const status = (input.status || 'all').toLowerCase();
+    if (status === 'unpaid' || status === 'overdue') where.status = 'pending_payment';
+    else if (status === 'paid') where.status = 'paid';
+    const docs = await this.prisma.document.findMany({ where, select: { name: true, status: true, config: true }, orderBy: { createdAt: 'desc' } });
+    const today = new Date();
+    const q = (input.customerName || '').toLowerCase();
+    const R = AskService.R;
+    let rows = docs.map((d) => {
+      const c: any = d.config || {};
+      const date = String(c.date || '').slice(0, 10);
+      const due = c.dueDate ? new Date(c.dueDate) : new Date(new Date(c.date || today).getTime() + 30 * 86400000);
+      const balance = R(Number(c.xeroBalance || 0));
+      return { invoice: d.name, customer: c.customer?.name || '(none)', date, total: R(Number(c.totalAmount || c.xeroGross || 0)), balance, status: c.voided ? 'voided' : d.status, _overdue: balance > 0.005 && due < today };
+    });
+    if (q) rows = rows.filter((r) => r.customer.toLowerCase().includes(q));
+    if (status === 'overdue') rows = rows.filter((r) => r._overdue);
+    if (input.startDate) rows = rows.filter((r) => r.date >= input.startDate!);
+    if (input.endDate) rows = rows.filter((r) => r.date <= input.endDate!);
+    const limit = Math.min(input.limit ?? 50, 200);
+    const outstanding = R(rows.reduce((s, r) => s + (r.balance > 0 ? r.balance : 0), 0));
+    const clean = rows.map(({ _overdue, ...r }) => r);
+    return { count: rows.length, totalOutstanding: outstanding, invoices: clean.slice(0, limit) };
   }
 }

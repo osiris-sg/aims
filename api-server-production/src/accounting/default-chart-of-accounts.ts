@@ -96,6 +96,7 @@ export const DEFAULT_CONTROL_ACCOUNTS = {
   debtorControl: 'CA001',
   creditorControl: 'CL001',
   taxLiabilities: 'CL900',
+
   dividends: 'DV001',
   shareCapitals: 'SC001',
   provisionForDepreciation: 'PD001',

@@ -31,7 +31,6 @@ import { ConfigurationModule } from './configuration/configuration.module';
 import { PriceHistoryModule } from './price-history/price-history.module';
 import { OrdersModule } from './orders/orders.module';
 import { PaymentsModule } from './payments/payments.module';
-import { TransactionsModule } from './transactions/transactions.module';
 import { StatementsModule } from './statements/statements.module';
 import { EmailModule } from './email/email.module';
 import { ImportModule } from './import/import.module';
@@ -51,6 +50,7 @@ import { BankRecModule } from './bank-rec/bank-rec.module';
 import { XeroSyncModule } from './xero-sync/xero-sync.module';
 import { DocumentAssistantModule } from './document-assistant/document-assistant.module';
 import { IngestionModule } from './ingestion/ingestion.module';
+import { PostingQueueModule } from './posting-queue/posting-queue.module';
 
 @Module({
   imports: [
@@ -80,7 +80,6 @@ import { IngestionModule } from './ingestion/ingestion.module';
     PriceHistoryModule,
     OrdersModule,
     PaymentsModule,
-    TransactionsModule,
     StatementsModule,
     EmailModule,
     ImportModule,
@@ -101,6 +100,7 @@ import { IngestionModule } from './ingestion/ingestion.module';
     XeroSyncModule,
     PublicDeliveryModule,
     IngestionModule,
+    PostingQueueModule,
   ],
   controllers: [AppController],
   providers: [

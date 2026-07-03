@@ -2,7 +2,7 @@ import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { UpdatePaymentDto } from './dto/update-payment.dto';
-import { Prisma, TransactionType, DocumentStatus } from '@prisma/client';
+import { Prisma, DocumentStatus } from '@prisma/client';
 import { JournalAutoPostService } from '../journal/journal-auto-post.service';
 
 @Injectable()
@@ -65,56 +65,11 @@ export class PaymentsService {
           },
         });
 
-        // Get customer's current balance
-        let customerBalance = await tx.customerBalance.findFirst({
-          where: {
-            customerId: createPaymentDto.customerId,
-            organizationId,
-          },
-        });
-
-        // Create customer balance if it doesn't exist
-        if (!customerBalance) {
-          customerBalance = await tx.customerBalance.create({
-            data: {
-              organizationId,
-              customerId: createPaymentDto.customerId,
-              openingBalance: 0,
-              currentBalance: 0,
-            },
-          });
-        }
-
-        // Calculate new balance (credit reduces the balance)
-        const newBalance = customerBalance.currentBalance - createPaymentDto.amount;
-
-        // Create transaction record
-        const transaction = await tx.transaction.create({
-          data: {
-            organizationId,
-            customerId: createPaymentDto.customerId,
-            transactionType: TransactionType.PAYMENT,
-            documentId: createPaymentDto.documentId,
-            paymentId: payment.id,
-            transactionDate: new Date(createPaymentDto.paymentDate),
-            reference: createPaymentDto.reference || `Payment for ${document.name}`,
-            description: `Payment received - ${createPaymentDto.paymentMethod}${createPaymentDto.reference ? ` (Ref: ${createPaymentDto.reference})` : ''}`,
-            debit: 0,
-            credit: createPaymentDto.amount,
-            balance: newBalance,
-          },
-        });
-
-        // Update customer balance
-        await tx.customerBalance.update({
-          where: { id: customerBalance.id },
-          data: {
-            currentBalance: newBalance,
-            lastTransactionDate: new Date(createPaymentDto.paymentDate),
-          },
-        });
-
-        return { payment, transaction };
+        // Transaction / CustomerBalance sub-ledger RETIRED — the payment record
+        // itself is the source. updateInvoiceStatusAfterPayment() (below)
+        // refreshes the invoice Document's outstanding balance, which is what AR
+        // / the SOA / aging / AI tools read.
+        return { payment };
       });
 
       // Auto-update invoice status based on payments
@@ -373,25 +328,11 @@ export class PaymentsService {
           },
         });
 
-        // Update the related transaction if amount or date changed
-        if (updatePaymentDto.amount !== undefined || updatePaymentDto.paymentDate !== undefined) {
-          await tx.transaction.updateMany({
-            where: {
-              paymentId: id,
-              organizationId,
-            },
-            data: {
-              credit: updatePaymentDto.amount,
-              transactionDate: updatePaymentDto.paymentDate ? new Date(updatePaymentDto.paymentDate) : undefined,
-            },
-          });
-
-          // Recalculate customer balance
-          // TODO: Implement balance recalculation logic
-        }
-
         return payment;
       });
+
+      // Refresh the invoice Document's outstanding balance from all its payments.
+      await this.updateInvoiceStatusAfterPayment(existingPayment.documentId, organizationId);
 
       return {
         success: true,
@@ -426,24 +367,10 @@ export class PaymentsService {
         throw new HttpException('Payment not found', HttpStatus.NOT_FOUND);
       }
 
-      // Delete payment and related transactions in a transaction
-      await this.prisma.$transaction(async (tx) => {
-        // Delete related transactions
-        await tx.transaction.deleteMany({
-          where: {
-            paymentId: id,
-            organizationId,
-          },
-        });
+      await this.prisma.payment.delete({ where: { id } });
 
-        // Delete the payment
-        await tx.payment.delete({
-          where: { id },
-        });
-
-        // Recalculate customer balance
-        // TODO: Implement balance recalculation logic
-      });
+      // Refresh the invoice Document's outstanding balance after removing the payment.
+      await this.updateInvoiceStatusAfterPayment(payment.documentId, organizationId);
 
       return {
         success: true,
@@ -515,25 +442,22 @@ export class PaymentsService {
       }, 0);
 
       // Determine new status based on payment coverage
-      let newStatus: DocumentStatus | null = null;
+      let newStatus: DocumentStatus = document.status as DocumentStatus;
+      if (totalPaid >= invoiceAmount) newStatus = DocumentStatus.paid;
+      else if (totalPaid > 0) newStatus = DocumentStatus.pending_payment;
 
-      if (totalPaid >= invoiceAmount) {
-        // Fully paid
-        newStatus = DocumentStatus.paid;
-      } else if (totalPaid > 0) {
-        // Partially paid
-        newStatus = DocumentStatus.pending_payment;
-      }
-
-      // Update invoice status if needed
-      if (newStatus && newStatus !== document.status) {
-        await this.prisma.document.update({
-          where: { id: documentId },
-          data: { status: newStatus },
-        });
-
-        console.log(`✅ Invoice ${document.name} status updated to ${newStatus} (Paid: ${totalPaid}/${invoiceAmount})`);
-      }
+      // Refresh the outstanding balance ON THE DOCUMENT — this is the single
+      // source AR / the SOA / aging / AI tools all read now that the
+      // Transaction sub-ledger is retired.
+      const outstanding = Math.max(0, Math.round((invoiceAmount - totalPaid) * 100) / 100);
+      await this.prisma.document.update({
+        where: { id: documentId },
+        data: {
+          status: newStatus,
+          config: { ...config, xeroBalance: outstanding, xeroAmountPaid: Math.round(totalPaid * 100) / 100 } as any,
+        },
+      });
+      console.log(`✅ Invoice ${document.name}: balance ${outstanding}, status ${newStatus} (Paid: ${totalPaid}/${invoiceAmount})`);
     } catch (error) {
       // Log error but don't throw - this is a non-critical operation
       console.error('Error updating invoice status after payment:', error);
