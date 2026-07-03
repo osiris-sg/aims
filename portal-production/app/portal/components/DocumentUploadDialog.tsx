@@ -95,7 +95,7 @@ export default function DocumentUploadDialog({ open, onClose, documentType, docu
       const fd = new FormData();
       fd.append("document", file);
       fd.append("documentType", toExtractionType(documentType));
-      const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4040";
+      const apiBase = process.env.NEXT_PUBLIC_BACKEND_API_URL || "http://localhost:4040";
       const extractRes = await fetch(`${apiBase}/document-extraction/extract`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },

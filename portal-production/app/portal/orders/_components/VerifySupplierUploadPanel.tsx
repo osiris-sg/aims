@@ -115,7 +115,7 @@ const lineStatusChip = (s: LineRow["status"]) => {
 async function runVerifyUpload(file: File, token: string): Promise<VerifyResult> {
   const fd = new FormData();
   fd.append("file", file);
-  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4040";
+  const apiBase = process.env.NEXT_PUBLIC_BACKEND_API_URL || "http://localhost:4040";
   // Mirror helpers/request.ts: auto-forward the admin org-switch header from
   // sessionStorage so a "Viewing as <org>" admin hits the right org.
   const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
@@ -793,7 +793,7 @@ function BatchDownloadStrip({ result }: { result: VerifyResult }) {
     setBusy(true);
     try {
       const token = await getToken();
-      const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4040";
+      const apiBase = process.env.NEXT_PUBLIC_BACKEND_API_URL || "http://localhost:4040";
       const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
       if (typeof window !== "undefined") {
         const activeOrgId = window.sessionStorage.getItem("aims-admin-active-org");

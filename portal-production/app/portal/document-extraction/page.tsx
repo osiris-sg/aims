@@ -145,7 +145,7 @@ export default function DocumentExtractionPage() {
       formData.append("documentType", documentType);
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4040'}/document-extraction/extract`,
+        `${process.env.NEXT_PUBLIC_BACKEND_API_URL || 'http://localhost:4040'}/document-extraction/extract`,
         {
           method: "POST",
           headers: {

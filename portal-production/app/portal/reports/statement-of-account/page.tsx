@@ -130,7 +130,7 @@ export default function StatementOfAccountPage() {
       if (endDate) params.append('endDate', endDate);
 
       // Direct download approach
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const apiUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || 'http://localhost:3001';
       window.open(`${apiUrl}/statements/soa?${params.toString()}`, '_blank');
     } catch (e) {
       console.error('Failed to download CSV:', e);
