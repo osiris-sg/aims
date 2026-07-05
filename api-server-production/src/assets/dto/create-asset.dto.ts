@@ -90,6 +90,16 @@ export class CreateAssetDto {
   @Min(0)
   costPrice?: number;
 
+  // GL revenue account codes for auto-posting. salesAccountCode → Stock Card
+  // "Sales" tab; rentalAccountCode → "Rental" tab.
+  @IsString()
+  @IsOptional()
+  salesAccountCode?: string;
+
+  @IsString()
+  @IsOptional()
+  rentalAccountCode?: string;
+
   // Free-form named prices — e.g. Listing Price, Dealer Price, Wholesale Price.
   @IsArray()
   @IsOptional()

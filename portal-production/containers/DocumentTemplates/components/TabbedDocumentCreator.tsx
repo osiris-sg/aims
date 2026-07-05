@@ -79,6 +79,7 @@ import RichTextDescription from "./RichTextDescription";
 import DocumentCustomizer from "./DocumentCustomizer";
 import DynamicFormFields from "./DynamicFormFields";
 import StockCardDialog from "./StockCardDialog";
+import RevenueItemPickerDialog from "./RevenueItemPickerDialog";
 import LocateDocumentDialog from "./LocateDocumentDialog";
 import ExtractQuotationDialog from "./ExtractQuotationDialog";
 import ExtractDOToInvoiceDialog from "./ExtractDOToInvoiceDialog";
@@ -310,6 +311,11 @@ export default function TabbedDocumentCreator({
 
   // Stock card dialog state
   const [stockCardDialogOpen, setStockCardDialogOpen] = useState(false);
+  const [revenueItemPickerOpen, setRevenueItemPickerOpen] = useState(false);
+  // Whether this org has set up a Revenue Master File. When true, "Add Item"
+  // (and "Add Service") pick from it so lines self-code; when false, "Add Item"
+  // keeps the product-catalog Stock Card (Cappitech-style orgs).
+  const [hasRevenueItems, setHasRevenueItems] = useState(false);
   // "add" = new line item, "tag" = attach picked asset to currently-checked rows.
   const [stockCardMode, setStockCardMode] = useState<"add" | "tag">("add");
   // FCU-CU (QF) stock-card picker: which row + whether we're picking the CU or
@@ -394,6 +400,30 @@ export default function TabbedDocumentCreator({
   const [isLoadingFieldConfig, setIsLoadingFieldConfig] = useState(true);
 
   const { getToken } = useAuth();
+
+  // Does this org have a Revenue Master File? Drives whether "Add Item" opens
+  // the master-file picker (self-coding) or the product-catalog Stock Card.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        if (typeof window !== "undefined") {
+          const activeOrgId = window.sessionStorage.getItem("aims-admin-active-org");
+          if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
+        }
+        const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/revenue-items?activeOnly=true`, { headers });
+        const json = await res.json();
+        const list = json?.data ?? json;
+        if (!cancelled) setHasRevenueItems(Array.isArray(list) && list.length > 0);
+      } catch {
+        /* leave false */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [getToken]);
   const { user } = useUser();
 
   // Concurrent-edit guard. Only locks a persisted document being edited (not a
@@ -1072,6 +1102,8 @@ export default function TabbedDocumentCreator({
       quantity: 1,
       unitPrice: unitPrice,
       amount: unitPrice, // quantity is 1, so amount equals unitPrice
+      // GL account from the Stock Card Rental/Sales tab → line self-codes for posting.
+      ...(selectedItem.accountCode ? { accountCode: selectedItem.accountCode } : {}),
     };
 
     // Add uom for stock adjustment, PO, PR, and DO types
@@ -1095,6 +1127,34 @@ export default function TabbedDocumentCreator({
     if (selectedItem.assetId) {
       prefetchPriceHistory(selectedItem.assetId);
     }
+  };
+
+  // Build a service line carrying the doc-type-specific fields. Shared by the
+  // blank "Add Service" and the Revenue Master File picker (which also sets the
+  // description / unit price / GL accountCode so the invoice self-codes).
+  const makeServiceItem = (base: any = {}) => {
+    const newItem: any = { id: Date.now() + Math.floor(Math.random() * 1000), itemCode: "", inventoryItemId: "", description: "", quantity: 1, unitPrice: 0, amount: 0, isService: true, ...base };
+    const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
+    const isQuotationType = documentType === "QT" || documentType === "QUOTATION" || documentType === "QO" || documentType === "QO1" || documentType === "QO2";
+    const isStockAdjType = documentType === "SAI" || documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_IN" || documentType === "STOCK_ADJUSTMENT_OUT";
+    const isPOType = documentType === "PO" || documentType === "PURCHASE_ORDER";
+    const isPRType = documentType === "PR" || documentType === "PURCHASE_RETURN";
+    const isDOType = documentType === "DO" || documentType === "DELIVERY_ORDER" || documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER";
+    const isCDNType = documentType === "CN" || documentType === "CREDIT_NOTE" || documentType === "DN" || documentType === "DEBIT_NOTE";
+    const needsUom = isStockAdjType || isPOType || isPRType || isDOType || isCDNType || isQuotationType;
+    if (needsUom) {
+      newItem.uom = "";
+      if (isStockAdjType || isPOType || isPRType) newItem.discount = 0;
+      if (isStockAdjType || isPRType) newItem.receivedQty = 0;
+    } else if (!isInvoiceType) {
+      newItem.tax = 9;
+    }
+    return newItem;
+  };
+  const addBlankServiceLine = () => setItems([...items, makeServiceItem()]);
+  const addRevenueItemLine = (rev: any) => {
+    const up = rev.unitPrice != null ? Number(rev.unitPrice) : 0;
+    setItems([...items, makeServiceItem({ description: rev.name, unitPrice: up, amount: up, accountCode: rev.accountCode, isService: rev.type === "SERVICE" })]);
   };
 
   const deleteItem = (id: number) => {
@@ -4785,6 +4845,8 @@ export default function TabbedDocumentCreator({
                           startIcon={<AddIcon />}
                           onClick={() => {
                             if (isFcuCuVariant) { addFcuCuRow(); return; }
+                            // Products come from the Stock Card (Rental/Sales tabs
+                            // self-code the line + affect stock).
                             setStockCardMode("add");
                             setStockCardDialogOpen(true);
                           }}
@@ -4810,35 +4872,7 @@ export default function TabbedDocumentCreator({
                           <Button
                             variant="outlined"
                             startIcon={<AddIcon />}
-                            onClick={() => {
-                              const newItem: any = {
-                                id: Date.now(),
-                                itemCode: "",
-                                inventoryItemId: "",
-                                description: "",
-                                quantity: 1,
-                                unitPrice: 0,
-                                amount: 0,
-                                isService: true,
-                              };
-                              // Add fields based on document type
-                              const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
-                              const isQuotationType = documentType === "QT" || documentType === "QUOTATION" || documentType === "QO" || documentType === "QO1" || documentType === "QO2";
-                              const isStockAdjType = documentType === "SAI" || documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_IN" || documentType === "STOCK_ADJUSTMENT_OUT";
-                              const isPOType = documentType === "PO" || documentType === "PURCHASE_ORDER";
-                              const isPRType = documentType === "PR" || documentType === "PURCHASE_RETURN";
-                              const isDOType = documentType === "DO" || documentType === "DELIVERY_ORDER" || documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER";
-                              const isCDNType = documentType === "CN" || documentType === "CREDIT_NOTE" || documentType === "DN" || documentType === "DEBIT_NOTE";
-                              const needsUom = isStockAdjType || isPOType || isPRType || isDOType || isCDNType || isQuotationType;
-                              if (needsUom) {
-                                newItem.uom = "";
-                                if (isStockAdjType || isPOType || isPRType) newItem.discount = 0;
-                                if (isStockAdjType || isPRType) newItem.receivedQty = 0;
-                              } else if (!isInvoiceType) {
-                                newItem.tax = 9;
-                              }
-                              setItems([...items, newItem]);
-                            }}
+                            onClick={() => setRevenueItemPickerOpen(true)}
                             size="small"
                           >
                             Add Service
@@ -5688,6 +5722,15 @@ export default function TabbedDocumentCreator({
         showDealerPrice
         showPoints
         showCapacity
+      />
+
+      {/* Service master-file picker — "Add Service" self-codes the line (services only) */}
+      <RevenueItemPickerDialog
+        open={revenueItemPickerOpen}
+        onClose={() => setRevenueItemPickerOpen(false)}
+        onSelect={addRevenueItemLine}
+        onBlank={addBlankServiceLine}
+        typeFilter="SERVICE"
       />
 
       {/* Locate Document Dialog */}

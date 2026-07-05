@@ -113,6 +113,9 @@ export const useGetInventoriesForItemTable = () => {
       parentAssetId: asset.parentAssetId ?? null,
       categoryId: asset.categoryId ?? asset.category?.id ?? null,
       customPrices: asset.customPrices,
+      // GL revenue accounts — drive the Stock Card Rental/Sales tabs + line self-coding.
+      salesAccountCode: asset.salesAccountCode ?? null,
+      rentalAccountCode: asset.rentalAccountCode ?? null,
       // Accessories tagged to this FCU: accessoryIds = auto-added defaults (panel +
       // wired remote); accessoryOptionIds = swappable options (black panel, wireless).
       accessoryIds: asset.accessoryIds ?? [],
@@ -130,6 +133,8 @@ export const useGetInventoriesForItemTable = () => {
         customPrices: asset.customPrices,
         points: asset.points,
         capacityKw: asset.capacityKw ?? null,
+        salesAccountCode: asset.salesAccountCode ?? null,
+        rentalAccountCode: asset.rentalAccountCode ?? null,
       },
     }));
   }, [organizationId, getToken]);

@@ -103,6 +103,8 @@ export class InventoriesService {
               costPrice: true,
               customPrices: true,
               points: true,
+              salesAccountCode: true,
+              rentalAccountCode: true,
               category: {
                 select: {
                   id: true,
@@ -151,6 +153,8 @@ export class InventoriesService {
               costPrice: true,
               customPrices: true,
               points: true,
+              salesAccountCode: true,
+              rentalAccountCode: true,
               category: {
                 select: {
                   id: true,
@@ -243,6 +247,8 @@ export class InventoriesService {
               costPrice: true,
               customPrices: true,
               points: true,
+              salesAccountCode: true,
+              rentalAccountCode: true,
               category: {
                 select: {
                   id: true,

@@ -3528,6 +3528,11 @@ export class DocumentsService {
             netAmount,
             taxAmount,
             grossAmount,
+            // Per-line revenue accounts from the Revenue Master File (config.items[].accountCode).
+            revenueLines: itemsForTotal.map((it: any) => ({
+              accountCode: it.accountCode || it.revenueAccountCode || null,
+              amount: parseFloat(it.amount) || (parseFloat(it.quantity) * parseFloat(it.unitPrice)) || 0,
+            })),
           });
           if (entry) {
             console.log('✅ [GL auto-post] journal entry created', {

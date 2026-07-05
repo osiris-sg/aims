@@ -150,6 +150,10 @@ export class JournalAutoPostService {
     netAmount: number; // sales subtotal (excl tax)
     taxAmount: number; // GST/VAT amount
     grossAmount: number; // net + tax
+    // Per-line revenue accounts (from the Revenue Master File). When present, the
+    // credit side splits across each line's account; anything unmapped falls back
+    // to the single Sales control account. `amount` is the line NET (excl tax).
+    revenueLines?: Array<{ accountCode?: string | null; accountId?: string | null; amount: number }>;
     userId?: string;
   }) {
     const { organizationId, documentId, invoiceNumber, entryDate, customerName } = args;
@@ -192,10 +196,35 @@ export class JournalAutoPostService {
       return null;
     }
 
-    const lines = [
+    const lines: Array<{ accountId: string; debit: number; credit: number; description: string }> = [
       { accountId: debtor.id, debit: gross, credit: 0, description: `Invoice ${invoiceNumber ?? ''} — ${customerName ?? ''}`.trim() },
-      { accountId: sales.id, debit: 0, credit: net, description: `Sales — ${invoiceNumber ?? ''}`.trim() },
     ];
+
+    // Revenue credit side: split per line-account when the caller supplied them
+    // (Revenue Master File mapping), else one Sales line for the whole net.
+    const byAccount = new Map<string, number>();
+    for (const rl of args.revenueLines || []) {
+      const amt = ROUND(rl.amount || 0);
+      if (amt === 0) continue;
+      let acctId = rl.accountId || null;
+      if (!acctId && rl.accountCode) acctId = (await this.resolveAccountByCode(organizationId, rl.accountCode))?.id || null;
+      if (acctId) byAccount.set(acctId, ROUND((byAccount.get(acctId) || 0) + amt));
+    }
+    if (byAccount.size === 0) {
+      lines.push({ accountId: sales.id, debit: 0, credit: net, description: `Sales — ${invoiceNumber ?? ''}`.trim() });
+    } else {
+      let posted = 0;
+      for (const [acctId, amt] of byAccount) {
+        lines.push({ accountId: acctId, debit: 0, credit: amt, description: `Sales — ${invoiceNumber ?? ''}`.trim() });
+        posted = ROUND(posted + amt);
+      }
+      // Any net not covered by a mapped account (unmapped lines / rounding) → Sales.
+      const remainder = ROUND(net - posted);
+      if (Math.abs(remainder) > 0.005) {
+        lines.push({ accountId: sales.id, debit: remainder < 0 ? -remainder : 0, credit: remainder > 0 ? remainder : 0, description: `Sales (unmapped) — ${invoiceNumber ?? ''}`.trim() });
+      }
+    }
+
     if (tax > 0 && taxAccount) {
       lines.push({ accountId: taxAccount.id, debit: 0, credit: tax, description: `Tax — ${invoiceNumber ?? ''}`.trim() });
     }

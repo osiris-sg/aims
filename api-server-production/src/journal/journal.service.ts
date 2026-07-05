@@ -47,28 +47,23 @@ export class JournalService {
   }
 
   private async nextJournalNumber(organizationId: string, prefix = 'JV'): Promise<string> {
-    // Scan recent JV-* entries and pick the highest whose tail is purely
-    // numeric. Earlier seeds + reversing entries use suffixes like
-    // JV-INV-000001 / JV-PAY-000002 / JV-OPEN-2026, which would lex-sort
-    // ABOVE the canonical JV-000001 and break parseInt — leading to a
-    // unique-constraint loop where the auto-generator keeps suggesting an
-    // already-taken low number.
-    const candidates = await this.prisma.journalEntry.findMany({
-      where: { organizationId, journalNumber: { startsWith: `${prefix}-` } },
-      orderBy: { journalNumber: 'desc' },
-      take: 200,
-      select: { journalNumber: true },
-    });
-
-    let nextSeq = 1;
-    for (const c of candidates) {
-      const tail = c.journalNumber.slice(prefix.length + 1); // skip "JV-"
-      if (!/^\d+$/.test(tail)) continue; // skip suffixed numbers like INV-000001
-      const n = parseInt(tail, 10);
-      if (Number.isNaN(n)) continue;
-      nextSeq = n + 1;
-      break;
-    }
+    // Find the highest CANONICAL number (JV-<digits>) at the DB level. A plain
+    // "order by journalNumber desc" is wrong here: suffixed numbers like
+    // JV-XERO-22533 / JV-INV-000001 / JV-PAY-000002 lex-sort ABOVE JV-000001,
+    // and with tens of thousands of imported JV-XERO-* rows a top-N scan finds
+    // NO purely-numeric tail → it keeps suggesting JV-000001 and every posting
+    // after the first hits the unique constraint. The regex + MAX(CAST(...))
+    // ignores all suffixed numbers and reads the true max in one query.
+    const start = prefix.length + 2; // 1-indexed char after "JV-"
+    const pattern = `^${prefix}-[0-9]+$`;
+    const rows = await this.prisma.$queryRawUnsafe<Array<{ maxseq: number | null }>>(
+      `SELECT MAX(CAST(SUBSTRING("journalNumber" FROM ${start}) AS BIGINT)) AS maxseq
+         FROM "JournalEntry"
+        WHERE "organizationId" = $1 AND "journalNumber" ~ $2`,
+      organizationId,
+      pattern,
+    );
+    const nextSeq = Number(rows?.[0]?.maxseq ?? 0) + 1;
     return `${prefix}-${String(nextSeq).padStart(6, '0')}`;
   }
 

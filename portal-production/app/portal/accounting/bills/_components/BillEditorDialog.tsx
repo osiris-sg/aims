@@ -31,6 +31,8 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../../_lib/api";
+import { useAuth } from "@clerk/nextjs";
+import { uploadFile } from "@/helpers/fileUploader";
 import AttachmentUploader, { Attachment } from "@/components/AttachmentUploader";
 import PostingPreviewDialog, { PreviewResult } from "@/components/PostingPreviewDialog";
 
@@ -80,6 +82,7 @@ export default function BillEditorDialog({
   onSaved: () => void;
 }) {
   const { request } = useAccountingApi();
+  const { getToken } = useAuth();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [saving, setSaving] = useState(false);
@@ -188,12 +191,24 @@ export default function BillEditorDialog({
         reader.readAsDataURL(file);
       });
       const mediaType = file.type as any;
-      const extracted = await request<any>("/bills/extract", {
-        method: "POST",
-        body: JSON.stringify({ base64, mediaType }),
-      });
+      // Run the AI extraction AND the S3 upload in parallel — the analysed file
+      // is kept as the bill's supporting document (not discarded).
+      const [extracted, uploaded] = await Promise.all([
+        request<any>("/bills/extract", { method: "POST", body: JSON.stringify({ base64, mediaType }) }),
+        (async () => {
+          try {
+            const token = await getToken();
+            if (!token) return null;
+            return await uploadFile({ file, folder: "bills/attachments", token });
+          } catch {
+            return null; // never block the extract/attach flow on an upload hiccup
+          }
+        })(),
+      ]);
+      // Attach the source file regardless of whether extraction succeeded.
+      if (uploaded) setAttachments((prev) => [...prev, uploaded]);
       if (!extracted) {
-        toast.warn("Couldn't extract — fill in manually");
+        toast.warn(uploaded ? "File attached, but couldn't extract — fill in manually" : "Couldn't extract — fill in manually");
         return;
       }
       // Pre-fill form.
@@ -215,7 +230,7 @@ export default function BillEditorDialog({
         );
       }
       setInboundChannel("UPLOAD");
-      toast.success(`Extracted — review and save${extracted.supplierIdGuess ? "" : ". Pick a supplier."}`);
+      toast.success(`Extracted${uploaded ? " & file attached" : ""} — review and save${extracted.supplierIdGuess ? "" : ". Pick a supplier."}`);
     } catch (e: any) {
       toast.error(e?.message || "Extraction failed");
     } finally {

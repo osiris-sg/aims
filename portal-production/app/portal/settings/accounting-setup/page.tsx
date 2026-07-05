@@ -22,6 +22,8 @@ import FinancialSettingsTab from "./components/FinancialSettingsTab";
 import AccountsDefinitionTab from "./components/AccountsDefinitionTab";
 import InventoryCostTab from "./components/InventoryCostTab";
 import CostCentersTab from "./components/CostCentersTab";
+import RevenueItemsTab from "./components/RevenueItemsTab";
+import SellIcon from "@mui/icons-material/Sell";
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -155,6 +157,7 @@ export default function AccountingSetupPage() {
             <Tab icon={<AccountTreeIcon />} iconPosition="start" label="Accounts Definition" />
             <Tab icon={<Inventory2Icon />} iconPosition="start" label="Inventory Cost" />
             <Tab icon={<BusinessIcon />} iconPosition="start" label="Cost Centers" />
+            <Tab icon={<SellIcon />} iconPosition="start" label="Revenue Mapping" />
           </Tabs>
         </Box>
 
@@ -185,6 +188,10 @@ export default function AccountingSetupPage() {
 
         <TabPanel value={tabValue} index={4}>
           <CostCentersTab />
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={5}>
+          <RevenueItemsTab accounts={accounts} authedFetch={authedFetch} />
         </TabPanel>
       </Paper>
     </Box>

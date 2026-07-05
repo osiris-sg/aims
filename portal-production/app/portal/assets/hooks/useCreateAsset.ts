@@ -15,6 +15,8 @@ interface CreateAssetData {
   price?: number;
   costPrice?: number;
   customPrices?: { label: string; value: number }[];
+  salesAccountCode?: string | null;
+  rentalAccountCode?: string | null;
   points?: number;
   isTracked?: boolean;
   quantity?: number;
@@ -58,6 +60,10 @@ export const useCreateAsset = () => {
       if (data.costPrice !== undefined && data.costPrice !== null && !isNaN(Number(data.costPrice))) {
         requestBody.costPrice = Number(data.costPrice);
       }
+
+      // GL revenue accounts (sales / rental) — drive the Stock Card tabs + posting.
+      requestBody.salesAccountCode = data.salesAccountCode || null;
+      requestBody.rentalAccountCode = data.rentalAccountCode || null;
 
       // Custom named prices (e.g. Listing Price, Dealer Price). Filter incomplete rows.
       if (Array.isArray(data.customPrices) && data.customPrices.length > 0) {

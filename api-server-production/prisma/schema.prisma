@@ -104,7 +104,12 @@ model Asset {
   organizationId      String?
   price               Float? // Legacy: treated as the selling price for backwards compatibility
   costPrice           Float? // What we pay to acquire/produce one unit (for margin tracking)
-  customPrices        Json? // Optional [{ label: string, value: number }] — e.g. Listing Price, Dealer Price
+  customPrices        Json? // Optional [{ label: string, value: number }] — e.g. Listing Price, Dealer Price, Rental
+  // GL revenue accounts for auto-posting. A product with salesAccountCode shows
+  // in the Stock Card "Sales" tab (line credits it when sold); rentalAccountCode
+  // shows it in the "Rental" tab (credits it when rented). Set either/both.
+  salesAccountCode    String?
+  rentalAccountCode   String?
   points              Float? // Asset-level discount (1 point = $1). Gated by enableAssetPoints flag.
   capacityKw          Float? // Nominal cooling capacity in kW (e.g. VRV outdoor/indoor units). Null for items without a capacity rating (accessories, kits).
   // Accessory asset IDs auto-added with this FCU on the FCU-CU (QF) quotation
@@ -443,6 +448,29 @@ model AccountMemory {
 
   @@unique([organizationId, side, normalizedText])
   @@index([organizationId, side])
+}
+
+// Per-org "master file" of billable products & services, each pre-mapped to a
+// GL revenue account. The sales user picks one when adding an invoice line
+// (Add Item / Add Service) → the line self-codes → invoices post to the GL
+// deterministically with no per-invoice accountant review. Maintained once in
+// Accounting Setup → Revenue Items.
+model RevenueItem {
+  id             String   @id @default(uuid())
+  organizationId String
+  code           String? // optional short code (e.g. "APF-40")
+  name           String // description placed on the invoice line
+  type           String   @default("SERVICE") // PRODUCT | SERVICE
+  unitPrice      Float? // optional default unit price
+  taxRate        Float? // optional default GST % (else org default)
+  accountCode    String // GL revenue account code, e.g. "201"
+  accountId      String? // resolved ChartOfAccount id
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId, isActive])
+  @@index([organizationId, type])
 }
 
 // Junction table for document items - enables efficient queries for stock movements

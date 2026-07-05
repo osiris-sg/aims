@@ -8,6 +8,8 @@ import {
   Box,
   TextField,
   RadioGroup,
+  ToggleButton,
+  ToggleButtonGroup,
   FormControlLabel,
   Radio,
   Table,
@@ -48,6 +50,8 @@ interface InventoryItem {
   uom?: string;
   status?: string;
   assetId?: string;
+  salesAccountCode?: string | null;
+  rentalAccountCode?: string | null;
   asset?: {
     id: string;
     name: string;
@@ -58,6 +62,8 @@ interface InventoryItem {
     customPrices?: any[];
     points?: number;
     capacityKw?: number;
+    salesAccountCode?: string | null;
+    rentalAccountCode?: string | null;
     category?: {
       id: string;
       name: string;
@@ -123,6 +129,32 @@ export default function StockCardDialog({
   const { isAssetTrackingModeEnabled } = useOrganizationFeatures();
   const itemType = isAssetTrackingModeEnabled ? "Item" : "Product";
 
+  // Rental / Sales tabs — shown only when products carry GL accounts. A product
+  // appears under "Sales" if it has salesAccountCode, "Rental" if rentalAccountCode.
+  const accSales = (it: InventoryItem) => it.salesAccountCode ?? it.asset?.salesAccountCode ?? null;
+  const accRental = (it: InventoryItem) => it.rentalAccountCode ?? it.asset?.rentalAccountCode ?? null;
+  const hasSales = useMemo(() => inventoryItems.some((i) => accSales(i)), [inventoryItems]);
+  const hasRental = useMemo(() => inventoryItems.some((i) => accRental(i)), [inventoryItems]);
+  const showRevenueTabs = hasSales || hasRental;
+  const [revenueMode, setRevenueMode] = useState<"sales" | "rental">("sales");
+  useEffect(() => { if (showRevenueTabs) setRevenueMode(hasSales ? "sales" : "rental"); }, [showRevenueTabs, hasSales]);
+  const getRentalPrice = (it: InventoryItem) => {
+    const cps = it.customPrices ?? it.asset?.customPrices;
+    if (Array.isArray(cps)) {
+      const hit = cps.find((cp: any) => cp && /rent/i.test(String(cp.label)));
+      if (hit != null) return Number(hit.value);
+    }
+    return it.unitPrice ?? it.asset?.price ?? null;
+  };
+  // On select, tag the item with its chosen GL account + rental/sale price so
+  // the invoice line self-codes.
+  const decorate = (item: InventoryItem) => {
+    if (!showRevenueTabs) return item;
+    const accountCode = revenueMode === "rental" ? accRental(item) : accSales(item);
+    const unitPrice = revenueMode === "rental" ? getRentalPrice(item) : (item.unitPrice ?? item.asset?.price ?? null);
+    return { ...item, __revenueMode: revenueMode, accountCode, ...(unitPrice != null ? { unitPrice } : {}) } as any;
+  };
+
   const handleViewItem = (item: InventoryItem, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent row click
     setSelectedViewItem(item);
@@ -131,20 +163,29 @@ export default function StockCardDialog({
 
   const handleAddItem = (item: InventoryItem, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent row click
-    onSelectItem(item);
+    onSelectItem(decorate(item));
     setSearchTerm("");
     onClose();
   };
 
-  // Filter inventory items based on search term and mode
+  // Filter inventory items by the Rental/Sales tab, then the search term.
+  // A product mapped to the OTHER mode only is hidden; unmapped products (no
+  // account either way) stay visible in both tabs so nothing disappears — they
+  // just won't self-code until an account is set.
   const filteredItems = useMemo(() => {
-    if (!searchTerm.trim()) {
-      return inventoryItems;
+    let base = inventoryItems;
+    if (showRevenueTabs) {
+      base = base.filter((i) => {
+        const s = accSales(i);
+        const r = accRental(i);
+        if (!s && !r) return true; // unmapped → always selectable
+        return revenueMode === "rental" ? !!r : !!s;
+      });
     }
+    if (!searchTerm.trim()) return base;
 
     const term = searchTerm.toLowerCase();
-
-    return inventoryItems.filter((item) => {
+    return base.filter((item) => {
       switch (searchMode) {
         case "code":
           return item.sku?.toLowerCase().includes(term);
@@ -158,7 +199,8 @@ export default function StockCardDialog({
           return true;
       }
     });
-  }, [inventoryItems, searchTerm, searchMode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inventoryItems, searchTerm, searchMode, showRevenueTabs, revenueMode]);
 
   // Reset the highlight to the first row whenever the filtered list changes.
   useEffect(() => { setActiveIndex(0); }, [searchTerm, searchMode, inventoryItems]);
@@ -167,7 +209,7 @@ export default function StockCardDialog({
   useEffect(() => { activeRowRef.current?.scrollIntoView({ block: "nearest" }); }, [activeIndex]);
 
   const handleRowClick = (item: InventoryItem) => {
-    onSelectItem(item);
+    onSelectItem(decorate(item));
     setSearchTerm("");
     onClose();
   };
@@ -265,6 +307,20 @@ export default function StockCardDialog({
               bgcolor: "background.paper",
             }}
           />
+
+          {/* Rental / Sales tabs — a product credits its sales or rental account. */}
+          {showRevenueTabs && (
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              value={revenueMode}
+              onChange={(_, v) => v && setRevenueMode(v)}
+              sx={{ mb: 1.5 }}
+            >
+              {hasSales && <ToggleButton value="sales" sx={{ px: 2 }}>Sales</ToggleButton>}
+              {hasRental && <ToggleButton value="rental" sx={{ px: 2 }}>Rental</ToggleButton>}
+            </ToggleButtonGroup>
+          )}
 
           {/* Search Mode Radio Buttons */}
           <RadioGroup

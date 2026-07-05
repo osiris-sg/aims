@@ -1,9 +1,10 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   Box,
   Button,
   Divider,
   IconButton,
+  MenuItem,
   Stack,
   TextField,
   Typography,
@@ -16,6 +17,7 @@ import { Controller, useFieldArray, useFormContext } from "react-hook-form";
 import ParentAssetSelector from "./ParentAssetSelector";
 import { useSearchParams } from "next/navigation";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { useAuth } from "@clerk/nextjs";
 
 export default function AdditionalDetails() {
   const { control, setValue, watch } = useFormContext();
@@ -29,6 +31,29 @@ export default function AdditionalDetails() {
 
   // Custom price rows — [{ label, value }] e.g. Listing Price, Dealer Price.
   const { fields, append, remove } = useFieldArray({ control, name: "customPrices" });
+
+  // Revenue accounts for the sales/rental GL mapping (drives the Stock Card tabs).
+  const { getToken } = useAuth();
+  const [revenueAccounts, setRevenueAccounts] = useState<any[]>([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = await getToken();
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        if (typeof window !== "undefined") {
+          const activeOrgId = window.sessionStorage.getItem("aims-admin-active-org");
+          if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
+        }
+        const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/accounting/accounts`, { headers });
+        const json = await res.json();
+        const list = json?.data ?? json;
+        setRevenueAccounts((Array.isArray(list) ? list : []).filter((a: any) => ["SALES", "INCOME"].includes(a.accountType)).sort((a: any, b: any) => String(a.code).localeCompare(String(b.code))));
+      } catch {
+        /* leave empty */
+      }
+    })();
+  }, [getToken]);
 
   return (
     <Stack spacing="var(--default-gap)">
@@ -59,6 +84,35 @@ export default function AdditionalDetails() {
             min={0}
             bottomText={`Default unit price when this ${itemType.toLowerCase()} appears on a document`}
           />
+
+          <Box>
+            <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>GL revenue accounts</Typography>
+            <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mb: 1 }}>
+              Set a sales and/or rental account — this {itemType.toLowerCase()} then shows in the Stock Card's Sales / Rental tabs and its invoice lines post to that account automatically.
+            </Typography>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing="var(--default-gap)">
+              <Controller
+                control={control}
+                name="salesAccountCode"
+                render={({ field }) => (
+                  <TextField select fullWidth size="small" label="Sales account" value={field.value || ""} onChange={field.onChange}>
+                    <MenuItem value="">— none —</MenuItem>
+                    {revenueAccounts.map((a) => (<MenuItem key={a.code} value={a.code}>{a.code} — {a.name}</MenuItem>))}
+                  </TextField>
+                )}
+              />
+              <Controller
+                control={control}
+                name="rentalAccountCode"
+                render={({ field }) => (
+                  <TextField select fullWidth size="small" label="Rental account" value={field.value || ""} onChange={field.onChange}>
+                    <MenuItem value="">— none —</MenuItem>
+                    {revenueAccounts.map((a) => (<MenuItem key={a.code} value={a.code}>{a.code} — {a.name}</MenuItem>))}
+                  </TextField>
+                )}
+              />
+            </Stack>
+          </Box>
 
           <Divider />
 
