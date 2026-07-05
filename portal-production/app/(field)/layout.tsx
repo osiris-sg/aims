@@ -9,6 +9,7 @@ import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { OrganizationProvider } from "../portal/context/OrganizationContext";
 import { BackgroundLocationProvider } from "./context/BackgroundLocationContext";
+import { useRoleGate } from "../portal/hooks/useRoleGate";
 
 interface Props {
   children: React.ReactNode;
@@ -39,6 +40,7 @@ export default function FieldLayout({ children }: Props) {
   const router = useRouter();
   const { isLoaded, isSignedIn } = useAuth();
   const { signOut } = useClerk();
+  const { onlyNormalUser } = useRoleGate();
 
   // If Clerk has loaded and the user isn't signed in, bounce out of the field
   // app — every endpoint requires a token, so staying here just shows blank
@@ -48,6 +50,12 @@ export default function FieldLayout({ children }: Props) {
       router.replace("/sign-in");
     }
   }, [isLoaded, isSignedIn, router]);
+
+  // A document-submit-only user has no business in the field flow — send them
+  // to their own app (mirrors FieldOnlyGuard bouncing them out of /portal).
+  useEffect(() => {
+    if (onlyNormalUser) router.replace("/submit");
+  }, [onlyNormalUser, router]);
 
   const handleSignOut = async () => {
     await signOut();

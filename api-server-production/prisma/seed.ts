@@ -1426,6 +1426,45 @@ async function main() {
     },
   });
 
+  // Normal User role: the hands-off document-submit flow ONLY. Can AI-extract a
+  // document (camera → Claude) and create a DRAFT from it — nothing else. The
+  // frontend gates /submit and bounces this role out of /portal and /scan by
+  // the exact (case-insensitive) name "normal_user". readRoles/read perms let
+  // the client role-gate resolve /users/me/roles.
+  await prisma.role.upsert({
+    where: {
+      name_organizationId: {
+        name: 'normal_user',
+        organizationId: osirisOrg.id,
+      },
+    },
+    update: {
+      permissions: {
+        set: [
+          { id: extractDocumentPermission.id },
+          { id: createBasicDocumentPermission.id },
+          { id: readRolesPermission.id },
+          { id: readRolePermission.id },
+          { id: readPermissionPermission.id },
+        ],
+      },
+    },
+    create: {
+      name: 'normal_user',
+      description: 'Document-submit-only user: camera → AI-extract → draft',
+      organizationId: osirisOrg.id,
+      permissions: {
+        connect: [
+          { id: extractDocumentPermission.id },
+          { id: createBasicDocumentPermission.id },
+          { id: readRolesPermission.id },
+          { id: readRolePermission.id },
+          { id: readPermissionPermission.id },
+        ],
+      },
+    },
+  });
+
   // ===== ACCOUNTING PERMISSIONS =====
 
   // Payments permissions

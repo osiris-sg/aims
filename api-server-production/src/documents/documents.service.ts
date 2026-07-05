@@ -1678,6 +1678,9 @@ export class DocumentsService {
 
     // Fuzzy customer match — case-insensitive contains, only auto-link if unique.
     let matchedCustomerId: string | null = null;
+    let matchedCustomer:
+      | { id: string; name: string; customerCode: string | null; address: string | null; email: string | null }
+      | null = null;
     const extractedCustomerName: string | undefined = extracted?.customer?.name?.trim();
     if (extractedCustomerName) {
       const candidates = await this.prisma.customer.findMany({
@@ -1685,10 +1688,11 @@ export class DocumentsService {
           organizationId,
           name: { contains: extractedCustomerName, mode: 'insensitive' },
         },
-        select: { id: true, name: true },
+        select: { id: true, name: true, customerCode: true, address: true, email: true },
         take: 2,
       });
       if (candidates.length === 1) {
+        matchedCustomer = candidates[0];
         matchedCustomerId = candidates[0].id;
       }
     }
@@ -1752,6 +1756,20 @@ export class DocumentsService {
         address: extracted?.customer?.address || undefined,
         attention: extracted?.customer?.attention || undefined,
       },
+      // FLAT customer fields — the editor round-trip contract
+      // (documentDataTransformer reads config.customerId/Name/Code/Address/Email;
+      // DynamicFormFields renders customerCode). Sourced from the MATCHED customer
+      // ROW only; when unmatched we leave them absent so the editor shows blank
+      // for the admin to assign.
+      ...(matchedCustomer
+        ? {
+            customerId: matchedCustomer.id,
+            customerName: matchedCustomer.name,
+            customerCode: matchedCustomer.customerCode || undefined,
+            customerAddress: matchedCustomer.address || undefined,
+            customerEmail: matchedCustomer.email || undefined,
+          }
+        : {}),
       documentInfo: {
         documentNumber: extracted?.document?.number || undefined,
         date: extracted?.document?.date || undefined,

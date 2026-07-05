@@ -269,14 +269,18 @@ export function transformBackendDataForForm(
     result.documentNumber = backendData.name;
   }
 
-  // Reconstruct customer object from flat fields
-  if (backendData.customerId || backendData.customerName) {
+  // Reconstruct customer object from flat fields, falling back to the nested
+  // config.customer shape for legacy extraction drafts (which wrote nested-only).
+  // Gate on an ID (flat or nested customer.id) so an unmatched extraction draft —
+  // which carries a nested customer.name from the extracted text but NO id — stays
+  // blank rather than resurrecting a fake customer. Flat wins when both exist.
+  if (backendData.customerId || backendData.customerName || backendData.customer?.id) {
     result.customer = {
-      id: backendData.customerId || '',
-      name: backendData.customerName || '',
-      customerCode: backendData.customerCode || '',
-      address: backendData.customerAddress || '',
-      email: backendData.customerEmail || '',
+      id: backendData.customerId || backendData.customer?.id || '',
+      name: backendData.customerName || backendData.customer?.name || '',
+      customerCode: backendData.customerCode || backendData.customer?.customerCode || '',
+      address: backendData.customerAddress || backendData.customer?.address || '',
+      email: backendData.customerEmail || backendData.customer?.email || '',
     };
     console.log('Reconstructed customer object:', result.customer);
   }

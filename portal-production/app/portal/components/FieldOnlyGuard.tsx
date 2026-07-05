@@ -40,9 +40,13 @@ export default function FieldOnlyGuard({ children }: { children: React.ReactNode
         const roles = (res.data ?? res ?? []) as Array<{ name: string }>;
         const names = roles.map((r) => (r?.name ?? "").toLowerCase());
         const onlyFieldTech = names.length > 0 && names.every((n) => n === "field-tech");
+        const onlyNormalUser = names.length > 0 && names.every((n) => n === "normal_user");
         if (cancelled) return;
         if (onlyFieldTech) {
           router.replace("/scan");
+        } else if (onlyNormalUser) {
+          // Document-submit-only user: their entire app is /submit.
+          router.replace("/submit");
         } else {
           setAllow(true);
         }
