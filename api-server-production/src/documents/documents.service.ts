@@ -1633,6 +1633,9 @@ export class DocumentsService {
     extracted: any,
     documentTemplateId?: string,
     sourceFileUrl?: string | null,
+    // Provenance stamp for config.source.extractedFrom — 'upload' (portal
+    // upload button, the default) or 'email' (inbound email ingestion).
+    extractedFrom: string = 'upload',
   ) {
     // Resolve template: explicit > active variant > default > newest.
     // The active/default flags reflect the variant the user normally picks via
@@ -1791,7 +1794,7 @@ export class DocumentsService {
       totals: extracted?.totals || {},
       notes: extracted?.notes || undefined,
       source: {
-        extractedFrom: 'upload',
+        extractedFrom,
         fileUrl: sourceFileUrl || undefined,
       },
       sourceFileUrl: sourceFileUrl || undefined,

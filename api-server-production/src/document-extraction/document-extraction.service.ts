@@ -383,6 +383,42 @@ Rules:
     return this._cleanReconciliationData(raw);
   }
 
+  // ────────────────────────────────────────────────────────────────────────
+  // Issuer classification (email ingestion) — decide whether an arbitrary
+  // inbound PDF/image is OUR invoice (AR) or a third party's bill (AP).
+  //
+  // Classification is by ISSUER, deliberately NOT by document title: supplier
+  // bills are routinely titled "TAX INVOICE", so keying off the words on the
+  // page would misroute AP docs into receivables.
+  // ────────────────────────────────────────────────────────────────────────
+
+  async classifyIssuer(
+    file: { buffer: Buffer; mimetype: string },
+    org: { name: string; registrationNumber?: string | null },
+  ): Promise<{ documentType: 'INVOICE' | 'BILL' | 'OTHER'; issuerName: string | null }> {
+    const systemPrompt =
+      'You classify business documents for an accounting system. Decide who ISSUED the document — not what the document calls itself. Return STRICT JSON only.';
+
+    const userPrompt = `The organization using this accounting system is:
+  Name: ${org.name}${org.registrationNumber ? `\n  Registration/GST No: ${org.registrationNumber}` : ''}
+
+Classify this document by ISSUER:
+- ISSUED BY ${org.name} (their name/logo/registration number appears as the seller / biller / letterhead) → "INVOICE" (accounts receivable — money owed TO them).
+- Issued by any OTHER company billing or charging ${org.name} → "BILL" (accounts payable — money they owe).
+- Not a billing document at all (statement of account, marketing, purchase order, delivery order, contract...) → "OTHER".
+
+IMPORTANT: do NOT classify by the document's title. A third-party document titled "TAX INVOICE" is a BILL. Judge only by who issued it.
+
+Return ONLY JSON: {"documentType": "INVOICE" | "BILL" | "OTHER", "issuerName": "the issuing company name as printed"}`;
+
+    const raw = await this._extractStructuredJson(file, systemPrompt, userPrompt, 0);
+    const dt = typeof raw?.documentType === 'string' ? raw.documentType.trim().toUpperCase() : 'OTHER';
+    return {
+      documentType: dt === 'INVOICE' || dt === 'BILL' ? (dt as 'INVOICE' | 'BILL') : 'OTHER',
+      issuerName: typeof raw?.issuerName === 'string' && raw.issuerName.trim() ? raw.issuerName.trim() : null,
+    };
+  }
+
   // Claude-based extraction (claude-sonnet-4-6). Mirrors the bills.service
   // pattern: pass PDFs straight through as a "document" content block (no
   // pdf-to-png needed), images as an "image" block, and parse a JSON object

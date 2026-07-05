@@ -50,6 +50,7 @@ import { BankRecModule } from './bank-rec/bank-rec.module';
 import { XeroSyncModule } from './xero-sync/xero-sync.module';
 import { DocumentAssistantModule } from './document-assistant/document-assistant.module';
 import { IngestionModule } from './ingestion/ingestion.module';
+import { IngestionEmailModule } from './ingestion-email/ingestion-email.module';
 import { PostingQueueModule } from './posting-queue/posting-queue.module';
 
 @Module({
@@ -100,6 +101,7 @@ import { PostingQueueModule } from './posting-queue/posting-queue.module';
     XeroSyncModule,
     PublicDeliveryModule,
     IngestionModule,
+    IngestionEmailModule,
     PostingQueueModule,
   ],
   controllers: [AppController],

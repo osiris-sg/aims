@@ -87,6 +87,8 @@ model Organization {
   xeroAccountMappings   XeroAccountMapping[]
   xeroSyncRuns          XeroSyncRun[]
   serviceReports        MaintenanceServiceReport[]
+  emailIngestConfig     EmailIngestConfig?
+  emailIngestLogs       EmailIngestLog[]
 }
 
 model Asset {
@@ -1748,6 +1750,58 @@ model DeliveryLocationPing {
   // Lookups are always "all pings for report X, ordered by time" → composite
   // index covers both filter and order.
   @@index([reportId, timestamp])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Email ingestion — docs+{ORG_ID}@<domain> inbox → AI-classified AR/AP drafts.
+// Config is per-org (which senders to trust, how to route); every inbound
+// email gets exactly one log row (org+messageId unique = idempotency anchor,
+// mirroring DeliveryLocationPing's duplicate-retry protection).
+// ─────────────────────────────────────────────────────────────────────────────
+
+model EmailIngestConfig {
+  id             String  @id @default(uuid())
+  organizationId String  @unique
+  enabled        Boolean @default(false)
+  // Sender allow-list: full addresses or @domain suffixes, e.g.
+  // ["ap@daikin.com.sg", "@sembcorp.com"]. Empty array = accept all senders.
+  watchedSenders Json    @default("[]")
+  // AI    → classify each attachment by issuer (INVOICE = AR / BILL = AP).
+  // FIXED → skip classification, always create defaultDocType.
+  routingMode    String  @default("AI")
+  defaultDocType String? // used when routingMode=FIXED: INVOICE | BILL
+  // Reserved for a future auto-confirm mode; both create paths only make
+  // DRAFTs today.
+  createMode     String  @default("DRAFT")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model EmailIngestLog {
+  id             String  @id @default(uuid())
+  organizationId String
+  // Provider Message-ID when supplied; else synthesized from a payload hash
+  // so provider retries dedupe onto the same row.
+  messageId      String
+  fromAddress    String
+  subject        String?
+  status         String // RECEIVED | PARSED | IGNORED | FAILED
+  reason         String?
+  // Document ids created from this email (BILL and/or INVOICE drafts).
+  createdDocumentIds Json @default("[]")
+  attachmentCount    Int  @default(0)
+  rawMeta            Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, messageId])
+  @@index([organizationId, createdAt])
 }
 
 enum MaintenanceServiceReportStatus {
