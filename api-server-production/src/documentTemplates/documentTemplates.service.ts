@@ -376,7 +376,11 @@ export class DocumentTemplatesService {
 
   // Active templates available to an org for a type, for the creation picker:
   // the org's explicit selections UNION isDefault templates (e.g. Standard
-  // Quotation, available to every org) UNION the org's legacy isActive template.
+  // Quotation) or the org's legacy isActive template — ONLY when the org has
+  // made no explicit selections. When selections exist they are authoritative:
+  // the picker shows exactly what the settings tab marked active (Standard is
+  // still available by activating it explicitly). Mirrors the fallback-only
+  // semantics of getTemplateVariantsByType and createFromExtraction.
   // Returns one row per template (deduped) with isPrimary marked.
   async getActiveTemplatesByType(type: string, organizationId: string) {
     try {
@@ -387,14 +391,14 @@ export class DocumentTemplatesService {
       const primaryId = selections.find((s) => s.isPrimary)?.templateId;
 
       const templates = await this.prisma.documentTemplate.findMany({
-        where: {
-          OR: [
-            // Empty `in []` matches nothing; sentinel keeps the clause harmless.
-            { id: { in: activeIds.length ? activeIds : ['00000000-0000-0000-0000-000000000000'] } },
-            { type, isDefault: true },
-            { type, organizationId, isActive: true },
-          ],
-        },
+        where: activeIds.length
+          ? { id: { in: activeIds } }
+          : {
+              OR: [
+                { type, isDefault: true },
+                { type, organizationId, isActive: true },
+              ],
+            },
         include: { organization: { select: { id: true, name: true } } },
         orderBy: [{ designName: 'asc' }],
       });
