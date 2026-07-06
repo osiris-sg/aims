@@ -730,7 +730,8 @@ export class BillsService {
   - "subtotal": number (excl tax)
   - "taxAmount": number
   - "totalAmount": number (subtotal + tax)
-Use null when you can't read a field. Do not include any prose outside the JSON.`;
+Use null when you can't read a field. Do not include any prose outside the JSON.
+Output STRICT JSON only — never emit the token undefined and never leave trailing commas.`;
 
     const content: any[] = [];
     if (detectedMedia === 'application/pdf') {
@@ -752,7 +753,13 @@ Use null when you can't read a field. Do not include any prose outside the JSON.
     const match = raw.match(/\{[\s\S]*\}/);
     if (!match) return null;
     try {
-      const parsed = JSON.parse(match[0]);
+      // Same LLM-JSON sanitize as document-extraction's _sanitizeLlmJson:
+      // bare `undefined` VALUES → null, trailing commas stripped (temp-0 output
+      // is deterministic per document, so one bad doc would fail forever).
+      const sanitized = match[0]
+        .replace(/:\s*undefined\s*([,}\]])/g, ': null$1')
+        .replace(/,\s*([}\]])/g, '$1');
+      const parsed = JSON.parse(sanitized);
       return {
         ...parsed,
         supplierIdGuess: parsed.supplierName

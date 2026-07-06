@@ -149,7 +149,8 @@ export class DocumentExtractionService {
     const basePrompt = `You are an expert at extracting structured data from ${documentType.replace('_', ' ')} images.
     Extract all relevant information and return it in the exact JSON format specified.
     Be precise with dates (use YYYY-MM-DD format), numbers, and references.
-    If a field is not found, leave it as undefined or empty array for arrays.`;
+    If a field is not found, use null (or an empty array for array fields).
+    Output STRICT JSON only — never emit the token undefined and never leave trailing commas.`;
 
     const typeSpecificPrompts = {
       [DocumentType.INVOICE]: `Pay special attention to invoice numbers, payment terms, due dates, and tax calculations.`,
@@ -470,13 +471,24 @@ Return ONLY JSON: {"documentType": "INVOICE" | "BILL" | "OTHER", "issuerName": "
       throw new HttpException('No JSON returned by extractor', HttpStatus.INTERNAL_SERVER_ERROR);
     }
     try {
-      return JSON.parse(match[0]);
+      return JSON.parse(this._sanitizeLlmJson(match[0]));
     } catch (e) {
       throw new HttpException(
         `Extractor returned malformed JSON: ${(e as Error).message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  // Strip JavaScript-isms the model occasionally emits despite the strict-JSON
+  // prompts (temp 0 makes them deterministic per document, so one bad doc
+  // fails forever without this): bare `undefined` as a VALUE → null, and
+  // trailing commas before } or ]. Value-position-anchored regexes so string
+  // contents that legitimately contain the word "undefined" are not touched.
+  private _sanitizeLlmJson(json: string): string {
+    return json
+      .replace(/:\s*undefined\s*([,}\]])/g, ': null$1')
+      .replace(/,\s*([}\]])/g, '$1');
   }
 
   private _cleanReconciliationData(data: any): SupplierReconciliationData {
