@@ -2520,6 +2520,44 @@ export default function TabbedDocumentCreator({
   };
 
   // Handle save as draft from dialog
+  // OSI-8: persist the editor state BEFORE the send dialog opens. The backend
+  // validates the customer and builds the PDF from the PERSISTED config, so an
+  // unsaved customer pick (or any unsaved edit) would 400 or email stale data.
+  const [sendEmailDocId, setSendEmailDocId] = useState<string>("");
+  const handleOpenSendEmail = async () => {
+    if (lockReadOnly) {
+      toast.error("Cannot send — someone else is editing this document.");
+      return;
+    }
+    try {
+      const currentUserName = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || "SYS";
+      const currentTimestamp = new Date().toISOString();
+      const saved = await guardedSave({
+        ...formData,
+        items,
+        name: formData.name || (formData?.documentInfo as any)?.documentNumber,
+        savedBy: currentUserName,
+        savedAt: currentTimestamp,
+        lastUsedBy: currentUserName,
+        lastUsedAt: currentTimestamp,
+      });
+      // Page-level onSave handlers currently return void on success; if one
+      // ever returns the saved document, prefer its id — that covers a
+      // never-persisted draft receiving its id at save time.
+      const savedId = (saved as any)?.id || (saved as any)?.data?.id || "";
+      const idForSend = savedId || documentId || existingData?.id || "";
+      if (!idForSend) {
+        toast.error("Save the document first — it doesn't have an ID yet.");
+        return;
+      }
+      setSendEmailDocId(idForSend);
+      setSendEmailDialogOpen(true);
+    } catch (e) {
+      console.error("Pre-send save failed:", e);
+      toast.error("Could not save the document — email not opened. Fix the save error and try again.");
+    }
+  };
+
   const handleSaveAsDraft = async () => {
     // Get current user info for tracking
     const currentUserName = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || 'SYS';
@@ -3249,7 +3287,7 @@ export default function TabbedDocumentCreator({
               size="small"
               variant="contained"
               startIcon={<EmailIcon />}
-              onClick={() => setSendEmailDialogOpen(true)}
+              onClick={handleOpenSendEmail}
               color="primary"
             >
               Send Email
@@ -5451,7 +5489,9 @@ export default function TabbedDocumentCreator({
             router.refresh(); // Refresh to update status
           }}
           invoice={{
-            id: documentId || "",
+            // Set by handleOpenSendEmail after the pre-send save (covers a
+            // draft that only received its id at save time).
+            id: sendEmailDocId || documentId || "",
             name: formData.name || formData.documentInfo?.documentNumber || "",
             config: formData,
             type: documentType,
@@ -5461,10 +5501,12 @@ export default function TabbedDocumentCreator({
           customer={{
             id: formData.customer?.id || "",
             name: formData.customer?.name || "",
-            // Recipient default: the picked contact's email (attention.email)
-            // first, then the customer's own email as fallback.
-            email: (formData as any).attention?.email || formData.customer?.email || ""
+            // NOT used for TO prefill: the dialog prefills only from a
+            // COMPLETE config.attention record (name+email+phone) and
+            // otherwise leaves TO empty by design.
+            email: formData.customer?.email || ""
           }}
+          organizationName={organization?.name || ""}
         />
       )}
 

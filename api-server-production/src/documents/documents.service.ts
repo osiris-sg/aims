@@ -2734,7 +2734,19 @@ export class DocumentsService {
       const documentInfo = config?.documentInfo;
       const items = config?.items || [];
 
-      if (!customer) {
+      // Customer guard, type-aware. Invoices stay strict. Quotations may be
+      // sent with just an Attention contact email — real quotes exist with
+      // attention.email filled but no customer picked yet (prospect flow), and
+      // the PDF generator + email body are null-safe for a missing customer.
+      const attentionEmail: string | undefined = config?.attention?.email || undefined;
+      if (isQuotation) {
+        if (!customer && !attentionEmail) {
+          throw new HttpException(
+            'Quotation must have a customer or an Attention contact email',
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+      } else if (!customer) {
         throw new HttpException(
           'Invoice must have a customer',
           HttpStatus.BAD_REQUEST,
@@ -2814,7 +2826,9 @@ export class DocumentsService {
         invoiceAmount: totalAmount,
         dueDate,
         isQuotation,
-        customerName: customer.name || 'Customer',
+        // Null-safe: quotations can now send without a customer object; fall
+        // back to the flat extraction field, then a generic salutation.
+        customerName: customer?.name || config?.customerName || 'Customer',
         organizationName: document.organization.name,
         pdfUrl,
         paymentLink: undefined, // TODO: Generate payment link when public payment page is implemented

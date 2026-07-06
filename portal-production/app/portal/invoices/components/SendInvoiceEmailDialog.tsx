@@ -42,7 +42,15 @@ interface SendInvoiceEmailDialogProps {
     name: string;
     email?: string;
   };
+  /** Sender org's display name for subject/body signature. Falls back to a
+   *  generic sign-off when absent (never the old hardcoded OSIRIS name). */
+  organizationName?: string;
 }
+
+// Same type lists the backend's send-email guard uses (documents.service.ts
+// sendInvoiceEmail) — keep in sync.
+const QUOTATION_TYPES = ["QUOTATION", "QO", "QO1", "QO2", "QT"];
+const INVOICE_TYPES = ["INVOICE", "TI", "TI2"];
 
 export default function SendInvoiceEmailDialog({
   open,
@@ -50,7 +58,14 @@ export default function SendInvoiceEmailDialog({
   onSent,
   invoice,
   customer,
+  organizationName,
 }: SendInvoiceEmailDialogProps) {
+  // Type-aware wording: quotations get quote language (no due date / payment
+  // wording); unknown types degrade to a neutral "Document".
+  const docTypeUpper = (invoice?.type || "").toUpperCase();
+  const isQuotation = QUOTATION_TYPES.includes(docTypeUpper);
+  const isInvoice = INVOICE_TYPES.includes(docTypeUpper);
+  const docLabel = isQuotation ? "Quotation" : isInvoice ? "Invoice" : "Document";
   const { getToken } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,19 +84,21 @@ export default function SendInvoiceEmailDialog({
   // Initialize email fields when dialog opens
   useEffect(() => {
     if (open && invoice && customer) {
-      // Set TO field with customer email
-      const customerEmail = customer.email || "";
-      setTo(customerEmail ? [customerEmail] : []);
+      // TO prefill rule: ONLY from a COMPLETE attention record — name, email,
+      // AND phone all present. Partial records (common: email-only) leave TO
+      // empty for the user to fill deliberately. No customer.email fallback.
+      // Sending is read-only w.r.t. contact data — nothing is created here.
+      const att = invoice.config?.attention || {};
+      const attName: string = (att.name || "").trim();
+      const attEmail: string = (att.email || "").trim();
+      const attPhone: string = (att.phoneNumber || att.phone || "").trim();
+      const attentionComplete = Boolean(attName && attEmail && attPhone);
+      setTo(attentionComplete ? [attEmail] : []);
 
-      // Generate subject
-      const invoiceNumber = invoice.name || `INV-${invoice.id.substring(0, 8)}`;
-      const organizationName = "OSIRIS TECHNOLOGY PTE. LTD."; // You might want to get this from context
-      setSubject(`Invoice ${invoiceNumber} from ${organizationName}`);
-
-      // Generate message template
-      const dueDate = invoice.config?.dueDate
-        ? moment(invoice.config.dueDate).format("DD MMM YYYY")
-        : moment().add(30, "days").format("DD MMM YYYY");
+      const docNumber =
+        invoice.name || `${isQuotation ? "QO" : "INV"}-${invoice.id.substring(0, 8)}`;
+      const orgName = organizationName || invoice.config?.company?.name || "";
+      setSubject(`${docLabel} ${docNumber}${orgName ? ` from ${orgName}` : ""}`);
 
       const items = invoice.config?.items || [];
       const totalAmount = items.reduce((sum: number, item: any) => {
@@ -92,22 +109,42 @@ export default function SendInvoiceEmailDialog({
         return sum + amount;
       }, 0);
 
-      const messageTemplate = `Hi ${customer.name},
+      // Greeting: the attention name only when the record was complete enough
+      // to prefill TO; otherwise a generic salutation.
+      const greetName = attentionComplete ? attName : "there";
 
-Please find attached the invoice ${invoiceNumber} amounting to SGD ${totalAmount.toFixed(
-        2
-      )} due on ${dueDate}.
+      let messageTemplate: string;
+      if (isInvoice) {
+        // Invoice body unchanged: due date + payment-details language.
+        const dueDate = invoice.config?.dueDate
+          ? moment(invoice.config.dueDate).format("DD MMM YYYY")
+          : moment().add(30, "days").format("DD MMM YYYY");
+        messageTemplate = `Hi ${greetName},
+
+Please find attached the invoice ${docNumber} amounting to SGD ${totalAmount.toFixed(2)} due on ${dueDate}.
 
 You can also use the link below to see your invoice and its payment details.
 
 If you have any questions, please don't hesitate to contact us.
 
 Best regards,
-${organizationName}`;
+${orgName}`;
+      } else {
+        // Quotations (and any other type, neutrally): no due date, no payment
+        // wording.
+        messageTemplate = `Hi ${greetName},
+
+Please find attached the ${docLabel.toLowerCase()} ${docNumber} amounting to SGD ${totalAmount.toFixed(2)}.
+
+If you have any questions, please don't hesitate to contact us.
+
+Best regards,
+${orgName}`;
+      }
 
       setMessage(messageTemplate);
     }
-  }, [open, invoice, customer]);
+  }, [open, invoice, customer, organizationName, docLabel, isQuotation, isInvoice]);
 
   const validateEmail = (email: string): boolean => {
     const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -190,7 +227,7 @@ ${organizationName}`;
       );
 
       if (response.success) {
-        toast.success("Invoice email sent successfully!");
+        toast.success(`${docLabel} email sent successfully!`);
         onSent(); // Refresh the page/data
         onClose();
       } else {
@@ -209,7 +246,7 @@ ${organizationName}`;
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>
         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <Typography variant="h6">Send Invoice Email</Typography>
+          <Typography variant="h6">Send {docLabel} Email</Typography>
           <IconButton onClick={onClose} disabled={loading}>
             <CloseIcon />
           </IconButton>
@@ -374,7 +411,7 @@ ${organizationName}`;
           <Box sx={{ mt: 1 }}>
             <Chip
               icon={<AttachFileIcon />}
-              label={`${invoice?.name || "Invoice"}.pdf`}
+              label={`${invoice?.name || docLabel}.pdf`}
               color="primary"
               variant="outlined"
             />
