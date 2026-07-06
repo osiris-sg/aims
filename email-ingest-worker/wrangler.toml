@@ -1,0 +1,14 @@
+# Cloudflare Email Worker — receives inbound email (Email Routing "Send to
+# Worker" action) and forwards it as JSON to the AIMS ingestion webhook.
+#
+# Secrets (set once per environment, never committed):
+#   npx wrangler secret put AIMS_API             # full webhook URL
+#   npx wrangler secret put EMAIL_INGEST_SECRET  # same value as on Render
+name = "aims-email-ingest"
+main = "src/index.js"
+compatibility_date = "2026-07-01"
+account_id = "6dffdc49a7ee0f1c8927482777c53dd9" # Osiris Technology Pte. Ltd.
+
+# No [email] send binding needed — this worker only RECEIVES email via the
+# email() handler; binding to an address happens in the dashboard under
+# Email Routing → Routing rules.
