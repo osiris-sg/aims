@@ -41,6 +41,9 @@ interface RecordPaymentDialogProps {
     customerName?: string;
     amount?: number;
     status?: string;
+    // Editor-created vs imported invoices carry the customer at different
+    // paths on config — allow both here without narrowing further.
+    config?: { customerId?: string; customer?: { id?: string } };
   };
 }
 
@@ -71,8 +74,11 @@ export default function RecordPaymentDialog({
   // Initialize form when invoice is provided
   useEffect(() => {
     if (open && invoice) {
-      // If invoice is provided, pre-select customer and invoice
-      const customer = customers?.find((c: any) => c.id === invoice.customerId);
+      // If invoice is provided, pre-select customer and invoice. Editor-created
+      // invoices store the customer FLAT (config.customerId); imported ones use
+      // the nested config.customer.{id} — read all of them.
+      const custId = invoice.customerId ?? invoice.config?.customerId ?? invoice.config?.customer?.id;
+      const customer = customers?.find((c: any) => c.id === custId);
       if (customer) {
         setSelectedCustomer(customer);
       }
@@ -119,7 +125,7 @@ export default function RecordPaymentDialog({
           const config = doc.config as any;
           return (
             (doc.type === "INVOICE" || doc.type === "TI" || doc.type === "TI2") &&
-            config?.customer?.id === customerId &&
+            (config?.customer?.id === customerId || config?.customerId === customerId) &&
             doc.status === "pending_payment"
           );
         });

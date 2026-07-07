@@ -266,6 +266,55 @@ export default function TabbedDocumentCreator({
 
   // Browser print ref for CleanDocumentPreview
   const printContentRef = useRef<HTMLDivElement>(null);
+  // Refs used only for the height-debug useEffect below — logs the fields
+  // card + items box actual rendered heights along with viewport height so we
+  // can tune the maxHeight/calc offsets to match real chrome.
+  const fieldsCardRef = useRef<HTMLDivElement>(null);
+  const itemsBoxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const logHeights = (label: string) => {
+      const fields = fieldsCardRef.current?.getBoundingClientRect();
+      const items = itemsBoxRef.current?.getBoundingClientRect();
+      // eslint-disable-next-line no-console
+      console.log(`[heights] ${label}`);
+      // eslint-disable-next-line no-console
+      console.table({
+        "window.innerHeight": { px: window.innerHeight },
+        "document.documentElement.clientHeight": { px: document.documentElement.clientHeight },
+        "Fields card (actual)": { px: fields ? Math.round(fields.height) : null },
+        "Fields card top offset": { px: fields ? Math.round(fields.top) : null },
+        "Items box (actual)": { px: items ? Math.round(items.height) : null },
+        "Items box top offset": { px: items ? Math.round(items.top) : null },
+        "Chrome above items (top offset)": { px: items ? Math.round(items.top) : null },
+        "Space below items (viewport - bottom)": {
+          px: items ? Math.round(window.innerHeight - items.bottom) : null,
+        },
+      });
+    };
+
+    // Fields/items render inside conditional tabs, so they might not exist on
+    // the first commit. Poll every 250ms up to ~5s until both refs are wired,
+    // then log once and stop.
+    let attempts = 0;
+    const interval = window.setInterval(() => {
+      attempts += 1;
+      if (fieldsCardRef.current && itemsBoxRef.current) {
+        logHeights(`mounted (after ${attempts * 250}ms)`);
+        window.clearInterval(interval);
+      } else if (attempts >= 20) {
+        logHeights(`gave up after ${attempts * 250}ms — refs still null`);
+        window.clearInterval(interval);
+      }
+    }, 250);
+
+    const onResize = () => logHeights("resize");
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
   const printDocumentTitle = existingData?.documentNumber || existingData?.name || documentId || "Document";
   const handleBrowserPrint = useReactToPrint({
     contentRef: printContentRef,
@@ -312,6 +361,10 @@ export default function TabbedDocumentCreator({
   // Stock card dialog state
   const [stockCardDialogOpen, setStockCardDialogOpen] = useState(false);
   const [revenueItemPickerOpen, setRevenueItemPickerOpen] = useState(false);
+  // When set, the Stock Card / Service picker EDITS this existing row (via the
+  // pencil next to Product Code) instead of appending a new line. Cleared on
+  // pick or dialog close.
+  const [editingItemId, setEditingItemId] = useState<number | null>(null);
   // Whether this org has set up a Revenue Master File. When true, "Add Item"
   // (and "Add Service") pick from it so lines self-code; when false, "Add Item"
   // keeps the product-catalog Stock Card (Cappitech-style orgs).
@@ -1104,6 +1157,8 @@ export default function TabbedDocumentCreator({
       amount: unitPrice, // quantity is 1, so amount equals unitPrice
       // GL account from the Stock Card Rental/Sales tab → line self-codes for posting.
       ...(selectedItem.accountCode ? { accountCode: selectedItem.accountCode } : {}),
+      // Editor-only tag (rental/sale/service) — shown in the editor, never in the preview/PDF.
+      ...(selectedItem.__revenueMode ? { revenueTag: selectedItem.__revenueMode === "rental" ? "rental" : "sale" } : {}),
     };
 
     // Add uom for stock adjustment, PO, PR, and DO types
@@ -1121,7 +1176,30 @@ export default function TabbedDocumentCreator({
       newItem.tax = isInvoiceType ? undefined : 9;
     }
 
-    setItems([...items, newItem]);
+    if (editingItemId != null) {
+      // Pencil edit — replace THIS row's product fields, keep its id/quantity.
+      setItems(items.map((it: any) => {
+        if (it.id !== editingItemId) return it;
+        const qty = Number(it.quantity) || 1;
+        return {
+          ...it,
+          isService: false,
+          itemCode: newItem.itemCode,
+          inventoryItemId: newItem.inventoryItemId,
+          description: newItem.description,
+          unitPrice: newItem.unitPrice,
+          amount: qty * Number(newItem.unitPrice || 0),
+          ...(newItem.uom !== undefined ? { uom: newItem.uom } : {}),
+          // Reflect the NEW selection's GL account + rental/sale tag (overwrite,
+          // and clear if the new pick is unmapped — don't keep the stale one).
+          accountCode: newItem.accountCode ?? null,
+          revenueTag: newItem.revenueTag ?? null,
+        };
+      }));
+      setEditingItemId(null);
+    } else {
+      setItems([...items, newItem]);
+    }
 
     // Prefetch price history for this asset if available
     if (selectedItem.assetId) {
@@ -1133,7 +1211,7 @@ export default function TabbedDocumentCreator({
   // blank "Add Service" and the Revenue Master File picker (which also sets the
   // description / unit price / GL accountCode so the invoice self-codes).
   const makeServiceItem = (base: any = {}) => {
-    const newItem: any = { id: Date.now() + Math.floor(Math.random() * 1000), itemCode: "", inventoryItemId: "", description: "", quantity: 1, unitPrice: 0, amount: 0, isService: true, ...base };
+    const newItem: any = { id: Date.now() + Math.floor(Math.random() * 1000), itemCode: "", inventoryItemId: "", description: "", quantity: 1, unitPrice: 0, amount: 0, isService: true, revenueTag: "service", ...base };
     const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
     const isQuotationType = documentType === "QT" || documentType === "QUOTATION" || documentType === "QO" || documentType === "QO1" || documentType === "QO2";
     const isStockAdjType = documentType === "SAI" || documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_IN" || documentType === "STOCK_ADJUSTMENT_OUT";
@@ -1151,9 +1229,27 @@ export default function TabbedDocumentCreator({
     }
     return newItem;
   };
-  const addBlankServiceLine = () => setItems([...items, makeServiceItem()]);
+  const addBlankServiceLine = () => {
+    // Pencil edit + "blank" picked → keep the existing row as-is, just exit edit.
+    if (editingItemId != null) { setEditingItemId(null); return; }
+    setItems([...items, makeServiceItem()]);
+  };
   const addRevenueItemLine = (rev: any) => {
     const up = rev.unitPrice != null ? Number(rev.unitPrice) : 0;
+    if (editingItemId != null) {
+      setItems(items.map((it: any) => it.id === editingItemId ? {
+        ...it,
+        isService: rev.type === "SERVICE",
+        itemCode: rev.name || it.itemCode,
+        description: rev.name,
+        unitPrice: up,
+        amount: (Number(it.quantity) || 1) * up,
+        accountCode: rev.accountCode ?? null,
+        revenueTag: rev.type === "SERVICE" ? "service" : null,
+      } : it));
+      setEditingItemId(null);
+      return;
+    }
     setItems([...items, makeServiceItem({ description: rev.name, unitPrice: up, amount: up, accountCode: rev.accountCode, isService: rev.type === "SERVICE" })]);
   };
 
@@ -3413,7 +3509,7 @@ export default function TabbedDocumentCreator({
 
         {/* Main Content Area */}
         {!previewMode && !isDocumentConfirmed ? (
-          <Box sx={{ flex: 1, overflow: "auto", position: "relative", display: "flex", flexDirection: "column" }}>
+          <Box sx={{ flex: 1, overflow: "hidden", position: "relative", display: "flex", flexDirection: "column" }}>
             {/* Template Settings Toggle Button */}
             {isTemplateEditMode && (
               <IconButton
@@ -3435,7 +3531,7 @@ export default function TabbedDocumentCreator({
             <Box
               sx={{
                 display: "flex",
-                justifyContent: "flex-start",
+                justifyContent: "flex-end",
                 alignItems: "center",
                 gap: 4,
                 px: 2,
@@ -3542,23 +3638,8 @@ export default function TabbedDocumentCreator({
           {/* Dynamic Tabs based on template config */}
           {templateFieldConfig?.tabs.map((tab, index) => (
             <TabPanel key={tab.tabId} value={mainTabValue} index={index}>
-              <Card sx={{ flexShrink: 0 }}>
-                <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.25 }}>
-                    <Typography variant="body2" fontWeight={600}>
-                      {tab.tabLabel}
-                    </Typography>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={() => setIsFieldsCollapsed((prev) => !prev)}
-                      endIcon={isFieldsCollapsed ? <UnfoldMoreIcon /> : <UnfoldLessIcon />}
-                      sx={{ height: 24, py: 0, px: 1, minWidth: 0, fontSize: "0.75rem", textTransform: "none", lineHeight: 1 }}
-                    >
-                      {isFieldsCollapsed ? "Show fields" : "Hide fields"}
-                    </Button>
-                  </Box>
-                  <Divider sx={{ mb: 0.5 }} />
+              <Card ref={fieldsCardRef} sx={{ flexShrink: 0, maxHeight: 320, display: "flex", flexDirection: "column" }}>
+                <CardContent sx={{ p: 1, flex: 1, overflow: "auto", "&:last-child": { pb: 1 } }}>
                   <Collapse in={!isFieldsCollapsed} timeout="auto" unmountOnExit>
                   {/* CONTACT (documentInfo.contact) is filtered out of quotations
                       below — redundant: contact is handled via Customer Code →
@@ -4218,14 +4299,9 @@ export default function TabbedDocumentCreator({
           )}
 
           {/* ITEMS SECTION - Always visible */}
-          <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, display: "flex", flexDirection: "column" }}>
-            <Card sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
+          <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+            <Card sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
               <CardContent sx={{ p: 1, flex: 1, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>
-                <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25 }}>
-                  Items
-                </Typography>
-                <Divider />
-
                 {/* Items Sub-tabs */}
                 <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
                   <Tabs value={itemsTabValue} onChange={handleItemsTabChange} sx={{ minHeight: 32, "& .MuiTab-root": { minHeight: 32, py: 0 } }}>
@@ -4236,12 +4312,43 @@ export default function TabbedDocumentCreator({
 
                 {/* ITEMS DETAILS TAB */}
                 <TabPanel value={itemsTabValue} index={0}>
-                  <Box sx={{ display: "flex", flexDirection: "column", height: "calc(100vh - 520px)", minHeight: 200 }}>
-                    {/* Scrollable table area */}
-                    <Box sx={{ flex: 1, overflow: "auto", minHeight: 0, borderBottom: "1px solid", borderColor: "divider" }}>
-                      <TableContainer>
-                        <Table sx={{ tableLayout: 'fixed' }} stickyHeader>
-                        <TableHead>
+                  <Box ref={itemsBoxRef} sx={{ display: "flex", flexDirection: "column", height: "calc(100vh - 520px)", minHeight: 200 }}>
+                    {/* Scrollable table area — TableContainer itself scrolls so
+                        stickyHeader on the Table actually pins the column
+                        headers to the top of the scroll box on scroll. */}
+                    <Box sx={{ flex: 1, minHeight: 0, borderBottom: "1px solid", borderColor: "divider", display: "flex", flexDirection: "column" }}>
+                      <TableContainer sx={{ flex: 1, overflow: "auto" }}>
+                        <Table
+                          sx={{
+                            tableLayout: 'fixed',
+                            // Tighten body-cell padding so rows sit at ~36px like
+                            // Xero. The TableHead sx below still owns its own
+                            // typography rules; this rule only sets padding.
+                            "& .MuiTableBody-root .MuiTableCell-root": {
+                              paddingTop: "4px",
+                              paddingBottom: "4px",
+                              paddingLeft: "8px",
+                              paddingRight: "8px",
+                              verticalAlign: "middle",
+                            },
+                          }}
+                          stickyHeader
+                        >
+                        <TableHead
+                          sx={{
+                            "& .MuiTableCell-root": {
+                              fontFamily: "'Helvetica Neue', Arial, sans-serif",
+                              fontSize: "13px",
+                              fontWeight: 700,
+                              letterSpacing: 0,
+                              textTransform: "none",
+                              color: "text.primary",
+                              // Solid bg so scrolled rows don't bleed through
+                              // when stickyHeader pins the row to the top.
+                              backgroundColor: "background.paper",
+                            },
+                          }}
+                        >
                           <TableRow>
                             {isItemTaggingEnabled && !isTemplateEditMode && (
                               <TableCell sx={{ width: 40, p: 0 }} />
@@ -4315,7 +4422,7 @@ export default function TabbedDocumentCreator({
                                     columnId === "amount" ? "right" : "left"
                                   }
                                   sx={{
-                                    width: columnId === "description" ? "25%" :
+                                    width: columnId === "description" ? "18%" :
                                            columnId === "item" ? "12%" :
                                            columnId === "uom" ? "6%" :
                                            columnId === "quantity" ? "8%" :
@@ -4390,99 +4497,47 @@ export default function TabbedDocumentCreator({
                                   if (!isVisible) return null;
 
                                 if (columnId === "item") {
-                                  // Service items get a plain free-text "Item" field
-                                  if (item.isService) {
-                                    return (
-                                      <TableCell key={columnId}>
-                                        <TextField
-                                          fullWidth
-                                          size="small"
-                                          placeholder="Item name"
-                                          value={item.itemCode || ""}
-                                          onChange={(e) => updateItem(item.id, "itemCode", e.target.value)}
-                                          sx={{ minWidth: 120 }}
-                                        />
-                                      </TableCell>
-                                    );
-                                  }
-                                  // Product items keep the SKU autocomplete
+                                  // Read-only Product Code + an edit pencil. The inline
+                                  // SKU dropdown / free-text field is gone — the pencil
+                                  // reopens the Stock Card (stock lines) or the Service
+                                  // picker (service lines) to change/re-pick this row.
+                                  const isSvcRow = item.isService;
+                                  const rowCode = isSvcRow
+                                    ? (item.itemCode || "")
+                                    : (item.inventoryItemId
+                                        ? (inventoriesForDocument.find((i: any) => i.id === item.inventoryItemId)?.sku || item.itemCode || "")
+                                        : (item.itemCode || ""));
                                   return (
                                     <TableCell key={columnId}>
-                                      <Autocomplete
-                                        fullWidth
-                                        freeSolo
-                                        value={(() => {
-                                          if (item.inventoryItemId) {
-                                            const inv = inventoriesForDocument.find(i => i.id === item.inventoryItemId);
-                                            return inv ? inv.sku : item.itemCode || "";
-                                          }
-                                          return item.itemCode || "";
-                                        })()}
-                                        onChange={(event, newValue) => {
-                                          if (newValue === null || newValue === undefined) {
-                                            updateItem(item.id, "inventoryItemId", "");
-                                            updateItem(item.id, "itemCode", "");
-                                            return;
-                                          }
-
-                                          const selectedInventory = inventoriesForDocument.find(inv => inv.sku === newValue);
-
-                                          if (selectedInventory) {
-                                            updateItem(item.id, "inventoryItemId", selectedInventory.id);
-                                            updateItem(item.id, "itemCode", selectedInventory.sku);
-                                            updateItem(item.id, "description", selectedInventory.name || selectedInventory.asset?.name || selectedInventory.description || "");
-                                            // Purchase docs (PO + PR) default to cost price. `unitPrice` may already be
-                                            // flattened to selling price (Products mode), so check costPrice first.
-                                            const isPurePurchaseTypeRow =
-                                              documentType === "PO" || documentType === "PURCHASE_ORDER" ||
-                                              documentType === "PR" || documentType === "PURCHASE_RETURN";
-                                            const sellingFallback = selectedInventory.unitPrice ?? selectedInventory.asset?.price ?? 0;
-                                            const costCandidate = selectedInventory.costPrice ?? selectedInventory.asset?.costPrice ?? null;
-                                            let resolvedPrice = isPurePurchaseTypeRow
-                                              ? (costCandidate ?? sellingFallback ?? 0)
-                                              : (sellingFallback ?? 0);
-                                            if (!isPurePurchaseTypeRow && isAssetPointsEnabled) {
-                                              const pts = Number(selectedInventory.asset?.points || 0);
-                                              if (pts > 0) resolvedPrice = Math.max(0, Number(resolvedPrice) - pts);
-                                            }
-                                            updateItem(item.id, "unitPrice", resolvedPrice);
-                                            updateItem(item.id, "uom", selectedInventory.uom || selectedInventory.asset?.uom || "PCS");
-
-                                            if (selectedInventory.assetId) {
-                                              prefetchPriceHistory(selectedInventory.assetId);
-                                            }
-                                          } else {
-                                            updateItem(item.id, "inventoryItemId", "");
-                                            updateItem(item.id, "itemCode", newValue || "");
-                                          }
-                                        }}
-                                        options={inventoriesForDocument.map(inv => inv.sku)}
-                                        getOptionLabel={(option) => option || ""}
-                                        size="small"
-                                        sx={{ minWidth: 120 }}
-                                        renderInput={(params) => (
-                                          <TextField
-                                            {...params}
-                                            placeholder="Select or type SKU"
-                                            // OSI-13: nudge the user when the AI upload suggested
-                                            // in-stock units for this line but couldn't auto-link
-                                            // one (SKU/description match only ever suggests). The
-                                            // suggested SKUs are already in this picker's list.
-                                            helperText={
-                                              !item.inventoryItemId &&
-                                              Array.isArray(item.suggestedInventoryIds) &&
-                                              item.suggestedInventoryIds.length > 0
-                                                ? `${item.suggestedInventoryIds.length} suggested unit(s) — pick from list`
-                                                : undefined
-                                            }
-                                          />
-                                        )}
-                                      />
+                                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, minWidth: 120 }}>
+                                        <Typography variant="body2" sx={{ flex: 1, wordBreak: "break-word", color: rowCode ? "text.primary" : "text.disabled" }}>
+                                          {rowCode || "—"}
+                                        </Typography>
+                                        <Tooltip title={isSvcRow ? "Change service" : "Change item / stock"}>
+                                          <IconButton
+                                            size="small"
+                                            onClick={() => {
+                                              setEditingItemId(item.id);
+                                              if (isSvcRow) {
+                                                setRevenueItemPickerOpen(true);
+                                              } else {
+                                                setStockCardMode("add");
+                                                setStockCardDialogOpen(true);
+                                              }
+                                            }}
+                                          >
+                                            <EditIcon fontSize="small" />
+                                          </IconButton>
+                                        </Tooltip>
+                                      </Box>
+                                      {item.revenueTag && (
+                                        <Typography variant="caption" sx={{ display: "block", color: "text.secondary", mt: 0.25 }}>({item.revenueTag})</Typography>
+                                      )}
                                     </TableCell>
                                   );
                                 } else if (columnId === "description") {
                                   return (
-                                    <TableCell key={columnId} sx={{ verticalAlign: 'top', padding: '8px' }}>
+                                    <TableCell key={columnId} sx={{ verticalAlign: 'top', padding: '4px 8px' }}>
                                       <RichTextDescription
                                         value={item.description || ""}
                                         onChange={(html) => updateItem(item.id, "description", html)}
@@ -4875,52 +4930,55 @@ export default function TabbedDocumentCreator({
                         </TableBody>
                       </Table>
                       </TableContainer>
+                    </Box>
 
-                      {/* Add Item / Add Service / Tag Items buttons */}
-                      <Box sx={{ pt: 1, pl: 1, display: "flex", gap: 1 }}>
+                    {/* Sticky action row at the bottom — Add Item / Add Service
+                        sit outside the scroll container so they're always
+                        visible without scrolling to the end of the items list. */}
+                    <Box sx={{ pt: 1, pb: 0.5, pl: 1, display: "flex", gap: 1, flexShrink: 0 }}>
+                      <Button
+                        variant="contained"
+                        startIcon={<AddIcon />}
+                        onClick={() => {
+                          if (isFcuCuVariant) { addFcuCuRow(); return; }
+                          setStockCardMode("add");
+                          setStockCardDialogOpen(true);
+                        }}
+                        size="small"
+                      >
+                        {isFcuCuVariant ? "Add Row" : "Add Item"}
+                      </Button>
+                      {isItemTaggingEnabled && selectedItemIds.length > 0 && (
                         <Button
-                          variant="contained"
-                          startIcon={<AddIcon />}
+                          variant="outlined"
+                          color="success"
+                          startIcon={<PriceTagIcon />}
                           onClick={() => {
-                            if (isFcuCuVariant) { addFcuCuRow(); return; }
-                            // Products come from the Stock Card (Rental/Sales tabs
-                            // self-code the line + affect stock).
-                            setStockCardMode("add");
+                            setStockCardMode("tag");
                             setStockCardDialogOpen(true);
                           }}
                           size="small"
                         >
-                          {isFcuCuVariant ? "Add Row" : "Add Item"}
+                          Tag Items ({selectedItemIds.length})
                         </Button>
-                        {isItemTaggingEnabled && selectedItemIds.length > 0 && (
-                          <Button
-                            variant="outlined"
-                            color="success"
-                            startIcon={<PriceTagIcon />}
-                            onClick={() => {
-                              setStockCardMode("tag");
-                              setStockCardDialogOpen(true);
-                            }}
-                            size="small"
-                          >
-                            Tag Items ({selectedItemIds.length})
-                          </Button>
-                        )}
-                        {isServiceItemsEnabled && (
-                          <Button
-                            variant="outlined"
-                            startIcon={<AddIcon />}
-                            onClick={() => setRevenueItemPickerOpen(true)}
-                            size="small"
-                          >
-                            Add Service
-                          </Button>
-                        )}
-                      </Box>
+                      )}
+                      {isServiceItemsEnabled && (
+                        <Button
+                          variant="outlined"
+                          startIcon={<AddIcon />}
+                          onClick={() => setRevenueItemPickerOpen(true)}
+                          size="small"
+                        >
+                          Add Service
+                        </Button>
+                      )}
                     </Box>
 
-                    {/* Fixed bottom section with Totals */}
-                    <Box sx={{ flexShrink: 0, pt: 1 }}>
+                    {/* Fixed bottom section with Totals — hidden, totals already
+                        surfaced in the General fields' right column. Kept as a
+                        no-op so the JSX/expression scopes below are preserved. */}
+                    {false && (
+                      <Box sx={{ flexShrink: 0, pt: 1 }}>
                       <Box sx={{ display: "flex", justifyContent: "flex-end", alignItems: "flex-start" }}>
                         {/* Totals */}
                         <Card sx={{ minWidth: 250, bgcolor: "surfaceTones.low" }}>
@@ -5119,6 +5177,7 @@ export default function TabbedDocumentCreator({
                         </Card>
                       </Box>
                     </Box>
+                    )}
                   </Box>
                 </TabPanel>
 
@@ -5713,6 +5772,7 @@ export default function TabbedDocumentCreator({
         onClose={() => {
           setStockCardDialogOpen(false);
           setStockCardMode("add");
+          setEditingItemId(null);
         }}
         onSelectItem={(picked: any) => {
           if (stockCardMode === "tag") {
@@ -5769,7 +5829,7 @@ export default function TabbedDocumentCreator({
       {/* Service master-file picker — "Add Service" self-codes the line (services only) */}
       <RevenueItemPickerDialog
         open={revenueItemPickerOpen}
-        onClose={() => setRevenueItemPickerOpen(false)}
+        onClose={() => { setRevenueItemPickerOpen(false); setEditingItemId(null); }}
         onSelect={addRevenueItemLine}
         onBlank={addBlankServiceLine}
         typeFilter="SERVICE"

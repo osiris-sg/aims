@@ -217,7 +217,7 @@ function CustomerCodeField({
         }}
         onKeyDown={handleKeyDown}
         size="small"
-        sx={{ ...inputSx, width: 100, minWidth: 80 }}
+        sx={{ ...inputSx, flex: 1, minWidth: 80 }}
         InputProps={{
           startAdornment: (
             <InputAdornment position="start" sx={{ mr: 0 }}>
@@ -233,20 +233,6 @@ function CustomerCodeField({
           ),
         }}
       />
-      {selectedCustomer?.name && (
-        <Typography
-          sx={{
-            fontSize: '0.75rem',
-            fontWeight: 400,
-            color: 'text.secondary',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          {selectedCustomer.name}
-        </Typography>
-      )}
       {/* Points-of-Contact ("Attn To") dropdown + inline "+ Add contact".
           Picking or creating a POC fills documentInfo.contact (name - phone)
           AND the attention.{name,phoneNumber,email} header/footer fields. The
@@ -270,14 +256,14 @@ function CustomerCodeField({
                   if (!poc) return;
                   fillAttentionFromPoc(poc);
                 }}
-                sx={{ ...inputSx, fontSize: '0.75rem' }}
+                sx={{ ...inputSx, fontSize: '13px' }}
                 renderValue={(val) => {
                   const poc = effectiveContacts.find((c: any) => c.id === val);
                   return poc ? poc.name : <span style={{ color: '#9e9e9e' }}>Attn To…</span>;
                 }}
               >
                 {effectiveContacts.map((c: any) => (
-                  <MenuItem key={c.id} value={c.id} sx={{ fontSize: '0.8rem' }}>
+                  <MenuItem key={c.id} value={c.id} sx={{ fontSize: '13px' }}>
                     {c.name}
                     {c.designation ? ` — ${c.designation}` : ''}
                     {c.phone ? ` (${c.phone})` : ''}
@@ -460,7 +446,7 @@ function SalesmanCodeField({ salesmen, formData, setFormData, onOpenDialog, inpu
         }}
         onKeyDown={handleKeyDown}
         size="small"
-        sx={{ ...inputSx, width: 80, minWidth: 60 }}
+        sx={{ ...inputSx, flex: 1, minWidth: 60 }}
         InputProps={{
           startAdornment: (
             <InputAdornment position="start" sx={{ mr: 0 }}>
@@ -476,20 +462,6 @@ function SalesmanCodeField({ salesmen, formData, setFormData, onOpenDialog, inpu
           ),
         }}
       />
-      {selectedSalesman?.name && (
-        <Typography
-          sx={{
-            fontSize: '0.75rem',
-            fontWeight: 400,
-            color: 'text.secondary',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          {selectedSalesman.name}
-        </Typography>
-      )}
     </Box>
   );
 }
@@ -528,16 +500,29 @@ const YES_NO = [
 ];
 
 // Compact input styles - blend into the row, subtle focus state
+const fieldFontFamily = "'Helvetica Neue', Arial, sans-serif";
+
 const inputSx = {
   '& .MuiInputBase-root': {
     height: 28,
-    fontSize: '0.75rem',
+    fontSize: '13px',
+    fontFamily: fieldFontFamily,
     backgroundColor: 'background.paper',
-    borderRadius: 0,
-    transition: 'background-color 140ms ease',
+    borderRadius: '4px',
+    border: '1px solid',
+    borderColor: 'text.primary',
+    transition: 'border-color 140ms ease',
+  },
+  '& .MuiInputBase-root:hover': {
+    borderColor: 'text.primary',
   },
   '& .MuiInputBase-root.Mui-focused': {
-    backgroundColor: 'surfaceTones.low',
+    borderColor: 'primary.main',
+  },
+  '& .MuiInputBase-input': {
+    fontSize: '13px',
+    fontFamily: fieldFontFamily,
+    padding: '4px 8px',
   },
   '& .MuiOutlinedInput-notchedOutline': {
     border: 'none',
@@ -550,11 +535,23 @@ const inputSx = {
 
 const selectSx = {
   height: 28,
-  fontSize: '0.75rem',
+  fontSize: '13px',
+  fontFamily: fieldFontFamily,
   backgroundColor: 'background.paper',
-  borderRadius: 0,
+  borderRadius: '4px',
+  border: '1px solid',
+  borderColor: 'text.primary',
+  transition: 'border-color 140ms ease',
+  '&:hover': { borderColor: 'text.primary' },
+  '&.Mui-focused': { borderColor: 'primary.main' },
   '& .MuiSelect-select': {
     py: 0.25,
+    fontSize: '13px',
+    fontFamily: fieldFontFamily,
+  },
+  '& .MuiInputBase-input': {
+    fontSize: '13px',
+    fontFamily: fieldFontFamily,
   },
   '& .MuiOutlinedInput-notchedOutline': {
     border: 'none',
@@ -664,7 +661,7 @@ export default function DynamicFormFields({
         }
 
         return (
-          <FormControl size="small" sx={{ minWidth: field.dataSource === 'yesNo' ? 50 : 150 }}>
+          <FormControl size="small" sx={{ flex: 1, minWidth: field.dataSource === 'yesNo' ? 50 : 150 }}>
             <Select
               value={value}
               onChange={(e) => setFormData(setNestedValue(formData, field.fieldName, e.target.value))}
@@ -673,19 +670,19 @@ export default function DynamicFormFields({
             >
               {staticOptions || field.dataSource === 'currencies' || field.dataSource === 'yesNo' ? (
                 options.map((opt) => (
-                  <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: '0.8rem' }}>
+                  <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: '13px' }}>
                     {opt.label}
                   </MenuItem>
                 ))
               ) : field.dataSource === 'deliveryOrders' ? (
                 options.map((order) => (
-                  <MenuItem key={order.id} value={order.doNo} sx={{ fontSize: '0.8rem' }}>
+                  <MenuItem key={order.id} value={order.doNo} sx={{ fontSize: '13px' }}>
                     {order.doNo}
                   </MenuItem>
                 ))
               ) : (
                 options.map((option) => (
-                  <MenuItem key={option.id} value={option.id} sx={{ fontSize: '0.8rem' }}>
+                  <MenuItem key={option.id} value={option.id} sx={{ fontSize: '13px' }}>
                     {option.name}
                   </MenuItem>
                 ))
@@ -703,11 +700,20 @@ export default function DynamicFormFields({
             multiline
             rows={2}
             sx={{
+              ...inputSx,
               flex: 1,
+              width: '100%',
               minWidth: 200,
               '& .MuiInputBase-root': {
-                fontSize: '0.8rem',
+                // Reset the fixed 28px height from inputSx — textareas need to
+                // grow with the `rows` prop instead of being clipped.
+                height: 'auto',
+                fontSize: '13px',
+                fontFamily: fieldFontFamily,
                 backgroundColor: 'background.paper',
+                borderRadius: '4px',
+                border: '1px solid',
+                borderColor: 'text.primary',
               },
             }}
           />
@@ -720,7 +726,7 @@ export default function DynamicFormFields({
             value={value ? new Date(value).toISOString().split('T')[0] : ''}
             onChange={(e) => setFormData(setNestedValue(formData, field.fieldName, e.target.value))}
             size="small"
-            sx={{ ...inputSx, minWidth: 130 }}
+            sx={{ ...inputSx, flex: 1, minWidth: 130 }}
           />
         );
 
@@ -731,7 +737,7 @@ export default function DynamicFormFields({
             value={value}
             onChange={(e) => setFormData(setNestedValue(formData, field.fieldName, parseFloat(e.target.value) || 0))}
             size="small"
-            sx={{ ...inputSx, minWidth: 100 }}
+            sx={{ ...inputSx, flex: 1, minWidth: 100 }}
           />
         );
 
@@ -762,13 +768,15 @@ export default function DynamicFormFields({
     >
       <Typography
         sx={{
-          width: 110,
+          width: 150,
           flexShrink: 0,
-          fontSize: '0.6875rem',
-          fontWeight: 600,
-          letterSpacing: '0.04em',
-          textTransform: 'uppercase',
-          color: 'text.secondary',
+          whiteSpace: 'nowrap',
+          fontSize: '13px',
+          fontWeight: 700,
+          fontFamily: fieldFontFamily,
+          letterSpacing: 0,
+          textTransform: 'none',
+          color: 'text.primary',
           py: 0.75,
           px: 1.25,
           bgcolor: 'surfaceTones.low',
@@ -796,13 +804,15 @@ export default function DynamicFormFields({
   };
 
   const rightLabelSx = {
-    width: 78,
+    width: 110,
     flexShrink: 0,
-    fontSize: '0.6875rem',
-    fontWeight: 600,
-    letterSpacing: '0.04em',
-    textTransform: 'uppercase' as const,
-    color: 'text.secondary',
+    whiteSpace: 'nowrap' as const,
+    fontSize: '13px',
+    fontWeight: 700,
+    fontFamily: fieldFontFamily,
+    letterSpacing: 0,
+    textTransform: 'none' as const,
+    color: 'text.primary',
     textAlign: 'right' as const,
     py: 0.75,
     px: 1.25,
@@ -822,15 +832,15 @@ export default function DynamicFormFields({
           <Typography sx={rightLabelSx}>Tax</Typography>
           <FormControl size="small" sx={{ width: 56 }}>
             <Select value={value} onChange={(e) => setFormData(setNestedValue(formData, field.fieldName, e.target.value))} sx={selectSx}>
-              <MenuItem value="Y" sx={{ fontSize: '0.75rem' }}>Y</MenuItem>
-              <MenuItem value="N" sx={{ fontSize: '0.75rem' }}>N</MenuItem>
+              <MenuItem value="Y" sx={{ fontSize: '13px' }}>Y</MenuItem>
+              <MenuItem value="N" sx={{ fontSize: '13px' }}>N</MenuItem>
             </Select>
           </FormControl>
-          <Typography sx={{ fontSize: '0.75rem', fontWeight: 500, px: 0.5 }}>Absorb Tax</Typography>
+          <Typography sx={{ fontSize: '13px', fontWeight: 500, px: 0.5 }}>Absorb Tax</Typography>
           <FormControl size="small" sx={{ width: 56 }}>
             <Select value={absorbTaxValue} onChange={(e) => setFormData(setNestedValue(formData, 'documentInfo.absorbTax', e.target.value))} sx={selectSx}>
-              <MenuItem value="Y" sx={{ fontSize: '0.75rem' }}>Y</MenuItem>
-              <MenuItem value="N" sx={{ fontSize: '0.75rem' }}>N</MenuItem>
+              <MenuItem value="Y" sx={{ fontSize: '13px' }}>Y</MenuItem>
+              <MenuItem value="N" sx={{ fontSize: '13px' }}>N</MenuItem>
             </Select>
           </FormControl>
         </Box>
@@ -857,8 +867,8 @@ export default function DynamicFormFields({
               onChange={(e) => setFormData(setNestedValue(formData, 'documentInfo.discountType', e.target.value))}
               sx={selectSx}
             >
-              <MenuItem value="percent" sx={{ fontSize: '0.75rem' }}>%</MenuItem>
-              <MenuItem value="amount" sx={{ fontSize: '0.75rem' }}>$</MenuItem>
+              <MenuItem value="percent" sx={{ fontSize: '13px' }}>%</MenuItem>
+              <MenuItem value="amount" sx={{ fontSize: '13px' }}>$</MenuItem>
             </Select>
           </FormControl>
           <TextField
@@ -868,10 +878,10 @@ export default function DynamicFormFields({
             size="small"
             sx={{ ...inputSx, width: 64 }}
           />
-          <Typography sx={{ flex: 1, textAlign: 'right', fontSize: '0.75rem', px: 1 }}>
+          <Typography sx={{ flex: 1, textAlign: 'right', fontSize: '13px', px: 1 }}>
             {Number(discAmount).toFixed(2)}
           </Typography>
-          <Typography sx={{ fontSize: '0.75rem', color: 'text.secondary', pr: 1 }}>{currency}</Typography>
+          <Typography sx={{ fontSize: '13px', color: 'text.secondary', pr: 1 }}>{currency}</Typography>
         </Box>
       );
     }
@@ -892,10 +902,10 @@ export default function DynamicFormFields({
             size="small"
             sx={{ ...inputSx, width: 64 }}
           />
-          <Typography sx={{ flex: 1, textAlign: 'right', fontSize: '0.75rem', px: 1 }}>
+          <Typography sx={{ flex: 1, textAlign: 'right', fontSize: '13px', px: 1 }}>
             {Number(gstAmount).toFixed(2)}
           </Typography>
-          <Typography sx={{ fontSize: '0.75rem', color: 'text.secondary', pr: 1 }}>{currency}</Typography>
+          <Typography sx={{ fontSize: '13px', color: 'text.secondary', pr: 1 }}>{currency}</Typography>
         </Box>
       );
     }
@@ -916,14 +926,20 @@ export default function DynamicFormFields({
             sx={{ ...inputSx, width: 80 }}
           />
         ) : (
-          <Typography sx={{ flex: 1, textAlign: 'right', fontSize: '0.75rem', px: 1 }}>
+          <Typography sx={{ flex: 1, textAlign: 'right', fontSize: '13px', px: 1 }}>
             {Number(value).toFixed(2)}
           </Typography>
         )}
-        <Typography sx={{ fontSize: '0.75rem', color: 'text.secondary', pr: 1 }}>{currency}</Typography>
+        <Typography sx={{ fontSize: '13px', color: 'text.secondary', pr: 1 }}>{currency}</Typography>
       </Box>
     );
   };
+
+  // Multi-line / long-text fields need the full row width — everything else
+  // packs into a 2-column grid so the header takes roughly half the height.
+  const isFullWidthField = (field: FieldDefinition) => field.fieldType === 'textarea';
+  const gridFields = leftFields.filter((f) => !isFullWidthField(f));
+  const fullWidthFields = leftFields.filter(isFullWidthField);
 
   return (
     <Box sx={{ display: 'flex', gap: 2 }}>
@@ -936,12 +952,18 @@ export default function DynamicFormFields({
           borderRadius: 1.25,
           overflow: 'hidden',
           bgcolor: 'background.paper',
-          '& > :last-child': {
-            borderBottom: 'none',
-          },
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+          columnGap: 0,
+          rowGap: 0,
         }}
       >
-        {leftFields.map((field) => renderRow(field))}
+        {gridFields.map((field) => renderRow(field))}
+        {fullWidthFields.map((field) => (
+          <Box key={`fw-${field.fieldName}`} sx={{ gridColumn: { xs: '1', md: 'span 2' } }}>
+            {renderRow(field)}
+          </Box>
+        ))}
       </Box>
 
       {/* Right Column - Summary/Totals */}
