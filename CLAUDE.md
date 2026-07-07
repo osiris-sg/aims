@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a monorepo containing an Asset and Inventory Management System (AIMS) with two main applications:
 
+**Branch topology:** `main` = production (auto-deploys: backend → Render, portal → Vercel `www.ai-ms.io`). `elroy/dev` = staging/work branch (Vercel previews served at `aims-mocha.vercel.app`). The old `yx/dev` was renamed to `main` 2026-07-08; `master` is a stale pre-2026 branch — never target it.
+
 - **api-server-production/**: NestJS backend API server with PostgreSQL/Prisma
 - **portal-production/**: Next.js frontend portal with Redux and Material-UI
 
