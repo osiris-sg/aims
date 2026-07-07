@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
@@ -31,7 +31,7 @@ import { Button } from "@mui/material";
 import moment from "moment";
 import { toast } from "react-toastify";
 import DocumentUploadDialog from "./DocumentUploadDialog";
-import { useDeleteDocument, useGetCustomers } from "@/app/portal/hooks/api";
+import { useDeleteDocument, useGetCustomers, useGetDocumentsPaginated, useGetDocumentStats } from "@/app/portal/hooks/api";
 import type { FilterField } from "@/components/FilterDrawer";
 
 // Document statuses (NOT the legacy inventory statuses the old `availableFilters`
@@ -48,6 +48,7 @@ const DOC_STATUS_OPTIONS = [
   { value: "returned", label: "Returned" },
 ];
 import { useTemplatePicker } from "./useTemplatePicker";
+import { useNumberFormatPicker } from "./useNumberFormatPicker";
 
 interface Props {
   documentTypes: string[];
@@ -164,13 +165,13 @@ export default function DocumentListView({
   const { getToken } = useAuth();
   const { organization } = useOrganization();
   const { resolveTemplate, dialog: templatePickerDialog } = useTemplatePicker();
+  const { resolveNumberFormat, dialog: numberFormatPickerDialog } = useNumberFormatPicker();
 
-  const [docs, setDocs] = useState<DocumentRow[]>([]);
-  const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
+  const [sorting, setSorting] = useState<any[]>([]);
   const [filters, setFilters] = useState<any>({
     status: "",
     customerId: "",
@@ -179,11 +180,6 @@ export default function DocumentListView({
 
   // Customers for the Customer filter dropdown (stable, unfiltered options).
   const { customers: filterCustomers = [] } = useGetCustomers({ limit: 1000 });
-  const customerNameById = useMemo(() => {
-    const m = new Map<string, string>();
-    (filterCustomers || []).forEach((c: any) => m.set(c.id, c.name));
-    return m;
-  }, [filterCustomers]);
   const filterConfig: FilterField[] = useMemo(
     () => [
       { type: "dateRange", key: "createdOn", label: "Created On" },
@@ -192,6 +188,30 @@ export default function DocumentListView({
     ],
     [filterCustomers],
   );
+
+  // Column-header sort → server sort field (name/status/createdAt only; the
+  // JSON-derived Customer/Item columns aren't server-sortable, so their sort is
+  // disabled in the column defs below).
+  const sortColMap: Record<string, string> = { name: "name", status: "status", createdAt: "createdAt" };
+  const sortState = sorting[0];
+  const sortBy = sortState ? sortColMap[sortState.id] : undefined;
+  const sortDir = sortState ? (sortState.desc ? "desc" : "asc") : undefined;
+
+  // Server-side paginated list for this document-type set (fetches one page).
+  const { docs, total, totalPages, isFetching, refetch } = useGetDocumentsPaginated({
+    documentTypes,
+    page,
+    limit,
+    search,
+    status: filters.status || undefined,
+    customerId: filters.customerId || undefined,
+    createdOn: filters.createdOn,
+    sortBy,
+    sortDir: sortDir as any,
+  });
+
+  // Stat-card counts across the full type set (independent of the filters).
+  const { stats, isLoading: statsLoading, refetch: refetchStats } = useGetDocumentStats(documentTypes);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [docToDelete, setDocToDelete] = useState<DocumentRow | null>(null);
 
@@ -203,52 +223,26 @@ export default function DocumentListView({
       await deleteDocumentMutation.mutateAsync(docToDelete.id);
       toast.success(`${documentLabel} deleted`);
       setDocToDelete(null);
-      fetchDocs();
+      refetch();
+      refetchStats();
     } catch (err: any) {
       console.error("Delete document failed:", err);
       toast.error(err?.message || `Failed to delete ${documentLabel}`);
     }
   };
 
-  const fetchDocs = useCallback(async () => {
-    if (!organization?.id) return;
-    setLoading(true);
-    try {
-      const token = await getToken();
-      const response = await request(
-        { path: "/documents", method: "POST" },
-        { organizationId: organization.id },
-        token ?? undefined
-      );
-      if (response?.success && Array.isArray(response.data)) {
-        const filtered = response.data
-          .filter((d: any) => documentTypes.includes(d.documentType))
-          .sort(
-            (a: any, b: any) =>
-              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          );
-        setDocs(filtered);
-      } else {
-        setDocs([]);
-      }
-    } catch (err) {
-      console.error("DocumentListView fetch error:", err);
-      toast.error(`Failed to load ${pluralLabel || documentLabel}`);
-    } finally {
-      setLoading(false);
-    }
-  }, [organization?.id, getToken, documentTypes, documentLabel, pluralLabel]);
-
-  useEffect(() => {
-    fetchDocs();
-  }, [fetchDocs]);
-
   const handleCreate = async () => {
     if (!organization?.id || !createDocumentType || creating) return;
     setCreating(true);
     try {
       const token = await getToken();
-      // Resolve the template via the shared picker: 1 active → straight through,
+      // Step 1 — number format: 0 → legacy, 1 → auto, >1 → popup. null = cancelled.
+      const nf = await resolveNumberFormat(createDocumentType);
+      if (nf === null) {
+        return;
+      }
+      const numberFormatId = nf || undefined;
+      // Step 2 — template via the shared picker: 1 active → straight through,
       // >1 → popup, 0 → single-resolve fallback. null = no template OR the user
       // cancelled the popup → abort without creating anything.
       const templateId = await resolveTemplate(createDocumentType);
@@ -259,7 +253,7 @@ export default function DocumentListView({
         { path: "/documents/basic", method: "POST" },
         {
           type: createDocumentType,
-          config: {},
+          config: { ...(numberFormatId ? { numberFormatId } : {}) },
           documentTemplateId: templateId,
           organizationId: organization.id,
         },
@@ -278,56 +272,10 @@ export default function DocumentListView({
     }
   };
 
-  // Client-side filter: search + status + createdOn range. /documents returns
-  // all docs for the org so filtering here is cheap and avoids per-keystroke
-  // round-trips. Stat cards keep using the unfiltered totals.
-  const filteredDocs = useMemo(() => {
-    const term = (search || "").trim().toLowerCase();
-    const statusFilter = (filters?.status || "").trim();
-    const startDate = filters?.createdOn?.startDate ? new Date(filters.createdOn.startDate) : null;
-    const endDate = filters?.createdOn?.endDate ? new Date(filters.createdOn.endDate) : null;
-    if (endDate) endDate.setHours(23, 59, 59, 999);
-
-    const customerFilter = (filters?.customerId || "").trim();
-    const selectedCustomerName = customerFilter ? customerNameById.get(customerFilter) : "";
-
-    return docs.filter((d) => {
-      if (statusFilter && (d.status || "").toLowerCase() !== statusFilter.toLowerCase()) return false;
-      if (customerFilter) {
-        // Docs carry the customer NAME (associated_customer), rarely an id.
-        const docCustId = (d as any).customerId || (d as any).customer?.id;
-        const docCustName = (d as any).associated_customer || (d as any).customer?.name;
-        if (!((docCustId && docCustId === customerFilter) || (!!selectedCustomerName && docCustName === selectedCustomerName))) return false;
-      }
-      if (startDate && new Date(d.createdAt) < startDate) return false;
-      if (endDate && new Date(d.createdAt) > endDate) return false;
-      if (term) {
-        const haystack = [
-          d.name,
-          d.associated_customer,
-          d.associated_item,
-          d.status,
-          d.documentType,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        if (!haystack.includes(term)) return false;
-      }
-      return true;
-    });
-  }, [docs, search, filters, customerNameById]);
-
-  const stats = React.useMemo(() => {
-    const monthStart = moment().startOf("month");
-    let thisMonth = 0;
-    let drafts = 0;
-    docs.forEach((d) => {
-      if (moment(d.createdAt).isSameOrAfter(monthStart)) thisMonth += 1;
-      if ((d.status || "draft") === "draft") drafts += 1;
-    });
-    return { total: docs.length, thisMonth, drafts };
-  }, [docs]);
+  // Filtering, sorting, and paging all happen server-side now (see the hooks
+  // above). Reset to page 1 whenever the query changes so we don't land on an
+  // out-of-range page.
+  useEffect(() => { setPage(1); }, [search, filters, sorting, limit]);
 
   const columns = [
     {
@@ -338,11 +286,13 @@ export default function DocumentListView({
     {
       accessorKey: "associated_customer",
       header: "Customer",
+      enableSorting: false, // JSON-derived (config), not server-sortable
       cell: ({ row }: any) => row.original.associated_customer || "—",
     },
     {
       accessorKey: "associated_item",
       header: "Item",
+      enableSorting: false, // JSON-derived (config), not server-sortable
       cell: ({ row }: any) => row.original.associated_item || "—",
     },
     {
@@ -421,14 +371,17 @@ export default function DocumentListView({
     <MainCard>
       <PageTable
         columns={columns}
-        data={filteredDocs}
+        data={docs}
+        manualSorting
+        sorting={sorting}
+        onSortingChange={setSorting}
         tableName={`${pluralLabel || documentLabel + "s"} List`}
         subTitle={`All ${pluralLabel || documentLabel + "s"} for this organization`}
         buttonName={createDocumentType ? `Create ${documentLabel}` : undefined}
         onAddClick={createDocumentType ? handleCreate : undefined}
         buttonDisabled={creating}
         actionButtons={uploadButton ? [uploadButton] : undefined}
-        loading={loading || creating}
+        loading={isFetching || creating}
         page={page}
         limit={limit}
         search={search}
@@ -438,8 +391,8 @@ export default function DocumentListView({
         setSearch={setSearch}
         setFilters={handleSetFilters}
         filterConfig={filterConfig}
-        pageCount={1}
-        totalDocs={filteredDocs.length}
+        pageCount={totalPages}
+        totalDocs={total}
         headerContent={
           <Box sx={{ mb: 3 }}>
             <Grid container spacing={2}>
@@ -450,7 +403,7 @@ export default function DocumentListView({
                   icon={<DescriptionOutlinedIcon />}
                   color="primary.main"
                   bgColor="surfaceTones.high"
-                  loading={loading}
+                  loading={statsLoading}
                 />
               </Grid>
               <Grid item xs={12} sm={4}>
@@ -460,7 +413,7 @@ export default function DocumentListView({
                   icon={<CalendarMonthOutlinedIcon />}
                   color="success.main"
                   bgColor="success.light"
-                  loading={loading}
+                  loading={statsLoading}
                 />
               </Grid>
               <Grid item xs={12} sm={4}>
@@ -470,7 +423,7 @@ export default function DocumentListView({
                   icon={<DraftsOutlinedIcon />}
                   color="customYellow.dark"
                   bgColor="customYellow.light"
-                  loading={loading}
+                  loading={statsLoading}
                 />
               </Grid>
             </Grid>
@@ -508,6 +461,7 @@ export default function DocumentListView({
         </DialogActions>
       </Dialog>
 
+      {numberFormatPickerDialog}
       {templatePickerDialog}
     </MainCard>
   );

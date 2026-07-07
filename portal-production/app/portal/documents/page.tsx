@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import { useGetDocuments, useDeleteDocument } from "@/app/portal/hooks/api";
+import React, { useEffect, useMemo, useState } from "react";
+import { useGetDocumentsPaginated, useDeleteDocument } from "@/app/portal/hooks/api";
 import { useGetCustomers } from "@/app/portal/hooks/api/useCustomers";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
@@ -73,11 +73,6 @@ const DOCUMENT_TYPE_ALIASES: Record<string, string> = {
   TI: "INVOICE", TI2: "INVOICE", INVOICE: "INVOICE",
   CN: "CREDIT_NOTE", DN: "DEBIT_NOTE", SAI: "STOCK_ADJUSTMENT_IN", SAO: "STOCK_ADJUSTMENT_OUT", BILL: "BILL",
 };
-const canonDocType = (t: any) => {
-  const key = String(t || "").toUpperCase();
-  return DOCUMENT_TYPE_ALIASES[key] || key;
-};
-
 export default function DocumentsPage() {
   const router = useRouter();
   const [page, setPage] = useState(1);
@@ -95,58 +90,41 @@ export default function DocumentsPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [documentToDelete, setDocumentToDelete] = useState<Document | null>(null);
 
-  // Fetch documents with new hook
-  const { documents = [], isLoading, error, refetch } = useGetDocuments();
-
   // Customers for the Customer filter dropdown
   const { customers = [] } = useGetCustomers({ limit: 1000 });
 
-  // Filter out INVOICE type documents (they have their own page) AND apply
-  // the user's search + status + documentType + customer + createdOn filters.
-  const filteredDocuments = useMemo(() => {
-    const term = (search || "").trim().toLowerCase();
-    const statusFilter = (filters?.status || "").trim();
-    const typeFilter = (filters?.documentType || "").trim();
-    const customerFilter = (filters?.customerId || "").trim();
-    const startDate = filters?.createdOn?.startDate ? new Date(filters.createdOn.startDate) : null;
-    const endDate = filters?.createdOn?.endDate ? new Date(filters.createdOn.endDate) : null;
-    if (endDate) endDate.setHours(23, 59, 59, 999);
+  // Column-header sort → server sort field. Only real DB columns are
+  // server-sortable (name/createdAt/status); the JSON-derived Item/Customer
+  // columns have sorting disabled in the column defs below.
+  const [sorting, setSorting] = useState<any[]>([]);
+  const sortColMap: Record<string, string> = { name: "name", createdAt: "createdAt", status: "status" };
+  const sort = sorting[0];
+  const sortBy = sort ? sortColMap[sort.id] : undefined;
+  const sortDir = sort ? (sort.desc ? "desc" : "asc") : undefined;
 
-    const customerNameById = new Map<string, string>();
-    (customers || []).forEach((c: any) => customerNameById.set(c.id, c.name));
-    const selectedCustomerName = customerFilter ? customerNameById.get(customerFilter) : "";
+  // Canonical documentType filter → the stored variant codes for that type.
+  const variantsFor = (canonical: string): string[] => {
+    const codes = Object.keys(DOCUMENT_TYPE_ALIASES).filter((code) => DOCUMENT_TYPE_ALIASES[code] === canonical);
+    return codes.length ? codes : [canonical];
+  };
+  const typeFilter = (filters.documentType || "").trim();
 
-    return (documents || []).filter((doc: any) => {
-      if (doc.documentType === "INVOICE") return false;
-      if (statusFilter && (doc.status || "").toLowerCase() !== statusFilter.toLowerCase()) return false;
-      if (typeFilter && canonDocType(doc.documentType) !== canonDocType(typeFilter)) return false;
-      if (customerFilter) {
-        // documents API returns associated_customer as a string label, not an id.
-        // Fall back to comparing on customerId if present.
-        const docCustomerId = doc.customerId || doc.customer?.id;
-        const docCustomerName = doc.associated_customer || doc.customer?.name;
-        const matchesById = docCustomerId && docCustomerId === customerFilter;
-        const matchesByName = selectedCustomerName && docCustomerName === selectedCustomerName;
-        if (!matchesById && !matchesByName) return false;
-      }
-      if (startDate && new Date(doc.createdAt) < startDate) return false;
-      if (endDate && new Date(doc.createdAt) > endDate) return false;
-      if (term) {
-        const haystack = [
-          doc.name,
-          doc.associated_item,
-          doc.associated_customer,
-          doc.documentType,
-          doc.status,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        if (!haystack.includes(term)) return false;
-      }
-      return true;
-    });
-  }, [documents, customers, search, filters]);
+  // Reset to page 1 whenever the query (search/filters/sort) changes.
+  useEffect(() => { setPage(1); }, [search, filters, sortBy, sortDir]);
+
+  // Server-side paginated + filtered + sorted list. Invoices are always excluded
+  // (own page); if a type is picked, restrict to that type's variant codes.
+  const { docs, total, totalPages, isLoading, error, refetch } = useGetDocumentsPaginated({
+    page,
+    limit,
+    search,
+    status: filters.status || undefined,
+    customerId: filters.customerId || undefined,
+    createdOn: filters.createdOn,
+    sortBy,
+    sortDir: sortDir as any,
+    ...(typeFilter ? { documentTypes: variantsFor(typeFilter) } : { excludeTypes: variantsFor("INVOICE") }),
+  });
 
   const filterConfig: FilterField[] = useMemo(
     () => [
@@ -174,10 +152,12 @@ export default function DocumentsPage() {
     {
       accessorKey: "associated_item",
       header: "Associated Item",
+      enableSorting: false, // JSON-derived (config), not server-sortable
     },
     {
       accessorKey: "associated_customer",
       header: "Associated Customer",
+      enableSorting: false, // JSON-derived (config), not server-sortable
     },
     {
       accessorKey: "createdAt",
@@ -338,7 +318,7 @@ export default function DocumentsPage() {
       )}
       <PageTable
         columns={columns}
-        data={filteredDocuments}
+        data={docs}
         tableName="Document List"
         subTitle="Document Detail Information"
         buttonName="Create Document"
@@ -353,8 +333,11 @@ export default function DocumentsPage() {
         setSearch={setSearch}
         setFilters={handleSetFilters}
         filterConfig={filterConfig}
-        pageCount={Math.ceil(filteredDocuments.length / limit)}
-        totalDocs={filteredDocuments.length}
+        pageCount={totalPages}
+        totalDocs={total}
+        manualSorting
+        sorting={sorting}
+        onSortingChange={setSorting}
       />
 
       {/* Delete Confirmation Dialog */}

@@ -14,6 +14,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useForm, Controller } from "react-hook-form";
+import DocumentNumberFormatsManager from "./DocumentNumberFormatsManager";
 
 type SettingsForm = {
   baseCurrency: string;
@@ -158,36 +159,9 @@ export default function DefaultSettingsTab({ settings, loading, onSave }: Props)
           </Grid2>
         </Grid2>
 
-        <Typography variant="subtitle2" sx={{ mt: 3, mb: 1, fontWeight: 600 }}>
-          Document number sequences
-        </Typography>
-        <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mb: 2 }}>
-          The prefix is prepended to each generated number. "Next number" is the counter used for the next document of that type.
-        </Typography>
-
-        <Grid2 container spacing={1.5}>
-          {DOC_TYPES.map((d) => (
-            <Grid2 key={d.key} size={{ xs: 12, md: 6 }}>
-              <Stack direction="row" gap={1} alignItems="center">
-                <Typography sx={{ width: 180, fontSize: 14 }}>{d.label}</Typography>
-                <TextField
-                  size="small"
-                  label="Prefix"
-                  placeholder={d.defaultPrefix}
-                  sx={{ width: 110 }}
-                  {...register(`numberPrefixes.${d.key}` as any)}
-                />
-                <TextField
-                  size="small"
-                  type="number"
-                  label="Next #"
-                  sx={{ width: 140 }}
-                  {...register(`nextNumbers.${d.key}` as any)}
-                />
-              </Stack>
-            </Grid2>
-          ))}
-        </Grid2>
+        <Box sx={{ mt: 3 }}>
+          <DocumentNumberFormatsManager />
+        </Box>
       </Section>
 
       <Divider />

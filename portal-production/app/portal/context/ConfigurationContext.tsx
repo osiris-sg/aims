@@ -179,6 +179,7 @@ export const ConfigurationProvider: React.FC<ConfigurationProviderProps> = ({ ch
           route: '/portal/accounting',
           subMenus: [
             { key: 'general-ledger', label: 'General Ledger' },
+            { key: 'posting-queue', label: 'Posting Queue' },
             { key: 'trial-balance', label: 'Trial Balance' },
             { key: 'audit-trail', label: 'Audit Trail' },
             { key: 'gst', label: 'Goods & Services Tax' },

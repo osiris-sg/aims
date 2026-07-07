@@ -9,6 +9,7 @@ import { EmailService } from '../email/email.service';
 import { JournalAutoPostService } from '../journal/journal-auto-post.service';
 import { OrdersService } from '../orders/orders.service';
 import { DocumentTemplatesService } from '../documentTemplates/documentTemplates.service';
+import { DocumentNumberingService } from '../document-numbering/document-numbering.service';
 import { SendInvoiceEmailDto } from '../email/dto/send-invoice-email.dto';
 import { S3Service } from 'src/common/services/s3.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
@@ -26,6 +27,7 @@ export class DocumentsService {
     private pdfGeneratorService: PdfGeneratorService,
     private ordersService: OrdersService,
     private documentTemplatesService: DocumentTemplatesService,
+    private documentNumbering: DocumentNumberingService,
   ) {}
 
   /**
@@ -1384,7 +1386,19 @@ export class DocumentsService {
       }
 
       const serial = String(nextSerial).padStart(3, '0');
-      const name = `${namePrefix}${serial}`;
+      let name = `${namePrefix}${serial}`;
+
+      // Customisable per-type numbering (DocumentNumberFormat variants). When the
+      // org has a format for this type — or the create picker passed a chosen
+      // variant id in config.numberFormatId — it overrides the legacy scheme and
+      // claims that variant's own serial. Falls back to `name` above otherwise.
+      try {
+        const numberFormatId = (config as any)?.numberFormatId ?? null;
+        const custom = await this.documentNumbering.generateNumber(organizationId, type, numberFormatId, now);
+        if (custom) name = custom;
+      } catch (e: any) {
+        console.warn('[numbering] custom format failed, using legacy name:', e?.message);
+      }
 
       // Seed initial config with organization defaults so they persist even if user doesn't save the form
       const initialConfig: any = config && typeof config === 'object' ? { ...config } : {};
@@ -2088,6 +2102,29 @@ export class DocumentsService {
       return { docs, total, page, limit, totalPages: Math.ceil(total / limit) };
     } catch (error) {
       throw new HttpException(`Fetch documents failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  // Aggregate counts for the list stat cards (total / this-month / drafts),
+  // computed server-side so they stay accurate when the list is server-paginated
+  // (the paginated query only returns one page). Counts the full type set,
+  // independent of the user's search/filter.
+  async getDocumentStats(organizationId: string, opts: { documentTypes?: string[] } = {}) {
+    try {
+      const base: any = { organizationId };
+      if (opts.documentTypes?.length) base.type = { in: opts.documentTypes };
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+
+      const [total, thisMonth, drafts] = await Promise.all([
+        this.prisma.document.count({ where: base }),
+        this.prisma.document.count({ where: { ...base, createdAt: { gte: monthStart } } }),
+        this.prisma.document.count({ where: { ...base, status: 'draft' as any } }),
+      ]);
+      return { total, thisMonth, drafts };
+    } catch (error) {
+      throw new HttpException(`Fetch document stats failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 

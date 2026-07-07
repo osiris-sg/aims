@@ -4,9 +4,6 @@ import React, { useState, useMemo, useEffect, useCallback } from "react";
 import {
   Box,
   TextField,
-  RadioGroup,
-  FormControlLabel,
-  Radio,
   Table,
   TableBody,
   TableCell,
@@ -55,11 +52,8 @@ interface InventoryItem {
   };
 }
 
-type SearchMode = "code" | "description" | "category";
-
 export default function StockCardPage() {
   const [searchTerm, setSearchTerm] = useState("");
-  const [searchMode, setSearchMode] = useState<SearchMode>("code");
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [selectedViewItem, setSelectedViewItem] = useState<InventoryItem | null>(null);
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
@@ -159,21 +153,18 @@ export default function StockCardPage() {
 
     const term = searchTerm.toLowerCase();
 
+    // Free search across all fields (code + description + category).
     return inventoryItems.filter((item) => {
-      switch (searchMode) {
-        case "code":
-          return item.sku?.toLowerCase().includes(term);
-        case "description":
-          const desc = item.description || item.name || item.asset?.name || item.asset?.description || "";
-          return desc.toLowerCase().includes(term);
-        case "category":
-          const cat = item.categoryName || item.category || item.asset?.category?.name || "";
-          return cat.toLowerCase().includes(term);
-        default:
-          return true;
-      }
+      const code = item.sku || "";
+      const desc = item.description || item.name || item.asset?.name || item.asset?.description || "";
+      const cat = item.categoryName || item.category || item.asset?.category?.name || "";
+      return (
+        code.toLowerCase().includes(term) ||
+        desc.toLowerCase().includes(term) ||
+        cat.toLowerCase().includes(term)
+      );
     });
-  }, [inventoryItems, searchTerm, searchMode]);
+  }, [inventoryItems, searchTerm]);
 
   const getItemDescription = (item: InventoryItem) => {
     return item.description || item.name || item.asset?.name || item.asset?.description || "-";
@@ -227,30 +218,6 @@ export default function StockCardPage() {
           }}
         />
 
-        {/* Search Mode Radio Buttons */}
-        <RadioGroup
-          row
-          value={searchMode}
-          onChange={(e) => setSearchMode(e.target.value as SearchMode)}
-        >
-          <FormControlLabel
-            value="code"
-            control={<Radio size="small" color="primary" />}
-            label="Search By Code"
-            sx={{ mr: 3 }}
-          />
-          <FormControlLabel
-            value="description"
-            control={<Radio size="small" color="primary" />}
-            label="Search By Description"
-            sx={{ mr: 3 }}
-          />
-          <FormControlLabel
-            value="category"
-            control={<Radio size="small" color="primary" />}
-            label="Search By Category"
-          />
-        </RadioGroup>
       </Box>
 
       {/* Results Table */}

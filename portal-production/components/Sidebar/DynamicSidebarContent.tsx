@@ -34,6 +34,7 @@ import {
   AccountBalance,
   ReceiptLong,
   Build,
+  FolderCopy,
 } from "@mui/icons-material";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -60,6 +61,7 @@ const iconMap: Record<string, React.ComponentType> = {
   AccountBalance,
   ReceiptLong,
   Build,
+  FolderCopy,
 };
 
 const getIcon = (iconName?: string) => {
@@ -349,6 +351,7 @@ export default function DynamicSidebarContent() {
       subMenus: [
         { key: 'company-profile', label: 'Company Profile', path: '/portal/settings/company-profile' },
         { key: 'accounting-setup', label: 'Accounting Setup', path: '/portal/settings/accounting-setup' },
+        { key: 'masterfiles', label: 'Master Files', path: '/portal/masterfiles' },
       ],
     },
   ];

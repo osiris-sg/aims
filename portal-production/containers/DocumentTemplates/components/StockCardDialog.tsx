@@ -7,11 +7,8 @@ import {
   DialogContent,
   Box,
   TextField,
-  RadioGroup,
   ToggleButton,
   ToggleButtonGroup,
-  FormControlLabel,
-  Radio,
   Table,
   TableBody,
   TableCell,
@@ -87,8 +84,6 @@ interface StockCardDialogProps {
   showCapacity?: boolean;
 }
 
-type SearchMode = "code" | "description" | "category";
-
 export default function StockCardDialog({
   open,
   onClose,
@@ -120,7 +115,6 @@ export default function StockCardDialog({
     return hit != null ? Number(hit.value) : null;
   };
   const [searchTerm, setSearchTerm] = useState("");
-  const [searchMode, setSearchMode] = useState<SearchMode>("code");
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [selectedViewItem, setSelectedViewItem] = useState<InventoryItem | null>(null);
   // Keyboard navigation: highlighted row (Enter selects it; default = first match).
@@ -185,25 +179,22 @@ export default function StockCardDialog({
     if (!searchTerm.trim()) return base;
 
     const term = searchTerm.toLowerCase();
+    // Free search across all fields (code + description + category).
     return base.filter((item) => {
-      switch (searchMode) {
-        case "code":
-          return item.sku?.toLowerCase().includes(term);
-        case "description":
-          const desc = item.description || item.name || item.asset?.name || item.asset?.description || "";
-          return desc.toLowerCase().includes(term);
-        case "category":
-          const cat = item.categoryName || item.category || item.asset?.category?.name || "";
-          return cat.toLowerCase().includes(term);
-        default:
-          return true;
-      }
+      const code = item.sku || "";
+      const desc = item.description || item.name || item.asset?.name || item.asset?.description || "";
+      const cat = item.categoryName || item.category || item.asset?.category?.name || "";
+      return (
+        code.toLowerCase().includes(term) ||
+        desc.toLowerCase().includes(term) ||
+        cat.toLowerCase().includes(term)
+      );
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inventoryItems, searchTerm, searchMode, showRevenueTabs, revenueMode]);
+  }, [inventoryItems, searchTerm, showRevenueTabs, revenueMode]);
 
   // Reset the highlight to the first row whenever the filtered list changes.
-  useEffect(() => { setActiveIndex(0); }, [searchTerm, searchMode, inventoryItems]);
+  useEffect(() => { setActiveIndex(0); }, [searchTerm, inventoryItems]);
 
   // Keep the highlighted row scrolled into view as you arrow through.
   useEffect(() => { activeRowRef.current?.scrollIntoView({ block: "nearest" }); }, [activeIndex]);
@@ -322,30 +313,6 @@ export default function StockCardDialog({
             </ToggleButtonGroup>
           )}
 
-          {/* Search Mode Radio Buttons */}
-          <RadioGroup
-            row
-            value={searchMode}
-            onChange={(e) => setSearchMode(e.target.value as SearchMode)}
-          >
-            <FormControlLabel
-              value="code"
-              control={<Radio size="small" color="primary" />}
-              label="Search By Code"
-              sx={{ mr: 3 }}
-            />
-            <FormControlLabel
-              value="description"
-              control={<Radio size="small" color="primary" />}
-              label="Search By Description"
-              sx={{ mr: 3 }}
-            />
-            <FormControlLabel
-              value="category"
-              control={<Radio size="small" color="primary" />}
-              label="Search By Category"
-            />
-          </RadioGroup>
         </Box>
 
         {/* Results Table */}

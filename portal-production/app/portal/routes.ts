@@ -7,6 +7,7 @@ export const ROUTES = {
   ASSET_SUCCESS: "/portal/assets/add/success",
   EDIT_ASSET: "/portal/assets/edit",
 
+  MASTERFILES: "/portal/masterfiles",
   INVENTORY: "/portal/inventory",
   INVENTORY_PRODUCTS: "/portal/inventory/products",
   INVENTORY_PURCHASES: "/portal/inventory/purchases",

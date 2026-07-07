@@ -8,9 +8,10 @@ import { EmailModule } from '../email/email.module';
 import { JournalModule } from '../journal/journal.module';
 import { OrdersModule } from '../orders/orders.module';
 import { DocumentTemplatesModule } from '../documentTemplates/documentTemplates.module';
+import { DocumentNumberingModule } from '../document-numbering/document-numbering.module';
 
 @Module({
-  imports: [CommonModule, PriceHistoryModule, EmailModule, JournalModule, OrdersModule, DocumentTemplatesModule],
+  imports: [CommonModule, PriceHistoryModule, EmailModule, JournalModule, OrdersModule, DocumentTemplatesModule, DocumentNumberingModule],
   controllers: [DocumentsController],
   providers: [DocumentsService, PrismaService],
   // Exported so MaintenanceReportsModule can call createBasicDocument when

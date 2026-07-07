@@ -19,10 +19,17 @@ interface Props {
   height?: string;
   onRowSelect?: (rows: any[]) => void;
   isNoSelectionColumn?: boolean;
+  // Controlled / server-side sorting. When manualSorting is true, the table does
+  // NOT sort rows itself — the parent provides already-sorted `data` and drives
+  // the sort via `sorting` + `onSortingChange` (typically feeding an API call).
+  // Omit all three for the default internal client-side sorting (unchanged).
+  manualSorting?: boolean;
+  sorting?: SortingState;
+  onSortingChange?: (updater: any) => void;
 }
 
 export default function Table(props: Props) {
-  const { data = [], columns = [], subRowAccessor, loading = false, loadingTableRowId = null, onRowSelect, isNoSelectionColumn = false } = props;
+  const { data = [], columns = [], subRowAccessor, loading = false, loadingTableRowId = null, onRowSelect, isNoSelectionColumn = false, manualSorting = false, sorting: controlledSorting, onSortingChange: controlledOnSortingChange } = props;
   const _data = useMemo(() => data, [data]);
 
   // Mobile responsiveness
@@ -67,20 +74,30 @@ export default function Table(props: Props) {
   // Control pagination locally to avoid infinite resets from react-table
   const [pagination, setPagination] = React.useState({ pageIndex: 0, pageSize: 30 });
 
+  // When the parent drives sorting/pagination server-side (manualSorting), it
+  // passes exactly one page of rows — render all of them instead of re-paginating
+  // at 30 (which would re-cap a limit of 50/100). Client-side mode keeps pageSize 30.
+  React.useEffect(() => {
+    if (manualSorting) {
+      setPagination((p) => ({ ...p, pageIndex: 0, pageSize: Math.max(_data.length, 1) }));
+    }
+  }, [manualSorting, _data.length]);
+
   const table = useReactTable({
     columns: _columns,
     data: _data,
     state: {
       expanded,
-      sorting,
+      sorting: controlledSorting ?? sorting,
       rowSelection,
       pagination,
     },
+    manualSorting,
     onRowSelectionChange: setRowSelection,
     onPaginationChange: setPagination,
     enableRowSelection: onRowSelect ? true : false,
     onExpandedChange: setExpanded,
-    onSortingChange: setSorting,
+    onSortingChange: controlledOnSortingChange ?? setSorting,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -145,10 +162,24 @@ export default function Table(props: Props) {
                     textTransform: "uppercase",
                   })}
                 >
-                  {header.isPlaceholder ? null : (
-                    <TableSortLabel active={header.column.getIsSorted() !== false} direction={header.column.getIsSorted() || undefined} onClick={header.column.getToggleSortingHandler()}>
+                  {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                    // Sortable (data) column — always show the ↕ arrow (dimmed
+                    // until active) so users can see the column is sortable.
+                    <TableSortLabel
+                      active={header.column.getIsSorted() !== false}
+                      direction={header.column.getIsSorted() || "asc"}
+                      onClick={header.column.getToggleSortingHandler()}
+                      sx={{
+                        "& .MuiTableSortLabel-icon": {
+                          opacity: header.column.getIsSorted() ? 1 : 0.4,
+                        },
+                      }}
+                    >
                       {flexRender(header.column.columnDef.header, header.getContext())}
                     </TableSortLabel>
+                  ) : (
+                    // Non-sortable (Action / select / icon) column — plain label.
+                    flexRender(header.column.columnDef.header, header.getContext())
                   )}
                 </TableCell>
               ))}

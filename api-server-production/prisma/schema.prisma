@@ -473,6 +473,27 @@ model RevenueItem {
   @@index([organizationId, type])
 }
 
+// Customisable document numbering. Each row is one named VARIANT of a document
+// type (e.g. Invoice → "EW" and "JPSG"). `pattern` is a token string like
+// "BIPL-EW-INV-{YYYYMMDD}-{####}" ({YYYY}/{MM}/{DD} date parts, {####} = serial
+// whose padding = number of #). Serial is independent per variant (per row).
+model DocumentNumberFormat {
+  id             String   @id @default(uuid())
+  organizationId String
+  documentType   String // "INVOICE", "QUOTATION", "DELIVERY_ORDER", ...
+  label          String // variant name shown in the create picker, e.g. "EW"
+  pattern        String // e.g. "BIPL-EW-INV-{YYYYMMDD}-{####}"
+  nextSerial     Int      @default(1)
+  resetPolicy    String   @default("never") // never | daily | monthly | yearly
+  lastResetKey   String? // e.g. "2026-06" — detects when to restart the serial
+  isActive       Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId, documentType])
+}
+
 // Junction table for document items - enables efficient queries for stock movements
 model DocumentItem {
   id          String   @id @default(uuid()) @db.Uuid

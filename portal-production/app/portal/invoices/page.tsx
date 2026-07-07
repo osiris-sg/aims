@@ -13,7 +13,7 @@ import DownloadIcon from "@mui/icons-material/Download";
 import DeleteIcon from "@mui/icons-material/Delete";
 import LinkIcon from "@mui/icons-material/Link";
 import PaymentIcon from "@mui/icons-material/Payment";
-import { Tab, Tabs, Chip, alpha } from "@mui/material";
+import { Tab, Tabs, Chip, alpha, Stack, Typography } from "@mui/material";
 import { useDeleteDocument, useGetCustomers } from "@/app/portal/hooks/api";
 import { useRouter } from "next/navigation";
 import moment from "moment";
@@ -124,6 +124,8 @@ export default function InvoicesPage() {
   const [arTab, setArTab] = useState<"all" | "awaiting" | "overdue" | "paid">("all");
   const [payDialogOpen, setPayDialogOpen] = useState(false);
   const [payDialogInvoice, setPayDialogInvoice] = useState<any>(null);
+  // When a document type has >1 numbering variant, ask which to use before creating.
+  const [numberingPicker, setNumberingPicker] = useState<{ formats: any[]; data: any; customer?: any; variantId?: string } | null>(null);
 
   // Draft-only delete: invoices in draft status can be removed.
   const [docToDelete, setDocToDelete] = useState<Document | null>(null);
@@ -348,10 +350,13 @@ export default function InvoicesPage() {
                   setPayDialogInvoice({
                     id: row.original.id,
                     name: row.original.name,
-                    customerId: row.original.config?.customer?.id,
+                    // Editor-created invoices store the customer flat (config.customerId);
+                    // imported ones nested (config.customer.id) — read both.
+                    customerId: row.original.config?.customer?.id ?? row.original.config?.customerId,
                     customerName:
                       row.original.associated_customer ||
-                      row.original.config?.customer?.name,
+                      row.original.config?.customer?.name ||
+                      row.original.config?.customerName,
                     amount: Math.max(0, total - paid),
                     status: row.original.status,
                   });
@@ -650,15 +655,33 @@ export default function InvoicesPage() {
     // Don't clear selected customer in case they want to go back
   };
 
-  const onSubmit = async (data: any, customer?: Customer, variantId?: string) => {
+  const onSubmit = async (data: any, customer?: Customer, variantId?: string, numberFormatId?: string) => {
     console.log("=== ONSUBMIT CALLED ===");
-    console.log("Data:", data);
-    console.log("Customer:", customer);
-    console.log("Variant ID:", variantId);
 
     try {
       setIsDocumentTemplateUpdating(true);
       const token = await getToken();
+
+      // Custom numbering: if this document type has more than one active numbering
+      // variant and the caller hasn't chosen one, pause and ask which format.
+      if (!numberFormatId) {
+        try {
+          const headers: Record<string, string> = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+          const activeOrgId = typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null;
+          if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
+          // This page always creates invoices — the variant.type may be a template
+          // code (TI/TI2), so look up numbering under the canonical "INVOICE".
+          const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/document-numbering?documentType=INVOICE`, { headers });
+          const json = await res.json();
+          const active = ((json?.data ?? json) || []).filter((f: any) => f.isActive);
+          if (active.length > 1) {
+            setNumberingPicker({ formats: active, data, customer, variantId });
+            setIsDocumentTemplateUpdating(false);
+            return;
+          }
+          if (active.length === 1) numberFormatId = active[0].id;
+        } catch { /* no custom numbering → legacy */ }
+      }
 
       // Use provided variantId or fetch template ID by type
       let documentTemplateId = variantId;
@@ -676,7 +699,10 @@ export default function InvoicesPage() {
 
       const requestPayload = {
         type: data.documentType, // Use the document type from the template
-        config: customer ? { customerId: customer.id, templateVariant: data.templateVariant } : {},
+        config: {
+          ...(customer ? { customerId: customer.id, templateVariant: data.templateVariant } : {}),
+          ...(numberFormatId ? { numberFormatId } : {}),
+        },
         documentTemplateId: documentTemplateId,
         organizationId: organizationId,
       };
@@ -836,6 +862,36 @@ export default function InvoicesPage() {
         }}
         invoice={payDialogInvoice}
       />
+
+      {/* Numbering-variant picker — shown when the type has >1 active format */}
+      <Dialog open={!!numberingPicker} onClose={() => setNumberingPicker(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Choose number format</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ mb: 2 }}>This document type has multiple numbering formats. Which one should this document use?</DialogContentText>
+          <Stack gap={1}>
+            {(numberingPicker?.formats || []).map((f: any) => (
+              <Button
+                key={f.id}
+                variant="outlined"
+                onClick={() => {
+                  const p = numberingPicker!;
+                  setNumberingPicker(null);
+                  onSubmit(p.data, p.customer, p.variantId, f.id);
+                }}
+                sx={{ justifyContent: "flex-start", textTransform: "none", py: 1 }}
+              >
+                <Box sx={{ textAlign: "left" }}>
+                  <Typography variant="body2" sx={{ fontWeight: 700 }}>{f.label}</Typography>
+                  <Typography variant="caption" sx={{ color: "text.secondary", fontFamily: "monospace" }}>{f.pattern}</Typography>
+                </Box>
+              </Button>
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setNumberingPicker(null)}>Cancel</Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={!!docToDelete} onClose={() => setDocToDelete(null)}>
         <DialogTitle>Delete Invoice</DialogTitle>

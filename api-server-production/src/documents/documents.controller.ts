@@ -94,6 +94,28 @@ export class DocumentsController {
     return await this.documentsService.getAllDocuments(organizationId);
   }
 
+  // Server-side paginated / filtered / sorted list (additive; see service).
+  @Post('paginated')
+  @Permissions('documents:read')
+  async getDocumentsPaginated(@Req() req: RequestWithOrganization, @Body() body: any) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentsService.getDocumentsPaginated(organizationId, body || {});
+  }
+
+  // Stat-card counts (total / this-month / drafts) for a document-type set.
+  @Post('stats')
+  @Permissions('documents:read')
+  async getDocumentStats(@Req() req: RequestWithOrganization, @Body() body: any) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentsService.getDocumentStats(organizationId, body || {});
+  }
+
   @Get('delivery-orders/:customerId')
   @Permissions('documents:read')
   async getDeliveryOrdersByCustomer(@Param('customerId') customerId: string, @Req() req: RequestWithOrganization) {

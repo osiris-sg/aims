@@ -32,6 +32,7 @@ import { PriceHistoryModule } from './price-history/price-history.module';
 import { OrdersModule } from './orders/orders.module';
 import { PaymentsModule } from './payments/payments.module';
 import { RevenueItemsModule } from './revenue-items/revenue-items.module';
+import { DocumentNumberingModule } from './document-numbering/document-numbering.module';
 import { StatementsModule } from './statements/statements.module';
 import { EmailModule } from './email/email.module';
 import { ImportModule } from './import/import.module';
@@ -83,6 +84,7 @@ import { PostingQueueModule } from './posting-queue/posting-queue.module';
     OrdersModule,
     PaymentsModule,
     RevenueItemsModule,
+    DocumentNumberingModule,
     StatementsModule,
     EmailModule,
     ImportModule,

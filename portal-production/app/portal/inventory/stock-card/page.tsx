@@ -4,9 +4,6 @@ import React, { useState, useMemo, useEffect, useCallback } from "react";
 import {
   Box,
   TextField,
-  RadioGroup,
-  FormControlLabel,
-  Radio,
   Table,
   TableBody,
   TableCell,
@@ -56,12 +53,9 @@ interface InventoryItem {
   };
 }
 
-type SearchMode = "code" | "description" | "category";
-
 export default function InventoryStockCardPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [searchMode, setSearchMode] = useState<SearchMode>("code");
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [selectedViewItem, setSelectedViewItem] = useState<InventoryItem | null>(null);
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
@@ -97,7 +91,8 @@ export default function InventoryStockCardPage() {
 
       const assetsResponse = await request(
         { path: "/assets", method: "POST" },
-        { page, limit: ITEMS_PER_PAGE, search: debouncedSearch, searchMode },
+        // No searchMode → backend searches all fields (code + name + description + category).
+        { page, limit: ITEMS_PER_PAGE, search: debouncedSearch },
         token
       );
       const assets = assetsResponse?.data?.docs || [];
@@ -129,7 +124,7 @@ export default function InventoryStockCardPage() {
     } finally {
       setLoading(false);
     }
-  }, [organizationId, getToken, page, debouncedSearch, searchMode]);
+  }, [organizationId, getToken, page, debouncedSearch]);
 
   useEffect(() => {
     fetchItems();
@@ -195,30 +190,6 @@ export default function InventoryStockCardPage() {
           }}
         />
 
-        {/* Search Mode Radio Buttons */}
-        <RadioGroup
-          row
-          value={searchMode}
-          onChange={(e) => setSearchMode(e.target.value as SearchMode)}
-        >
-          <FormControlLabel
-            value="code"
-            control={<Radio size="small" color="primary" />}
-            label="Search By Code"
-            sx={{ mr: 3 }}
-          />
-          <FormControlLabel
-            value="description"
-            control={<Radio size="small" color="primary" />}
-            label="Search By Description"
-            sx={{ mr: 3 }}
-          />
-          <FormControlLabel
-            value="category"
-            control={<Radio size="small" color="primary" />}
-            label="Search By Category"
-          />
-        </RadioGroup>
       </Box>
 
       {/* Results Table */}

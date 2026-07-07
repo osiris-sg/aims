@@ -50,9 +50,14 @@ interface Props {
   renderSubComponent?: (props: { row: any }) => React.ReactNode;
   actionButtons?: React.ReactNode[];
   headerContent?: React.ReactNode; // Custom content to display between header and table
+  // Server-side sorting: pass all three to drive sort via an API call (parent
+  // supplies already-sorted `data`). Omit for the default client-side sort.
+  manualSorting?: boolean;
+  sorting?: any;
+  onSortingChange?: (updater: any) => void;
 }
 export default function PageTable(props: Props) {
-  const { columns, data, tableName, subTitle, loading, buttonName, buttonDisabled, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, filterConfig: incomingFilterConfig, availableFilters, assetsData, totalDocs, renderSubComponent, actionButtons, headerContent } = props;
+  const { columns, data, tableName, subTitle, loading, buttonName, buttonDisabled, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, filterConfig: incomingFilterConfig, availableFilters, assetsData, totalDocs, renderSubComponent, actionButtons, headerContent, manualSorting, sorting, onSortingChange } = props;
   const { control, handleSubmit, watch } = useForm({ defaultValues: { limit, search } });
   const _limit = watch("limit");
   const _search = watch("search");
@@ -170,7 +175,7 @@ export default function PageTable(props: Props) {
             flex: 1,
           })}
         >
-          <Table columns={columns} data={data} onRowSelect={() => {}} loading={loading} subRowAccessor={subRowAccessor} />
+          <Table columns={columns} data={data} onRowSelect={() => {}} loading={loading} subRowAccessor={subRowAccessor} manualSorting={manualSorting} sorting={sorting} onSortingChange={onSortingChange} />
         </Box>
         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", overflowX: "hidden" }}>
           <Box sx={{ display: "flex", gap: "var(--default-gap)", alignItems: "center" }}>

@@ -166,9 +166,14 @@ export const useGetInventoriesForItemTable = () => {
 
     let inventories: any[] = [];
 
-    // In Products mode (tracking OFF), fetch assets/products only
-    console.log("useGetInventoriesForItemTable - isAssetTrackingModeEnabled:", isAssetTrackingModeEnabled);
-    if (!isAssetTrackingModeEnabled) {
+    // Quotations quote a product TYPE, not a committed serial-numbered unit, so
+    // the Stock Card should list Assets (products) even when tracking is ON — you
+    // pick the asset, not an individual inventory id.
+    const isQuotationType = ["QT", "QUOTATION", "QO", "QO1", "QO2"].includes((type || "").toUpperCase());
+
+    // In Products mode (tracking OFF) — or for quotations regardless — fetch assets only.
+    console.log("useGetInventoriesForItemTable - isAssetTrackingModeEnabled:", isAssetTrackingModeEnabled, "isQuotationType:", isQuotationType);
+    if (!isAssetTrackingModeEnabled || isQuotationType) {
       inventories = await fetchAssets();
       setInventoriesForDocument(inventories);
       return inventories;

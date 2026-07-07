@@ -61,6 +61,78 @@ export function useGetDocuments(options: GetDocumentsOptions = {}) {
   return { documents, isLoading, error, refetch };
 }
 
+interface PaginatedDocsOptions {
+  page?: number;
+  limit?: number;
+  search?: string;
+  documentTypes?: string[];
+  excludeTypes?: string[];
+  status?: string | string[];
+  customerId?: string;
+  createdOn?: { startDate: any; endDate: any };
+  sortBy?: string;
+  sortDir?: 'asc' | 'desc';
+  enabled?: boolean;
+}
+
+// Server-side paginated / filtered / sorted document list (POST /documents/paginated).
+export function useGetDocumentsPaginated(options: PaginatedDocsOptions = {}) {
+  const { organization } = useOrganization();
+  const { getToken } = useAuth();
+  const organizationId = organization?.id;
+  const { enabled = true, ...params } = options;
+
+  const { data, isLoading, error, refetch, isFetching } = useQuery({
+    queryKey: ['documents-paginated', organizationId, params],
+    queryFn: async () => {
+      const token = await getToken();
+      if (!token || !organizationId) return { docs: [], total: 0, totalPages: 0 };
+      const response = await request({ path: '/documents/paginated', method: 'POST' }, params, token);
+      if (!response.success) {
+        console.error('Failed to fetch documents (paginated):', response.message);
+        return { docs: [], total: 0, totalPages: 0 };
+      }
+      return response.data || { docs: [], total: 0, totalPages: 0 };
+    },
+    enabled: !!organizationId && enabled,
+    placeholderData: (prev) => prev, // keep old rows visible while paging/sorting
+  });
+
+  return {
+    docs: data?.docs || [],
+    total: data?.total || 0,
+    totalPages: data?.totalPages || 0,
+    isLoading,
+    isFetching,
+    error,
+    refetch,
+  };
+}
+
+// Stat-card counts (total / this-month / drafts) for a document-type set.
+export function useGetDocumentStats(documentTypes?: string[]) {
+  const { organization } = useOrganization();
+  const { getToken } = useAuth();
+  const organizationId = organization?.id;
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['document-stats', organizationId, documentTypes],
+    queryFn: async () => {
+      const token = await getToken();
+      if (!token || !organizationId) return { total: 0, thisMonth: 0, drafts: 0 };
+      const response = await request({ path: '/documents/stats', method: 'POST' }, { documentTypes }, token);
+      return response.success ? (response.data || { total: 0, thisMonth: 0, drafts: 0 }) : { total: 0, thisMonth: 0, drafts: 0 };
+    },
+    enabled: !!organizationId,
+  });
+
+  return {
+    stats: data || { total: 0, thisMonth: 0, drafts: 0 },
+    isLoading,
+    refetch,
+  };
+}
+
 // Get document by ID
 export function useGetDocumentById(documentId: string) {
   const { getToken } = useAuth();
