@@ -722,6 +722,25 @@ export class MaintenanceReportsService {
         })
       : null;
 
+    // The unit's active project link (endDate=null — same "active" definition
+    // fieldDeploy enforces), so the walk-around Assign flow can show
+    // "Currently on: X" and confirm before a soft-move. Org-scoped through the
+    // project relation; null when the unit is unassigned or no unit resolved.
+    const activeAssignment = inventory
+      ? await this.prisma.assignment.findFirst({
+          where: {
+            inventoryId: inventory.id,
+            endDate: null,
+            project: { organizationId },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            project: { select: { id: true, name: true } },
+            projectDeployment: { select: { type: true } },
+          },
+        })
+      : null;
+
     // Resolve ONE delivery order and derive a single stage from ITS OWN
     // reports — never a second query that excludes by report state. This is
     // the fix for the re-start bug: previously an acked DO was dropped from
@@ -948,6 +967,9 @@ export class MaintenanceReportsService {
     return {
       asset,
       inventory,
+      // { project: {id,name}, projectDeployment: {type}|null } | null — the
+      // unit's active assignment for the field Assign-to-Project flow.
+      activeAssignment,
       resolvedDeliveryOrder,
       deliveryStage,
       // Per-item delivery rows for the scanned unit (Phase 3d).

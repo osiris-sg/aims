@@ -9,6 +9,7 @@ import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import HandymanIcon from "@mui/icons-material/Handyman";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DescriptionIcon from "@mui/icons-material/Description";
+import AssignmentTurnedInIcon from "@mui/icons-material/AssignmentTurnedIn";
 import { request } from "@/helpers/request";
 
 type DeliveryItemStatus = "not_delivered" | "delivering" | "not_installed" | "completed";
@@ -36,6 +37,12 @@ interface DeliveryItem {
 interface ScanContext {
   asset: { id: string; name: string; skuKey: string; image?: string | null; description?: string | null };
   inventory: { id: string; sku: string; status: string; serialNumber: string | null; location: string | null } | null;
+  // The unit's active project link (endDate=null), for the Assign-to-Project
+  // card's "Currently on: X" sub-label. Null when unassigned / asset-level scan.
+  activeAssignment: {
+    project: { id: string; name: string };
+    projectDeployment: { type: string } | null;
+  } | null;
   latestDeliveryOrder: { id: string; name?: string | null; createdAt: string; status: string } | null;
   deliveryStage: "start" | "ack_delivery" | "ack_install" | "completed" | null;
   // Per-item delivery rows for the resolved DO (Phase 5). Optional — absent on
@@ -210,6 +217,27 @@ export default function AssetActionChooser() {
       <Typography variant="subtitle1" fontWeight={600} sx={{ mt: 2 }}>
         What are you doing?
       </Typography>
+
+      {/* Assign to Project — FIRST and compact: the primary walk-around action
+          while the fleet is re-assigned post-wipe. Only offered when the scan
+          resolved a specific unit (field-deploy needs an inventoryId). */}
+      {inventory && (
+        <Card variant="outlined" sx={{ borderColor: "primary.main" }}>
+          <CardActionArea onClick={() => router.push(`/scan/asset/${assetId}/assign${invQuery}`)}>
+            <CardContent sx={{ display: "flex", gap: 2, alignItems: "center", py: 1.5, "&:last-child": { pb: 1.5 } }}>
+              <AssignmentTurnedInIcon color="primary" sx={{ fontSize: 32 }} />
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="subtitle1" fontWeight={700}>Assign to Project</Typography>
+                <Typography variant="body2" color="text.secondary" noWrap>
+                  {data.activeAssignment
+                    ? `Currently on: ${data.activeAssignment.project.name}`
+                    : "Set this unit's project"}
+                </Typography>
+              </Box>
+            </CardContent>
+          </CardActionArea>
+        </Card>
+      )}
 
       {/* Single morphing delivery card: Start Delivery → Acknowledge Delivery →
           Complete Installation → Completed, driven by deliveryStage. */}
