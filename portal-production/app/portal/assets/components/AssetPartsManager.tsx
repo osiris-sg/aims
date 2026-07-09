@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Box, Typography, Button, Card, CardContent, Avatar, IconButton, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Grid, Alert, Divider } from "@mui/material";
+import { Box, Typography, Button, Card, CardContent, Avatar, IconButton, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Grid, Alert, Divider, Switch, FormControlLabel, Tooltip } from "@mui/material";
 import { Add, Edit, Delete, Visibility, AccountTree } from "@mui/icons-material";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
@@ -15,6 +15,8 @@ interface AssetPart {
   image?: string;
   categoryId: string;
   instockInventoryCount: number;
+  isTracked?: boolean;
+  autoCreateOnParentUnit?: boolean;
   category?: { name: string };
   subAssets?: AssetPart[];
 }
@@ -88,6 +90,24 @@ const AssetPartsManager: React.FC<AssetPartsManagerProps> = ({ assetId, assetNam
     fetchParts();
   }, [assetId, organization?.id]);
 
+  // Enforceable hierarchy: flip the child asset's autoCreateOnParentUnit flag.
+  // When ON, every new unit of the parent silently spawns a 'pending'
+  // placeholder unit of this part, linked to that specific parent unit.
+  const toggleAutoCreate = async (part: AssetPart, enabled: boolean) => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const response = await request(
+        { path: `/assets/update`, method: "PUT" },
+        { id: part.id, autoCreateOnParentUnit: enabled },
+        token
+      );
+      if (response.success) fetchParts();
+    } catch (error) {
+      console.error("Error updating auto-create flag:", error);
+    }
+  };
+
   const renderPartCard = (part: AssetPart, level: number = 0) => (
     <Card
       key={part.id}
@@ -122,6 +142,35 @@ const AssetPartsManager: React.FC<AssetPartsManagerProps> = ({ assetId, assetNam
               <Chip label={`Stock: ${part.instockInventoryCount || 0}`} size="small" variant="outlined" />
               {level > 0 && <Chip label={`Level ${level} Part`} size="small" variant="outlined" />}
             </Box>
+            {/* Auto-create toggle: only tracked parts can auto-create pending
+                placeholder units when a parent unit is created. */}
+            <Tooltip
+              title={
+                part.isTracked
+                  ? "When ON, creating a unit of the parent auto-creates a 'pending' placeholder unit of this part, linked to that specific parent unit."
+                  : "Unavailable — this part is not tracked (no individual units). Enable tracking on this asset first; placeholders are only auto-created for tracked child assets."
+              }
+              placement="top-start"
+            >
+              <span>
+                <FormControlLabel
+                  sx={{ mt: 0.5 }}
+                  control={
+                    <Switch
+                      size="small"
+                      checked={!!part.autoCreateOnParentUnit}
+                      disabled={!part.isTracked}
+                      onChange={(e) => toggleAutoCreate(part, e.target.checked)}
+                    />
+                  }
+                  label={
+                    <Typography variant="caption" color={part.isTracked ? "text.primary" : "text.disabled"}>
+                      Auto-create per parent unit
+                    </Typography>
+                  }
+                />
+              </span>
+            </Tooltip>
           </Box>
 
           <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>

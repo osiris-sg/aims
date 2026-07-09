@@ -32,6 +32,12 @@ export class UpdateInventoryDto extends PartialType(CreateInventoryDto) {
   @IsOptional()
   sku?: string;
 
+  // Manufacturer serial — editable so a 'pending' placeholder can be given its
+  // real identity from the dashboard (triggers the pending→instock auto-flip).
+  @IsString()
+  @IsOptional()
+  serialNumber?: string;
+
   @IsString()
   @IsOptional()
   cameraP2P?: string;

@@ -125,6 +125,11 @@ model Asset {
   uom                 String                     @default("PCS")
   // Tracking mode: true = individual inventory items with SKUs, false = simple quantity
   isTracked           Boolean                    @default(true)
+  // When true AND parentAssetId is set: creating a unit of the parent asset
+  // silently auto-creates one 'pending' placeholder unit of THIS asset,
+  // linked via Inventory.parentInventoryId. Only honoured for tracked child
+  // assets (isTracked=true); the import path never auto-creates.
+  autoCreateOnParentUnit Boolean                 @default(false)
   isExternal          Boolean                    @default(true)
   // Quantity for untracked products (only used when isTracked = false)
   quantity            Int?
@@ -178,6 +183,14 @@ model Inventory {
   updatedAt      DateTime                   @updatedAt
   status         InventoryStatus
   organizationId String
+  // Unit-level hierarchy: the specific parent UNIT this unit belongs to
+  // (e.g. a TSS sensor's SIDS host). Null = standalone/top-level unit. Set by
+  // autoCreateChildUnits when a parent unit is created and the child Asset has
+  // autoCreateOnParentUnit=true. SetNull on parent delete — children orphan,
+  // never block (pristine placeholders are cleaned up by deleteInventories).
+  parentInventoryId String?                 @db.Uuid
+  parentInventory   Inventory?              @relation("InventoryHierarchy", fields: [parentInventoryId], references: [id], onDelete: SetNull)
+  childInventories  Inventory[]             @relation("InventoryHierarchy")
   assignments    Assignment[]
   asset          Asset                      @relation(fields: [assetId], references: [id])
   organization   Organization               @relation(fields: [organizationId], references: [id])
@@ -190,6 +203,7 @@ model Inventory {
   // Enforces what generateSkuRange only assumed — a concurrent SKU collision
   // now surfaces as a clean P2002 instead of a silent duplicate.
   @@unique([sku, organizationId])
+  @@index([parentInventoryId])
 }
 
 model Customer {
@@ -812,6 +826,11 @@ enum InventoryStatus {
   reserved
   maintenance
   sold
+  // Auto-created child placeholder awaiting its real serial/SKU. Excluded from
+  // instock stock counts and OSI-13 serial auto-match (both filter on
+  // status=instock); flips to instock when the unit gets a real identity
+  // (updateInventories auto-flip).
+  pending
 }
 
 enum DocumentStatus {

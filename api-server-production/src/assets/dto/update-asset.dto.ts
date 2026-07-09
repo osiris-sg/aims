@@ -65,6 +65,13 @@ export class UpdateAssetDto extends PartialType(CreateAssetDto) {
   @IsOptional()
   isTracked?: boolean;
 
+  // Enforceable hierarchy: auto-create a 'pending' placeholder unit of this
+  // (child) asset whenever a unit of its parent asset is created. Only
+  // honoured when this asset is tracked (isTracked=true).
+  @IsBoolean()
+  @IsOptional()
+  autoCreateOnParentUnit?: boolean;
+
   // Quantity for untracked products
   @IsInt()
   @Min(0)

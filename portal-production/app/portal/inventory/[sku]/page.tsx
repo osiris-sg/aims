@@ -6,7 +6,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
-import { Box, Button, Typography, Avatar, Grid, Skeleton, Stack, useTheme, IconButton } from "@mui/material";
+import { Box, Button, Typography, Avatar, Grid, Skeleton, Stack, useTheme, IconButton, Chip } from "@mui/material";
 import DateRangePicker from "@/form-components/FormDateRangePicker";
 
 import EditIcon from "@mui/icons-material/Edit";
@@ -22,6 +22,14 @@ import FormSelect from "@/form-components/FormSelect";
 import { useForm } from "react-hook-form";
 import { ROUTES } from "@/routes";
 
+interface HierarchyUnit {
+  id: string;
+  sku: string;
+  status: string;
+  serialNumber?: string | null;
+  asset?: { name: string; skuKey: string };
+}
+
 interface Inventory {
   id: string;
   sku: string;
@@ -35,6 +43,10 @@ interface Inventory {
     image: string;
     description: string;
   };
+  // Unit-level hierarchy (enforceable asset hierarchy): the parent unit this
+  // unit is a component of, and this unit's own component units.
+  parentInventory?: HierarchyUnit | null;
+  childInventories?: HierarchyUnit[];
 }
 
 interface TimelineItem {
@@ -258,9 +270,23 @@ export default function ViewInventoryPage({ params }: { params: { sku: string } 
                   {isLoading ? (
                     <Skeleton animation="wave" variant="text" width={100} height={32} />
                   ) : (
-                    <Typography variant="h5" fontWeight="bold">
-                      {params.sku}
-                    </Typography>
+                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                      <Typography variant="h5" fontWeight="bold">
+                        {params.sku}
+                      </Typography>
+                      {/* Auto-created placeholder awaiting its real serial/SKU
+                          (edit the SKU from the inventory list to claim it). */}
+                      {inventory.status === "pending" && <Chip size="small" label="Pending details" color="warning" variant="outlined" />}
+                      {/* This unit is a component of a specific parent unit. */}
+                      {inventory.parentInventory && (
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          label={`Part of: ${inventory.parentInventory.sku}`}
+                          onClick={() => router.push(`${ROUTES.INVENTORY}/${encodeURIComponent(inventory.parentInventory!.sku)}`)}
+                        />
+                      )}
+                    </Stack>
                   )}
 
                   <Stack direction="column">
@@ -343,6 +369,34 @@ export default function ViewInventoryPage({ params }: { params: { sku: string } 
             </Grid>
           </Grid>
         </Grid>
+
+        {/* Component units (enforceable asset hierarchy): child units linked
+            to THIS specific unit — e.g. a SIDS unit's TSS placeholder. */}
+        {(inventory.childInventories?.length ?? 0) > 0 && (
+          <Box sx={{ gap: "var(--half-gap)", display: "flex", flexDirection: "column" }}>
+            <Typography variant="body1">Component units ({inventory.childInventories!.length})</Typography>
+            <Stack spacing={1}>
+              {inventory.childInventories!.map((child) => (
+                <Box
+                  key={child.id}
+                  sx={{ display: "flex", alignItems: "center", gap: 1.5, p: 1.5, border: 1, borderColor: "divider", borderRadius: 1, cursor: "pointer", "&:hover": { bgcolor: "action.hover" } }}
+                  onClick={() => router.push(`${ROUTES.INVENTORY}/${encodeURIComponent(child.sku)}`)}
+                >
+                  <Typography variant="body2" fontWeight={600}>{child.sku}</Typography>
+                  <Typography variant="caption" color="text.secondary">{child.asset?.name}</Typography>
+                  {child.status === "pending" ? (
+                    <Chip size="small" label="Pending details" color="warning" variant="outlined" />
+                  ) : (
+                    <Chip size="small" label={child.status} variant="outlined" />
+                  )}
+                  {child.serialNumber && (
+                    <Typography variant="caption" color="text.secondary">SN {child.serialNumber}</Typography>
+                  )}
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        )}
 
         <Box sx={{ gap: "var(--half-gap)", display: "flex", flexDirection: "column" }}>
           {isLoading ? <Skeleton animation="wave" variant="text" width={180} /> : <Typography variant="body1">History</Typography>}

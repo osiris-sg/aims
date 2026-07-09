@@ -171,6 +171,17 @@ export class InventoriesService {
     }
   }
 
+  // Unit-hierarchy context for the dashboard unit page: the unit's parent unit
+  // ("Part of: X") and its child units ("Component units" card).
+  private static readonly HIERARCHY_INCLUDE = {
+    parentInventory: {
+      select: { id: true, sku: true, status: true, asset: { select: { name: true, skuKey: true } } },
+    },
+    childInventories: {
+      select: { id: true, sku: true, status: true, serialNumber: true, asset: { select: { name: true, skuKey: true } } },
+    },
+  } as const;
+
   async getInventoryById(id: string, organizationId: string) {
     try {
       return await this.prisma.inventory.findFirst({
@@ -178,6 +189,7 @@ export class InventoriesService {
           id,
           organizationId,
         },
+        include: InventoriesService.HIERARCHY_INCLUDE,
       });
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -191,6 +203,7 @@ export class InventoriesService {
           sku,
           organizationId,
         },
+        include: InventoriesService.HIERARCHY_INCLUDE,
       });
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -220,6 +233,8 @@ export class InventoriesService {
           [InventoryStatus.reserved]: 0,
           [InventoryStatus.maintenance]: 0,
           [InventoryStatus.sold]: 0,
+          // Placeholders count separately — never inside instock.
+          [InventoryStatus.pending]: 0,
         },
       );
       return { inventories, statusCounts };
@@ -448,6 +463,12 @@ export class InventoriesService {
         include: { asset: true },
       });
       await this.logBindProvenance(inventory.id, 'created', dto, technicianUserId);
+      // Enforceable hierarchy: silently spawn 'pending' placeholder units for
+      // auto-create child assets (e.g. SIDS unit → TSS placeholder). Best-effort.
+      await this.autoCreateChildUnits(
+        [{ id: inventory.id, sku: inventory.sku, assetId: inventory.assetId }],
+        organizationId,
+      );
       return { inventory, asset, action: 'created' as const };
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -502,6 +523,77 @@ export class InventoriesService {
     }
   }
 
+  /**
+   * Enforceable asset hierarchy: for each freshly created parent unit, silently
+   * auto-create one 'pending' placeholder unit per child Asset that has
+   * autoCreateOnParentUnit=true AND isTracked=true, linked to the specific
+   * parent unit via parentInventoryId.
+   *
+   * Placeholder identity: sku = `<CHILD_SKUKEY>-PENDING-<PARENTSKU>` with the
+   * parent sku space-stripped (skus live in /scan/<sku> URLs), serial/tag null.
+   * The real identity is filled in later on the dashboard (updateInventories
+   * then auto-flips pending → instock).
+   *
+   * Best-effort by design: callers are the field bind and the dashboard bulk
+   * create — a placeholder failure must never fail the parent create. A P2002
+   * on the placeholder sku means it already exists (caller retry / duplicate
+   * call) and is treated as done. The import path deliberately does NOT call
+   * this (historical serials must not fabricate placeholders).
+   */
+  async autoCreateChildUnits(
+    parentUnits: Array<{ id: string; sku: string; assetId: string }>,
+    organizationId: string,
+  ) {
+    if (!parentUnits.length) return { created: 0 };
+    let created = 0;
+    try {
+      const childAssets = await this.prisma.asset.findMany({
+        where: {
+          organizationId,
+          deletedAt: null,
+          parentAssetId: { in: [...new Set(parentUnits.map((u) => u.assetId))] },
+          autoCreateOnParentUnit: true,
+          isTracked: true, // untracked children never auto-create
+        },
+        select: { id: true, skuKey: true, parentAssetId: true, category: { select: { name: true } } },
+      });
+      if (!childAssets.length) return { created: 0 };
+      const childrenByParentAsset = new Map<string, typeof childAssets>();
+      for (const c of childAssets) {
+        const list = childrenByParentAsset.get(c.parentAssetId) ?? [];
+        list.push(c);
+        childrenByParentAsset.set(c.parentAssetId, list);
+      }
+      for (const parent of parentUnits) {
+        for (const child of childrenByParentAsset.get(parent.assetId) ?? []) {
+          const placeholderSku = `${child.skuKey}-PENDING-${parent.sku.replace(/\s+/g, '')}`;
+          try {
+            await this.prisma.inventory.create({
+              data: {
+                assetId: child.id,
+                sku: placeholderSku,
+                category: child.category?.name ?? 'Equipment',
+                status: InventoryStatus.pending,
+                quantity: 1,
+                organizationId,
+                parentInventoryId: parent.id,
+              },
+            });
+            created++;
+          } catch (err) {
+            // P2002 = placeholder already exists (retry/duplicate) — done.
+            if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002')) {
+              console.warn(`auto-create child unit failed for parent ${parent.sku}:`, err?.message ?? err);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('autoCreateChildUnits failed (non-fatal):', err?.message ?? err);
+    }
+    return { created };
+  }
+
   async createInventories(createInventoryDto: CreateInventoryDto, organizationId: string) {
     try {
       const { assetId, quantity, status } = createInventoryDto;
@@ -549,6 +641,17 @@ export class InventoriesService {
         });
       }
 
+      // Enforceable hierarchy: createMany returns no ids, so re-read the rows
+      // just written (org+sku unique) and spawn 'pending' child placeholders
+      // for them. skipDuplicates means pre-existing skus weren't created here,
+      // but autoCreateChildUnits is idempotent (P2002 = already done) so
+      // re-including them is harmless.
+      const createdUnits = await this.prisma.inventory.findMany({
+        where: { organizationId, assetId, sku: { in: skuRange } },
+        select: { id: true, sku: true, assetId: true },
+      });
+      await this.autoCreateChildUnits(createdUnits, organizationId);
+
       return { createdItems, skuRange, inventoryItems };
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -557,15 +660,31 @@ export class InventoriesService {
 
   async updateInventories(updateInventoryDto: UpdateInventoryDto, organizationId: string) {
     try {
+      // Pending-placeholder auto-flip: a 'pending' child placeholder becomes a
+      // real unit the moment it is edited to a real identity — a sku that no
+      // longer carries the -PENDING- marker, or a serialNumber. Only fires when
+      // the caller didn't set a status themselves.
+      const data: any = {
+        ...updateInventoryDto,
+        status: updateInventoryDto.status as InventoryStatus,
+      };
+      if (!updateInventoryDto.status) {
+        const current = await this.prisma.inventory.findFirst({
+          where: { id: updateInventoryDto.id, organizationId },
+          select: { status: true, sku: true },
+        });
+        const newSku = updateInventoryDto.sku ?? current?.sku ?? '';
+        const gotRealIdentity = !newSku.includes('-PENDING-') || !!updateInventoryDto.serialNumber;
+        if (current?.status === InventoryStatus.pending && gotRealIdentity) {
+          data.status = InventoryStatus.instock;
+        }
+      }
       return await this.prisma.inventory.update({
         where: {
           id: updateInventoryDto.id,
           organizationId, // Ensure user can only update inventories in their organization
         },
-        data: {
-          ...updateInventoryDto,
-          status: updateInventoryDto.status as InventoryStatus,
-        },
+        data,
       });
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -574,12 +693,29 @@ export class InventoriesService {
 
   async deleteInventories(deleteInventoryDto: DeleteInventoryDto, organizationId: string) {
     try {
-      return await this.prisma.inventory.delete({
-        where: {
-          id: deleteInventoryDto.id,
-          organizationId, // Ensure user can only delete inventories in their organization
-        },
-      });
+      // Hierarchy cleanup: deleting a parent removes its still-pristine
+      // placeholder children (never claimed a real identity: status=pending,
+      // -PENDING- sku, no tag). Children that DID acquire a real identity are
+      // kept and merely orphaned (parentInventoryId auto-SetNull by the FK).
+      // One transaction so a failed parent delete doesn't strand the cleanup.
+      const [, deleted] = await this.prisma.$transaction([
+        this.prisma.inventory.deleteMany({
+          where: {
+            organizationId,
+            parentInventoryId: deleteInventoryDto.id,
+            status: InventoryStatus.pending,
+            sku: { contains: '-PENDING-' },
+            nfcTagUid: null,
+          },
+        }),
+        this.prisma.inventory.delete({
+          where: {
+            id: deleteInventoryDto.id,
+            organizationId, // Ensure user can only delete inventories in their organization
+          },
+        }),
+      ]);
+      return deleted;
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
