@@ -1,0 +1,179 @@
+- generic [ref=e1] [box=0,0,1440,900]:
+  - alert [ref=e6] [box=-1,-1,1,1]
+  - generic [ref=e7] [box=0,0,1440,900]:
+    - generic [ref=e9] [box=0,0,280,894]:
+      - generic [ref=e10] [box=0,0,280,82]:
+        - generic [ref=e11] [box=16,16,189,50]:
+          - paragraph [ref=e14] [box=106,17,44,27]: AIMS
+          - paragraph [ref=e15] [box=16,48,189,18]: Inventory Architect
+        - button "Collapse sidebar" [ref=e4523] [cursor=pointer] [box=233,26,31,31]:
+          - img [ref=e17] [box=238,31,21,21]
+      - list [ref=e21] [box=16,98,242,826]:
+        - listitem [ref=e22] [box=16,106,242,44]:
+          - link "Dashboard" [ref=e4524] [cursor=pointer] [box=16,106,242,44]:
+            - /url: /portal
+            - img [ref=e25] [box=28,118,20,20]
+            - generic [ref=e28] [box=60,118,186,20]: Dashboard
+        - listitem [ref=e29] [box=16,160,242,44]:
+          - button "Inventory" [ref=e4525] [cursor=pointer] [box=16,160,242,44]:
+            - img [ref=e32] [box=28,172,20,20]
+            - generic [ref=e35] [box=60,172,168,20]: Inventory
+            - img [ref=e36] [box=228,173,18,18]
+        - generic [ref=e41] [box=16,216,242,374]:
+          - link "Products" [ref=e4526] [cursor=pointer] [box=24,216,230,45]:
+            - /url: /portal/inventory/products
+            - generic [ref=e44] [box=60,228,178,21]: Products
+          - link "Inventory Items" [ref=e4527] [cursor=pointer] [box=24,263,230,45]:
+            - /url: /portal/inventory
+            - generic [ref=e47] [box=60,275,178,21]: Inventory Items
+          - link "Purchases" [ref=e4528] [cursor=pointer] [box=24,310,230,45]:
+            - /url: /portal/inventory/purchases
+            - generic [ref=e50] [box=60,322,178,21]: Purchases
+          - link "Purchases Return" [ref=e4529] [cursor=pointer] [box=24,357,230,45]:
+            - /url: /portal/inventory/purchases-return
+            - generic [ref=e53] [box=60,369,178,21]: Purchases Return
+          - link "Stock Adjustment In" [ref=e4530] [cursor=pointer] [box=24,404,230,45]:
+            - /url: /portal/inventory/adjustment-in
+            - generic [ref=e56] [box=60,416,178,21]: Stock Adjustment In
+          - link "Stock Adjustment Out" [ref=e4531] [cursor=pointer] [box=24,451,230,45]:
+            - /url: /portal/inventory/adjustment-out
+            - generic [ref=e59] [box=60,463,178,21]: Stock Adjustment Out
+          - link "Reports" [ref=e4532] [cursor=pointer] [box=24,498,230,45]:
+            - /url: /portal/inventory/reports
+            - generic [ref=e62] [box=60,510,178,21]: Reports
+          - link "Stock Card" [ref=e4533] [cursor=pointer] [box=24,545,230,45]:
+            - /url: /portal/inventory/stock-card
+            - generic [ref=e65] [box=60,557,178,21]: Stock Card
+        - listitem [ref=e66] [box=16,600,242,44]:
+          - button "Sales" [ref=e4534] [cursor=pointer] [box=16,600,242,44]:
+            - img [ref=e69] [box=28,612,20,20]
+            - generic [ref=e72] [box=60,612,168,20]: Sales
+            - img [ref=e73] [box=228,613,18,18]
+        - listitem [ref=e75] [box=16,654,242,44]:
+          - link "Customers" [ref=e4535] [cursor=pointer] [box=16,654,242,44]:
+            - /url: /portal/customers
+            - img [ref=e78] [box=28,666,20,20]
+            - generic [ref=e81] [box=60,666,186,20]: Customers
+        - listitem [ref=e82] [box=16,708,242,44]:
+          - link "Projects" [ref=e4536] [cursor=pointer] [box=16,708,242,44]:
+            - /url: /portal/projects
+            - img [ref=e85] [box=28,720,20,20]
+            - generic [ref=e88] [box=60,720,186,20]: Projects
+        - listitem [ref=e89] [box=16,762,242,44]:
+          - link "Suppliers" [ref=e4537] [cursor=pointer] [box=16,762,242,44]:
+            - /url: /portal/suppliers
+            - img [ref=e92] [box=28,774,20,20]
+            - generic [ref=e95] [box=60,774,186,20]: Suppliers
+        - listitem [ref=e96] [box=16,816,242,44]:
+          - button "Accounting" [ref=e4538] [cursor=pointer] [box=16,816,242,44]:
+            - img [ref=e99] [box=28,828,20,20]
+            - generic [ref=e102] [box=60,828,168,20]: Accounting
+            - img [ref=e103] [box=228,829,18,18]
+        - listitem [ref=e105] [box=16,870,242,44]:
+          - button "Organization Settings" [ref=e4539] [cursor=pointer] [box=16,870,242,44]:
+            - img [ref=e108] [box=28,882,20,20]
+            - generic [ref=e111] [box=60,882,168,20]: Organization Settings
+            - img [ref=e112] [box=228,883,18,18]
+      - generic [ref=e114] [box=0,834,280,60]:
+        - button "Open user menu" [ref=e4540] [cursor=pointer] [box=16,850,28,28]:
+          - img "test2 biofuel's logo" [ref=e4541] [box=16,850,28,28]
+        - generic [ref=e121] [box=52,854,177,21]:
+          - paragraph [ref=e122] [box=52,855,177,14]: test2 biofuel
+          - paragraph [box=52,875,180,0]
+        - button "Switch to dark mode" [ref=e4542] [cursor=pointer] [box=237,850,27,27]:
+          - img [ref=e124] [box=242,855,17,17]
+    - generic [ref=e303] [box=280,16,1170,900]:
+      - generic [ref=e304] [box=280,16,1170,39]:
+        - generic [ref=e305] [box=296,20,135,30]:
+          - button [ref=e306] [cursor=pointer] [box=296,20,30,30]:
+            - img [ref=e307] [box=301,25,21,21]
+          - heading "SAI202606-001" [level=6] [ref=e4543] [box=334,24,97,22]
+        - generic [ref=e310] [box=447,20,986,30]:
+          - button "Previous" [disabled] [box=447,20,86,30]:
+            - generic [box=454,27,16,16]:
+              - img [box=454,27,16,16]
+            - text: Previous
+          - button "Next" [disabled] [box=538,20,64,30]:
+            - generic [box=545,27,16,16]:
+              - img [box=545,27,16,16]
+            - text: Next
+          - button "Add" [ref=e4544] [cursor=pointer] [box=606,20,64,30]:
+            - img [ref=e313] [box=615,27,16,16]
+            - text: Add
+          - button "Locate" [ref=e4545] [cursor=pointer] [box=674,20,75,30]:
+            - img [ref=e317] [box=681,27,16,16]
+            - text: Locate
+          - button "Duplicate" [ref=e4546] [cursor=pointer] [box=753,20,91,30]:
+            - img [ref=e321] [box=760,27,16,16]
+            - text: Duplicate
+          - separator [ref=e323] [box=852,20,1,30]
+          - button "Stock Card" [ref=e4547] [cursor=pointer] [box=861,20,101,30]:
+            - img [ref=e326] [box=868,27,16,16]
+            - text: Stock Card
+          - button "Print / PDF" [ref=e4548] [cursor=pointer] [box=966,20,98,30]:
+            - img [ref=e330] [box=973,27,16,16]
+            - text: Print / PDF
+          - button "Preview" [ref=e4549] [cursor=pointer] [box=1068,20,82,30]:
+            - img [ref=e334] [box=1075,27,16,16]
+            - text: Preview
+          - button "Confirm Stock Adjustment In" [ref=e4550] [cursor=pointer] [box=1154,20,204,30]:
+            - img [ref=e338] [box=1161,27,16,16]
+            - text: Confirm Stock Adjustment In
+          - paragraph [ref=e340] [box=1361,26,72,17]:
+            - img [ref=e4628] [box=1369,26,17,17]
+            - text: Saved
+      - generic [ref=e344] [box=280,55,1170,861]:
+        - generic [ref=e345] [box=280,55,1164,30]:
+          - generic [ref=e346] [box=296,61,126,17]:
+            - paragraph [ref=e347] [box=296,61,112,17]: "Unconfirmed User:"
+            - paragraph [ref=e348] [box=416,61,6,17]: "-"
+          - generic [ref=e349] [box=454,61,111,17]:
+            - paragraph [ref=e350] [box=454,61,98,17]: "Confirmed User:"
+            - paragraph [ref=e351] [box=559,61,6,17]: "-"
+          - generic [ref=e352] [box=597,61,77,17]:
+            - paragraph [ref=e353] [box=597,61,63,17]: "Last Used:"
+            - paragraph [ref=e354] [box=668,61,6,17]: "-"
+        - tablist [ref=e358] [box=280,85,1164,36]:
+          - tab "General" [selected] [ref=e4551] [cursor=pointer] [box=280,85,90,36]
+          - tab "Details" [ref=e4552] [cursor=pointer] [box=370,85,90,36]
+        - tabpanel [ref=e362] [box=280,122,1164,406]:
+          - generic [ref=e365] [box=285,127,1154,396]:
+            - generic [ref=e366] [box=293,135,1138,24]:
+              - paragraph [ref=e367] [box=293,139,46,17]: General
+              - button "Hide fields" [ref=e4553] [cursor=pointer] [box=347,135,106,24]:
+                - text: Hide fields
+                - img [ref=e370] [box=428,138,18,18]
+            - separator [ref=e372] [box=293,161,1138,1]
+            - generic [ref=e376] [box=293,166,1138,349]:
+              - generic [ref=e377] [box=293,166,862,349]:
+                - generic [ref=e378] [box=294,167,860,46]
+                - generic [ref=e384] [box=294,213,860,30]
+                - generic [ref=e390] [box=294,243,860,46]
+                - generic [ref=e401] [box=294,289,860,30]
+                - generic [ref=e413] [box=294,318,860,30]
+                - generic [ref=e419] [box=294,348,860,46]
+                - generic [ref=e425] [box=294,394,860,46]
+                - generic [ref=e431] [box=294,440,860,30]
+                - generic [ref=e437] [box=294,469,860,45]
+              - generic [ref=e444] [box=1172,167,258,29]:
+                - paragraph [ref=e445] [box=1172,167,78,29]: Rate
+                - generic [ref=e447] [box=1250,167,80,28]
+                - paragraph [ref=e449] [box=1330,172,33,18]: SGD
+        - generic [ref=e452] [box=285,533,1154,457]:
+          - paragraph [ref=e453] [box=293,541,1138,17]: Items
+          - separator [ref=e454] [box=293,560,1138,1]
+          - tablist [ref=e458] [box=293,561,1138,32]:
+            - tab "Details" [selected] [ref=e4556] [cursor=pointer] [box=293,561,90,32]
+            - tab "Footer" [ref=e4557] [cursor=pointer] [box=383,561,90,32]
+          - tabpanel [ref=e462] [box=293,594,1138,388]:
+            - generic [ref=e464] [box=297,598,1130,380]:
+              - generic [ref=e465] [box=297,598,1130,260]:
+                - table [ref=e467] [box=297,598,1130,184]
+                - generic [ref=e479] [box=297,782,1130,51]
+              - generic [ref=e491] [box=1178,868,248,110]:
+                - generic [ref=e492] [box=1190,880,224,17]
+                - generic [ref=e495] [box=1190,901,224,17]
+                - generic [ref=e498] [box=1190,922,224,17]
+                - separator [ref=e501] [box=1190,943,224,1]
+                - generic [ref=e502] [box=1190,948,224,17]
+    - region "Notifications Alt+T" [box=1450,0,0,900]

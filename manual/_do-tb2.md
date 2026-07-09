@@ -1,0 +1,211 @@
+- generic [ref=e1] [box=0,0,1440,900]:
+  - alert [ref=e6] [box=-1,-1,1,1]
+  - generic [ref=e7] [box=0,0,1440,900]:
+    - generic [ref=e9] [box=0,0,280,894]:
+      - generic [ref=e10] [box=0,0,280,82]:
+        - generic [ref=e11] [box=16,16,189,50]:
+          - paragraph [ref=e14] [box=106,17,44,27]: AIMS
+          - paragraph [ref=e15] [box=16,48,189,18]: Inventory Architect
+        - button "Collapse sidebar" [ref=e6585] [cursor=pointer] [box=233,26,31,31]:
+          - img [ref=e17] [box=238,31,21,21]
+      - list [ref=e21] [box=16,98,242,779]:
+        - listitem [ref=e22] [box=16,106,242,44]:
+          - link "Dashboard" [ref=e6586] [cursor=pointer] [box=16,106,242,44]:
+            - /url: /portal
+            - img [ref=e25] [box=28,118,20,20]
+            - generic [ref=e28] [box=60,118,186,20]: Dashboard
+        - listitem [ref=e29] [box=16,160,242,44]:
+          - button "Inventory" [ref=e6587] [cursor=pointer] [box=16,160,242,44]:
+            - img [ref=e32] [box=28,172,20,20]
+            - generic [ref=e35] [box=60,172,168,20]: Inventory
+            - img [ref=e36] [box=228,173,18,18]
+        - listitem [ref=e38] [box=16,214,242,44]:
+          - button "Sales" [ref=e6588] [cursor=pointer] [box=16,214,242,44]:
+            - img [ref=e41] [box=28,226,20,20]
+            - generic [ref=e44] [box=60,226,168,20]: Sales
+            - img [ref=e45] [box=228,227,18,18]
+        - generic [ref=e50] [box=16,270,242,327]:
+          - link "Quotation" [ref=e6589] [cursor=pointer] [box=24,270,230,45]:
+            - /url: /portal/sales/quotations
+            - generic [ref=e53] [box=60,282,178,21]: Quotation
+          - link "Sales Order" [ref=e6590] [cursor=pointer] [box=24,317,230,45]:
+            - /url: /portal/sales/sales-orders
+            - generic [ref=e56] [box=60,329,178,21]: Sales Order
+          - link "Delivery Order" [ref=e6591] [cursor=pointer] [box=24,364,230,45]:
+            - /url: /portal/sales/delivery-orders
+            - generic [ref=e59] [box=60,376,178,21]: Delivery Order
+          - link "Invoice" [ref=e6592] [cursor=pointer] [box=24,411,230,45]:
+            - /url: /portal/sales/invoices
+            - generic [ref=e62] [box=60,423,178,21]: Invoice
+          - link "Debit Note" [ref=e6593] [cursor=pointer] [box=24,458,230,45]:
+            - /url: /portal/sales/debit-notes
+            - generic [ref=e65] [box=60,470,178,21]: Debit Note
+          - link "Credit Note" [ref=e6594] [cursor=pointer] [box=24,505,230,45]:
+            - /url: /portal/sales/credit-notes
+            - generic [ref=e68] [box=60,517,178,21]: Credit Note
+          - link "Stock Card" [ref=e6595] [cursor=pointer] [box=24,552,230,45]:
+            - /url: /portal/sales/stock-card
+            - generic [ref=e71] [box=60,564,178,21]: Stock Card
+        - listitem [ref=e72] [box=16,607,242,44]:
+          - link "Customers" [ref=e6596] [cursor=pointer] [box=16,607,242,44]:
+            - /url: /portal/customers
+            - img [ref=e75] [box=28,619,20,20]
+            - generic [ref=e78] [box=60,619,186,20]: Customers
+        - listitem [ref=e79] [box=16,661,242,44]:
+          - link "Projects" [ref=e6597] [cursor=pointer] [box=16,661,242,44]:
+            - /url: /portal/projects
+            - img [ref=e82] [box=28,673,20,20]
+            - generic [ref=e85] [box=60,673,186,20]: Projects
+        - listitem [ref=e86] [box=16,715,242,44]:
+          - link "Suppliers" [ref=e6598] [cursor=pointer] [box=16,715,242,44]:
+            - /url: /portal/suppliers
+            - img [ref=e89] [box=28,727,20,20]
+            - generic [ref=e92] [box=60,727,186,20]: Suppliers
+        - listitem [ref=e93] [box=16,769,242,44]:
+          - link "Accounting" [ref=e6599] [cursor=pointer] [box=16,769,242,44]:
+            - /url: /portal/accounting
+            - img [ref=e96] [box=28,781,20,20]
+            - generic [ref=e99] [box=60,781,168,20]: Accounting
+            - img [ref=e100] [box=228,782,18,18]
+        - listitem [ref=e102] [box=16,823,242,44]:
+          - button "Organization Settings" [ref=e6600] [cursor=pointer] [box=16,823,242,44]:
+            - img [ref=e105] [box=28,835,20,20]
+            - generic [ref=e108] [box=60,835,168,20]: Organization Settings
+            - img [ref=e109] [box=228,836,18,18]
+      - generic [ref=e111] [box=0,834,280,60]:
+        - button "Open user menu" [ref=e6601] [cursor=pointer] [box=16,850,28,28]:
+          - img "test2 biofuel's logo" [ref=e6602] [box=16,850,28,28]
+        - generic [ref=e118] [box=52,854,177,21]:
+          - paragraph [ref=e119] [box=52,855,177,14]: test2 biofuel
+          - paragraph [box=52,875,180,0]
+        - button "Switch to dark mode" [ref=e6603] [cursor=pointer] [box=237,850,27,27]:
+          - img [ref=e121] [box=242,855,17,17]
+    - generic [ref=e126] [box=280,16,1308,900]:
+      - generic [ref=e130] [box=280,16,1308,39]:
+        - generic [ref=e131] [box=296,20,134,30]:
+          - button [ref=e132] [cursor=pointer] [box=296,20,30,30]:
+            - img [ref=e133] [box=301,25,21,21]
+          - heading "DO202606-012" [level=6] [ref=e6604] [box=334,24,96,22]
+        - generic [ref=e136] [box=446,20,1126,30]:
+          - generic "No delivery started yet" [ref=e6605] [box=446,20,105,30]:
+            - button "Show Route" [disabled] [box=446,20,105,30]:
+              - generic [box=453,27,16,16]:
+                - img [box=453,27,16,16]
+              - text: Show Route
+          - button "Previous" [ref=e6606] [cursor=pointer] [box=555,20,86,30]:
+            - img [ref=e140] [box=562,27,16,16]
+            - text: Previous
+          - button "Next" [disabled] [box=645,20,64,30]:
+            - generic [box=653,27,16,16]:
+              - img [box=653,27,16,16]
+            - text: Next
+          - button "Add" [ref=e6607] [cursor=pointer] [box=713,20,64,30]:
+            - img [ref=e144] [box=723,27,16,16]
+            - text: Add
+          - button "Extract" [ref=e6608] [cursor=pointer] [box=781,20,78,30]:
+            - img [ref=e148] [box=788,27,16,16]
+            - text: Extract
+          - button "Locate" [ref=e6609] [cursor=pointer] [box=863,20,75,30]:
+            - img [ref=e152] [box=870,27,16,16]
+            - text: Locate
+          - button "Duplicate" [ref=e6610] [cursor=pointer] [box=942,20,91,30]:
+            - img [ref=e156] [box=949,27,16,16]
+            - text: Duplicate
+          - separator [ref=e158] [box=1042,20,1,30]
+          - button "Stock Card" [ref=e6611] [cursor=pointer] [box=1051,20,101,30]:
+            - img [ref=e161] [box=1058,27,16,16]
+            - text: Stock Card
+          - button "Print / PDF" [ref=e6612] [cursor=pointer] [box=1155,20,98,30]:
+            - img [ref=e165] [box=1162,27,16,16]
+            - text: Print / PDF
+          - button "Edit" [active] [ref=e6685] [cursor=pointer] [box=1257,20,64,30]:
+            - img [ref=e6686] [box=1267,27,16,16]
+            - text: Edit
+          - button "Confirm Delivery Order" [ref=e6614] [cursor=pointer] [box=1325,20,170,30]:
+            - img [ref=e173] [box=1332,27,16,16]
+            - text: Confirm Delivery Order
+          - paragraph [ref=e175] [box=1500,26,72,17]:
+            - img [ref=e6683] [box=1508,26,17,17]
+            - text: Saved
+      - generic [ref=e6690] [box=610,147,643,971]:
+        - generic [ref=e6691] [box=610,147,643,70]:
+          - paragraph [ref=e6692] [box=610,147,643,27]: Biofuel Industries Pte Ltd
+          - paragraph [ref=e6693] [box=610,176,643,20]: "Tel: 8902 0505"
+          - paragraph [ref=e6694] [box=610,197,643,20]: "UEN: 200303416N"
+        - paragraph [ref=e6696] [box=610,233,643,21]: DO DO202606-012
+        - generic [ref=e6697] [box=610,262,643,126]:
+          - generic [ref=e6699] [box=610,262,289,67]:
+            - paragraph [ref=e6700] [box=610,262,289,21]: "Bill To :"
+            - paragraph [ref=e6701] [box=610,287,289,21]: ACME Demo Pte Ltd
+            - paragraph [ref=e6702] [box=610,308,289,21]: "1 Demo Street, #01-01, Singapore 100000"
+          - generic [ref=e6704] [box=1016,262,237,126]:
+            - paragraph [ref=e6705] [box=1016,262,237,24]: DELIVERY ORDER
+            - generic [ref=e6706] [box=1016,290,237,20]:
+              - paragraph [ref=e6707] [box=1016,290,100,20]: UEN
+              - paragraph [ref=e6708] [box=1120,290,4,20]: ":"
+              - paragraph [ref=e6709] [box=1132,290,121,20]: 200303416N
+            - generic [ref=e6710] [box=1016,309,237,20]:
+              - paragraph [ref=e6711] [box=1016,309,115,20]: DELIVERY ORDER
+              - paragraph [box=1135,309,0,20]
+              - paragraph [ref=e6712] [box=1143,309,109,20]: DO202606-012
+            - generic [ref=e6713] [box=1016,329,237,20]:
+              - paragraph [ref=e6714] [box=1016,329,100,20]: Date
+              - paragraph [ref=e6715] [box=1120,329,4,20]: ":"
+              - paragraph [ref=e6716] [box=1132,329,121,20]: 26 Jun 2026
+            - generic [ref=e6717] [box=1016,348,237,20]:
+              - paragraph [ref=e6718] [box=1016,348,100,20]: Terms
+              - paragraph [ref=e6719] [box=1120,348,4,20]: ":"
+              - paragraph [ref=e6720] [box=1132,348,121,20]: CASH
+            - generic [ref=e6721] [box=1016,368,237,20]:
+              - paragraph [ref=e6722] [box=1016,368,100,20]: Customer
+              - paragraph [ref=e6723] [box=1120,368,4,20]: ":"
+              - paragraph [ref=e6724] [box=1132,368,121,20]: CA025
+        - table [ref=e6726] [box=610,400,643,242]:
+          - rowgroup [ref=e6727] [box=610,400,643,42]:
+            - row "Item Description Quantity uom Remarks" [ref=e6728] [box=610,400,643,42]:
+              - columnheader "Item" [ref=e6729] [box=610,400,64,42]
+              - columnheader "Description" [ref=e6730] [box=674,400,289,42]
+              - columnheader "Quantity" [ref=e6731] [box=963,400,96,42]
+              - columnheader "uom" [ref=e6732] [box=1059,400,64,42]
+              - columnheader "Remarks" [ref=e6733] [box=1124,400,129,42]
+          - rowgroup [ref=e6734] [box=610,441,643,201]:
+            - row "MBR MBR 5.00 PCS" [ref=e6735] [box=610,441,643,41]:
+              - cell "MBR" [ref=e6736] [box=610,441,64,41]
+              - cell "MBR" [ref=e6737] [box=674,441,289,41]:
+                - paragraph [ref=e6738] [box=682,452,273,20]: MBR
+              - cell "5.00" [ref=e6739] [box=963,441,96,41]
+              - cell "PCS" [ref=e6740] [box=1059,441,64,41]
+              - cell [ref=e6741] [box=1124,441,129,41]
+            - row [ref=e6742] [box=610,482,643,40]:
+              - cell [ref=e6743] [box=610,482,64,40]
+              - cell [ref=e6744] [box=674,482,289,40]
+              - cell [ref=e6745] [box=963,482,96,40]
+              - cell [ref=e6746] [box=1059,482,64,40]
+              - cell [ref=e6747] [box=1124,482,129,40]
+            - row [ref=e6748] [box=610,522,643,40]:
+              - cell [ref=e6749] [box=610,522,64,40]
+              - cell [ref=e6750] [box=674,522,289,40]
+              - cell [ref=e6751] [box=963,522,96,40]
+              - cell [ref=e6752] [box=1059,522,64,40]
+              - cell [ref=e6753] [box=1124,522,129,40]
+            - row [ref=e6754] [box=610,562,643,40]:
+              - cell [ref=e6755] [box=610,562,64,40]
+              - cell [ref=e6756] [box=674,562,289,40]
+              - cell [ref=e6757] [box=963,562,96,40]
+              - cell [ref=e6758] [box=1059,562,64,40]
+              - cell [ref=e6759] [box=1124,562,129,40]
+            - row [ref=e6760] [box=610,602,643,40]:
+              - cell [ref=e6761] [box=610,602,64,40]
+              - cell [ref=e6762] [box=674,602,289,40]
+              - cell [ref=e6763] [box=963,602,96,40]
+              - cell [ref=e6764] [box=1059,602,64,40]
+              - cell [ref=e6765] [box=1124,602,129,40]
+        - generic [ref=e6767] [box=610,935,643,183]:
+          - generic [ref=e6768] [box=610,952,643,20]:
+            - paragraph [ref=e6769] [box=610,952,262,20]: Goods Received In Good Order & Condition
+            - paragraph [ref=e6770] [box=1093,952,160,20]: Biofuel Industries Pte Ltd
+          - generic [ref=e6771] [box=610,1019,643,99]:
+            - paragraph [ref=e6775] [box=631,1098,171,20]: Chop & Sign
+            - paragraph [ref=e6779] [box=845,1098,171,20]: Delivery By
+            - paragraph [ref=e6783] [box=1060,1098,171,20]: "Issue By :"
+    - region "Notifications Alt+T" [box=1588,0,0,900]

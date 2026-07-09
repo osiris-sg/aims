@@ -1,0 +1,445 @@
+- generic [ref=e1] [box=0,0,1440,900]:
+  - alert [ref=e6] [box=-1,-1,1,1]
+  - generic [ref=e7] [box=0,0,1440,900]:
+    - generic [ref=e9] [box=0,0,280,900]:
+      - generic [ref=e10] [box=0,0,280,82]:
+        - generic [ref=e11] [box=16,16,189,50]:
+          - paragraph [ref=e14] [box=106,17,44,27]: AIMS
+          - paragraph [ref=e15] [box=16,48,189,18]: Inventory Architect
+        - button [ref=e503] [cursor=pointer] [box=233,26,31,31]:
+          - img [ref=e17] [box=238,31,21,21]
+      - list [ref=e21] [box=16,98,248,440]:
+        - listitem [ref=e22] [box=16,106,248,44]:
+          - link [ref=e504] [cursor=pointer] [box=16,106,248,44]:
+            - /url: /portal
+            - img [ref=e25] [box=28,118,20,20]
+            - generic [ref=e28] [box=60,118,192,20]: Dashboard
+        - listitem [ref=e29] [box=16,160,248,44]:
+          - button [ref=e505] [cursor=pointer] [box=16,160,248,44]:
+            - img [ref=e32] [box=28,172,20,20]
+            - generic [ref=e35] [box=60,172,174,20]: Inventory
+            - img [ref=e36] [box=234,173,18,18]
+        - listitem [ref=e38] [box=16,214,248,44]:
+          - button [ref=e506] [cursor=pointer] [box=16,214,248,44]:
+            - img [ref=e41] [box=28,226,20,20]
+            - generic [ref=e44] [box=60,226,174,20]: Sales
+            - img [ref=e45] [box=234,227,18,18]
+        - listitem [ref=e47] [box=16,268,248,44]:
+          - link [ref=e507] [cursor=pointer] [box=16,268,248,44]:
+            - /url: /portal/customers
+            - img [ref=e50] [box=28,280,20,20]
+            - generic [ref=e53] [box=60,280,192,20]: Customers
+        - listitem [ref=e54] [box=16,322,248,44]:
+          - link [ref=e508] [cursor=pointer] [box=16,322,248,44]:
+            - /url: /portal/projects
+            - img [ref=e57] [box=28,334,20,20]
+            - generic [ref=e60] [box=60,334,192,20]: Projects
+        - listitem [ref=e61] [box=16,376,248,44]:
+          - link [ref=e509] [cursor=pointer] [box=16,376,248,44]:
+            - /url: /portal/suppliers
+            - img [ref=e64] [box=28,388,20,20]
+            - generic [ref=e67] [box=60,388,192,20]: Suppliers
+        - listitem [ref=e68] [box=16,430,248,44]:
+          - link [ref=e510] [cursor=pointer] [box=16,430,248,44]:
+            - /url: /portal/accounting
+            - img [ref=e71] [box=28,442,20,20]
+            - generic [ref=e74] [box=60,442,174,20]: Accounting
+            - img [ref=e75] [box=234,443,18,18]
+        - listitem [ref=e77] [box=16,484,248,44]:
+          - button [ref=e511] [cursor=pointer] [box=16,484,248,44]:
+            - img [ref=e80] [box=28,496,20,20]
+            - generic [ref=e83] [box=60,496,174,20]: Organization Settings
+            - img [ref=e84] [box=234,497,18,18]
+      - generic [ref=e86] [box=0,840,280,60]:
+        - button [ref=e512] [cursor=pointer] [box=16,856,28,28]:
+          - img [ref=e513] [box=16,856,28,28]
+        - paragraph [ref=e94] [box=52,861,177,14]: test2 biofuel
+        - button [ref=e514] [cursor=pointer] [box=237,856,27,27]:
+          - img [ref=e96] [box=242,861,17,17]
+    - generic [ref=e104] [box=312,48,1096,820]:
+      - generic [ref=e105] [box=312,48,1096,64]:
+        - generic [ref=e107] [box=312,48,355,64]:
+          - paragraph [ref=e108] [box=312,48,355,36]: Customers List
+          - paragraph [ref=e109] [box=312,88,355,24]: Customers Detail Information
+        - generic [ref=e111] [box=683,59,725,43]:
+          - button [ref=e515] [cursor=pointer] [box=887,59,154,43]:
+            - img [ref=e114] [box=901,71,18,18]
+            - text: Add Customer
+          - button [ref=e516] [cursor=pointer] [box=1049,59,100,43]:
+            - generic [ref=e117] [box=1062,60,74,41]:
+              - img [ref=e118] [box=1070,70,21,21]
+              - text: Filter
+          - generic [ref=e122] [box=1157,59,213,37]:
+            - img [ref=e124] [box=1171,67,21,21]
+            - textbox [ref=e517] [box=1199,59,170,37]:
+              - /placeholder: Search
+            - group [box=1157,54,213,42]
+          - button [ref=e127] [cursor=pointer] [box=1377,59,31,43]:
+            - img [ref=e128] [box=1382,70,21,21]
+      - table [ref=e132] [box=313,145,1094,760]:
+        - rowgroup [ref=e133] [box=313,145,1094,74]:
+          - row [ref=e518] [box=313,145,1094,74]:
+            - columnheader [ref=e135] [box=313,145,48,74]:
+              - button [ref=e136] [cursor=pointer] [box=337,172,47,21]:
+                - generic [ref=e137] [box=337,172,21,21]:
+                  - checkbox [ref=e138] [box=337,172,21,21]
+                  - img [ref=e139] [box=337,172,21,21]
+                - img [ref=e141] [box=362,173,18,18]
+            - columnheader [ref=e519] [box=361,145,131,74]:
+              - button [ref=e520] [cursor=pointer] [box=385,161,93,41]:
+                - text: Customer Code
+                - img [ref=e145] [box=456,173,18,18]
+            - columnheader [ref=e521] [box=492,145,131,74]:
+              - button [ref=e522] [cursor=pointer] [box=516,172,61,21]:
+                - text: Name
+                - img [ref=e149] [box=555,173,18,18]
+            - columnheader [ref=e523] [box=623,145,131,74]:
+              - button [ref=e524] [cursor=pointer] [box=647,172,63,21]:
+                - text: Email
+                - img [ref=e153] [box=688,173,18,18]
+            - columnheader [ref=e525] [box=753,145,131,74]:
+              - button [ref=e526] [cursor=pointer] [box=777,172,68,21]:
+                - text: Phone
+                - img [ref=e157] [box=823,173,18,18]
+            - columnheader [ref=e527] [box=884,145,131,74]:
+              - button [ref=e528] [cursor=pointer] [box=908,172,83,21]:
+                - text: Address
+                - img [ref=e161] [box=969,173,18,18]
+            - columnheader [ref=e529] [box=1015,145,131,74]:
+              - button [ref=e530] [cursor=pointer] [box=1039,172,92,21]:
+                - text: Salesman
+                - img [ref=e165] [box=1109,173,18,18]
+            - columnheader [ref=e531] [box=1146,145,131,74]:
+              - button [ref=e532] [cursor=pointer] [box=1170,161,83,41]:
+                - text: Created At
+                - img [ref=e169] [box=1230,173,18,18]
+            - columnheader [ref=e533] [box=1276,145,131,74]:
+              - button [ref=e534] [cursor=pointer] [box=1300,172,80,21]:
+                - text: Actions
+                - img [ref=e173] [box=1358,173,18,18]
+        - rowgroup [ref=e175] [box=313,219,1094,686]:
+          - row [ref=e535] [box=313,219,1094,69]:
+            - cell [ref=e177] [box=313,219,48,69]:
+              - generic [ref=e178] [cursor=pointer] [box=337,241,21,21]:
+                - checkbox [ref=e179] [box=337,241,21,21]
+                - img [ref=e180] [box=337,241,21,21]
+            - cell [ref=e536] [box=361,219,131,69]:
+              - generic [ref=e183] [box=385,240,83,20]: "-"
+            - cell [ref=e537] [box=492,219,131,69]:
+              - generic [ref=e185] [box=516,240,83,20]: Yong Guan Hydraulic & Industrial Supply
+            - cell [ref=e538] [box=623,219,131,69]:
+              - generic [ref=e187] [box=647,240,83,20]: account@yongguanhydraulic.com
+            - cell [ref=e539] [box=753,219,131,69]:
+              - generic [ref=e189] [box=777,240,83,20]: "62811887"
+            - cell [ref=e540] [box=884,219,131,69]:
+              - generic [ref=e191] [box=908,240,83,20]: 30 Defu Lane 10, Defu Industrial Estate
+            - cell [ref=e541] [box=1015,219,131,69]:
+              - generic [ref=e193] [box=1039,240,83,20]: "-"
+            - cell [ref=e542] [box=1146,219,131,69]:
+              - generic [ref=e195] [box=1170,240,83,20]: 25/06/2026
+            - cell [ref=e196] [box=1276,219,131,69]:
+              - generic [ref=e543] [box=1300,235,83,31]:
+                - button [ref=e544] [cursor=pointer] [box=1300,235,31,31]:
+                  - img [ref=e545] [box=1305,240,21,21]
+                - button [ref=e547] [cursor=pointer] [box=1339,235,31,31]:
+                  - img [ref=e548] [box=1344,240,21,21]
+                - button [ref=e550] [cursor=pointer] [box=1377,235,31,31]:
+                  - img [ref=e551] [box=1382,240,21,21]
+          - row [ref=e553] [box=313,288,1094,69]:
+            - cell [ref=e209] [box=313,288,48,69]:
+              - generic [ref=e210] [cursor=pointer] [box=337,309,21,21]:
+                - checkbox [ref=e211] [box=337,309,21,21]
+                - img [ref=e212] [box=337,309,21,21]
+            - cell [ref=e554] [box=361,288,131,69]:
+              - generic [ref=e215] [box=385,309,83,20]: "-"
+            - cell [ref=e555] [box=492,288,131,69]:
+              - generic [ref=e217] [box=516,309,83,20]: Yoke Office Equipment
+            - cell [ref=e218] [box=623,288,131,69]
+            - cell [ref=e219] [box=753,288,131,69]
+            - cell [ref=e556] [box=884,288,131,69]:
+              - generic [ref=e221] [box=908,309,83,20]: "Blk 1075 Eunos Ave 6, #01-169"
+            - cell [ref=e557] [box=1015,288,131,69]:
+              - generic [ref=e223] [box=1039,309,83,20]: "-"
+            - cell [ref=e558] [box=1146,288,131,69]:
+              - generic [ref=e225] [box=1170,309,83,20]: 25/06/2026
+            - cell [ref=e226] [box=1276,288,131,69]:
+              - generic [ref=e559] [box=1300,304,83,31]:
+                - button [ref=e560] [cursor=pointer] [box=1300,304,31,31]:
+                  - img [ref=e561] [box=1305,309,21,21]
+                - button [ref=e563] [cursor=pointer] [box=1339,304,31,31]:
+                  - img [ref=e564] [box=1344,309,21,21]
+                - button [ref=e566] [cursor=pointer] [box=1377,304,31,31]:
+                  - img [ref=e567] [box=1382,309,21,21]
+          - row [ref=e569] [box=313,356,1094,69]:
+            - cell [ref=e239] [box=313,356,48,69]:
+              - generic [ref=e240] [cursor=pointer] [box=337,378,21,21]:
+                - checkbox [ref=e241] [box=337,378,21,21]
+                - img [ref=e242] [box=337,378,21,21]
+            - cell [ref=e570] [box=361,356,131,69]:
+              - generic [ref=e245] [box=385,378,83,20]: "-"
+            - cell [ref=e571] [box=492,356,131,69]:
+              - generic [ref=e247] [box=516,378,83,20]: Yeo Kun Too Transport Services
+            - cell [ref=e248] [box=623,356,131,69]
+            - cell [ref=e249] [box=753,356,131,69]
+            - cell [ref=e572] [box=884,356,131,69]:
+              - generic [ref=e251] [box=908,378,83,20]: 488B Tampines Street 45, Singapore 521488, Singapore, 521488, SGP
+            - cell [ref=e573] [box=1015,356,131,69]:
+              - generic [ref=e253] [box=1039,378,83,20]: "-"
+            - cell [ref=e574] [box=1146,356,131,69]:
+              - generic [ref=e255] [box=1170,378,83,20]: 25/06/2026
+            - cell [ref=e256] [box=1276,356,131,69]:
+              - generic [ref=e575] [box=1300,372,83,31]:
+                - button [ref=e576] [cursor=pointer] [box=1300,372,31,31]:
+                  - img [ref=e577] [box=1305,377,21,21]
+                - button [ref=e579] [cursor=pointer] [box=1339,372,31,31]:
+                  - img [ref=e580] [box=1344,377,21,21]
+                - button [ref=e582] [cursor=pointer] [box=1377,372,31,31]:
+                  - img [ref=e583] [box=1382,377,21,21]
+          - row [ref=e585] [box=313,425,1094,69]:
+            - cell [ref=e269] [box=313,425,48,69]:
+              - generic [ref=e270] [cursor=pointer] [box=337,446,21,21]:
+                - checkbox [ref=e271] [box=337,446,21,21]
+                - img [ref=e272] [box=337,446,21,21]
+            - cell [ref=e586] [box=361,425,131,69]:
+              - generic [ref=e275] [box=385,446,83,20]: "-"
+            - cell [ref=e587] [box=492,425,131,69]:
+              - generic [ref=e277] [box=516,446,83,20]: Yeo Han Rae
+            - cell [ref=e278] [box=623,425,131,69]
+            - cell [ref=e279] [box=753,425,131,69]
+            - cell [ref=e280] [box=884,425,131,69]
+            - cell [ref=e588] [box=1015,425,131,69]:
+              - generic [ref=e282] [box=1039,446,83,20]: "-"
+            - cell [ref=e589] [box=1146,425,131,69]:
+              - generic [ref=e284] [box=1170,446,83,20]: 25/06/2026
+            - cell [ref=e285] [box=1276,425,131,69]:
+              - generic [ref=e590] [box=1300,441,83,31]:
+                - button [ref=e591] [cursor=pointer] [box=1300,441,31,31]:
+                  - img [ref=e592] [box=1305,446,21,21]
+                - button [ref=e594] [cursor=pointer] [box=1339,441,31,31]:
+                  - img [ref=e595] [box=1344,446,21,21]
+                - button [ref=e597] [cursor=pointer] [box=1377,441,31,31]:
+                  - img [ref=e598] [box=1382,446,21,21]
+          - row [ref=e600] [box=313,493,1094,69]:
+            - cell [ref=e298] [box=313,493,48,69]:
+              - generic [ref=e299] [cursor=pointer] [box=337,515,21,21]:
+                - checkbox [ref=e300] [box=337,515,21,21]
+                - img [ref=e301] [box=337,515,21,21]
+            - cell [ref=e601] [box=361,493,131,69]:
+              - generic [ref=e304] [box=385,515,83,20]: "-"
+            - cell [ref=e602] [box=492,493,131,69]:
+              - generic [ref=e306] [box=516,515,83,20]: Yeni Kusni
+            - cell [ref=e307] [box=623,493,131,69]
+            - cell [ref=e308] [box=753,493,131,69]
+            - cell [ref=e309] [box=884,493,131,69]
+            - cell [ref=e603] [box=1015,493,131,69]:
+              - generic [ref=e311] [box=1039,515,83,20]: "-"
+            - cell [ref=e604] [box=1146,493,131,69]:
+              - generic [ref=e313] [box=1170,515,83,20]: 25/06/2026
+            - cell [ref=e314] [box=1276,493,131,69]:
+              - generic [ref=e605] [box=1300,509,83,31]:
+                - button [ref=e606] [cursor=pointer] [box=1300,509,31,31]:
+                  - img [ref=e607] [box=1305,514,21,21]
+                - button [ref=e609] [cursor=pointer] [box=1339,509,31,31]:
+                  - img [ref=e610] [box=1344,514,21,21]
+                - button [ref=e612] [cursor=pointer] [box=1377,509,31,31]:
+                  - img [ref=e613] [box=1382,514,21,21]
+          - row [ref=e615] [box=313,562,1094,69]:
+            - cell [ref=e327] [box=313,562,48,69]:
+              - generic [ref=e328] [cursor=pointer] [box=337,584,21,21]:
+                - checkbox [ref=e329] [box=337,584,21,21]
+                - img [ref=e330] [box=337,584,21,21]
+            - cell [ref=e616] [box=361,562,131,69]:
+              - generic [ref=e333] [box=385,583,83,20]: "-"
+            - cell [ref=e617] [box=492,562,131,69]:
+              - generic [ref=e335] [box=516,583,83,20]: WFY Civil Engineering Pte Ltd
+            - cell [ref=e618] [box=623,562,131,69]:
+              - generic [ref=e337] [box=647,583,83,20]: wangfayin@wfyce.com
+            - cell [ref=e619] [box=753,562,131,69]:
+              - generic [ref=e339] [box=777,583,83,20]: "90218446"
+            - cell [ref=e620] [box=884,562,131,69]:
+              - generic [ref=e341] [box=908,583,83,20]: "81 Ubi Avenue 4, Ub. One, #08-11"
+            - cell [ref=e621] [box=1015,562,131,69]:
+              - generic [ref=e343] [box=1039,583,83,20]: "-"
+            - cell [ref=e622] [box=1146,562,131,69]:
+              - generic [ref=e345] [box=1170,583,83,20]: 25/06/2026
+            - cell [ref=e346] [box=1276,562,131,69]:
+              - generic [ref=e623] [box=1300,578,83,31]:
+                - button [ref=e624] [cursor=pointer] [box=1300,578,31,31]:
+                  - img [ref=e625] [box=1305,583,21,21]
+                - button [ref=e627] [cursor=pointer] [box=1339,578,31,31]:
+                  - img [ref=e628] [box=1344,583,21,21]
+                - button [ref=e630] [cursor=pointer] [box=1377,578,31,31]:
+                  - img [ref=e631] [box=1382,583,21,21]
+          - row [ref=e633] [box=313,631,1094,69]:
+            - cell [ref=e359] [box=313,631,48,69]:
+              - generic [ref=e360] [cursor=pointer] [box=337,652,21,21]:
+                - checkbox [ref=e361] [box=337,652,21,21]
+                - img [ref=e362] [box=337,652,21,21]
+            - cell [ref=e634] [box=361,631,131,69]:
+              - generic [ref=e365] [box=385,652,83,20]: "-"
+            - cell [ref=e635] [box=492,631,131,69]:
+              - generic [ref=e367] [box=516,652,83,20]: VPM Engineering Pte Ltd
+            - cell [ref=e636] [box=623,631,131,69]:
+              - generic [ref=e369] [box=647,652,83,20]: logistics@vpmengg.com
+            - cell [ref=e637] [box=753,631,131,69]:
+              - generic [ref=e371] [box=777,652,83,20]: "85060081"
+            - cell [ref=e638] [box=884,631,131,69]:
+              - generic [ref=e373] [box=908,652,83,20]: "3 Soon Lee Street #04-28, Pioneer Junction"
+            - cell [ref=e639] [box=1015,631,131,69]:
+              - generic [ref=e375] [box=1039,652,83,20]: "-"
+            - cell [ref=e640] [box=1146,631,131,69]:
+              - generic [ref=e377] [box=1170,652,83,20]: 25/06/2026
+            - cell [ref=e378] [box=1276,631,131,69]:
+              - generic [ref=e641] [box=1300,647,83,31]:
+                - button [ref=e642] [cursor=pointer] [box=1300,647,31,31]:
+                  - img [ref=e643] [box=1305,652,21,21]
+                - button [ref=e645] [cursor=pointer] [box=1339,647,31,31]:
+                  - img [ref=e646] [box=1344,652,21,21]
+                - button [ref=e648] [cursor=pointer] [box=1377,647,31,31]:
+                  - img [ref=e649] [box=1382,652,21,21]
+          - row [ref=e651] [box=313,699,1094,69]:
+            - cell [ref=e391] [box=313,699,48,69]:
+              - generic [ref=e392] [cursor=pointer] [box=337,721,21,21]:
+                - checkbox [ref=e393] [box=337,721,21,21]
+                - img [ref=e394] [box=337,721,21,21]
+            - cell [ref=e652] [box=361,699,131,69]:
+              - generic [ref=e397] [box=385,721,83,20]: "-"
+            - cell [ref=e653] [box=492,699,131,69]:
+              - generic [ref=e399] [box=516,721,83,20]: vce
+            - cell [ref=e400] [box=623,699,131,69]
+            - cell [ref=e401] [box=753,699,131,69]
+            - cell [ref=e402] [box=884,699,131,69]
+            - cell [ref=e654] [box=1015,699,131,69]:
+              - generic [ref=e404] [box=1039,721,83,20]: "-"
+            - cell [ref=e655] [box=1146,699,131,69]:
+              - generic [ref=e406] [box=1170,721,83,20]: 25/06/2026
+            - cell [ref=e407] [box=1276,699,131,69]:
+              - generic [ref=e656] [box=1300,715,83,31]:
+                - button [ref=e657] [cursor=pointer] [box=1300,715,31,31]:
+                  - img [ref=e658] [box=1305,720,21,21]
+                - button [ref=e660] [cursor=pointer] [box=1339,715,31,31]:
+                  - img [ref=e661] [box=1344,720,21,21]
+                - button [ref=e663] [cursor=pointer] [box=1377,715,31,31]:
+                  - img [ref=e664] [box=1382,720,21,21]
+          - row [ref=e666] [box=313,768,1094,69]:
+            - cell [ref=e420] [box=313,768,48,69]:
+              - generic [ref=e421] [cursor=pointer] [box=337,789,21,21]:
+                - checkbox [ref=e422] [box=337,789,21,21]
+                - img [ref=e423] [box=337,789,21,21]
+            - cell [ref=e667] [box=361,768,131,69]:
+              - generic [ref=e426] [box=385,789,83,20]: "-"
+            - cell [ref=e668] [box=492,768,131,69]:
+              - generic [ref=e428] [box=516,789,83,20]: U-First Mobile Pte Ltd
+            - cell [ref=e669] [box=623,768,131,69]:
+              - generic [ref=e430] [box=647,789,83,20]: umobilepteltd@gmail.com
+            - cell [ref=e670] [box=753,768,131,69]:
+              - generic [ref=e432] [box=777,789,83,20]: "67538319"
+            - cell [ref=e671] [box=884,768,131,69]:
+              - generic [ref=e434] [box=908,789,83,20]: "304 Orchard Road, #B1-01 Lucky Plaza"
+            - cell [ref=e672] [box=1015,768,131,69]:
+              - generic [ref=e436] [box=1039,789,83,20]: "-"
+            - cell [ref=e673] [box=1146,768,131,69]:
+              - generic [ref=e438] [box=1170,789,83,20]: 25/06/2026
+            - cell [ref=e439] [box=1276,768,131,69]:
+              - generic [ref=e674] [box=1300,784,83,31]:
+                - button [ref=e675] [cursor=pointer] [box=1300,784,31,31]:
+                  - img [ref=e676] [box=1305,789,21,21]
+                - button [ref=e678] [cursor=pointer] [box=1339,784,31,31]:
+                  - img [ref=e679] [box=1344,789,21,21]
+                - button [ref=e681] [cursor=pointer] [box=1377,784,31,31]:
+                  - img [ref=e682] [box=1382,789,21,21]
+          - row [ref=e684] [box=313,836,1094,69]:
+            - cell [ref=e452] [box=313,836,48,69]:
+              - generic [ref=e453] [cursor=pointer] [box=337,858,21,21]:
+                - checkbox [ref=e454] [box=337,858,21,21]
+                - img [ref=e455] [box=337,858,21,21]
+            - cell [ref=e685] [box=361,836,131,69]:
+              - generic [ref=e458] [box=385,858,83,20]: "-"
+            - cell [ref=e686] [box=492,836,131,69]:
+              - generic [ref=e460] [box=516,858,83,20]: Tuton
+            - cell [ref=e461] [box=623,836,131,69]
+            - cell [ref=e462] [box=753,836,131,69]
+            - cell [ref=e463] [box=884,836,131,69]
+            - cell [ref=e687] [box=1015,836,131,69]:
+              - generic [ref=e465] [box=1039,858,83,20]: "-"
+            - cell [ref=e688] [box=1146,836,131,69]:
+              - generic [ref=e467] [box=1170,858,83,20]: 25/06/2026
+            - cell [ref=e468] [box=1276,836,131,69]:
+              - generic [ref=e689] [box=1300,852,83,31]:
+                - button [ref=e690] [cursor=pointer] [box=1300,852,31,31]:
+                  - img [ref=e691] [box=1305,857,21,21]
+                - button [ref=e693] [cursor=pointer] [box=1339,852,31,31]:
+                  - img [ref=e694] [box=1344,857,21,21]
+                - button [ref=e696] [cursor=pointer] [box=1377,852,31,31]:
+                  - img [ref=e697] [box=1382,857,21,21]
+      - generic [ref=e480] [box=312,831,1096,37]:
+        - generic [ref=e481] [box=312,831,125,37]:
+          - paragraph [ref=e482] [box=312,841,48,17]: Showing
+          - generic [ref=e485] [box=376,831,61,37]:
+            - combobox [ref=e486] [cursor=pointer] [box=376,831,61,37]:
+              - paragraph [ref=e488] [box=388,839,17,21]: "10"
+            - textbox [box=376,847,61,22]: "10"
+            - img [box=410,839,21,21]
+            - group [box=376,826,61,42]
+        - paragraph [ref=e489] [box=733,841,189,17]: Showing 1-10 out of 410 records
+        - navigation [ref=e699] [box=1218,834,190,32]:
+          - list [ref=e491] [box=1218,834,190,32]:
+            - listitem [ref=e492] [box=1218,834,38,32]:
+              - button [disabled] [box=1221,834,32,32]:
+                - img [box=1228,841,17,17]
+            - listitem [ref=e493] [box=1256,834,38,32]:
+              - button [ref=e700] [cursor=pointer] [box=1259,834,32,32]: "1"
+            - listitem [ref=e495] [box=1294,834,38,32]:
+              - button [ref=e701] [cursor=pointer] [box=1297,834,32,32]: "2"
+            - listitem [ref=e497] [box=1332,841,38,17]:
+              - generic [ref=e498] [box=1335,841,32,17]: …
+            - listitem [ref=e499] [box=1370,834,38,32]:
+              - button [ref=e702] [cursor=pointer] [box=1373,834,32,32]:
+                - img [ref=e501] [box=1380,841,17,17]
+  - generic [ref=e705] [box=1041,0,399,900]:
+    - paragraph [ref=e706] [box=1057,109,367,21]: Add Customer
+    - generic [ref=e707] [box=1057,162,367,628]:
+      - generic [ref=e708] [box=1057,162,367,550]:
+        - generic [ref=e709] [box=1057,162,367,59]:
+          - generic [ref=e710] [box=1057,162,367,20]: Name
+          - generic [ref=e712] [box=1057,185,367,37]:
+            - textbox "Enter customer name" [ref=e713] [box=1057,185,367,37]
+            - group [box=1057,180,367,42]
+        - generic [ref=e714] [box=1057,238,367,59]:
+          - generic [ref=e715] [box=1057,238,367,20]: Email
+          - generic [ref=e717] [box=1057,260,367,37]:
+            - textbox "Enter customer email" [ref=e718] [box=1057,260,367,37]
+            - group [box=1057,255,367,42]
+        - generic [ref=e719] [box=1057,313,367,59]:
+          - generic [ref=e720] [box=1057,313,367,20]: Phone
+          - generic [ref=e722] [box=1057,335,367,37]:
+            - textbox "Enter customer phone number" [ref=e723] [box=1057,335,367,37]
+            - group [box=1057,330,367,42]
+        - generic [ref=e724] [box=1057,388,367,59]:
+          - generic [ref=e725] [box=1057,388,367,20]: Address
+          - generic [ref=e727] [box=1057,410,367,37]:
+            - textbox "Enter customer address" [ref=e728] [box=1057,410,367,37]
+            - group [box=1057,405,367,42]
+        - generic [ref=e729] [box=1057,463,367,59]:
+          - generic [ref=e730] [box=1057,463,367,20]: GST Reg No.
+          - generic [ref=e732] [box=1057,486,367,37]:
+            - textbox "Enter GST registration number" [ref=e733] [box=1057,486,367,37]
+            - group [box=1057,481,367,42]
+        - generic [ref=e734] [box=1057,539,367,36]:
+          - generic [box=1071,548,62,20]: Salesman
+          - generic [ref=e735] [box=1057,539,367,36]:
+            - combobox "Salesman" [ref=e736] [cursor=pointer] [box=1057,539,367,36]
+            - textbox [box=1057,553,367,22]
+            - img [box=1396,546,21,21]
+            - group [box=1057,534,367,41]:
+              - generic [box=1066,534,58,20]: Salesman
+        - separator [ref=e737] [box=1057,599,367,1]
+        - generic [ref=e738] [box=1057,616,367,41]:
+          - paragraph [ref=e739] [box=1057,627,102,17]: Points of Contact
+          - button "Add" [ref=e740] [cursor=pointer] [box=1341,616,83,41]:
+            - img [ref=e742] [box=1355,627,18,18]
+            - text: Add
+        - generic [ref=e744] [box=1057,672,367,40]: No contacts yet. Add people to address documents to (Attn To).
+      - generic [ref=e745] [box=1057,744,367,47]:
+        - button "Cancel" [ref=e746] [cursor=pointer] [box=1057,746,81,43]
+        - button "Save" [ref=e747] [cursor=pointer] [box=1359,746,65,43]

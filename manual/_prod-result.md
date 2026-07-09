@@ -1,0 +1,456 @@
+- generic [active] [ref=e1] [box=0,0,1440,900]:
+  - alert [ref=e6] [box=-1,-1,1,1]
+  - generic [ref=e7] [box=0,0,1440,900]:
+    - generic [ref=e9] [box=0,0,280,900]:
+      - generic [ref=e10] [box=0,0,280,82]:
+        - generic [ref=e11] [box=16,16,189,50]:
+          - paragraph [ref=e14] [box=106,17,44,27]: AIMS
+          - paragraph [ref=e15] [box=16,48,189,18]: Inventory Architect
+        - button "Collapse sidebar" [ref=e796] [cursor=pointer] [box=233,26,31,31]:
+          - img [ref=e17] [box=238,31,21,21]
+      - list [ref=e21] [box=16,98,242,826]:
+        - listitem [ref=e22] [box=16,106,242,44]:
+          - link "Dashboard" [ref=e797] [cursor=pointer] [box=16,106,242,44]:
+            - /url: /portal
+            - img [ref=e25] [box=28,118,20,20]
+            - generic [ref=e28] [box=60,118,186,20]: Dashboard
+        - listitem [ref=e29] [box=16,160,242,44]:
+          - button "Inventory" [ref=e798] [cursor=pointer] [box=16,160,242,44]:
+            - img [ref=e32] [box=28,172,20,20]
+            - generic [ref=e35] [box=60,172,168,20]: Inventory
+            - img [ref=e938] [box=228,173,18,18]
+        - generic [ref=e943] [box=16,216,242,374]:
+          - link "Products" [ref=e944] [cursor=pointer] [box=24,216,230,45]:
+            - /url: /portal/inventory/products
+            - generic [ref=e946] [box=60,228,178,21]: Products
+          - link "Inventory Items" [ref=e947] [cursor=pointer] [box=24,263,230,45]:
+            - /url: /portal/inventory
+            - generic [ref=e949] [box=60,275,178,21]: Inventory Items
+          - link "Purchases" [ref=e950] [cursor=pointer] [box=24,310,230,45]:
+            - /url: /portal/inventory/purchases
+            - generic [ref=e952] [box=60,322,178,21]: Purchases
+          - link "Purchases Return" [ref=e953] [cursor=pointer] [box=24,357,230,45]:
+            - /url: /portal/inventory/purchases-return
+            - generic [ref=e955] [box=60,369,178,21]: Purchases Return
+          - link "Stock Adjustment In" [ref=e956] [cursor=pointer] [box=24,404,230,45]:
+            - /url: /portal/inventory/adjustment-in
+            - generic [ref=e958] [box=60,416,178,21]: Stock Adjustment In
+          - link "Stock Adjustment Out" [ref=e959] [cursor=pointer] [box=24,451,230,45]:
+            - /url: /portal/inventory/adjustment-out
+            - generic [ref=e961] [box=60,463,178,21]: Stock Adjustment Out
+          - link "Reports" [ref=e962] [cursor=pointer] [box=24,498,230,45]:
+            - /url: /portal/inventory/reports
+            - generic [ref=e964] [box=60,510,178,21]: Reports
+          - link "Stock Card" [ref=e965] [cursor=pointer] [box=24,545,230,45]:
+            - /url: /portal/inventory/stock-card
+            - generic [ref=e967] [box=60,557,178,21]: Stock Card
+        - listitem [ref=e66] [box=16,600,242,44]:
+          - button "Sales" [ref=e799] [cursor=pointer] [box=16,600,242,44]:
+            - img [ref=e69] [box=28,612,20,20]
+            - generic [ref=e72] [box=60,612,168,20]: Sales
+            - img [ref=e73] [box=228,613,18,18]
+        - listitem [ref=e75] [box=16,654,242,44]:
+          - link "Customers" [ref=e800] [cursor=pointer] [box=16,654,242,44]:
+            - /url: /portal/customers
+            - img [ref=e78] [box=28,666,20,20]
+            - generic [ref=e81] [box=60,666,186,20]: Customers
+        - listitem [ref=e82] [box=16,708,242,44]:
+          - link "Projects" [ref=e801] [cursor=pointer] [box=16,708,242,44]:
+            - /url: /portal/projects
+            - img [ref=e85] [box=28,720,20,20]
+            - generic [ref=e88] [box=60,720,186,20]: Projects
+        - listitem [ref=e89] [box=16,762,242,44]:
+          - link "Suppliers" [ref=e802] [cursor=pointer] [box=16,762,242,44]:
+            - /url: /portal/suppliers
+            - img [ref=e92] [box=28,774,20,20]
+            - generic [ref=e95] [box=60,774,186,20]: Suppliers
+        - listitem [ref=e96] [box=16,816,242,44]:
+          - button "Accounting" [ref=e803] [cursor=pointer] [box=16,816,242,44]:
+            - img [ref=e99] [box=28,828,20,20]
+            - generic [ref=e102] [box=60,828,168,20]: Accounting
+            - img [ref=e103] [box=228,829,18,18]
+        - listitem [ref=e105] [box=16,870,242,44]:
+          - button "Organization Settings" [ref=e804] [cursor=pointer] [box=16,870,242,44]:
+            - img [ref=e108] [box=28,882,20,20]
+            - generic [ref=e111] [box=60,882,168,20]: Organization Settings
+            - img [ref=e112] [box=228,883,18,18]
+      - generic [ref=e114] [box=0,840,280,60]:
+        - button "Open user menu" [ref=e805] [cursor=pointer] [box=16,856,28,28]:
+          - img "test2 biofuel's logo" [ref=e806] [box=16,856,28,28]
+        - generic [ref=e121] [box=52,860,177,21]:
+          - paragraph [ref=e122] [box=52,861,177,14]: test2 biofuel
+          - paragraph [box=52,881,180,0]
+        - button "Switch to dark mode" [ref=e807] [cursor=pointer] [box=237,856,27,27]:
+          - img [ref=e124] [box=242,861,17,17]
+    - generic [ref=e970] [box=312,48,1090,820]:
+      - generic [ref=e971] [box=312,48,1090,49]:
+        - heading "Products" [level=6] [ref=e972] [box=312,61,61,22]
+        - group "view mode" [ref=e973] [box=1171,48,231,49]:
+          - button "table view" [pressed] [ref=e974] [cursor=pointer] [box=1171,48,97,49]:
+            - img [ref=e975] [box=1183,62,21,21]
+            - text: Table
+          - button "hierarchy view" [ref=e977] [cursor=pointer] [box=1267,48,135,49]:
+            - img [ref=e978] [box=1279,62,21,21]
+            - text: Hierarchy
+      - generic [ref=e981] [box=312,113,1090,820]:
+        - generic [ref=e982] [box=312,113,1090,64]:
+          - generic [ref=e984] [box=312,113,353,64]:
+            - paragraph [ref=e985] [box=312,113,353,36]: All Products
+            - paragraph [ref=e986] [box=312,153,353,24]: Products Detail Information
+          - generic [ref=e988] [box=681,123,721,43]:
+            - button "Add Product" [ref=e989] [cursor=pointer] [box=851,123,141,43]:
+              - img [ref=e991] [box=865,136,18,18]
+              - text: Add Product
+            - button "Filters Applied" [ref=e993] [cursor=pointer] [box=1000,123,142,43]:
+              - generic [ref=e994] [box=1001,124,140,41]:
+                - img [ref=e995] [box=1009,133,24,24]
+                - text: Filters Applied
+            - generic [ref=e1000] [box=1151,123,213,37]:
+              - img [ref=e1002] [box=1165,132,21,21]
+              - textbox "Search" [ref=e1004] [box=1193,123,170,37]
+              - group [box=1151,118,213,42]
+            - button [ref=e1005] [cursor=pointer] [box=1371,123,31,43]:
+              - img [ref=e1006] [box=1376,134,21,21]
+        - table [ref=e1010] [box=313,210,1082,935]:
+          - rowgroup [ref=e1011] [box=313,210,1082,55]:
+            - row "SKU-Key Name Image Category UOM Stock Action" [ref=e1012] [box=313,210,1082,55]:
+              - columnheader [ref=e1013] [box=313,210,48,55]:
+                - button [ref=e1014] [cursor=pointer] [box=337,227,47,21]:
+                  - generic [ref=e1015] [box=337,227,21,21]:
+                    - checkbox [ref=e1016] [box=337,227,21,21]
+                    - img [ref=e1017] [box=337,227,21,21]
+                  - img [ref=e1019] [box=362,228,18,18]
+              - columnheader "SKU-Key" [ref=e1021] [box=361,210,148,55]:
+                - button "SKU-Key" [ref=e1022] [cursor=pointer] [box=385,227,81,21]:
+                  - text: SKU-Key
+                  - img [ref=e1023] [box=444,228,18,18]
+              - columnheader "Name" [ref=e1025] [box=509,210,148,55]:
+                - button "Name" [ref=e1026] [cursor=pointer] [box=533,227,61,21]:
+                  - text: Name
+                  - img [ref=e1027] [box=571,228,18,18]
+              - columnheader "Image" [ref=e1029] [box=656,210,148,55]:
+                - button "Image" [ref=e1030] [cursor=pointer] [box=680,227,65,21]:
+                  - text: Image
+                  - img [ref=e1031] [box=723,228,18,18]
+              - columnheader "Category" [ref=e1033] [box=804,210,148,55]:
+                - button "Category" [ref=e1034] [cursor=pointer] [box=828,227,91,21]:
+                  - text: Category
+                  - img [ref=e1035] [box=897,228,18,18]
+              - columnheader "UOM" [ref=e1037] [box=952,210,148,55]:
+                - button "UOM" [ref=e1038] [cursor=pointer] [box=976,227,54,21]:
+                  - text: UOM
+                  - img [ref=e1039] [box=1008,228,18,18]
+              - columnheader "Stock" [ref=e1041] [box=1100,210,148,55]:
+                - button "Stock" [ref=e1042] [cursor=pointer] [box=1124,227,67,21]:
+                  - text: Stock
+                  - img [ref=e1043] [box=1169,228,18,18]
+              - columnheader "Action" [ref=e1045] [box=1247,210,148,55]:
+                - button "Action" [ref=e1046] [cursor=pointer] [box=1271,227,72,21]:
+                  - text: Action
+                  - img [ref=e1047] [box=1322,228,18,18]
+          - rowgroup [ref=e1049] [box=313,264,1082,880]:
+            - row "DEMO-FILTER-001 Demo Filter Cartridge I Equipment PCS 10 units" [ref=e1128] [box=313,264,1082,88]:
+              - cell [ref=e1129] [box=313,264,48,88]:
+                - generic [ref=e1130] [cursor=pointer] [box=337,295,21,21]:
+                  - checkbox [ref=e1131] [box=337,295,21,21]
+                  - img [ref=e1132] [box=337,295,21,21]
+              - cell "DEMO-FILTER-001" [ref=e1134] [box=361,264,148,88]:
+                - generic [ref=e1136] [box=385,293,100,24]:
+                  - paragraph [ref=e1137] [box=385,297,108,17]: DEMO-FILTER-001
+                  - button [ref=e1138] [cursor=pointer] [box=497,293,24,24]:
+                    - img [ref=e1139] [box=502,298,14,14]
+              - cell "Demo Filter Cartridge" [ref=e1141] [box=509,264,148,88]:
+                - generic [ref=e1142] [box=533,295,100,20]: Demo Filter Cartridge
+              - cell "I" [ref=e1143] [box=656,264,148,88]:
+                - generic [ref=e1145] [box=680,280,50,50]: I
+              - cell "Equipment" [ref=e1146] [box=804,264,148,88]:
+                - paragraph [ref=e1148] [box=828,297,100,17]: Equipment
+              - cell "PCS" [ref=e1149] [box=952,264,148,88]:
+                - paragraph [ref=e1151] [box=976,297,100,17]: PCS
+              - cell "10 units" [ref=e1152] [box=1100,264,148,88]:
+                - paragraph [ref=e1154] [box=1124,297,100,17]: 10 units
+              - cell [ref=e1155] [box=1247,264,148,88]:
+                - generic [ref=e1157] [box=1271,290,100,31]:
+                  - button [ref=e1158] [cursor=pointer] [box=1271,290,31,31]:
+                    - img [ref=e1159] [box=1276,295,21,21]
+                  - button [ref=e1161] [cursor=pointer] [box=1318,290,31,31]:
+                    - img [ref=e1162] [box=1323,295,21,21]
+                  - button [ref=e1164] [cursor=pointer] [box=1364,290,31,31]:
+                    - img [ref=e1165] [box=1369,295,21,21]
+            - row "TESTTAG TEST Tagging Product I Others PCS 3 in stock" [ref=e1167] [box=313,352,1082,88]:
+              - cell [ref=e1168] [box=313,352,48,88]:
+                - generic [ref=e1169] [cursor=pointer] [box=337,383,21,21]:
+                  - checkbox [ref=e1170] [box=337,383,21,21]
+                  - img [ref=e1171] [box=337,383,21,21]
+              - cell "TESTTAG" [ref=e1173] [box=361,352,148,88]:
+                - generic [ref=e1175] [box=385,381,100,24]:
+                  - paragraph [ref=e1176] [box=385,385,53,17]: TESTTAG
+                  - button [ref=e1177] [cursor=pointer] [box=442,381,24,24]:
+                    - img [ref=e1178] [box=447,386,14,14]
+              - cell "TEST Tagging Product" [ref=e1180] [box=509,352,148,88]:
+                - generic [ref=e1181] [box=533,383,100,20]: TEST Tagging Product
+              - cell "I" [ref=e1182] [box=656,352,148,88]:
+                - generic [ref=e1184] [box=680,368,50,50]: I
+              - cell "Others" [ref=e1185] [box=804,352,148,88]:
+                - paragraph [ref=e1187] [box=828,385,100,17]: Others
+              - cell "PCS" [ref=e1188] [box=952,352,148,88]:
+                - paragraph [ref=e1190] [box=976,385,100,17]: PCS
+              - cell "3 in stock" [ref=e1191] [box=1100,352,148,88]:
+                - paragraph [ref=e1193] [box=1124,385,100,17]: 3 in stock
+              - cell [ref=e1194] [box=1247,352,148,88]:
+                - generic [ref=e1196] [box=1271,378,100,31]:
+                  - button [ref=e1197] [cursor=pointer] [box=1271,378,31,31]:
+                    - img [ref=e1198] [box=1276,383,21,21]
+                  - button [ref=e1200] [cursor=pointer] [box=1318,378,31,31]:
+                    - img [ref=e1201] [box=1323,383,21,21]
+                  - button [ref=e1203] [cursor=pointer] [box=1364,378,31,31]:
+                    - img [ref=e1204] [box=1369,383,21,21]
+            - row "AIS Advanced Illumination System I Equipment UNIT 1 in stock" [ref=e1206] [box=313,440,1082,88]:
+              - cell [ref=e1207] [box=313,440,48,88]:
+                - generic [ref=e1208] [cursor=pointer] [box=337,471,21,21]:
+                  - checkbox [ref=e1209] [box=337,471,21,21]
+                  - img [ref=e1210] [box=337,471,21,21]
+              - cell "AIS" [ref=e1212] [box=361,440,148,88]:
+                - generic [ref=e1214] [box=385,469,100,24]:
+                  - paragraph [ref=e1215] [box=385,473,19,17]: AIS
+                  - button [ref=e1216] [cursor=pointer] [box=408,469,24,24]:
+                    - img [ref=e1217] [box=413,474,14,14]
+              - cell "Advanced Illumination System" [ref=e1219] [box=509,440,148,88]:
+                - generic [ref=e1220] [box=533,471,100,20]: Advanced Illumination System
+              - cell "I" [ref=e1221] [box=656,440,148,88]:
+                - generic [ref=e1223] [box=680,456,50,50]: I
+              - cell "Equipment" [ref=e1224] [box=804,440,148,88]:
+                - paragraph [ref=e1226] [box=828,473,100,17]: Equipment
+              - cell "UNIT" [ref=e1227] [box=952,440,148,88]:
+                - paragraph [ref=e1229] [box=976,473,100,17]: UNIT
+              - cell "1 in stock" [ref=e1230] [box=1100,440,148,88]:
+                - paragraph [ref=e1232] [box=1124,473,100,17]: 1 in stock
+              - cell [ref=e1233] [box=1247,440,148,88]:
+                - generic [ref=e1235] [box=1271,466,100,31]:
+                  - button [ref=e1236] [cursor=pointer] [box=1271,466,31,31]:
+                    - img [ref=e1237] [box=1276,471,21,21]
+                  - button [ref=e1239] [cursor=pointer] [box=1318,466,31,31]:
+                    - img [ref=e1240] [box=1323,471,21,21]
+                  - button [ref=e1242] [cursor=pointer] [box=1364,466,31,31]:
+                    - img [ref=e1243] [box=1369,471,21,21]
+            - row "TESTFILTER-Y200 TestFilter Y200 I Equipment PCS 2 in stock" [ref=e1245] [box=313,528,1082,88]:
+              - cell [ref=e1246] [box=313,528,48,88]:
+                - generic [ref=e1247] [cursor=pointer] [box=337,559,21,21]:
+                  - checkbox [ref=e1248] [box=337,559,21,21]
+                  - img [ref=e1249] [box=337,559,21,21]
+              - cell "TESTFILTER-Y200" [ref=e1251] [box=361,528,148,88]:
+                - generic [ref=e1253] [box=385,557,100,24]:
+                  - paragraph [ref=e1254] [box=385,561,104,17]: TESTFILTER-Y200
+                  - button [ref=e1255] [cursor=pointer] [box=493,557,24,24]:
+                    - img [ref=e1256] [box=498,562,14,14]
+              - cell "TestFilter Y200" [ref=e1258] [box=509,528,148,88]:
+                - generic [ref=e1259] [box=533,559,100,20]: TestFilter Y200
+              - cell "I" [ref=e1260] [box=656,528,148,88]:
+                - generic [ref=e1262] [box=680,544,50,50]: I
+              - cell "Equipment" [ref=e1263] [box=804,528,148,88]:
+                - paragraph [ref=e1265] [box=828,561,100,17]: Equipment
+              - cell "PCS" [ref=e1266] [box=952,528,148,88]:
+                - paragraph [ref=e1268] [box=976,561,100,17]: PCS
+              - cell "2 in stock" [ref=e1269] [box=1100,528,148,88]:
+                - paragraph [ref=e1271] [box=1124,561,100,17]: 2 in stock
+              - cell [ref=e1272] [box=1247,528,148,88]:
+                - generic [ref=e1274] [box=1271,554,100,31]:
+                  - button [ref=e1275] [cursor=pointer] [box=1271,554,31,31]:
+                    - img [ref=e1276] [box=1276,559,21,21]
+                  - button [ref=e1278] [cursor=pointer] [box=1318,554,31,31]:
+                    - img [ref=e1279] [box=1323,559,21,21]
+                  - button [ref=e1281] [cursor=pointer] [box=1364,554,31,31]:
+                    - img [ref=e1282] [box=1369,559,21,21]
+            - row "TESTPUMP-X100 TestPump X100 I Equipment PCS 1 in stock" [ref=e1284] [box=313,616,1082,88]:
+              - cell [ref=e1285] [box=313,616,48,88]:
+                - generic [ref=e1286] [cursor=pointer] [box=337,647,21,21]:
+                  - checkbox [ref=e1287] [box=337,647,21,21]
+                  - img [ref=e1288] [box=337,647,21,21]
+              - cell "TESTPUMP-X100" [ref=e1290] [box=361,616,148,88]:
+                - generic [ref=e1292] [box=385,645,100,24]:
+                  - paragraph [ref=e1293] [box=385,649,100,17]: TESTPUMP-X100
+                  - button [ref=e1294] [cursor=pointer] [box=489,645,24,24]:
+                    - img [ref=e1295] [box=494,650,14,14]
+              - cell "TestPump X100" [ref=e1297] [box=509,616,148,88]:
+                - generic [ref=e1298] [box=533,647,100,20]: TestPump X100
+              - cell "I" [ref=e1299] [box=656,616,148,88]:
+                - generic [ref=e1301] [box=680,632,50,50]: I
+              - cell "Equipment" [ref=e1302] [box=804,616,148,88]:
+                - paragraph [ref=e1304] [box=828,649,100,17]: Equipment
+              - cell "PCS" [ref=e1305] [box=952,616,148,88]:
+                - paragraph [ref=e1307] [box=976,649,100,17]: PCS
+              - cell "1 in stock" [ref=e1308] [box=1100,616,148,88]:
+                - paragraph [ref=e1310] [box=1124,649,100,17]: 1 in stock
+              - cell [ref=e1311] [box=1247,616,148,88]:
+                - generic [ref=e1313] [box=1271,642,100,31]:
+                  - button [ref=e1314] [cursor=pointer] [box=1271,642,31,31]:
+                    - img [ref=e1315] [box=1276,647,21,21]
+                  - button [ref=e1317] [cursor=pointer] [box=1318,642,31,31]:
+                    - img [ref=e1318] [box=1323,647,21,21]
+                  - button [ref=e1320] [cursor=pointer] [box=1364,642,31,31]:
+                    - img [ref=e1321] [box=1369,647,21,21]
+            - row "METER-MBR Meter Reading I Water Treatment PCS 0 in stock" [ref=e1323] [box=313,704,1082,88]:
+              - cell [ref=e1324] [box=313,704,48,88]:
+                - generic [ref=e1325] [cursor=pointer] [box=337,735,21,21]:
+                  - checkbox [ref=e1326] [box=337,735,21,21]
+                  - img [ref=e1327] [box=337,735,21,21]
+              - cell "METER-MBR" [ref=e1329] [box=361,704,148,88]:
+                - generic [ref=e1331] [box=385,733,100,24]:
+                  - paragraph [ref=e1332] [box=385,737,72,17]: METER-MBR
+                  - button [ref=e1333] [cursor=pointer] [box=461,733,24,24]:
+                    - img [ref=e1334] [box=466,738,14,14]
+              - cell "Meter Reading" [ref=e1336] [box=509,704,148,88]:
+                - generic [ref=e1337] [box=533,735,100,20]: Meter Reading
+              - cell "I" [ref=e1338] [box=656,704,148,88]:
+                - generic [ref=e1340] [box=680,720,50,50]: I
+              - cell "Water Treatment" [ref=e1341] [box=804,704,148,88]:
+                - paragraph [ref=e1343] [box=828,737,100,17]: Water Treatment
+              - cell "PCS" [ref=e1344] [box=952,704,148,88]:
+                - paragraph [ref=e1346] [box=976,737,100,17]: PCS
+              - cell "0 in stock" [ref=e1347] [box=1100,704,148,88]:
+                - paragraph [ref=e1349] [box=1124,737,100,17]: 0 in stock
+              - cell [ref=e1350] [box=1247,704,148,88]:
+                - generic [ref=e1352] [box=1271,730,100,31]:
+                  - button [ref=e1353] [cursor=pointer] [box=1271,730,31,31]:
+                    - img [ref=e1354] [box=1276,735,21,21]
+                  - button [ref=e1356] [cursor=pointer] [box=1318,730,31,31]:
+                    - img [ref=e1357] [box=1323,735,21,21]
+                  - button [ref=e1359] [cursor=pointer] [box=1364,730,31,31]:
+                    - img [ref=e1360] [box=1369,735,21,21]
+            - row "MBR MBR I Water Treatment PCS 0 units" [ref=e1362] [box=313,792,1082,88]:
+              - cell [ref=e1363] [box=313,792,48,88]:
+                - generic [ref=e1364] [cursor=pointer] [box=337,823,21,21]:
+                  - checkbox [ref=e1365] [box=337,823,21,21]
+                  - img [ref=e1366] [box=337,823,21,21]
+              - cell "MBR" [ref=e1368] [box=361,792,148,88]:
+                - generic [ref=e1370] [box=385,821,100,24]:
+                  - paragraph [ref=e1371] [box=385,825,26,17]: MBR
+                  - button [ref=e1372] [cursor=pointer] [box=415,821,24,24]:
+                    - img [ref=e1373] [box=420,826,14,14]
+              - cell "MBR" [ref=e1375] [box=509,792,148,88]:
+                - generic [ref=e1376] [box=533,823,100,20]: MBR
+              - cell "I" [ref=e1377] [box=656,792,148,88]:
+                - generic [ref=e1379] [box=680,808,50,50]: I
+              - cell "Water Treatment" [ref=e1380] [box=804,792,148,88]:
+                - paragraph [ref=e1382] [box=828,825,100,17]: Water Treatment
+              - cell "PCS" [ref=e1383] [box=952,792,148,88]:
+                - paragraph [ref=e1385] [box=976,825,100,17]: PCS
+              - cell "0 units" [ref=e1386] [box=1100,792,148,88]:
+                - paragraph [ref=e1388] [box=1124,825,100,17]: 0 units
+              - cell [ref=e1389] [box=1247,792,148,88]:
+                - generic [ref=e1391] [box=1271,818,100,31]:
+                  - button [ref=e1392] [cursor=pointer] [box=1271,818,31,31]:
+                    - img [ref=e1393] [box=1276,823,21,21]
+                  - button [ref=e1395] [cursor=pointer] [box=1318,818,31,31]:
+                    - img [ref=e1396] [box=1323,823,21,21]
+                  - button [ref=e1398] [cursor=pointer] [box=1364,818,31,31]:
+                    - img [ref=e1399] [box=1369,823,21,21]
+            - row "METER-20 Meter Reading I Water Treatment PCS 0 in stock" [ref=e1401] [box=313,880,1082,88]:
+              - cell [ref=e1402] [box=313,880,48,88]:
+                - generic [ref=e1403] [cursor=pointer] [box=337,911,21,21]:
+                  - checkbox [ref=e1404] [box=337,911,21,21]
+                  - img [ref=e1405] [box=337,911,21,21]
+              - cell "METER-20" [ref=e1407] [box=361,880,148,88]:
+                - generic [ref=e1409] [box=385,909,100,24]:
+                  - paragraph [ref=e1410] [box=385,913,61,17]: METER-20
+                  - button [ref=e1411] [cursor=pointer] [box=450,909,24,24]:
+                    - img [ref=e1412] [box=455,914,14,14]
+              - cell "Meter Reading" [ref=e1414] [box=509,880,148,88]:
+                - generic [ref=e1415] [box=533,911,100,20]: Meter Reading
+              - cell "I" [ref=e1416] [box=656,880,148,88]:
+                - generic [ref=e1418] [box=680,896,50,50]: I
+              - cell "Water Treatment" [ref=e1419] [box=804,880,148,88]:
+                - paragraph [ref=e1421] [box=828,913,100,17]: Water Treatment
+              - cell "PCS" [ref=e1422] [box=952,880,148,88]:
+                - paragraph [ref=e1424] [box=976,913,100,17]: PCS
+              - cell "0 in stock" [ref=e1425] [box=1100,880,148,88]:
+                - paragraph [ref=e1427] [box=1124,913,100,17]: 0 in stock
+              - cell [ref=e1428] [box=1247,880,148,88]:
+                - generic [ref=e1430] [box=1271,906,100,31]:
+                  - button [ref=e1431] [cursor=pointer] [box=1271,906,31,31]:
+                    - img [ref=e1432] [box=1276,911,21,21]
+                  - button [ref=e1434] [cursor=pointer] [box=1318,906,31,31]:
+                    - img [ref=e1435] [box=1323,911,21,21]
+                  - button [ref=e1437] [cursor=pointer] [box=1364,906,31,31]:
+                    - img [ref=e1438] [box=1369,911,21,21]
+            - row "METER-100 Meter Reading I Water Treatment PCS 0 in stock" [ref=e1440] [box=313,968,1082,88]:
+              - cell [ref=e1441] [box=313,968,48,88]:
+                - generic [ref=e1442] [cursor=pointer] [box=337,999,21,21]:
+                  - checkbox [ref=e1443] [box=337,999,21,21]
+                  - img [ref=e1444] [box=337,999,21,21]
+              - cell "METER-100" [ref=e1446] [box=361,968,148,88]:
+                - generic [ref=e1448] [box=385,997,100,24]:
+                  - paragraph [ref=e1449] [box=385,1001,69,17]: METER-100
+                  - button [ref=e1450] [cursor=pointer] [box=458,997,24,24]:
+                    - img [ref=e1451] [box=463,1002,14,14]
+              - cell "Meter Reading" [ref=e1453] [box=509,968,148,88]:
+                - generic [ref=e1454] [box=533,999,100,20]: Meter Reading
+              - cell "I" [ref=e1455] [box=656,968,148,88]:
+                - generic [ref=e1457] [box=680,984,50,50]: I
+              - cell "Water Treatment" [ref=e1458] [box=804,968,148,88]:
+                - paragraph [ref=e1460] [box=828,1001,100,17]: Water Treatment
+              - cell "PCS" [ref=e1461] [box=952,968,148,88]:
+                - paragraph [ref=e1463] [box=976,1001,100,17]: PCS
+              - cell "0 in stock" [ref=e1464] [box=1100,968,148,88]:
+                - paragraph [ref=e1466] [box=1124,1001,100,17]: 0 in stock
+              - cell [ref=e1467] [box=1247,968,148,88]:
+                - generic [ref=e1469] [box=1271,994,100,31]:
+                  - button [ref=e1470] [cursor=pointer] [box=1271,994,31,31]:
+                    - img [ref=e1471] [box=1276,999,21,21]
+                  - button [ref=e1473] [cursor=pointer] [box=1318,994,31,31]:
+                    - img [ref=e1474] [box=1323,999,21,21]
+                  - button [ref=e1476] [cursor=pointer] [box=1364,994,31,31]:
+                    - img [ref=e1477] [box=1369,999,21,21]
+            - row "METER-60 Meter Reading I Water Treatment PCS 0 in stock" [ref=e1479] [box=313,1056,1082,88]:
+              - cell [ref=e1480] [box=313,1056,48,88]:
+                - generic [ref=e1481] [cursor=pointer] [box=337,1087,21,21]:
+                  - checkbox [ref=e1482] [box=337,1087,21,21]
+                  - img [ref=e1483] [box=337,1087,21,21]
+              - cell "METER-60" [ref=e1485] [box=361,1056,148,88]:
+                - generic [ref=e1487] [box=385,1085,100,24]:
+                  - paragraph [ref=e1488] [box=385,1089,61,17]: METER-60
+                  - button [ref=e1489] [cursor=pointer] [box=450,1085,24,24]:
+                    - img [ref=e1490] [box=455,1090,14,14]
+              - cell "Meter Reading" [ref=e1492] [box=509,1056,148,88]:
+                - generic [ref=e1493] [box=533,1087,100,20]: Meter Reading
+              - cell "I" [ref=e1494] [box=656,1056,148,88]:
+                - generic [ref=e1496] [box=680,1072,50,50]: I
+              - cell "Water Treatment" [ref=e1497] [box=804,1056,148,88]:
+                - paragraph [ref=e1499] [box=828,1089,100,17]: Water Treatment
+              - cell "PCS" [ref=e1500] [box=952,1056,148,88]:
+                - paragraph [ref=e1502] [box=976,1089,100,17]: PCS
+              - cell "0 in stock" [ref=e1503] [box=1100,1056,148,88]:
+                - paragraph [ref=e1505] [box=1124,1089,100,17]: 0 in stock
+              - cell [ref=e1506] [box=1247,1056,148,88]:
+                - generic [ref=e1508] [box=1271,1082,100,31]:
+                  - button [ref=e1509] [cursor=pointer] [box=1271,1082,31,31]:
+                    - img [ref=e1510] [box=1276,1087,21,21]
+                  - button [ref=e1512] [cursor=pointer] [box=1318,1082,31,31]:
+                    - img [ref=e1513] [box=1323,1087,21,21]
+                  - button [ref=e1515] [cursor=pointer] [box=1364,1082,31,31]:
+                    - img [ref=e1516] [box=1369,1087,21,21]
+        - generic [ref=e1114] [box=312,896,1090,37]:
+          - generic [ref=e1115] [box=312,896,125,37]:
+            - paragraph [ref=e1116] [box=312,905,48,17]: Showing
+            - generic [ref=e1119] [box=376,896,61,37]:
+              - combobox [ref=e1120] [cursor=pointer] [box=376,896,61,37]:
+                - paragraph [ref=e1122] [box=388,904,17,21]: "10"
+              - textbox [box=376,911,61,22]: "10"
+              - img [box=410,904,21,21]
+              - group [box=376,891,61,42]
+          - paragraph [ref=e1123] [box=730,905,189,17]: Showing 1-10 out of 131 records
+          - navigation "pagination navigation" [ref=e1124] [box=1212,898,190,32]:
+            - list [ref=e1125] [box=1212,898,190,32]:
+              - listitem [ref=e1126] [box=1212,898,38,32]:
+                - button "Go to previous page" [disabled] [box=1215,898,32,32]:
+                  - img [box=1222,905,17,17]
+              - listitem [ref=e1127] [box=1250,898,38,32]:
+                - button "page 1" [ref=e1518] [cursor=pointer] [box=1253,898,32,32]: "1"
+              - listitem [ref=e1519] [box=1288,898,38,32]:
+                - button "Go to page 2" [ref=e1520] [cursor=pointer] [box=1291,898,32,32]: "2"
+              - listitem [ref=e1521] [box=1326,905,38,17]:
+                - generic [ref=e1522] [box=1329,905,32,17]: …
+              - listitem [ref=e1523] [box=1364,898,38,32]:
+                - button "Go to next page" [ref=e1524] [cursor=pointer] [box=1367,898,32,32]:
+                  - img [ref=e1525] [box=1374,905,17,17]
+    - region "Notifications Alt+T" [box=1440,0,0,900]

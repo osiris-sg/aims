@@ -1,0 +1,177 @@
+- generic [active] [ref=e1] [box=0,0,1440,900]:
+  - alert [ref=e6] [box=-1,-1,1,1]
+  - generic [ref=e7] [box=0,0,1440,900]:
+    - generic [ref=e9] [box=0,0,280,900]:
+      - generic [ref=e10] [box=0,0,280,82]:
+        - generic [ref=e11] [box=16,16,189,50]:
+          - paragraph [ref=e14] [box=106,17,44,27]: AIMS
+          - paragraph [ref=e15] [box=16,48,189,18]: Inventory Architect
+        - button "Collapse sidebar" [ref=e16] [cursor=pointer] [box=233,26,31,31]:
+          - img [ref=e17] [box=238,31,21,21]
+      - list [ref=e21] [box=16,98,242,826]:
+        - listitem [ref=e22] [box=16,106,242,44]:
+          - link "Dashboard" [ref=e23] [cursor=pointer] [box=16,106,242,44]:
+            - /url: /portal
+            - img [ref=e25] [box=28,118,20,20]
+            - generic [ref=e28] [box=60,118,186,20]: Dashboard
+        - listitem [ref=e29] [box=16,160,242,44]:
+          - button "Inventory" [ref=e30] [cursor=pointer] [box=16,160,242,44]:
+            - img [ref=e32] [box=28,172,20,20]
+            - generic [ref=e35] [box=60,172,168,20]: Inventory
+            - img [ref=e36] [box=228,173,18,18]
+        - generic [ref=e41] [box=16,216,242,374]:
+          - link "Products" [ref=e42] [cursor=pointer] [box=24,216,230,45]:
+            - /url: /portal/inventory/products
+            - generic [ref=e44] [box=60,228,178,21]: Products
+          - link "Inventory Items" [ref=e45] [cursor=pointer] [box=24,263,230,45]:
+            - /url: /portal/inventory
+            - generic [ref=e47] [box=60,275,178,21]: Inventory Items
+          - link "Purchases" [ref=e48] [cursor=pointer] [box=24,310,230,45]:
+            - /url: /portal/inventory/purchases
+            - generic [ref=e50] [box=60,322,178,21]: Purchases
+          - link "Purchases Return" [ref=e51] [cursor=pointer] [box=24,357,230,45]:
+            - /url: /portal/inventory/purchases-return
+            - generic [ref=e53] [box=60,369,178,21]: Purchases Return
+          - link "Stock Adjustment In" [ref=e54] [cursor=pointer] [box=24,404,230,45]:
+            - /url: /portal/inventory/adjustment-in
+            - generic [ref=e56] [box=60,416,178,21]: Stock Adjustment In
+          - link "Stock Adjustment Out" [ref=e57] [cursor=pointer] [box=24,451,230,45]:
+            - /url: /portal/inventory/adjustment-out
+            - generic [ref=e59] [box=60,463,178,21]: Stock Adjustment Out
+          - link "Reports" [ref=e60] [cursor=pointer] [box=24,498,230,45]:
+            - /url: /portal/inventory/reports
+            - generic [ref=e62] [box=60,510,178,21]: Reports
+          - link "Stock Card" [ref=e63] [cursor=pointer] [box=24,545,230,45]:
+            - /url: /portal/inventory/stock-card
+            - generic [ref=e65] [box=60,557,178,21]: Stock Card
+        - listitem [ref=e66] [box=16,600,242,44]:
+          - button "Sales" [ref=e67] [cursor=pointer] [box=16,600,242,44]:
+            - img [ref=e69] [box=28,612,20,20]
+            - generic [ref=e72] [box=60,612,168,20]: Sales
+            - img [ref=e73] [box=228,613,18,18]
+        - listitem [ref=e75] [box=16,654,242,44]:
+          - link "Customers" [ref=e76] [cursor=pointer] [box=16,654,242,44]:
+            - /url: /portal/customers
+            - img [ref=e78] [box=28,666,20,20]
+            - generic [ref=e81] [box=60,666,186,20]: Customers
+        - listitem [ref=e82] [box=16,708,242,44]:
+          - link "Projects" [ref=e83] [cursor=pointer] [box=16,708,242,44]:
+            - /url: /portal/projects
+            - img [ref=e85] [box=28,720,20,20]
+            - generic [ref=e88] [box=60,720,186,20]: Projects
+        - listitem [ref=e89] [box=16,762,242,44]:
+          - link "Suppliers" [ref=e90] [cursor=pointer] [box=16,762,242,44]:
+            - /url: /portal/suppliers
+            - img [ref=e92] [box=28,774,20,20]
+            - generic [ref=e95] [box=60,774,186,20]: Suppliers
+        - listitem [ref=e96] [box=16,816,242,44]:
+          - button "Accounting" [ref=e97] [cursor=pointer] [box=16,816,242,44]:
+            - img [ref=e99] [box=28,828,20,20]
+            - generic [ref=e102] [box=60,828,168,20]: Accounting
+            - img [ref=e103] [box=228,829,18,18]
+        - listitem [ref=e105] [box=16,870,242,44]:
+          - button "Organization Settings" [ref=e106] [cursor=pointer] [box=16,870,242,44]:
+            - img [ref=e108] [box=28,882,20,20]
+            - generic [ref=e111] [box=60,882,168,20]: Organization Settings
+            - img [ref=e112] [box=228,883,18,18]
+      - generic [ref=e114] [box=0,840,280,60]:
+        - button "Open user menu" [ref=e116] [cursor=pointer] [box=16,856,28,28]:
+          - img "test2 biofuel's logo" [ref=e119] [box=16,856,28,28]
+        - generic [ref=e121] [box=52,860,177,21]:
+          - paragraph [ref=e122] [box=52,861,177,14]: test2 biofuel
+          - paragraph [box=52,881,180,0]
+        - button "Switch to dark mode" [ref=e123] [cursor=pointer] [box=237,856,27,27]:
+          - img [ref=e124] [box=242,861,17,17]
+    - generic [ref=e132] [box=312,48,1096,820]:
+      - generic [ref=e133] [box=312,48,1096,100]:
+        - generic [ref=e135] [box=312,48,355,100]:
+          - paragraph [ref=e136] [box=312,48,355,72]: Stock Adjustments Out List
+          - paragraph [ref=e137] [box=312,124,355,24]: All Stock Adjustments Out for this organization
+        - generic [ref=e139] [box=683,65,725,67]:
+          - button "Create Stock Adjustment Out" [ref=e140] [cursor=pointer] [box=683,65,199,67]:
+            - img [ref=e142] [box=697,89,18,18]
+            - text: Create Stock Adjustment Out
+          - button "Upload Stock Adjustment Out" [ref=e144] [cursor=pointer] [box=890,65,204,67]:
+            - img [ref=e146] [box=905,89,18,18]
+            - text: Upload Stock Adjustment Out
+          - button "Filter" [ref=e148] [cursor=pointer] [box=1102,65,100,67]:
+            - generic [ref=e149] [box=1115,78,74,41]:
+              - img [ref=e150] [box=1123,88,21,21]
+              - text: Filter
+          - generic [ref=e154] [box=1210,65,160,37]:
+            - img [ref=e156] [box=1224,73,21,21]
+            - textbox "Search" [ref=e158] [box=1252,65,117,37]
+            - group [box=1210,60,160,42]
+          - button [ref=e159] [cursor=pointer] [box=1377,65,31,67]:
+            - img [ref=e160] [box=1382,88,21,21]
+      - generic [ref=e164] [box=296,164,1112,115]:
+        - generic [ref=e167] [box=313,181,353,97]:
+          - generic [ref=e168] [box=329,197,321,28]:
+            - generic [ref=e169] [box=329,201,220,20]: TOTAL STOCK ADJUSTMENTS OUT
+            - img [ref=e171] [box=626,201,20,20]
+          - heading "0" [level=5] [ref=e173] [box=329,233,321,21]
+        - generic [ref=e176] [box=684,181,353,97]:
+          - generic [ref=e177] [box=700,197,321,28]:
+            - generic [ref=e178] [box=700,201,82,20]: THIS MONTH
+            - img [ref=e180] [box=996,201,20,20]
+          - heading "0" [level=5] [ref=e182] [box=700,233,321,21]
+        - generic [ref=e185] [box=1054,181,353,97]:
+          - generic [ref=e186] [box=1070,197,321,28]:
+            - generic [ref=e187] [box=1070,201,51,20]: DRAFTS
+            - img [ref=e189] [box=1367,201,20,20]
+          - heading "0" [level=5] [ref=e191] [box=1070,233,321,21]
+      - table [ref=e194] [box=313,336,1094,95]:
+        - rowgroup [ref=e195] [box=313,336,1094,95]:
+          - 'row "Stock Adjustment Out # Customer Item Status Created Action" [ref=e196] [box=313,336,1094,95]':
+            - columnheader [ref=e197] [box=313,336,48,95]:
+              - button [ref=e198] [cursor=pointer] [box=337,373,47,21]:
+                - generic [ref=e199] [box=337,373,21,21]:
+                  - checkbox [ref=e200] [box=337,373,21,21]
+                  - img [ref=e201] [box=337,373,21,21]
+                - img [ref=e203] [box=362,375,18,18]
+            - 'columnheader "Stock Adjustment Out #" [ref=e205] [box=361,336,174,95]':
+              - 'button "Stock Adjustment Out #" [ref=e206] [cursor=pointer] [box=385,352,126,62]':
+                - text: "Stock Adjustment Out #"
+                - img [ref=e207] [box=489,374,18,18]
+            - columnheader "Customer" [ref=e209] [box=535,336,174,95]:
+              - button "Customer" [ref=e210] [cursor=pointer] [box=559,373,93,21]:
+                - text: Customer
+                - img [ref=e211] [box=630,375,18,18]
+            - columnheader "Item" [ref=e213] [box=710,336,174,95]:
+              - button "Item" [ref=e214] [cursor=pointer] [box=734,373,56,21]:
+                - text: Item
+                - img [ref=e215] [box=767,375,18,18]
+            - columnheader "Status" [ref=e217] [box=884,336,174,95]:
+              - button "Status" [ref=e218] [cursor=pointer] [box=908,373,73,21]:
+                - text: Status
+                - img [ref=e219] [box=959,375,18,18]
+            - columnheader "Created" [ref=e221] [box=1058,336,174,95]:
+              - button "Created" [ref=e222] [cursor=pointer] [box=1082,373,81,21]:
+                - text: Created
+                - img [ref=e223] [box=1142,375,18,18]
+            - columnheader "Action" [ref=e225] [box=1233,336,174,95]:
+              - button "Action" [ref=e226] [cursor=pointer] [box=1257,373,72,21]:
+                - text: Action
+                - img [ref=e227] [box=1307,375,18,18]
+        - rowgroup [box=313,431,1094,0]
+      - generic [ref=e229] [box=312,831,1096,37]:
+        - generic [ref=e230] [box=312,831,125,37]:
+          - paragraph [ref=e231] [box=312,841,48,17]: Showing
+          - generic [ref=e234] [box=376,831,61,37]:
+            - combobox [ref=e235] [cursor=pointer] [box=376,831,61,37]:
+              - paragraph [ref=e237] [box=388,839,17,21]: "10"
+            - textbox [box=376,847,61,22]: "10"
+            - img [box=410,839,21,21]
+            - group [box=376,826,61,42]
+        - paragraph [ref=e238] [box=783,841,166,17]: Showing 1-0 out of 0 records
+        - navigation "pagination navigation" [ref=e239] [box=1294,834,114,32]:
+          - list [ref=e240] [box=1294,834,114,32]:
+            - listitem [ref=e241] [box=1294,834,38,32]:
+              - button "Go to previous page" [disabled] [box=1297,834,32,32]:
+                - img [box=1304,841,17,17]
+            - listitem [ref=e242] [box=1332,834,38,32]:
+              - button "page 1" [ref=e243] [cursor=pointer] [box=1335,834,32,32]: "1"
+            - listitem [ref=e244] [box=1370,834,38,32]:
+              - button "Go to next page" [disabled] [box=1373,834,32,32]:
+                - img [box=1380,841,17,17]
+    - region "Notifications Alt+T" [box=1440,0,0,900]

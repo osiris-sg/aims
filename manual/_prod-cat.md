@@ -1,0 +1,184 @@
+- generic [ref=e1] [box=0,0,1440,900]:
+  - alert [ref=e6] [box=-1,-1,1,1]
+  - generic [ref=e7] [box=0,0,1434,900]:
+    - generic [ref=e9] [box=0,0,280,900]:
+      - generic [ref=e10] [box=0,0,280,82]:
+        - generic [ref=e11] [box=16,16,189,50]:
+          - paragraph [ref=e14] [box=106,17,44,27]: AIMS
+          - paragraph [ref=e15] [box=16,48,189,18]: Inventory Architect
+        - button [ref=e703] [cursor=pointer] [box=233,26,31,31]:
+          - img [ref=e17] [box=238,31,21,21]
+      - list [ref=e21] [box=16,98,248,440]:
+        - listitem [ref=e22] [box=16,106,248,44]:
+          - link [ref=e704] [cursor=pointer] [box=16,106,248,44]:
+            - /url: /portal
+            - img [ref=e25] [box=28,118,20,20]
+            - generic [ref=e28] [box=60,118,192,20]: Dashboard
+        - listitem [ref=e29] [box=16,160,248,44]:
+          - button [ref=e705] [cursor=pointer] [box=16,160,248,44]:
+            - img [ref=e32] [box=28,172,20,20]
+            - generic [ref=e35] [box=60,172,174,20]: Inventory
+            - img [ref=e623] [box=234,173,18,18]
+        - listitem [ref=e66] [box=16,214,248,44]:
+          - button [ref=e706] [cursor=pointer] [box=16,214,248,44]:
+            - img [ref=e69] [box=28,226,20,20]
+            - generic [ref=e72] [box=60,226,174,20]: Sales
+            - img [ref=e73] [box=234,227,18,18]
+        - listitem [ref=e75] [box=16,268,248,44]:
+          - link [ref=e707] [cursor=pointer] [box=16,268,248,44]:
+            - /url: /portal/customers
+            - img [ref=e78] [box=28,280,20,20]
+            - generic [ref=e81] [box=60,280,192,20]: Customers
+        - listitem [ref=e82] [box=16,322,248,44]:
+          - link [ref=e708] [cursor=pointer] [box=16,322,248,44]:
+            - /url: /portal/projects
+            - img [ref=e85] [box=28,334,20,20]
+            - generic [ref=e88] [box=60,334,192,20]: Projects
+        - listitem [ref=e89] [box=16,376,248,44]:
+          - link [ref=e709] [cursor=pointer] [box=16,376,248,44]:
+            - /url: /portal/suppliers
+            - img [ref=e92] [box=28,388,20,20]
+            - generic [ref=e95] [box=60,388,192,20]: Suppliers
+        - listitem [ref=e96] [box=16,430,248,44]:
+          - button [ref=e710] [cursor=pointer] [box=16,430,248,44]:
+            - img [ref=e99] [box=28,442,20,20]
+            - generic [ref=e102] [box=60,442,174,20]: Accounting
+            - img [ref=e103] [box=234,443,18,18]
+        - listitem [ref=e105] [box=16,484,248,44]:
+          - button [ref=e711] [cursor=pointer] [box=16,484,248,44]:
+            - img [ref=e108] [box=28,496,20,20]
+            - generic [ref=e111] [box=60,496,174,20]: Organization Settings
+            - img [ref=e112] [box=234,497,18,18]
+      - generic [ref=e114] [box=0,840,280,60]:
+        - button [ref=e712] [cursor=pointer] [box=16,856,28,28]:
+          - img [ref=e713] [box=16,856,28,28]
+        - paragraph [ref=e122] [box=52,861,177,14]: test2 biofuel
+        - button [ref=e714] [cursor=pointer] [box=237,856,27,27]:
+          - img [ref=e124] [box=242,861,17,17]
+    - generic [ref=e625] [box=483,16,748,909]:
+      - generic [ref=e626] [box=507,80,700,31]:
+        - button [ref=e627] [cursor=pointer] [box=507,80,31,31]:
+          - img [ref=e628] [box=512,85,21,21]
+        - paragraph [ref=e630] [box=554,85,63,21]: All Assets
+        - generic [ref=e632] [box=633,88,89,15]: In progress
+      - generic [ref=e633] [box=507,143,700,750]:
+        - generic [ref=e634] [box=531,167,652,57]:
+          - generic [ref=e636] [box=539,167,201,57]:
+            - generic [ref=e638] [box=628,167,24,24]: •
+            - generic [ref=e640] [box=539,207,201,17]: Asset Creation
+          - generic [ref=e648] [box=756,207,201,17]: Additional Details
+          - generic [ref=e656] [box=974,207,201,17]: Review
+        - separator [ref=e657] [box=531,256,652,1]
+        - generic [ref=e658] [box=531,289,652,580]:
+          - generic [ref=e659] [box=531,289,652,82]:
+            - heading [level=4] [ref=e715] [box=531,289,652,22]: Asset Creation
+            - paragraph [ref=e661] [box=531,319,652,51]: Add a new asset to the inventory by filling the details below. Every asset must have a unique identifier (SKUKEY) to help you identify different assets. If you wish to increase/decrease quantity to an existing asset, please head over to the inventory page and use "Add Item" instead.
+          - generic [ref=e662] [box=531,386,652,482]:
+            - generic [ref=e664] [box=531,386,652,408]:
+              - generic [ref=e665] [box=531,386,652,59]:
+                - generic [ref=e666] [box=531,386,652,20]:
+                  - text: Name
+                  - generic [ref=e667] [box=569,388,8,17]: "*"
+                - generic [ref=e669] [box=531,409,652,37]:
+                  - textbox [ref=e716] [box=531,409,652,37]:
+                    - /placeholder: Enter Asset Name
+                    - text: Demo Filter Cartridge
+                  - group [box=531,404,652,42]
+              - generic [ref=e671] [box=531,462,652,83]:
+                - generic [ref=e672] [box=531,462,652,20]:
+                  - text: SKUKEY
+                  - generic [ref=e673] [box=585,463,8,17]: "*"
+                - generic [ref=e674] [box=531,484,652,61]:
+                  - generic [ref=e675] [box=531,484,652,37]:
+                    - textbox [ref=e717] [box=531,484,652,37]:
+                      - /placeholder: Enter SKUKEY
+                      - text: DEMO-FILTER-001
+                    - group [box=531,479,652,42]
+                  - paragraph [ref=e677] [box=545,525,624,20]: Unique identifier for different assets
+              - generic [ref=e678] [box=531,561,652,59]:
+                - generic [ref=e679] [box=531,561,652,20]:
+                  - text: Category
+                  - generic [ref=e680] [box=590,562,8,17]: "*"
+                - generic [ref=e682] [box=531,583,652,37]:
+                  - combobox [expanded] [ref=e683] [cursor=pointer] [box=531,583,652,37]:
+                    - paragraph [ref=e684] [box=543,591,608,21]: Choose a category
+                  - textbox [box=531,598,652,22]
+                  - img [box=1155,591,21,21]
+                  - group [box=531,578,652,42]
+              - generic [ref=e685] [box=531,636,652,59]:
+                - generic [ref=e686] [box=531,636,652,20]:
+                  - text: Unit of Measure
+                  - generic [ref=e687] [box=634,637,8,17]: "*"
+                - generic [ref=e689] [box=531,658,652,37]:
+                  - combobox [ref=e690] [cursor=pointer] [box=531,658,652,37]:
+                    - paragraph [ref=e692] [box=543,666,84,21]: PCS - Pieces
+                  - textbox [box=531,674,652,22]: PCS
+                  - img [box=1155,666,21,21]
+                  - group [box=531,653,652,42]
+              - generic [ref=e693] [box=531,711,652,83]:
+                - generic [ref=e694] [box=531,711,652,20]:
+                  - text: Quantity
+                  - generic [ref=e695] [box=586,713,8,17]: "*"
+                - generic [ref=e696] [box=531,733,652,61]:
+                  - generic [ref=e697] [box=531,733,652,37]:
+                    - spinbutton [ref=e698] [box=531,733,652,37]
+                    - group [box=531,728,652,42]
+                  - paragraph [ref=e699] [box=545,774,624,20]: Set the starting stock quantity for this product
+            - generic [ref=e700] [box=531,794,652,75]:
+              - button [ref=e718] [cursor=pointer] [box=531,818,81,43]: Cancel
+              - button [disabled] [box=1119,818,64,43]: Next
+  - listbox [ref=e721] [box=532,81,644,845]:
+    - option "Choose a category" [disabled] [selected] [box=538,91,632,33]:
+      - paragraph [box=554,97,122,21]: Choose a category
+    - option "Water" [active] [ref=e722] [cursor=pointer] [box=538,126,632,33]:
+      - paragraph [ref=e724] [box=554,132,38,21]: Water
+    - option "waste" [ref=e725] [cursor=pointer] [box=538,161,632,33]:
+      - paragraph [ref=e727] [box=554,167,38,21]: waste
+    - option "Equipment" [ref=e728] [cursor=pointer] [box=538,196,632,33]:
+      - paragraph [ref=e730] [box=554,202,69,21]: Equipment
+    - option "General" [ref=e731] [cursor=pointer] [box=538,231,632,33]:
+      - paragraph [ref=e733] [box=554,237,50,21]: General
+    - option "Materials" [ref=e734] [cursor=pointer] [box=538,266,632,33]:
+      - paragraph [ref=e736] [box=554,272,59,21]: Materials
+    - option "Water Treatment" [ref=e737] [cursor=pointer] [box=538,301,632,33]:
+      - paragraph [ref=e739] [box=554,307,108,21]: Water Treatment
+    - option "Equipment Rental" [ref=e740] [cursor=pointer] [box=538,336,632,33]:
+      - paragraph [ref=e742] [box=554,342,113,21]: Equipment Rental
+    - option "Service" [ref=e743] [cursor=pointer] [box=538,371,632,33]:
+      - paragraph [ref=e745] [box=554,377,48,21]: Service
+    - option "Chemical" [ref=e746] [cursor=pointer] [box=538,406,632,33]:
+      - paragraph [ref=e748] [box=554,412,60,21]: Chemical
+    - option "MBR System" [ref=e749] [cursor=pointer] [box=538,441,632,33]:
+      - paragraph [ref=e751] [box=554,447,82,21]: MBR System
+    - option "Generator" [ref=e752] [cursor=pointer] [box=538,476,632,33]:
+      - paragraph [ref=e754] [box=554,482,65,21]: Generator
+    - option "Parts" [ref=e755] [cursor=pointer] [box=538,511,632,33]:
+      - paragraph [ref=e757] [box=554,517,33,21]: Parts
+    - option "adjustment" [ref=e758] [cursor=pointer] [box=538,546,632,33]:
+      - paragraph [ref=e760] [box=554,552,72,21]: adjustment
+    - option "Energy Storage" [ref=e761] [cursor=pointer] [box=538,581,632,39]:
+      - generic [ref=e762] [box=554,587,600,27]:
+        - paragraph [ref=e763] [box=554,590,99,21]: Energy Storage
+        - button [ref=e764] [box=1127,587,27,27]:
+          - img [ref=e765] [box=1132,592,17,17]
+    - option "rental" [ref=e767] [cursor=pointer] [box=538,622,632,33]:
+      - paragraph [ref=e769] [box=554,628,37,21]: rental
+    - option "Others" [ref=e770] [cursor=pointer] [box=538,657,632,33]:
+      - paragraph [ref=e772] [box=554,663,44,21]: Others
+    - option "Vehicle Rental" [ref=e773] [cursor=pointer] [box=538,692,632,33]:
+      - paragraph [ref=e775] [box=554,698,91,21]: Vehicle Rental
+    - option "Rental" [ref=e776] [cursor=pointer] [box=538,727,632,33]:
+      - paragraph [ref=e778] [box=554,733,41,21]: Rental
+    - option "Adjustment" [ref=e779] [cursor=pointer] [box=538,762,632,33]:
+      - paragraph [ref=e781] [box=554,768,74,21]: Adjustment
+    - option "Relocation Service" [ref=e782] [cursor=pointer] [box=538,797,632,33]:
+      - paragraph [ref=e784] [box=554,803,120,21]: Relocation Service
+    - option "Installation Service" [ref=e785] [cursor=pointer] [box=538,832,632,33]:
+      - paragraph [ref=e787] [box=554,838,122,21]: Installation Service
+    - option [ref=e788] [cursor=pointer] [box=538,867,632,49]:
+      - generic [ref=e789] [box=554,873,600,37]:
+        - generic [ref=e791] [box=554,873,553,37]:
+          - textbox "Add a new category..." [ref=e792] [box=554,873,553,37]
+          - group [box=554,868,553,42]
+        - button [ref=e793] [box=1123,876,31,31]:
+          - img [ref=e794] [box=1128,881,21,21]

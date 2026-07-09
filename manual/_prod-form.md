@@ -1,0 +1,128 @@
+- generic [active] [ref=e1] [box=0,0,1440,900]:
+  - alert [ref=e6] [box=-1,-1,1,1]
+  - generic [ref=e7] [box=0,0,1440,900]:
+    - generic [ref=e9] [box=0,0,280,894]:
+      - generic [ref=e10] [box=0,0,280,82]:
+        - generic [ref=e11] [box=16,16,189,50]:
+          - paragraph [ref=e14] [box=106,17,44,27]: AIMS
+          - paragraph [ref=e15] [box=16,48,189,18]: Inventory Architect
+        - button "Collapse sidebar" [ref=e16] [cursor=pointer] [box=233,26,31,31]:
+          - img [ref=e17] [box=238,31,21,21]
+      - list [ref=e21] [box=16,98,248,440]:
+        - listitem [ref=e22] [box=16,106,248,44]:
+          - link "Dashboard" [ref=e23] [cursor=pointer] [box=16,106,248,44]:
+            - /url: /portal
+            - img [ref=e25] [box=28,118,20,20]
+            - generic [ref=e28] [box=60,118,192,20]: Dashboard
+        - listitem [ref=e29] [box=16,160,248,44]:
+          - button "Inventory" [ref=e30] [cursor=pointer] [box=16,160,248,44]:
+            - img [ref=e32] [box=28,172,20,20]
+            - generic [ref=e35] [box=60,172,174,20]: Inventory
+            - img [ref=e623] [box=234,173,18,18]
+        - listitem [ref=e66] [box=16,214,248,44]:
+          - button "Sales" [ref=e67] [cursor=pointer] [box=16,214,248,44]:
+            - img [ref=e69] [box=28,226,20,20]
+            - generic [ref=e72] [box=60,226,174,20]: Sales
+            - img [ref=e73] [box=234,227,18,18]
+        - listitem [ref=e75] [box=16,268,248,44]:
+          - link "Customers" [ref=e76] [cursor=pointer] [box=16,268,248,44]:
+            - /url: /portal/customers
+            - img [ref=e78] [box=28,280,20,20]
+            - generic [ref=e81] [box=60,280,192,20]: Customers
+        - listitem [ref=e82] [box=16,322,248,44]:
+          - link "Projects" [ref=e83] [cursor=pointer] [box=16,322,248,44]:
+            - /url: /portal/projects
+            - img [ref=e85] [box=28,334,20,20]
+            - generic [ref=e88] [box=60,334,192,20]: Projects
+        - listitem [ref=e89] [box=16,376,248,44]:
+          - link "Suppliers" [ref=e90] [cursor=pointer] [box=16,376,248,44]:
+            - /url: /portal/suppliers
+            - img [ref=e92] [box=28,388,20,20]
+            - generic [ref=e95] [box=60,388,192,20]: Suppliers
+        - listitem [ref=e96] [box=16,430,248,44]:
+          - button "Accounting" [ref=e97] [cursor=pointer] [box=16,430,248,44]:
+            - img [ref=e99] [box=28,442,20,20]
+            - generic [ref=e102] [box=60,442,174,20]: Accounting
+            - img [ref=e103] [box=234,443,18,18]
+        - listitem [ref=e105] [box=16,484,248,44]:
+          - button "Organization Settings" [ref=e106] [cursor=pointer] [box=16,484,248,44]:
+            - img [ref=e108] [box=28,496,20,20]
+            - generic [ref=e111] [box=60,496,174,20]: Organization Settings
+            - img [ref=e112] [box=234,497,18,18]
+      - generic [ref=e114] [box=0,834,280,60]:
+        - button "Open user menu" [ref=e116] [cursor=pointer] [box=16,850,28,28]:
+          - img "test2 biofuel's logo" [ref=e119] [box=16,850,28,28]
+        - generic [ref=e121] [box=52,854,177,21]:
+          - paragraph [ref=e122] [box=52,855,177,14]: test2 biofuel
+          - paragraph [box=52,875,180,0]
+        - button "Switch to dark mode" [ref=e123] [cursor=pointer] [box=237,850,27,27]:
+          - img [ref=e124] [box=242,855,17,17]
+    - generic [ref=e625] [box=486,16,748,909]:
+      - generic [ref=e626] [box=510,80,700,31]:
+        - button [ref=e627] [cursor=pointer] [box=510,80,31,31]:
+          - img [ref=e628] [box=515,85,21,21]
+        - paragraph [ref=e630] [box=557,85,63,21]: All Assets
+        - generic [ref=e632] [box=636,88,89,15]: In progress
+      - generic [ref=e633] [box=510,143,700,750]:
+        - generic [ref=e634] [box=534,167,652,57]:
+          - generic [ref=e636] [box=542,167,201,57]:
+            - generic [ref=e638] [box=631,167,24,24]: •
+            - generic [ref=e640] [box=542,207,201,17]: Asset Creation
+          - generic [ref=e648] [box=759,207,201,17]: Additional Details
+          - generic [ref=e656] [box=977,207,201,17]: Review
+        - separator [ref=e657] [box=534,256,652,1]
+        - generic [ref=e658] [box=534,289,652,580]:
+          - generic [ref=e659] [box=534,289,652,82]:
+            - heading "Asset Creation" [level=4] [ref=e660] [box=534,289,652,22]
+            - paragraph [ref=e661] [box=534,319,652,51]: Add a new asset to the inventory by filling the details below. Every asset must have a unique identifier (SKUKEY) to help you identify different assets. If you wish to increase/decrease quantity to an existing asset, please head over to the inventory page and use "Add Item" instead.
+          - generic [ref=e662] [box=534,386,652,482]:
+            - generic [ref=e664] [box=534,386,652,408]:
+              - generic [ref=e665] [box=534,386,652,59]:
+                - generic [ref=e666] [box=534,386,652,20]:
+                  - text: Name
+                  - generic [ref=e667] [box=572,388,8,17]: "*"
+                - generic [ref=e669] [box=534,409,652,37]:
+                  - textbox "Enter Asset Name" [ref=e670] [box=534,409,652,37]
+                  - group [box=534,404,652,42]
+              - generic [ref=e671] [box=534,462,652,83]:
+                - generic [ref=e672] [box=534,462,652,20]:
+                  - text: SKUKEY
+                  - generic [ref=e673] [box=588,463,8,17]: "*"
+                - generic [ref=e674] [box=534,484,652,61]:
+                  - generic [ref=e675] [box=534,484,652,37]:
+                    - textbox "Enter SKUKEY" [ref=e676] [box=534,484,652,37]
+                    - group [box=534,479,652,42]
+                  - paragraph [ref=e677] [box=548,525,624,20]: Unique identifier for different assets
+              - generic [ref=e678] [box=534,561,652,59]:
+                - generic [ref=e679] [box=534,561,652,20]:
+                  - text: Category
+                  - generic [ref=e680] [box=593,562,8,17]: "*"
+                - generic [ref=e682] [box=534,583,652,37]:
+                  - combobox [ref=e683] [cursor=pointer] [box=534,583,652,37]:
+                    - paragraph [ref=e684] [box=546,591,608,21]: Choose a category
+                  - textbox [box=534,598,652,22]
+                  - img [box=1158,591,21,21]
+                  - group [box=534,578,652,42]
+              - generic [ref=e685] [box=534,636,652,59]:
+                - generic [ref=e686] [box=534,636,652,20]:
+                  - text: Unit of Measure
+                  - generic [ref=e687] [box=637,637,8,17]: "*"
+                - generic [ref=e689] [box=534,658,652,37]:
+                  - combobox [ref=e690] [cursor=pointer] [box=534,658,652,37]:
+                    - paragraph [ref=e692] [box=546,666,84,21]: PCS - Pieces
+                  - textbox [box=534,674,652,22]: PCS
+                  - img [box=1158,666,21,21]
+                  - group [box=534,653,652,42]
+              - generic [ref=e693] [box=534,711,652,83]:
+                - generic [ref=e694] [box=534,711,652,20]:
+                  - text: Quantity
+                  - generic [ref=e695] [box=589,713,8,17]: "*"
+                - generic [ref=e696] [box=534,733,652,61]:
+                  - generic [ref=e697] [box=534,733,652,37]:
+                    - spinbutton [ref=e698] [box=534,733,652,37]
+                    - group [box=534,728,652,42]
+                  - paragraph [ref=e699] [box=548,774,624,20]: Set the starting stock quantity for this product
+            - generic [ref=e700] [box=534,794,652,75]:
+              - button "Cancel" [ref=e701] [cursor=pointer] [box=534,818,81,43]
+              - button "Next" [ref=e702] [cursor=pointer] [box=1122,818,64,43]
+    - region "Notifications Alt+T" [box=1440,0,0,900]

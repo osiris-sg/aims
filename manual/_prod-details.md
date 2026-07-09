@@ -1,0 +1,134 @@
+- generic [ref=e1] [box=0,0,1440,900]:
+  - alert [ref=e6] [box=-1,-1,1,1]
+  - generic [ref=e7] [box=0,0,1440,900]:
+    - generic [ref=e9] [box=0,0,280,894]:
+      - generic [ref=e10] [box=0,0,280,82]:
+        - generic [ref=e11] [box=16,16,189,50]:
+          - paragraph [ref=e14] [box=106,17,44,27]: AIMS
+          - paragraph [ref=e15] [box=16,48,189,18]: Inventory Architect
+        - button "Collapse sidebar" [ref=e796] [cursor=pointer] [box=233,26,31,31]:
+          - img [ref=e17] [box=238,31,21,21]
+      - list [ref=e21] [box=16,98,248,440]:
+        - listitem [ref=e22] [box=16,106,248,44]:
+          - link "Dashboard" [ref=e797] [cursor=pointer] [box=16,106,248,44]:
+            - /url: /portal
+            - img [ref=e25] [box=28,118,20,20]
+            - generic [ref=e28] [box=60,118,192,20]: Dashboard
+        - listitem [ref=e29] [box=16,160,248,44]:
+          - button "Inventory" [ref=e798] [cursor=pointer] [box=16,160,248,44]:
+            - img [ref=e32] [box=28,172,20,20]
+            - generic [ref=e35] [box=60,172,174,20]: Inventory
+            - img [ref=e623] [box=234,173,18,18]
+        - listitem [ref=e66] [box=16,214,248,44]:
+          - button "Sales" [ref=e799] [cursor=pointer] [box=16,214,248,44]:
+            - img [ref=e69] [box=28,226,20,20]
+            - generic [ref=e72] [box=60,226,174,20]: Sales
+            - img [ref=e73] [box=234,227,18,18]
+        - listitem [ref=e75] [box=16,268,248,44]:
+          - link "Customers" [ref=e800] [cursor=pointer] [box=16,268,248,44]:
+            - /url: /portal/customers
+            - img [ref=e78] [box=28,280,20,20]
+            - generic [ref=e81] [box=60,280,192,20]: Customers
+        - listitem [ref=e82] [box=16,322,248,44]:
+          - link "Projects" [ref=e801] [cursor=pointer] [box=16,322,248,44]:
+            - /url: /portal/projects
+            - img [ref=e85] [box=28,334,20,20]
+            - generic [ref=e88] [box=60,334,192,20]: Projects
+        - listitem [ref=e89] [box=16,376,248,44]:
+          - link "Suppliers" [ref=e802] [cursor=pointer] [box=16,376,248,44]:
+            - /url: /portal/suppliers
+            - img [ref=e92] [box=28,388,20,20]
+            - generic [ref=e95] [box=60,388,192,20]: Suppliers
+        - listitem [ref=e96] [box=16,430,248,44]:
+          - button "Accounting" [ref=e803] [cursor=pointer] [box=16,430,248,44]:
+            - img [ref=e99] [box=28,442,20,20]
+            - generic [ref=e102] [box=60,442,174,20]: Accounting
+            - img [ref=e103] [box=234,443,18,18]
+        - listitem [ref=e105] [box=16,484,248,44]:
+          - button "Organization Settings" [ref=e804] [cursor=pointer] [box=16,484,248,44]:
+            - img [ref=e108] [box=28,496,20,20]
+            - generic [ref=e111] [box=60,496,174,20]: Organization Settings
+            - img [ref=e112] [box=234,497,18,18]
+      - generic [ref=e114] [box=0,834,280,60]:
+        - button "Open user menu" [ref=e805] [cursor=pointer] [box=16,850,28,28]:
+          - img "test2 biofuel's logo" [ref=e806] [box=16,850,28,28]
+        - generic [ref=e121] [box=52,854,177,21]:
+          - paragraph [ref=e122] [box=52,855,177,14]: test2 biofuel
+          - paragraph [box=52,875,180,0]
+        - button "Switch to dark mode" [ref=e807] [cursor=pointer] [box=237,850,27,27]:
+          - img [ref=e124] [box=242,855,17,17]
+    - generic [ref=e625] [box=578,16,564,1292]:
+      - generic [ref=e626] [box=602,80,516,31]:
+        - button [ref=e627] [cursor=pointer] [box=602,80,31,31]:
+          - img [ref=e628] [box=607,85,21,21]
+        - paragraph [ref=e630] [box=649,85,63,21]: All Assets
+        - generic [ref=e632] [box=728,88,89,15]: In progress
+      - generic [ref=e633] [box=602,143,516,1133]:
+        - generic [ref=e634] [box=626,167,468,57]:
+          - generic [ref=e636] [box=634,167,140,57]:
+            - img [ref=e817] [box=695,170,18,18]
+            - generic [ref=e640] [box=634,207,140,17]: Asset Creation
+          - generic [ref=e644] [box=790,167,140,57]:
+            - generic [ref=e646] [box=848,167,24,24]: •
+            - generic [ref=e648] [box=790,207,140,17]: Additional Details
+          - generic [ref=e656] [box=946,207,140,17]: Review
+        - separator [ref=e657] [box=626,256,468,1]
+        - generic [ref=e658] [box=626,289,468,963]:
+          - generic [ref=e659] [box=626,289,468,47]:
+            - heading "Additional Asset Details" [level=4] [ref=e819] [box=626,289,468,22]
+            - paragraph [ref=e661] [box=626,319,468,17]: Fill up optional details about the asset. You can choose to edit these details later.
+          - generic [ref=e662] [box=626,352,468,900]:
+            - generic [ref=e820] [box=626,352,468,825]:
+              - generic [ref=e821] [box=626,352,468,59]:
+                - generic [ref=e822] [box=626,352,468,20]: Description
+                - generic [ref=e824] [box=626,374,468,37]:
+                  - textbox "Enter Asset Description" [ref=e825] [box=626,374,468,37]
+                  - group [box=626,369,468,42]
+              - generic [ref=e826] [box=626,427,468,366]:
+                - paragraph [ref=e827] [box=626,427,468,17]: Pricing
+                - generic [ref=e828] [box=626,453,468,341]:
+                  - generic [ref=e829] [box=626,453,468,83]:
+                    - generic [ref=e830] [box=626,453,468,20]: Cost Price
+                    - generic [ref=e831] [box=626,475,468,61]:
+                      - generic [ref=e832] [box=626,475,468,37]:
+                        - spinbutton [ref=e833] [box=626,475,468,37]
+                        - group [box=626,470,468,42]
+                      - paragraph [ref=e834] [box=640,516,440,20]: What you pay per unit (for margin tracking)
+                  - generic [ref=e835] [box=626,552,468,83]:
+                    - generic [ref=e836] [box=626,552,468,20]: Selling Price
+                    - generic [ref=e837] [box=626,574,468,61]:
+                      - generic [ref=e838] [box=626,574,468,37]:
+                        - spinbutton [ref=e839] [box=626,574,468,37]
+                        - group [box=626,569,468,42]
+                      - paragraph [ref=e840] [box=640,615,440,20]: Default unit price when this asset appears on a document
+                  - separator [ref=e841] [box=626,651,468,1]
+                  - generic [ref=e842] [box=626,668,468,125]:
+                    - paragraph [ref=e843] [box=626,668,468,17]: Custom Prices
+                    - generic [ref=e844] [box=626,689,468,20]: Optional named price tiers — e.g. Listing Price, Dealer Price.
+                    - generic [ref=e845] [box=626,717,468,20]: No custom prices yet.
+                    - button "Add price field" [ref=e846] [cursor=pointer] [box=626,753,155,41]:
+                      - img [ref=e848] [box=640,764,18,18]
+                      - text: Add price field
+              - generic [ref=e850] [box=626,809,468,83]:
+                - generic [ref=e851] [box=626,809,468,20]: Minimum Quantity
+                - generic [ref=e852] [box=626,831,468,61]:
+                  - generic [ref=e853] [box=626,831,468,37]:
+                    - spinbutton [ref=e854] [box=626,831,468,37]
+                    - group [box=626,826,468,42]
+                  - paragraph [ref=e855] [box=640,873,440,20]: Low stock alert threshold
+              - generic [ref=e857] [cursor=pointer] [box=615,908,463,39]:
+                - generic [ref=e858] [box=615,908,39,39]:
+                  - checkbox "This is a standalone asset (not a part of another asset)" [checked] [ref=e859] [box=615,908,39,39]
+                  - img [ref=e860] [box=624,917,21,21]
+                - generic [ref=e862] [box=654,917,351,21]: This is a standalone asset (not a part of another asset)
+              - generic [ref=e863] [box=626,963,468,214]:
+                - generic [ref=e864] [box=626,963,468,20]: Image
+                - generic [ref=e865] [box=626,985,468,192]:
+                  - img [ref=e870] [cursor=pointer] [box=692,1051,60,60]
+                  - generic [ref=e872] [box=834,985,260,192]:
+                    - paragraph [ref=e873] [box=834,985,260,17]: Please upload an image, size less than 100KB
+                    - button "Choose File" [ref=e875] [cursor=pointer] [box=834,1018,113,43]
+            - generic [ref=e700] [box=626,1177,468,75]:
+              - button "Back" [ref=e876] [cursor=pointer] [box=626,1201,68,43]
+              - button "Next" [active] [ref=e702] [cursor=pointer] [box=1030,1201,64,43]: Next
+    - region "Notifications Alt+T" [box=1440,0,0,900]

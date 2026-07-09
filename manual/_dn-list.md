@@ -1,0 +1,175 @@
+- generic [active] [ref=e1] [box=0,0,1440,900]:
+  - alert [ref=e6] [box=-1,-1,1,1]
+  - generic [ref=e7] [box=0,0,1440,900]:
+    - generic [ref=e9] [box=0,0,280,900]:
+      - generic [ref=e10] [box=0,0,280,82]:
+        - generic [ref=e11] [box=16,16,189,50]:
+          - paragraph [ref=e14] [box=106,17,44,27]: AIMS
+          - paragraph [ref=e15] [box=16,48,189,18]: Inventory Architect
+        - button "Collapse sidebar" [ref=e16] [cursor=pointer] [box=233,26,31,31]:
+          - img [ref=e17] [box=238,31,21,21]
+      - list [ref=e21] [box=16,98,242,779]:
+        - listitem [ref=e22] [box=16,106,242,44]:
+          - link "Dashboard" [ref=e23] [cursor=pointer] [box=16,106,242,44]:
+            - /url: /portal
+            - img [ref=e25] [box=28,118,20,20]
+            - generic [ref=e28] [box=60,118,186,20]: Dashboard
+        - listitem [ref=e29] [box=16,160,242,44]:
+          - button "Inventory" [ref=e30] [cursor=pointer] [box=16,160,242,44]:
+            - img [ref=e32] [box=28,172,20,20]
+            - generic [ref=e35] [box=60,172,168,20]: Inventory
+            - img [ref=e36] [box=228,173,18,18]
+        - listitem [ref=e38] [box=16,214,242,44]:
+          - button "Sales" [ref=e39] [cursor=pointer] [box=16,214,242,44]:
+            - img [ref=e41] [box=28,226,20,20]
+            - generic [ref=e44] [box=60,226,168,20]: Sales
+            - img [ref=e45] [box=228,227,18,18]
+        - generic [ref=e50] [box=16,270,242,327]:
+          - link "Quotation" [ref=e51] [cursor=pointer] [box=24,270,230,45]:
+            - /url: /portal/sales/quotations
+            - generic [ref=e53] [box=60,282,178,21]: Quotation
+          - link "Sales Order" [ref=e54] [cursor=pointer] [box=24,317,230,45]:
+            - /url: /portal/sales/sales-orders
+            - generic [ref=e56] [box=60,329,178,21]: Sales Order
+          - link "Delivery Order" [ref=e57] [cursor=pointer] [box=24,364,230,45]:
+            - /url: /portal/sales/delivery-orders
+            - generic [ref=e59] [box=60,376,178,21]: Delivery Order
+          - link "Invoice" [ref=e60] [cursor=pointer] [box=24,411,230,45]:
+            - /url: /portal/sales/invoices
+            - generic [ref=e62] [box=60,423,178,21]: Invoice
+          - link "Debit Note" [ref=e63] [cursor=pointer] [box=24,458,230,45]:
+            - /url: /portal/sales/debit-notes
+            - generic [ref=e65] [box=60,470,178,21]: Debit Note
+          - link "Credit Note" [ref=e66] [cursor=pointer] [box=24,505,230,45]:
+            - /url: /portal/sales/credit-notes
+            - generic [ref=e68] [box=60,517,178,21]: Credit Note
+          - link "Stock Card" [ref=e69] [cursor=pointer] [box=24,552,230,45]:
+            - /url: /portal/sales/stock-card
+            - generic [ref=e71] [box=60,564,178,21]: Stock Card
+        - listitem [ref=e72] [box=16,607,242,44]:
+          - link "Customers" [ref=e73] [cursor=pointer] [box=16,607,242,44]:
+            - /url: /portal/customers
+            - img [ref=e75] [box=28,619,20,20]
+            - generic [ref=e78] [box=60,619,186,20]: Customers
+        - listitem [ref=e79] [box=16,661,242,44]:
+          - link "Projects" [ref=e80] [cursor=pointer] [box=16,661,242,44]:
+            - /url: /portal/projects
+            - img [ref=e82] [box=28,673,20,20]
+            - generic [ref=e85] [box=60,673,186,20]: Projects
+        - listitem [ref=e86] [box=16,715,242,44]:
+          - link "Suppliers" [ref=e87] [cursor=pointer] [box=16,715,242,44]:
+            - /url: /portal/suppliers
+            - img [ref=e89] [box=28,727,20,20]
+            - generic [ref=e92] [box=60,727,186,20]: Suppliers
+        - listitem [ref=e93] [box=16,769,242,44]:
+          - link "Accounting" [ref=e94] [cursor=pointer] [box=16,769,242,44]:
+            - /url: /portal/accounting
+            - img [ref=e96] [box=28,781,20,20]
+            - generic [ref=e99] [box=60,781,168,20]: Accounting
+            - img [ref=e100] [box=228,782,18,18]
+        - listitem [ref=e102] [box=16,823,242,44]:
+          - button "Organization Settings" [ref=e103] [cursor=pointer] [box=16,823,242,44]:
+            - img [ref=e105] [box=28,835,20,20]
+            - generic [ref=e108] [box=60,835,168,20]: Organization Settings
+            - img [ref=e109] [box=228,836,18,18]
+      - generic [ref=e111] [box=0,840,280,60]:
+        - button "Open user menu" [ref=e113] [cursor=pointer] [box=16,856,28,28]:
+          - img "test2 biofuel's logo" [ref=e116] [box=16,856,28,28]
+        - generic [ref=e118] [box=52,860,177,21]:
+          - paragraph [ref=e119] [box=52,861,177,14]: test2 biofuel
+          - paragraph [box=52,881,180,0]
+        - button "Switch to dark mode" [ref=e120] [cursor=pointer] [box=237,856,27,27]:
+          - img [ref=e121] [box=242,861,17,17]
+    - generic [ref=e129] [box=312,48,1096,820]:
+      - generic [ref=e130] [box=312,48,1096,67]:
+        - generic [ref=e132] [box=312,50,355,64]:
+          - paragraph [ref=e133] [box=312,50,355,36]: Debit Notes List
+          - paragraph [ref=e134] [box=312,90,355,24]: All Debit Notes for this organization
+        - generic [ref=e136] [box=683,48,725,67]:
+          - button "Create Debit Note" [ref=e137] [cursor=pointer] [box=683,48,175,67]:
+            - img [ref=e139] [box=697,73,18,18]
+            - text: Create Debit Note
+          - button "Upload Debit Note" [ref=e141] [cursor=pointer] [box=866,48,180,67]:
+            - img [ref=e143] [box=881,73,18,18]
+            - text: Upload Debit Note
+          - button "Filter" [ref=e145] [cursor=pointer] [box=1053,48,100,67]:
+            - generic [ref=e146] [box=1066,61,74,41]:
+              - img [ref=e147] [box=1074,71,21,21]
+              - text: Filter
+          - generic [ref=e151] [box=1161,48,208,37]:
+            - img [ref=e153] [box=1175,56,21,21]
+            - textbox "Search" [ref=e155] [box=1204,48,166,37]
+            - group [box=1161,43,208,42]
+          - button [ref=e156] [cursor=pointer] [box=1377,48,31,67]:
+            - img [ref=e157] [box=1382,71,21,21]
+      - generic [ref=e161] [box=296,131,1112,115]:
+        - generic [ref=e164] [box=313,148,353,97]:
+          - generic [ref=e165] [box=329,164,321,28]:
+            - generic [ref=e166] [box=329,168,129,20]: TOTAL DEBIT NOTES
+            - img [ref=e168] [box=626,168,20,20]
+          - heading "0" [level=5] [ref=e170] [box=329,200,321,21]
+        - generic [ref=e173] [box=684,148,353,97]:
+          - generic [ref=e174] [box=700,164,321,28]:
+            - generic [ref=e175] [box=700,168,82,20]: THIS MONTH
+            - img [ref=e177] [box=996,168,20,20]
+          - heading "0" [level=5] [ref=e179] [box=700,200,321,21]
+        - generic [ref=e182] [box=1054,148,353,97]:
+          - generic [ref=e183] [box=1070,164,321,28]:
+            - generic [ref=e184] [box=1070,168,51,20]: DRAFTS
+            - img [ref=e186] [box=1367,168,20,20]
+          - heading "0" [level=5] [ref=e188] [box=1070,200,321,21]
+      - table [ref=e191] [box=313,303,1094,55]:
+        - rowgroup [ref=e192] [box=313,303,1094,55]:
+          - 'row "Debit Note # Customer Item Status Created Action" [ref=e193] [box=313,303,1094,55]':
+            - columnheader [ref=e194] [box=313,303,48,55]:
+              - button [ref=e195] [cursor=pointer] [box=337,320,47,21]:
+                - generic [ref=e196] [box=337,320,21,21]:
+                  - checkbox [ref=e197] [box=337,320,21,21]
+                  - img [ref=e198] [box=337,320,21,21]
+                - img [ref=e200] [box=362,322,18,18]
+            - 'columnheader "Debit Note #" [ref=e202] [box=361,303,174,55]':
+              - 'button "Debit Note #" [ref=e203] [cursor=pointer] [box=385,320,110,21]':
+                - text: "Debit Note #"
+                - img [ref=e204] [box=473,322,18,18]
+            - columnheader "Customer" [ref=e206] [box=535,303,174,55]:
+              - button "Customer" [ref=e207] [cursor=pointer] [box=559,320,93,21]:
+                - text: Customer
+                - img [ref=e208] [box=630,322,18,18]
+            - columnheader "Item" [ref=e210] [box=710,303,174,55]:
+              - button "Item" [ref=e211] [cursor=pointer] [box=734,320,56,21]:
+                - text: Item
+                - img [ref=e212] [box=767,322,18,18]
+            - columnheader "Status" [ref=e214] [box=884,303,174,55]:
+              - button "Status" [ref=e215] [cursor=pointer] [box=908,320,73,21]:
+                - text: Status
+                - img [ref=e216] [box=959,322,18,18]
+            - columnheader "Created" [ref=e218] [box=1058,303,174,55]:
+              - button "Created" [ref=e219] [cursor=pointer] [box=1082,320,81,21]:
+                - text: Created
+                - img [ref=e220] [box=1142,322,18,18]
+            - columnheader "Action" [ref=e222] [box=1233,303,174,55]:
+              - button "Action" [ref=e223] [cursor=pointer] [box=1257,320,72,21]:
+                - text: Action
+                - img [ref=e224] [box=1307,322,18,18]
+        - rowgroup [box=313,358,1094,0]
+      - generic [ref=e226] [box=312,831,1096,37]:
+        - generic [ref=e227] [box=312,831,125,37]:
+          - paragraph [ref=e228] [box=312,841,48,17]: Showing
+          - generic [ref=e231] [box=376,831,61,37]:
+            - combobox [ref=e232] [cursor=pointer] [box=376,831,61,37]:
+              - paragraph [ref=e234] [box=388,839,17,21]: "10"
+            - textbox [box=376,847,61,22]: "10"
+            - img [box=410,839,21,21]
+            - group [box=376,826,61,42]
+        - paragraph [ref=e235] [box=783,841,166,17]: Showing 1-0 out of 0 records
+        - navigation "pagination navigation" [ref=e236] [box=1294,834,114,32]:
+          - list [ref=e237] [box=1294,834,114,32]:
+            - listitem [ref=e238] [box=1294,834,38,32]:
+              - button "Go to previous page" [disabled] [box=1297,834,32,32]:
+                - img [box=1304,841,17,17]
+            - listitem [ref=e239] [box=1332,834,38,32]:
+              - button "page 1" [ref=e240] [cursor=pointer] [box=1335,834,32,32]: "1"
+            - listitem [ref=e241] [box=1370,834,38,32]:
+              - button "Go to next page" [disabled] [box=1373,834,32,32]:
+                - img [box=1380,841,17,17]
+    - region "Notifications Alt+T" [box=1440,0,0,900]

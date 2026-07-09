@@ -1,0 +1,509 @@
+- generic [ref=e1] [box=0,0,1440,900]:
+  - alert [ref=e6] [box=-1,-1,1,1]
+  - generic [ref=e7] [box=0,0,1440,900]:
+    - generic [ref=e9] [box=0,0,280,900]:
+      - generic [ref=e10] [box=0,0,280,82]:
+        - generic [ref=e11] [box=16,16,189,50]:
+          - paragraph [ref=e14] [box=106,17,44,27]: AIMS
+          - paragraph [ref=e15] [box=16,48,189,18]: Inventory Architect
+        - button [ref=e623] [cursor=pointer] [box=233,26,31,31]:
+          - img [ref=e17] [box=238,31,21,21]
+      - list [ref=e21] [box=16,98,242,826]:
+        - listitem [ref=e22] [box=16,106,242,44]:
+          - link [ref=e624] [cursor=pointer] [box=16,106,242,44]:
+            - /url: /portal
+            - img [ref=e25] [box=28,118,20,20]
+            - generic [ref=e28] [box=60,118,186,20]: Dashboard
+        - listitem [ref=e29] [box=16,160,242,44]:
+          - button [ref=e625] [cursor=pointer] [box=16,160,242,44]:
+            - img [ref=e32] [box=28,172,20,20]
+            - generic [ref=e35] [box=60,172,168,20]: Inventory
+            - img [ref=e36] [box=228,173,18,18]
+        - generic [ref=e41] [box=16,216,242,374]:
+          - link [ref=e626] [cursor=pointer] [box=24,216,230,45]:
+            - /url: /portal/inventory/products
+            - generic [ref=e44] [box=60,228,178,21]: Products
+          - link [ref=e627] [cursor=pointer] [box=24,263,230,45]:
+            - /url: /portal/inventory
+            - generic [ref=e47] [box=60,275,178,21]: Inventory Items
+          - link [ref=e628] [cursor=pointer] [box=24,310,230,45]:
+            - /url: /portal/inventory/purchases
+            - generic [ref=e50] [box=60,322,178,21]: Purchases
+          - link [ref=e629] [cursor=pointer] [box=24,357,230,45]:
+            - /url: /portal/inventory/purchases-return
+            - generic [ref=e53] [box=60,369,178,21]: Purchases Return
+          - link [ref=e630] [cursor=pointer] [box=24,404,230,45]:
+            - /url: /portal/inventory/adjustment-in
+            - generic [ref=e56] [box=60,416,178,21]: Stock Adjustment In
+          - link [ref=e631] [cursor=pointer] [box=24,451,230,45]:
+            - /url: /portal/inventory/adjustment-out
+            - generic [ref=e59] [box=60,463,178,21]: Stock Adjustment Out
+          - link [ref=e632] [cursor=pointer] [box=24,498,230,45]:
+            - /url: /portal/inventory/reports
+            - generic [ref=e62] [box=60,510,178,21]: Reports
+          - link [ref=e633] [cursor=pointer] [box=24,545,230,45]:
+            - /url: /portal/inventory/stock-card
+            - generic [ref=e65] [box=60,557,178,21]: Stock Card
+        - listitem [ref=e66] [box=16,600,242,44]:
+          - button [ref=e634] [cursor=pointer] [box=16,600,242,44]:
+            - img [ref=e69] [box=28,612,20,20]
+            - generic [ref=e72] [box=60,612,168,20]: Sales
+            - img [ref=e73] [box=228,613,18,18]
+        - listitem [ref=e75] [box=16,654,242,44]:
+          - link [ref=e635] [cursor=pointer] [box=16,654,242,44]:
+            - /url: /portal/customers
+            - img [ref=e78] [box=28,666,20,20]
+            - generic [ref=e81] [box=60,666,186,20]: Customers
+        - listitem [ref=e82] [box=16,708,242,44]:
+          - link [ref=e636] [cursor=pointer] [box=16,708,242,44]:
+            - /url: /portal/projects
+            - img [ref=e85] [box=28,720,20,20]
+            - generic [ref=e88] [box=60,720,186,20]: Projects
+        - listitem [ref=e89] [box=16,762,242,44]:
+          - link [ref=e637] [cursor=pointer] [box=16,762,242,44]:
+            - /url: /portal/suppliers
+            - img [ref=e92] [box=28,774,20,20]
+            - generic [ref=e95] [box=60,774,186,20]: Suppliers
+        - listitem [ref=e96] [box=16,816,242,44]:
+          - button [ref=e638] [cursor=pointer] [box=16,816,242,44]:
+            - img [ref=e99] [box=28,828,20,20]
+            - generic [ref=e102] [box=60,828,168,20]: Accounting
+            - img [ref=e103] [box=228,829,18,18]
+        - listitem [ref=e105] [box=16,870,242,44]:
+          - button [ref=e639] [cursor=pointer] [box=16,870,242,44]:
+            - img [ref=e108] [box=28,882,20,20]
+            - generic [ref=e111] [box=60,882,168,20]: Organization Settings
+            - img [ref=e112] [box=228,883,18,18]
+      - generic [ref=e114] [box=0,840,280,60]:
+        - button [ref=e640] [cursor=pointer] [box=16,856,28,28]:
+          - img [ref=e641] [box=16,856,28,28]
+        - paragraph [ref=e122] [box=52,861,177,14]: test2 biofuel
+        - button [ref=e642] [cursor=pointer] [box=237,856,27,27]:
+          - img [ref=e124] [box=242,861,17,17]
+    - generic [ref=e132] [box=312,48,1096,820]:
+      - generic [ref=e133] [box=312,48,1096,64]:
+        - generic [ref=e135] [box=312,48,355,64]:
+          - paragraph [ref=e136] [box=312,48,355,36]: Inventory List
+          - paragraph [ref=e137] [box=312,88,355,24]: Items Detail Information
+        - generic [ref=e139] [box=683,59,725,43]:
+          - button [ref=e643] [cursor=pointer] [box=916,59,125,43]:
+            - img [ref=e142] [box=930,71,18,18]
+            - text: Add Items
+          - button [ref=e644] [cursor=pointer] [box=1049,59,100,43]:
+            - generic [ref=e145] [box=1062,60,74,41]:
+              - img [ref=e146] [box=1070,70,21,21]
+              - text: Filter
+          - generic [ref=e150] [box=1157,59,213,37]:
+            - img [ref=e152] [box=1171,67,21,21]
+            - textbox [ref=e645] [box=1199,59,170,37]:
+              - /placeholder: Search
+            - group [box=1157,54,213,42]
+          - button [ref=e155] [cursor=pointer] [box=1377,59,31,43]:
+            - img [ref=e156] [box=1382,70,21,21]
+      - table [ref=e160] [box=313,145,1088,913]:
+        - rowgroup [ref=e161] [box=313,145,1088,74]:
+          - row [ref=e646] [box=313,145,1088,74]:
+            - columnheader [ref=e163] [box=313,145,48,74]:
+              - button [ref=e164] [cursor=pointer] [box=337,172,47,21]:
+                - generic [ref=e165] [box=337,172,21,21]:
+                  - checkbox [ref=e166] [box=337,172,21,21]
+                  - img [ref=e167] [box=337,172,21,21]
+                - img [ref=e169] [box=362,173,18,18]
+            - columnheader [ref=e647] [box=361,145,149,74]:
+              - button [ref=e648] [cursor=pointer] [box=385,172,51,21]:
+                - text: SKU
+                - img [ref=e173] [box=414,173,18,18]
+            - columnheader [ref=e649] [box=510,145,149,74]:
+              - button [ref=e650] [cursor=pointer] [box=534,161,101,41]:
+                - text: Asset Name
+                - img [ref=e177] [box=612,173,18,18]
+            - columnheader [ref=e651] [box=658,145,149,74]:
+              - button [ref=e652] [cursor=pointer] [box=682,172,73,21]:
+                - text: Status
+                - img [ref=e181] [box=733,173,18,18]
+            - columnheader [ref=e653] [box=807,145,149,74]:
+              - button [ref=e654] [cursor=pointer] [box=831,172,91,21]:
+                - text: Category
+                - img [ref=e185] [box=900,173,18,18]
+            - columnheader [ref=e655] [box=955,145,149,74]:
+              - button [ref=e656] [cursor=pointer] [box=979,172,100,21]:
+                - text: Created At
+                - img [ref=e189] [box=1058,173,18,18]
+            - columnheader [ref=e657] [box=1104,145,149,74]:
+              - button [ref=e658] [cursor=pointer] [box=1128,172,74,21]:
+                - text: Tagged
+                - img [ref=e193] [box=1180,173,18,18]
+            - columnheader [ref=e659] [box=1252,145,149,74]:
+              - button [ref=e660] [cursor=pointer] [box=1276,172,80,21]:
+                - text: Actions
+                - img [ref=e197] [box=1335,173,18,18]
+        - rowgroup [ref=e199] [box=313,219,1088,839]:
+          - row [ref=e661] [box=313,219,1088,84]:
+            - cell [ref=e201] [box=313,219,48,84]:
+              - generic [ref=e202] [cursor=pointer] [box=337,248,21,21]:
+                - checkbox [ref=e203] [box=337,248,21,21]
+                - img [ref=e204] [box=337,248,21,21]
+            - cell [ref=e662] [box=361,219,149,84]:
+              - generic [ref=e663] [box=385,245,101,27]:
+                - paragraph [ref=e664] [box=385,250,80,17]: MG20250107
+                - button [ref=e665] [cursor=pointer] [box=469,245,27,27]:
+                  - img [ref=e666] [box=474,250,17,17]
+            - cell [ref=e668] [box=510,219,149,84]:
+              - paragraph [ref=e669] [box=534,250,101,17]: LION375
+            - cell [ref=e670] [box=658,219,149,84]:
+              - generic [ref=e217] [box=682,248,101,20]: sold
+            - cell [ref=e671] [box=807,219,149,84]:
+              - generic [ref=e219] [box=831,248,101,20]: Equipment
+            - cell [ref=e672] [box=955,219,149,84]:
+              - generic [ref=e221] [box=979,248,101,20]: 25/06/2026
+            - cell [ref=e673] [box=1104,219,149,84]:
+              - generic [ref=e674] [box=1128,235,101,46]:
+                - generic [ref=e676] [box=1148,239,60,14]: Tagged
+                - generic [ref=e677] [box=1128,261,101,20]: 99:4f:3e:01:00:00:02
+            - cell [ref=e228] [box=1252,219,149,84]:
+              - generic [ref=e678] [box=1276,243,101,31]:
+                - button [ref=e679] [cursor=pointer] [box=1276,243,31,31]:
+                  - img [ref=e680] [box=1281,248,21,21]
+                - button [ref=e682] [cursor=pointer] [box=1315,243,31,31]:
+                  - img [ref=e683] [box=1320,248,21,21]
+                - button [ref=e685] [cursor=pointer] [box=1354,243,31,31]:
+                  - img [ref=e686] [box=1359,248,21,21]
+          - row [ref=e688] [box=313,303,1088,84]:
+            - cell [ref=e241] [box=313,303,48,84]:
+              - generic [ref=e242] [cursor=pointer] [box=337,332,21,21]:
+                - checkbox [ref=e243] [box=337,332,21,21]
+                - img [ref=e244] [box=337,332,21,21]
+            - cell [ref=e689] [box=361,303,149,84]:
+              - generic [ref=e690] [box=385,328,101,27]:
+                - paragraph [ref=e691] [box=385,333,80,17]: MG20260131
+                - button [ref=e692] [cursor=pointer] [box=469,328,27,27]:
+                  - img [ref=e693] [box=474,333,17,17]
+            - cell [ref=e695] [box=510,303,149,84]:
+              - paragraph [ref=e696] [box=534,333,101,17]: LION375
+            - cell [ref=e697] [box=658,303,149,84]:
+              - generic [ref=e257] [box=682,332,101,20]: sold
+            - cell [ref=e698] [box=807,303,149,84]:
+              - generic [ref=e259] [box=831,332,101,20]: Equipment
+            - cell [ref=e699] [box=955,303,149,84]:
+              - generic [ref=e261] [box=979,332,101,20]: 25/06/2026
+            - cell [ref=e700] [box=1104,303,149,84]:
+              - generic [ref=e701] [box=1128,319,101,46]:
+                - generic [ref=e703] [box=1148,323,60,14]: Tagged
+                - generic [ref=e704] [box=1128,345,101,20]: 99:43:a8:01:00:00:02
+            - cell [ref=e268] [box=1252,303,149,84]:
+              - generic [ref=e705] [box=1276,327,101,31]:
+                - button [ref=e706] [cursor=pointer] [box=1276,327,31,31]:
+                  - img [ref=e707] [box=1281,332,21,21]
+                - button [ref=e709] [cursor=pointer] [box=1315,327,31,31]:
+                  - img [ref=e710] [box=1320,332,21,21]
+                - button [ref=e712] [cursor=pointer] [box=1354,327,31,31]:
+                  - img [ref=e713] [box=1359,332,21,21]
+          - row [ref=e715] [box=313,387,1088,84]:
+            - cell [ref=e281] [box=313,387,48,84]:
+              - generic [ref=e282] [cursor=pointer] [box=337,416,21,21]:
+                - checkbox [ref=e283] [box=337,416,21,21]
+                - img [ref=e284] [box=337,416,21,21]
+            - cell [ref=e716] [box=361,387,149,84]:
+              - generic [ref=e717] [box=385,412,101,27]:
+                - paragraph [ref=e718] [box=385,417,80,17]: MG20260120
+                - button [ref=e719] [cursor=pointer] [box=469,412,27,27]:
+                  - img [ref=e720] [box=474,417,17,17]
+            - cell [ref=e722] [box=510,387,149,84]:
+              - paragraph [ref=e723] [box=534,417,101,17]: LION375
+            - cell [ref=e724] [box=658,387,149,84]:
+              - generic [ref=e297] [box=682,416,101,20]: sold
+            - cell [ref=e725] [box=807,387,149,84]:
+              - generic [ref=e299] [box=831,416,101,20]: Equipment
+            - cell [ref=e726] [box=955,387,149,84]:
+              - generic [ref=e301] [box=979,416,101,20]: 25/06/2026
+            - cell [ref=e727] [box=1104,387,149,84]:
+              - generic [ref=e728] [box=1128,403,101,46]:
+                - generic [ref=e730] [box=1148,407,60,14]: Tagged
+                - generic [ref=e731] [box=1128,429,101,20]: 99:72:ba:01:00:00:02
+            - cell [ref=e308] [box=1252,387,149,84]:
+              - generic [ref=e732] [box=1276,411,101,31]:
+                - button [ref=e733] [cursor=pointer] [box=1276,411,31,31]:
+                  - img [ref=e734] [box=1281,416,21,21]
+                - button [ref=e736] [cursor=pointer] [box=1315,411,31,31]:
+                  - img [ref=e737] [box=1320,416,21,21]
+                - button [ref=e739] [cursor=pointer] [box=1354,411,31,31]:
+                  - img [ref=e740] [box=1359,416,21,21]
+          - row [ref=e742] [box=313,471,1088,84]:
+            - cell [ref=e321] [box=313,471,48,84]:
+              - generic [ref=e322] [cursor=pointer] [box=337,500,21,21]:
+                - checkbox [ref=e323] [box=337,500,21,21]
+                - img [ref=e324] [box=337,500,21,21]
+            - cell [ref=e743] [box=361,471,149,84]:
+              - generic [ref=e744] [box=385,496,101,27]:
+                - paragraph [ref=e745] [box=385,501,66,17]: AF100-008
+                - button [ref=e746] [cursor=pointer] [box=455,496,27,27]:
+                  - img [ref=e747] [box=460,501,17,17]
+            - cell [ref=e749] [box=510,471,149,84]:
+              - paragraph [ref=e750] [box=534,501,101,17]: AF 100 System
+            - cell [ref=e751] [box=658,471,149,84]:
+              - generic [ref=e337] [box=682,500,101,20]: instock
+            - cell [ref=e752] [box=807,471,149,84]:
+              - generic [ref=e339] [box=831,500,101,20]: Equipment
+            - cell [ref=e753] [box=955,471,149,84]:
+              - generic [ref=e341] [box=979,500,101,20]: 25/06/2026
+            - cell [ref=e754] [box=1104,471,149,84]:
+              - generic [ref=e755] [box=1128,487,101,46]:
+                - generic [ref=e757] [box=1148,491,60,14]: Tagged
+                - generic [ref=e758] [box=1128,513,101,20]: 99:af:77:01:00:00:02
+            - cell [ref=e348] [box=1252,471,149,84]:
+              - generic [ref=e759] [box=1276,495,101,31]:
+                - button [ref=e760] [cursor=pointer] [box=1276,495,31,31]:
+                  - img [ref=e761] [box=1281,500,21,21]
+                - button [ref=e763] [cursor=pointer] [box=1315,495,31,31]:
+                  - img [ref=e764] [box=1320,500,21,21]
+                - button [ref=e766] [cursor=pointer] [box=1354,495,31,31]:
+                  - img [ref=e767] [box=1359,500,21,21]
+          - row [ref=e769] [box=313,555,1088,84]:
+            - cell [ref=e361] [box=313,555,48,84]:
+              - generic [ref=e362] [cursor=pointer] [box=337,584,21,21]:
+                - checkbox [ref=e363] [box=337,584,21,21]
+                - img [ref=e364] [box=337,584,21,21]
+            - cell [ref=e770] [box=361,555,149,84]:
+              - generic [ref=e771] [box=385,580,101,27]:
+                - paragraph [ref=e772] [box=385,585,66,17]: AF100-007
+                - button [ref=e773] [cursor=pointer] [box=455,580,27,27]:
+                  - img [ref=e774] [box=460,585,17,17]
+            - cell [ref=e776] [box=510,555,149,84]:
+              - paragraph [ref=e777] [box=534,585,101,17]: AF 100 System
+            - cell [ref=e778] [box=658,555,149,84]:
+              - generic [ref=e377] [box=682,584,101,20]: instock
+            - cell [ref=e779] [box=807,555,149,84]:
+              - generic [ref=e379] [box=831,584,101,20]: Equipment
+            - cell [ref=e780] [box=955,555,149,84]:
+              - generic [ref=e381] [box=979,584,101,20]: 25/06/2026
+            - cell [ref=e781] [box=1104,555,149,84]:
+              - generic [ref=e782] [box=1128,571,101,46]:
+                - generic [ref=e784] [box=1148,575,60,14]: Tagged
+                - generic [ref=e785] [box=1128,597,101,20]: 99:aa:f8:01:00:00:02
+            - cell [ref=e388] [box=1252,555,149,84]:
+              - generic [ref=e786] [box=1276,579,101,31]:
+                - button [ref=e787] [cursor=pointer] [box=1276,579,31,31]:
+                  - img [ref=e788] [box=1281,584,21,21]
+                - button [ref=e790] [cursor=pointer] [box=1315,579,31,31]:
+                  - img [ref=e791] [box=1320,584,21,21]
+                - button [ref=e793] [cursor=pointer] [box=1354,579,31,31]:
+                  - img [ref=e794] [box=1359,584,21,21]
+          - row [ref=e796] [box=313,639,1088,84]:
+            - cell [ref=e401] [box=313,639,48,84]:
+              - generic [ref=e402] [cursor=pointer] [box=337,668,21,21]:
+                - checkbox [ref=e403] [box=337,668,21,21]
+                - img [ref=e404] [box=337,668,21,21]
+            - cell [ref=e797] [box=361,639,149,84]:
+              - generic [ref=e798] [box=385,664,101,27]:
+                - paragraph [ref=e799] [box=385,669,66,17]: AF100-006
+                - button [ref=e800] [cursor=pointer] [box=455,664,27,27]:
+                  - img [ref=e801] [box=460,669,17,17]
+            - cell [ref=e803] [box=510,639,149,84]:
+              - paragraph [ref=e804] [box=534,669,101,17]: AF 100 System
+            - cell [ref=e805] [box=658,639,149,84]:
+              - generic [ref=e417] [box=682,668,101,20]: instock
+            - cell [ref=e806] [box=807,639,149,84]:
+              - generic [ref=e419] [box=831,668,101,20]: Equipment
+            - cell [ref=e807] [box=955,639,149,84]:
+              - generic [ref=e421] [box=979,668,101,20]: 25/06/2026
+            - cell [ref=e808] [box=1104,639,149,84]:
+              - generic [ref=e809] [box=1128,655,101,46]:
+                - generic [ref=e811] [box=1148,659,60,14]: Tagged
+                - generic [ref=e812] [box=1128,681,101,20]: 99:95:37:01:00:00:02
+            - cell [ref=e428] [box=1252,639,149,84]:
+              - generic [ref=e813] [box=1276,662,101,31]:
+                - button [ref=e814] [cursor=pointer] [box=1276,662,31,31]:
+                  - img [ref=e815] [box=1281,667,21,21]
+                - button [ref=e817] [cursor=pointer] [box=1315,662,31,31]:
+                  - img [ref=e818] [box=1320,667,21,21]
+                - button [ref=e820] [cursor=pointer] [box=1354,662,31,31]:
+                  - img [ref=e821] [box=1359,667,21,21]
+          - row [ref=e823] [box=313,723,1088,84]:
+            - cell [ref=e441] [box=313,723,48,84]:
+              - generic [ref=e442] [cursor=pointer] [box=337,752,21,21]:
+                - checkbox [ref=e443] [box=337,752,21,21]
+                - img [ref=e444] [box=337,752,21,21]
+            - cell [ref=e824] [box=361,723,149,84]:
+              - generic [ref=e825] [box=385,748,101,27]:
+                - paragraph [ref=e826] [box=385,753,66,17]: AF100-005
+                - button [ref=e827] [cursor=pointer] [box=455,748,27,27]:
+                  - img [ref=e828] [box=460,753,17,17]
+            - cell [ref=e830] [box=510,723,149,84]:
+              - paragraph [ref=e831] [box=534,753,101,17]: AF 100 System
+            - cell [ref=e832] [box=658,723,149,84]:
+              - generic [ref=e457] [box=682,752,101,20]: instock
+            - cell [ref=e833] [box=807,723,149,84]:
+              - generic [ref=e459] [box=831,752,101,20]: Equipment
+            - cell [ref=e834] [box=955,723,149,84]:
+              - generic [ref=e461] [box=979,752,101,20]: 25/06/2026
+            - cell [ref=e835] [box=1104,723,149,84]:
+              - generic [ref=e836] [box=1128,739,101,46]:
+                - generic [ref=e838] [box=1148,743,60,14]: Tagged
+                - generic [ref=e839] [box=1128,765,101,20]: 99:9e:40:01:00:00:02
+            - cell [ref=e468] [box=1252,723,149,84]:
+              - generic [ref=e840] [box=1276,746,101,31]:
+                - button [ref=e841] [cursor=pointer] [box=1276,746,31,31]:
+                  - img [ref=e842] [box=1281,751,21,21]
+                - button [ref=e844] [cursor=pointer] [box=1315,746,31,31]:
+                  - img [ref=e845] [box=1320,751,21,21]
+                - button [ref=e847] [cursor=pointer] [box=1354,746,31,31]:
+                  - img [ref=e848] [box=1359,751,21,21]
+          - row [ref=e850] [box=313,807,1088,84]:
+            - cell [ref=e481] [box=313,807,48,84]:
+              - generic [ref=e482] [cursor=pointer] [box=337,836,21,21]:
+                - checkbox [ref=e483] [box=337,836,21,21]
+                - img [ref=e484] [box=337,836,21,21]
+            - cell [ref=e851] [box=361,807,149,84]:
+              - generic [ref=e852] [box=385,832,101,27]:
+                - paragraph [ref=e853] [box=385,837,66,17]: AF100-004
+                - button [ref=e854] [cursor=pointer] [box=455,832,27,27]:
+                  - img [ref=e855] [box=460,837,17,17]
+            - cell [ref=e857] [box=510,807,149,84]:
+              - paragraph [ref=e858] [box=534,837,101,17]: AF 100 System
+            - cell [ref=e859] [box=658,807,149,84]:
+              - generic [ref=e497] [box=682,836,101,20]: instock
+            - cell [ref=e860] [box=807,807,149,84]:
+              - generic [ref=e499] [box=831,836,101,20]: Equipment
+            - cell [ref=e861] [box=955,807,149,84]:
+              - generic [ref=e501] [box=979,836,101,20]: 25/06/2026
+            - cell [ref=e862] [box=1104,807,149,84]:
+              - generic [ref=e863] [box=1128,823,101,46]:
+                - generic [ref=e865] [box=1148,827,60,14]: Tagged
+                - generic [ref=e866] [box=1128,849,101,20]: 99:9e:39:01:00:00:02
+            - cell [ref=e508] [box=1252,807,149,84]:
+              - generic [ref=e867] [box=1276,830,101,31]:
+                - button [ref=e868] [cursor=pointer] [box=1276,830,31,31]:
+                  - img [ref=e869] [box=1281,835,21,21]
+                - button [ref=e871] [cursor=pointer] [box=1315,830,31,31]:
+                  - img [ref=e872] [box=1320,835,21,21]
+                - button [ref=e874] [cursor=pointer] [box=1354,830,31,31]:
+                  - img [ref=e875] [box=1359,835,21,21]
+          - row [ref=e877] [box=313,891,1088,84]:
+            - cell [ref=e521] [box=313,891,48,84]:
+              - generic [ref=e522] [cursor=pointer] [box=337,920,21,21]:
+                - checkbox [ref=e523] [box=337,920,21,21]
+                - img [ref=e524] [box=337,920,21,21]
+            - cell [ref=e878] [box=361,891,149,84]:
+              - generic [ref=e879] [box=385,916,101,27]:
+                - paragraph [ref=e880] [box=385,921,66,17]: AF100-003
+                - button [ref=e881] [cursor=pointer] [box=455,916,27,27]:
+                  - img [ref=e882] [box=460,921,17,17]
+            - cell [ref=e884] [box=510,891,149,84]:
+              - paragraph [ref=e885] [box=534,921,101,17]: AF 100 System
+            - cell [ref=e886] [box=658,891,149,84]:
+              - generic [ref=e537] [box=682,920,101,20]: instock
+            - cell [ref=e887] [box=807,891,149,84]:
+              - generic [ref=e539] [box=831,920,101,20]: Equipment
+            - cell [ref=e888] [box=955,891,149,84]:
+              - generic [ref=e541] [box=979,920,101,20]: 25/06/2026
+            - cell [ref=e889] [box=1104,891,149,84]:
+              - generic [ref=e890] [box=1128,907,101,46]:
+                - generic [ref=e892] [box=1148,910,60,14]: Tagged
+                - generic [ref=e893] [box=1128,933,101,20]: 99:aa:fd:01:00:00:02
+            - cell [ref=e548] [box=1252,891,149,84]:
+              - generic [ref=e894] [box=1276,914,101,31]:
+                - button [ref=e895] [cursor=pointer] [box=1276,914,31,31]:
+                  - img [ref=e896] [box=1281,919,21,21]
+                - button [ref=e898] [cursor=pointer] [box=1315,914,31,31]:
+                  - img [ref=e899] [box=1320,919,21,21]
+                - button [ref=e901] [cursor=pointer] [box=1354,914,31,31]:
+                  - img [ref=e902] [box=1359,919,21,21]
+          - row [ref=e904] [box=313,975,1088,84]:
+            - cell [ref=e561] [box=313,975,48,84]:
+              - generic [ref=e562] [cursor=pointer] [box=337,1004,21,21]:
+                - checkbox [ref=e563] [box=337,1004,21,21]
+                - img [ref=e564] [box=337,1004,21,21]
+            - cell [ref=e905] [box=361,975,149,84]:
+              - generic [ref=e906] [box=385,1000,101,27]:
+                - paragraph [ref=e907] [box=385,1005,66,17]: AF100-002
+                - button [ref=e908] [cursor=pointer] [box=455,1000,27,27]:
+                  - img [ref=e909] [box=460,1005,17,17]
+            - cell [ref=e911] [box=510,975,149,84]:
+              - paragraph [ref=e912] [box=534,1005,101,17]: AF 100 System
+            - cell [ref=e913] [box=658,975,149,84]:
+              - generic [ref=e577] [box=682,1003,101,20]: instock
+            - cell [ref=e914] [box=807,975,149,84]:
+              - generic [ref=e579] [box=831,1003,101,20]: Equipment
+            - cell [ref=e915] [box=955,975,149,84]:
+              - generic [ref=e581] [box=979,1003,101,20]: 25/06/2026
+            - cell [ref=e916] [box=1104,975,149,84]:
+              - generic [ref=e917] [box=1128,991,101,46]:
+                - generic [ref=e919] [box=1148,994,60,14]: Tagged
+                - generic [ref=e920] [box=1128,1017,101,20]: 99:56:e5:01:00:00:02
+            - cell [ref=e588] [box=1252,975,149,84]:
+              - generic [ref=e921] [box=1276,998,101,31]:
+                - button [ref=e922] [cursor=pointer] [box=1276,998,31,31]:
+                  - img [ref=e923] [box=1281,1003,21,21]
+                - button [ref=e925] [cursor=pointer] [box=1315,998,31,31]:
+                  - img [ref=e926] [box=1320,1003,21,21]
+                - button [ref=e928] [cursor=pointer] [box=1354,998,31,31]:
+                  - img [ref=e929] [box=1359,1003,21,21]
+      - generic [ref=e600] [box=312,831,1096,37]:
+        - generic [ref=e601] [box=312,831,125,37]:
+          - paragraph [ref=e602] [box=312,841,48,17]: Showing
+          - generic [ref=e605] [box=376,831,61,37]:
+            - combobox [ref=e606] [cursor=pointer] [box=376,831,61,37]:
+              - paragraph [ref=e608] [box=388,839,17,21]: "10"
+            - textbox [box=376,847,61,22]: "10"
+            - img [box=410,839,21,21]
+            - group [box=376,826,61,42]
+        - paragraph [ref=e609] [box=733,841,189,17]: Showing 1-10 out of 633 records
+        - navigation [ref=e931] [box=1218,834,190,32]:
+          - list [ref=e611] [box=1218,834,190,32]:
+            - listitem [ref=e612] [box=1218,834,38,32]:
+              - button [disabled] [box=1221,834,32,32]:
+                - img [box=1228,841,17,17]
+            - listitem [ref=e613] [box=1256,834,38,32]:
+              - button [ref=e932] [cursor=pointer] [box=1259,834,32,32]: "1"
+            - listitem [ref=e615] [box=1294,834,38,32]:
+              - button [ref=e933] [cursor=pointer] [box=1297,834,32,32]: "2"
+            - listitem [ref=e617] [box=1332,841,38,17]:
+              - generic [ref=e618] [box=1335,841,32,17]: …
+            - listitem [ref=e619] [box=1370,834,38,32]:
+              - button [ref=e934] [cursor=pointer] [box=1373,834,32,32]:
+                - img [ref=e621] [box=1380,841,17,17]
+  - generic [ref=e937] [box=1041,0,399,900]:
+    - paragraph [ref=e938] [box=1057,167,367,21]: Add Items
+    - generic [ref=e939] [box=1057,220,367,513]:
+      - generic [ref=e940] [box=1057,220,367,434]:
+        - generic [ref=e941] [box=1057,220,367,59]:
+          - generic [ref=e942] [box=1057,220,367,20]: Asset
+          - generic [ref=e944] [box=1057,242,367,37]:
+            - combobox [ref=e945] [cursor=pointer] [box=1057,242,367,37]:
+              - paragraph [ref=e946] [box=1069,250,323,21]: Choose an asset
+            - textbox [box=1057,258,367,22]
+            - img [box=1396,250,21,21]
+            - group [box=1057,237,367,42]
+        - generic [ref=e947] [box=1057,295,367,59]:
+          - generic [ref=e948] [box=1057,295,367,20]: SKU
+          - generic [ref=e950] [box=1057,317,367,37]:
+            - textbox "Enter SKU" [disabled] [ref=e951] [box=1057,317,367,37]
+            - group [box=1057,312,367,42]
+        - generic [ref=e952] [box=1057,371,367,59]:
+          - generic [ref=e953] [box=1057,371,367,20]: Quantity
+          - generic [ref=e955] [box=1057,393,367,37]:
+            - spinbutton [ref=e956] [box=1057,393,367,37]: "1"
+            - group [box=1057,388,367,42]
+        - generic [ref=e957] [box=1057,446,367,59]:
+          - generic [ref=e958] [box=1057,446,367,20]: Category
+          - generic [ref=e960] [box=1057,468,367,37]:
+            - textbox "Enter a category" [disabled] [ref=e961] [box=1057,468,367,37]
+            - group [box=1057,463,367,42]
+        - generic [ref=e962] [box=1057,521,367,58]:
+          - generic [ref=e963] [box=1057,521,367,20]: Location
+          - generic [ref=e965] [box=1057,543,367,36]:
+            - combobox [ref=e966] [cursor=pointer] [box=1057,543,367,36]
+            - textbox [box=1057,558,367,22]: Singapore
+            - img [box=1396,551,21,21]
+            - group [box=1057,538,367,41]
+        - generic [ref=e967] [box=1057,595,367,59]:
+          - generic [ref=e968] [box=1057,595,367,20]: Status
+          - generic [ref=e970] [box=1057,617,367,37]:
+            - combobox [ref=e971] [cursor=pointer] [box=1057,617,367,37]:
+              - paragraph [ref=e972] [box=1069,625,323,21]: Choose status
+            - textbox [box=1057,633,367,22]
+            - img [box=1396,626,21,21]
+            - group [box=1057,612,367,42]
+      - generic [ref=e973] [box=1057,686,367,47]:
+        - button "Cancel" [ref=e974] [cursor=pointer] [box=1057,688,81,43]
+        - button "Save" [ref=e975] [cursor=pointer] [box=1359,688,65,43]
