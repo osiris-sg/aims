@@ -211,14 +211,20 @@ export class DocumentTemplatesService {
         if (selected.length > 0) return selected[0];
       }
 
-      // No selection: fall back to the cross-org default (Standard Quotation is
-      // isDefault, available to every org), then the org's legacy isActive
-      // template, then any template of the type.
-      const fallback = await this.prisma.documentTemplate.findFirst({
-        where: { OR: [{ type, isDefault: true }, { type, organizationId, isActive: true }] },
-        orderBy: [{ isDefault: 'desc' }, { isActive: 'desc' }, { createdAt: 'desc' }],
+      // No selection: the org's own legacy isActive template wins, then the
+      // cross-org seeded default (isDefault), then any template of the type.
+      // (Two queries — the seeded standards are isActive too, so a combined
+      // orderBy can't express "own before seeded".)
+      const ownActive = await this.prisma.documentTemplate.findFirst({
+        where: { type, organizationId, isActive: true },
+        orderBy: [{ createdAt: 'desc' }],
       });
-      if (fallback) return fallback;
+      if (ownActive) return ownActive;
+      const seededDefault = await this.prisma.documentTemplate.findFirst({
+        where: { type, isDefault: true },
+        orderBy: [{ createdAt: 'desc' }],
+      });
+      if (seededDefault) return seededDefault;
 
       const anyTemplate = await this.prisma.documentTemplate.findFirst({
         where: { type, organizationId },
@@ -390,18 +396,24 @@ export class DocumentTemplatesService {
       const activeIds = selections.map((s) => s.templateId);
       const primaryId = selections.find((s) => s.isPrimary)?.templateId;
 
-      const templates = await this.prisma.documentTemplate.findMany({
+      // Selections are authoritative. With none, the org's OWN legacy-active
+      // templates stand alone; the cross-org seeded standards (isDefault) are
+      // offered only when the org has nothing of its own — otherwise every org
+      // sees the seeded pool next to its real template in the create picker.
+      let templates = await this.prisma.documentTemplate.findMany({
         where: activeIds.length
           ? { id: { in: activeIds } }
-          : {
-              OR: [
-                { type, isDefault: true },
-                { type, organizationId, isActive: true },
-              ],
-            },
+          : { type, organizationId, isActive: true },
         include: { organization: { select: { id: true, name: true } } },
         orderBy: [{ designName: 'asc' }],
       });
+      if (!activeIds.length && templates.length === 0) {
+        templates = await this.prisma.documentTemplate.findMany({
+          where: { type, isDefault: true },
+          include: { organization: { select: { id: true, name: true } } },
+          orderBy: [{ designName: 'asc' }],
+        });
+      }
 
       return templates.map((t) => ({
         ...t,

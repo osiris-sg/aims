@@ -1891,15 +1891,20 @@ export class DocumentsService {
           templateId = sel?.id ?? selections[0].templateId;
         }
       } else {
-        const tmpl = await this.prisma.documentTemplate.findFirst({
-          where: { OR: [{ type, isDefault: true }, { type, organizationId }] },
-          select: { id: true },
-          orderBy: [
-            { isDefault: 'desc' },
-            { isActive: 'desc' },
-            { createdAt: 'desc' },
-          ],
-        });
+        // Org's own active template first; seeded cross-org standard only when
+        // the org has nothing of its own (keeps this headless path consistent
+        // with the create picker's fallback).
+        const tmpl =
+          (await this.prisma.documentTemplate.findFirst({
+            where: { type, organizationId, isActive: true },
+            select: { id: true },
+            orderBy: [{ createdAt: 'desc' }],
+          })) ??
+          (await this.prisma.documentTemplate.findFirst({
+            where: { OR: [{ type, isDefault: true }, { type, organizationId }] },
+            select: { id: true },
+            orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+          }));
         if (!tmpl) {
           throw new HttpException(`No document template found for type ${type}`, HttpStatus.NOT_FOUND);
         }
@@ -3456,11 +3461,19 @@ export class DocumentsService {
       });
       return sel?.id ?? selections[0].templateId;
     }
-    const tmpl = await this.prisma.documentTemplate.findFirst({
-      where: { OR: [{ type, isDefault: true }, { type, organizationId }] },
-      select: { id: true },
-      orderBy: [{ isDefault: 'desc' }, { isActive: 'desc' }, { createdAt: 'desc' }],
-    });
+    // Org's own active template first; seeded cross-org standard only when the
+    // org has nothing of its own (consistent with the create picker's fallback).
+    const tmpl =
+      (await this.prisma.documentTemplate.findFirst({
+        where: { type, organizationId, isActive: true },
+        select: { id: true },
+        orderBy: [{ createdAt: 'desc' }],
+      })) ??
+      (await this.prisma.documentTemplate.findFirst({
+        where: { OR: [{ type, isDefault: true }, { type, organizationId }] },
+        select: { id: true },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+      }));
     if (!tmpl) {
       throw new HttpException(`No document template found for type ${type}`, HttpStatus.NOT_FOUND);
     }
