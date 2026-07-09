@@ -95,7 +95,7 @@ export function ProfitLossXero({ basePath }: { basePath: string }) {
     const out: ReportRow[] = [];
     const sectionTotals: number[][] = [];
     for (const sec of SECTIONS) {
-      const accs = [...byCode.entries()]
+      const accs = Array.from(byCode.entries())
         .filter(([, e]) => sec.types.includes(e.accountType))
         .filter(([, e]) => e.vals.some((v) => Math.abs(v) > 0.005))
         .sort((a, b) => a[1].name.localeCompare(b[1].name));
@@ -237,7 +237,7 @@ export function BalanceSheetXero({ basePath }: { basePath: string }) {
     const out: ReportRow[] = [];
     const totalsBySection = new Map<string, number[]>();
     for (const sec of SECTIONS) {
-      const accs = [...byCode.entries()]
+      const accs = Array.from(byCode.entries())
         .filter(([, e]) => sec.types.includes(e.accountType))
         .filter(([, e]) => e.vals.some((v) => Math.abs(v) > 0.005))
         .sort((a, b) => a[0].localeCompare(b[0]));

@@ -37,9 +37,11 @@ interface QuotationDocument {
   createdAt: string;
   customer?: { name?: string };
   customerName?: string;
+  projectId?: string | null;
   referenceNo?: string;
   poNo?: string;
   config?: {
+    projectId?: string | null;
     customerId?: string;
     customerCode?: string;
     customerName?: string;

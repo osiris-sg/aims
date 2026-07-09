@@ -155,7 +155,7 @@ export function buildGroupedRows(
     g.rows.push(r);
     groups.set(disp, g);
   }
-  const sorted = [...groups.entries()].sort((a, b) => {
+  const sorted = Array.from(groups.entries()).sort((a, b) => {
     const x = a[1].raw, y = b[1].raw;
     if (typeof x === "number" && typeof y === "number") return x - y;
     return String(x).localeCompare(String(y));

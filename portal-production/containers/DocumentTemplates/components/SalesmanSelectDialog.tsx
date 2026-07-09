@@ -70,7 +70,7 @@ export default function SalesmanSelectDialog({
 
     // Free-text search across ALL displayed columns.
     return salesmenList.filter((salesman: Salesman) =>
-      [salesman.salesmanCode, salesman.name, salesman.phone, salesman.email]
+      [salesman.salesmanCode, salesman.name, salesman.email]
         .some((v) => String(v ?? "").toLowerCase().includes(term)),
     );
   }, [salesmenArray, searchTerm]);
