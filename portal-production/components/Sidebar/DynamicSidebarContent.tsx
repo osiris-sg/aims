@@ -154,11 +154,34 @@ export default function DynamicSidebarContent() {
     );
   }
 
+  // These now live under the "Master Files" hub (Organization Settings), so hide
+  // their standalone sidebar entries here. Routes still work — this is display
+  // only, avoiding per-org catalog/DB churn.
+  const HIDDEN_MODULES = new Set<string>(['CUSTOMERS', 'SUPPLIERS']);
+  // Submenu keys to hide per module (also moved into Master Files).
+  const HIDDEN_SUBMENUS: Record<string, string[]> = {
+    INVENTORY: ['products', 'list'], // Products + Inventory Items → Master Files
+  };
+  // Display-order overrides (win over each module's stored sortOrder). Sales sits
+  // just below Dashboard so it appears above Inventory for every org.
+  const ORDER_OVERRIDE: Record<string, number> = {
+    SALES: 0.5,
+  };
+  const orderKey = (m: any) => ORDER_OVERRIDE[m.moduleCode] ?? m.sortOrder ?? 999;
+
   // Filter and sort enabled modules, then filter by role-based module access
   const enabledModules = modules
     .filter(m => m.enabled)
     .filter(m => isModuleAllowed(m.moduleCode))
-    .sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999));
+    .filter(m => !HIDDEN_MODULES.has(m.moduleCode))
+    .map(m => {
+      const hide = HIDDEN_SUBMENUS[m.moduleCode];
+      const subMenus = (m.config as any)?.subMenus;
+      if (!hide || !Array.isArray(subMenus)) return m;
+      const filtered = subMenus.filter((s: any) => !hide.includes(typeof s === 'string' ? s : s?.key));
+      return { ...m, config: { ...(m.config as any), subMenus: filtered } };
+    })
+    .sort((a, b) => orderKey(a) - orderKey(b));
 
   // Resolve the URL for a single submenu key — same rules used when rendering
   // the expanded list, used here so the parent click can navigate to a valid

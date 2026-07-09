@@ -1445,6 +1445,226 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             "@media print": { minHeight: "297mm" },
           }}
         >
+        {/* Page 1 — Biofuel org gets a replica of their paper DO (letterhead,
+            two-column info block, boxed Item/Description/Quantity table,
+            Eugene Lee signature + company stamp vs the customer's "Goods
+            Received" block). Every other org keeps the generic layout below.
+            The customer signature still auto-fills from the field app's
+            DO_ACK report; the old "Delivery By" line is dropped by design. */}
+        {(() => {
+          const BIOFUEL_ORG_ID = "52e90ba8-bfbd-48b0-bb76-4f9667bf74f1";
+          return (
+            (data as any)?.organizationId === BIOFUEL_ORG_ID ||
+            organization?.id === BIOFUEL_ORG_ID ||
+            organization?.name === "Biofuel Industries Pte Ltd"
+          );
+        })() ? (() => {
+          const doAck = maintenanceReports?.find((r) => r.kind === "DO_ACK") ?? null;
+          const doInstall = maintenanceReports?.find((r) => r.kind === "DO_INSTALL") ?? null;
+          // Customer "received" signature: delivery ack first, install ack fallback.
+          const receivedSig = doAck?.signature ? doAck : doInstall?.signature ? doInstall : null;
+          const dmy = (d: any) => (d ? new Date(d).toLocaleDateString("en-GB") : "");
+          const infoRow = (label: string, value: React.ReactNode, opts?: { boldValue?: boolean }) => (
+            <Box sx={{ display: "flex", mb: 0.25 }}>
+              <Typography sx={{ fontSize: "0.875rem", fontWeight: 700, width: 92, flexShrink: 0 }}>{label}</Typography>
+              <Typography sx={{ fontSize: "0.875rem", mr: 1 }}>:</Typography>
+              <Box sx={{ flex: 1 }}>
+                {typeof value === "string" ? (
+                  <Typography sx={{ fontSize: "0.875rem", fontWeight: opts?.boldValue ? 700 : 400, whiteSpace: "pre-line" }}>
+                    {value}
+                  </Typography>
+                ) : (
+                  value
+                )}
+              </Box>
+            </Box>
+          );
+          return (
+            <>
+              {/* Letterhead: logo left, company details centered */}
+              <Box sx={{ position: "relative", textAlign: "center", mb: 1.5, minHeight: 86 }}>
+                <Box
+                  component="img"
+                  src={BIOFUEL_LOGO_DATA_URI}
+                  alt="Biofuel logo"
+                  sx={{ position: "absolute", left: 0, top: 0, width: 120, height: "auto", objectFit: "contain" }}
+                />
+                <Typography sx={{ fontSize: "1rem", fontWeight: 700 }}>BIOFUEL INDUSTRIES PTE LTD</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>22 Tuas Avenue 2</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>Singapore 639453</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>Tel: 9818 9200</Typography>
+              </Box>
+
+              <Typography sx={{ textAlign: "right", fontSize: "0.9375rem", fontWeight: 700, mb: 1.5 }}>
+                DELIVERY ORDER
+              </Typography>
+
+              {/* Info block — customer details LEFT, document details RIGHT */}
+              <Box sx={{ display: "flex", justifyContent: "space-between", gap: 3, mb: 2 }}>
+                <Box sx={{ width: "56%" }}>
+                  {infoRow(
+                    "Customer",
+                    <>
+                      <Typography sx={{ fontSize: "0.875rem", fontWeight: 700 }}>
+                        {data.customer?.name || data.customerName || ""}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.875rem", whiteSpace: "pre-line" }}>
+                        {data.billTo || data.customer?.address || data.customerAddress || ""}
+                      </Typography>
+                    </>,
+                  )}
+                  <Box sx={{ mt: 1.5 }}>
+                    {infoRow("Attention", data.attention?.name || data.documentInfo?.contactName || data.documentInfo?.contact || "", { boldValue: true })}
+                    {infoRow("Mobile", data.attention?.phoneNumber || data.attention?.phone || data.documentInfo?.contactNumber || "", { boldValue: true })}
+                    {infoRow("Delivery To", data.deliveryTo || "", { boldValue: true })}
+                  </Box>
+                </Box>
+                <Box sx={{ width: "40%" }}>
+                  {/* Colon-aligned like the paper DO: labels right-aligned in a
+                      fixed column, values left-aligned after it; the ref's
+                      "dated …" wraps onto its own line under the value. */}
+                  {(() => {
+                    const rightRow = (label: React.ReactNode, value: React.ReactNode) => (
+                      <Box sx={{ display: "flex", mb: 0.75 }}>
+                        <Typography sx={{ fontSize: "0.875rem", width: 118, textAlign: "right", flexShrink: 0 }}>
+                          {label}
+                        </Typography>
+                        <Box sx={{ ml: 0.75, flex: 1 }}>
+                          {typeof value === "string" ? (
+                            <Typography sx={{ fontSize: "0.875rem" }}>{value}</Typography>
+                          ) : (
+                            value
+                          )}
+                        </Box>
+                      </Box>
+                    );
+                    return (
+                      <>
+                        {rightRow(<b>GST REG. NO.:</b>, data.company?.gstRegNo || organization?.registrationNumber || "200303416N")}
+                        {rightRow("Date :", dmy(data.documentInfo?.date || data.date))}
+                        {rightRow(
+                          "DO No.:",
+                          <Typography sx={{ fontSize: "0.875rem", fontWeight: 700 }}>
+                            {data.documentInfo?.documentNumber || data.name || ""}
+                          </Typography>,
+                        )}
+                        {rightRow(
+                          "Our Ref. No :",
+                          <>
+                            <Typography sx={{ fontSize: "0.875rem" }}>
+                              {data.documentInfo?.referenceNo || data.referenceNo || ""}
+                            </Typography>
+                            {(data.documentInfo?.referenceNo || data.referenceNo) &&
+                              data.documentInfo?.referenceQuotationDate && (
+                                <Typography sx={{ fontSize: "0.875rem" }}>
+                                  dated {dmy(data.documentInfo.referenceQuotationDate)}
+                                </Typography>
+                              )}
+                          </>,
+                        )}
+                        {rightRow("Your PO No.:", data.documentInfo?.poNo || data.poNo || "")}
+                      </>
+                    );
+                  })()}
+                </Box>
+              </Box>
+
+              {/* Boxed items table — Item | Description | Quantity. The box
+                  stretches to fill the page (flex) with full-height column
+                  separators, like the paper form. */}
+              <Box sx={{ flex: 1, display: "flex", flexDirection: "column", border: "1.5px solid #000", mb: 3, minHeight: 260 }}>
+                <Table
+                  sx={{
+                    tableLayout: "fixed",
+                    "& .MuiTableCell-root": {
+                      border: "none",
+                      padding: "6px 10px",
+                      fontSize: "0.8125rem",
+                      verticalAlign: "top",
+                    },
+                    // Column separators live HERE (not per-cell sx) — the
+                    // border:"none" reset above out-specifies cell-level sx.
+                    "& .MuiTableCell-root:nth-of-type(1), & .MuiTableCell-root:nth-of-type(2)": {
+                      borderRight: "1px solid #000",
+                    },
+                    "& .MuiTableHead-root .MuiTableCell-root": {
+                      borderBottom: "1.5px solid #000",
+                      fontWeight: 700,
+                      textAlign: "center",
+                    },
+                  }}
+                >
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ width: "12%" }}>Item</TableCell>
+                      <TableCell>Description</TableCell>
+                      <TableCell sx={{ width: "16%" }}>Quantity</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {items.map((item: any, index: number) => (
+                      <TableRow key={index}>
+                        <TableCell sx={{ textAlign: "center" }}>{index + 1}.</TableCell>
+                        <TableCell>
+                          <DescriptionText text={item.description || ""} sx={{ fontWeight: 500 }} />
+                        </TableCell>
+                        <TableCell sx={{ textAlign: "center" }}>
+                          {item.quantity ?? ""}{item.uom ? ` ${item.uom}` : ""}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                {/* Filler keeps the column separators running to the box bottom */}
+                <Box sx={{ flex: 1, display: "flex", minHeight: 40 }}>
+                  <Box sx={{ width: "12%", borderRight: "1px solid #000" }} />
+                  <Box sx={{ flex: 1, borderRight: "1px solid #000" }} />
+                  <Box sx={{ width: "16%" }} />
+                </Box>
+              </Box>
+
+              {/* Footer — Biofuel signature + stamp LEFT, customer receipt RIGHT */}
+              <Box sx={{ display: "flex", justifyContent: "space-between", gap: 6, pageBreakInside: "avoid", breakInside: "avoid" }}>
+                <Box sx={{ width: "44%" }}>
+                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, mb: 1 }}>
+                    for Biofuel Industries Pte Ltd
+                  </Typography>
+                  {/* Eugene Lee signature + company stamp on the ruled line —
+                      same base64 assets as the Biofuel quotation. */}
+                  <Box sx={{ display: "flex", alignItems: "flex-end", gap: 1, height: 72, mb: 0.5, borderBottom: "1px solid #000" }}>
+                    <Box component="img" src={BIOFUEL_SIGNATURE_DATA_URI} alt="Director signature" sx={{ width: 120, maxHeight: 70, objectFit: "contain" }} />
+                    <Box component="img" src={BIOFUEL_STAMP_DATA_URI} alt="Company stamp" sx={{ width: 75, maxHeight: 70, objectFit: "contain" }} />
+                  </Box>
+                </Box>
+                <Box sx={{ width: "48%" }}>
+                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, mb: 1 }}>
+                    Goods Received in Good Order &amp; Condition
+                  </Typography>
+                  {/* Auto-filled from the field app's DO_ACK signature when the
+                      DO has been signed; otherwise stays a blank paper line. */}
+                  <Box sx={{ height: 72, display: "flex", alignItems: "flex-end", borderBottom: "1px solid #000", mb: 0.5 }}>
+                    {receivedSig?.signature && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={resolvePhotoSrc(receivedSig.signature)}
+                        alt="Customer signature"
+                        style={{ maxHeight: 64, maxWidth: "70%", objectFit: "contain" }}
+                      />
+                    )}
+                  </Box>
+                  <Typography sx={{ fontSize: "0.8125rem" }}>Customer&apos;s Signature &amp; Company Stamp</Typography>
+                  {receivedSig?.signedByName && (
+                    <Typography sx={{ fontSize: "0.75rem", color: "#444" }}>{receivedSig.signedByName}</Typography>
+                  )}
+                  <Typography sx={{ fontSize: "0.8125rem", mt: 0.25 }}>
+                    Date: {receivedSig?.createdAt ? dmy(receivedSig.createdAt) : ""}
+                  </Typography>
+                </Box>
+              </Box>
+            </>
+          );
+        })() : (
+        <>
         {/* Company Header - Centered */}
         <Box sx={{ textAlign: "center", mb: 2 }}>
           <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
@@ -1702,6 +1922,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             );
           })()}
         </Box>
+        </>
+        )}
 
         </Box>
         {/* End of page-1 wrapper. PROOF OF DELIVERY follows as a sibling so
@@ -3011,7 +3233,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   // DB. This whole block is the QO/QUOTATION render branch, so an
                   // unconditional drop here == every quotation (matches the
                   // editor's isQuotation-gated filter).
-                  .filter((c) => c !== "no");
+                  .filter((c) => c !== "no")
+                  // Item/Product Code is editor-only on quotations — always shown
+                  // there (like invoices) but never on the printed quotation.
+                  .filter((c) => c !== "item");
                 const labelFor = (col: string) =>
                   configLabels[col] ||
                   (col === "item" ? "Item" :
@@ -3130,7 +3355,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               }
 
               const hasUom = items.some((item: any) => item.uom && item.uom.trim() !== "");
-              const hasItemCode = items.some((item: any) => (item.itemCode || item.code || "").trim() !== "");
+              // Item/Product Code is editor-only on quotations — never printed
+              // (was: shown whenever any row had an itemCode).
+              const hasItemCode = false;
               const descWidth = hasUom ? (hasItemCode ? "32%" : "40%") : (hasItemCode ? "40%" : "48%");
               return (
                 <>

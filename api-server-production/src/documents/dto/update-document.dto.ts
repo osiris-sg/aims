@@ -1,6 +1,6 @@
 import { PartialType } from '@nestjs/swagger';
 import { CreateDocumentDto } from './create-document.dto';
-import { IsArray, IsNotEmpty, IsOptional, IsString, IsUUID, ValidateNested, IsEnum, IsInt } from 'class-validator';
+import { IsArray, IsBoolean, IsNotEmpty, IsOptional, IsString, IsUUID, ValidateNested, IsEnum, IsInt } from 'class-validator';
 import { Type } from 'class-transformer';
 import { DocumentStatus } from '@prisma/client';
 
@@ -51,6 +51,12 @@ class ItemDto {
   @IsString()
   @IsOptional()
   accountCode?: string;
+
+  // Service/revenue rows (no physical unit) — set by the editor's Add Service
+  // flow; used to skip project-assignment creation on save.
+  @IsBoolean()
+  @IsOptional()
+  isService?: boolean;
 }
 
 class PhotoDto {

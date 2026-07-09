@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { StatementsService } from './statements.service';
+import { XeroReportsService, Side } from './xero-reports.service';
 import { GenerateSOADto } from './dto/generate-soa.dto';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
@@ -30,7 +31,10 @@ interface RequestWithOrganization extends Request {
 @Controller('statements')
 @UseGuards(ClerkAuthGuard)
 export class StatementsController {
-  constructor(private readonly statementsService: StatementsService) {}
+  constructor(
+    private readonly statementsService: StatementsService,
+    private readonly xeroReports: XeroReportsService,
+  ) {}
 
   @Post('soa')
   @Permissions('statements:read')
@@ -114,5 +118,85 @@ export class StatementsController {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) throw new Error('User is not assigned to any organization');
     return this.statementsService.purchasesBySupplier(organizationId, startDate, endDate);
+  }
+
+  // ================= Xero-parity AR/AP reports =================
+
+  @Get('aged')
+  @Permissions('statements:read')
+  @ApiOperation({ summary: 'Aged receivables/payables, summary or detail, configurable buckets' })
+  aged(
+    @Req() req: RequestWithOrganization,
+    @Query('side') side: Side = 'receivable',
+    @Query('asOf') asOf?: string,
+    @Query('periods') periods?: string,
+    @Query('periodDays') periodDays?: string,
+    @Query('ageingBy') ageingBy?: 'dueDate' | 'documentDate',
+    @Query('level') level?: 'summary' | 'detail',
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.xeroReports.aged(organizationId, side === 'payable' ? 'payable' : 'receivable', {
+      asOf,
+      periods: periods ? parseInt(periods, 10) : undefined,
+      periodDays: periodDays ? parseInt(periodDays, 10) : undefined,
+      ageingBy,
+      level,
+    });
+  }
+
+  @Get('invoice-report')
+  @Permissions('statements:read')
+  @ApiOperation({ summary: 'Receivable/payable invoice listing for a period, grouped by contact' })
+  invoiceReport(
+    @Req() req: RequestWithOrganization,
+    @Query('side') side: Side = 'receivable',
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('dateBasis') dateBasis?: 'documentDate' | 'dueDate',
+    @Query('status') status?: 'all' | 'outstanding' | 'paid',
+    @Query('level') level?: 'summary' | 'detail',
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.xeroReports.invoiceReport(organizationId, side === 'payable' ? 'payable' : 'receivable', {
+      from,
+      to,
+      dateBasis,
+      status,
+      level,
+    });
+  }
+
+  @Get('contact-transactions')
+  @Permissions('statements:read')
+  @ApiOperation({ summary: 'Opening / movement / closing balance for one contact over a period' })
+  contactTransactions(
+    @Req() req: RequestWithOrganization,
+    @Query('contactType') contactType: 'customer' | 'supplier' = 'customer',
+    @Query('contactId') contactId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    if (!contactId) throw new Error('contactId is required');
+    return this.xeroReports.contactTransactions(organizationId, { contactType, contactId, from, to });
+  }
+
+  @Get('income-expense-by-contact')
+  @Permissions('statements:read')
+  @ApiOperation({ summary: 'Income and expenses per contact across comparison month columns' })
+  incomeExpenseByContact(
+    @Req() req: RequestWithOrganization,
+    @Query('to') to?: string,
+    @Query('compareMonths') compareMonths?: string,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.xeroReports.incomeExpenseByContact(organizationId, {
+      to,
+      compareMonths: compareMonths ? parseInt(compareMonths, 10) : undefined,
+    });
   }
 }

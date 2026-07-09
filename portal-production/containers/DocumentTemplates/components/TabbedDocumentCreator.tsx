@@ -37,6 +37,10 @@ import {
   Tooltip,
   Collapse,
   Stack,
+  ListItemIcon,
+  ListItemText,
+  InputAdornment,
+  ButtonGroup,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -65,9 +69,14 @@ import {
   UnfoldMore as UnfoldMoreIcon,
   LocalOffer as PriceTagIcon,
   Route as RouteIcon,
+  MoreVert as MoreVertIcon,
+  KeyboardArrowDown as KeyboardArrowDownIcon,
+  Autorenew as AutorenewIcon,
 } from "@mui/icons-material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import DocumentAssistantDrawer, { ProposalPatch } from "./DocumentAssistantDrawer";
+import DocumentHistoryDrawer from "./DocumentHistoryDrawer";
+import QuotationSelectDialog from "./QuotationSelectDialog";
 import { AutoAwesome as AutoAwesomeIcon } from "@mui/icons-material";
 import CleanDocumentPreview from "./CleanDocumentPreview";
 import RouteOrderPointsEditor from "./RouteOrderPointsEditor";
@@ -77,7 +86,7 @@ import RouteOrderPointsEditor from "./RouteOrderPointsEditor";
 import DeliveryRouteDialog from "@/components/DeliveryRouteDialog";
 import RichTextDescription from "./RichTextDescription";
 import DocumentCustomizer from "./DocumentCustomizer";
-import DynamicFormFields from "./DynamicFormFields";
+import DynamicFormFields, { headerInputSx } from "./DynamicFormFields";
 import StockCardDialog from "./StockCardDialog";
 import RevenueItemPickerDialog from "./RevenueItemPickerDialog";
 import LocateDocumentDialog from "./LocateDocumentDialog";
@@ -121,17 +130,50 @@ const getParentRoute = (docType: string): string => {
   return "/portal/sales";
 };
 
+// Toolbar accent colors (Xero-style). Scoped here on purpose: the light
+// theme maps palette.success/info to near-black/gray, so `color="success"`
+// renders monochrome — these give the primary actions real color without
+// touching the global palette.
+// Theme-aware (sx accepts a (theme) => styles function): saturated fills on
+// light, M3-style pastel fills with dark text on the dark "Editorial Ledger"
+// theme — solid saturated buttons glare on dark surfaces.
+// backgroundImage:none — the dark theme paints containedPrimary with a
+// gradient background-image that would overlay (tint) the sx bgcolor.
+const TOOLBAR_GREEN = (t: { palette: { mode: string } }) =>
+  t.palette.mode === "dark"
+    ? { bgcolor: "#8AD79E", color: "#0C2F17", backgroundImage: "none", "&:hover": { bgcolor: "#9FE0AF", backgroundImage: "none" } }
+    : { bgcolor: "#15803D", color: "#FFFFFF", backgroundImage: "none", "&:hover": { bgcolor: "#116632", backgroundImage: "none" } };
+const TOOLBAR_BLUE = (t: { palette: { mode: string } }) =>
+  t.palette.mode === "dark"
+    ? { bgcolor: "#8FC7F2", color: "#082A44", backgroundImage: "none", "&:hover": { bgcolor: "#A5D3F5", backgroundImage: "none" } }
+    : { bgcolor: "#0077C5", color: "#FFFFFF", backgroundImage: "none", "&:hover": { bgcolor: "#005F9E", backgroundImage: "none" } };
+const PREVIEW_LINK_SX = (t: { palette: { mode: string } }) => ({
+  color: t.palette.mode === "dark" ? "#8FC7F2" : "#0077C5",
+});
+// Items-table cell grid (Xero-style visible cell borders) — CSS var flips the
+// shade for dark mode (app/globals.css).
+const TABLE_GRID_COLOR = "var(--table-grid)";
+
 interface TabPanelProps {
   children?: React.ReactNode;
   index: number;
   value: number;
+  // Viewport-locked panels: fill the remaining flex height and let the
+  // children scroll internally instead of growing the page.
+  grow?: boolean;
 }
 
 function TabPanel(props: TabPanelProps) {
-  const { children, value, index, ...other } = props;
+  const { children, value, index, grow, ...other } = props;
+  const growSx = { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" } as const;
   return (
-    <div role="tabpanel" hidden={value !== index} {...other}>
-      {value === index && <Box sx={{ p: 0.5 }}>{children}</Box>}
+    <div
+      role="tabpanel"
+      hidden={value !== index}
+      style={grow && value === index ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" } : undefined}
+      {...other}
+    >
+      {value === index && <Box sx={{ p: 0.5, ...(grow ? growSx : {}) }}>{children}</Box>}
     </div>
   );
 }
@@ -247,6 +289,11 @@ export default function TabbedDocumentCreator({
   const [confirmDODialogOpen, setConfirmDODialogOpen] = useState(false);
   const [confirmPRDialogOpen, setConfirmPRDialogOpen] = useState(false);
   const [confirmInvoiceDialogOpen, setConfirmInvoiceDialogOpen] = useState(false);
+  // "Confirm & make recurring": dropdown anchor on the invoice Confirm split
+  // button; the ref makes the post-confirm step route to the recurring setup
+  // (prefilled from this invoice) instead of reloading.
+  const [confirmMenuAnchor, setConfirmMenuAnchor] = useState<null | HTMLElement>(null);
+  const makeRecurringAfterConfirmRef = useRef(false);
   // AI posting-preview ("Review") state for invoices.
   const [invoicePreviewOpen, setInvoicePreviewOpen] = useState(false);
   const [invoicePreviewLoading, setInvoicePreviewLoading] = useState(false);
@@ -266,55 +313,6 @@ export default function TabbedDocumentCreator({
 
   // Browser print ref for CleanDocumentPreview
   const printContentRef = useRef<HTMLDivElement>(null);
-  // Refs used only for the height-debug useEffect below — logs the fields
-  // card + items box actual rendered heights along with viewport height so we
-  // can tune the maxHeight/calc offsets to match real chrome.
-  const fieldsCardRef = useRef<HTMLDivElement>(null);
-  const itemsBoxRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const logHeights = (label: string) => {
-      const fields = fieldsCardRef.current?.getBoundingClientRect();
-      const items = itemsBoxRef.current?.getBoundingClientRect();
-      // eslint-disable-next-line no-console
-      console.log(`[heights] ${label}`);
-      // eslint-disable-next-line no-console
-      console.table({
-        "window.innerHeight": { px: window.innerHeight },
-        "document.documentElement.clientHeight": { px: document.documentElement.clientHeight },
-        "Fields card (actual)": { px: fields ? Math.round(fields.height) : null },
-        "Fields card top offset": { px: fields ? Math.round(fields.top) : null },
-        "Items box (actual)": { px: items ? Math.round(items.height) : null },
-        "Items box top offset": { px: items ? Math.round(items.top) : null },
-        "Chrome above items (top offset)": { px: items ? Math.round(items.top) : null },
-        "Space below items (viewport - bottom)": {
-          px: items ? Math.round(window.innerHeight - items.bottom) : null,
-        },
-      });
-    };
-
-    // Fields/items render inside conditional tabs, so they might not exist on
-    // the first commit. Poll every 250ms up to ~5s until both refs are wired,
-    // then log once and stop.
-    let attempts = 0;
-    const interval = window.setInterval(() => {
-      attempts += 1;
-      if (fieldsCardRef.current && itemsBoxRef.current) {
-        logHeights(`mounted (after ${attempts * 250}ms)`);
-        window.clearInterval(interval);
-      } else if (attempts >= 20) {
-        logHeights(`gave up after ${attempts * 250}ms — refs still null`);
-        window.clearInterval(interval);
-      }
-    }, 250);
-
-    const onResize = () => logHeights("resize");
-    window.addEventListener("resize", onResize);
-    return () => {
-      window.clearInterval(interval);
-      window.removeEventListener("resize", onResize);
-    };
-  }, []);
   const printDocumentTitle = existingData?.documentNumber || existingData?.name || documentId || "Document";
   const handleBrowserPrint = useReactToPrint({
     contentRef: printContentRef,
@@ -493,6 +491,18 @@ export default function TabbedDocumentCreator({
   // Every editor save path funnels through this: block saves while read-only,
   // stamp the optimistic-concurrency version, then re-pull the bumped version
   // so a follow-up save by the same user doesn't false-conflict.
+  // Live tracking info for the header row (Unconfirmed User / Last Used).
+  // existingData is a load-time snapshot that never refreshes during a
+  // session, so on fresh docs (or until a reload) the row showed "-" even
+  // though every save writes savedBy/lastUsedBy. Mirror the fields from each
+  // successful save and let the header prefer them.
+  const [liveTracking, setLiveTracking] = useState<{
+    savedBy?: string;
+    savedAt?: string;
+    lastUsedBy?: string;
+    lastUsedAt?: string;
+  }>({});
+
   const guardedSave = useCallback(async (saveData: any) => {
     if (lockReadOnly) {
       toast.error(
@@ -504,6 +514,14 @@ export default function TabbedDocumentCreator({
     }
     const result = await onSave?.({ ...saveData, version: lockEnabled ? lock.version : undefined });
     if (lockEnabled) lock.refreshVersion();
+    if (saveData?.savedBy || saveData?.lastUsedBy) {
+      setLiveTracking((prev) => ({
+        savedBy: saveData.savedBy ?? prev.savedBy,
+        savedAt: saveData.savedAt ?? prev.savedAt,
+        lastUsedBy: saveData.lastUsedBy ?? prev.lastUsedBy,
+        lastUsedAt: saveData.lastUsedAt ?? prev.lastUsedAt,
+      }));
+    }
     return result;
   }, [onSave, lockEnabled, lockReadOnly, lock.lostLock, lock.holderName, lock.version, lock.refreshVersion]);
 
@@ -723,13 +741,34 @@ export default function TabbedDocumentCreator({
   });
 
   // Load template field configuration
+  // DO editor is single-tab: Reference No moves onto the General tab (ordering
+  // via HEADER_FIELD_ORDER puts it after Issue By) and the leftover Details
+  // tab (Reference No + Remarks) is dropped. Presentation-only — the page's
+  // own fieldConfig still maps every field for save/load.
+  const mergeDoDetailsIntoGeneral = useCallback((cfg: any) => {
+    if (!isDeliveryOrder || !cfg?.tabs) return cfg;
+    const details = cfg.tabs.find((t: any) => t.tabId === 'details');
+    if (!details) return cfg;
+    const refField = details.fields?.find((f: any) => f.fieldName === 'documentInfo.referenceNo');
+    return {
+      ...cfg,
+      tabs: cfg.tabs
+        .filter((t: any) => t.tabId !== 'details')
+        .map((t: any) =>
+          t.tabId === 'general' && refField && !t.fields.some((f: any) => f.fieldName === 'documentInfo.referenceNo')
+            ? { ...t, fields: [...t.fields, refField] }
+            : t,
+        ),
+    };
+  }, [isDeliveryOrder]);
+
   useEffect(() => {
     async function loadTemplateFields() {
       try {
         // If field definitions are provided as props, use them directly
         if (propFieldDefinitions) {
           console.log('Using prop field definitions');
-          setTemplateFieldConfig(propFieldDefinitions);
+          setTemplateFieldConfig(mergeDoDetailsIntoGeneral(propFieldDefinitions));
           setIsLoadingFieldConfig(false);
           return;
         }
@@ -753,7 +792,7 @@ export default function TabbedDocumentCreator({
         );
 
         console.log('Loaded template field config:', config);
-        setTemplateFieldConfig(config);
+        setTemplateFieldConfig(mergeDoDetailsIntoGeneral(config));
       } catch (error) {
         console.error('Error loading template fields:', error);
         toast.error('Failed to load template configuration');
@@ -763,7 +802,7 @@ export default function TabbedDocumentCreator({
     }
 
     loadTemplateFields();
-  }, [documentType, templateId, existingData?.documentTemplateId, existingData?.templateId, propFieldDefinitions, getToken]);
+  }, [documentType, templateId, existingData?.documentTemplateId, existingData?.templateId, propFieldDefinitions, getToken, mergeDoDetailsIntoGeneral]);
 
   // Items management - normalize field names from old inventoryId to new inventoryItemId
   const [items, setItemsState] = useState(() => {
@@ -806,6 +845,57 @@ export default function TabbedDocumentCreator({
     markEdited();
     setItemsState(update);
   }, [markEdited]);
+
+  // ── Biofuel DO "Our Ref" quotation selector ────────────────────────────
+  // On Biofuel DOs, Reference No is picked from the customer's CONFIRMED
+  // quotations via a search dialog (Customer-code-field pattern). The editor
+  // stores just the quotation NUMBER; the confirm date rides along in
+  // documentInfo.referenceQuotationDate so the printout can render
+  // "Our Ref. No : QO… dated dd/mm/yyyy". Free typing still allowed.
+  const [refQuotations, setRefQuotations] = useState<any[]>([]);
+  const [refQuotationDialogOpen, setRefQuotationDialogOpen] = useState(false);
+  useEffect(() => {
+    if (!(isBiofuel && isDeliveryOrder) || !formData.customer?.id) {
+      setRefQuotations([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request({ path: "/documents", method: "POST" }, { organizationId: organization?.id }, token);
+        if (cancelled || !res?.success) return;
+        const qTypes = ["QUOTATION", "QT", "QO", "QO1", "QO2"];
+        setRefQuotations(
+          (res.data || []).filter(
+            (d: any) =>
+              qTypes.includes(String(d.documentType || d.type || "").toUpperCase()) &&
+              d.config?.customerId === formData.customer.id &&
+              d.status === "confirmed",
+          ),
+        );
+      } catch (e) {
+        console.error("ref-quotation fetch failed:", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isBiofuel, isDeliveryOrder, formData.customer?.id, organization?.id]);
+
+  const handleRefQuotationSelect = useCallback((q: any) => {
+    setFormData((prev: any) => ({
+      ...prev,
+      documentInfo: {
+        ...prev.documentInfo,
+        referenceNo: q?.name || "",
+        // Printed as " dated dd/mm/yyyy" after the number on the DO.
+        referenceQuotationDate: q ? (q.config?.confirmedAt || q.createdAt || null) : null,
+      },
+    }));
+  }, [setFormData]);
 
   // ---- AI Document Assistant ----
   const [assistantOpen, setAssistantOpen] = useState(false);
@@ -930,13 +1020,14 @@ export default function TabbedDocumentCreator({
     persistedProjectIdRef.current = existingData?.projectId ?? null;
   }, [existingData?.id, existingData?.projectId]);
 
-  // Commit the quotation→project link to the backend. Called from each save
-  // flow (Save as Draft, Confirm Quotation, etc.). No-op when the picker
-  // value matches what's already persisted; skipped for non-quotation docs
-  // and for unsaved (no documentId) drafts — those persist via the normal
-  // document update flow when the doc is first created.
+  // Commit the document→project link to the backend. Called from each save
+  // flow (Save as Draft, Confirm, etc.). No-op when the picker value matches
+  // what's already persisted; skipped for doc types without the picker and
+  // for unsaved (no documentId) drafts — those persist via the normal
+  // document update flow when the doc is first created. Quotations and
+  // delivery orders carry the picker (link-project endpoint allows both).
   const persistProjectLinkIfChanged = useCallback(async () => {
-    if (!isQuotation) return;
+    if (!isQuotation && !isDeliveryOrder) return;
     const docId = documentId || existingData?.id;
     if (!docId) return;
     const desired = formData.projectId || null;
@@ -959,7 +1050,7 @@ export default function TabbedDocumentCreator({
       console.error("link-project PATCH failed:", err);
       toast.error("Failed to save project link");
     }
-  }, [isQuotation, documentId, existingData?.id, formData.projectId, getToken]);
+  }, [isQuotation, isDeliveryOrder, documentId, existingData?.id, formData.projectId, getToken]);
 
   // Reset the dirty flag whenever a different document is loaded.
   useEffect(() => {
@@ -2296,11 +2387,20 @@ export default function TabbedDocumentCreator({
 
       setConfirmInvoiceDialogOpen(false);
 
+      if (makeRecurringAfterConfirmRef.current) {
+        // "Confirm & make recurring" — hand off to the recurring setup screen,
+        // prefilled from this now-confirmed invoice (customer, lines, deployment).
+        makeRecurringAfterConfirmRef.current = false;
+        router.push(`/portal/accounting/receivables?tab=recurring-invoices&fromInvoice=${docId}`);
+        return;
+      }
+
       // Full page reload to update the status
       window.location.reload();
     } catch (error) {
       console.error("Error confirming Invoice:", error);
       toast.error("Failed to confirm Invoice");
+      makeRecurringAfterConfirmRef.current = false;
     } finally {
       setIsConfirming(false);
     }
@@ -2420,6 +2520,193 @@ export default function TabbedDocumentCreator({
     } catch (error) {
       console.error("Error duplicating document:", error);
       toast.error("Failed to duplicate document");
+    }
+  };
+
+  // ⋮ overflow menu (Xero-style) — hosts the secondary toolbar actions.
+  const [moreMenuAnchor, setMoreMenuAnchor] = useState<null | HTMLElement>(null);
+  const closeMoreMenu = () => setMoreMenuAnchor(null);
+
+  // Xero-style per-document "History & notes" drawer (⋮ menu).
+  const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
+
+  const handleAddNewDocument = async () => {
+    try {
+      const token = await getToken();
+      if (!token) {
+        toast.error("Authentication required");
+        return;
+      }
+      const templateId = existingData?.documentTemplateId || pathSegments[3] || documentId;
+      // Use actualDocumentType prop (the real document category like INVOICE, QUOTATION)
+      // This ensures we store the correct type, not the template variant (TI2, QO1, etc.)
+      const docTypeForCreate = actualDocumentType || existingData?.type || "INVOICE";
+      if (!templateId) {
+        toast.error("Could not find document template. Please try creating from the main page.");
+        return;
+      }
+      const response = await request(
+        { path: "/documents/basic", method: "POST" },
+        {
+          type: docTypeForCreate,
+          config: {},
+          documentTemplateId: templateId,
+          organizationId: organization?.id,
+        },
+        token
+      );
+      if (response?.success && response?.data?.id) {
+        toast.success(`New ${getDocumentTitle()} created`);
+        // Refetch documents list so navigation works
+        onDocumentCreated?.();
+        router.push(`/portal/documents/${docTypeForCreate}/${templateId}/${response.data.id}`);
+      } else {
+        toast.error(response?.message || "Failed to create document");
+      }
+    } catch (error) {
+      console.error("Error creating new document:", error);
+      toast.error("Failed to create document");
+    }
+  };
+
+  // Shared fetch for the Extract-from-Quotation flows (DO and SO variants).
+  const fetchQuotationsForExtract = async (): Promise<any[] | null> => {
+    const token = await getToken();
+    if (!token) {
+      toast.error("Authentication required");
+      return null;
+    }
+    const response = await request(
+      { path: "/documents", method: "POST" },
+      { organizationId: organization?.id },
+      token
+    );
+    if (!response?.success) {
+      toast.error("Failed to fetch quotations");
+      return null;
+    }
+    const quotationTypes = ["QUOTATION", "QT", "QO", "QO1"];
+    return (response.data || []).filter((doc: any) => {
+      const docType = doc.type || doc.documentType || "";
+      return quotationTypes.includes(docType.toUpperCase());
+    });
+  };
+
+  const handleExtractForDO = async () => {
+    try {
+      const quotations = await fetchQuotationsForExtract();
+      if (!quotations) return;
+      setQuotationsForExtract(quotations);
+      setExtractQuotationDialogOpen(true);
+    } catch (error) {
+      console.error("Error fetching quotations:", error);
+      toast.error("Failed to fetch quotations");
+    }
+  };
+
+  const handleExtractForSO = async () => {
+    try {
+      const quotations = await fetchQuotationsForExtract();
+      if (!quotations) return;
+      setQuotationsForExtract(quotations);
+      setExtractQuotationToSODialogOpen(true);
+    } catch (error) {
+      console.error("Error fetching quotations:", error);
+      toast.error("Failed to fetch quotations");
+    }
+  };
+
+  // Invoices: Extract from Quotation if service items feature on, else from DO.
+  const handleExtractForInvoice = async () => {
+    try {
+      const token = await getToken();
+      if (!token) {
+        toast.error("Authentication required");
+        return;
+      }
+      const response = await request(
+        { path: "/documents", method: "POST" },
+        { organizationId: organization?.id },
+        token
+      );
+      if (!response?.success) {
+        toast.error("Failed to fetch documents");
+        return;
+      }
+      if (isServiceItemsEnabled) {
+        const quotationTypes = ["QUOTATION", "QT", "QO", "QO1"];
+        const quotations = (response.data || []).filter((doc: any) => {
+          const docType = doc.type || doc.documentType || "";
+          return quotationTypes.includes(docType.toUpperCase());
+        });
+        setQuotationsForExtract(quotations);
+        setExtractQuotationDialogOpen(true);
+      } else {
+        const doTypes = ["DELIVERY_ORDER", "DO"];
+        const deliveryOrders = (response.data || []).filter((doc: any) => {
+          const docType = doc.type || doc.documentType || "";
+          return doTypes.includes(docType.toUpperCase());
+        });
+        setDeliveryOrdersForExtract(deliveryOrders);
+        setExtractDODialogOpen(true);
+      }
+    } catch (error) {
+      console.error("Error fetching documents:", error);
+      toast.error("Failed to fetch documents");
+    }
+  };
+
+  const handleShareDeliveryLink = async () => {
+    const token = await getToken();
+    if (!token) { toast.error("Authentication required"); return; }
+    const id = existingData?.id || documentId;
+    // 1) Generate the link. A failure HERE is the real backend error.
+    let full = "";
+    try {
+      const res = await request({ path: `/documents/${id}/delivery-share-link`, method: "POST" }, {}, token);
+      const body = res?.data ?? res;
+      // Build an ABSOLUTE guest URL so the copied link is complete for
+      // external recipients. The backend's body.url is only absolute
+      // when PORTAL_URL is set (else it's a bare "/guest/..." path), and
+      // window.location.origin is unreliable here — the office app can
+      // run in a Capacitor WebView / preview host that isn't the public
+      // site. So base off NEXT_PUBLIC_APP_URL, defaulting to the prod
+      // host; the token/path come from the response.
+      const base = (process.env.NEXT_PUBLIC_APP_URL || "https://www.ai-ms.io").replace(/\/$/, "");
+      const path = body?.path || (body?.token ? `/guest/delivery/${body.token}` : "");
+      full = path ? `${base}${path}` : (body?.url ?? "");
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || e?.message || "Failed to create delivery link");
+      return;
+    }
+    if (!full) { toast.error("Delivery link created but no URL was returned"); return; }
+    // 2) Link exists → always surface it in a copyable dialog so it's
+    //    usable regardless of the clipboard outcome.
+    setShareLinkUrl(full);
+    // 3) Best-effort auto-copy in its OWN try/catch. A rejected
+    //    clipboard write (user-activation lapses across the awaited
+    //    request, or an unfocused tab) must NOT read as a creation
+    //    failure — the dialog still shows the URL for manual copy.
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(full);
+        toast.success("Delivery link copied to clipboard");
+      }
+    } catch {
+      toast.info("Delivery link ready — copy it from the dialog");
+    }
+  };
+
+  const handleBulkCompleteDO = async () => {
+    if (!window.confirm("Mark ALL items on this delivery order as completed? This deducts stock for any not-yet-delivered items and triggers the invoice.")) return;
+    try {
+      const token = await getToken();
+      if (!token) { toast.error("Authentication required"); return; }
+      const id = existingData?.id || documentId;
+      await request({ path: `/documents/${id}/bulk-complete-do`, method: "POST" }, {}, token);
+      toast.success("Delivery order completed");
+    } catch {
+      toast.error("Failed to complete delivery order");
     }
   };
 
@@ -2773,7 +3060,10 @@ export default function TabbedDocumentCreator({
   }
 
   return (
-    <Box sx={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}>
+    // flex:1 + minHeight:0 (NOT height:100%): the layout column also holds the
+    // ViewingAsBanner/OrgSwitcher rows — height:100% ignored those siblings and
+    // overflowed the viewport by their height, forcing a page scrollbar.
+    <Box sx={{ width: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
       {/* Concurrent-edit banner: read-only when someone else holds the lock. */}
       {lockEnabled && lockReadOnly && (
         <Box
@@ -2854,379 +3144,25 @@ export default function TabbedDocumentCreator({
           </Typography>
         </Box>
         <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexShrink: 0, flexWrap: "nowrap" }}>
-          {/* Show Route — DO-only. Disabled with tooltip when no delivery has
-              been started yet (no DO_START MaintenanceServiceReport linked).
-              Tooltip wrapper needs the <span> because MUI Tooltip won't fire
-              on a disabled child otherwise. */}
-          {isDeliveryOrder && (
-            <Tooltip
-              title={
-                doStartReportId
-                  ? "Show delivery route on map"
-                  : "No delivery started yet"
-              }
-            >
-              <span>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<RouteIcon />}
-                  onClick={() => doStartReportId && setRouteDialogReportId(doStartReportId)}
-                  disabled={!doStartReportId}
-                >
-                  Show Route
-                </Button>
-              </span>
-            </Tooltip>
-          )}
-          {/* Navigation & Add Buttons */}
+          {/* Prev/Next document navigation — compact icon arrows */}
           {(onPrevious || onNext) && (
             <>
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={<NavigateBeforeIcon />}
-                onClick={onPrevious}
-                disabled={!hasPrevious}
-              >
-                Previous
-              </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={<NavigateNextIcon />}
-                onClick={onNext}
-                disabled={!hasNext}
-              >
-                Next
-              </Button>
+              <Tooltip title="Previous document">
+                <span>
+                  <IconButton size="small" onClick={onPrevious} disabled={!hasPrevious}>
+                    <NavigateBeforeIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title="Next document">
+                <span>
+                  <IconButton size="small" onClick={onNext} disabled={!hasNext}>
+                    <NavigateNextIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
             </>
           )}
-          <Button
-            size="small"
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={async () => {
-              try {
-                const token = await getToken();
-                if (!token) {
-                  toast.error("Authentication required");
-                  return;
-                }
-                const templateId = existingData?.documentTemplateId || pathSegments[3] || documentId;
-                // Use actualDocumentType prop (the real document category like INVOICE, QUOTATION)
-                // This ensures we store the correct type, not the template variant (TI2, QO1, etc.)
-                const docTypeForCreate = actualDocumentType || existingData?.type || "INVOICE";
-                console.log("=== ADD BUTTON - docTypeForCreate ===");
-                console.log("actualDocumentType prop:", actualDocumentType);
-                console.log("existingData?.type:", existingData?.type);
-                console.log("Final docTypeForCreate:", docTypeForCreate);
-                if (!templateId) {
-                  toast.error("Could not find document template. Please try creating from the main page.");
-                  return;
-                }
-                const response = await request(
-                  { path: "/documents/basic", method: "POST" },
-                  {
-                    type: docTypeForCreate,
-                    config: {},
-                    documentTemplateId: templateId,
-                    organizationId: organization?.id,
-                  },
-                  token
-                );
-                if (response?.success && response?.data?.id) {
-                  toast.success(`New ${getDocumentTitle()} created`);
-                  // Refetch documents list so navigation works
-                  onDocumentCreated?.();
-                  // Use actual document type (INVOICE, QUOTATION, etc.) for URL, not template variant (TI2, QO1, etc.)
-                  router.push(`/portal/documents/${docTypeForCreate}/${templateId}/${response.data.id}`);
-                } else {
-                  toast.error(response?.message || "Failed to create document");
-                }
-              } catch (error) {
-                console.error("Error creating new document:", error);
-                toast.error("Failed to create document");
-              }
-            }}
-            color="primary"
-          >
-            Add
-          </Button>
-          {/* Extract from Quotation Button - Only for DO/DELIVERY_ORDER */}
-          {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<ContentCopyIcon />}
-              onClick={async () => {
-                try {
-                  const token = await getToken();
-                  if (!token) {
-                    toast.error("Authentication required");
-                    return;
-                  }
-                  // Fetch quotations
-                  const quotationsResponse = await request(
-                    { path: "/documents", method: "POST" },
-                    { organizationId: organization?.id },
-                    token
-                  );
-                  if (quotationsResponse?.success) {
-                    // Filter to only quotation types - check both type and documentType fields
-                    const quotationTypes = ["QUOTATION", "QT", "QO", "QO1"];
-                    const quotations = (quotationsResponse.data || []).filter(
-                      (doc: any) => {
-                        const docType = doc.type || doc.documentType || "";
-                        return quotationTypes.includes(docType.toUpperCase());
-                      }
-                    );
-                    console.log("Fetched documents:", quotationsResponse.data?.length);
-                    console.log("Filtered quotations:", quotations.length);
-                    setQuotationsForExtract(quotations);
-                    setExtractQuotationDialogOpen(true);
-                  } else {
-                    toast.error("Failed to fetch quotations");
-                  }
-                } catch (error) {
-                  console.error("Error fetching quotations:", error);
-                  toast.error("Failed to fetch quotations");
-                }
-              }}
-              color="secondary"
-            >
-              Extract
-            </Button>
-          )}
-          {/* Phase 6 — Share delivery link (guest, no-login) + Bulk complete.
-              Both only for a SAVED delivery order (need a documentId). */}
-          {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (existingData?.id || documentId) && (
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<ContentCopyIcon />}
-              onClick={async () => {
-                const token = await getToken();
-                if (!token) { toast.error("Authentication required"); return; }
-                const id = existingData?.id || documentId;
-                // 1) Generate the link. A failure HERE is the real backend error.
-                let full = "";
-                try {
-                  const res = await request({ path: `/documents/${id}/delivery-share-link`, method: "POST" }, {}, token);
-                  const body = res?.data ?? res;
-                  // Build an ABSOLUTE guest URL so the copied link is complete for
-                  // external recipients. The backend's body.url is only absolute
-                  // when PORTAL_URL is set (else it's a bare "/guest/..." path), and
-                  // window.location.origin is unreliable here — the office app can
-                  // run in a Capacitor WebView / preview host that isn't the public
-                  // site. So base off NEXT_PUBLIC_APP_URL, defaulting to the prod
-                  // host; the token/path come from the response.
-                  const base = (process.env.NEXT_PUBLIC_APP_URL || "https://www.ai-ms.io").replace(/\/$/, "");
-                  const path = body?.path || (body?.token ? `/guest/delivery/${body.token}` : "");
-                  full = path ? `${base}${path}` : (body?.url ?? "");
-                } catch (e: any) {
-                  toast.error(e?.response?.data?.message || e?.message || "Failed to create delivery link");
-                  return;
-                }
-                if (!full) { toast.error("Delivery link created but no URL was returned"); return; }
-                // 2) Link exists → always surface it in a copyable dialog so it's
-                //    usable regardless of the clipboard outcome.
-                setShareLinkUrl(full);
-                // 3) Best-effort auto-copy in its OWN try/catch. A rejected
-                //    clipboard write (user-activation lapses across the awaited
-                //    request, or an unfocused tab) must NOT read as a creation
-                //    failure — the dialog still shows the URL for manual copy.
-                try {
-                  if (navigator.clipboard?.writeText) {
-                    await navigator.clipboard.writeText(full);
-                    toast.success("Delivery link copied to clipboard");
-                  }
-                } catch {
-                  toast.info("Delivery link ready — copy it from the dialog");
-                }
-              }}
-            >
-              Share delivery link
-            </Button>
-          )}
-          {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (existingData?.id || documentId) && (
-            <Button
-              size="small"
-              variant="outlined"
-              color="success"
-              onClick={async () => {
-                if (!window.confirm("Mark ALL items on this delivery order as completed? This deducts stock for any not-yet-delivered items and triggers the invoice.")) return;
-                try {
-                  const token = await getToken();
-                  if (!token) { toast.error("Authentication required"); return; }
-                  const id = existingData?.id || documentId;
-                  await request({ path: `/documents/${id}/bulk-complete-do`, method: "POST" }, {}, token);
-                  toast.success("Delivery order completed");
-                } catch {
-                  toast.error("Failed to complete delivery order");
-                }
-              }}
-            >
-              Bulk complete
-            </Button>
-          )}
-          {/* Extract from Quotation Button - Only for SO/SALES_ORDER */}
-          {(documentType === "SO" || documentType === "SALES_ORDER" || documentType?.toUpperCase() === "SALES_ORDER") && (
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<ContentCopyIcon />}
-              onClick={async () => {
-                try {
-                  const token = await getToken();
-                  if (!token) {
-                    toast.error("Authentication required");
-                    return;
-                  }
-                  // Fetch quotations
-                  const quotationsResponse = await request(
-                    { path: "/documents", method: "POST" },
-                    { organizationId: organization?.id },
-                    token
-                  );
-                  if (quotationsResponse?.success) {
-                    // Filter to only quotation types - check both type and documentType fields
-                    const quotationTypes = ["QUOTATION", "QT", "QO", "QO1"];
-                    const quotations = (quotationsResponse.data || []).filter(
-                      (doc: any) => {
-                        const docType = doc.type || doc.documentType || "";
-                        return quotationTypes.includes(docType.toUpperCase());
-                      }
-                    );
-                    console.log("Fetched documents:", quotationsResponse.data?.length);
-                    console.log("Filtered quotations for SO:", quotations.length);
-                    setQuotationsForExtract(quotations);
-                    setExtractQuotationToSODialogOpen(true);
-                  } else {
-                    toast.error("Failed to fetch quotations");
-                  }
-                } catch (error) {
-                  console.error("Error fetching quotations:", error);
-                  toast.error("Failed to fetch quotations");
-                }
-              }}
-              color="secondary"
-            >
-              Extract
-            </Button>
-          )}
-          {/* Extract Button - Invoices: Quotation if service items feature on, else DO */}
-          {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || documentType?.toUpperCase() === "INVOICE") && (
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<ContentCopyIcon />}
-              onClick={async () => {
-                try {
-                  const token = await getToken();
-                  if (!token) {
-                    toast.error("Authentication required");
-                    return;
-                  }
-                  const response = await request(
-                    { path: "/documents", method: "POST" },
-                    { organizationId: organization?.id },
-                    token
-                  );
-                  if (!response?.success) {
-                    toast.error("Failed to fetch documents");
-                    return;
-                  }
-                  if (isServiceItemsEnabled) {
-                    const quotationTypes = ["QUOTATION", "QT", "QO", "QO1"];
-                    const quotations = (response.data || []).filter((doc: any) => {
-                      const docType = doc.type || doc.documentType || "";
-                      return quotationTypes.includes(docType.toUpperCase());
-                    });
-                    setQuotationsForExtract(quotations);
-                    setExtractQuotationDialogOpen(true);
-                  } else {
-                    const doTypes = ["DELIVERY_ORDER", "DO"];
-                    const deliveryOrders = (response.data || []).filter((doc: any) => {
-                      const docType = doc.type || doc.documentType || "";
-                      return doTypes.includes(docType.toUpperCase());
-                    });
-                    setDeliveryOrdersForExtract(deliveryOrders);
-                    setExtractDODialogOpen(true);
-                  }
-                } catch (error) {
-                  console.error("Error fetching documents:", error);
-                  toast.error("Failed to fetch documents");
-                }
-              }}
-              color="secondary"
-            >
-              {isServiceItemsEnabled ? "Extract from Quotation" : "Extract from DO"}
-            </Button>
-          )}
-          {/* Locate Document Button */}
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<SearchIcon />}
-            onClick={() => setLocateDialogOpen(true)}
-          >
-            Locate
-          </Button>
-          {/* Duplicate Document Button — creates a fresh document with a new
-              document number, copying over all current data. */}
-          {(existingData?.id || documentId) && (
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<ContentCopyIcon />}
-              onClick={handleDuplicateDocument}
-            >
-              Duplicate
-            </Button>
-          )}
-          {/* View Original — present when this doc was created from an upload
-              and we stashed the source PDF/image in S3. */}
-          {(existingData?.config?.sourceFileUrl || (existingData as any)?.sourceFileUrl) && (
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<OpenInNewIcon />}
-              onClick={() =>
-                window.open(
-                  existingData?.config?.sourceFileUrl || (existingData as any)?.sourceFileUrl,
-                  "_blank",
-                  "noopener,noreferrer",
-                )
-              }
-            >
-              View Original
-            </Button>
-          )}
-          <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-          {isDocumentConfirmed && (
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<ContentCopyIcon />}
-              onClick={handleCreateRevision}
-              color="info"
-            >
-              Create Revision
-            </Button>
-          )}
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<InventoryIcon />}
-            onClick={() => setStockCardDialogOpen(true)}
-            color="secondary"
-          >
-            Stock Card
-          </Button>
-          <Button size="small" variant="outlined" startIcon={<PrintIcon />} onClick={handlePrint}>
-            Print / PDF
-          </Button>
           {!isTemplateEditMode && (
             <Button
               size="small"
@@ -3241,10 +3177,10 @@ export default function TabbedDocumentCreator({
           {!isDocumentConfirmed && (
             <Button
               size="small"
-              variant={previewMode ? "contained" : "outlined"}
+              variant={previewMode ? "contained" : "text"}
               startIcon={previewMode ? <EditIcon /> : <PreviewIcon />}
               onClick={() => setPreviewMode(!previewMode)}
-              color={previewMode ? "primary" : "inherit"}
+              sx={previewMode ? TOOLBAR_BLUE : PREVIEW_LINK_SX}
             >
               {previewMode ? "Edit" : "Preview"}
             </Button>
@@ -3277,10 +3213,10 @@ export default function TabbedDocumentCreator({
           {!isDocumentConfirmed && !isTemplateEditMode && isPurchaseOrder && isReceiving && (
             <Button
               size="small"
-              variant="outlined"
+              variant="contained"
               startIcon={<CheckCircleIcon />}
               onClick={() => setConfirmPODialogOpen(true)}
-              color="success"
+              sx={TOOLBAR_GREEN}
             >
               Confirm Purchase Order
             </Button>
@@ -3289,10 +3225,10 @@ export default function TabbedDocumentCreator({
           {!isDocumentConfirmed && !isTemplateEditMode && isPurchaseReturn && (
             <Button
               size="small"
-              variant="outlined"
+              variant="contained"
               startIcon={<CheckCircleIcon />}
               onClick={() => setConfirmPRDialogOpen(true)}
-              color="success"
+              sx={TOOLBAR_GREEN}
             >
               Confirm Document
             </Button>
@@ -3301,10 +3237,10 @@ export default function TabbedDocumentCreator({
           {!isDocumentConfirmed && !isTemplateEditMode && isStockAdjustment && (
             <Button
               size="small"
-              variant="outlined"
+              variant="contained"
               startIcon={<CheckCircleIcon />}
               onClick={() => setConfirmAdjustmentDialogOpen(true)}
-              color="success"
+              sx={TOOLBAR_GREEN}
             >
               {isStockAdjustmentIn ? "Confirm Stock Adjustment In" : "Confirm Stock Adjustment Out"}
             </Button>
@@ -3313,38 +3249,66 @@ export default function TabbedDocumentCreator({
           {!isDocumentConfirmed && !isTemplateEditMode && isDeliveryOrder && (
             <Button
               size="small"
-              variant="outlined"
+              variant="contained"
               startIcon={<CheckCircleIcon />}
-              onClick={() => setConfirmDODialogOpen(true)}
-              color="success"
+              onClick={() => {
+                // Project link is MANDATORY on delivery orders before confirm
+                // (only enforced where the picker feature is enabled).
+                if (isQuotationProjectLinkEnabled && !(formData.projectId || existingData?.projectId)) {
+                  toast.error("Select a project before confirming this Delivery Order");
+                  return;
+                }
+                setConfirmDODialogOpen(true);
+              }}
+              sx={TOOLBAR_GREEN}
             >
               Confirm Delivery Order
             </Button>
           )}
-          {/* AI posting-preview ("Review") for Invoices — suggests a revenue
-              account per line before confirming. */}
+          {/* Confirm split-button for Invoices: primary confirms as always;
+              the dropdown adds "Confirm & make recurring", which confirms then
+              opens the recurring setup prefilled from this invoice. */}
           {!isDocumentConfirmed && !isTemplateEditMode && isInvoiceType && (
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<AutoAwesomeIcon />}
-              onClick={openInvoiceReview}
-              disabled={invoicePreviewLoading}
-            >
-              Review
-            </Button>
-          )}
-          {/* Confirm button for Invoices */}
-          {!isDocumentConfirmed && !isTemplateEditMode && isInvoiceType && (
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<CheckCircleIcon />}
-              onClick={() => setConfirmInvoiceDialogOpen(true)}
-              color="success"
-            >
-              Confirm Invoice
-            </Button>
+            <>
+              <ButtonGroup size="small" variant="contained">
+                <Button
+                  startIcon={<CheckCircleIcon />}
+                  onClick={() => {
+                    makeRecurringAfterConfirmRef.current = false;
+                    setConfirmInvoiceDialogOpen(true);
+                  }}
+                  sx={TOOLBAR_GREEN}
+                >
+                  Confirm Invoice
+                </Button>
+                <Button
+                  aria-label="More confirm options"
+                  onClick={(e) => setConfirmMenuAnchor(e.currentTarget)}
+                  sx={{ ...TOOLBAR_GREEN, px: 0.5, minWidth: 32 }}
+                >
+                  <KeyboardArrowDownIcon fontSize="small" />
+                </Button>
+              </ButtonGroup>
+              <Menu
+                anchorEl={confirmMenuAnchor}
+                open={Boolean(confirmMenuAnchor)}
+                onClose={() => setConfirmMenuAnchor(null)}
+              >
+                <MenuItem
+                  onClick={() => {
+                    setConfirmMenuAnchor(null);
+                    makeRecurringAfterConfirmRef.current = true;
+                    setConfirmInvoiceDialogOpen(true);
+                  }}
+                >
+                  <ListItemIcon><AutorenewIcon fontSize="small" /></ListItemIcon>
+                  <ListItemText
+                    primary="Confirm & make recurring"
+                    secondary="Confirm this invoice, then set up its schedule"
+                  />
+                </MenuItem>
+              </Menu>
+            </>
           )}
           {/* Confirm button for Quotations — only when enableConfirmQuotation is on.
               After confirm saves, a popup asks if the user wants to convert the
@@ -3353,11 +3317,11 @@ export default function TabbedDocumentCreator({
            (documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" || documentType === "QO2") && (
             <Button
               size="small"
-              variant="outlined"
+              variant="contained"
               startIcon={<CheckCircleIcon />}
               onClick={handleConfirmQuotation}
               disabled={isConfirming}
-              color="success"
+              sx={TOOLBAR_GREEN}
             >
               {isConfirming ? "Confirming..." : "Confirm Quotation"}
             </Button>
@@ -3367,10 +3331,10 @@ export default function TabbedDocumentCreator({
            !(documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (
             <Button
               size="small"
-              variant="outlined"
+              variant="contained"
               startIcon={<CheckCircleIcon />}
               onClick={() => setConfirmDialogOpen(true)}
-              color="success"
+              sx={TOOLBAR_GREEN}
             >
               Confirm Document
             </Button>
@@ -3384,7 +3348,7 @@ export default function TabbedDocumentCreator({
               variant="contained"
               startIcon={<EmailIcon />}
               onClick={handleOpenSendEmail}
-              color="primary"
+              sx={TOOLBAR_BLUE}
             >
               Send Email
             </Button>
@@ -3397,7 +3361,7 @@ export default function TabbedDocumentCreator({
               variant="contained"
               startIcon={<PaymentIcon />}
               onClick={() => setPaymentDialogOpen(true)}
-              color="success"
+              sx={TOOLBAR_GREEN}
             >
               Mark as Paid
             </Button>
@@ -3484,11 +3448,128 @@ export default function TabbedDocumentCreator({
               Document Confirmed
             </Typography>
           )}
+          {/* ⋮ overflow menu — secondary actions (Xero-style) */}
+          <Tooltip title="More actions">
+            <IconButton size="small" onClick={(e) => setMoreMenuAnchor(e.currentTarget)}>
+              <MoreVertIcon />
+            </IconButton>
+          </Tooltip>
+          <Menu
+            anchorEl={moreMenuAnchor}
+            open={Boolean(moreMenuAnchor)}
+            onClose={closeMoreMenu}
+            anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+            transformOrigin={{ vertical: "top", horizontal: "right" }}
+            slotProps={{ paper: { sx: { minWidth: 230 } } }}
+          >
+            {/* Create / copy */}
+            <MenuItem onClick={() => { closeMoreMenu(); handleAddNewDocument(); }}>
+              <ListItemIcon><AddIcon fontSize="small" /></ListItemIcon>
+              <ListItemText>New {getDocumentTitle()}</ListItemText>
+            </MenuItem>
+            {(existingData?.id || documentId) && (
+              <MenuItem onClick={() => { closeMoreMenu(); handleDuplicateDocument(); }}>
+                <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Duplicate</ListItemText>
+              </MenuItem>
+            )}
+            {isDocumentConfirmed && (
+              <MenuItem onClick={() => { closeMoreMenu(); handleCreateRevision(); }}>
+                <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Create Revision</ListItemText>
+              </MenuItem>
+            )}
+            {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (
+              <MenuItem onClick={() => { closeMoreMenu(); handleExtractForDO(); }}>
+                <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Extract from Quotation</ListItemText>
+              </MenuItem>
+            )}
+            {(documentType === "SO" || documentType === "SALES_ORDER" || documentType?.toUpperCase() === "SALES_ORDER") && (
+              <MenuItem onClick={() => { closeMoreMenu(); handleExtractForSO(); }}>
+                <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Extract from Quotation</ListItemText>
+              </MenuItem>
+            )}
+            {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || documentType?.toUpperCase() === "INVOICE") && (
+              <MenuItem onClick={() => { closeMoreMenu(); handleExtractForInvoice(); }}>
+                <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>{isServiceItemsEnabled ? "Extract from Quotation" : "Extract from DO"}</ListItemText>
+              </MenuItem>
+            )}
+            <Divider />
+            {/* Tools */}
+            <MenuItem onClick={() => { closeMoreMenu(); handlePrint(); }}>
+              <ListItemIcon><PrintIcon fontSize="small" /></ListItemIcon>
+              <ListItemText>Print / PDF</ListItemText>
+            </MenuItem>
+            <MenuItem onClick={() => { closeMoreMenu(); setLocateDialogOpen(true); }}>
+              <ListItemIcon><SearchIcon fontSize="small" /></ListItemIcon>
+              <ListItemText>Locate</ListItemText>
+            </MenuItem>
+            <MenuItem onClick={() => { closeMoreMenu(); setStockCardDialogOpen(true); }}>
+              <ListItemIcon><InventoryIcon fontSize="small" /></ListItemIcon>
+              <ListItemText>Stock Card</ListItemText>
+            </MenuItem>
+            {(existingData?.id || documentId) && (
+              <MenuItem onClick={() => { closeMoreMenu(); setHistoryDrawerOpen(true); }}>
+                <ListItemIcon><HistoryIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>History &amp; notes</ListItemText>
+              </MenuItem>
+            )}
+            {/* AI posting-preview ("Review") for Invoices — suggests a revenue
+                account per line before confirming. */}
+            {!isDocumentConfirmed && !isTemplateEditMode && isInvoiceType && (
+              <MenuItem disabled={invoicePreviewLoading} onClick={() => { closeMoreMenu(); openInvoiceReview(); }}>
+                <ListItemIcon><AutoAwesomeIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Review Posting</ListItemText>
+              </MenuItem>
+            )}
+            {(existingData?.config?.sourceFileUrl || (existingData as any)?.sourceFileUrl) && (
+              <MenuItem
+                onClick={() => {
+                  closeMoreMenu();
+                  window.open(
+                    existingData?.config?.sourceFileUrl || (existingData as any)?.sourceFileUrl,
+                    "_blank",
+                    "noopener,noreferrer",
+                  );
+                }}
+              >
+                <ListItemIcon><OpenInNewIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>View Original</ListItemText>
+              </MenuItem>
+            )}
+            {/* Delivery-order extras */}
+            {isDeliveryOrder && <Divider />}
+            {isDeliveryOrder && (
+              <MenuItem
+                disabled={!doStartReportId}
+                onClick={() => { closeMoreMenu(); doStartReportId && setRouteDialogReportId(doStartReportId); }}
+              >
+                <ListItemIcon><RouteIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>{doStartReportId ? "Show Route" : "Show Route (no delivery yet)"}</ListItemText>
+              </MenuItem>
+            )}
+            {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (existingData?.id || documentId) && (
+              <MenuItem onClick={() => { closeMoreMenu(); handleShareDeliveryLink(); }}>
+                <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Share delivery link</ListItemText>
+              </MenuItem>
+            )}
+            {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (existingData?.id || documentId) && (
+              <MenuItem onClick={() => { closeMoreMenu(); handleBulkCompleteDO(); }}>
+                <ListItemIcon><CheckCircleIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Bulk complete</ListItemText>
+              </MenuItem>
+            )}
+          </Menu>
         </Box>
       </Box>
 
-      {/* Main Content with Sidebar */}
-      <Box sx={{ flex: 1, display: "flex", overflow: "hidden" }}>
+      {/* Main Content with Sidebar — minHeight:0 so this flex child can shrink
+          below its content height; without it the viewport lock clips. */}
+      <Box sx={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
         {/* DocumentCustomizer Sidebar - Only in template edit mode */}
         {isTemplateEditMode && isToolBarOpen && (
           <Box sx={{ width: 320, borderRight: 1, borderColor: "divider", p: 2, overflow: "auto", bgcolor: "background.paper" }}>
@@ -3509,7 +3590,7 @@ export default function TabbedDocumentCreator({
 
         {/* Main Content Area */}
         {!previewMode && !isDocumentConfirmed ? (
-          <Box sx={{ flex: 1, overflow: "hidden", position: "relative", display: "flex", flexDirection: "column" }}>
+          <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative", display: "flex", flexDirection: "column" }}>
             {/* Template Settings Toggle Button */}
             {isTemplateEditMode && (
               <IconButton
@@ -3546,9 +3627,13 @@ export default function TabbedDocumentCreator({
                   Unconfirmed User:
                 </Typography>
                 <Typography variant="body2" sx={{ color: "text.primary" }}>
-                  {existingData?.savedBy && existingData?.status !== 'confirmed'
-                    ? `${existingData.savedBy} ${existingData.savedAt ? new Date(existingData.savedAt).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}`
-                    : '-'}
+                  {(() => {
+                    const savedBy = liveTracking.savedBy ?? existingData?.savedBy;
+                    const savedAt = liveTracking.savedAt ?? existingData?.savedAt;
+                    return savedBy && existingData?.status !== 'confirmed'
+                      ? `${savedBy} ${savedAt ? new Date(savedAt).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}`
+                      : '-';
+                  })()}
                 </Typography>
               </Box>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
@@ -3566,54 +3651,18 @@ export default function TabbedDocumentCreator({
                   Last Used:
                 </Typography>
                 <Typography variant="body2" sx={{ color: "text.primary" }}>
-                  {existingData?.lastUsedBy
-                    ? `${existingData.lastUsedBy} ${existingData.lastUsedAt ? new Date(existingData.lastUsedAt).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}`
-                    : existingData?.updatedAt
-                    ? new Date(existingData.updatedAt).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
-                    : '-'}
+                  {(() => {
+                    const lastUsedBy = liveTracking.lastUsedBy ?? existingData?.lastUsedBy;
+                    const lastUsedAt = liveTracking.lastUsedAt ?? existingData?.lastUsedAt;
+                    return lastUsedBy
+                      ? `${lastUsedBy} ${lastUsedAt ? new Date(lastUsedAt).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}`
+                      : existingData?.updatedAt
+                      ? new Date(existingData.updatedAt).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                      : '-';
+                  })()}
                 </Typography>
               </Box>
             </Box>
-
-            {/* QUOTATION-only project picker. Gated behind the per-org
-                enableQuotationProjectLink flag (Biofuel-only today). Only
-                rendered AFTER a customer is picked — earlier attempts at
-                rendering a disabled picker in this slot ended up blocking
-                Customer Code clicks (likely an MUI Autocomplete-portal
-                interaction). Skipping the render until customer.id is set
-                sidesteps the whole class of bug. */}
-            {isQuotation && isQuotationProjectLinkEnabled && formData.customer?.id && (
-              <Box sx={{ px: 2, py: 1, bgcolor: "background.paper", borderBottom: 1, borderColor: "divider", display: "flex", alignItems: "center", gap: 1 }}>
-                <Typography variant="body2" fontWeight={600} sx={{ minWidth: 80 }}>
-                  Project:
-                </Typography>
-                <Box sx={{ flex: 1, maxWidth: 480 }}>
-                  <Autocomplete
-                    size="small"
-                    options={effectiveProjects.filter((p: any) => !p.customerId || p.customerId === formData.customer.id)}
-                    getOptionLabel={(option: any) => option?.projectNumber ? `${option.projectNumber} — ${option.name}` : (option?.name ?? "")}
-                    value={effectiveProjects.find((p: any) => p.id === formData.projectId) || null}
-                    onChange={(_, newValue: any) => handleProjectLinkChange(newValue?.id || "")}
-                    noOptionsText="No projects for this customer"
-                    renderInput={(params) => (
-                      <TextField {...params} size="small" placeholder="Select a project (optional)" />
-                    )}
-                  />
-                </Box>
-                <Button
-                  size="small"
-                  variant="text"
-                  startIcon={<AddIcon />}
-                  onClick={() => {
-                    setCreateProjectName("");
-                    setCreateProjectDialogOpen(true);
-                  }}
-                  sx={{ textTransform: "none" }}
-                >
-                  Create new project
-                </Button>
-              </Box>
-            )}
 
             {/* Main Tabs - Dynamic rendering based on template config */}
             <Box sx={{ borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
@@ -3638,20 +3687,154 @@ export default function TabbedDocumentCreator({
           {/* Dynamic Tabs based on template config */}
           {templateFieldConfig?.tabs.map((tab, index) => (
             <TabPanel key={tab.tabId} value={mainTabValue} index={index}>
-              <Card ref={fieldsCardRef} sx={{ flexShrink: 0, maxHeight: 320, display: "flex", flexDirection: "column" }}>
+              <Card sx={{ flexShrink: 0, maxHeight: 320, display: "flex", flexDirection: "column" }}>
                 <CardContent sx={{ p: 1, flex: 1, overflow: "auto", "&:last-child": { pb: 1 } }}>
                   <Collapse in={!isFieldsCollapsed} timeout="auto" unmountOnExit>
-                  {/* CONTACT (documentInfo.contact) is filtered out of quotations
-                      below — redundant: contact is handled via Customer Code →
-                      attention. The renderer falls back to attention.* so the
-                      footer/header contact still resolves. */}
+                  {/* Quotations: drop the RE (documentInfo.subject) row — replaced
+                      by the Contact row per guru (2026-07-08). documentInfo.contact
+                      now flows through so DynamicFormFields pairs Contact + Terms
+                      and hosts the Contact Person / No. / Email trio on that row,
+                      same as invoices. */}
                   <DynamicFormFields
-                    fields={isQuotation
-                      ? tab.fields.filter((f: any) => f.fieldName !== "documentInfo.contact" && f.fieldName !== "contact")
-                      : tab.fields}
+                    fields={(() => {
+                      let fields = tab.fields;
+                      if (isQuotation) {
+                        fields = fields.filter((f: any) => f.fieldName !== "documentInfo.subject");
+                        // Salesperson mobile (default seeded "9818 9200", saved via
+                        // formData.salesMobile) — a normal header row under Salesman
+                        // code (ordering via HEADER_FIELD_ORDER). Biofuel quotes only,
+                        // General tab only (this render runs per tab — without the
+                        // guard the row duplicates into Details etc.).
+                        if (isBiofuel && tab.tabId === "general" && !fields.some((f: any) => f.fieldName === "salesMobile")) {
+                          fields = [...fields, { fieldName: "salesMobile", displayLabel: "Salesman Mobile", fieldType: "text", required: false }];
+                        }
+                      }
+                      // DO templates carry contactName/contactNumber but no contact
+                      // field — inject one so the Contact row hosts the attention
+                      // trio + Terms (the name/number fields are hidden below and
+                      // kept in sync by the trio for the printout).
+                      if (
+                        (documentType === "DO" || documentType === "DELIVERY_ORDER") &&
+                        tab.tabId === "general" &&
+                        !fields.some((f: any) => f.fieldName === "documentInfo.contact")
+                      ) {
+                        fields = [...fields, { fieldName: "documentInfo.contact", displayLabel: "Contact", fieldType: "text", required: false }];
+                      }
+                      return fields;
+                    })()}
                     formData={formData}
                     setFormData={setFormData}
                     hideDiscount={isRouteOrderPO}
+                    hiddenFields={
+                      // Legacy invoice arrangement drops Bill to / Deliver to
+                      // (auto-filled from the customer master, printed as-is)
+                      // and Currency (defaults to SGD; code still shows in the
+                      // totals panel next to Rate). Quotations drop Currency too.
+                      documentType === "TI" || documentType === "TI2" || documentType === "INVOICE"
+                        ? ["billTo", "deliveryTo", "documentInfo.currency"]
+                        : isQuotation
+                        ? ["documentInfo.currency"]
+                        : documentType === "DO" || documentType === "DELIVERY_ORDER"
+                        ? // Contact Name/Number replaced by the Contact-row trio
+                          // (kept in sync for the printout); currency hidden like
+                          // invoices/quotations; salesman not used on DOs.
+                          ["documentInfo.currency", "documentInfo.contactName", "documentInfo.contactNumber", "documentInfo.salesPerson"]
+                        : []
+                    }
+                    customInputs={
+                      // Biofuel DO: Reference No = quotation picker (Customer-code
+                      // pattern — search icon opens the dialog). Editor shows just
+                      // the quotation number; the confirm date is stored alongside
+                      // and only printed ("Our Ref. No : QO… dated dd/mm/yyyy").
+                      isBiofuel && isDeliveryOrder
+                        ? {
+                            "documentInfo.referenceNo": (
+                              <TextField
+                                size="small"
+                                value={(formData.documentInfo as any)?.referenceNo || ""}
+                                onChange={(e) =>
+                                  setFormData((prev: any) => ({
+                                    ...prev,
+                                    documentInfo: {
+                                      ...prev.documentInfo,
+                                      referenceNo: e.target.value,
+                                      // Typed-over refs are no longer a picked quotation.
+                                      referenceQuotationDate: null,
+                                    },
+                                  }))
+                                }
+                                sx={{ ...headerInputSx, flex: 1, maxWidth: 420 }}
+                                InputProps={{
+                                  startAdornment: (
+                                    <InputAdornment position="start" sx={{ mr: 0 }}>
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => setRefQuotationDialogOpen(true)}
+                                        sx={{ p: 0.25, ml: -0.5 }}
+                                        title="Select quotation"
+                                      >
+                                        <SearchIcon sx={{ fontSize: 16 }} />
+                                      </IconButton>
+                                    </InputAdornment>
+                                  ),
+                                }}
+                              />
+                            ),
+                          }
+                        : undefined
+                    }
+                    appendRow={
+                      // Project picker as the LAST header row, styled like the
+                      // rest. Quotations (optional) + delivery orders (required
+                      // before confirm — enforced on the Confirm button). Gated
+                      // behind enableQuotationProjectLink; only rendered after a
+                      // customer is picked (a disabled picker here used to block
+                      // Customer Code clicks via an MUI Autocomplete-portal
+                      // interaction).
+                      (isQuotation || isDeliveryOrder) && isQuotationProjectLinkEnabled && formData.customer?.id && tab.tabId === "general"
+                        ? {
+                            label: isDeliveryOrder ? "Project *" : "Project",
+                            content: (
+                              <>
+                                <Autocomplete
+                                  size="small"
+                                  sx={{ flex: 1, maxWidth: 420 }}
+                                  options={effectiveProjects.filter((p: any) => !p.customerId || p.customerId === formData.customer.id)}
+                                  getOptionLabel={(option: any) => option?.projectNumber ? `${option.projectNumber} — ${option.name}` : (option?.name ?? "")}
+                                  value={effectiveProjects.find((p: any) => p.id === formData.projectId) || null}
+                                  onChange={(_, newValue: any) => handleProjectLinkChange(newValue?.id || "")}
+                                  noOptionsText="No projects for this customer"
+                                  renderInput={(params) => (
+                                    <TextField
+                                      {...params}
+                                      size="small"
+                                      placeholder="Select a project"
+                                      sx={{
+                                        ...headerInputSx,
+                                        // Autocomplete wraps the input in its own padded
+                                        // root — flatten it to match the 28px boxed fields.
+                                        "& .MuiAutocomplete-inputRoot": { paddingTop: 0, paddingBottom: 0, paddingLeft: "2px" },
+                                      }}
+                                    />
+                                  )}
+                                />
+                                <Button
+                                  size="small"
+                                  variant="text"
+                                  startIcon={<AddIcon />}
+                                  onClick={() => {
+                                    setCreateProjectName("");
+                                    setCreateProjectDialogOpen(true);
+                                  }}
+                                  sx={{ textTransform: "none" }}
+                                >
+                                  Create new project
+                                </Button>
+                              </>
+                            ),
+                          }
+                        : undefined
+                    }
                     customers={customers}
                     suppliers={suppliers}
                     projects={projects}
@@ -3681,30 +3864,6 @@ export default function TabbedDocumentCreator({
                     }}
                   />
                   </Collapse>
-                  {/* Salesperson MOBILE for the quotation header (default
-                      9818 9200, seeded above; editable per-quote, persisted via
-                      salesMobile). The salesperson NAME is the Salesman Code
-                      field above — no separate name input here. Biofuel
-                      quotations only, rendered once (first tab). */}
-                  {isBiofuel && isQuotation && index === 0 && (
-                    <Box sx={{ mt: 1.5 }}>
-                      <Divider sx={{ mb: 1 }} />
-                      <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary" }}>
-                        Salesperson mobile (quotation header)
-                      </Typography>
-                      <Grid container spacing={1} sx={{ mt: 0.25 }}>
-                        <Grid item xs={12} md={6}>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            label="Mobile"
-                            value={formData.salesMobile ?? ""}
-                            onChange={(e) => setFormData({ ...formData, salesMobile: e.target.value })}
-                          />
-                        </Grid>
-                      </Grid>
-                    </Box>
-                  )}
                 </CardContent>
               </Card>
             </TabPanel>
@@ -4301,7 +4460,7 @@ export default function TabbedDocumentCreator({
           {/* ITEMS SECTION - Always visible */}
           <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
             <Card sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-              <CardContent sx={{ p: 1, flex: 1, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>
+              <CardContent sx={{ p: 1, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>
                 {/* Items Sub-tabs */}
                 <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
                   <Tabs value={itemsTabValue} onChange={handleItemsTabChange} sx={{ minHeight: 32, "& .MuiTab-root": { minHeight: 32, py: 0 } }}>
@@ -4310,14 +4469,24 @@ export default function TabbedDocumentCreator({
                   </Tabs>
                 </Box>
 
-                {/* ITEMS DETAILS TAB */}
-                <TabPanel value={itemsTabValue} index={0}>
-                  <Box ref={itemsBoxRef} sx={{ display: "flex", flexDirection: "column", height: "calc(100vh - 520px)", minHeight: 200 }}>
+                {/* ITEMS DETAILS TAB — flexes to the remaining viewport height
+                    (no hard-coded calc offset), so any screen-size change is
+                    absorbed by the table's internal scroll, not the page. */}
+                <TabPanel value={itemsTabValue} index={0} grow>
+                  <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 120 }}>
                     {/* Scrollable table area — TableContainer itself scrolls so
                         stickyHeader on the Table actually pins the column
                         headers to the top of the scroll box on scroll. */}
-                    <Box sx={{ flex: 1, minHeight: 0, borderBottom: "1px solid", borderColor: "divider", display: "flex", flexDirection: "column" }}>
-                      <TableContainer sx={{ flex: 1, overflow: "auto" }}>
+                    <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+                      <TableContainer
+                        sx={{
+                          flex: 1,
+                          overflow: "auto",
+                          // Xero-style bordered grid container
+                          border: `1px solid ${TABLE_GRID_COLOR}`,
+                          borderRadius: 1,
+                        }}
+                      >
                         <Table
                           sx={{
                             tableLayout: 'fixed',
@@ -4330,6 +4499,17 @@ export default function TabbedDocumentCreator({
                               paddingLeft: "8px",
                               paddingRight: "8px",
                               verticalAlign: "middle",
+                            },
+                            // Xero-style cell grid: every cell shows its right +
+                            // bottom border; the container border closes the
+                            // outer edges (so last-column/last-row borders are
+                            // dropped to avoid doubled lines).
+                            "& .MuiTableCell-root": {
+                              borderRight: `1px solid ${TABLE_GRID_COLOR}`,
+                              borderBottom: `1px solid ${TABLE_GRID_COLOR}`,
+                            },
+                            "& .MuiTableCell-root:last-child": {
+                              borderRight: "none",
                             },
                           }}
                           stickyHeader
@@ -4345,7 +4525,7 @@ export default function TabbedDocumentCreator({
                               color: "text.primary",
                               // Solid bg so scrolled rows don't bleed through
                               // when stickyHeader pins the row to the top.
-                              backgroundColor: "background.paper",
+                              backgroundColor: "surfaceTones.low",
                             },
                           }}
                         >
@@ -4381,6 +4561,13 @@ export default function TabbedDocumentCreator({
                                 .filter((c: string) => !(isRouteOrderPO && c === "discount"))
                                 // S/No removed from quotations — auto-numbered in the DB/renderer.
                                 .filter((c: string) => !(isQuotation && c === "no"));
+                              // Quotations always get the item/Product Code column in the
+                              // editor (like invoices) even when the template's configured
+                              // tableColumnOrder omits it — the preview filters it out.
+                              // FCU/CU variant excluded: its rows are CU/FCU-driven.
+                              if (isQuotation && !isFcuCuVariant && !defaultColumns.includes("item")) {
+                                defaultColumns.unshift("item");
+                              }
                               return (isTemplateEditMode ? templateWatch("tableColumnOrder") : defaultColumns).map((columnId: string) => {
                                 // Skip tax column for invoices
                                 if (isInvoiceType && columnId === "tax") return null;
@@ -4422,8 +4609,8 @@ export default function TabbedDocumentCreator({
                                     columnId === "amount" ? "right" : "left"
                                   }
                                   sx={{
-                                    width: columnId === "description" ? "18%" :
-                                           columnId === "item" ? "12%" :
+                                    width: columnId === "description" ? "38%" :
+                                           columnId === "item" ? "10%" :
                                            columnId === "uom" ? "6%" :
                                            columnId === "quantity" ? "8%" :
                                            columnId === "unitPrice" ? "10%" :
@@ -4490,6 +4677,11 @@ export default function TabbedDocumentCreator({
                                   .filter((c: string) => !(isRouteOrderPO && c === "discount"))
                                   // S/No removed from quotations — auto-numbered in the DB/renderer.
                                   .filter((c: string) => !(isQuotation && c === "no"));
+                                // Keep in sync with the header block above: quotations always
+                                // get the item column in the editor; preview hides it.
+                                if (isQuotation && !isFcuCuVariant && !defaultColumns.includes("item")) {
+                                  defaultColumns.unshift("item");
+                                }
                                 return (isTemplateEditMode ? templateWatch("tableColumnOrder") : defaultColumns).map((columnId: string) => {
                                   // Skip tax column for invoices
                                   if (isInvoiceType && columnId === "tax") return null;
@@ -4537,13 +4729,14 @@ export default function TabbedDocumentCreator({
                                   );
                                 } else if (columnId === "description") {
                                   return (
-                                    <TableCell key={columnId} sx={{ verticalAlign: 'top', padding: '4px 8px' }}>
+                                    <TableCell key={columnId}>
                                       <RichTextDescription
                                         value={item.description || ""}
                                         onChange={(html) => updateItem(item.id, "description", html)}
                                         placeholder="Enter description"
                                         pastDescriptions={pastDescriptions}
                                         loadingDescriptions={isLoadingDescriptions}
+                                        compact
                                       />
                                     </TableCell>
                                   );
@@ -4922,7 +5115,7 @@ export default function TabbedDocumentCreator({
                                   onClick={() => deleteItem(item.id)}
                                   color="error"
                                 >
-                                  <DeleteIcon />
+                                  <DeleteIcon fontSize="small" />
                                 </IconButton>
                               </TableCell>
                             </TableRow>
@@ -5456,7 +5649,11 @@ export default function TabbedDocumentCreator({
       {/* Invoice Confirmation Dialog */}
       <ConfirmInvoiceDialog
         open={confirmInvoiceDialogOpen}
-        onClose={() => !isConfirming && setConfirmInvoiceDialogOpen(false)}
+        onClose={() => {
+          if (isConfirming) return;
+          makeRecurringAfterConfirmRef.current = false;
+          setConfirmInvoiceDialogOpen(false);
+        }}
         onConfirm={handleConfirmInvoice}
         documentNumber={formData.name || formData.documentInfo?.documentNumber || ""}
       />
@@ -5862,6 +6059,22 @@ export default function TabbedDocumentCreator({
         />
       )}
 
+      {/* Per-document History & notes (⋮ menu) */}
+      <DocumentHistoryDrawer
+        open={historyDrawerOpen}
+        onClose={() => setHistoryDrawerOpen(false)}
+        documentId={(existingData?.id || documentId || "") as string}
+      />
+
+      {/* Biofuel DO "Our Ref" quotation picker */}
+      <QuotationSelectDialog
+        open={refQuotationDialogOpen}
+        onClose={() => setRefQuotationDialogOpen(false)}
+        onSelect={handleRefQuotationSelect}
+        quotations={refQuotations}
+        customerName={formData.customer?.name}
+      />
+
       {/* Extract Quotation Dialog - for DO */}
       <ExtractQuotationDialog
         open={extractQuotationDialogOpen}
@@ -5892,7 +6105,10 @@ export default function TabbedDocumentCreator({
             documentInfo: {
               ...formData.documentInfo,
               salesPerson: quotationConfig.salesmanCode || quotationConfig.salesPerson || "",
-              poNo: quotationConfig.poNo || quotationConfig.referenceNo || "",
+              // P/O comes over only if the quotation actually had one — the
+              // quotation's Reference No is NOT a P/O (was wrongly used as a
+              // fallback here).
+              poNo: quotationConfig.poNo || "",
               contact: quotationConfig.contact || "",
               paymentTerms: quotationConfig.paymentTerms || "",
               currency: quotationConfig.currency || "",
@@ -5900,8 +6116,20 @@ export default function TabbedDocumentCreator({
               taxApplicable: quotationConfig.taxApplicable,
               absorbTax: quotationConfig.absorbTax,
               gstPercent: quotationConfig.gstPercent,
+              // Biofuel DO: pre-fill "Our Ref" with the source quotation
+              // (number only in the editor; the confirm date prints as
+              // " dated dd/mm/yyyy" on the DO).
+              ...(isBiofuel && !isInvoiceType
+                ? {
+                    referenceNo: quotation.name,
+                    referenceQuotationDate: quotationConfig.confirmedAt || quotation.createdAt || null,
+                  }
+                : {}),
             },
             deliveryTo: quotationConfig.deliveryTo || "",
+            // Carry the quotation's project link onto this document — the
+            // save-time link-project PATCH persists it (mandatory on DOs).
+            projectId: quotation.projectId || quotationConfig.projectId || formData.projectId || "",
             sourceDocumentId: quotation.id,
             sourceDocumentType: "QUOTATION",
             sourceDocumentNumber: quotation.name,
@@ -5956,7 +6184,10 @@ export default function TabbedDocumentCreator({
             documentInfo: {
               ...formData.documentInfo,
               salesPerson: quotationConfig.salesmanCode || quotationConfig.salesPerson || "",
-              poNo: quotationConfig.poNo || quotationConfig.referenceNo || "",
+              // P/O comes over only if the quotation actually had one — the
+              // quotation's Reference No is NOT a P/O (was wrongly used as a
+              // fallback here).
+              poNo: quotationConfig.poNo || "",
               contact: quotationConfig.contact || "",
               paymentTerms: quotationConfig.paymentTerms || "",
               currency: quotationConfig.currency || "",
@@ -5964,8 +6195,18 @@ export default function TabbedDocumentCreator({
               taxApplicable: quotationConfig.taxApplicable,
               absorbTax: quotationConfig.absorbTax,
               gstPercent: quotationConfig.gstPercent,
+              // Biofuel DO: pre-fill "Our Ref" with the FIRST source quotation.
+              ...(isBiofuel && !isInvoiceType
+                ? {
+                    referenceNo: firstQuotation.name,
+                    referenceQuotationDate: quotationConfig.confirmedAt || firstQuotation.createdAt || null,
+                  }
+                : {}),
             },
             deliveryTo: quotationConfig.deliveryTo || "",
+            // Project link from the FIRST quotation (merged quotations share a
+            // customer and, in practice, a project).
+            projectId: firstQuotation.projectId || quotationConfig.projectId || formData.projectId || "",
             sourceDocumentId: sourceDocumentIds.join(","), // Store multiple IDs as comma-separated
             sourceDocumentType: "QUOTATION",
             sourceDocumentNumber: sourceDocumentNumbers,
@@ -6170,7 +6411,10 @@ export default function TabbedDocumentCreator({
             documentInfo: {
               ...formData.documentInfo,
               salesPerson: quotationConfig.salesmanCode || quotationConfig.salesPerson || "",
-              poNo: quotationConfig.poNo || quotationConfig.referenceNo || "",
+              // P/O comes over only if the quotation actually had one — the
+              // quotation's Reference No is NOT a P/O (was wrongly used as a
+              // fallback here).
+              poNo: quotationConfig.poNo || "",
               contact: quotationConfig.contact || "",
               paymentTerms: quotationConfig.paymentTerms || "",
               currency: quotationConfig.currency || "",
@@ -6178,8 +6422,20 @@ export default function TabbedDocumentCreator({
               taxApplicable: quotationConfig.taxApplicable,
               absorbTax: quotationConfig.absorbTax,
               gstPercent: quotationConfig.gstPercent,
+              // Biofuel DO: pre-fill "Our Ref" with the source quotation
+              // (number only in the editor; the confirm date prints as
+              // " dated dd/mm/yyyy" on the DO).
+              ...(isBiofuel && !isInvoiceType
+                ? {
+                    referenceNo: quotation.name,
+                    referenceQuotationDate: quotationConfig.confirmedAt || quotation.createdAt || null,
+                  }
+                : {}),
             },
             deliveryTo: quotationConfig.deliveryTo || "",
+            // Carry the quotation's project link onto this document — the
+            // save-time link-project PATCH persists it (mandatory on DOs).
+            projectId: quotation.projectId || quotationConfig.projectId || formData.projectId || "",
             sourceDocumentId: quotation.id,
             sourceDocumentType: "QUOTATION",
             sourceDocumentNumber: quotation.name,
@@ -6234,7 +6490,10 @@ export default function TabbedDocumentCreator({
             documentInfo: {
               ...formData.documentInfo,
               salesPerson: quotationConfig.salesmanCode || quotationConfig.salesPerson || "",
-              poNo: quotationConfig.poNo || quotationConfig.referenceNo || "",
+              // P/O comes over only if the quotation actually had one — the
+              // quotation's Reference No is NOT a P/O (was wrongly used as a
+              // fallback here).
+              poNo: quotationConfig.poNo || "",
               contact: quotationConfig.contact || "",
               paymentTerms: quotationConfig.paymentTerms || "",
               currency: quotationConfig.currency || "",
@@ -6242,8 +6501,18 @@ export default function TabbedDocumentCreator({
               taxApplicable: quotationConfig.taxApplicable,
               absorbTax: quotationConfig.absorbTax,
               gstPercent: quotationConfig.gstPercent,
+              // Biofuel DO: pre-fill "Our Ref" with the FIRST source quotation.
+              ...(isBiofuel && !isInvoiceType
+                ? {
+                    referenceNo: firstQuotation.name,
+                    referenceQuotationDate: quotationConfig.confirmedAt || firstQuotation.createdAt || null,
+                  }
+                : {}),
             },
             deliveryTo: quotationConfig.deliveryTo || "",
+            // Project link from the FIRST quotation (merged quotations share a
+            // customer and, in practice, a project).
+            projectId: firstQuotation.projectId || quotationConfig.projectId || formData.projectId || "",
             sourceDocumentId: sourceDocumentIds.join(","), // Store multiple IDs as comma-separated
             sourceDocumentType: "QUOTATION",
             sourceDocumentNumber: sourceDocumentNumbers,
@@ -6309,6 +6578,9 @@ export default function TabbedDocumentCreator({
             const salesmanCode = customer.salesman?.salesmanCode || "";
             console.log("Customer selected:", customer);
             console.log("Customer address:", customer.address);
+            // Document trades in the customer's master-file currency — the GL
+            // converts to base at the accountant's standing rate on posting.
+            const customerCurrency = (customer as any).currency || "";
             setFormData({
               ...formData,
               customer: {
@@ -6319,13 +6591,12 @@ export default function TabbedDocumentCreator({
                 customerCode: customer.customerCode || "",
                 gstRegNo: (customer as any).gstRegNo || "",
               },
-              // Auto-fill salesman from customer's assigned salesman
-              ...(salesmanCode && {
-                documentInfo: {
-                  ...formData.documentInfo,
-                  salesPerson: salesmanCode,
-                },
-              }),
+              documentInfo: {
+                ...formData.documentInfo,
+                ...(salesmanCode ? { salesPerson: salesmanCode } : {}),
+                ...(customerCurrency ? { currency: customerCurrency } : {}),
+              },
+              ...(customerCurrency ? { currency: customerCurrency } : {}),
             });
             // Call the customer change handler to fetch related data
             if (onCustomerChange && customer.id) {

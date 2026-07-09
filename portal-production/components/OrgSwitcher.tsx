@@ -63,6 +63,9 @@ export default function OrgSwitcher() {
   const value = orgs.find((o) => o.id === organization?.id) ?? undefined;
 
   return (
+    // Own the row padding here (not in the layout): for non-admins this
+    // component returns null, so no empty padded strip is left behind.
+    <Box sx={{ display: "flex", justifyContent: "flex-end", px: 2, py: 1 }}>
     <Box sx={{ minWidth: 260 }}>
       <Autocomplete
         size="small"
@@ -94,6 +97,7 @@ export default function OrgSwitcher() {
           </li>
         )}
       />
+    </Box>
     </Box>
   );
 }

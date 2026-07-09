@@ -61,9 +61,9 @@ const tokens = {
   tertiaryFixed: "#f5f5f5",
   onTertiaryFixed: "#171717",
   onTertiaryFixedVariant: "#171717",
-  surface: "#f7f8fa",                  // PayLane app background — subtle cool off-white
+  surface: "#f2f3f4",                  // app background — rgb(242,243,244) per spec
   surfaceContainerLowest: "#ffffff",   // cards / panels — crisp white to pop against bg
-  surfaceContainerLow: "#fafafa",      // near-white for table head, subtle zones
+  surfaceContainerLow: "#f2f3f4",      // label cells / table heads — rgb(242,243,244)
   surfaceContainer: "#f5f5f5",
   surfaceContainerHigh: "#f5f5f5",
   surfaceContainerHighest: "#f0f0f0",
@@ -339,7 +339,9 @@ const theme = createTheme({
           letterSpacing: "0.1em",
           color: tokens.onSurfaceVariant,
           backgroundColor: tokens.surfaceContainerLow,
-          borderBottom: `1px solid ${alpha(tokens.outlineVariant, 0.15)}`,
+          // Clear rule under the header — its grey bg matches the app bg, so
+          // a near-transparent underline let it float without separation.
+          borderBottom: "1px solid #D5D8DC",
           padding: "16px 24px",
         },
       },

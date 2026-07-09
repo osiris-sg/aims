@@ -7,9 +7,6 @@ import {
   DialogContent,
   Box,
   TextField,
-  RadioGroup,
-  FormControlLabel,
-  Radio,
   Table,
   TableBody,
   TableCell,
@@ -54,8 +51,6 @@ interface LocateDocumentDialogProps {
   documentLabel: string; // e.g., "Invoice", "Quotation"
 }
 
-type SearchMode = "number" | "name" | "po" | "do";
-
 export default function LocateDocumentDialog({
   open,
   onClose,
@@ -64,9 +59,8 @@ export default function LocateDocumentDialog({
   documentLabel,
 }: LocateDocumentDialogProps) {
   const [searchTerm, setSearchTerm] = useState("");
-  const [searchMode, setSearchMode] = useState<SearchMode>("number");
 
-  // Filter documents based on search term and mode
+  // Free-text search across ALL columns (number, customer, P/O, D/O).
   const filteredDocuments = useMemo(() => {
     if (!searchTerm.trim()) {
       return documents;
@@ -74,21 +68,11 @@ export default function LocateDocumentDialog({
 
     const term = searchTerm.toLowerCase();
 
-    return documents.filter((doc) => {
-      switch (searchMode) {
-        case "number":
-          return doc.name?.toLowerCase().includes(term);
-        case "name":
-          return doc.config?.customerName?.toLowerCase().includes(term);
-        case "po":
-          return doc.config?.poNo?.toLowerCase().includes(term);
-        case "do":
-          return doc.config?.doNo?.toLowerCase().includes(term);
-        default:
-          return true;
-      }
-    });
-  }, [documents, searchTerm, searchMode]);
+    return documents.filter((doc) =>
+      [doc.name, doc.config?.customerName, doc.config?.poNo, doc.config?.doNo]
+        .some((v) => String(v ?? "").toLowerCase().includes(term)),
+    );
+  }, [documents, searchTerm]);
 
   const handleRowClick = (doc: Document) => {
     onSelectDocument(doc);
@@ -187,36 +171,6 @@ export default function LocateDocumentDialog({
             }}
           />
 
-          {/* Search Mode Radio Buttons */}
-          <RadioGroup
-            row
-            value={searchMode}
-            onChange={(e) => setSearchMode(e.target.value as SearchMode)}
-          >
-            <FormControlLabel
-              value="number"
-              control={<Radio size="small" color="primary" />}
-              label={`Search By ${documentLabel} Number`}
-              sx={{ mr: 3 }}
-            />
-            <FormControlLabel
-              value="name"
-              control={<Radio size="small" color="primary" />}
-              label="Search By Name"
-              sx={{ mr: 3 }}
-            />
-            <FormControlLabel
-              value="po"
-              control={<Radio size="small" color="primary" />}
-              label="Search By P/O"
-              sx={{ mr: 3 }}
-            />
-            <FormControlLabel
-              value="do"
-              control={<Radio size="small" color="primary" />}
-              label="Search By D/O"
-            />
-          </RadioGroup>
         </Box>
 
         {/* Results Table */}

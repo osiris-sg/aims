@@ -706,6 +706,302 @@ export class JournalService {
       .filter((r): r is NonNullable<typeof r> => r !== null);
   }
 
+  // ---------- Foreign Bank Listing ----------
+  // Foreign-currency bank/cash accounts: base-currency balance + accumulated
+  // foreign balance (from FX-posted journal lines) as at a date. Accounts
+  // qualify by FOREIGN_BANK type, or any bank/cash account that has ever been
+  // touched by a foreign-currency posting.
+  async foreignBankListing(organizationId: string, opts: { asOf?: Date }) {
+    const asOf = opts.asOf ?? new Date();
+    const eod = new Date(asOf);
+    eod.setHours(23, 59, 59, 999);
+
+    const accounts = (
+      await this.prisma.chartOfAccount.findMany({
+        where: { organizationId },
+        select: { id: true, code: true, name: true, accountType: true },
+      })
+    ).filter((a) => a.accountType === 'FOREIGN_BANK' || this.isCashOrBankAccount(a));
+    if (!accounts.length) return { asOf: asOf.toISOString(), rows: [] };
+    const ids = accounts.map((a) => a.id);
+
+    const [balances, fxLines] = await Promise.all([
+      this.prisma.journalEntryLine.groupBy({
+        by: ['accountId'],
+        where: { accountId: { in: ids }, journalEntry: { organizationId, status: 'POSTED', entryDate: { lte: eod } } },
+        _sum: { debit: true, credit: true },
+      }),
+      this.prisma.journalEntryLine.findMany({
+        where: {
+          accountId: { in: ids },
+          foreignAmount: { not: null },
+          journalEntry: { organizationId, status: 'POSTED', entryDate: { lte: eod } },
+        },
+        select: { accountId: true, debit: true, credit: true, foreignAmount: true, journalEntry: { select: { currency: true } } },
+      }),
+    ]);
+    const balById = new Map(balances.map((g) => [g.accountId, g._sum]));
+
+    const fxByAccount = new Map<string, { currency: string; foreign: number }>();
+    for (const l of fxLines) {
+      const cur = l.journalEntry.currency || '';
+      if (!cur) continue;
+      const e = fxByAccount.get(l.accountId) || { currency: cur, foreign: 0 };
+      e.currency = cur;
+      e.foreign += (l.debit > 0 ? 1 : -1) * (l.foreignAmount ?? 0);
+      fxByAccount.set(l.accountId, e);
+    }
+
+    const rows = accounts
+      .map((a) => {
+        const b: any = balById.get(a.id) || { debit: 0, credit: 0 };
+        const fx = fxByAccount.get(a.id);
+        return {
+          accountId: a.id,
+          code: a.code,
+          name: a.name,
+          accountType: a.accountType,
+          baseBalance: ROUND((b.debit ?? 0) - (b.credit ?? 0)),
+          currency: fx?.currency ?? null,
+          foreignBalance: fx ? ROUND(fx.foreign) : null,
+        };
+      })
+      // Only foreign-relevant accounts: typed FOREIGN_BANK or actually FX-touched.
+      .filter((r) => r.accountType === 'FOREIGN_BANK' || r.currency)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return { asOf: asOf.toISOString(), rows };
+  }
+
+  // ---------- Xero-style Journal Report ----------
+  // Posted journals in the period, each with its balanced lines — grouped per
+  // journal like Xero ("ID <n> <narration>" → lines → Total).
+  async journalReport(
+    organizationId: string,
+    opts: { startDate?: Date; endDate?: Date; orderBy?: 'journalNumber' | 'entryDate' | 'postedAt' },
+  ) {
+    const MAX_JOURNALS = 500;
+    const eod = opts.endDate ? new Date(opts.endDate) : new Date();
+    eod.setHours(23, 59, 59, 999);
+    const orderBy =
+      opts.orderBy === 'entryDate'
+        ? [{ entryDate: 'asc' as const }, { journalNumber: 'asc' as const }]
+        : opts.orderBy === 'postedAt'
+          ? [{ postedAt: 'asc' as const }]
+          : [{ journalNumber: 'asc' as const }];
+
+    const entries = await this.prisma.journalEntry.findMany({
+      where: {
+        organizationId,
+        status: 'POSTED',
+        entryDate: { ...(opts.startDate ? { gte: opts.startDate } : {}), lte: eod },
+      },
+      include: {
+        lines: { include: { account: { select: { code: true, name: true } } }, orderBy: { lineNumber: 'asc' } },
+      },
+      orderBy,
+      take: MAX_JOURNALS + 1,
+    });
+    const truncated = entries.length > MAX_JOURNALS;
+    if (truncated) entries.pop();
+
+    const journals = entries.map((e) => ({
+      id: e.id,
+      journalNumber: e.journalNumber,
+      entryDate: e.entryDate.toISOString(),
+      type: e.type,
+      reference: e.reference ?? '',
+      description: e.description ?? '',
+      postedAt: e.postedAt?.toISOString() ?? null,
+      postedBy: e.postedBy ?? e.createdBy ?? '',
+      totalDebit: ROUND(e.totalDebit),
+      totalCredit: ROUND(e.totalCredit),
+      lines: e.lines.map((l) => ({
+        date: e.entryDate.toISOString(),
+        accountCode: l.account.code,
+        account: l.account.name,
+        description: l.description ?? '',
+        debit: ROUND(l.debit),
+        credit: ROUND(l.credit),
+      })),
+    }));
+    return {
+      journals,
+      journalCount: journals.length,
+      truncated,
+      totals: {
+        debit: ROUND(journals.reduce((s, j) => s + j.totalDebit, 0)),
+        credit: ROUND(journals.reduce((s, j) => s + j.totalCredit, 0)),
+      },
+    };
+  }
+
+  // ---------- Xero-style Bank Summary ----------
+  // Per bank/cash account: opening balance, cash received (debits), cash
+  // spent (credits), closing balance for the period.
+  async bankSummary(organizationId: string, opts: { startDate?: Date; endDate?: Date }) {
+    const accounts = (
+      await this.prisma.chartOfAccount.findMany({
+        where: { organizationId },
+        select: { id: true, code: true, name: true, accountType: true },
+      })
+    ).filter((a) => this.isCashOrBankAccount(a));
+    if (!accounts.length) return { rows: [], totals: { opening: 0, received: 0, spent: 0, closing: 0 } };
+    const ids = accounts.map((a) => a.id);
+
+    const eod = opts.endDate ? new Date(opts.endDate) : new Date();
+    eod.setHours(23, 59, 59, 999);
+
+    const [before, inRange] = await Promise.all([
+      opts.startDate
+        ? this.prisma.journalEntryLine.groupBy({
+            by: ['accountId'],
+            where: { accountId: { in: ids }, journalEntry: { organizationId, status: 'POSTED', entryDate: { lt: opts.startDate } } },
+            _sum: { debit: true, credit: true },
+          })
+        : Promise.resolve([] as any[]),
+      this.prisma.journalEntryLine.groupBy({
+        by: ['accountId'],
+        where: {
+          accountId: { in: ids },
+          journalEntry: { organizationId, status: 'POSTED', entryDate: { ...(opts.startDate ? { gte: opts.startDate } : {}), lte: eod } },
+        },
+        _sum: { debit: true, credit: true },
+      }),
+    ]);
+    const beforeById = new Map(before.map((g: any) => [g.accountId, g._sum]));
+    const rangeById = new Map(inRange.map((g: any) => [g.accountId, g._sum]));
+
+    const rows = accounts
+      .map((a) => {
+        const b: any = beforeById.get(a.id) || { debit: 0, credit: 0 };
+        const r: any = rangeById.get(a.id) || { debit: 0, credit: 0 };
+        const opening = ROUND((b.debit ?? 0) - (b.credit ?? 0));
+        const received = ROUND(r.debit ?? 0);
+        const spent = ROUND(r.credit ?? 0);
+        return {
+          accountId: a.id,
+          code: a.code,
+          name: a.name,
+          accountType: a.accountType,
+          opening,
+          received,
+          spent,
+          closing: ROUND(opening + received - spent),
+        };
+      })
+      .filter((r) => Math.abs(r.opening) > 0.005 || r.received > 0.005 || r.spent > 0.005)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const totals = rows.reduce(
+      (s, r) => ({ opening: s.opening + r.opening, received: s.received + r.received, spent: s.spent + r.spent, closing: s.closing + r.closing }),
+      { opening: 0, received: 0, spent: 0, closing: 0 },
+    );
+    return {
+      rows,
+      totals: { opening: ROUND(totals.opening), received: ROUND(totals.received), spent: ROUND(totals.spent), closing: ROUND(totals.closing) },
+    };
+  }
+
+  // ---------- Xero-style General Ledger Detail ----------
+  // Every posted line in the period, grouped per account, with a Xero-style
+  // running balance that starts at ZERO at period start (movement within the
+  // period — matches Xero's GL Detail, which shows Net Movement per account).
+  async glDetailReport(
+    organizationId: string,
+    opts: { startDate?: Date; endDate?: Date; accountIds?: string[] },
+  ) {
+    const MAX_LINES = 5000;
+    const dateFilter: any = {};
+    if (opts.startDate) dateFilter.gte = opts.startDate;
+    if (opts.endDate) {
+      const eod = new Date(opts.endDate);
+      eod.setHours(23, 59, 59, 999);
+      dateFilter.lte = eod;
+    }
+
+    const lines = await this.prisma.journalEntryLine.findMany({
+      where: {
+        ...(opts.accountIds?.length ? { accountId: { in: opts.accountIds } } : {}),
+        journalEntry: {
+          organizationId,
+          status: 'POSTED',
+          ...(opts.startDate || opts.endDate ? { entryDate: dateFilter } : {}),
+        },
+      },
+      include: {
+        journalEntry: { select: { journalNumber: true, entryDate: true, type: true, reference: true, description: true } },
+        account: { select: { id: true, code: true, name: true, accountType: true } },
+      },
+      orderBy: [{ journalEntry: { entryDate: 'asc' } }, { lineNumber: 'asc' }],
+      take: MAX_LINES + 1,
+    });
+    const truncated = lines.length > MAX_LINES;
+    if (truncated) lines.pop();
+
+    const SOURCE_LABEL: Record<string, string> = {
+      INVOICE: 'Receivable Invoice',
+      BILL: 'Payable Invoice',
+      PAYMENT: 'Payment',
+      CREDIT_NOTE: 'Credit Note',
+      DEBIT_NOTE: 'Debit Note',
+      PURCHASE_ORDER: 'Purchase Order',
+      PURCHASE_RETURN: 'Purchase Return',
+      MANUAL: 'Manual Journal',
+      OPENING_BALANCE: 'Opening Balance',
+      ADJUSTMENT: 'Adjustment',
+    };
+
+    const byAccount = new Map<string, { code: string; name: string; accountType: string; rows: any[]; debit: number; credit: number }>();
+    for (const l of lines) {
+      const a = l.account;
+      const e = byAccount.get(a.id) || { code: a.code, name: a.name, accountType: a.accountType, rows: [], debit: 0, credit: 0 };
+      e.rows.push({
+        date: l.journalEntry.entryDate.toISOString(),
+        source: SOURCE_LABEL[l.journalEntry.type] || l.journalEntry.type,
+        description: l.description ?? l.journalEntry.description ?? '',
+        reference: l.journalEntry.reference ?? l.journalEntry.journalNumber,
+        journalNumber: l.journalEntry.journalNumber,
+        debit: ROUND(l.debit),
+        credit: ROUND(l.credit),
+      });
+      e.debit += l.debit;
+      e.credit += l.credit;
+      byAccount.set(a.id, e);
+    }
+
+    const groups = [...byAccount.entries()]
+      .map(([accountId, e]) => {
+        let running = 0;
+        for (const r of e.rows) {
+          running = ROUND(running + r.debit - r.credit);
+          r.runningBalance = running;
+        }
+        return {
+          accountId,
+          code: e.code,
+          name: e.name,
+          accountType: e.accountType,
+          rows: e.rows,
+          totalDebit: ROUND(e.debit),
+          totalCredit: ROUND(e.credit),
+          netMovement: ROUND(e.debit - e.credit),
+        };
+      })
+      .sort((a, b) => a.code.localeCompare(b.code));
+
+    return {
+      period: { startDate: opts.startDate?.toISOString() ?? null, endDate: opts.endDate?.toISOString() ?? null },
+      groups,
+      totals: {
+        debit: ROUND(groups.reduce((s, g) => s + g.totalDebit, 0)),
+        credit: ROUND(groups.reduce((s, g) => s + g.totalCredit, 0)),
+      },
+      lineCount: lines.length,
+      truncated,
+    };
+  }
+
   // ---------- Profit & Loss report ----------
   // Returns three columns: this month, previous month, year-to-date — all
   // anchored on the cut-off date. Closing stock is user-supplied (the legacy

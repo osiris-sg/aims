@@ -463,12 +463,20 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
     try {
       const token = await getToken();
       if (!token) return;
-      await request(
+      const res: any = await request(
         { path: `/projects/deployments/${deploymentId}/off-hire`, method: "POST" },
         { offHiredDate: new Date().toISOString() },
         token,
       );
       toast.success("Deployment off-hired");
+      const paused = res?.deactivatedRecurringTemplates;
+      if (Array.isArray(paused) && paused.length > 0) {
+        toast.info(
+          `Paused ${paused.length} recurring invoice${paused.length > 1 ? "s" : ""}: ${paused
+            .map((t: any) => t.name)
+            .join(", ")}`,
+        );
+      }
       fetchProject();
     } catch (err) {
       console.error(err);

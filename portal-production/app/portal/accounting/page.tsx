@@ -249,7 +249,7 @@ export default function AccountingHubPage() {
             variant="outlined"
             startIcon={<ReceiptIcon />}
             component={Link}
-            href="/portal/accounting/reports?tab=audit"
+            href="/portal/accounting/reports?tab=journal"
           >
             View Journal Log
           </Button>
@@ -269,6 +269,15 @@ export default function AccountingHubPage() {
             href="/portal/accounting/recurring"
           >
             Recurring
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<OpenInNewIcon />}
+            component={Link}
+            href="/portal/accounting/receivables?tab=recurring-invoices"
+          >
+            Recurring Invoices
           </Button>
           <Button
             size="small"

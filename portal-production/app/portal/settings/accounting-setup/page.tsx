@@ -24,6 +24,8 @@ import InventoryCostTab from "./components/InventoryCostTab";
 import CostCentersTab from "./components/CostCentersTab";
 import RevenueItemsTab from "./components/RevenueItemsTab";
 import SellIcon from "@mui/icons-material/Sell";
+import PercentIcon from "@mui/icons-material/Percent";
+import TaxRatesTab from "./components/TaxRatesTab";
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -154,6 +156,7 @@ export default function AccountingSetupPage() {
           <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)}>
             <Tab icon={<SettingsIcon />} iconPosition="start" label="Default Settings" />
             <Tab icon={<AccountBalanceIcon />} iconPosition="start" label="Financial Settings" />
+            <Tab icon={<PercentIcon />} iconPosition="start" label="Tax Rates" />
             <Tab icon={<AccountTreeIcon />} iconPosition="start" label="Accounts Definition" />
             <Tab icon={<Inventory2Icon />} iconPosition="start" label="Inventory Cost" />
             <Tab icon={<BusinessIcon />} iconPosition="start" label="Cost Centers" />
@@ -170,6 +173,10 @@ export default function AccountingSetupPage() {
         </TabPanel>
 
         <TabPanel value={tabValue} index={2}>
+          <TaxRatesTab />
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={3}>
           <AccountsDefinitionTab
             settings={settings}
             accounts={accounts}
@@ -182,15 +189,15 @@ export default function AccountingSetupPage() {
           />
         </TabPanel>
 
-        <TabPanel value={tabValue} index={3}>
+        <TabPanel value={tabValue} index={4}>
           <InventoryCostTab />
         </TabPanel>
 
-        <TabPanel value={tabValue} index={4}>
+        <TabPanel value={tabValue} index={5}>
           <CostCentersTab />
         </TabPanel>
 
-        <TabPanel value={tabValue} index={5}>
+        <TabPanel value={tabValue} index={6}>
           <RevenueItemsTab accounts={accounts} authedFetch={authedFetch} />
         </TabPanel>
       </Paper>

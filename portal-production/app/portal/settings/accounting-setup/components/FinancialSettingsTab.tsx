@@ -48,7 +48,10 @@ type Settings = {
   purchasesTaxInclusive?: boolean;
   lockedThroughDate?: string | null;
   timeZone?: string;
+  currencyRates?: Record<string, number>;
 };
+
+type RateRow = { code: string; rate: string };
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -76,9 +79,11 @@ export default function FinancialSettingsTab({
   onSave: (updates: any) => Promise<void> | void;
 }) {
   const [form, setForm] = useState<Settings>({});
+  const [rates, setRates] = useState<RateRow[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    setRates(Object.entries(settings?.currencyRates || {}).map(([code, rate]) => ({ code, rate: String(rate) })));
     setForm({
       baseCurrency: settings?.baseCurrency || "SGD",
       fiscalYearEndDay: settings?.fiscalYearEndDay ?? 31,
@@ -113,6 +118,11 @@ export default function FinancialSettingsTab({
         purchasesTaxInclusive: !!form.purchasesTaxInclusive,
         lockedThroughDate: form.lockedThroughDate || null,
         timeZone: form.timeZone,
+        currencyRates: Object.fromEntries(
+          rates
+            .filter((r) => r.code.trim() && Number(r.rate) > 0)
+            .map((r) => [r.code.trim().toUpperCase(), Number(r.rate)]),
+        ),
       });
     } finally {
       setSaving(false);
@@ -144,6 +154,40 @@ export default function FinancialSettingsTab({
             <MenuItem key={c} value={c}>{c}</MenuItem>
           ))}
         </TextField>
+      </Section>
+
+      <Section
+        title="Currency rates"
+        hint={`Standing rates locked by the accountant: 1 unit of the foreign currency = rate in ${form.baseCurrency || "SGD"}. Every foreign-currency document posts to the ledger at the rate current when it is confirmed; the realised difference on settlement posts to the FX gain/loss account. Rates apply until updated here.`}
+      >
+        <Stack gap={1}>
+          {rates.map((r, i) => (
+            <Stack key={i} direction="row" gap={1.5} alignItems="center">
+              <TextField
+                size="small" label="Currency" value={r.code} sx={{ width: 120 }}
+                onChange={(e) => setRates((rs) => rs.map((x, xi) => (xi === i ? { ...x, code: e.target.value.toUpperCase() } : x)))}
+                placeholder="USD"
+              />
+              <TextField
+                size="small" label={`Rate to ${form.baseCurrency || "SGD"}`} type="number" value={r.rate} sx={{ width: 160 }}
+                onChange={(e) => setRates((rs) => rs.map((x, xi) => (xi === i ? { ...x, rate: e.target.value } : x)))}
+                placeholder="1.35"
+                inputProps={{ step: "0.0001", min: 0 }}
+              />
+              <Typography variant="caption" color="text.secondary">
+                {r.code && Number(r.rate) > 0 ? `1 ${r.code} = ${r.rate} ${form.baseCurrency || "SGD"}` : ""}
+              </Typography>
+              <Button size="small" color="inherit" onClick={() => setRates((rs) => rs.filter((_, xi) => xi !== i))}>
+                Remove
+              </Button>
+            </Stack>
+          ))}
+          <Box>
+            <Button size="small" variant="outlined" onClick={() => setRates((rs) => [...rs, { code: "", rate: "" }])}>
+              Add currency
+            </Button>
+          </Box>
+        </Stack>
       </Section>
 
       <Divider sx={{ mb: 3 }} />

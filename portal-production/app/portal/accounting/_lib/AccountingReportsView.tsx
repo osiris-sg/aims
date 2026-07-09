@@ -20,21 +20,24 @@ import StarIcon from "@mui/icons-material/Star";
 import StarBorderIcon from "@mui/icons-material/StarBorder";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
-import GeneralLedgerPage from "../general-ledger/page";
-import TrialBalancePage from "../trial-balance/page";
-import ProfitLossPage from "../profit-loss/page";
 import GstPage from "../gst/page";
-import AuditTrailPage from "../audit-trail/page";
 import CashFlowPage from "../cash-flow/page";
-import ARAgingPage from "../ar-aging/page";
 import BudgetVsActualPage from "../budget-vs-actual/page";
 import InvoicesPage from "../../invoices/page";
 import BillsPage from "../bills/page";
-import APAgingPage from "../ap-aging/page";
 import BankReconciliationPage from "../bank-reconciliation/page";
 import StatementOfAccountPage from "../../reports/statement-of-account/page";
 import FixedAssetsPage from "../fixed-assets/page";
 import RecurringPage from "../recurring/page";
+import RecurringInvoicesView from "../recurring-invoices/RecurringInvoicesView";
+import {
+  AgedReceivablesSummary, AgedReceivablesDetail, AgedPayablesSummary, AgedPayablesDetail,
+  ReceivableInvoices, ReceivableInvoiceDetail, PayableInvoices, PayableInvoiceDetail,
+  ContactTransactionsSummary, IncomeExpensesByContact,
+  GeneralLedgerDetail, GeneralLedgerSummary,
+  AccountTransactions, ExpenseListing, TrialBalanceReport, JournalReport, BankSummary,
+  ProfitLoss, BalanceSheet, ForeignBankListing,
+} from "./report-shell/entries";
 import SupplierStatementPage from "../supplier-statement/page";
 import SalesByCustomerPage from "../sales-by-customer/page";
 import PurchasesBySupplierPage from "../purchases-by-supplier/page";
@@ -63,33 +66,50 @@ interface ReportEntry {
 export const REPORTS: ReportEntry[] = [
   // Receivables
   { key: "ar", label: "Accounts Receivable", description: "Outstanding invoices and customer balances", category: "Receivables", Component: InvoicesPage },
-  { key: "ar-aging", label: "AR Aging", description: "Outstanding invoices bucketed by days overdue", category: "Receivables", Component: ARAgingPage },
+  { key: "ar-aging", label: "Aged Receivables Summary", description: "Outstanding invoices per customer, bucketed by age", category: "Receivables", Component: AgedReceivablesSummary },
+  { key: "ar-aging-detail", label: "Aged Receivables Detail", description: "Every outstanding invoice, aged and grouped by customer", category: "Receivables", Component: AgedReceivablesDetail },
+  { key: "receivable-invoices", label: "Receivable Invoice Summary", description: "Invoices for a period — gross, payments and balance per customer", category: "Receivables", Component: ReceivableInvoices },
+  { key: "receivable-invoice-detail", label: "Receivable Invoice Detail", description: "Every invoice line item for a period, grouped by customer", category: "Receivables", Component: ReceivableInvoiceDetail },
   { key: "soa", label: "Customer Statement", description: "Per-customer statement of account", category: "Receivables", Component: StatementOfAccountPage },
   { key: "sbc", label: "Sales by Customer", description: "Revenue breakdown by customer", category: "Receivables", Component: SalesByCustomerPage },
+  { key: "contact-transactions", label: "Contact Transactions", description: "Opening, movement and closing balance for one contact", category: "Receivables", Component: ContactTransactionsSummary },
+  { key: "income-expense-by-contact", label: "Income and Expenses by Contact", description: "Per-contact income and spend across comparison months", category: "Receivables", Component: IncomeExpensesByContact },
+  { key: "recurring-invoices", label: "Recurring Invoices", description: "Scheduled customer invoices — drafts for review or fully automatic", category: "Receivables", Component: RecurringInvoicesView },
 
   // Payables
   { key: "ap", label: "Accounts Payable", description: "Bills owed to suppliers", category: "Payables", Component: BillsPage },
-  { key: "ap-aging", label: "AP Aging", description: "Outstanding bills bucketed by days overdue", category: "Payables", Component: APAgingPage },
+  { key: "ap-aging", label: "Aged Payables Summary", description: "Outstanding bills per supplier, bucketed by age", category: "Payables", Component: AgedPayablesSummary },
+  { key: "ap-aging-detail", label: "Aged Payables Detail", description: "Every outstanding bill, aged and grouped by supplier", category: "Payables", Component: AgedPayablesDetail },
+  { key: "payable-invoices", label: "Payable Invoice Summary", description: "Bills for a period — gross, payments and balance per supplier", category: "Payables", Component: PayableInvoices },
+  { key: "payable-invoice-detail", label: "Payable Invoice Detail", description: "Every bill line item for a period, grouped by supplier", category: "Payables", Component: PayableInvoiceDetail },
   { key: "supp-soa", label: "Supplier Statement", description: "Per-supplier statement of account", category: "Payables", Component: SupplierStatementPage },
   { key: "pbs", label: "Purchases by Supplier", description: "Spend breakdown by supplier", category: "Payables", Component: PurchasesBySupplierPage },
 
   // Ledger
-  { key: "gl", label: "General Ledger", description: "All journal entries grouped by account", category: "Ledger", Component: GeneralLedgerPage },
-  { key: "tb", label: "Trial Balance", description: "Debits and credits across all accounts", category: "Ledger", Component: TrialBalancePage },
-  { key: "audit", label: "Audit Trail", description: "Chronological log of accounting changes", category: "Ledger", Component: AuditTrailPage },
+  { key: "gl", label: "General Ledger Detail", description: "Every posted line per account with running balance", category: "Ledger", Component: GeneralLedgerDetail },
+  { key: "gl-summary", label: "General Ledger Summary", description: "Debit, credit and net movement per account for a period", category: "Ledger", Component: GeneralLedgerSummary },
+  { key: "account-transactions", label: "Account Transactions", description: "Transactions for chosen accounts over a period", category: "Ledger", Component: AccountTransactions },
+  { key: "tb", label: "Trial Balance", description: "Debits and credits across all accounts, with year comparison", category: "Ledger", Component: TrialBalanceReport },
+  { key: "journal", label: "Journal Report", description: "Every posted journal with its balanced lines", category: "Ledger", Component: JournalReport },
 
-  // Financial
-  { key: "pl", label: "P&L / Balance Sheet", description: "Income statement and balance sheet", category: "Financial", Component: ProfitLossPage },
+  // Financial statements & tax — live in the General Ledger section (guru:
+  // mirror the legacy software's GL menu — GL / TB / Journal / GST / P&L+BS /
+  // Expense Listing / Bank Rec all under one tab).
+  { key: "pl", label: "Profit and Loss", description: "Income, cost of sales and expenses with period comparison", category: "Ledger", Component: ProfitLoss },
+  { key: "bs", label: "Balance Sheet", description: "Assets, liabilities and equity as at a date, with year comparison", category: "Ledger", Component: BalanceSheet },
+  { key: "expense-listing", label: "Expense Listing", description: "Every expense and purchase transaction for a period, by account", category: "Ledger", Component: ExpenseListing },
+  { key: "gst", label: "GST", description: "GST collected and paid for the period", category: "Ledger", Component: GstPage },
+
+  // Financial (remaining)
   { key: "cf", label: "Cash Flow", description: "Operating, investing and financing cash movements", category: "Financial", Component: CashFlowPage },
   { key: "ba", label: "Budget vs Actual", description: "Compare budgeted to actual amounts per account", category: "Financial", Component: BudgetVsActualPage },
-
-  // Tax
-  { key: "gst", label: "GST", description: "GST collected and paid for the period", category: "Tax & Compliance", Component: GstPage },
 
   // Assets & Other
   { key: "fa", label: "Fixed Assets", description: "Fixed asset register and depreciation", category: "Assets & Other", Component: FixedAssetsPage },
   { key: "recurring", label: "Recurring", description: "Scheduled recurring invoices and bills", category: "Assets & Other", Component: RecurringPage },
-  { key: "bankrec", label: "Bank Reconciliation", description: "Match bank statement lines to ledger entries", category: "Assets & Other", Component: BankReconciliationPage },
+  { key: "bankrec", label: "Bank Reconciliation", description: "Match bank statement lines to ledger entries", category: "Ledger", Component: BankReconciliationPage },
+  { key: "bank-summary", label: "Bank Summary", description: "Opening balance, cash in and out, closing balance per bank account", category: "Ledger", Component: BankSummary },
+  { key: "foreign-banks", label: "Foreign Bank Listing", description: "Foreign-currency bank accounts — foreign and local balances", category: "Ledger", Component: ForeignBankListing },
 ];
 
 function favouritesStorageKey(orgId: string | undefined) {

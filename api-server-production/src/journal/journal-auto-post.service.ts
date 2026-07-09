@@ -54,6 +54,77 @@ export class JournalAutoPostService {
     return this.firstAccountOfType(organizationId, 'PURCHASE');
   }
 
+  // ---------- Multi-currency ----------
+  // Resolve a document's trading currency + the accountant's standing rate to
+  // base. Currency comes from the doc config (set from the customer/supplier
+  // master); rate from AccountingSetting.currencyRates ({"USD": 1.35} = 1 USD
+  // → 1.35 base). Returns null when the doc is foreign but no rate is locked
+  // in — posting must NOT proceed at par, that would misstate the ledger.
+  private async resolveFx(
+    organizationId: string,
+    documentId?: string | null,
+  ): Promise<{ currency: string; rate: number; isForeign: boolean } | null> {
+    const setting = await this.prisma.accountingSetting.findUnique({
+      where: { organizationId },
+      select: { baseCurrency: true, currencyRates: true },
+    });
+    const base = setting?.baseCurrency || 'SGD';
+
+    let currency = base;
+    if (documentId) {
+      const doc = await this.prisma.document.findUnique({ where: { id: documentId }, select: { config: true } });
+      const c: any = doc?.config || {};
+      currency = (c.currency || '').toUpperCase() || base;
+      if (currency === base && (c.customerId || c.customer?.id)) {
+        // Doc predates currency inheritance — fall back to the customer master.
+        const cust = await this.prisma.customer.findUnique({
+          where: { id: c.customerId || c.customer?.id },
+          select: { currency: true },
+        });
+        if (cust?.currency) currency = cust.currency.toUpperCase();
+      } else if (currency === base && (c.supplierId || c.supplier?.id)) {
+        const supp = await this.prisma.supplier.findUnique({
+          where: { id: c.supplierId || c.supplier?.id },
+          select: { currency: true },
+        });
+        if (supp?.currency) currency = supp.currency.toUpperCase();
+      }
+    }
+
+    if (currency === base) return { currency: base, rate: 1, isForeign: false };
+    const rates = (setting?.currencyRates as Record<string, number> | null) ?? {};
+    const rate = Number(rates[currency]);
+    if (!rate || rate <= 0) {
+      this.logger.warn(
+        `[fx] doc ${documentId} is in ${currency} but no standing rate is locked in AccountingSetting.currencyRates — skipping post. Set the rate in Accounting Setup.`,
+      );
+      return null;
+    }
+    return { currency, rate, isForeign: true };
+  }
+
+  // Historical rate a document was originally posted at — read from its
+  // invoice/bill journal's control-account line. Used to relieve AR/AP at the
+  // same base value it went on at, so the control account clears exactly.
+  private async historicalRateForDocument(organizationId: string, documentId: string): Promise<number | null> {
+    const entry = await this.prisma.journalEntry.findFirst({
+      where: { organizationId, sourceDocumentId: documentId, type: { in: ['INVOICE', 'CREDIT_NOTE', 'DEBIT_NOTE'] }, status: { not: 'VOID' } },
+      include: { lines: { where: { exchangeRate: { not: null } }, take: 1 } },
+      orderBy: { createdAt: 'asc' },
+    });
+    const rate = entry?.lines?.[0]?.exchangeRate;
+    return rate && rate > 0 ? rate : null;
+  }
+
+  private async resolveFxGainLossAccount(organizationId: string, controls: Record<string, string> | null) {
+    return (
+      (await this.resolveAccountByCode(organizationId, controls?.fxGainLoss)) ||
+      (await this.resolveAccountByCode(organizationId, '499')) ||
+      (await this.resolveAccountByCode(organizationId, 'EX070')) ||
+      (await this.firstAccountOfType(organizationId, 'EXCHANGE_GAIN_LOSS'))
+    );
+  }
+
   // For perpetual-inventory orgs. The Inventory account is the BS-side store
   // for stock-at-cost; COGS is the P&L expense recognized when stock leaves
   // the door. Both have sensible defaults (CA002 / CS001) but can be overridden
@@ -170,6 +241,12 @@ export class JournalAutoPostService {
       return null;
     }
 
+    // Multi-currency: face amounts are in the document's trading currency;
+    // the ledger posts in base at the accountant's standing rate.
+    const fx = await this.resolveFx(organizationId, documentId);
+    if (!fx) return null; // foreign doc with no locked rate — surfaced in logs
+    const toBase = (n: number) => ROUND(n * fx.rate);
+
     const controls = await this.getControlAccounts(organizationId);
     if (!controls) {
       this.logger.warn(`[postFromInvoice] org=${organizationId} has no AccountingSetting.controlAccounts; skipping`);
@@ -196,9 +273,12 @@ export class JournalAutoPostService {
       return null;
     }
 
-    const lines: Array<{ accountId: string; debit: number; credit: number; description: string }> = [
-      { accountId: debtor.id, debit: gross, credit: 0, description: `Invoice ${invoiceNumber ?? ''} — ${customerName ?? ''}`.trim() },
-    ];
+    type Line = { accountId: string; debit: number; credit: number; description: string; foreignAmount?: number; exchangeRate?: number };
+    const fxFields = (foreign: number) => (fx.isForeign ? { foreignAmount: ROUND(foreign), exchangeRate: fx.rate } : {});
+
+    // Credit legs first (converted per line) — the debtor debit is then set to
+    // their exact base sum so rounding can never unbalance the entry.
+    const creditLines: Line[] = [];
 
     // Revenue credit side: split per line-account when the caller supplied them
     // (Revenue Master File mapping), else one Sales line for the whole net.
@@ -211,23 +291,35 @@ export class JournalAutoPostService {
       if (acctId) byAccount.set(acctId, ROUND((byAccount.get(acctId) || 0) + amt));
     }
     if (byAccount.size === 0) {
-      lines.push({ accountId: sales.id, debit: 0, credit: net, description: `Sales — ${invoiceNumber ?? ''}`.trim() });
+      creditLines.push({ accountId: sales.id, debit: 0, credit: toBase(net), description: `Sales — ${invoiceNumber ?? ''}`.trim(), ...fxFields(net) });
     } else {
       let posted = 0;
       for (const [acctId, amt] of byAccount) {
-        lines.push({ accountId: acctId, debit: 0, credit: amt, description: `Sales — ${invoiceNumber ?? ''}`.trim() });
+        creditLines.push({ accountId: acctId, debit: 0, credit: toBase(amt), description: `Sales — ${invoiceNumber ?? ''}`.trim(), ...fxFields(amt) });
         posted = ROUND(posted + amt);
       }
       // Any net not covered by a mapped account (unmapped lines / rounding) → Sales.
       const remainder = ROUND(net - posted);
       if (Math.abs(remainder) > 0.005) {
-        lines.push({ accountId: sales.id, debit: remainder < 0 ? -remainder : 0, credit: remainder > 0 ? remainder : 0, description: `Sales (unmapped) — ${invoiceNumber ?? ''}`.trim() });
+        creditLines.push({
+          accountId: sales.id,
+          debit: remainder < 0 ? toBase(-remainder) : 0,
+          credit: remainder > 0 ? toBase(remainder) : 0,
+          description: `Sales (unmapped) — ${invoiceNumber ?? ''}`.trim(),
+          ...fxFields(Math.abs(remainder)),
+        });
       }
     }
 
     if (tax > 0 && taxAccount) {
-      lines.push({ accountId: taxAccount.id, debit: 0, credit: tax, description: `Tax — ${invoiceNumber ?? ''}`.trim() });
+      creditLines.push({ accountId: taxAccount.id, debit: 0, credit: toBase(tax), description: `Tax — ${invoiceNumber ?? ''}`.trim(), ...fxFields(tax) });
     }
+
+    const baseGross = ROUND(creditLines.reduce((s, l) => s + l.credit - l.debit, 0));
+    const lines: Line[] = [
+      { accountId: debtor.id, debit: baseGross, credit: 0, description: `Invoice ${invoiceNumber ?? ''} — ${customerName ?? ''}`.trim(), ...fxFields(gross) },
+      ...creditLines,
+    ];
 
     // Perpetual-inventory cost side. Adds Dr COGS / Cr Inventory at cost so
     // the JE stays balanced and inventory drops out of the BS as stock leaves.
@@ -256,6 +348,7 @@ export class JournalAutoPostService {
           reference: invoiceNumber ?? undefined,
           description: `Auto-posted from invoice ${invoiceNumber ?? documentId}`,
           sourceDocumentId: documentId,
+          currency: fx.currency,
           lines,
         },
         args.userId,
@@ -337,6 +430,44 @@ export class JournalAutoPostService {
       `[postFromPayment] resolved accounts bank=${bank.code} debtor=${debtor.code}`,
     );
 
+    // Multi-currency settlement. `amount` is in the document's trading
+    // currency. AR is relieved at the invoice's HISTORICAL rate (so the
+    // control account clears exactly); the bank leg posts at today's standing
+    // rate; the difference is realised FX gain/loss.
+    const fx = await this.resolveFx(organizationId, documentId ?? undefined);
+    if (!fx) return null; // foreign doc, no locked rate
+    type Line = { accountId: string; debit: number; credit: number; description: string; foreignAmount?: number; exchangeRate?: number };
+    let lines: Line[];
+    if (!fx.isForeign) {
+      lines = [
+        { accountId: bank.id, debit: amount, credit: 0, description: `Receipt — ${paymentReference ?? ''}`.trim() },
+        { accountId: debtor.id, debit: 0, credit: amount, description: `Settle invoice — ${customerName ?? ''}`.trim() },
+      ];
+    } else {
+      const historicalRate = (documentId ? await this.historicalRateForDocument(organizationId, documentId) : null) ?? fx.rate;
+      const arBase = ROUND(amount * historicalRate);
+      const bankBase = ROUND(amount * fx.rate);
+      lines = [
+        { accountId: bank.id, debit: bankBase, credit: 0, description: `Receipt — ${paymentReference ?? ''}`.trim(), foreignAmount: amount, exchangeRate: fx.rate },
+        { accountId: debtor.id, debit: 0, credit: arBase, description: `Settle invoice — ${customerName ?? ''}`.trim(), foreignAmount: amount, exchangeRate: historicalRate },
+      ];
+      const diff = ROUND(bankBase - arBase); // >0: base received exceeds AR relieved → realised gain
+      if (Math.abs(diff) > 0.005) {
+        const fxAccount = await this.resolveFxGainLossAccount(organizationId, controls);
+        if (!fxAccount) {
+          this.logger.warn(`[postFromPayment] realised FX of ${diff} but no FX gain/loss account (controls.fxGainLoss/499/EX070); skipping post`);
+          return null;
+        }
+        lines.push({
+          accountId: fxAccount.id,
+          debit: diff < 0 ? -diff : 0,
+          credit: diff > 0 ? diff : 0,
+          description: `Realised FX ${diff > 0 ? 'gain' : 'loss'} — ${paymentReference ?? ''} (${fx.currency} @ ${historicalRate} → ${fx.rate})`.trim(),
+        });
+        this.logger.log(`[postFromPayment] realised FX ${diff > 0 ? 'gain' : 'loss'} ${Math.abs(diff)} → ${fxAccount.code}`);
+      }
+    }
+
     try {
       const created = await this.journal.create(
         organizationId,
@@ -347,10 +478,8 @@ export class JournalAutoPostService {
           description: `Auto-posted from payment ${paymentReference ?? paymentId} — ${customerName ?? ''}`.trim(),
           sourcePaymentId: paymentId,
           sourceDocumentId: documentId ?? undefined,
-          lines: [
-            { accountId: bank.id, debit: amount, credit: 0, description: `Receipt — ${paymentReference ?? ''}`.trim() },
-            { accountId: debtor.id, debit: 0, credit: amount, description: `Settle invoice — ${customerName ?? ''}`.trim() },
-          ],
+          currency: fx.currency,
+          lines,
         },
         args.userId,
         { autoPost: true },
@@ -406,13 +535,20 @@ export class JournalAutoPostService {
       return null;
     }
 
-    const lines = [
-      { accountId: sales.id, debit: net, credit: 0, description: `Credit note — ${documentNumber ?? ''}`.trim() },
+    // Multi-currency: convert to base at the standing rate (see postFromInvoice).
+    const fx = await this.resolveFx(organizationId, documentId);
+    if (!fx) return null;
+    const toBase = (n: number) => ROUND(n * fx.rate);
+    const fxFields = (foreign: number) => (fx.isForeign ? { foreignAmount: ROUND(foreign), exchangeRate: fx.rate } : {});
+
+    const lines: Array<{ accountId: string; debit: number; credit: number; description: string; foreignAmount?: number; exchangeRate?: number }> = [
+      { accountId: sales.id, debit: toBase(net), credit: 0, description: `Credit note — ${documentNumber ?? ''}`.trim(), ...fxFields(net) },
     ];
     if (tax > 0 && taxAccount) {
-      lines.push({ accountId: taxAccount.id, debit: tax, credit: 0, description: `Tax reversal — ${documentNumber ?? ''}`.trim() });
+      lines.push({ accountId: taxAccount.id, debit: toBase(tax), credit: 0, description: `Tax reversal — ${documentNumber ?? ''}`.trim(), ...fxFields(tax) });
     }
-    lines.push({ accountId: debtor.id, debit: 0, credit: gross, description: `Credit note — ${customerName ?? ''}`.trim() });
+    const baseGross = ROUND(lines.reduce((s, l) => s + l.debit, 0));
+    lines.push({ accountId: debtor.id, debit: 0, credit: baseGross, description: `Credit note — ${customerName ?? ''}`.trim(), ...fxFields(gross) });
 
     try {
       const created = await this.journal.create(
@@ -423,6 +559,7 @@ export class JournalAutoPostService {
           reference: documentNumber ?? undefined,
           description: `Auto-posted from credit note ${documentNumber ?? documentId}`,
           sourceDocumentId: documentId,
+          currency: fx.currency,
           lines,
         },
         args.userId,
@@ -520,13 +657,20 @@ export class JournalAutoPostService {
       return null;
     }
 
-    const lines = [
-      { accountId: debitAccount.id, debit: net, credit: 0, description: `${debitLabel} — ${documentNumber ?? ''}`.trim() },
+    // Multi-currency: convert to base at the standing rate (supplier currency).
+    const fx = await this.resolveFx(organizationId, documentId);
+    if (!fx) return null;
+    const toBase = (n: number) => ROUND(n * fx.rate);
+    const fxFields = (foreign: number) => (fx.isForeign ? { foreignAmount: ROUND(foreign), exchangeRate: fx.rate } : {});
+
+    const lines: Array<{ accountId: string; debit: number; credit: number; description: string; foreignAmount?: number; exchangeRate?: number }> = [
+      { accountId: debitAccount.id, debit: toBase(net), credit: 0, description: `${debitLabel} — ${documentNumber ?? ''}`.trim(), ...fxFields(net) },
     ];
     if (tax > 0 && taxAccount) {
-      lines.push({ accountId: taxAccount.id, debit: tax, credit: 0, description: `Input tax — ${documentNumber ?? ''}`.trim() });
+      lines.push({ accountId: taxAccount.id, debit: toBase(tax), credit: 0, description: `Input tax — ${documentNumber ?? ''}`.trim(), ...fxFields(tax) });
     }
-    lines.push({ accountId: creditor.id, debit: 0, credit: gross, description: `PO — ${supplierName ?? ''}`.trim() });
+    const baseGross = ROUND(lines.reduce((s, l) => s + l.debit, 0));
+    lines.push({ accountId: creditor.id, debit: 0, credit: baseGross, description: `PO — ${supplierName ?? ''}`.trim(), ...fxFields(gross) });
 
     try {
       const created = await this.journal.create(
@@ -537,6 +681,7 @@ export class JournalAutoPostService {
           reference: documentNumber ?? undefined,
           description: `Auto-posted from purchase order ${documentNumber ?? documentId}`,
           sourceDocumentId: documentId,
+          currency: fx.currency,
           lines,
         },
         args.userId,
@@ -590,13 +735,23 @@ export class JournalAutoPostService {
       return null;
     }
 
-    const lines = [
-      { accountId: creditor.id, debit: gross, credit: 0, description: `Purchase return — ${supplierName ?? ''}`.trim() },
-      { accountId: purchase.id, debit: 0, credit: net, description: `Purchase reversal — ${documentNumber ?? ''}`.trim() },
+    // Multi-currency: convert to base at the standing rate (supplier currency).
+    const fx = await this.resolveFx(organizationId, documentId);
+    if (!fx) return null;
+    const toBase = (n: number) => ROUND(n * fx.rate);
+    const fxFields = (foreign: number) => (fx.isForeign ? { foreignAmount: ROUND(foreign), exchangeRate: fx.rate } : {});
+
+    const creditLines: Array<{ accountId: string; debit: number; credit: number; description: string; foreignAmount?: number; exchangeRate?: number }> = [
+      { accountId: purchase.id, debit: 0, credit: toBase(net), description: `Purchase reversal — ${documentNumber ?? ''}`.trim(), ...fxFields(net) },
     ];
     if (tax > 0 && taxAccount) {
-      lines.push({ accountId: taxAccount.id, debit: 0, credit: tax, description: `Input tax reversal — ${documentNumber ?? ''}`.trim() });
+      creditLines.push({ accountId: taxAccount.id, debit: 0, credit: toBase(tax), description: `Input tax reversal — ${documentNumber ?? ''}`.trim(), ...fxFields(tax) });
     }
+    const baseGross = ROUND(creditLines.reduce((s, l) => s + l.credit, 0));
+    const lines = [
+      { accountId: creditor.id, debit: baseGross, credit: 0, description: `Purchase return — ${supplierName ?? ''}`.trim(), ...fxFields(gross) },
+      ...creditLines,
+    ];
 
     try {
       const created = await this.journal.create(
@@ -607,6 +762,7 @@ export class JournalAutoPostService {
           reference: documentNumber ?? undefined,
           description: `Auto-posted from purchase return ${documentNumber ?? documentId}`,
           sourceDocumentId: documentId,
+          currency: fx.currency,
           lines,
         },
         args.userId,

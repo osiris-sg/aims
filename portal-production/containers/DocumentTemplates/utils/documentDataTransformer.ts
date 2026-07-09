@@ -172,6 +172,12 @@ export function transformFormDataForBackend(
     result.contact = formData.documentInfo.contact;
   }
 
+  // Persist the referenced quotation's confirm date (Biofuel DO "Our Ref" —
+  // printed as " dated dd/mm/yyyy" after the quotation number).
+  if (formData.documentInfo?.referenceQuotationDate !== undefined) {
+    result.referenceQuotationDate = formData.documentInfo.referenceQuotationDate;
+  }
+
   // Handle GST registration number
   result.gstRegNo = formData.company?.gstRegNo || organization?.registrationNumber || '';
 
@@ -260,6 +266,11 @@ export function transformBackendDataForForm(
   // Rehydrate the contact display string (documentInfo.contact) if saved.
   if (backendData.contact !== undefined || backendData.documentInfo?.contact !== undefined) {
     result.documentInfo.contact = backendData.contact ?? backendData.documentInfo?.contact ?? '';
+  }
+
+  // Rehydrate the referenced quotation's confirm date (Biofuel DO "Our Ref").
+  if (backendData.referenceQuotationDate !== undefined) {
+    result.documentInfo.referenceQuotationDate = backendData.referenceQuotationDate;
   }
 
   // Ensure documentInfo has documentNumber from name field

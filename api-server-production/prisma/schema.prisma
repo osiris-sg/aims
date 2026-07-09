@@ -79,6 +79,7 @@ model Organization {
   journalEntries        JournalEntry[]
   recurringJournals     RecurringJournalTemplate[]
   costCenters           CostCenter[]
+  taxRates              TaxRate[]
   fixedAssets           FixedAsset[]
   budgets               Budget[]
   bills                 Bill[]
@@ -199,6 +200,10 @@ model Customer {
   phone           String?
   address         String?
   gstRegNo        String? // Customer's GST/Tax registration number
+  // Trading currency (one per customer code — a customer trading in two
+  // currencies gets two customer codes). Documents inherit this; GL converts
+  // to base at the accountant's standing rate (AccountingSetting.currencyRates).
+  currency        String            @default("SGD")
   salesmanId      String? // Reference to UserOrganization.id for the assigned salesman
   // Xero pull-sync: ContactID from Xero (null = not yet synced).
   xeroId          String?           @unique
@@ -233,6 +238,8 @@ model Supplier {
   phone          String?
   address        String?
   gstRegNo       String?
+  // Trading currency — same one-currency-per-code convention as Customer.
+  currency       String       @default("SGD")
   // Xero pull-sync: ContactID from Xero (suppliers are also Contacts in Xero).
   xeroId         String?      @unique
   xeroLastSyncAt DateTime?
@@ -1204,6 +1211,11 @@ model AccountingSetting {
   fiscalYearEndDay      Int?    @default(31)           // Financial Year End (e.g. 30 June → 30 / 6)
   fiscalYearEndMonth    Int?    @default(12)
   timeZone              String? @default("Asia/Singapore")
+  // Accountant-locked standing FX rates to BASE currency, e.g. {"USD": 1.35}
+  // = 1 USD → 1.35 SGD. Every foreign-currency document posts at the rate
+  // current when it's confirmed (stored on the doc + journal lines); the
+  // realised difference on settlement goes to the FX gain/loss account.
+  currencyRates         Json?
 
   // ---------- Accounts Definition ----------
   // Code-range windows (e.g. { sales: { from: "S0001", to: "S9999" }, ... })
@@ -1237,6 +1249,28 @@ model AccountingSetting {
   updatedAt DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// GST master file — the legacy 1-7 tax codes (rate updated 7% → 9%). Each
+// document line will reference a code; the GST F5 report classifies supplies
+// box-by-box from the code's direction + category.
+model TaxRate {
+  id             String   @id @default(uuid())
+  organizationId String
+  code           String // "1".."7" — legacy numeric codes kept for familiarity
+  name           String // e.g. "Output Tax", "Major Exporter - Goods Imported"
+  rate           Float // 9, 0
+  direction      String // OUTPUT | INPUT
+  category       String // STANDARD | ZERO_RATED | EXEMPT | MAJOR_EXPORTER
+  isActive       Boolean  @default(true)
+  isSystem       Boolean  @default(false) // seeded defaults; rate editable, code fixed
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, code])
+  @@index([organizationId, isActive])
 }
 
 // ============================================================
@@ -1696,6 +1730,40 @@ model RecurringJournalTemplate {
 
   @@index([organizationId, isActive])
   @@index([organizationId, nextRunDate])
+}
+
+// Recurring AR invoices — a saved invoice (customer + line items + template,
+// with {MONTH}/{PERIOD}/… text tokens) that auto-generates, confirms (posts to
+// the GL) and emails the customer on a schedule. Trigger is lazy (runDue on hub
+// load) like the recurring journals above.
+model RecurringInvoiceTemplate {
+  id                 String    @id @default(uuid())
+  organizationId     String
+  name               String // label, e.g. "China Railway monthly retainer"
+  customerId         String
+  documentTemplateId String // invoice template/variant to render
+  numberFormatId     String? // optional numbering variant
+  config             Json // invoice config (line items, notes) with text tokens
+  frequency          String // DAILY | WEEKLY | MONTHLY | QUARTERLY | YEARLY
+  nextRunDate        DateTime
+  endDate            DateTime? // optional stop date
+  autoSend           Boolean   @default(false) // draft-first: email only when explicitly enabled
+  isActive           Boolean   @default(true)
+  lastRunAt          DateTime?
+  lastRunDocumentId  String?
+  // Deployment linkage ("Confirm & make recurring" flow): generated invoices
+  // inherit these so they chain onto the same rental deployment; off-hiring
+  // the deployment deactivates the template.
+  projectId           String?
+  projectDeploymentId String?
+  sourceDocumentId    String? // the confirmed invoice this template was seeded from
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdBy          String?
+
+  @@index([organizationId, isActive])
+  @@index([organizationId, nextRunDate])
+  @@index([projectDeploymentId])
 }
 
 // Field-service maintenance report captured via the NFC scan PWA.

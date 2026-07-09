@@ -21,6 +21,12 @@ export class CreateSupplierDto {
   @IsString()
   gstRegNo?: string | null;
 
+  // Trading currency — one per supplier code; bills inherit it, GL converts at
+  // the standing rate.
+  @IsOptional()
+  @IsString()
+  currency?: string;
+
   @IsString()
   @IsOptional()
   createdAt?: Date | null;

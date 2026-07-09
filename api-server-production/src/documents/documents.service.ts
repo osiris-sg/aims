@@ -13,7 +13,15 @@ import { DocumentNumberingService } from '../document-numbering/document-numberi
 import { SendInvoiceEmailDto } from '../email/dto/send-invoice-email.dto';
 import { S3Service } from 'src/common/services/s3.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
+import { AuditService } from 'src/common/audit.service';
 import * as moment from 'moment';
+
+// Who performed a document action — derived from req.user in the controller.
+export interface DocumentActor {
+  id?: string;
+  name?: string;
+  email?: string;
+}
 
 @Injectable()
 export class DocumentsService {
@@ -28,7 +36,70 @@ export class DocumentsService {
     private ordersService: OrdersService,
     private documentTemplatesService: DocumentTemplatesService,
     private documentNumbering: DocumentNumberingService,
+    private auditService: AuditService,
   ) {}
+
+  // ── Document history (Xero-style "History and notes") ────────────────────
+  // Events are AuditLog rows keyed by resource='document' + resourceId (the
+  // admin audit page sees them too). details = { detail, changes? }.
+  // AuditService swallows its own errors, so history can never break a save.
+  private logDocumentEvent(opts: {
+    documentId: string;
+    organizationId: string;
+    action: 'CREATED' | 'EDITED' | 'APPROVED' | 'STATUS_CHANGED' | 'NOTE' | 'SENT' | 'DELETED';
+    detail: string;
+    documentName?: string;
+    actor?: DocumentActor;
+    changes?: string[];
+  }): Promise<void> {
+    return this.auditService.logAction({
+      userId: opts.actor?.id || 'system',
+      userName: opts.actor?.name,
+      userEmail: opts.actor?.email,
+      action: opts.action,
+      resource: 'document',
+      resourceId: opts.documentId,
+      resourceName: opts.documentName,
+      organizationId: opts.organizationId,
+      details: {
+        detail: opts.detail,
+        ...(opts.changes?.length ? { changes: opts.changes } : {}),
+      },
+    });
+  }
+
+  async getDocumentHistory(documentId: string, organizationId: string) {
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true },
+    });
+    if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+    return (this.prisma as any).auditLog.findMany({
+      where: { resource: 'document', resourceId: documentId, organizationId },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      select: { id: true, action: true, userName: true, userEmail: true, details: true, createdAt: true },
+    });
+  }
+
+  async addDocumentNote(documentId: string, organizationId: string, actor: DocumentActor, text: string) {
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true, name: true },
+    });
+    if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+    const trimmed = (text || '').trim();
+    if (!trimmed) throw new HttpException('Note text is required', HttpStatus.BAD_REQUEST);
+    await this.logDocumentEvent({
+      documentId,
+      organizationId,
+      action: 'NOTE',
+      detail: trimmed,
+      documentName: doc.name,
+      actor,
+    });
+    return { success: true };
+  }
 
   /**
    * Sync DocumentItem junction table for efficient item queries.
@@ -462,7 +533,7 @@ export class DocumentsService {
     return { released: true };
   }
 
-  async updateDocument(dto: UpdateDocumentDto, organizationId: string) {
+  async updateDocument(dto: UpdateDocumentDto, organizationId: string, actor?: DocumentActor) {
     try {
       const configAsPlainObject: any = dto.config ? dto.config : null;
       const id: any = dto.id ? dto.id : null;
@@ -945,19 +1016,13 @@ export class DocumentsService {
         }
       }
 
-      // Update project if projectId exists in config
-      if (projectId) {
-        await this.prisma.project.update({
-          where: {
-            id: projectId,
-            organizationId, // Ensure project belongs to the same organization
-          },
-          data: {
-            siteOfficeId: configAsPlainObject.deliveryTo || undefined,
-            startDate: dto.config?.startDate || undefined,
-          },
-        });
-      }
+      // REMOVED (2026-07-10): legacy block that wrote config.deliveryTo into
+      // project.siteOfficeId on every save of a project-linked doc. deliveryTo
+      // stopped being a site-office ID long ago — it's a free-text address —
+      // so this crashed with a Postgres uuid error the moment a project-linked
+      // DO had a Deliver-to filled (and would have silently corrupted the
+      // project's site office for UUID-shaped text). Projects manage their own
+      // siteOfficeId/startDate via the projects module.
 
       // If config.items exists and is an array, handle inventory/timeline logic (for DO, RDO, etc.)
       // Exclude invoice types (TI, TI2, INVOICE), quotations (QO1, QUOTATION, QT, QO), service reports (MSR), and Purchase Orders (PO) from inventory status validation
@@ -1047,9 +1112,10 @@ export class DocumentsService {
       }
 
       if (projectId && dto.config?.items?.length) {
-        // Validate that all items have inventoryItemId for project assignments
+        // Validate that all PHYSICAL items have inventoryItemId for project
+        // assignments — service rows have no unit to assign and are skipped.
         const itemsWithoutInventory = dto.config.items.filter(
-          (_item) => !_item.inventoryItemId || _item.inventoryItemId.trim() === ''
+          (_item) => !_item.isService && (!_item.inventoryItemId || _item.inventoryItemId.trim() === '')
         );
 
         if (itemsWithoutInventory.length > 0) {
@@ -1061,23 +1127,56 @@ export class DocumentsService {
 
         await Promise.all(
           dto.config.items.map(async (_item) => {
+            if (_item.isService || !_item.inventoryItemId) return;
+
+            // config.items[].inventoryItemId can hold EITHER an Inventory id
+            // (serialized unit, Mode A) OR an Asset id (Asset-Tracking-OFF /
+            // Products mode, Mode B) — resolve which before creating, else the
+            // Assignment_inventoryId_fkey constraint blows up the whole save.
+            const inventoryRow = await this.prisma.inventory.findUnique({
+              where: { id: _item.inventoryItemId },
+              select: { id: true },
+            });
+            const assetRow = inventoryRow
+              ? null
+              : await this.prisma.asset.findUnique({
+                  where: { id: _item.inventoryItemId },
+                  select: { id: true },
+                });
+
+            if (!inventoryRow && !assetRow) {
+              console.log(
+                `Item ${_item.inventoryItemId} not found in Inventory or Asset table, skipping project assignment`,
+              );
+              return;
+            }
+
+            const assignmentWhere: any = { projectId: projectId };
+            if (inventoryRow) {
+              assignmentWhere.inventoryId = _item.inventoryItemId;
+            } else {
+              assignmentWhere.assetId = _item.inventoryItemId;
+            }
 
             const existingAssignment = await this.prisma.assignment.findFirst({
-              where: {
-                projectId: projectId,
-                inventoryId: _item.inventoryItemId,
-              },
+              where: assignmentWhere,
             });
 
             if (!existingAssignment) {
-              await this.prisma.assignment.create({
-                data: {
-                  projectId: projectId,
-                  inventoryId: _item.inventoryItemId,
-                  startDate: dto.config.startDate || null,
-                  endDate: dto.config.endDate || null,
-                },
-              });
+              const assignmentData: any = {
+                projectId: projectId,
+                startDate: dto.config.startDate || null,
+                endDate: dto.config.endDate || null,
+              };
+              if (inventoryRow) {
+                assignmentData.inventoryId = _item.inventoryItemId;
+              } else {
+                // Asset-mode assignments carry the quantity (no serial per unit)
+                assignmentData.assetId = _item.inventoryItemId;
+                assignmentData.quantity = Number(_item.quantity) || 1;
+                assignmentData.documentId = updatedDocument.id;
+              }
+              await this.prisma.assignment.create({ data: assignmentData });
             } else if (existingAssignment.endDate) {
               // The unit was soft-closed on this project (e.g. moved off via
               // field-deploy) and is now re-added by this DO. Reopen it —
@@ -1108,6 +1207,65 @@ export class DocumentsService {
         console.log('⚪ XERO: Skipping invoice update - Document type:', dto.type, 'Status:', dto.status);
       }
 
+      // ── History: diff tracked header fields → one "Edited" entry per save
+      // (diff-gated, so autosaves that change nothing log nothing). Status
+      // transitions log as Approved / Status changed instead.
+      try {
+        const oldCfg: any = (existingDocument.config as any) || {};
+        const newCfg: any = configAsPlainObject || {};
+        const oldInfo: any = oldCfg.documentInfo || {};
+        const newInfo: any = newCfg.documentInfo || {};
+        const changes: string[] = [];
+        const track = (label: string, oldVal: any, newVal: any) => {
+          const a = oldVal ?? '';
+          const b = newVal ?? '';
+          if (String(a) !== String(b)) changes.push(`${label} changed from "${a}" to "${b}"`);
+        };
+        if (configAsPlainObject) {
+          track('Document number', oldInfo.documentNumber, newInfo.documentNumber);
+          track('Reference', oldInfo.referenceNo, newInfo.referenceNo);
+          track('Terms', oldInfo.paymentTerms, newInfo.paymentTerms);
+          // Dates compared day-precision: create seeds ISO timestamps while the
+          // form round-trips yyyy-mm-dd — full-string compare would log a fake
+          // change on the first save.
+          const day = (v: any) => (v ? String(v).slice(0, 10) : '');
+          if (day(oldInfo.date) !== day(newInfo.date)) {
+            changes.push(`Date changed from "${day(oldInfo.date)}" to "${day(newInfo.date)}"`);
+          }
+          const oldTotal = Number(oldInfo.nettTotal ?? 0);
+          const newTotal = Number(newInfo.nettTotal ?? 0);
+          if (oldTotal.toFixed(2) !== newTotal.toFixed(2)) {
+            changes.push(`Total changed from ${oldTotal.toFixed(2)} to ${newTotal.toFixed(2)}`);
+          }
+          track('Customer', oldCfg?.customer?.name, newCfg?.customer?.name);
+        }
+        const statusChanged = dto.status && dto.status !== existingDocument.status;
+        if (statusChanged || changes.length) {
+          // Cap entry size — AuditService drops oversized details wholesale.
+          const capped = changes.slice(0, 6).map((c) => (c.length > 220 ? `${c.slice(0, 220)}…` : c));
+          const docName =
+            newInfo.documentNumber || updatedDocument.name || existingDocument.name || updatedDocument.id;
+          const effectiveActor: DocumentActor = {
+            id: actor?.id,
+            name: actor?.name || (dto as any).savedBy || undefined,
+            email: actor?.email,
+          };
+          void this.logDocumentEvent({
+            documentId: updatedDocument.id,
+            organizationId,
+            action: statusChanged ? (dto.status === 'confirmed' ? 'APPROVED' : 'STATUS_CHANGED') : 'EDITED',
+            detail: statusChanged
+              ? `${docName} status changed from ${existingDocument.status} to ${dto.status}`
+              : capped.join('; '),
+            documentName: docName,
+            actor: effectiveActor,
+            changes: capped.length ? capped : undefined,
+          });
+        }
+      } catch (historyError) {
+        console.error('Document history logging failed (save unaffected):', historyError);
+      }
+
       // Sync DocumentItem junction table for efficient item queries
       await this.syncDocumentItems(updatedDocument.id, configAsPlainObject || existingDocument.config, organizationId);
 
@@ -1126,10 +1284,11 @@ export class DocumentsService {
     documentId: string,
     projectId: string | null,
     organizationId: string,
+    actor?: DocumentActor,
   ) {
     const doc = await this.prisma.document.findFirst({
       where: { id: documentId, organizationId },
-      select: { id: true, type: true, projectId: true },
+      select: { id: true, name: true, type: true, projectId: true },
     });
     if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
     // DO rows are stored as type 'DO'; some paths also use 'DELIVERY_ORDER'
@@ -1140,22 +1299,38 @@ export class DocumentsService {
         HttpStatus.BAD_REQUEST,
       );
     }
+    let projectName: string | null = null;
     if (projectId !== null) {
       const project = await this.prisma.project.findFirst({
         where: { id: projectId, organizationId },
-        select: { id: true },
+        select: { id: true, name: true },
       });
       if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
+      projectName = project.name;
     }
 
-    return this.prisma.document.update({
+    const updated = await this.prisma.document.update({
       where: { id: documentId },
       data: { projectId },
       select: { id: true, name: true, type: true, status: true, projectId: true, createdAt: true, updatedAt: true },
     });
+
+    // Only log actual link changes (the editor re-sends the same link on save).
+    if (doc.projectId !== projectId) {
+      void this.logDocumentEvent({
+        documentId,
+        organizationId,
+        action: 'EDITED',
+        detail: projectId ? `Linked to project "${projectName}"` : 'Unlinked from project',
+        documentName: updated.name || undefined,
+        actor,
+      });
+    }
+
+    return updated;
   }
 
-  async deleteDocument(id: string, organizationId: string) {
+  async deleteDocument(id: string, organizationId: string, actor?: DocumentActor) {
     try {
       // Transaction sub-ledger retired — nothing to clean up there. (Payments
       // referencing this document are handled by their own FK/flow.)
@@ -1167,12 +1342,40 @@ export class DocumentsService {
       }
 
       // Delete the document
-      return await this.prisma.document.delete({
+      const deleted = await this.prisma.document.delete({
         where: {
           id,
           organizationId, // Ensure user can only delete documents in their organization
         },
       });
+
+      // History rows outlive the document (AuditLog has no FK to Document).
+      void this.logDocumentEvent({
+        documentId: id,
+        organizationId,
+        action: 'DELETED',
+        detail: `${deleted.name || id} deleted`,
+        documentName: deleted.name || undefined,
+        actor,
+      });
+
+      // If this document held the LAST serial its number-format handed out
+      // (typical for the editor's auto-delete of untouched drafts), roll the
+      // counter back so the next document reuses the number.
+      try {
+        const released = await this.documentNumbering.releaseNumberIfLatest(
+          organizationId,
+          deleted.type,
+          deleted.name,
+        );
+        if (released) {
+          console.log(`[numbering] released serial of deleted document ${deleted.name}`);
+        }
+      } catch (e: any) {
+        console.warn('[numbering] serial release failed (delete unaffected):', e?.message);
+      }
+
+      return deleted;
     } catch (error) {
       throw new HttpException(`Delete failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
@@ -1301,6 +1504,7 @@ export class DocumentsService {
     organizationId: string,
     config: any = {},
     projectId?: string,
+    actor?: DocumentActor,
   ) {
     try {
       console.log('Creating basic document with template ID:', documentTemplateId, 'Type:', type, 'Organization ID:', organizationId, 'Config:', config, 'ProjectId:', projectId);
@@ -1502,6 +1706,15 @@ export class DocumentsService {
       // Sync DocumentItem junction table (in case config has items)
       await this.syncDocumentItems(newDocument.id, initialConfig, organizationId);
 
+      void this.logDocumentEvent({
+        documentId: newDocument.id,
+        organizationId,
+        action: 'CREATED',
+        detail: `${initialName} created`,
+        documentName: initialName,
+        actor,
+      });
+
       return newDocument;
     } catch (error) {
       throw new HttpException(`Basic document creation failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -1650,6 +1863,7 @@ export class DocumentsService {
     // Provenance stamp for config.source.extractedFrom — 'upload' (portal
     // upload button, the default) or 'email' (inbound email ingestion).
     extractedFrom: string = 'upload',
+    actor?: DocumentActor,
   ) {
     // Resolve template: explicit > active variant > default > newest.
     // The active/default flags reflect the variant the user normally picks via
@@ -1815,7 +2029,14 @@ export class DocumentsService {
     };
 
     // Create the draft via the existing helper so we get document numbering, defaults, etc.
-    const created = await this.createBasicDocument(templateId, type, organizationId, config);
+    const created = await this.createBasicDocument(
+      templateId,
+      type,
+      organizationId,
+      config,
+      undefined,
+      actor ?? { name: extractedFrom === 'email' ? 'Email ingestion' : 'AI extraction' },
+    );
 
     // If we matched a project (via PO), link it on the created document.
     if (matchedProjectId) {
@@ -1840,7 +2061,7 @@ export class DocumentsService {
     };
   }
 
-  async duplicateDocument(documentId: string, organizationId: string) {
+  async duplicateDocument(documentId: string, organizationId: string, actor?: DocumentActor) {
     try {
       const original = await this.prisma.document.findFirst({
         where: { id: documentId, organizationId },
@@ -1873,6 +2094,8 @@ export class DocumentsService {
         original.type,
         organizationId,
         duplicatedConfig,
+        undefined,
+        actor,
       );
     } catch (error) {
       if (error instanceof HttpException) throw error;
@@ -1883,7 +2106,7 @@ export class DocumentsService {
     }
   }
 
-  async createRevision(documentId: string, organizationId: string) {
+  async createRevision(documentId: string, organizationId: string, actor?: DocumentActor) {
     try {
       // Load the original document with its revisions
       const original = await this.prisma.document.findFirst({
@@ -1925,6 +2148,15 @@ export class DocumentsService {
 
       // Sync DocumentItem junction table (copies items from original)
       await this.syncDocumentItems(created.id, original.config, organizationId);
+
+      void this.logDocumentEvent({
+        documentId: created.id,
+        organizationId,
+        action: 'CREATED',
+        detail: `${nameWithRevision} created (revision of ${cleanedBaseName})`,
+        documentName: nameWithRevision,
+        actor,
+      });
 
       return created;
     } catch (error) {
@@ -1987,6 +2219,9 @@ export class DocumentsService {
           templateId: doc.documentTemplateId,
           status: doc.status,
           createdAt: doc.createdAt,
+          // Project link — the extract-from-quotation flows carry it onto the
+          // new DO/invoice (it lives on the row, not in config).
+          projectId: doc.projectId ?? null,
           config: doc.config, // Include config data for due dates and other fields
         };
       });
@@ -2727,6 +2962,7 @@ export class DocumentsService {
     documentId: string,
     emailDto: SendInvoiceEmailDto,
     organizationId: string,
+    actor?: DocumentActor,
   ) {
     try {
       // 1. Get the document
@@ -2876,6 +3112,21 @@ export class DocumentsService {
           emailResult.error || 'Failed to send email',
           HttpStatus.INTERNAL_SERVER_ERROR,
         );
+      }
+
+      {
+        const recipients = [emailDto.to, emailDto.cc, emailDto.bcc]
+          .flat()
+          .filter(Boolean)
+          .join(', ');
+        void this.logDocumentEvent({
+          documentId,
+          organizationId,
+          action: 'SENT',
+          detail: `${invoiceNumber} emailed${recipients ? ` to ${recipients}` : ''}`,
+          documentName: invoiceNumber,
+          actor,
+        });
       }
 
       // 7. Update document status to 'pending_payment' (email has been sent).
@@ -3271,7 +3522,8 @@ export class DocumentsService {
   async confirmDeliveryOrder(
     documentId: string,
     confirmData: { fromDONo: string; toDONo: string },
-    organizationId: string
+    organizationId: string,
+    actor?: DocumentActor,
   ) {
     try {
       console.log('📦 DO CONFIRM: Starting confirmation for document:', documentId);
@@ -3325,6 +3577,15 @@ export class DocumentsService {
 
       console.log('✅ DO CONFIRM: Document confirmed successfully');
 
+      void this.logDocumentEvent({
+        documentId,
+        organizationId,
+        action: 'APPROVED',
+        detail: `${updatedDocument.name || confirmData.toDONo} confirmed`,
+        documentName: updatedDocument.name || confirmData.toDONo,
+        actor,
+      });
+
       return {
         success: true,
         document: updatedDocument,
@@ -3347,7 +3608,8 @@ export class DocumentsService {
   async confirmInvoice(
     documentId: string,
     confirmData: { fromInvoiceNo: string; toInvoiceNo: string },
-    organizationId: string
+    organizationId: string,
+    actor?: DocumentActor,
   ) {
     try {
       console.log('🧾 INVOICE CONFIRM: Starting confirmation for document:', documentId);
@@ -3509,6 +3771,15 @@ export class DocumentsService {
       });
 
       console.log('✅ INVOICE CONFIRM: Document confirmed successfully');
+
+      void this.logDocumentEvent({
+        documentId,
+        organizationId,
+        action: 'APPROVED',
+        detail: `${updatedDocument.name || confirmData.toInvoiceNo} confirmed`,
+        documentName: updatedDocument.name || confirmData.toInvoiceNo,
+        actor,
+      });
 
       // Save price history (best-effort)
       try {

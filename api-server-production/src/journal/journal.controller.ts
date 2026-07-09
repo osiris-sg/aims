@@ -92,6 +92,55 @@ export class JournalController {
     });
   }
 
+  // Foreign Bank Listing — foreign-currency bank balances (base + foreign).
+  @Get('reports/foreign-banks')
+  @Permissions('journal:read')
+  @ApiQuery({ name: 'asOf', required: false })
+  foreignBankListing(@Req() req: RequestWithOrganization, @Query('asOf') asOf?: string) {
+    return this.service.foreignBankListing(requireOrgId(req), { asOf: asOf ? new Date(asOf) : undefined });
+  }
+
+  // Xero-style Journal Report — posted journals grouped with balanced lines.
+  @Get('reports/journal')
+  @Permissions('journal:read')
+  @ApiQuery({ name: 'startDate', required: false })
+  @ApiQuery({ name: 'endDate', required: false })
+  @ApiQuery({ name: 'orderBy', required: false, description: 'journalNumber | entryDate | postedAt' })
+  journalReport(@Req() req: RequestWithOrganization, @Query() q: any) {
+    return this.service.journalReport(requireOrgId(req), {
+      startDate: q.startDate ? new Date(q.startDate) : undefined,
+      endDate: q.endDate ? new Date(q.endDate) : undefined,
+      orderBy: q.orderBy,
+    });
+  }
+
+  // Xero-style Bank Summary — opening / received / spent / closing per bank account.
+  @Get('reports/bank-summary')
+  @Permissions('journal:read')
+  @ApiQuery({ name: 'startDate', required: false })
+  @ApiQuery({ name: 'endDate', required: false })
+  bankSummary(@Req() req: RequestWithOrganization, @Query() q: any) {
+    return this.service.bankSummary(requireOrgId(req), {
+      startDate: q.startDate ? new Date(q.startDate) : undefined,
+      endDate: q.endDate ? new Date(q.endDate) : undefined,
+    });
+  }
+
+  // Xero-style General Ledger Detail — every posted line in the period,
+  // grouped per account with running balance + net movement.
+  @Get('reports/gl-detail')
+  @Permissions('journal:read')
+  @ApiQuery({ name: 'startDate', required: false })
+  @ApiQuery({ name: 'endDate', required: false })
+  @ApiQuery({ name: 'accountIds', required: false, description: 'comma-separated ChartOfAccount ids' })
+  glDetail(@Req() req: RequestWithOrganization, @Query() q: any) {
+    return this.service.glDetailReport(requireOrgId(req), {
+      startDate: q.startDate ? new Date(q.startDate) : undefined,
+      endDate: q.endDate ? new Date(q.endDate) : undefined,
+      accountIds: q.accountIds ? String(q.accountIds).split(',').filter(Boolean) : undefined,
+    });
+  }
+
   @Get('reports/general-ledger/:accountId')
   @Permissions('journal:read')
   @ApiQuery({ name: 'startDate', required: false })

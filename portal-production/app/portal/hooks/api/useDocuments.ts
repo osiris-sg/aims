@@ -96,6 +96,10 @@ export function useGetDocumentsPaginated(options: PaginatedDocsOptions = {}) {
     },
     enabled: !!organizationId && enabled,
     placeholderData: (prev) => prev, // keep old rows visible while paging/sorting
+    // Always refetch when the list page mounts — otherwise navigating back from
+    // the editor within staleTime (60s) serves the cached list and a freshly
+    // created document doesn't appear until a manual refresh.
+    refetchOnMount: 'always',
   });
 
   return {
@@ -124,6 +128,7 @@ export function useGetDocumentStats(documentTypes?: string[]) {
       return response.success ? (response.data || { total: 0, thisMonth: 0, drafts: 0 }) : { total: 0, thisMonth: 0, drafts: 0 };
     },
     enabled: !!organizationId,
+    refetchOnMount: 'always', // stat cards must reflect creates/deletes made in the editor
   });
 
   return {
@@ -190,7 +195,12 @@ export function useCreateDocumentWithTimeline() {
       return response.data;
     },
     onSuccess: () => {
+      // 'documents' does NOT prefix-match 'documents-paginated'/'document-stats'
+      // (React Query matches array elements, not string prefixes) — invalidate
+      // the list-page keys explicitly.
       queryClient.invalidateQueries({ queryKey: ['documents'] });
+      queryClient.invalidateQueries({ queryKey: ['documents-paginated'] });
+      queryClient.invalidateQueries({ queryKey: ['document-stats'] });
     },
   });
 }
@@ -219,6 +229,8 @@ export function useUpdateDocument() {
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['documents'] });
+      queryClient.invalidateQueries({ queryKey: ['documents-paginated'] });
+      queryClient.invalidateQueries({ queryKey: ['document-stats'] });
       queryClient.invalidateQueries({ queryKey: ['document', variables.id] });
     },
   });
@@ -248,6 +260,8 @@ export function useDeleteDocument() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['documents'] });
+      queryClient.invalidateQueries({ queryKey: ['documents-paginated'] });
+      queryClient.invalidateQueries({ queryKey: ['document-stats'] });
     },
   });
 }

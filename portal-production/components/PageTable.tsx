@@ -171,7 +171,10 @@ export default function PageTable(props: Props) {
             backgroundColor: "background.paper",
             padding: 0,
             borderRadius: "8px",
-            border: `1px solid ${alpha(t.palette.outlineVariant, 0.1)}`,
+            // Solid visible outline — the header band is the same grey as the
+            // page background, so a near-transparent border made the table's
+            // top edge disappear into the page. CSS var flips for dark mode.
+            border: "1px solid var(--table-grid)",
             flex: 1,
           })}
         >

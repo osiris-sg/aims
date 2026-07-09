@@ -108,6 +108,45 @@ export class DocumentNumberingService {
     return DocumentNumberingService.format(format.pattern, claimed, when, DOC_CODE[format.documentType] || '');
   }
 
+  // Roll the counter back when a just-numbered document is deleted (e.g. the
+  // editor's auto-delete of untouched drafts) so the serial isn't burned.
+  // Best-effort: only releases when the deleted doc's number is EXACTLY the
+  // last one claimed by a format (re-verified inside the transaction, so a
+  // concurrent create can't be clobbered). Date-token patterns won't match
+  // across a date boundary — the serial stays burned then, which is safe.
+  async releaseNumberIfLatest(
+    organizationId: string,
+    documentType: string,
+    documentName: string,
+    when: Date = new Date(),
+  ): Promise<boolean> {
+    if (!documentName) return false;
+    const formats = await this.prisma.documentNumberFormat.findMany({
+      where: { organizationId, documentType },
+    });
+    for (const format of formats) {
+      const released = await this.prisma.$transaction(async (tx) => {
+        const f = await tx.documentNumberFormat.findUnique({ where: { id: format.id } });
+        if (!f || f.nextSerial <= 1) return false;
+        const lastSerial = f.nextSerial - 1;
+        const expected = DocumentNumberingService.format(
+          f.pattern,
+          lastSerial,
+          when,
+          DOC_CODE[f.documentType] || '',
+        );
+        if (expected !== documentName) return false;
+        await tx.documentNumberFormat.update({
+          where: { id: f.id },
+          data: { nextSerial: lastSerial },
+        });
+        return true;
+      });
+      if (released) return true;
+    }
+    return false;
+  }
+
   // ---------- CRUD ----------
   async list(organizationId: string, documentType?: string) {
     return this.prisma.documentNumberFormat.findMany({

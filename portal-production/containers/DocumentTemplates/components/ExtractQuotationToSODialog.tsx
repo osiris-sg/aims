@@ -8,9 +8,6 @@ import {
   DialogActions,
   Box,
   TextField,
-  RadioGroup,
-  FormControlLabel,
-  Radio,
   Checkbox,
   Table,
   TableBody,
@@ -67,8 +64,6 @@ interface ExtractQuotationToSODialogProps {
   selectedCustomerName?: string;
 }
 
-type SearchMode = "number" | "name";
-
 export default function ExtractQuotationToSODialog({
   open,
   onClose,
@@ -79,7 +74,6 @@ export default function ExtractQuotationToSODialog({
   selectedCustomerName,
 }: ExtractQuotationToSODialogProps) {
   const [searchTerm, setSearchTerm] = useState("");
-  const [searchMode, setSearchMode] = useState<SearchMode>("number");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Reset search and selection when dialog opens
@@ -136,24 +130,20 @@ export default function ExtractQuotationToSODialog({
       );
     }
 
-    // Apply search filter
+    // Free-text search across ALL columns (number, customer, reference)
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter((q) => {
-        switch (searchMode) {
-          case "number":
-            return q.name?.toLowerCase().includes(term);
-          case "name":
-            const customerName = q.config?.customerName || q.customer?.name || q.customerName || "";
-            return customerName.toLowerCase().includes(term);
-          default:
-            return true;
-        }
+        const customerName = q.config?.customerName || q.customer?.name || q.customerName || "";
+        const referenceNo = q.config?.referenceNo || q.referenceNo || "";
+        return [q.name, customerName, referenceNo].some((v) =>
+          String(v ?? "").toLowerCase().includes(term),
+        );
       });
     }
 
     return filtered;
-  }, [quotations, searchTerm, searchMode, selectedCustomerId]);
+  }, [quotations, searchTerm, selectedCustomerId]);
 
   // Toggle select all visible rows (only if all have the same customer)
   const handleToggleSelectAll = () => {
@@ -278,24 +268,6 @@ export default function ExtractQuotationToSODialog({
             }}
           />
 
-          {/* Search Mode Radio Buttons */}
-          <RadioGroup
-            row
-            value={searchMode}
-            onChange={(e) => setSearchMode(e.target.value as SearchMode)}
-          >
-            <FormControlLabel
-              value="number"
-              control={<Radio size="small" color="primary" />}
-              label="Search By Quotation Number"
-              sx={{ mr: 3 }}
-            />
-            <FormControlLabel
-              value="name"
-              control={<Radio size="small" color="primary" />}
-              label="Search By Name"
-            />
-          </RadioGroup>
         </Box>
 
         {/* Results Table */}

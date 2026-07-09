@@ -48,6 +48,12 @@ export class CreateCustomerDto {
   @IsString()
   gstRegNo?: string | null;
 
+  // Trading currency — one per customer code; docs inherit it, GL converts at
+  // the standing rate.
+  @IsOptional()
+  @IsString()
+  currency?: string;
+
   @IsOptional()
   @IsString()
   salesmanId?: string | null;

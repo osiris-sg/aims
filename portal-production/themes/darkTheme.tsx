@@ -290,7 +290,8 @@ const theme = createTheme({
           letterSpacing: "0.08em",
           color: tokens.onSurfaceVariant,
           backgroundColor: tokens.surfaceContainerHigh,
-          borderBottom: "none",
+          // Match the light theme's header underline (dark-mode shade)
+          borderBottom: "1px solid #3A4148",
         },
       },
     },

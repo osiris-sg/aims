@@ -25,4 +25,8 @@ export class UpdateSupplierDto extends PartialType(CreateSupplierDto) {
   @IsString()
   @IsOptional()
   gstRegNo?: string | null;
+
+  @IsString()
+  @IsOptional()
+  currency?: string;
 }

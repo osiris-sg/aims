@@ -7,9 +7,6 @@ import {
   DialogContent,
   Box,
   TextField,
-  RadioGroup,
-  FormControlLabel,
-  Radio,
   Table,
   TableBody,
   TableCell,
@@ -47,8 +44,6 @@ interface CustomerSelectDialogProps {
   customers: Customer[];
 }
 
-type SearchMode = "code" | "name";
-
 export default function CustomerSelectDialog({
   open,
   onClose,
@@ -56,9 +51,8 @@ export default function CustomerSelectDialog({
   customers,
 }: CustomerSelectDialogProps) {
   const [searchTerm, setSearchTerm] = useState("");
-  const [searchMode, setSearchMode] = useState<SearchMode>("code");
 
-  // Filter customers based on search term and mode
+  // Free-text search across ALL displayed columns (code, name, phone, email).
   const filteredCustomers = useMemo(() => {
     if (!searchTerm.trim()) {
       return customers;
@@ -66,17 +60,11 @@ export default function CustomerSelectDialog({
 
     const term = searchTerm.toLowerCase();
 
-    return customers.filter((customer) => {
-      switch (searchMode) {
-        case "code":
-          return customer.customerCode?.toLowerCase().includes(term);
-        case "name":
-          return customer.name?.toLowerCase().includes(term);
-        default:
-          return true;
-      }
-    });
-  }, [customers, searchTerm, searchMode]);
+    return customers.filter((customer) =>
+      [customer.customerCode, customer.name, customer.phone, customer.email]
+        .some((v) => String(v ?? "").toLowerCase().includes(term)),
+    );
+  }, [customers, searchTerm]);
 
   const handleRowClick = (customer: Customer) => {
     onSelectCustomer(customer);
@@ -155,24 +143,6 @@ export default function CustomerSelectDialog({
             }}
           />
 
-          {/* Search Mode Radio Buttons */}
-          <RadioGroup
-            row
-            value={searchMode}
-            onChange={(e) => setSearchMode(e.target.value as SearchMode)}
-          >
-            <FormControlLabel
-              value="code"
-              control={<Radio size="small" color="primary" />}
-              label="Search By Code"
-              sx={{ mr: 3 }}
-            />
-            <FormControlLabel
-              value="name"
-              control={<Radio size="small" color="primary" />}
-              label="Search By Name"
-            />
-          </RadioGroup>
         </Box>
 
         {/* Results Table */}

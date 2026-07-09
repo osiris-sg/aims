@@ -7,9 +7,6 @@ import {
   DialogContent,
   Box,
   TextField,
-  RadioGroup,
-  FormControlLabel,
-  Radio,
   Table,
   TableBody,
   TableCell,
@@ -40,8 +37,6 @@ interface SalesmanSelectDialogProps {
   salesmen: Salesman[];
 }
 
-type SearchMode = "code" | "name";
-
 export default function SalesmanSelectDialog({
   open,
   onClose,
@@ -49,7 +44,6 @@ export default function SalesmanSelectDialog({
   salesmen,
 }: SalesmanSelectDialogProps) {
   const [searchTerm, setSearchTerm] = useState("");
-  const [searchMode, setSearchMode] = useState<SearchMode>("code");
 
   // Extract salesmen array - handle both direct array and response object with data property
   const salesmenArray = useMemo(() => {
@@ -74,17 +68,12 @@ export default function SalesmanSelectDialog({
 
     const term = searchTerm.toLowerCase();
 
-    return salesmenList.filter((salesman: Salesman) => {
-      switch (searchMode) {
-        case "code":
-          return salesman.salesmanCode?.toLowerCase().includes(term);
-        case "name":
-          return salesman.name?.toLowerCase().includes(term);
-        default:
-          return true;
-      }
-    });
-  }, [salesmenArray, searchTerm, searchMode]);
+    // Free-text search across ALL displayed columns.
+    return salesmenList.filter((salesman: Salesman) =>
+      [salesman.salesmanCode, salesman.name, salesman.phone, salesman.email]
+        .some((v) => String(v ?? "").toLowerCase().includes(term)),
+    );
+  }, [salesmenArray, searchTerm]);
 
   // Ensure we have a valid count for display
   const totalCount = salesmenArray.length;
@@ -166,24 +155,6 @@ export default function SalesmanSelectDialog({
             }}
           />
 
-          {/* Search Mode Radio Buttons */}
-          <RadioGroup
-            row
-            value={searchMode}
-            onChange={(e) => setSearchMode(e.target.value as SearchMode)}
-          >
-            <FormControlLabel
-              value="code"
-              control={<Radio size="small" color="primary" />}
-              label="Search By Code"
-              sx={{ mr: 3 }}
-            />
-            <FormControlLabel
-              value="name"
-              control={<Radio size="small" color="primary" />}
-              label="Search By Name"
-            />
-          </RadioGroup>
         </Box>
 
         {/* Results Table */}

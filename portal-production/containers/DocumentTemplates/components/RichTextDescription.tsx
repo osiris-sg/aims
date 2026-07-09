@@ -23,6 +23,8 @@ interface RichTextDescriptionProps {
   placeholder?: string;
   pastDescriptions?: string[];
   loadingDescriptions?: boolean;
+  /** Table-cell mode: reads as plain text (no border/toolbar) until hovered/focused */
+  compact?: boolean;
 }
 
 export default function RichTextDescription({
@@ -30,6 +32,7 @@ export default function RichTextDescription({
   onChange,
   placeholder = "Enter description",
   pastDescriptions = [],
+  compact = false,
 }: RichTextDescriptionProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -147,18 +150,23 @@ export default function RichTextDescription({
         <Box
           sx={{
             border: "1px solid",
-            borderColor: "divider",
+            borderColor: compact ? "transparent" : "divider",
             borderRadius: "0.5rem",
             overflow: "hidden",
+            ...(compact && {
+              "&:hover": { borderColor: "divider" },
+              "&:focus-within .rtd-toolbar": { display: "flex" },
+            }),
             "&:focus-within": {
               borderColor: "primary.main",
             },
           }}
         >
-          {/* Toolbar */}
+          {/* Toolbar — in compact mode hidden until the editor has focus */}
           <Box
+            className="rtd-toolbar"
             sx={{
-              display: "flex",
+              display: compact ? "none" : "flex",
               alignItems: "center",
               gap: 0.25,
               px: 0.5,
@@ -196,11 +204,11 @@ export default function RichTextDescription({
             onFocus={handleFocus}
             data-placeholder={placeholder}
             sx={{
-              minHeight: 60,
+              minHeight: compact ? 32 : 60,
               maxHeight: 300,
               overflowY: "auto",
               px: 1,
-              py: 0.75,
+              py: compact ? 0.5 : 0.75,
               fontSize: "0.75rem",
               lineHeight: 1.6,
               fontWeight: 400,

@@ -142,6 +142,43 @@ export class ProjectsService {
 
       const totalDocs = await this.prisma.project.count({ where: whereClause });
 
+      // ── Per-row rollups for the CURRENT PAGE only (≤ limit projects), so the
+      // list can show deployments + money like the detail page without paying
+      // for all 200+ projects. Amounts live inside Document.config JSON, so
+      // they're bucketed in JS with the same readDocAmount the detail uses.
+      const pageIds = projects.map((p) => p.id);
+      const [deploymentGroups, activeDeploymentGroups, pageDocs] = await Promise.all([
+        this.prisma.projectDeployment.groupBy({
+          by: ['projectId'],
+          where: { projectId: { in: pageIds } },
+          _count: { _all: true },
+        }),
+        this.prisma.projectDeployment.groupBy({
+          by: ['projectId'],
+          where: { projectId: { in: pageIds }, status: 'ACTIVE' },
+          _count: { _all: true },
+        }),
+        this.prisma.document.findMany({
+          where: { projectId: { in: pageIds }, type: { in: [...DEPLOYMENT_INVOICE_TYPES] } },
+          select: {
+            projectId: true,
+            config: true,
+            payments: { select: { amount: true } },
+          },
+        }),
+      ]);
+      const deploymentCountByProject = new Map(deploymentGroups.map((g) => [g.projectId, g._count._all]));
+      const activeCountByProject = new Map(activeDeploymentGroups.map((g) => [g.projectId, g._count._all]));
+      const moneyByProject = new Map<string, { billed: number; paid: number }>();
+      for (const doc of pageDocs) {
+        if (!doc.projectId) continue;
+        const bucket = moneyByProject.get(doc.projectId) ?? { billed: 0, paid: 0 };
+        bucket.billed += readDocAmount(doc.config);
+        bucket.paid += doc.payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        moneyByProject.set(doc.projectId, bucket);
+      }
+      const r2 = (n: number) => Math.round(n * 100) / 100;
+
       return {
         docs: projects.map((project) => {
           const resolvedCustomer = project.customer ?? project.siteOffice?.customer ?? null;
@@ -149,9 +186,11 @@ export class ProjectsService {
             (s, d) => s + d._count.documentItems,
             0,
           );
+          const money = moneyByProject.get(project.id) ?? { billed: 0, paid: 0 };
           return {
             id: project.id,
             name: project.name,
+            projectNumber: project.projectNumber,
             siteOffice: project.siteOffice
               ? { id: project.siteOffice.id, name: project.siteOffice.name }
               : null,
@@ -162,6 +201,11 @@ export class ProjectsService {
             startDate: project.startDate,
             endDate: project.endDate,
             status: project.status,
+            deploymentCount: deploymentCountByProject.get(project.id) ?? 0,
+            activeDeployments: activeCountByProject.get(project.id) ?? 0,
+            billed: r2(money.billed),
+            paid: r2(money.paid),
+            outstanding: r2(money.billed - money.paid),
           };
         }),
         hasNextPage: skip + projects.length < totalDocs,
@@ -174,6 +218,38 @@ export class ProjectsService {
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
+  }
+
+  // Aggregate counts for the projects list-page stat cards.
+  async getProjectStats(organizationId: string) {
+    const now = new Date();
+    const soon = new Date(now);
+    soon.setDate(soon.getDate() + 10);
+    const [byStatus, endingSoon] = await Promise.all([
+      this.prisma.project.groupBy({
+        by: ['status'],
+        where: { organizationId },
+        _count: { _all: true },
+      }),
+      this.prisma.project.count({
+        where: {
+          organizationId,
+          status: { not: 'completed' },
+          endDate: { gte: now, lte: soon },
+        },
+      }),
+    ]);
+    const count = (status: string) => byStatus.find((g) => g.status === status)?._count._all ?? 0;
+    const pending = count('pending');
+    const ongoing = count('ongoing');
+    const completed = count('completed');
+    return {
+      total: pending + ongoing + completed,
+      pending,
+      ongoing,
+      completed,
+      endingSoon,
+    };
   }
 
   async getProjectById(id: string, organizationId: string) {
@@ -817,10 +893,26 @@ export class ProjectsService {
   }
 
   async offHireDeployment(deploymentId: string, organizationId: string, offHiredDate?: string) {
-    return this.updateDeployment(deploymentId, organizationId, {
+    const updated = await this.updateDeployment(deploymentId, organizationId, {
       offHiredDate: offHiredDate ?? new Date().toISOString(),
       status: DeploymentStatus.OFF_HIRED,
     });
+
+    // Off-hire ends the rental — stop any recurring invoice templates chained
+    // to this deployment so billing doesn't continue past the hire period.
+    // Surfaced to the caller so the UI can toast what was paused.
+    const linkedTemplates = await this.prisma.recurringInvoiceTemplate.findMany({
+      where: { organizationId, projectDeploymentId: deploymentId, isActive: true },
+      select: { id: true, name: true },
+    });
+    if (linkedTemplates.length > 0) {
+      await this.prisma.recurringInvoiceTemplate.updateMany({
+        where: { id: { in: linkedTemplates.map((t) => t.id) } },
+        data: { isActive: false },
+      });
+    }
+
+    return { ...updated, deactivatedRecurringTemplates: linkedTemplates };
   }
 
   async addAssignmentsToProject(projectId: string, assignments: any[], organizationId: string) {

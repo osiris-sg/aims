@@ -81,12 +81,31 @@ export default function Layout(props: Props) {
             >
               <PortalChrome isDocumentPage={isDocumentPage} />
 
-              <Box sx={{ flexGrow: 1, height: "100%", width: "100%", display: "flex", flexDirection: "column" }}>
+              <Box
+                sx={{
+                  flexGrow: 1,
+                  width: "100%",
+                  display: "flex",
+                  flexDirection: "column",
+                  // Document editor pages are viewport-locked (Xero-style):
+                  // this column owns exactly one viewport height and the
+                  // editor's inner regions scroll — the page itself never
+                  // scrolls, whatever the monitor size. Other pages keep
+                  // normal page scroll.
+                  height: isDocumentPage ? "100dvh" : "100%",
+                  // overflow auto (not hidden): if a very short screen can't fit
+                  // the editor's minimum chrome, it scrolls instead of trapping
+                  // controls below the fold.
+                  ...(isDocumentPage && { minHeight: 0, overflow: "auto" }),
+                }}
+              >
                 {/* Admin-only chrome — both components self-hide for non-admins. */}
                 <ViewingAsBanner />
-                <Box sx={{ display: "flex", justifyContent: "flex-end", px: 2, py: 1 }}>
-                  <OrgSwitcher />
-                </Box>
+                {/* OrgSwitcher owns its own padded row and returns null for
+                    non-admins — no empty strip on any page. Hidden entirely on
+                    document pages (viewport-locked editor); admins switch org
+                    from list pages, ViewingAsBanner still shows everywhere. */}
+                {!isDocumentPage && <OrgSwitcher />}
                 {children}
               </Box>
               <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick rtl={false} pauseOnFocusLoss draggable pauseOnHover theme={mode} />

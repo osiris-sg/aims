@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
+import { AuditService } from '../common/audit.service';
 import { CustomersService } from '../customers/customers.service';
 import { IngestBatchDto, IngestClient, IngestInvoice } from './dto/ingest-batch.dto';
 
@@ -39,6 +40,7 @@ export class IngestionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly customers: CustomersService,
+    private readonly audit: AuditService,
   ) {}
 
   async ingestBatch(payload: IngestBatchDto) {
@@ -302,6 +304,19 @@ export class IngestionService {
         config,
       },
       select: { id: true },
+    });
+
+    // Document-history "Created" entry — same resource/resourceId convention as
+    // DocumentsService.logDocumentEvent, attributed to the ingestion pipeline.
+    void this.audit.logAction({
+      userId: 'system',
+      userName: 'JSON ingestion',
+      action: 'CREATED',
+      resource: 'document',
+      resourceId: doc.id,
+      resourceName: inv.invoiceNumber,
+      organizationId,
+      details: { detail: `${inv.invoiceNumber} created (weighbridge ingestion)` },
     });
 
     return {

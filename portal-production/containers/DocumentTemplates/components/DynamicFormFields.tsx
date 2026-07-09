@@ -44,6 +44,10 @@ interface CustomerCodeFieldProps {
   inputSx: any;
   fieldName?: string; // e.g., "customer" or "documentInfo.supplierCode" - defaults to "customer"
   storeMode?: 'object' | 'code'; // 'object' stores full customer object, 'code' stores just the code string
+  // Attention (Contact Person / No. / Email) trio: rendered here only when the
+  // header has no Contact row to host it (e.g. quotations filter out
+  // documentInfo.contact); invoices render the trio in the Contact row instead.
+  showAttentionFields?: boolean;
 }
 
 function CustomerCodeField({
@@ -53,7 +57,8 @@ function CustomerCodeField({
   onOpenDialog,
   inputSx,
   fieldName = 'customer',
-  storeMode = 'object'
+  storeMode = 'object',
+  showAttentionFields = true,
 }: CustomerCodeFieldProps) {
   // Helper to get nested value
   const getNestedVal = (obj: any, path: string) => {
@@ -286,6 +291,7 @@ function CustomerCodeField({
               per-quote. Bound to formData.attention.*; saved to doc.config.attention
               only — editing here never writes back to the CustomerContact/customer
               record (setFormData only mutates form/document state). */}
+          {showAttentionFields && (
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, width: '100%', mt: 0.25 }}>
             <TextField
               label="Contact Person"
@@ -309,6 +315,7 @@ function CustomerCodeField({
               sx={{ ...inputSx, flex: 1, minWidth: 160 }}
             />
           </Box>
+          )}
 
           <Dialog
             open={contactDialogOpen}
@@ -471,6 +478,13 @@ interface DynamicFormFieldsProps {
   formData: any;
   setFormData: (data: any) => void;
   hideDiscount?: boolean; // Route Order PO: hide the document-level Disc field
+  hiddenFields?: string[]; // fieldNames to omit entirely (e.g. billTo/deliveryTo on invoices)
+  // Extra row rendered LAST inside the left field column, styled like the
+  // other rows (label cell + content) — e.g. the quotation Project picker.
+  appendRow?: { label: string; content: React.ReactNode };
+  // Replace a field's input with custom content (label cell + row position
+  // kept) — e.g. Biofuel's DO Reference No quotation selector.
+  customInputs?: Record<string, React.ReactNode>;
   customers?: any[];
   suppliers?: any[];
   projects?: any[];
@@ -502,7 +516,42 @@ const YES_NO = [
 // Compact input styles - blend into the row, subtle focus state
 const fieldFontFamily = "'Helvetica Neue', Arial, sans-serif";
 
-const inputSx = {
+// Xero-style field border: 1px medium grey at rest (not near-black),
+// slightly darker on hover. Focus still snaps to primary. CSS vars so the
+// values flip for dark mode (defined in app/globals.css under [data-theme]).
+const fieldBorderColor = 'var(--field-border)';
+const fieldBorderHoverColor = 'var(--field-border-hover)';
+
+// Legacy AIMS invoice-screen arrangement: header fields stack in ONE column in
+// this exact order; anything not listed follows in template order, and
+// Contact + Terms share the last row (see renderContactTermsRow).
+const HEADER_FIELD_ORDER = [
+  'documentInfo.documentNumber',
+  'documentInfo.date',
+  'customer',
+  'documentInfo.salesPerson',
+  'salesMobile',
+  'documentInfo.poNo',
+  'documentInfo.doNo',
+  'documentInfo.issueBy',
+  'documentInfo.referenceNo',
+];
+
+// Per-field input width caps so inputs match the legacy screen's proportions
+// instead of stretching to the full row. Unlisted fields keep full width.
+const HEADER_INPUT_MAX_WIDTH: Record<string, number> = {
+  'documentInfo.documentNumber': 300,
+  'documentInfo.date': 180,
+  'documentInfo.salesPerson': 300,
+  'salesMobile': 300,
+  'documentInfo.poNo': 420,
+  'documentInfo.doNo': 420,
+  'documentInfo.currency': 180,
+};
+
+// Exported so sibling components (e.g. the quotation Project picker row in
+// TabbedDocumentCreator) can render inputs that blend with the header fields.
+export const headerInputSx = {
   '& .MuiInputBase-root': {
     height: 28,
     fontSize: '13px',
@@ -510,11 +559,11 @@ const inputSx = {
     backgroundColor: 'background.paper',
     borderRadius: '4px',
     border: '1px solid',
-    borderColor: 'text.primary',
+    borderColor: fieldBorderColor,
     transition: 'border-color 140ms ease',
   },
   '& .MuiInputBase-root:hover': {
-    borderColor: 'text.primary',
+    borderColor: fieldBorderHoverColor,
   },
   '& .MuiInputBase-root.Mui-focused': {
     borderColor: 'primary.main',
@@ -532,6 +581,7 @@ const inputSx = {
   '& input[type=number]::-webkit-outer-spin-button': { WebkitAppearance: 'none', margin: 0 },
   '& input[type=number]::-webkit-inner-spin-button': { WebkitAppearance: 'none', margin: 0 },
 };
+const inputSx = headerInputSx;
 
 const selectSx = {
   height: 28,
@@ -540,14 +590,22 @@ const selectSx = {
   backgroundColor: 'background.paper',
   borderRadius: '4px',
   border: '1px solid',
-  borderColor: 'text.primary',
+  borderColor: fieldBorderColor,
   transition: 'border-color 140ms ease',
-  '&:hover': { borderColor: 'text.primary' },
+  '&:hover': { borderColor: fieldBorderHoverColor },
   '&.Mui-focused': { borderColor: 'primary.main' },
   '& .MuiSelect-select': {
     py: 0.25,
+    pl: 1,
+    // Leave just enough room for the icon — MUI's default 32px right padding
+    // truncates single-char values ("%", "Y") in the 56px-wide summary selects.
+    pr: '20px !important',
     fontSize: '13px',
     fontFamily: fieldFontFamily,
+  },
+  '& .MuiSelect-icon': {
+    right: 2,
+    fontSize: 18,
   },
   '& .MuiInputBase-input': {
     fontSize: '13px',
@@ -563,6 +621,9 @@ export default function DynamicFormFields({
   formData,
   setFormData,
   hideDiscount = false,
+  hiddenFields = [],
+  appendRow,
+  customInputs,
   customers = [],
   suppliers = [],
   projects = [],
@@ -614,6 +675,7 @@ export default function DynamicFormFields({
             setFormData={setFormData}
             onOpenDialog={onOpenCustomerDialog}
             inputSx={inputSx}
+            showAttentionFields={!pairContactTerms}
           />
         );
 
@@ -698,22 +760,33 @@ export default function DynamicFormFields({
             onChange={(e) => setFormData(setNestedValue(formData, field.fieldName, e.target.value))}
             size="small"
             multiline
-            rows={2}
+            // One line at rest, grows as the user types (capped so a long
+            // address can't blow the header card open).
+            minRows={1}
+            maxRows={6}
             sx={{
               ...inputSx,
               flex: 1,
               width: '100%',
               minWidth: 200,
               '& .MuiInputBase-root': {
-                // Reset the fixed 28px height from inputSx — textareas need to
-                // grow with the `rows` prop instead of being clipped.
+                // Auto height so the field grows with content, but padded so
+                // ONE line matches the 28px single-line fields exactly.
+                // (Multiline MUI roots carry their own padding — zero the inner
+                // textarea's below or the two stack up into a tall box.)
                 height: 'auto',
+                minHeight: 28,
+                padding: '4px 8px',
                 fontSize: '13px',
+                lineHeight: 1.5,
                 fontFamily: fieldFontFamily,
                 backgroundColor: 'background.paper',
                 borderRadius: '4px',
                 border: '1px solid',
-                borderColor: 'text.primary',
+                borderColor: fieldBorderColor,
+              },
+              '& .MuiInputBase-input': {
+                padding: 0,
               },
             }}
           />
@@ -726,7 +799,22 @@ export default function DynamicFormFields({
             value={value ? new Date(value).toISOString().split('T')[0] : ''}
             onChange={(e) => setFormData(setNestedValue(formData, field.fieldName, e.target.value))}
             size="small"
-            sx={{ ...inputSx, flex: 1, minWidth: 130 }}
+            sx={{
+              ...inputSx,
+              flex: 1,
+              minWidth: 130,
+              // Calendar icon on the LEFT (matching the search adornments):
+              // absolute-position the native webkit picker indicator and pad
+              // the date text past it. (Separate selector from inputSx's
+              // .MuiInputBase-root key so we don't clobber its styles.)
+              '& .MuiOutlinedInput-root': { position: 'relative' },
+              '& input[type=date]': { paddingLeft: '30px' },
+              '& input[type=date]::-webkit-calendar-picker-indicator': {
+                position: 'absolute',
+                left: '6px',
+                padding: 0,
+              },
+            }}
           />
         );
 
@@ -754,6 +842,26 @@ export default function DynamicFormFields({
     }
   };
 
+  const leftLabelSx = {
+    width: 150,
+    flexShrink: 0,
+    whiteSpace: 'nowrap' as const,
+    fontSize: '13px',
+    fontWeight: 700,
+    fontFamily: fieldFontFamily,
+    letterSpacing: 0,
+    textTransform: 'none' as const,
+    color: 'text.primary',
+    py: 0.75,
+    px: 1.25,
+    bgcolor: 'surfaceTones.low',
+    borderRight: 1,
+    borderColor: 'divider',
+    alignSelf: 'stretch',
+    display: 'flex',
+    alignItems: 'center',
+  };
+
   // Render a single row with label on left
   const renderRow = (field: FieldDefinition) => (
     <Box
@@ -766,28 +874,9 @@ export default function DynamicFormFields({
         borderColor: 'divider',
       }}
     >
-      <Typography
-        sx={{
-          width: 150,
-          flexShrink: 0,
-          whiteSpace: 'nowrap',
-          fontSize: '13px',
-          fontWeight: 700,
-          fontFamily: fieldFontFamily,
-          letterSpacing: 0,
-          textTransform: 'none',
-          color: 'text.primary',
-          py: 0.75,
-          px: 1.25,
-          bgcolor: 'surfaceTones.low',
-          borderRight: 1,
-          borderColor: 'divider',
-        }}
-      >
-        {field.displayLabel}
-      </Typography>
-      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-        {renderInput(field)}
+      <Typography sx={leftLabelSx}>{field.displayLabel}</Typography>
+      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', maxWidth: HEADER_INPUT_MAX_WIDTH[field.fieldName] }}>
+        {customInputs?.[field.fieldName] ?? renderInput(field)}
       </Box>
     </Box>
   );
@@ -796,6 +885,7 @@ export default function DynamicFormFields({
   const rightRowSx = {
     display: 'flex',
     alignItems: 'center',
+    gap: 0.75,
     borderBottom: 1,
     borderColor: 'divider',
     '&:last-child': {
@@ -813,7 +903,7 @@ export default function DynamicFormFields({
     letterSpacing: 0,
     textTransform: 'none' as const,
     color: 'text.primary',
-    textAlign: 'right' as const,
+    textAlign: 'left' as const,
     py: 0.75,
     px: 1.25,
     bgcolor: 'surfaceTones.low',
@@ -918,13 +1008,17 @@ export default function DynamicFormFields({
       <Box key={field.fieldName} sx={rightRowSx}>
         <Typography sx={rightLabelSx}>{field.displayLabel}</Typography>
         {field.fieldName === 'documentInfo.rate' ? (
-          <TextField
-            type="number"
-            value={value}
-            onChange={(e) => setFormData(setNestedValue(formData, field.fieldName, parseFloat(e.target.value) || 0))}
-            size="small"
-            sx={{ ...inputSx, width: 80 }}
-          />
+          <>
+            <TextField
+              type="number"
+              value={value}
+              onChange={(e) => setFormData(setNestedValue(formData, field.fieldName, parseFloat(e.target.value) || 0))}
+              size="small"
+              sx={{ ...inputSx, width: 80 }}
+            />
+            {/* Push the currency code to the right edge, in line with the other rows */}
+            <Box sx={{ flex: 1 }} />
+          </>
         ) : (
           <Typography sx={{ flex: 1, textAlign: 'right', fontSize: '13px', px: 1 }}>
             {Number(value).toFixed(2)}
@@ -935,11 +1029,93 @@ export default function DynamicFormFields({
     );
   };
 
-  // Multi-line / long-text fields need the full row width — everything else
-  // packs into a 2-column grid so the header takes roughly half the height.
-  const isFullWidthField = (field: FieldDefinition) => field.fieldType === 'textarea';
-  const gridFields = leftFields.filter((f) => !isFullWidthField(f));
-  const fullWidthFields = leftFields.filter(isFullWidthField);
+  // Single-column legacy arrangement: listed fields first in their fixed
+  // order, everything else after in template order (stable sort).
+  const visibleLeftFields = leftFields.filter((f) => !hiddenFields.includes(f.fieldName));
+  const orderOf = (f: FieldDefinition) => {
+    const i = HEADER_FIELD_ORDER.indexOf(f.fieldName);
+    return i === -1 ? HEADER_FIELD_ORDER.length : i;
+  };
+  const orderedFields = [...visibleLeftFields].sort((a, b) => orderOf(a) - orderOf(b));
+
+  // Contact + Terms share the final row (legacy layout) when both exist.
+  const contactField = orderedFields.find((f) => f.fieldName === 'documentInfo.contact' || f.fieldName === 'contact');
+  const termsField = orderedFields.find((f) => f.fieldName === 'documentInfo.paymentTerms' || f.fieldName === 'paymentTerms');
+  const pairContactTerms = Boolean(contactField && termsField);
+
+  // Contact row hosts the Attention trio (Contact Person / No. / Email) —
+  // same formData.attention.* bindings the POC "Attn To" dropdown fills.
+  // Name/phone edits also re-derive documentInfo.contact ("name - phone")
+  // so the printout keeps resolving as before.
+  const setAttention = (key: 'name' | 'phoneNumber' | 'email', val: string) => {
+    let next = setNestedValue(formData, `attention.${key}`, val);
+    if (key !== 'email') {
+      const name = key === 'name' ? val : getNestedValue(next, 'attention.name') || '';
+      const phone = key === 'phoneNumber' ? val : getNestedValue(next, 'attention.phoneNumber') || '';
+      next = setNestedValue(
+        next,
+        'documentInfo.contact',
+        [name, phone].filter((v) => String(v).trim() !== '').join(' - '),
+      );
+      // DO templates store/print contactName + contactNumber (preview renders
+      // "Attn: Name (number)") — keep them in sync so printouts stay exact.
+      if (key === 'name') next = setNestedValue(next, 'documentInfo.contactName', val);
+      if (key === 'phoneNumber') next = setNestedValue(next, 'documentInfo.contactNumber', val);
+    }
+    setFormData(next);
+  };
+
+  const attnName = getNestedValue(formData, 'attention.name') || '';
+  const attnPhone = getNestedValue(formData, 'attention.phoneNumber') || '';
+  const attnEmail = getNestedValue(formData, 'attention.email') || '';
+  // Legacy fallbacks until the user types over them: DOs stored the pair in
+  // documentInfo.contactName/contactNumber; other docs a bare phone number in
+  // documentInfo.contact.
+  const attnNameDisplay = attnName || getNestedValue(formData, 'documentInfo.contactName') || '';
+  const attnPhoneDisplay =
+    attnPhone ||
+    getNestedValue(formData, 'documentInfo.contactNumber') ||
+    (!attnName && !attnEmail ? getNestedValue(formData, 'documentInfo.contact') || '' : '');
+
+  const renderContactTermsRow = () => (
+    <Box
+      key="contact-terms"
+      sx={{ display: 'flex', alignItems: 'center', gap: 1, borderBottom: 1, borderColor: 'divider' }}
+    >
+      <Typography sx={leftLabelSx}>{contactField!.displayLabel}</Typography>
+      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+        {/* Placeholders, not floating labels — inputSx strips the notched
+            outline, so a shrunk MUI label renders detached above the box. */}
+        <TextField
+          placeholder="Contact Person"
+          size="small"
+          value={attnNameDisplay}
+          onChange={(e) => setAttention('name', e.target.value)}
+          sx={{ ...inputSx, flex: 1.2, maxWidth: 240 }}
+        />
+        <TextField
+          placeholder="Contact No."
+          size="small"
+          value={attnPhoneDisplay}
+          onChange={(e) => setAttention('phoneNumber', e.target.value)}
+          sx={{ ...inputSx, flex: 1, maxWidth: 200 }}
+        />
+        <TextField
+          placeholder="Email"
+          size="small"
+          value={attnEmail}
+          onChange={(e) => setAttention('email', e.target.value)}
+          sx={{ ...inputSx, flex: 1.2, maxWidth: 280 }}
+        />
+        <Typography sx={{ ...leftLabelSx, width: 90, ml: 'auto', borderLeft: 1 }}>
+          {termsField!.displayLabel}
+        </Typography>
+        <Box sx={{ width: 240, display: 'flex', alignItems: 'center' }}>
+          {renderInput(termsField!)}
+        </Box>
+      </Box>
+    </Box>
+  );
 
   return (
     <Box sx={{ display: 'flex', gap: 2 }}>
@@ -952,24 +1128,28 @@ export default function DynamicFormFields({
           borderRadius: 1.25,
           overflow: 'hidden',
           bgcolor: 'background.paper',
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-          columnGap: 0,
-          rowGap: 0,
+          '& > div:last-of-type': { borderBottom: 'none' },
         }}
       >
-        {gridFields.map((field) => renderRow(field))}
-        {fullWidthFields.map((field) => (
-          <Box key={`fw-${field.fieldName}`} sx={{ gridColumn: { xs: '1', md: 'span 2' } }}>
-            {renderRow(field)}
+        {orderedFields.map((field) => {
+          if (pairContactTerms && (field === contactField || field === termsField)) return null;
+          return renderRow(field);
+        })}
+        {pairContactTerms && renderContactTermsRow()}
+        {appendRow && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, borderBottom: 1, borderColor: 'divider' }}>
+            <Typography sx={leftLabelSx}>{appendRow.label}</Typography>
+            <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', gap: 1, py: 0.25 }}>
+              {appendRow.content}
+            </Box>
           </Box>
-        ))}
+        )}
       </Box>
 
       {/* Right Column - Summary/Totals */}
       <Box
         sx={{
-          minWidth: 260,
+          minWidth: 300,
           border: 1,
           borderColor: 'divider',
           borderRadius: 1.25,

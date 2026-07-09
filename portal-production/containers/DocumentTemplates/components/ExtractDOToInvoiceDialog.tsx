@@ -8,9 +8,6 @@ import {
   DialogActions,
   Box,
   TextField,
-  RadioGroup,
-  FormControlLabel,
-  Radio,
   Checkbox,
   Table,
   TableBody,
@@ -66,8 +63,6 @@ interface ExtractDOToInvoiceDialogProps {
   selectedCustomerName?: string;
 }
 
-type SearchMode = "number" | "name";
-
 export default function ExtractDOToInvoiceDialog({
   open,
   onClose,
@@ -78,7 +73,6 @@ export default function ExtractDOToInvoiceDialog({
   selectedCustomerName,
 }: ExtractDOToInvoiceDialogProps) {
   const [searchTerm, setSearchTerm] = useState("");
-  const [searchMode, setSearchMode] = useState<SearchMode>("number");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Reset search and selection when dialog opens
@@ -135,24 +129,20 @@ export default function ExtractDOToInvoiceDialog({
       );
     }
 
-    // Apply search filter
+    // Free-text search across ALL columns (number, customer, reference)
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter((d) => {
-        switch (searchMode) {
-          case "number":
-            return d.name?.toLowerCase().includes(term);
-          case "name":
-            const customerName = d.config?.customerName || "";
-            return customerName.toLowerCase().includes(term);
-          default:
-            return true;
-        }
+        const customerName = d.config?.customerName || "";
+        const referenceNo = d.config?.referenceNo || "";
+        return [d.name, customerName, referenceNo].some((v) =>
+          String(v ?? "").toLowerCase().includes(term),
+        );
       });
     }
 
     return filtered;
-  }, [deliveryOrders, searchTerm, searchMode, selectedCustomerId]);
+  }, [deliveryOrders, searchTerm, selectedCustomerId]);
 
   // Toggle select all visible rows (only if all have the same customer)
   const handleToggleSelectAll = () => {
@@ -277,24 +267,6 @@ export default function ExtractDOToInvoiceDialog({
             }}
           />
 
-          {/* Search Mode Radio Buttons */}
-          <RadioGroup
-            row
-            value={searchMode}
-            onChange={(e) => setSearchMode(e.target.value as SearchMode)}
-          >
-            <FormControlLabel
-              value="number"
-              control={<Radio size="small" color="primary" />}
-              label="Search By Delivery Order Number"
-              sx={{ mr: 3 }}
-            />
-            <FormControlLabel
-              value="name"
-              control={<Radio size="small" color="primary" />}
-              label="Search By Name"
-            />
-          </RadioGroup>
         </Box>
 
         {/* Results Table */}

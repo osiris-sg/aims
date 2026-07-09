@@ -122,4 +122,9 @@ export class UpdateAccountingSettingsDto {
   @IsOptional()
   @IsObject()
   controlAccounts?: Record<string, string>;
+
+  @ApiPropertyOptional({ description: 'Standing FX rates to base currency, e.g. {"USD": 1.35} = 1 USD → 1.35 base' })
+  @IsOptional()
+  @IsObject()
+  currencyRates?: Record<string, number>;
 }

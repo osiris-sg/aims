@@ -1,6 +1,9 @@
 import FormInputBox from "@/form-components/FormInputBox";
-import { Drawer, Typography, Stack, Button, useTheme } from "@mui/material";
-import { useForm } from "react-hook-form";
+import {
+  Drawer, Typography, Stack, Button, useTheme,
+  FormControl, FormHelperText, InputLabel, MenuItem, Select,
+} from "@mui/material";
+import { Controller, useForm } from "react-hook-form";
 import * as yup from "yup";
 import { yupResolver } from "@hookform/resolvers/yup";
 import { useAuth } from "@clerk/nextjs";
@@ -22,6 +25,7 @@ const supplierSchema = yup.object().shape({
   phone: yup.string().notRequired(),
   address: yup.string().notRequired(),
   gstRegNo: yup.string().notRequired(),
+  currency: yup.string().notRequired(),
 });
 
 export default function AddSupplier({ open, onClose, onSuccess, supplierId, isEditMode = false }: AddSupplierProps) {
@@ -36,6 +40,7 @@ export default function AddSupplier({ open, onClose, onSuccess, supplierId, isEd
       phone: null,
       address: null,
       gstRegNo: null,
+      currency: "SGD",
     },
     resolver: yupResolver(supplierSchema),
   });
@@ -63,6 +68,7 @@ export default function AddSupplier({ open, onClose, onSuccess, supplierId, isEd
             setValue("phone", supplier.phone);
             setValue("address", supplier.address);
             setValue("gstRegNo", supplier.gstRegNo);
+            setValue("currency", supplier.currency || "SGD");
           }
         } catch (error) {
           console.error("Error fetching supplier:", error);
@@ -114,6 +120,28 @@ export default function AddSupplier({ open, onClose, onSuccess, supplierId, isEd
             <FormInputBox control={control} name="phone" label="Phone" placeHolder="Enter supplier phone number" />
             <FormInputBox control={control} name="address" label="Address" placeHolder="Enter supplier address" />
             <FormInputBox control={control} name="gstRegNo" label="GST Reg No." placeHolder="Enter GST registration number" />
+            <Controller
+              name="currency"
+              control={control}
+              render={({ field }) => (
+                <FormControl fullWidth size="small">
+                  <InputLabel id="supplier-currency-label">Currency</InputLabel>
+                  <Select
+                    labelId="supplier-currency-label"
+                    label="Currency"
+                    value={field.value || "SGD"}
+                    onChange={(e) => field.onChange(e.target.value)}
+                  >
+                    {["SGD", "USD", "MYR", "EUR", "GBP", "JPY", "AUD", "HKD", "CNY", "IDR"].map((c) => (
+                      <MenuItem key={c} value={c}>{c}</MenuItem>
+                    ))}
+                  </Select>
+                  <FormHelperText>
+                    Bills from this supplier use this currency. A supplier trading in two currencies needs a second supplier code.
+                  </FormHelperText>
+                </FormControl>
+              )}
+            />
           </Stack>
           <Stack
             direction="row"

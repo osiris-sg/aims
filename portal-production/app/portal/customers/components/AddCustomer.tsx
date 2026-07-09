@@ -30,6 +30,7 @@ const customerSchema = yup.object().shape({
   phone: yup.string().notRequired(),
   address: yup.string().notRequired(),
   gstRegNo: yup.string().notRequired(),
+  currency: yup.string().notRequired(),
   salesmanId: yup.string().nullable().notRequired(),
   contacts: yup
     .array()
@@ -58,6 +59,7 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
       phone: null,
       address: null,
       gstRegNo: null,
+      currency: "SGD",
       salesmanId: null as string | null,
       contacts: [] as { name: string; phone: string; email: string; designation: string }[],
     },
@@ -125,6 +127,7 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
             setValue("phone", customer.phone);
             setValue("address", customer.address);
             setValue("gstRegNo", customer.gstRegNo);
+            setValue("currency", customer.currency || "SGD");
             setValue("salesmanId", customer.salesmanId || null);
             setValue(
               "contacts",
@@ -189,6 +192,28 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
             <FormInputBox control={control} name="phone" label="Phone" placeHolder="Enter customer phone number" />
             <FormInputBox control={control} name="address" label="Address" placeHolder="Enter customer address" />
             <FormInputBox control={control} name="gstRegNo" label="GST Reg No." placeHolder="Enter GST registration number" />
+            <Controller
+              name="currency"
+              control={control}
+              render={({ field }) => (
+                <FormControl fullWidth size="small">
+                  <InputLabel id="currency-label">Currency</InputLabel>
+                  <Select
+                    labelId="currency-label"
+                    label="Currency"
+                    value={field.value || "SGD"}
+                    onChange={(e) => field.onChange(e.target.value)}
+                  >
+                    {["SGD", "USD", "MYR", "EUR", "GBP", "JPY", "AUD", "HKD", "CNY", "IDR"].map((c) => (
+                      <MenuItem key={c} value={c}>{c}</MenuItem>
+                    ))}
+                  </Select>
+                  <FormHelperText>
+                    Documents for this customer use this currency. A customer trading in two currencies needs a second customer code.
+                  </FormHelperText>
+                </FormControl>
+              )}
+            />
             <Controller
               name="salesmanId"
               control={control}

@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Patch, Body, Param, Delete, Req, UseGuards, HttpException, HttpStatus } from '@nestjs/common';
-import { DocumentsService } from './documents.service';
+import { DocumentsService, DocumentActor } from './documents.service';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { CreateDocumentWithTimelineDto } from './dto/create-document-with-timeline.dto';
 import { GetDocumentDto } from './dto/get-documents';
@@ -19,6 +19,18 @@ interface RequestWithOrganization extends Request {
   };
   // Set by ClerkAuthGuard — the authenticated user (id is the Clerk user id).
   user?: { id: string };
+}
+
+// Actor for the document history log — the Clerk strategy also puts
+// firstName/lastName/emailAddresses on req.user (typed loosely above).
+function actorFromReq(req: RequestWithOrganization): DocumentActor {
+  const u: any = req.user || {};
+  const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim();
+  return {
+    id: u.id,
+    name: name || undefined,
+    email: u.emailAddresses?.[0]?.emailAddress,
+  };
 }
 @Controller('documents')
 @UseGuards(ClerkAuthGuard)
@@ -56,6 +68,7 @@ export class DocumentsController {
       organizationId,
       body.config || {},
       body.projectId,
+      actorFromReq(req),
     );
   }
 
@@ -81,6 +94,8 @@ export class DocumentsController {
       body.extracted,
       body.documentTemplateId,
       body.sourceFileUrl,
+      'upload',
+      actorFromReq(req),
     );
   }
 
@@ -185,7 +200,7 @@ export class DocumentsController {
         HttpStatus.BAD_REQUEST,
       );
     }
-    return await this.documentsService.linkProjectToDocument(id, body.projectId, organizationId);
+    return await this.documentsService.linkProjectToDocument(id, body.projectId, organizationId, actorFromReq(req));
   }
 
   // --- Concurrent-edit lock (presence) ---------------------------------------
@@ -240,7 +255,32 @@ export class DocumentsController {
     if (!organizationId) {
       throw new Error('User is not assigned to any organization');
     }
-    return await this.documentsService.updateDocument(updateDto, organizationId);
+    return await this.documentsService.updateDocument(updateDto, organizationId, actorFromReq(req));
+  }
+
+  // ── History & notes (Xero-style per-document audit trail) ──────────────
+  @Get(':id/history')
+  @Permissions('documents:read-one')
+  async getDocumentHistory(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentsService.getDocumentHistory(id, organizationId);
+  }
+
+  @Post(':id/notes')
+  @Permissions('documents:update')
+  async addDocumentNote(
+    @Param('id') id: string,
+    @Body() body: { text: string },
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentsService.addDocumentNote(id, organizationId, actorFromReq(req), body?.text);
   }
 
   @Delete('delete/:id')
@@ -250,7 +290,7 @@ export class DocumentsController {
     if (!organizationId) {
       throw new Error('User is not assigned to any organization');
     }
-    return await this.documentsService.deleteDocument(id, organizationId);
+    return await this.documentsService.deleteDocument(id, organizationId, actorFromReq(req));
   }
 
   @Post(':id/revisions')
@@ -260,7 +300,7 @@ export class DocumentsController {
     if (!organizationId) {
       throw new Error('User is not assigned to any organization');
     }
-    return await this.documentsService.createRevision(id, organizationId);
+    return await this.documentsService.createRevision(id, organizationId, actorFromReq(req));
   }
 
   @Post(':id/duplicate')
@@ -270,7 +310,7 @@ export class DocumentsController {
     if (!organizationId) {
       throw new Error('User is not assigned to any organization');
     }
-    return await this.documentsService.duplicateDocument(id, organizationId);
+    return await this.documentsService.duplicateDocument(id, organizationId, actorFromReq(req));
   }
 
   @Get(':id/revisions')
@@ -376,6 +416,7 @@ export class DocumentsController {
         documentId,
         emailDto,
         organizationId,
+        actorFromReq(req),
       );
 
       return result;
@@ -405,6 +446,7 @@ export class DocumentsController {
         documentId,
         { fromDONo: body.fromDONo, toDONo: body.toDONo },
         organizationId,
+        actorFromReq(req),
       );
 
       return result;
@@ -459,6 +501,7 @@ export class DocumentsController {
         documentId,
         { fromInvoiceNo: body.fromInvoiceNo, toInvoiceNo: body.toInvoiceNo },
         organizationId,
+        actorFromReq(req),
       );
 
       return result;

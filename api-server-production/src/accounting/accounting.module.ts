@@ -6,10 +6,12 @@ import { AccountingSettingsController } from './accounting-settings.controller';
 import { AccountingSettingsService } from './accounting-settings.service';
 import { InventoryValuationController } from './inventory-valuation.controller';
 import { InventoryValuationService } from './inventory-valuation.service';
+import { TaxRatesController } from './tax-rates.controller';
+import { TaxRatesService } from './tax-rates.service';
 
 @Module({
-  controllers: [ChartOfAccountsController, AccountingSettingsController, InventoryValuationController],
-  providers: [ChartOfAccountsService, AccountingSettingsService, InventoryValuationService, PrismaService],
-  exports: [ChartOfAccountsService, AccountingSettingsService, InventoryValuationService],
+  controllers: [ChartOfAccountsController, AccountingSettingsController, InventoryValuationController, TaxRatesController],
+  providers: [ChartOfAccountsService, AccountingSettingsService, InventoryValuationService, TaxRatesService, PrismaService],
+  exports: [ChartOfAccountsService, AccountingSettingsService, InventoryValuationService, TaxRatesService],
 })
 export class AccountingModule {}
