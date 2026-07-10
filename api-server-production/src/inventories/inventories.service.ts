@@ -463,6 +463,16 @@ export class InventoriesService {
         include: { asset: true },
       });
       await this.logBindProvenance(inventory.id, 'created', dto, technicianUserId);
+      // Field-bind gap fix: creating a unit makes the asset tracked, same as
+      // the dashboard convention in createInventories. Without this, assets
+      // whose units only ever came from field binds stayed isTracked=false and
+      // the portal showed them as quantity-counter Products (the SIDS case).
+      if (!asset.isTracked) {
+        await this.prisma.asset.update({
+          where: { id: asset.id },
+          data: { isTracked: true },
+        });
+      }
       // Enforceable hierarchy: silently spawn 'pending' placeholder units for
       // auto-create child assets (e.g. SIDS unit → TSS placeholder). Best-effort.
       await this.autoCreateChildUnits(

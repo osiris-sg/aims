@@ -317,7 +317,10 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
                   Edit Asset
                 </Typography>
                 <IconButton
-                  onClick={() => router.push(`${ROUTES.EDIT_ASSET}/${params.skuKey}`)}
+                  // ROUTES.EDIT_ASSET (/portal/assets/edit/*) has no page — the
+                  // working editor is the add form in edit mode (?id=<assetId>),
+                  // the same path the Parts manager's edit buttons use.
+                  onClick={() => router.push(`${ROUTES.ADD_ASSET}?id=${asset.id}`)}
                   sx={{
                 color: "text.secondary",
                 "&:hover": { color: "info.main" },

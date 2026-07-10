@@ -571,6 +571,15 @@ export class ImportService {
             },
           });
           inventoryId = inventory.id;
+          // Same gap as the field bind: a unit-bearing asset must be tracked
+          // (dashboard convention, createInventories). Keeps imported serials
+          // from leaving the asset in the quantity-counter Product view.
+          if (asset && !asset.isTracked) {
+            await this.prisma.asset.update({
+              where: { id: asset.id },
+              data: { isTracked: true },
+            });
+          }
         }
         inventoryIdsForLine.push(inventoryId);
       }
