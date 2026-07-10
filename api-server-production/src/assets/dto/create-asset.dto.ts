@@ -118,6 +118,12 @@ export class CreateAssetDto {
   @IsOptional()
   isTracked?: boolean;
 
+  // Field manual entry: expose this asset's units to serial keyed entry on
+  // the scan home (untaggable assets).
+  @IsBoolean()
+  @IsOptional()
+  allowManualEntry?: boolean;
+
   // Quantity for untracked products (required when isTracked = false)
   @ValidateIf(o => o.isTracked === false)
   @IsInt()

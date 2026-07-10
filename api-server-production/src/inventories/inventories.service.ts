@@ -196,6 +196,43 @@ export class InventoriesService {
     }
   }
 
+  /**
+   * Field manual entry: resolve a hand-keyed serial to a unit. Matching is
+   * exact after normalization (strip non-alphanumerics + casefold — the same
+   * scheme the bind flow uses), never fuzzy. Prefers units under the picked
+   * asset; falls back org-wide so a wrong capacity-variant pick still lands
+   * on the real owner (sku is org-unique). Returns every normalized match so
+   * the UI can disambiguate the (theoretical) multi-hit case.
+   */
+  async fieldResolveBySerial(serial: string, assetId: string | undefined, organizationId: string) {
+    const norm = (s: string) => (s ?? '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+    const wanted = norm(serial);
+    if (!wanted) return { matches: [] };
+    // Org-scoped candidate fetch, minimal columns; normalized compare in JS
+    // (SQL can't index-strip separators, and org fleets are small).
+    const units = await this.prisma.inventory.findMany({
+      where: { organizationId },
+      select: {
+        id: true,
+        sku: true,
+        status: true,
+        assetId: true,
+        asset: { select: { name: true, skuKey: true } },
+      },
+    });
+    const hits = units.filter((u) => norm(u.sku) === wanted);
+    const preferred = assetId ? hits.filter((u) => u.assetId === assetId) : hits;
+    const matches = (preferred.length ? preferred : hits).map((u) => ({
+      inventoryId: u.id,
+      sku: u.sku,
+      status: u.status,
+      assetId: u.assetId,
+      assetName: u.asset?.name ?? null,
+      skuKey: u.asset?.skuKey ?? null,
+    }));
+    return { matches };
+  }
+
   async getInventoryBySku(sku: string, organizationId: string) {
     try {
       return await this.prisma.inventory.findFirst({

@@ -130,6 +130,10 @@ model Asset {
   // linked via Inventory.parentInventoryId. Only honoured for tracked child
   // assets (isTracked=true); the import path never auto-creates.
   autoCreateOnParentUnit Boolean                 @default(false)
+  // Field manual entry: units of this asset can be reached by keying in the
+  // serial on the scan home (untaggable assets — e.g. submersible pumps that
+  // live underwater). Gates the asset list behind GET /assets/manual-entry.
+  allowManualEntry    Boolean                    @default(false)
   isExternal          Boolean                    @default(true)
   // Quantity for untracked products (only used when isTracked = false)
   quantity            Int?

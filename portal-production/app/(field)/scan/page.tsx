@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { Box, Button, Typography, Alert, CircularProgress } from "@mui/material";
 import NfcIcon from "@mui/icons-material/Nfc";
+import KeyboardIcon from "@mui/icons-material/Keyboard";
 import { request } from "@/helpers/request";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useNfcScan } from "../hooks/useNfcScan";
@@ -130,9 +131,22 @@ export default function ScanLandingPage() {
 
       {nfc.isSupported === false && (
         <Alert severity="warning" sx={{ width: "100%", maxWidth: 360 }}>
-          NFC is required. Please use the AIMS Field app on an NFC-capable phone.
+          NFC is not available on this device — use manual serial entry below,
+          or the AIMS Field app on an NFC-capable phone.
         </Alert>
       )}
+
+      {/* Manual serial entry — the NFC-less path for untaggable assets
+          (allowManualEntry). Primary CTA when the device has no NFC. */}
+      <Button
+        variant={nfc.isSupported === false ? "contained" : "outlined"}
+        size="large"
+        onClick={() => router.push("/scan/manual")}
+        startIcon={<KeyboardIcon />}
+        sx={{ minWidth: 260, py: 1.5, minHeight: 56 }}
+      >
+        Enter serial manually
+      </Button>
 
       {scanError && (
         <Alert severity="error" sx={{ width: "100%", maxWidth: 360 }}>{scanError}</Alert>

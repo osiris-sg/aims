@@ -277,6 +277,15 @@ export class AssetsService {
     });
   }
 
+  /** Assets exposed to field manual serial entry (allowManualEntry=true). */
+  async getManualEntryAssets(userOrganizationId: string) {
+    return this.prisma.asset.findMany({
+      where: { organizationId: userOrganizationId, deletedAt: null, allowManualEntry: true },
+      select: { id: true, name: true, skuKey: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
   async getByNfcUid(uid: string, userOrganizationId: string) {
     // Inventory-level lookup only. Asset.nfcTagUid is retained on the schema
     // for backward compatibility but is not queried for resolution — all

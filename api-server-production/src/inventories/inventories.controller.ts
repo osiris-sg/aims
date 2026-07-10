@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Delete, Put, Get, Param, Req, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, Delete, Put, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { InventoriesService } from './inventories.service';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { UpdateInventoryDto } from './dto/update-inventory.dto';
@@ -35,6 +35,23 @@ export class InventoriesController {
       throw new Error('User is not assigned to any organization');
     }
     return await this.inventoriesService.getInventories(getInventoryDto, organizationId);
+  }
+
+  // Field manual entry: resolve a keyed-in serial to a unit. Static route —
+  // must stay ABOVE the parameterized :id routes. Guarded by the field-scan
+  // permission (field techs lack inventories:read-by-sku by design).
+  @Get('field-resolve')
+  @Permissions('field-scan:access')
+  async fieldResolveBySerial(
+    @Query('assetId') assetId: string | undefined,
+    @Query('serial') serial: string,
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.inventoriesService.fieldResolveBySerial(serial, assetId, organizationId);
   }
 
   // NOTE: Specific routes like :id/documents must come BEFORE generic :id route

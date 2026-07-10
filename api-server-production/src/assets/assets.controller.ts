@@ -59,6 +59,15 @@ export class AssetsController {
     return this.assetsService.searchForFieldPicker(q, userOrganization.id);
   }
 
+  // Manual-entry asset list for the field scan home: assets whose units are
+  // reached by keyed-in serial instead of an NFC tap (allowManualEntry=true).
+  @Get('manual-entry')
+  @Permissions('field-scan:access')
+  @ApiOperation({ summary: "Org's manual-entry-enabled assets ({id,name,skuKey}) for the field serial-entry picker." })
+  async getManualEntryAssets(@UserOrganization() userOrganization: any) {
+    return this.assetsService.getManualEntryAssets(userOrganization.id);
+  }
+
   @Get(':id')
   @Permissions('assets:read-id')
   @ApiOperation({ summary: 'Get an asset by its ID' })

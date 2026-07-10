@@ -3,9 +3,11 @@ import {
   Box,
   Button,
   Divider,
+  FormControlLabel,
   IconButton,
   MenuItem,
   Stack,
+  Switch,
   TextField,
   Typography,
 } from "@mui/material";
@@ -215,6 +217,28 @@ export default function AdditionalDetails() {
         min={0}
         bottomText="Low stock alert threshold"
       />
+
+      {/* Field manual entry: expose this asset's units to keyed-in serial
+          lookup on the scan home (untaggable assets — e.g. submerged pumps). */}
+      <Box>
+        <Controller
+          control={control}
+          name="allowManualEntry"
+          render={({ field }) => (
+            <FormControlLabel
+              control={<Switch checked={!!field.value} onChange={(e) => field.onChange(e.target.checked)} />}
+              label={
+                <Box>
+                  <Typography variant="body2">Allow manual serial entry (field)</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Field techs can reach this {itemType.toLowerCase()}&apos;s units by typing the serial — for assets that can&apos;t carry an NFC tag.
+                  </Typography>
+                </Box>
+              }
+            />
+          )}
+        />
+      </Box>
 
       {/* Parent selector only shown for tracked assets - products don't have hierarchy */}
       {isAssetTrackingModeEnabled && (

@@ -69,6 +69,8 @@ const assetSchema = z.object({
   rentalAccountCode: z.string().optional(),
   points: z.coerce.number().min(0).optional(),
   isTracked: z.boolean().default(true),
+  // Field manual entry: units reachable by keyed-in serial on the scan home.
+  allowManualEntry: z.boolean().default(false),
   // Use coerce to convert string input to number. Optional for everyone —
   // untracked products can start at 0 stock; the Quantity field is just for an
   // optional starting stock. Defaults to 0 on submit when left blank.
@@ -131,6 +133,7 @@ export const useAddAssetFormHandler = () => {
       rentalAccountCode: undefined,
       points: undefined,
       isTracked: true,
+      allowManualEntry: false,
       quantity: undefined,
       minQuantity: undefined,
     },
@@ -183,6 +186,7 @@ export const useAddAssetFormHandler = () => {
           points: response.data.points ?? undefined,
           image: response.data.image,
           isTracked: response.data.isTracked !== false, // Default to true
+          allowManualEntry: response.data.allowManualEntry === true,
           quantity: response.data.quantity ?? undefined,
           minQuantity: response.data.minQuantity ?? undefined,
         };
@@ -294,6 +298,7 @@ export const useAddAssetFormHandler = () => {
       customPrices?: { label: string; value: number }[];
       points?: number;
       categoryId?: string;
+      allowManualEntry?: boolean;
     } = {
       name: data.name,
       skuKey: data.skuKey,
@@ -301,6 +306,7 @@ export const useAddAssetFormHandler = () => {
       description: data.description,
       image: data.image || undefined, // Keep image as is, don't send if undefined
       isTracked: data.isTracked,
+      allowManualEntry: data.allowManualEntry,
       // Blank/invalid starting stock → 0; backend requires a non-negative integer.
       quantity: Number.isFinite(Number(data.quantity)) ? Math.max(0, Math.floor(Number(data.quantity))) : 0,
       minQuantity: data.minQuantity,

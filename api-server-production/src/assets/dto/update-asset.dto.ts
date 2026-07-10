@@ -72,6 +72,12 @@ export class UpdateAssetDto extends PartialType(CreateAssetDto) {
   @IsOptional()
   autoCreateOnParentUnit?: boolean;
 
+  // Field manual entry: expose this asset's units to serial keyed entry on
+  // the scan home (untaggable assets).
+  @IsBoolean()
+  @IsOptional()
+  allowManualEntry?: boolean;
+
   // Quantity for untracked products
   @IsInt()
   @Min(0)
