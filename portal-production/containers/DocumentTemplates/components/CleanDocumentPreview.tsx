@@ -1930,15 +1930,15 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             its content height doesn't compress the page-1 layout. */}
 
         {/* PROOF OF DELIVERY — field-tech reports linked to this DO via
-            documentId. DO_START is filtered out: the simplified Start
-            Delivery flow captures no photos or signature, and the tech's
-            identity is already shown on page 1's "Delivery By" line — so
-            including a DO_START stub here would just be visual noise. Only
-            DO_ACK rows (and any future kinds like off-hire reports) render.
-            Section is suppressed entirely when nothing remains after the
-            filter, so a DO with only a DO_START gets a clean one-page print. */}
+            documentId. Condition photos are captured at START-delivery
+            (custody handover), so DO_START rows render here WHEN they carry
+            photos; a photo-less DO_START is still filtered out (the tech's
+            identity already shows on page 1's "Delivery By" line — a bare
+            stub would be visual noise). Section is suppressed entirely when
+            nothing remains after the filter, so a DO with only a photo-less
+            DO_START keeps its clean one-page print. */}
         {maintenanceReports &&
-          maintenanceReports.filter((r) => r.kind !== "DO_START").length > 0 && (
+          maintenanceReports.filter((r) => r.kind !== "DO_START" || (r.photos?.length ?? 0) > 0).length > 0 && (
           <Box
             sx={{
               mt: 4,
@@ -1961,7 +1961,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             </Typography>
 
             {maintenanceReports
-              .filter((r) => r.kind !== "DO_START")
+              .filter((r) => r.kind !== "DO_START" || (r.photos?.length ?? 0) > 0)
               .map((report, idx) => (
               <Box
                 key={report.id}
@@ -2005,10 +2005,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
 
                 {/* Photos — 2-column grid, ~85mm wide each at A4 margins, fixed
                     4:3 aspect so the print engine doesn't fight the layout.
-                    Gated to DO_ACK only: the simplified Start Delivery flow
-                    is a one-tap confirmation that captures no media, so
-                    DO_START rows have nothing to show here. */}
-                {report.kind !== "DO_START" && report.photos && report.photos.length > 0 && (
+                    All kinds render their photos: DO_START carries the
+                    outbound condition shots, DO_ACK/DO_INSTALL any proof
+                    captured at their steps (historical acks keep theirs). */}
+                {report.photos && report.photos.length > 0 && (
                   <Box
                     sx={{
                       display: "grid",

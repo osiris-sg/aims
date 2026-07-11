@@ -6,6 +6,8 @@ import { useAuth, useUser } from "@clerk/nextjs";
 import { Alert, Box, Button, CircularProgress, Stack, Typography } from "@mui/material";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import { request } from "@/helpers/request";
+import { uploadImage } from "@/helpers/imageUploader";
+import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
 import { useBackgroundLocationContext } from "../../../../context/BackgroundLocationContext";
 
 /**
@@ -13,12 +15,13 @@ import { useBackgroundLocationContext } from "../../../../context/BackgroundLoca
  * when an open DO exists for this asset and has not been started yet
  * (see canStartDelivery in getScanContext).
  *
- * Simplified flow: a single confirmation button. No notes, photos, or
- * signature are captured at start — the action is just "I'm taking custody
- * of this delivery now, start tracking my route." Proof of delivery
- * (photos + customer signature) is captured at acknowledge time.
+ * Captures OPTIONAL condition photos at custody handover (folder: do-start)
+ * — this is where the equipment's outbound state is evidenced. No notes or
+ * signature at start; the customer signature is captured at acknowledge
+ * time. Photos render in the DO's PROOF OF DELIVERY section under the
+ * "Delivery Started" block.
  *
- *   Tap → POST /maintenance-reports {kind: DO_START, documentId}
+ *   Tap → POST /maintenance-reports {kind: DO_START, documentId, photos?}
  *       → bgLocationContext.start(reportId)  (foreground service + pings)
  *       → /scan/asset/:id/done
  */
@@ -33,6 +36,18 @@ export default function StartDeliveryPage() {
   const inventoryId = search?.get("inventoryId") ?? null;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Optional outbound-condition photos (no minimum) — same shared capture
+  // component the ack step used to own; keys land on the DO_START MSR row.
+  const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
+  const [uploading, setUploading] = useState(false);
+
+  // Clerk-auth'd upload closure for the shared PhotoCaptureField — the
+  // component stays auth-agnostic; the token lives here (folder: do-start).
+  const uploadDoStart = async (blob: Blob): Promise<string | null> => {
+    const token = await getToken();
+    if (!token) throw new Error("Not signed in");
+    return uploadImage({ blob, folderName: "do-start", token });
+  };
 
   // Pull the latest DO so we can attach the MSR to it. The action chooser
   // already verified one exists via canStartDelivery — this is a defensive
@@ -99,6 +114,7 @@ export default function StartDeliveryPage() {
           kind: "DO_START",
           documentId: doId,
           ...(technicianName ? { technicianName } : {}),
+          ...(photos.length ? { photos: photos.map((p) => p.key) } : {}),
         },
         token,
       );
@@ -149,6 +165,17 @@ export default function StartDeliveryPage() {
         </Box>
       )}
 
+      <Box sx={{ width: "100%", maxWidth: 360 }}>
+        <PhotoCaptureField
+          label="Condition photos (optional)"
+          photos={photos}
+          onChange={setPhotos}
+          upload={uploadDoStart}
+          onError={(m) => setError(m || null)}
+          onUploadingChange={setUploading}
+        />
+      </Box>
+
       {error && <Alert severity="error" sx={{ width: "100%", maxWidth: 360 }}>{error}</Alert>}
 
       <Stack direction="row" spacing={2} sx={{ mt: 2, width: "100%", maxWidth: 360 }}>
@@ -164,11 +191,11 @@ export default function StartDeliveryPage() {
         <Button
           variant="contained"
           onClick={confirm}
-          disabled={submitting || contextLoading || !doId}
+          disabled={submitting || contextLoading || uploading || !doId}
           fullWidth
           sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
         >
-          {submitting ? <CircularProgress size={20} color="inherit" /> : "Confirm & Start"}
+          {submitting ? <CircularProgress size={20} color="inherit" /> : uploading ? "Uploading…" : "Confirm & Start"}
         </Button>
       </Stack>
     </Box>

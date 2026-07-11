@@ -5,9 +5,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { Alert, Box, Button, Stack, TextField, Typography } from "@mui/material";
 import { request } from "@/helpers/request";
-import { uploadImage } from "@/helpers/imageUploader";
 import { capturePosition } from "@/helpers/geolocation";
-import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
 
 /**
  * Acknowledge Delivery — second step of the two-step delivery flow. Enabled
@@ -15,8 +13,9 @@ import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCap
  * submitted yet (see canAckDelivery in getScanContext).
  *
  * Records a MaintenanceServiceReport with kind=DO_ACK, then routes to the
- * shared signature page. Photo capture + one-shot GPS come from the shared
- * PhotoCaptureField / capturePosition (also used by the guest delivery flow).
+ * shared signature page. Condition photos are captured at START-delivery
+ * (custody handover), not here — the GUEST ack flow keeps its own capture
+ * (guests never perform a start step). One-shot GPS via capturePosition.
  */
 export default function DeliveryOrderAckPage() {
   const params = useParams();
@@ -27,19 +26,9 @@ export default function DeliveryOrderAckPage() {
   const doId = params?.doId as string;
   const inventoryId = search?.get("inventoryId") ?? null;
   const [notes, setNotes] = useState("");
-  const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
-  const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [locating, setLocating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Clerk-auth'd upload closure handed to the shared PhotoCaptureField — the
-  // component stays auth-agnostic; the token lives here (folder: do-ack).
-  const uploadDoAck = async (blob: Blob): Promise<string | null> => {
-    const token = await getToken();
-    if (!token) throw new Error("Not signed in");
-    return uploadImage({ blob, folderName: "do-ack", token });
-  };
 
   const continueToSign = async () => {
     setError(null);
@@ -63,7 +52,6 @@ export default function DeliveryOrderAckPage() {
           assetId,
           ...(inventoryId ? { inventoryId } : {}),
           description,
-          photos: photos.map((p) => p.key),
           kind: "DO_ACK",
           documentId: doId,
           ...(coords ? { latitude: coords.latitude, longitude: coords.longitude } : {}),
@@ -98,15 +86,6 @@ export default function DeliveryOrderAckPage() {
         onChange={(e) => setNotes(e.target.value)}
       />
 
-      <PhotoCaptureField
-        label="Proof of delivery"
-        photos={photos}
-        onChange={setPhotos}
-        upload={uploadDoAck}
-        onError={(m) => setError(m || null)}
-        onUploadingChange={setUploading}
-      />
-
       {error && <Alert severity="error">{error}</Alert>}
 
       <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
@@ -114,7 +93,7 @@ export default function DeliveryOrderAckPage() {
         <Button
           variant="contained"
           onClick={continueToSign}
-          disabled={submitting || uploading}
+          disabled={submitting}
           fullWidth
           sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
         >
