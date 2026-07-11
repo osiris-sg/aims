@@ -1910,6 +1910,15 @@ model EmailIngestConfig {
   // FIXED → skip classification, always create defaultDocType.
   routingMode    String  @default("AI")
   defaultDocType String? // used when routingMode=FIXED: INVOICE | BILL
+  // Hard rules, evaluated deterministically top-down BEFORE any AI call;
+  // first match wins. Shape:
+  //   { conditions: [{ field: "SUBJECT"|"SENDER"|"BODY",
+  //       operator: "CONTAINS"|"EQUALS"|"STARTS_WITH"|"DOMAIN", value }...],
+  //     action: "IGNORE"|"FORCE_BILL"|"FORCE_INVOICE"|"AI_GUIDANCE", guidance? }[]
+  rules          Json    @default("[]")
+  // Free-text per-org instructions appended to the AI classifier prompt as
+  // trusted admin guidance (unlike the untrusted email envelope).
+  aiGuidance     String?
   // Reserved for a future auto-confirm mode; both create paths only make
   // DRAFTs today.
   createMode     String  @default("DRAFT")

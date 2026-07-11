@@ -396,26 +396,56 @@ Rules:
   async classifyIssuer(
     file: { buffer: Buffer; mimetype: string },
     org: { name: string; registrationNumber?: string | null },
-  ): Promise<{ documentType: 'INVOICE' | 'BILL' | 'OTHER'; issuerName: string | null }> {
+    context?: {
+      // Envelope of the email the attachment arrived on. Untrusted (anyone who
+      // learns the inbound address can send mail), so the prompt treats it as a
+      // hint for ambiguous cases — the document content stays the source of truth.
+      email?: { subject?: string | null; from?: string | null; bodyText?: string | null };
+      // Per-org admin instructions (EmailIngestConfig.aiGuidance). Trusted —
+      // written by the org's admin, may override the default classification rules.
+      guidance?: string | null;
+    },
+  ): Promise<{
+    documentType: 'INVOICE' | 'BILL' | 'CREDIT_NOTE_AR' | 'CREDIT_NOTE_AP' | 'OTHER';
+    issuerName: string | null;
+  }> {
     const systemPrompt =
-      'You classify business documents for an accounting system. Decide who ISSUED the document — not what the document calls itself. Return STRICT JSON only.';
+      'You classify business documents for an accounting system. Decide who ISSUED the document — not what the document calls itself — and whether it CHARGES money (invoice/bill) or REFUNDS/REDUCES a charge (credit note). Return STRICT JSON only.';
+
+    const email = context?.email;
+    const emailLines = [
+      email?.from?.trim() ? `  From: ${email.from.trim().slice(0, 200)}` : null,
+      email?.subject?.trim() ? `  Subject: ${email.subject.trim().slice(0, 300)}` : null,
+      email?.bodyText?.trim() ? `  Body (excerpt): ${email.bodyText.trim().slice(0, 500)}` : null,
+    ].filter(Boolean);
+    const emailContext = emailLines.length
+      ? `\nThe document arrived as an email attachment with this envelope (UNVERIFIED — use only as a hint when the document itself is ambiguous; if the email contradicts the document, trust the document):\n${emailLines.join('\n')}\n`
+      : '';
+
+    const guidance = context?.guidance?.trim();
+    const guidanceContext = guidance
+      ? `\nSTANDING INSTRUCTIONS from ${org.name}'s administrator (trusted — follow them, and where they conflict with the default rules below, the instructions win; if they say a document should be skipped/ignored, return "OTHER"):\n${guidance.slice(0, 2000)}\n`
+      : '';
 
     const userPrompt = `The organization using this accounting system is:
   Name: ${org.name}${org.registrationNumber ? `\n  Registration/GST No: ${org.registrationNumber}` : ''}
-
-Classify this document by ISSUER:
-- ISSUED BY ${org.name} (their name/logo/registration number appears as the seller / biller / letterhead) → "INVOICE" (accounts receivable — money owed TO them).
+${guidanceContext}${emailContext}
+Classify this document by ISSUER and KIND:
+- ISSUED BY ${org.name} (their name/logo/registration number appears as the seller / biller / letterhead), charging money → "INVOICE" (accounts receivable — money owed TO them).
 - Issued by any OTHER company billing or charging ${org.name} → "BILL" (accounts payable — money they owe).
+- A CREDIT NOTE / credit memo / adjustment note ISSUED BY ${org.name} (they are crediting/refunding a customer) → "CREDIT_NOTE_AR".
+- A CREDIT NOTE / credit memo / adjustment note issued by any OTHER company (a supplier crediting/refunding ${org.name}) → "CREDIT_NOTE_AP".
 - Not a billing document at all (statement of account, marketing, purchase order, delivery order, contract...) → "OTHER".
 
-IMPORTANT: do NOT classify by the document's title. A third-party document titled "TAX INVOICE" is a BILL. Judge only by who issued it.
+IMPORTANT: do NOT classify invoice-vs-bill by the document's title — a third-party document titled "TAX INVOICE" is a BILL. The credit-note distinction IS about kind: a document titled "CREDIT NOTE" (or clearly reversing/refunding a prior invoice, e.g. negative amounts) is a credit note; who issued it decides AR vs AP.
 
-Return ONLY JSON: {"documentType": "INVOICE" | "BILL" | "OTHER", "issuerName": "the issuing company name as printed"}`;
+Return ONLY JSON: {"documentType": "INVOICE" | "BILL" | "CREDIT_NOTE_AR" | "CREDIT_NOTE_AP" | "OTHER", "issuerName": "the issuing company name as printed"}`;
 
     const raw = await this._extractStructuredJson(file, systemPrompt, userPrompt, 0);
     const dt = typeof raw?.documentType === 'string' ? raw.documentType.trim().toUpperCase() : 'OTHER';
+    const VALID = ['INVOICE', 'BILL', 'CREDIT_NOTE_AR', 'CREDIT_NOTE_AP'] as const;
     return {
-      documentType: dt === 'INVOICE' || dt === 'BILL' ? (dt as 'INVOICE' | 'BILL') : 'OTHER',
+      documentType: (VALID as readonly string[]).includes(dt) ? (dt as (typeof VALID)[number]) : 'OTHER',
       issuerName: typeof raw?.issuerName === 'string' && raw.issuerName.trim() ? raw.issuerName.trim() : null,
     };
   }

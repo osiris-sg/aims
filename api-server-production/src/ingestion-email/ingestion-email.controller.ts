@@ -29,7 +29,7 @@ export class IngestionEmailController {
   @Post('email')
   @ApiOperation({
     summary:
-      'Inbound email webhook — classifies each PDF/image attachment by issuer and creates DRAFT invoices (AR) or bills (AP). Requires X-Webhook-Secret header.',
+      'Inbound email webhook — classifies each PDF/image attachment by issuer/kind and creates DRAFT invoices (AR), bills (AP) or credit notes (AR/AP subtype). Requires X-Webhook-Secret header.',
   })
   async inboundEmail(
     @Headers('x-webhook-secret') secret: string,

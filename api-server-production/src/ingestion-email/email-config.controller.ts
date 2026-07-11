@@ -42,7 +42,7 @@ export class EmailConfigController {
 
   @Put('config/:orgId')
   @Permissions('organizations:update')
-  @ApiOperation({ summary: 'Update email ingest config (enabled, watchedSenders, routingMode, defaultDocType, createMode).' })
+  @ApiOperation({ summary: 'Update email ingest config (enabled, watchedSenders, routingMode, defaultDocType, rules, aiGuidance, createMode).' })
   async updateConfig(
     @Param('orgId') orgId: string,
     @Body()
@@ -51,6 +51,16 @@ export class EmailConfigController {
       watchedSenders?: string[];
       routingMode?: string;
       defaultDocType?: string | null;
+      rules?: Array<{
+        conditions?: Array<{ field?: string; operator?: string; value?: string }>;
+        action?: string;
+        guidance?: string;
+        // legacy flat shape
+        field?: string;
+        operator?: string;
+        value?: string;
+      }>;
+      aiGuidance?: string | null;
       createMode?: string;
     },
     @Req() req: RequestWithOrganization,
@@ -67,6 +77,49 @@ export class EmailConfigController {
     if (body.routingMode !== undefined) data.routingMode = body.routingMode === 'FIXED' ? 'FIXED' : 'AI';
     if (body.defaultDocType !== undefined) {
       data.defaultDocType = body.defaultDocType === 'BILL' || body.defaultDocType === 'INVOICE' ? body.defaultDocType : null;
+    }
+    if (body.rules !== undefined) {
+      // Keep only well-formed rules (conditions ANDed; legacy flat rules are
+      // normalized into a single condition); the service also re-validates.
+      data.rules = (Array.isArray(body.rules) ? body.rules : [])
+        .map((r) => {
+          const rawConds = Array.isArray(r?.conditions)
+            ? r.conditions
+            : r?.field
+              ? [{ field: r.field, operator: r.operator, value: r.value }]
+              : [];
+          const conditions = rawConds
+            .map((c) => ({
+              field: typeof c?.field === 'string' ? c.field.toUpperCase() : '',
+              operator: typeof c?.operator === 'string' ? c.operator.toUpperCase() : '',
+              value: typeof c?.value === 'string' ? c.value.trim() : '',
+            }))
+            .filter(
+              (c) =>
+                ['SUBJECT', 'SENDER', 'BODY'].includes(c.field) &&
+                ['CONTAINS', 'EQUALS', 'STARTS_WITH', 'DOMAIN'].includes(c.operator) &&
+                c.value.length > 0 &&
+                c.value.length <= 300,
+            )
+            .slice(0, 10);
+          const action = typeof r?.action === 'string' ? r.action.toUpperCase() : '';
+          const guidance = typeof r?.guidance === 'string' ? r.guidance.trim().slice(0, 1000) : '';
+          return {
+            conditions,
+            action,
+            ...(action === 'AI_GUIDANCE' && guidance ? { guidance } : {}),
+          };
+        })
+        .filter(
+          (r) =>
+            r.conditions.length > 0 &&
+            ['IGNORE', 'FORCE_BILL', 'FORCE_INVOICE', 'AI_GUIDANCE'].includes(r.action),
+        )
+        .slice(0, 50);
+    }
+    if (body.aiGuidance !== undefined) {
+      const text = typeof body.aiGuidance === 'string' ? body.aiGuidance.trim().slice(0, 2000) : '';
+      data.aiGuidance = text || null;
     }
     if (body.createMode !== undefined) data.createMode = 'DRAFT'; // only mode supported today
 

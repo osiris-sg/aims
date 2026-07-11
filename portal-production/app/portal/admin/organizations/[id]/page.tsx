@@ -97,6 +97,7 @@ import { request } from "@/helpers/request";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
 import CleanDocumentPreview from "@/containers/DocumentTemplates/components/CleanDocumentPreview";
+import EmailIngestionTab from "./EmailIngestionTab";
 
 // Icon mapping for Material-UI icons
 const iconMap: Record<string, React.ComponentType> = {
@@ -1088,6 +1089,7 @@ export default function OrganizationDetailPage() {
             <Tab icon={<DescriptionOutlined />} label="Documents" />
             <Tab icon={<ThemeIcon />} label="UI Configuration" />
             <Tab icon={<SettingsIcon />} label="Settings" />
+            <Tab icon={<Email />} label="Email Ingestion" />
           </Tabs>
         </Box>
 
@@ -1718,6 +1720,11 @@ export default function OrganizationDetailPage() {
               </CardContent>
             </Card>
           </Box>
+        </TabPanel>
+
+        {/* EMAIL INGESTION TAB */}
+        <TabPanel value={tabValue} index={5}>
+          <EmailIngestionTab organizationId={organizationId} />
         </TabPanel>
       </Paper>
 

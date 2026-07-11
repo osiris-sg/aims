@@ -56,6 +56,9 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // water-sg outbound site creation on DO sign-off (SIDS units). Backend-only
   // trigger; listed here so the flag appears in the admin switches for all orgs.
   enableWaterSgSites: false,
+  // Email ingestion agent (docs+{org}@ inbound address → AI-classified drafts).
+  // Product switch; the runtime switch is EmailIngestConfig.enabled per org.
+  enableEmailIngestion: false,
 };
 
 interface OrganizationUIConfig {

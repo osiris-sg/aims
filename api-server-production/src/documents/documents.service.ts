@@ -996,7 +996,22 @@ export class DocumentsService {
 
             let entry: any = null;
             if (glType === 'CREDIT_NOTE') {
-              entry = await this.journalAutoPost.postFromCreditNote({ ...baseArgs, customerName: partyName });
+              // config.subtype 'AP' = supplier credited us (Xero ACCPAYCREDIT
+              // convention from the migration + email ingestion) — that's the
+              // purchase-return shape (Dr Payables / Cr Purchases + tax
+              // reversal), not the AR shape (Dr Sales / Cr Debtors).
+              if (cfg?.subtype === 'AP') {
+                entry = await this.journalAutoPost.postFromPurchaseReturn({ ...baseArgs, supplierName: partyName });
+                if (entry) {
+                  entry = await this.prisma.journalEntry.update({
+                    where: { id: entry.id },
+                    data: { type: 'CREDIT_NOTE' },
+                    include: { lines: { include: { account: true } } },
+                  });
+                }
+              } else {
+                entry = await this.journalAutoPost.postFromCreditNote({ ...baseArgs, customerName: partyName });
+              }
             } else if (glType === 'DEBIT_NOTE') {
               entry = await this.journalAutoPost.postFromDebitNote({ ...baseArgs, customerName: partyName });
             } else if (glType === 'PURCHASE_ORDER') {
