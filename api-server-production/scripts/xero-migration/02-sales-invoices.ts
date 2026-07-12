@@ -125,16 +125,23 @@ async function main() {
     totalSeen += invs.length;
 
     for (const summary of invs) {
-      // Fetch the full invoice with line items.
-      let inv: XeroInvoice | null;
-      try {
-        inv = await fetchInvoiceWithLines(tokens, summary.InvoiceID);
-      } catch (e: any) {
-        console.warn(`  ⚠️  fetch failed ${summary.InvoiceNumber}: ${e.message?.slice(0, 100)}`);
-        failed++;
-        continue;
+      // Paged /Invoices responses already include full LineItems (that's why
+      // update-invoice-balances passes summaryOnly=true to make them light) —
+      // no per-invoice re-fetch needed. Saves ~2,500 API calls per run.
+      // Fallback: if Xero ever omits LineItems here, re-fetch individually.
+      let inv: XeroInvoice = summary;
+      if (!inv.LineItems?.length && inv.Status !== "VOIDED" && inv.Status !== "DELETED") {
+        try {
+          inv = (await fetchInvoiceWithLines(tokens, summary.InvoiceID)) || summary;
+        } catch {
+          /* keep summary — header totals still correct */
+        }
       }
-      if (!inv) {
+
+      // VOIDED/DELETED invoices have no valid DocumentStatus (the enum has no
+      // 'cancelled'), carry AmountDue=0, and Xero removes their journals — so
+      // they contribute nothing to TB/AR parity. Skip them.
+      if (inv.Status === "VOIDED" || inv.Status === "DELETED") {
         skipped++;
         continue;
       }
@@ -224,7 +231,9 @@ async function main() {
         }
       } catch (e: any) {
         failed++;
-        if (failed <= 5) console.warn(`  ⚠️  upsert ${invoiceNumber}: ${e.message?.slice(0, 180)}`);
+        // Print the TAIL of Prisma errors — the code frame eats the head, the
+        // actual reason ("Unique constraint…", "Invalid value…") is at the end.
+        if (failed <= 20) console.warn(`  ⚠️  upsert ${invoiceNumber}: ${e.message?.slice(-300)}`);
       }
     }
 

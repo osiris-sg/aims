@@ -29,10 +29,9 @@
  * Exit code 0 = everything within tolerance; 1 = drift found; 2 = fatal error.
  */
 
-import { PrismaClient } from '@prisma/client';
-import { getXeroTokens, xeroGet, BIOFUEL_ORG_ID } from './xero-migration/_common';
+import { getXeroTokens, xeroGet, BIOFUEL_ORG_ID, createScriptPrisma } from './xero-migration/_common';
 
-const prisma = new PrismaClient();
+const prisma = createScriptPrisma();
 
 // ---- args ----
 const args = process.argv.slice(2);
@@ -150,6 +149,27 @@ async function reconcileGL(tokens: Awaited<ReturnType<typeof getXeroTokens>>) {
   return { aimsByCode };
 }
 
+// AIMS-side GL balances by account code (shared by GL diff + control tie-outs).
+async function aimsBalancesByCode(): Promise<Map<string, { name: string; net: number }>> {
+  const grouped = await prisma.journalEntryLine.groupBy({
+    by: ['accountId'],
+    where: { journalEntry: { organizationId: ORG, status: 'POSTED', entryDate: { lte: ASOF } } },
+    _sum: { debit: true, credit: true },
+  });
+  const accts = await prisma.chartOfAccount.findMany({ where: { organizationId: ORG }, select: { id: true, code: true, name: true } });
+  const acctById = new Map(accts.map((a) => [a.id, a]));
+  const out = new Map<string, { name: string; net: number }>();
+  for (const g of grouped) {
+    const a = acctById.get(g.accountId);
+    const code = a?.code ?? '(unknown)';
+    const net = (g._sum.debit || 0) - (g._sum.credit || 0);
+    const cur = out.get(code) || { name: a?.name || '', net: 0 };
+    cur.net += net;
+    out.set(code, cur);
+  }
+  return out;
+}
+
 // ------------------------------------------------------------------
 // Xero invoice puller (summaryOnly, paginated) for AR/AP
 // ------------------------------------------------------------------
@@ -235,9 +255,26 @@ async function reconcileAP(tokens: Awaited<ReturnType<typeof getXeroTokens>>, ai
   let aimsCount = 0;
   for (const b of bills) {
     const c: any = b.config || {};
-    const billStatus = (c.billStatus || '').toUpperCase();
+    // Mirror bills.service toBill(): AIMS-native bills carry billStatus;
+    // Xero-imported ones derive status from xeroStatus and balance from
+    // xeroBalance (AmountDue at import) / xeroGross.
+    let billStatus = (c.billStatus || '').toUpperCase();
+    if (!billStatus) {
+      const xs = c.xeroStatus;
+      if (xs === 'Paid' || xs === 'PAID') billStatus = 'PAID';
+      else if (xs === 'Voided' || xs === 'VOIDED' || xs === 'Deleted' || xs === 'DELETED') billStatus = 'VOID';
+      else if (xs === 'Draft' || xs === 'DRAFT') billStatus = 'DRAFT';
+      else billStatus = 'POSTED';
+    }
     if (!['POSTED', 'PAID'].includes(billStatus)) continue;
-    const outstanding = R(Number(c.totalAmount ?? 0) - Number(c.amountPaid ?? 0));
+    const totalAmount = Number(c.totalAmount ?? c.xeroGross ?? 0);
+    const amountPaid =
+      c.amountPaid !== undefined
+        ? Number(c.amountPaid)
+        : c.xeroBalance !== undefined
+          ? R(totalAmount - Number(c.xeroBalance))
+          : Number(c.xeroAmountPaid ?? 0);
+    const outstanding = R(totalAmount - amountPaid);
     if (outstanding <= 0.005) continue;
     aimsAP += outstanding;
     aimsCount++;
@@ -272,7 +309,15 @@ async function main() {
   const tokens = await getXeroTokens(prisma, ORG);
   console.log(`Connected to Xero tenant ${tokens.tenantId}`);
 
-  const { aimsByCode } = await reconcileGL(tokens);
+  let aimsByCode: Map<string, { name: string; net: number }>;
+  if (args.includes('--skip-gl')) {
+    // AR/AP-only iteration mode — skip the ~239-page Xero journal pull and
+    // compute only the AIMS side (needed for the internal control tie-outs).
+    console.log('  --skip-gl: GL diff skipped; computing AIMS balances only');
+    aimsByCode = await aimsBalancesByCode();
+  } else {
+    ({ aimsByCode } = await reconcileGL(tokens));
+  }
   await reconcileAR(tokens, aimsByCode);
   await reconcileAP(tokens, aimsByCode);
 

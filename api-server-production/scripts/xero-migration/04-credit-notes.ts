@@ -24,8 +24,32 @@ const prisma = new PrismaClient();
 
 // Reuse the existing Invoice + Bill templates so AR credit notes look like
 // invoices and AP credit notes look like bills in the UI.
-const INVOICE_TEMPLATE_ID = "cc6d0035-993f-403f-8dd6-582ce8b10b0b";
-const BILL_TEMPLATE_ID = "daa7a601-60f2-48da-9e3a-737ee6bf6987";
+// Template ids differ per DB (dev/staging/prod) — resolved at runtime in main().
+let INVOICE_TEMPLATE_ID = "";
+let BILL_TEMPLATE_ID = "";
+async function resolveTemplateIds() {
+  // Prefer the exact template stage-2 (02-sales-invoices) uses so AR credit
+  // notes render with the same design as the imported invoices.
+  const inv =
+    (await prisma.documentTemplate.findUnique({
+      where: { id: "cc6d0035-993f-403f-8dd6-582ce8b10b0b" },
+      select: { id: true, name: true },
+    })) ??
+    (await prisma.documentTemplate.findFirst({
+      where: { organizationId: BIOFUEL_ORG_ID, type: "INVOICE" },
+      select: { id: true, name: true },
+    }));
+  const bill = await prisma.documentTemplate.findFirst({
+    where: { organizationId: BIOFUEL_ORG_ID, type: "BILL" },
+    select: { id: true, name: true },
+  });
+  if (!inv) throw new Error("No INVOICE DocumentTemplate for Biofuel in this DB.");
+  if (!bill) throw new Error("No BILL DocumentTemplate for Biofuel in this DB — run _seed-bill-template.ts first.");
+  INVOICE_TEMPLATE_ID = inv.id;
+  BILL_TEMPLATE_ID = bill.id;
+  console.log(`  invoice template: ${inv.id} (${inv.name})`);
+  console.log(`  bill template:    ${bill.id} (${bill.name})`);
+}
 
 type XeroLine = {
   Description?: string;
@@ -114,15 +138,21 @@ async function importType(tokens: any, side: "AR" | "AP") {
     totalSeen += notes.length;
 
     for (const summary of notes) {
-      let cn: XeroCreditNote | null;
-      try {
-        cn = await fetchOne(tokens, summary.CreditNoteID);
-      } catch (e: any) {
-        failed++;
-        console.warn(`  ⚠️  fetch ${summary.CreditNoteNumber}: ${e.message?.slice(0, 100)}`);
-        continue;
+      // Paged /CreditNotes responses already include full LineItems — no
+      // per-note re-fetch needed.
+      // Fallback: if Xero ever omits LineItems here, re-fetch individually.
+      let cn: XeroCreditNote = summary;
+      if (!cn.LineItems?.length && cn.Status !== "VOIDED" && cn.Status !== "DELETED") {
+        try {
+          cn = (await fetchOne(tokens, summary.CreditNoteID)) || summary;
+        } catch {
+          /* keep summary */
+        }
       }
-      if (!cn) continue;
+
+      // VOIDED/DELETED credit notes: no valid DocumentStatus (enum has no
+      // 'cancelled'), no remaining credit, journals removed in Xero. Skip.
+      if (cn.Status === "VOIDED" || cn.Status === "DELETED") continue;
 
       const cnNumber = cn.CreditNoteNumber?.trim() || `XERO-CN-${cn.CreditNoteID.slice(0, 8)}`;
       const date = parseXeroDate(cn.Date) || new Date();
@@ -206,7 +236,7 @@ async function importType(tokens: any, side: "AR" | "AP") {
         }
       } catch (e: any) {
         failed++;
-        if (failed <= 5) console.warn(`  ⚠️  upsert ${cnNumber}: ${e.message?.slice(0, 150)}`);
+        if (failed <= 20) console.warn(`  ⚠️  upsert ${cnNumber}: ${e.message?.slice(-300)}`);
       }
     }
 
@@ -221,6 +251,7 @@ async function importType(tokens: any, side: "AR" | "AP") {
 
 async function main() {
   console.log(`[Credit Notes] Biofuel org=${BIOFUEL_ORG_ID}`);
+  await resolveTemplateIds();
   const tokens = await getXeroTokens(prisma, BIOFUEL_ORG_ID);
   const ar = await importType(tokens, "AR");
   const ap = await importType(tokens, "AP");

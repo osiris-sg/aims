@@ -23,8 +23,18 @@ import { BIOFUEL_ORG_ID, getXeroTokens, xeroGet } from "./_common";
 
 const prisma = new PrismaClient();
 
-// Bill template seeded by _seed-bill-template.ts
-const BILL_TEMPLATE_ID = "daa7a601-60f2-48da-9e3a-737ee6bf6987";
+// Bill template seeded by _seed-bill-template.ts. The id differs per DB
+// (dev/staging/prod), so resolve it at runtime instead of hardcoding.
+let BILL_TEMPLATE_ID = "";
+async function resolveBillTemplateId(): Promise<string> {
+  const tmpl = await prisma.documentTemplate.findFirst({
+    where: { organizationId: BIOFUEL_ORG_ID, type: "BILL" },
+    select: { id: true, name: true },
+  });
+  if (!tmpl) throw new Error("No BILL DocumentTemplate for Biofuel in this DB — run _seed-bill-template.ts first.");
+  console.log(`  bill template: ${tmpl.id} (${tmpl.name})`);
+  return tmpl.id;
+}
 
 type XeroLineItem = {
   Description?: string;
@@ -85,6 +95,7 @@ async function fetchOne(tokens: any, id: string): Promise<XeroInvoice | null> {
 
 async function main() {
   console.log(`[Purchase Bills] Biofuel org=${BIOFUEL_ORG_ID}`);
+  BILL_TEMPLATE_ID = await resolveBillTemplateId();
   const tokens = await getXeroTokens(prisma, BIOFUEL_ORG_ID);
 
   const suppliers = await prisma.supplier.findMany({
@@ -110,15 +121,40 @@ async function main() {
     totalSeen += invs.length;
 
     for (const summary of invs) {
-      let inv: XeroInvoice | null;
-      try {
-        inv = await fetchOne(tokens, summary.InvoiceID);
-      } catch (e: any) {
-        console.warn(`  ⚠️  fetch ${summary.InvoiceNumber}: ${e.message?.slice(0, 100)}`);
-        failed++;
+      // Paged /Invoices responses already include full LineItems — no
+      // per-bill re-fetch needed. Saves ~2,400 API calls per run.
+      // Fallback: if Xero ever omits LineItems here, re-fetch individually.
+      let inv: XeroInvoice = summary;
+      if (!inv.LineItems?.length && inv.Status !== "VOIDED" && inv.Status !== "DELETED") {
+        try {
+          inv = (await fetchOne(tokens, summary.InvoiceID)) || summary;
+        } catch {
+          /* keep summary — header totals still correct */
+        }
+      }
+
+      // VOIDED/DELETED bills: no valid DocumentStatus (enum has no 'cancelled'),
+      // AmountDue=0, journals removed in Xero — nothing new to import. But if
+      // we imported it BEFORE it was voided, neutralize the stale row so AP
+      // doesn't drift.
+      if (inv.Status === "VOIDED" || inv.Status === "DELETED") {
+        const stale = await prisma.document.findFirst({
+          where: { organizationId: BIOFUEL_ORG_ID, type: "BILL", config: { path: ["xeroBillId"], equals: inv.InvoiceID } },
+          select: { id: true, config: true },
+        });
+        if (stale) {
+          const c: any = stale.config || {};
+          if (c.xeroStatus !== inv.Status || Number(c.xeroBalance || 0) !== 0 || !c.voided) {
+            await prisma.document.update({
+              where: { id: stale.id },
+              data: { config: { ...c, xeroStatus: inv.Status, xeroBalance: 0, voided: true } as Prisma.InputJsonValue },
+            });
+            console.log(`  ⚠ ${inv.InvoiceNumber || inv.InvoiceID}: voided in Xero after import — neutralized`);
+          }
+        }
+        skipped++;
         continue;
       }
-      if (!inv) { skipped++; continue; }
 
       const billNumber = inv.InvoiceNumber?.trim() || `XERO-${inv.InvoiceID.slice(0, 8)}`;
       const date = parseXeroDate(inv.Date) || new Date();
@@ -201,7 +237,7 @@ async function main() {
         }
       } catch (e: any) {
         failed++;
-        if (failed <= 5) console.warn(`  ⚠️  upsert ${billNumber}: ${e.message?.slice(0, 180)}`);
+        if (failed <= 20) console.warn(`  ⚠️  upsert ${billNumber}: ${e.message?.slice(-300)}`);
       }
     }
 

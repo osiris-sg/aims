@@ -9,11 +9,14 @@
  * Convention (verified against live data): JournalLine.NetAmount > 0 = DEBIT,
  * < 0 = CREDIT.  Idempotent — re-run any time.
  */
-import { PrismaClient } from '@prisma/client';
-import { getXeroTokens, xeroGet } from './xero-migration/_common';
+import { getXeroTokens, xeroGet, createScriptPrisma, withDbRetry } from './xero-migration/_common';
 
 const ORG = '52e90ba8-bfbd-48b0-bb76-4f9667bf74f1';
-const prisma = new PrismaClient();
+// WebSocket (443) Prisma — raw 5432 dies mid-run on flaky networks.
+const prisma = createScriptPrisma();
+// --resume: skip the wipe and keep already-inserted JV-XERO-* entries (safe:
+// Xero journals are immutable; a given JournalNumber never changes content).
+const RESUME = process.argv.includes('--resume');
 const R = (n: number) => Math.round(n * 100) / 100;
 
 // Xero "/Date(1627689600000+0000)/" → Date
@@ -56,24 +59,63 @@ function sourceToType(src: string): string {
   }
 }
 
+// Journal pages are cached to disk as they arrive so a killed/quota-blocked
+// run never re-spends API calls: on restart we reload the cache and resume the
+// pull from the highest cached JournalNumber (Xero /Journals?offset= is built
+// for exactly this; journals are immutable so the cache can't go stale, though
+// journals of later-voided docs disappear from Xero — acceptable within a
+// single sync session; delete the cache file to force a clean pull).
+const CACHE_FILE = `/tmp/xero-journals-cache-${ORG}.ndjson`;
+
 async function main() {
+  const fs = require('fs') as typeof import('fs');
   const tokens = await getXeroTokens(prisma, ORG);
   console.log(`Connected to Xero tenant ${tokens.tenantId}`);
 
-  // 1) Pull ALL journals (paginate by offset = JournalNumber).
+  // 1) Pull ALL journals (paginate by offset = JournalNumber), cache-backed.
   const journals: any[] = [];
-  let offset = 0;
+  const seenJn = new Set<number>();
+  if (fs.existsSync(CACHE_FILE)) {
+    for (const line of fs.readFileSync(CACHE_FILE, 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const j = JSON.parse(line);
+        if (!seenJn.has(j.JournalNumber)) { seenJn.add(j.JournalNumber); journals.push(j); }
+      } catch { /* torn last line from a killed run — re-pulled below */ }
+    }
+    console.log(`  cache: loaded ${journals.length} journals from ${CACHE_FILE}`);
+  }
+  let offset = journals.length ? Math.max(...journals.map((j) => j.JournalNumber || 0)) : 0;
+  if (RESUME) {
+    // Nightly append-only mode: also skip pull pages already in the DB (the
+    // /tmp cache is ephemeral on Render). JV-XERO-<n> encodes the number.
+    const rows = await prisma.journalEntry.findMany({
+      where: { organizationId: ORG, postedBy: 'xero-import', journalNumber: { startsWith: 'JV-XERO-' } },
+      select: { journalNumber: true },
+    });
+    let dbMax = 0;
+    for (const r of rows) {
+      const n = parseInt(r.journalNumber.slice('JV-XERO-'.length), 10);
+      if (Number.isFinite(n) && n > dbMax) dbMax = n;
+    }
+    if (dbMax > offset) {
+      console.log(`  --resume: DB already holds journals up to #${dbMax}, pulling from there`);
+      offset = dbMax;
+    }
+  }
   while (true) {
     const res = await xeroGet<any>(tokens, '/Journals', { offset });
-    const batch: any[] = res.Journals || [];
+    const batch: any[] = (res.Journals || []).filter((j: any) => !seenJn.has(j.JournalNumber));
     if (batch.length === 0) break;
     journals.push(...batch);
+    for (const j of batch) seenJn.add(j.JournalNumber);
+    fs.appendFileSync(CACHE_FILE, batch.map((j: any) => JSON.stringify(j)).join('\n') + '\n');
     const maxJn = Math.max(...batch.map((j) => j.JournalNumber || 0));
     process.stdout.write(`\r  pulled ${journals.length} journals (up to #${maxJn})   `);
     if (maxJn <= offset) break;
     offset = maxJn;
-    if (batch.length < 100) break;
   }
+  journals.sort((a, b) => (a.JournalNumber || 0) - (b.JournalNumber || 0));
   console.log(`\n  total journals from Xero: ${journals.length}`);
 
   // 2) Map every Xero AccountID → an AIMS ChartOfAccount id. Resolve by code
@@ -107,25 +149,43 @@ async function main() {
   }
   if (acctCreated) console.log(`  created ${acctCreated} accounts to cover all Xero journal accounts`);
 
-  // 3) WIPE existing xero-import JEs + their lines.
-  const oldIds = (await prisma.journalEntry.findMany({ where: { organizationId: ORG, postedBy: 'xero-import' }, select: { id: true } })).map((j) => j.id);
-  console.log(`  wiping ${oldIds.length} existing xero-import journal entries...`);
-  for (let i = 0; i < oldIds.length; i += 1000) {
-    const chunk = oldIds.slice(i, i + 1000);
-    await prisma.journalEntryLine.deleteMany({ where: { journalEntryId: { in: chunk } } });
-    await prisma.journalEntry.deleteMany({ where: { id: { in: chunk } } });
+  // 3) WIPE existing xero-import JEs + their lines (skipped with --resume).
+  const already = new Set<string>();
+  if (RESUME) {
+    // Repair: drop any line-less JEs from a run killed mid-batch, so they get
+    // re-inserted with their lines rather than skipped forever.
+    const orphans = await prisma.journalEntry.deleteMany({ where: { organizationId: ORG, postedBy: 'xero-import', lines: { none: {} } } });
+    if (orphans.count) console.log(`  --resume: removed ${orphans.count} line-less entries from a prior partial batch`);
+    const rows = await prisma.journalEntry.findMany({ where: { organizationId: ORG, postedBy: 'xero-import' }, select: { journalNumber: true } });
+    for (const r of rows) already.add(r.journalNumber);
+    console.log(`  --resume: keeping ${already.size} already-inserted entries`);
+  } else {
+    const oldIds = (await prisma.journalEntry.findMany({ where: { organizationId: ORG, postedBy: 'xero-import' }, select: { id: true } })).map((j) => j.id);
+    console.log(`  wiping ${oldIds.length} existing xero-import journal entries...`);
+    for (let i = 0; i < oldIds.length; i += 1000) {
+      const chunk = oldIds.slice(i, i + 1000);
+      await withDbRetry(() => prisma.journalEntryLine.deleteMany({ where: { journalEntryId: { in: chunk } } }), 'wipe lines');
+      await withDbRetry(() => prisma.journalEntry.deleteMany({ where: { id: { in: chunk } } }), 'wipe entries');
+    }
   }
 
-  // 4) Insert fresh JEs.
-  let inserted = 0, skipped = 0, unbalanced = 0, droppedLines = 0;
+  // 4) Insert fresh JEs — BATCHED. Per-entry nested creates cost one round
+  // trip each (~30/min on a degraded link); createMany batches of 250 JEs +
+  // their lines in one transaction cut ~44k round-trips to ~180.
+  const { randomUUID } = require('crypto') as typeof import('crypto');
+  let inserted = 0, skipped = 0, unbalanced = 0, droppedLines = 0, kept = 0;
+  type Pending = { je: any; lines: any[] };
+  const pending: Pending[] = [];
   for (const j of journals) {
+    if (RESUME && already.has(`JV-XERO-${j.JournalNumber}`)) { kept++; continue; }
     const rawLines = j.JournalLines || [];
+    const jeId = randomUUID();
     const lines = rawLines
       .map((l: any, i: number) => {
         const accountId = xidToAms.get(l.AccountID);
         if (!accountId) { droppedLines++; return null; }
         const net = Number(l.NetAmount) || 0;
-        return { accountId, lineNumber: i + 1, description: (l.Description || '').slice(0, 500) || null, debit: net > 0 ? R(net) : 0, credit: net < 0 ? R(-net) : 0 };
+        return { journalEntryId: jeId, accountId, lineNumber: i + 1, description: (l.Description || '').slice(0, 500) || null, debit: net > 0 ? R(net) : 0, credit: net < 0 ? R(-net) : 0 };
       })
       .filter(Boolean) as any[];
     if (lines.length === 0) { skipped++; continue; }
@@ -135,8 +195,9 @@ async function main() {
       unbalanced++;
       if (unbalanced <= 5) console.log(`\n  ⚠ unbalanced journal #${j.JournalNumber} (${j.SourceType}): Dr ${totalDebit} Cr ${totalCredit}`);
     }
-    await prisma.journalEntry.create({
-      data: {
+    pending.push({
+      je: {
+        id: jeId,
         organizationId: ORG,
         journalNumber: `JV-XERO-${j.JournalNumber}`,
         entryDate: xdate(j.JournalDate),
@@ -146,11 +207,36 @@ async function main() {
         description: `Xero ${j.SourceType || ''} ${j.Reference || ''}`.trim().slice(0, 500) || null,
         totalDebit, totalCredit, currency: 'SGD',
         postedAt: xdate(j.JournalDate), postedBy: 'xero-import', createdBy: 'xero-import',
-        lines: { create: lines },
       },
+      lines,
     });
-    inserted++;
-    if (inserted % 500 === 0) process.stdout.write(`\r  inserted ${inserted}/${journals.length}   `);
+  }
+  const BATCH = 250;
+  for (let i = 0; i < pending.length; i += BATCH) {
+    const chunk = pending.slice(i, i + BATCH);
+    try {
+      await withDbRetry(() => prisma.$transaction([
+        prisma.journalEntry.createMany({ data: chunk.map((c) => c.je) }),
+        prisma.journalEntryLine.createMany({ data: chunk.flatMap((c) => c.lines) }),
+      ]), `batch @${i}`);
+    } catch (e: any) {
+      // Duplicate journalNumber (e.g. a lost-ack retry after the batch really
+      // committed): fall back to inserting only the entries not yet present.
+      const nums = chunk.map((c) => c.je.journalNumber);
+      const exist = new Set(
+        (await prisma.journalEntry.findMany({ where: { organizationId: ORG, journalNumber: { in: nums } }, select: { journalNumber: true } })).map((r) => r.journalNumber),
+      );
+      const rest = chunk.filter((c) => !exist.has(c.je.journalNumber));
+      console.warn(`\n  ⚠ batch @${i} fell back to singles (${exist.size} already present, ${rest.length} to insert): ${(e?.message || '').slice(-120)}`);
+      for (const c of rest) {
+        await withDbRetry(() => prisma.$transaction([
+          prisma.journalEntry.createMany({ data: [c.je] }),
+          prisma.journalEntryLine.createMany({ data: c.lines }),
+        ]), `single #${c.je.journalNumber}`);
+      }
+    }
+    inserted += chunk.length;
+    process.stdout.write(`\r  inserted ${inserted}/${pending.length} new   `);
   }
   console.log(`\n  inserted ${inserted} JEs (skipped ${skipped} empty, ${unbalanced} unbalanced journals, ${droppedLines} lines dropped)`);
 

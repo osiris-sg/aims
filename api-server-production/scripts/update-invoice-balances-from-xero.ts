@@ -2,9 +2,9 @@
  * Pull each Xero ACCREC invoice's real AmountDue/AmountPaid and set the exact
  * balance + paid/unpaid status on the matching AIMS invoice, so AR ties to Xero.
  */
-import { PrismaClient, Prisma } from '@prisma/client';
-import { getXeroTokens, xeroGet } from './xero-migration/_common';
-const prisma = new PrismaClient();
+import { Prisma } from '@prisma/client';
+import { getXeroTokens, xeroGet, createScriptPrisma, withDbRetry } from './xero-migration/_common';
+const prisma = createScriptPrisma();
 const ORG = '52e90ba8-bfbd-48b0-bb76-4f9667bf74f1';
 const R = (n: number) => Math.round(n * 100) / 100;
 
@@ -41,9 +41,28 @@ async function main() {
     if (!doc) { notInAims++; continue; }
     const newStatus = isVoid ? 'draft' : due <= 0.005 ? 'paid' : 'pending_payment';
     const config = { ...((doc.config as any) || {}), xeroInvoiceId: inv.InvoiceID, xeroStatus: status, xeroGross: R(total), xeroBalance: R(due), xeroAmountPaid: R(paidAmt), voided: isVoid, paymentStatus: newStatus, paymentStatusSource: 'xero-api-amountdue', xeroLastSyncAt: new Date().toISOString() };
-    await prisma.document.update({ where: { id: doc.id }, data: { status: newStatus as any, config: config as Prisma.InputJsonValue } });
+    await withDbRetry(() => prisma.document.update({ where: { id: doc.id }, data: { status: newStatus as any, config: config as Prisma.InputJsonValue } }), `update ${number}`);
     matched++;
   }
+  // Reverse sweep: a Xero-imported AIMS invoice still carrying a balance but
+  // ABSENT from the Xero pull was deleted in Xero (deleted invoices drop out
+  // of the /Invoices API entirely) — neutralize it or AR drifts forever.
+  const seen = new Set(all.map((i) => (i.InvoiceNumber || '').trim()).filter(Boolean));
+  let phantoms = 0;
+  for (const d of aims) {
+    const c: any = d.config || {};
+    if (!c.xeroImported || c.voided) continue;
+    if (Number(c.xeroBalance || 0) <= 0.005) continue;
+    if (seen.has((d.name || '').trim())) continue;
+    console.log(`  ⚠ phantom: ${d.name} balance ${c.xeroBalance} — no longer in Xero; zeroing + marking voided`);
+    await withDbRetry(() => prisma.document.update({
+      where: { id: d.id },
+      data: { status: 'draft' as any, config: { ...c, voided: true, xeroBalance: 0, paymentStatusSource: 'phantom-not-in-xero' } as Prisma.InputJsonValue },
+    }), `phantom ${d.name}`);
+    phantoms++;
+  }
+  if (phantoms) console.log(`  neutralized ${phantoms} phantom invoice(s)`);
+
   console.log(`\n  updated ${matched} AIMS invoices; ${notInAims} Xero invoices not in AIMS`);
   console.log('  Xero status counts:', statusN);
   console.log(`\n  AR = sum(AmountDue) non-void = ${R(arDue).toFixed(2)}   (Xero TB 610 = 10,988,868.47)`);
