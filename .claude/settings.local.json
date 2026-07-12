@@ -10,7 +10,17 @@
       "Read(//Applications/Postgres.app/Contents/**)",
       "Read(//usr/local/opt/libpq/bin/**)",
       "Read(//opt/homebrew/Cellar/libpq/17.5/bin/**)",
-      "Bash(brew list *)"
+      "Bash(brew list *)",
+      "Bash(grep -E \"\\\\.\\(tsx?|jsx?\\)$\")",
+      "mcp__playwright__browser_wait_for",
+      "mcp__playwright__browser_take_screenshot",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_evaluate",
+      "Bash(brew install *)",
+      "Bash(warp-cli --version)",
+      "Bash(node -e ' *)",
+      "mcp__playwright__browser_snapshot"
     ]
   }
 }
