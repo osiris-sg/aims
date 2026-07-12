@@ -967,16 +967,20 @@ export class DocumentsService {
             const items = cfg?.items || [];
             const partyName = cfg?.customer?.name || cfg?.customerName || cfg?.supplier?.name || cfg?.supplierName;
 
-            const explicitNet = parseFloat(cfg?.subTotal ?? cfg?.summary?.subTotal ?? 'NaN');
-            const explicitTax = parseFloat(cfg?.gstAmount ?? cfg?.summary?.taxAmount ?? cfg?.tax?.amount ?? 'NaN');
-            const explicitGross = parseFloat(cfg?.nettTotal ?? cfg?.summary?.grandTotal ?? 'NaN');
+            // documentInfo.* carries the editor's summary (driven by the
+            // document-level tax code) — same precedence as confirmInvoice.
+            const cfgDi = cfg?.documentInfo;
+            const explicitNet = parseFloat(cfg?.subTotal ?? cfgDi?.subTotal ?? cfg?.summary?.subTotal ?? 'NaN');
+            const explicitTax = parseFloat(cfg?.gstAmount ?? cfgDi?.gstAmount ?? cfg?.summary?.taxAmount ?? cfg?.tax?.amount ?? 'NaN');
+            const explicitGross = parseFloat(cfg?.nettTotal ?? cfgDi?.nettTotal ?? cfg?.summary?.grandTotal ?? 'NaN');
 
             const fallbackNet = items.reduce((sum: number, item: any) => {
               const amt = parseFloat(item.amount) || (parseFloat(item.quantity) * parseFloat(item.unitPrice)) || 0;
               return sum + amt;
             }, 0);
             const org = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { taxRate: true } });
-            const orgRate = (org?.taxRate ?? 0) / 100;
+            const glDocPct = parseFloat(cfgDi?.gstPercent);
+            const orgRate = (Number.isFinite(glDocPct) ? glDocPct : (org?.taxRate ?? 0)) / 100;
 
             const netAmount = !Number.isNaN(explicitNet) ? explicitNet : fallbackNet;
             const taxAmount = !Number.isNaN(explicitTax) ? explicitTax : netAmount * orgRate;
@@ -3839,18 +3843,24 @@ export class DocumentsService {
         const customerName = customer?.name || config?.customerName;
         const itemsForTotal = config?.items || [];
 
-        // Prefer the explicit totals AIMS already computes on the document config.
-        const net = parseFloat(config?.subTotal ?? config?.summary?.subTotal ?? 'NaN');
-        const tax = parseFloat(config?.gstAmount ?? config?.summary?.taxAmount ?? config?.tax?.amount ?? 'NaN');
-        const gross = parseFloat(config?.nettTotal ?? config?.summary?.grandTotal ?? 'NaN');
+        // Prefer the explicit totals AIMS already computes on the document
+        // config — including the editor's summary fields (documentInfo.*),
+        // which the document-level tax code drives (e.g. code 2 zero-rated →
+        // gstAmount 0 must post as 0, not the org default).
+        const di = config?.documentInfo;
+        const net = parseFloat(config?.subTotal ?? di?.subTotal ?? config?.summary?.subTotal ?? 'NaN');
+        const tax = parseFloat(config?.gstAmount ?? di?.gstAmount ?? config?.summary?.taxAmount ?? config?.tax?.amount ?? 'NaN');
+        const gross = parseFloat(config?.nettTotal ?? di?.nettTotal ?? config?.summary?.grandTotal ?? 'NaN');
 
-        // Fallbacks if those fields aren't set: compute from items + org tax rate.
+        // Fallbacks if those fields aren't set: compute from items + the doc's
+        // GST % (tax code / editor), else the org tax rate.
         const fallbackNet = itemsForTotal.reduce((sum: number, item: any) => {
           const amt = parseFloat(item.amount) || (parseFloat(item.quantity) * parseFloat(item.unitPrice)) || 0;
           return sum + amt;
         }, 0);
         const org = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { taxRate: true } });
-        const orgRate = (org?.taxRate ?? 0) / 100;
+        const docPct = parseFloat(di?.gstPercent);
+        const orgRate = (Number.isFinite(docPct) ? docPct : (org?.taxRate ?? 0)) / 100;
 
         const netAmount = !Number.isNaN(net) ? net : fallbackNet;
         const taxAmount = !Number.isNaN(tax) ? tax : netAmount * orgRate;

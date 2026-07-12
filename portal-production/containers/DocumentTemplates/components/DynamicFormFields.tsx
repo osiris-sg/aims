@@ -7,6 +7,7 @@
 
 import React from 'react';
 import {
+  Autocomplete,
   Box,
   TextField,
   Select,
@@ -33,6 +34,38 @@ interface Salesman {
   salesmanCode: string;
   name: string;
   email?: string;
+}
+
+// ---- GST tax codes (master file) ----
+// Legacy-style document-level tax code: ONE code per document (next to Absorb
+// Tax), which sets the GST % for the whole doc — unlike account mapping which
+// is per-line. Fetched once per page load and shared.
+type TaxCode = { id: string; code: string; name: string; rate: number; direction: string; isActive: boolean };
+let taxCodesCache: TaxCode[] | null = null;
+let taxCodesPromise: Promise<TaxCode[]> | null = null;
+
+function useTaxCodes(): TaxCode[] {
+  const { getToken } = useAuth();
+  const [codes, setCodes] = React.useState<TaxCode[]>(taxCodesCache ?? []);
+  React.useEffect(() => {
+    if (taxCodesCache) return;
+    taxCodesPromise =
+      taxCodesPromise ||
+      (async () => {
+        try {
+          const token = await getToken();
+          if (!token) return [];
+          const res = await request({ path: '/accounting/tax-rates', method: 'GET' }, {}, token);
+          const list = (res?.data ?? res) as TaxCode[];
+          taxCodesCache = (Array.isArray(list) ? list : []).filter((t) => t.isActive);
+          return taxCodesCache;
+        } catch {
+          return [];
+        }
+      })();
+    taxCodesPromise.then((v) => setCodes(v));
+  }, [getToken]);
+  return codes;
 }
 
 // Separate component for customer/supplier field to properly use hooks
@@ -634,6 +667,7 @@ export default function DynamicFormFields({
   onOpenSupplierDialog,
   onOpenSalesmanDialog,
 }: DynamicFormFieldsProps) {
+  const taxCodes = useTaxCodes();
 
   // Helper to get nested value from object path
   const getNestedValue = (obj: any, path: string) => {
@@ -665,6 +699,27 @@ export default function DynamicFormFields({
   // Render input based on field type
   const renderInput = (field: FieldDefinition) => {
     const value = getNestedValue(formData, field.fieldName) ?? field.defaultValue ?? '';
+
+    // Terms: dropdown of common credit terms, still free-typeable (freeSolo) so
+    // any custom wording ("50% upfront", "COD") remains possible.
+    if (field.fieldName === 'documentInfo.paymentTerms' || field.fieldName === 'paymentTerms') {
+      return (
+        <Autocomplete
+          freeSolo
+          size="small"
+          fullWidth
+          options={['CASH', '14 Days', '30 Days', '60 Days']}
+          // Always offer every preset — this is a pick-or-type field, not a
+          // search box; filtering by the current value would hide the presets.
+          filterOptions={(opts) => opts}
+          inputValue={String(value ?? '')}
+          onInputChange={(_, v) => setFormData(setNestedValue(formData, field.fieldName, v))}
+          renderInput={(params) => (
+            <TextField {...params} size="small" placeholder="Terms" sx={inputSx} />
+          )}
+        />
+      );
+    }
 
     switch (field.fieldType) {
       case 'customer':
@@ -914,9 +969,15 @@ export default function DynamicFormFields({
     const value = getNestedValue(formData, field.fieldName) ?? field.defaultValue ?? '';
     const currency = getNestedValue(formData, 'documentInfo.currency') || 'USD';
 
-    // Special handling for Tax row (Tax Y/N + Absorb Tax Y/N)
+    // Special handling for Tax row (Tax Y/N + Absorb Tax Y/N + tax code).
+    // The tax code (GST master file, legacy 1-7) applies to the WHOLE document:
+    // picking one sets documentInfo.taxCode and drives gstPercent, so totals
+    // and the GL posting follow — unlike account mapping, which is per-line.
     if (field.fieldName === 'documentInfo.taxApplicable') {
       const absorbTaxValue = getNestedValue(formData, 'documentInfo.absorbTax') ?? 'N';
+      // Default = code 1 (Output Tax, standard-rated) — matches the org-rate
+      // 9% that gstPercent already defaults to, and the legacy default.
+      const taxCodeValue = getNestedValue(formData, 'documentInfo.taxCode') ?? '1';
       return (
         <Box key={field.fieldName} sx={rightRowSx}>
           <Typography sx={rightLabelSx}>Tax</Typography>
@@ -926,13 +987,35 @@ export default function DynamicFormFields({
               <MenuItem value="N" sx={{ fontSize: '13px' }}>N</MenuItem>
             </Select>
           </FormControl>
-          <Typography sx={{ fontSize: '13px', fontWeight: 500, px: 0.5 }}>Absorb Tax</Typography>
+          <Typography sx={{ fontSize: '13px', fontWeight: 500, px: 0.5 }}>Tax Inclusive</Typography>
           <FormControl size="small" sx={{ width: 56 }}>
             <Select value={absorbTaxValue} onChange={(e) => setFormData(setNestedValue(formData, 'documentInfo.absorbTax', e.target.value))} sx={selectSx}>
               <MenuItem value="Y" sx={{ fontSize: '13px' }}>Y</MenuItem>
               <MenuItem value="N" sx={{ fontSize: '13px' }}>N</MenuItem>
             </Select>
           </FormControl>
+          {taxCodes.length > 0 && (
+            <FormControl size="small" sx={{ width: 64, ml: 0.5 }}>
+              <Select
+                value={taxCodeValue}
+                renderValue={(v) => String(v)}
+                onChange={(e) => {
+                  const code = e.target.value as string;
+                  const tc = taxCodes.find((t) => t.code === code);
+                  let next = setNestedValue(formData, 'documentInfo.taxCode', code);
+                  if (tc) next = setNestedValue(next, 'documentInfo.gstPercent', tc.rate);
+                  setFormData(next);
+                }}
+                sx={selectSx}
+              >
+                {taxCodes.map((t) => (
+                  <MenuItem key={t.code} value={t.code} sx={{ fontSize: '13px' }}>
+                    {t.code} - {t.name}{t.rate > 0 ? `  ${t.rate.toFixed(2)} %` : ''}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
         </Box>
       );
     }
@@ -1038,10 +1121,11 @@ export default function DynamicFormFields({
   };
   const orderedFields = [...visibleLeftFields].sort((a, b) => orderOf(a) - orderOf(b));
 
-  // Contact + Terms share the final row (legacy layout) when both exist.
+  // Contact hosts the attention trio on its own row (legacy layout); Terms
+  // shares that row when present (DOs hide Terms — the trio still renders).
   const contactField = orderedFields.find((f) => f.fieldName === 'documentInfo.contact' || f.fieldName === 'contact');
   const termsField = orderedFields.find((f) => f.fieldName === 'documentInfo.paymentTerms' || f.fieldName === 'paymentTerms');
-  const pairContactTerms = Boolean(contactField && termsField);
+  const pairContactTerms = Boolean(contactField);
 
   // Contact row hosts the Attention trio (Contact Person / No. / Email) —
   // same formData.attention.* bindings the POC "Attn To" dropdown fills.
@@ -1069,13 +1153,18 @@ export default function DynamicFormFields({
   const attnPhone = getNestedValue(formData, 'attention.phoneNumber') || '';
   const attnEmail = getNestedValue(formData, 'attention.email') || '';
   // Legacy fallbacks until the user types over them: DOs stored the pair in
-  // documentInfo.contactName/contactNumber; other docs a bare phone number in
-  // documentInfo.contact.
-  const attnNameDisplay = attnName || getNestedValue(formData, 'documentInfo.contactName') || '';
+  // documentInfo.contactName/contactNumber; other docs the combined
+  // "Name - Phone" (or a bare phone) in documentInfo.contact — split it so the
+  // name/phone land in their own boxes instead of the whole string in Phone.
+  const legacyContact =
+    !attnName && !attnPhone && !attnEmail ? getNestedValue(formData, 'documentInfo.contact') || '' : '';
+  const legacyMatch = /^(.+?)\s*-\s*(.+)$/.exec(legacyContact);
+  const attnNameDisplay =
+    attnName || getNestedValue(formData, 'documentInfo.contactName') || legacyMatch?.[1] || '';
   const attnPhoneDisplay =
     attnPhone ||
     getNestedValue(formData, 'documentInfo.contactNumber') ||
-    (!attnName && !attnEmail ? getNestedValue(formData, 'documentInfo.contact') || '' : '');
+    (legacyMatch ? legacyMatch[2] : legacyContact);
 
   const renderContactTermsRow = () => (
     <Box
@@ -1107,12 +1196,16 @@ export default function DynamicFormFields({
           onChange={(e) => setAttention('email', e.target.value)}
           sx={{ ...inputSx, flex: 1.2, maxWidth: 280 }}
         />
-        <Typography sx={{ ...leftLabelSx, width: 90, ml: 'auto', borderLeft: 1 }}>
-          {termsField!.displayLabel}
-        </Typography>
-        <Box sx={{ width: 240, display: 'flex', alignItems: 'center' }}>
-          {renderInput(termsField!)}
-        </Box>
+        {termsField && (
+          <>
+            <Typography sx={{ ...leftLabelSx, width: 90, ml: 'auto', borderLeft: 1 }}>
+              {termsField.displayLabel}
+            </Typography>
+            <Box sx={{ width: 240, display: 'flex', alignItems: 'center' }}>
+              {renderInput(termsField)}
+            </Box>
+          </>
+        )}
       </Box>
     </Box>
   );
@@ -1132,7 +1225,7 @@ export default function DynamicFormFields({
         }}
       >
         {orderedFields.map((field) => {
-          if (pairContactTerms && (field === contactField || field === termsField)) return null;
+          if (pairContactTerms && (field === contactField || (termsField && field === termsField))) return null;
           return renderRow(field);
         })}
         {pairContactTerms && renderContactTermsRow()}

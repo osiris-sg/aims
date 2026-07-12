@@ -1331,7 +1331,7 @@ export default function TabbedDocumentCreator({
       setItems(items.map((it: any) => it.id === editingItemId ? {
         ...it,
         isService: rev.type === "SERVICE",
-        itemCode: rev.name || it.itemCode,
+        itemCode: rev.code || it.itemCode,
         description: rev.name,
         unitPrice: up,
         amount: (Number(it.quantity) || 1) * up,
@@ -1341,7 +1341,7 @@ export default function TabbedDocumentCreator({
       setEditingItemId(null);
       return;
     }
-    setItems([...items, makeServiceItem({ description: rev.name, unitPrice: up, amount: up, accountCode: rev.accountCode, isService: rev.type === "SERVICE" })]);
+    setItems([...items, makeServiceItem({ itemCode: rev.code || "", description: rev.name, unitPrice: up, amount: up, accountCode: rev.accountCode, isService: rev.type === "SERVICE" })]);
   };
 
   const deleteItem = (id: number) => {
@@ -1678,7 +1678,10 @@ export default function TabbedDocumentCreator({
     const di = formData?.documentInfo as any;
     const discountValue = parseFloat(di?.discountPercent) || 0;
     const discountType = di?.discountType || "percent";
-    const gstPercent = isTaxApplicable ? (parseFloat(di?.gstPercent) || organization?.taxRate || 9) : 0;
+    // Explicit 0 is a real rate (zero-rated / exempt tax codes) — only fall
+    // back to the org default when gstPercent is genuinely unset.
+    const gstRaw = parseFloat(di?.gstPercent);
+    const gstPercent = !isTaxApplicable ? 0 : Number.isFinite(gstRaw) ? gstRaw : (organization?.taxRate ?? 9);
     const r2 = (n: number) => parseFloat((Number(n) || 0).toFixed(2));
 
     // FCU-CU (QF) waterfall. Route Order: Gross = Σ list; base = Σ Dealer −
@@ -2616,7 +2619,8 @@ export default function TabbedDocumentCreator({
     }
   };
 
-  // Invoices: Extract from Quotation if service items feature on, else from DO.
+  // Invoices always extract from a DO — the paper trail is quotation → DO →
+  // invoice, so the invoice inherits the DO (and through it the project link).
   const handleExtractForInvoice = async () => {
     try {
       const token = await getToken();
@@ -2633,23 +2637,13 @@ export default function TabbedDocumentCreator({
         toast.error("Failed to fetch documents");
         return;
       }
-      if (isServiceItemsEnabled) {
-        const quotationTypes = ["QUOTATION", "QT", "QO", "QO1"];
-        const quotations = (response.data || []).filter((doc: any) => {
-          const docType = doc.type || doc.documentType || "";
-          return quotationTypes.includes(docType.toUpperCase());
-        });
-        setQuotationsForExtract(quotations);
-        setExtractQuotationDialogOpen(true);
-      } else {
-        const doTypes = ["DELIVERY_ORDER", "DO"];
-        const deliveryOrders = (response.data || []).filter((doc: any) => {
-          const docType = doc.type || doc.documentType || "";
-          return doTypes.includes(docType.toUpperCase());
-        });
-        setDeliveryOrdersForExtract(deliveryOrders);
-        setExtractDODialogOpen(true);
-      }
+      const doTypes = ["DELIVERY_ORDER", "DO"];
+      const deliveryOrders = (response.data || []).filter((doc: any) => {
+        const docType = doc.type || doc.documentType || "";
+        return doTypes.includes(docType.toUpperCase());
+      });
+      setDeliveryOrdersForExtract(deliveryOrders);
+      setExtractDODialogOpen(true);
     } catch (error) {
       console.error("Error fetching documents:", error);
       toast.error("Failed to fetch documents");
@@ -3494,7 +3488,7 @@ export default function TabbedDocumentCreator({
             {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || documentType?.toUpperCase() === "INVOICE") && (
               <MenuItem onClick={() => { closeMoreMenu(); handleExtractForInvoice(); }}>
                 <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
-                <ListItemText>{isServiceItemsEnabled ? "Extract from Quotation" : "Extract from DO"}</ListItemText>
+                <ListItemText>Extract from DO</ListItemText>
               </MenuItem>
             )}
             <Divider />
@@ -3737,8 +3731,9 @@ export default function TabbedDocumentCreator({
                         : documentType === "DO" || documentType === "DELIVERY_ORDER"
                         ? // Contact Name/Number replaced by the Contact-row trio
                           // (kept in sync for the printout); currency hidden like
-                          // invoices/quotations; salesman not used on DOs.
-                          ["documentInfo.currency", "documentInfo.contactName", "documentInfo.contactNumber", "documentInfo.salesPerson"]
+                          // invoices/quotations; salesman and payment terms not
+                          // used on DOs.
+                          ["documentInfo.currency", "documentInfo.contactName", "documentInfo.contactNumber", "documentInfo.salesPerson", "documentInfo.paymentTerms"]
                         : []
                     }
                     customInputs={
@@ -6127,6 +6122,13 @@ export default function TabbedDocumentCreator({
                 : {}),
             },
             deliveryTo: quotationConfig.deliveryTo || "",
+            // Carry the Attn To contact trio — without this the combined
+            // "Name - Phone" contact string lands in the phone box.
+            attention: {
+              name: quotationConfig.attention?.name || "",
+              phoneNumber: quotationConfig.attention?.phoneNumber || "",
+              email: quotationConfig.attention?.email || "",
+            },
             // Carry the quotation's project link onto this document — the
             // save-time link-project PATCH persists it (mandatory on DOs).
             projectId: quotation.projectId || quotationConfig.projectId || formData.projectId || "",
@@ -6204,6 +6206,13 @@ export default function TabbedDocumentCreator({
                 : {}),
             },
             deliveryTo: quotationConfig.deliveryTo || "",
+            // Attn To trio from the FIRST quotation (merged quotations share a
+            // customer, so the contact is the same in practice).
+            attention: {
+              name: quotationConfig.attention?.name || "",
+              phoneNumber: quotationConfig.attention?.phoneNumber || "",
+              email: quotationConfig.attention?.email || "",
+            },
             // Project link from the FIRST quotation (merged quotations share a
             // customer and, in practice, a project).
             projectId: firstQuotation.projectId || quotationConfig.projectId || formData.projectId || "",
@@ -6282,6 +6291,13 @@ export default function TabbedDocumentCreator({
               gstPercent: doConfig.gstPercent,
             },
             deliveryTo: doConfig.deliveryTo || "",
+            // Carry the Attn To contact trio — without this the combined
+            // "Name - Phone" contact string lands in the phone box.
+            attention: {
+              name: doConfig.attention?.name || "",
+              phoneNumber: doConfig.attention?.phoneNumber || "",
+              email: doConfig.attention?.email || "",
+            },
             sourceDocumentId: deliveryOrder.id,
             sourceDocumentType: "DELIVERY_ORDER",
             sourceDocumentNumber: deliveryOrder.name,
@@ -6347,6 +6363,12 @@ export default function TabbedDocumentCreator({
               gstPercent: doConfig.gstPercent,
             },
             deliveryTo: doConfig.deliveryTo || "",
+            // Attn To trio from the FIRST DO (merged DOs share a customer).
+            attention: {
+              name: doConfig.attention?.name || "",
+              phoneNumber: doConfig.attention?.phoneNumber || "",
+              email: doConfig.attention?.email || "",
+            },
             sourceDocumentId: sourceDocumentIds.join(","), // Store multiple IDs as comma-separated
             sourceDocumentType: "DELIVERY_ORDER",
             sourceDocumentNumber: sourceDocumentNumbers,
@@ -6433,6 +6455,13 @@ export default function TabbedDocumentCreator({
                 : {}),
             },
             deliveryTo: quotationConfig.deliveryTo || "",
+            // Carry the Attn To contact trio — without this the combined
+            // "Name - Phone" contact string lands in the phone box.
+            attention: {
+              name: quotationConfig.attention?.name || "",
+              phoneNumber: quotationConfig.attention?.phoneNumber || "",
+              email: quotationConfig.attention?.email || "",
+            },
             // Carry the quotation's project link onto this document — the
             // save-time link-project PATCH persists it (mandatory on DOs).
             projectId: quotation.projectId || quotationConfig.projectId || formData.projectId || "",
@@ -6510,6 +6539,13 @@ export default function TabbedDocumentCreator({
                 : {}),
             },
             deliveryTo: quotationConfig.deliveryTo || "",
+            // Attn To trio from the FIRST quotation (merged quotations share a
+            // customer, so the contact is the same in practice).
+            attention: {
+              name: quotationConfig.attention?.name || "",
+              phoneNumber: quotationConfig.attention?.phoneNumber || "",
+              email: quotationConfig.attention?.email || "",
+            },
             // Project link from the FIRST quotation (merged quotations share a
             // customer and, in practice, a project).
             projectId: firstQuotation.projectId || quotationConfig.projectId || formData.projectId || "",

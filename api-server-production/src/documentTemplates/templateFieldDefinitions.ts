@@ -268,7 +268,7 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
           },
           {
             fieldName: "documentInfo.absorbTax",
-            displayLabel: "Absorb Tax",
+            displayLabel: "Tax Inclusive",
             fieldType: "select",
             required: false,
             defaultValue: "N",
@@ -538,7 +538,7 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
           },
           {
             fieldName: "documentInfo.absorbTax",
-            displayLabel: "Absorb Tax",
+            displayLabel: "Tax Inclusive",
             fieldType: "select",
             required: false,
             defaultValue: "N",
@@ -706,7 +706,7 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
           },
           {
             fieldName: "documentInfo.absorbTax",
-            displayLabel: "Absorb Tax",
+            displayLabel: "Tax Inclusive",
             fieldType: "select",
             required: false,
             defaultValue: "N",
@@ -895,7 +895,7 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
           },
           {
             fieldName: "documentInfo.absorbTax",
-            displayLabel: "Absorb Tax",
+            displayLabel: "Tax Inclusive",
             fieldType: "select",
             required: false,
             defaultValue: "N",
@@ -1029,7 +1029,7 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
           },
           {
             fieldName: "documentInfo.absorbTax",
-            displayLabel: "Absorb Tax",
+            displayLabel: "Tax Inclusive",
             fieldType: "select",
             required: false,
             defaultValue: "N",
@@ -1177,7 +1177,7 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
           },
           {
             fieldName: "documentInfo.absorbTax",
-            displayLabel: "Absorb Tax",
+            displayLabel: "Tax Inclusive",
             fieldType: "select",
             required: false,
             defaultValue: "N",
@@ -1359,7 +1359,7 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
           },
           {
             fieldName: "documentInfo.absorbTax",
-            displayLabel: "Absorb Tax",
+            displayLabel: "Tax Inclusive",
             fieldType: "select",
             required: false,
             defaultValue: "N",
@@ -1675,7 +1675,7 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
           },
           {
             fieldName: "documentInfo.absorbTax",
-            displayLabel: "Absorb Tax",
+            displayLabel: "Tax Inclusive",
             fieldType: "select",
             required: false,
             defaultValue: "N",
