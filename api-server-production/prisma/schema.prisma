@@ -90,6 +90,7 @@ model Organization {
   serviceReports        MaintenanceServiceReport[]
   emailIngestConfig     EmailIngestConfig?
   emailIngestLogs       EmailIngestLog[]
+  passTrackerEntries    PassTrackerEntry[]
 }
 
 model Asset {
@@ -1927,6 +1928,30 @@ model EmailIngestConfig {
   updatedAt DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// Jurong Port pass-application tracker (imported from the ops Excel via
+// scripts/import-jp-pass-tracker.ts — no UI). Email ingestion cross-checks an
+// incoming bill's number against invoiceNumber: row found → the bill's lines
+// are coded 442 (expense) when the pass was applied for the org itself
+// (company ~ BIOFUEL) or 105 (contra, recoverable) when applied for any other
+// company.
+model PassTrackerEntry {
+  id             String  @id @default(uuid())
+  organizationId String
+  invoiceNumber  String // Jurong Port invoice no, e.g. JP2606160136 (stored uppercase/trimmed)
+  company        String? // COMPANY WHO APPLIED — drives 442 vs 105
+  wpCompany      String? // work-permit company (informational)
+  personName     String?
+  amount         Float?
+  raw            Json? // full source row for debugging
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, invoiceNumber])
 }
 
 model EmailIngestLog {
