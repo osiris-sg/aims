@@ -19,6 +19,7 @@ import {
   DialogContent,
   DialogActions,
   Grid,
+  Autocomplete,
   MenuItem,
   Select,
   FormControl,
@@ -288,45 +289,37 @@ export default function PaymentsPage() {
 
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12}>
-              <FormControl fullWidth required>
-                <InputLabel>Customer</InputLabel>
-                <Select
-                  value={formData.customerId}
-                  onChange={(e) => handleCustomerChange(e.target.value)}
-                  label="Customer"
-                >
-                  <MenuItem value="">
-                    <em>Select Customer</em>
-                  </MenuItem>
-                  {customers.map((customer: any) => (
-                    <MenuItem key={customer.id} value={customer.id}>
-                      {customer.name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              {/* Searchable — hundreds of customers make a plain select unusable. */}
+              <Autocomplete
+                options={customers as any[]}
+                getOptionLabel={(c: any) => c?.name ?? ''}
+                isOptionEqualToValue={(o: any, v: any) => o.id === v.id}
+                value={(customers as any[]).find((c: any) => c.id === formData.customerId) ?? null}
+                onChange={(_, c: any) => handleCustomerChange(c ? c.id : '')}
+                renderOption={(props, c: any) => (
+                  <li {...props} key={c.id}>{c.name}</li>
+                )}
+                ListboxProps={{ sx: { maxHeight: 320 } }}
+                renderInput={(params) => <TextField {...params} required label="Customer" placeholder="Search customer..." />}
+                autoHighlight
+              />
             </Grid>
 
             <Grid item xs={12}>
-              <FormControl fullWidth required disabled={!formData.customerId}>
-                <InputLabel>Invoice/Document</InputLabel>
-                <Select
-                  value={formData.documentId}
-                  onChange={(e) =>
-                    setFormData({ ...formData, documentId: e.target.value })
-                  }
-                  label="Invoice/Document"
-                >
-                  <MenuItem value="">
-                    <em>Select Document</em>
-                  </MenuItem>
-                  {documents.map((doc) => (
-                    <MenuItem key={doc.id} value={doc.id}>
-                      {doc.name} ({doc.type})
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              <Autocomplete
+                disabled={!formData.customerId}
+                options={documents as any[]}
+                getOptionLabel={(d: any) => (d ? `${d.name} (${d.type})` : '')}
+                isOptionEqualToValue={(o: any, v: any) => o.id === v.id}
+                value={(documents as any[]).find((d: any) => d.id === formData.documentId) ?? null}
+                onChange={(_, d: any) => setFormData({ ...formData, documentId: d ? d.id : '' })}
+                renderOption={(props, d: any) => (
+                  <li {...props} key={d.id}>{d.name} ({d.type})</li>
+                )}
+                ListboxProps={{ sx: { maxHeight: 320 } }}
+                renderInput={(params) => <TextField {...params} required label="Invoice/Document" placeholder="Search document..." />}
+                autoHighlight
+              />
             </Grid>
 
             <Grid item xs={12} sm={6}>

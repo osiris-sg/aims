@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
+  Autocomplete, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
   IconButton, MenuItem, Paper, Stack, Switch, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TextField, Tooltip, Typography, alpha,
 } from "@mui/material";
@@ -293,9 +293,20 @@ export default function RecurringInvoicesView() {
             )}
             <Stack direction={{ xs: "column", sm: "row" }} gap={2}>
               <TextField label="Name" size="small" fullWidth value={form.name} onChange={(e) => setForm((f: any) => ({ ...f, name: e.target.value }))} placeholder="China Railway monthly retainer" />
-              <TextField select label="Customer" size="small" fullWidth value={form.customerId} onChange={(e) => setForm((f: any) => ({ ...f, customerId: e.target.value }))}>
-                {(customers || []).map((c: any) => (<MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>))}
-              </TextField>
+              {/* Searchable — the full customer list is far too long for a plain select. */}
+              <Autocomplete
+                size="small"
+                fullWidth
+                options={(customers || []) as any[]}
+                getOptionLabel={(c: any) => c?.name ?? ""}
+                isOptionEqualToValue={(o: any, v: any) => o.id === v.id}
+                value={((customers || []) as any[]).find((c: any) => c.id === form.customerId) ?? null}
+                onChange={(_, c: any) => setForm((f: any) => ({ ...f, customerId: c ? c.id : "" }))}
+                renderOption={(props, c: any) => (<li {...props} key={c.id}>{c.name}</li>)}
+                ListboxProps={{ sx: { maxHeight: 320 } }}
+                renderInput={(params) => <TextField {...params} label="Customer" placeholder="Search customer..." />}
+                autoHighlight
+              />
             </Stack>
             <Stack direction={{ xs: "column", sm: "row" }} gap={2}>
               <TextField select label="Invoice template" size="small" fullWidth value={form.documentTemplateId} onChange={(e) => setForm((f: any) => ({ ...f, documentTemplateId: e.target.value }))}>

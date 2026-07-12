@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  Box, Paper, Typography, Stack, TextField, Button, MenuItem,
+  Autocomplete, Box, Paper, Typography, Stack, TextField, Button,
   CircularProgress, Alert, Chip,
 } from "@mui/material";
 import { useAccountingApi } from "../_lib/api";
@@ -134,12 +134,22 @@ export default function SupplierStatementPage() {
 
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Stack direction="row" gap={2} flexWrap="wrap" alignItems="flex-end">
-          <TextField
-            select size="small" label="Supplier" value={supplierId}
-            onChange={(e) => setSupplierId(e.target.value)} sx={{ minWidth: 320 }}
-          >
-            {suppliers.map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
-          </TextField>
+          {/* Searchable — supplier lists run long; plain select was unusable. */}
+          <Autocomplete
+            size="small"
+            sx={{ minWidth: 320 }}
+            options={suppliers}
+            getOptionLabel={(s: any) => s?.name ?? ""}
+            isOptionEqualToValue={(o: any, v: any) => o.id === v.id}
+            value={suppliers.find((s) => s.id === supplierId) ?? null}
+            onChange={(_, s: any) => setSupplierId(s ? s.id : "")}
+            renderOption={(props, s: any) => (
+              <li {...props} key={s.id}>{s.name}</li>
+            )}
+            ListboxProps={{ sx: { maxHeight: 320 } }}
+            renderInput={(params) => <TextField {...params} label="Supplier" placeholder="Search supplier..." />}
+            autoHighlight
+          />
           <TextField size="small" type="date" label="From" InputLabelProps={{ shrink: true }} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           <TextField size="small" type="date" label="To" InputLabelProps={{ shrink: true }} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
           <Button variant="contained" onClick={run} disabled={!supplierId || loading}>

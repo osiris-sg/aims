@@ -1,11 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Box, Button, Drawer, Stack } from "@mui/material";
+import { Autocomplete, Box, Button, Drawer, InputLabel, Stack, TextField } from "@mui/material";
 import React, { useEffect, useState } from "react";
 
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 
 import DateRangePicker from "@/form-components/FormDateRangePicker";
-import FormSelect from "@/form-components/FormSelect";
 
 // Schema-driven filter config. Each page declares the filters it wants and
 // supplies the options. The drawer just renders.
@@ -146,14 +145,41 @@ export default function FilterDrawer(props: FilterDrawerProps) {
           if (field.type === "select") {
             return (
               <Box key={field.key} width="100%" sx={{ position: "relative" }}>
-                <FormSelect
+                <InputLabel sx={{ color: "text.secondary", fontSize: "0.875rem", mb: 0.5 }}>{field.label}</InputLabel>
+                {/* Searchable dropdown — large option sets (e.g. hundreds of
+                    assets) are type-to-filter instead of one endless menu, and
+                    the popup height is capped so it never overlaps the drawer
+                    controls. */}
+                <Controller
                   control={control}
-                  menuItems={field.options}
-                  label={field.label}
                   name={field.key}
-                  menuTitle={field.label}
-                  size="small"
-                  defaultValue={filters?.[field.key] ?? ""}
+                  render={({ field: { onChange, value } }) => (
+                    <Autocomplete
+                      size="small"
+                      options={field.options}
+                      getOptionLabel={(o) => (typeof o === "object" ? String(o.label ?? "") : String(o ?? ""))}
+                      isOptionEqualToValue={(o, v) => String(o.value) === String((v as FilterOption)?.value ?? v)}
+                      value={field.options.find((o) => String(o.value) === String(value ?? "")) ?? null}
+                      onChange={(_, option) => onChange(option ? option.value : "")}
+                      renderInput={(params) => (
+                        <TextField {...params} placeholder={`Search ${field.label.toLowerCase()}...`} />
+                      )}
+                      // Key by value, not label — Autocomplete's default keys
+                      // options by label, and duplicate labels (e.g. many assets
+                      // named "Submersible Pump") give React duplicate keys and
+                      // a stale, unfiltered listbox.
+                      renderOption={(optionProps, option) => (
+                        <li {...optionProps} key={String(option.value)}>
+                          {option.label}
+                        </li>
+                      )}
+                      ListboxProps={{ sx: { maxHeight: 320 } }}
+                      slotProps={{ paper: { sx: { boxShadow: 3 } } }}
+                      noOptionsText="No matches"
+                      clearOnEscape
+                      autoHighlight
+                    />
+                  )}
                 />
                 <Button
                   sx={{ position: "absolute", top: 0, right: 0, p: 0, color: "text.secondary", textTransform: "none", fontSize: "0.8rem", "&:hover": { color: "text.primary", backgroundColor: "transparent" } }}

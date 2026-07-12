@@ -258,14 +258,16 @@ const theme = createTheme({
         root: {
           "& .MuiOutlinedInput-root": {
             borderRadius: 6,
-            backgroundColor: tokens.surfaceContainer,
+            // White field + visible border — the gray surfaceContainer fill
+            // blended invisibly into gray page backgrounds (list-page search).
+            backgroundColor: tokens.surfaceContainerLowest,
             fontSize: "0.875rem",
             transition: "background-color 160ms ease, box-shadow 160ms ease",
             "& fieldset": {
-              borderColor: "transparent",
+              borderColor: "var(--field-border)",
             },
             "&:hover fieldset": {
-              borderColor: alpha(tokens.primary, 0.2),
+              borderColor: "var(--field-border-hover)",
             },
             "&.Mui-focused": {
               backgroundColor: tokens.surfaceContainerLowest,

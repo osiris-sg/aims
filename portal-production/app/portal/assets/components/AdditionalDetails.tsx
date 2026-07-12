@@ -5,7 +5,6 @@ import {
   Divider,
   FormControlLabel,
   IconButton,
-  MenuItem,
   Stack,
   Switch,
   TextField,
@@ -17,6 +16,7 @@ import FormInputBox from "@/form-components/FormInputBox";
 import FormImage from "@/form-components/FormImage";
 import { Controller, useFieldArray, useFormContext } from "react-hook-form";
 import ParentAssetSelector from "./ParentAssetSelector";
+import GLAccountSelect from "@/components/GLAccountSelect";
 import { useSearchParams } from "next/navigation";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useAuth } from "@clerk/nextjs";
@@ -50,7 +50,16 @@ export default function AdditionalDetails() {
         const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/accounting/accounts`, { headers });
         const json = await res.json();
         const list = json?.data ?? json;
-        setRevenueAccounts((Array.isArray(list) ? list : []).filter((a: any) => ["SALES", "INCOME"].includes(a.accountType)).sort((a: any, b: any) => String(a.code).localeCompare(String(b.code))));
+        // Grouped like the Account Mapping tab: revenue first, then expense
+        // (recharge/recovery — invoicing credits the expense), then contra.
+        const all = (Array.isArray(list) ? list : []).filter((a: any) => a.isActive !== false);
+        const sort = (xs: any[]) => xs.sort((a: any, b: any) => String(a.code).localeCompare(String(b.code)));
+        const groups = [
+          { label: "Revenue", accounts: sort(all.filter((a: any) => ["SALES", "INCOME"].includes(a.accountType))) },
+          { label: "Expense recovery (credits the expense)", accounts: sort(all.filter((a: any) => ["EXPENSE", "PURCHASE"].includes(a.accountType))) },
+          { label: "Other / contra accounts", accounts: sort(all.filter((a: any) => !["SALES", "INCOME", "EXPENSE", "PURCHASE"].includes(a.accountType))) },
+        ].filter((g) => g.accounts.length);
+        setRevenueAccounts(groups);
       } catch {
         /* leave empty */
       }
@@ -88,7 +97,7 @@ export default function AdditionalDetails() {
           />
 
           <Box>
-            <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>GL revenue accounts</Typography>
+            <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>GL accounts</Typography>
             <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mb: 1 }}>
               Set a sales and/or rental account — this {itemType.toLowerCase()} then shows in the Stock Card's Sales / Rental tabs and its invoice lines post to that account automatically.
             </Typography>
@@ -97,20 +106,14 @@ export default function AdditionalDetails() {
                 control={control}
                 name="salesAccountCode"
                 render={({ field }) => (
-                  <TextField select fullWidth size="small" label="Sales account" value={field.value || ""} onChange={field.onChange}>
-                    <MenuItem value="">— none —</MenuItem>
-                    {revenueAccounts.map((a) => (<MenuItem key={a.code} value={a.code}>{a.code} — {a.name}</MenuItem>))}
-                  </TextField>
+                  <GLAccountSelect label="Sales account" value={field.value || ""} accounts={revenueAccounts} onChange={field.onChange} />
                 )}
               />
               <Controller
                 control={control}
                 name="rentalAccountCode"
                 render={({ field }) => (
-                  <TextField select fullWidth size="small" label="Rental account" value={field.value || ""} onChange={field.onChange}>
-                    <MenuItem value="">— none —</MenuItem>
-                    {revenueAccounts.map((a) => (<MenuItem key={a.code} value={a.code}>{a.code} — {a.name}</MenuItem>))}
-                  </TextField>
+                  <GLAccountSelect label="Rental account" value={field.value || ""} accounts={revenueAccounts} onChange={field.onChange} />
                 )}
               />
             </Stack>
