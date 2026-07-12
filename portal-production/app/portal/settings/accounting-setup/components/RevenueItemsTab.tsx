@@ -11,7 +11,6 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
-  MenuItem,
   Paper,
   Stack,
   Table,
@@ -32,9 +31,10 @@ import EditIcon from "@mui/icons-material/Edit";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import SearchIcon from "@mui/icons-material/Search";
 import { toast } from "react-toastify";
+import GLAccountSelect from "@/components/GLAccountSelect";
 
 type Asset = { id: string; name: string; skuKey?: string; salesAccountCode?: string | null; rentalAccountCode?: string | null };
-type Service = { id: string; name: string; unitPrice?: number | null; accountCode: string; accountName?: string | null; isActive: boolean };
+type Service = { id: string; code?: string | null; name: string; unitPrice?: number | null; accountCode: string; accountName?: string | null; isActive: boolean };
 
 type Props = {
   accounts: any[];
@@ -43,17 +43,29 @@ type Props = {
 
 export default function RevenueItemsTab({ accounts, authedFetch }: Props) {
   const [section, setSection] = useState<"equipment" | "services">("equipment");
-  const revenueAccounts = useMemo(
-    () => (accounts || []).filter((a) => ["SALES", "INCOME"].includes(a.accountType)).sort((a, b) => String(a.code).localeCompare(String(b.code))),
-    [accounts],
-  );
+  // Grouped picker: Revenue first (the normal case), then expense accounts
+  // (recharge/recovery services credit the expense → net presentation), then
+  // contra/balance-sheet accounts (e.g. 999 Contra Clearing AP/AR). The
+  // posting engine credits whatever account the line is mapped to.
+  const revenueAccounts = useMemo(() => {
+    const sort = (xs: any[]) => xs.sort((a, b) => String(a.code).localeCompare(String(b.code)));
+    const active = (accounts || []).filter((a) => a.isActive !== false);
+    const revenue = sort(active.filter((a) => ["SALES", "INCOME"].includes(a.accountType)));
+    const expense = sort(active.filter((a) => ["EXPENSE", "PURCHASE"].includes(a.accountType)));
+    const other = sort(active.filter((a) => !["SALES", "INCOME", "EXPENSE", "PURCHASE"].includes(a.accountType)));
+    return [
+      { label: "Revenue", accounts: revenue },
+      { label: "Expense recovery (credits the expense)", accounts: expense },
+      { label: "Other / contra accounts", accounts: other },
+    ].filter((g) => g.accounts.length);
+  }, [accounts]);
 
   return (
     <Box>
       <Box sx={{ mb: 2 }}>
-        <Typography variant="h6" sx={{ fontWeight: 700 }}>Revenue Mapping</Typography>
+        <Typography variant="h6" sx={{ fontWeight: 700 }}>Account Mapping</Typography>
         <Typography variant="body2" sx={{ color: "text.secondary", maxWidth: 760 }}>
-          Map each product and service to a GL revenue account. Set once — every invoice line then self-codes and posts to the ledger automatically.
+          Map each product and service to a GL account — revenue for normal sales/rentals, an expense account for recharges (the invoice credits it back), or a contra account. Set once — every invoice line then self-codes and posts to the ledger automatically.
         </Typography>
       </Box>
 
@@ -159,17 +171,11 @@ function EquipmentSection({ revenueAccounts, authedFetch }: { revenueAccounts: a
   );
 }
 
-function AccountSelect({ value, accounts, onChange }: { value: string; accounts: any[]; onChange: (v: string) => void }) {
-  return (
-    <TextField select fullWidth size="small" value={value} onChange={(e) => onChange(e.target.value)}>
-      <MenuItem value=""><em>— none —</em></MenuItem>
-      {accounts.map((a) => (<MenuItem key={a.code} value={a.code}>{a.code} — {a.name}</MenuItem>))}
-    </TextField>
-  );
-}
+// Searchable GL-account picker — shared component, see components/GLAccountSelect.
+const AccountSelect = GLAccountSelect;
 
 // ---------- Services: RevenueItem CRUD (services only) ----------
-const blankSvc = { name: "", unitPrice: "", accountCode: "" };
+const blankSvc = { code: "", name: "", unitPrice: "", accountCode: "" };
 function ServicesSection({ revenueAccounts, authedFetch }: { revenueAccounts: any[]; authedFetch: Props["authedFetch"] }) {
   const [items, setItems] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
@@ -194,14 +200,14 @@ function ServicesSection({ revenueAccounts, authedFetch }: { revenueAccounts: an
   useEffect(() => { load(); }, [load]);
 
   const openNew = () => { setEditing(null); setForm(blankSvc); setDialogOpen(true); };
-  const openEdit = (it: Service) => { setEditing(it); setForm({ name: it.name, unitPrice: it.unitPrice ?? "", accountCode: it.accountCode }); setDialogOpen(true); };
+  const openEdit = (it: Service) => { setEditing(it); setForm({ code: it.code ?? "", name: it.name, unitPrice: it.unitPrice ?? "", accountCode: it.accountCode }); setDialogOpen(true); };
 
   const save = async () => {
     if (!form.name.trim()) { toast.warn("Name is required"); return; }
     if (!form.accountCode) { toast.warn("Pick a GL account"); return; }
     setSaving(true);
     try {
-      const payload = { name: form.name.trim(), type: "SERVICE", unitPrice: form.unitPrice === "" ? null : parseFloat(form.unitPrice), accountCode: form.accountCode };
+      const payload = { code: form.code?.trim() || null, name: form.name.trim(), type: "SERVICE", unitPrice: form.unitPrice === "" ? null : parseFloat(form.unitPrice), accountCode: form.accountCode };
       const res = editing
         ? await authedFetch(`/revenue-items/${editing.id}`, { method: "PATCH", body: JSON.stringify(payload) })
         : await authedFetch("/revenue-items", { method: "POST", body: JSON.stringify(payload) });
@@ -245,6 +251,7 @@ function ServicesSection({ revenueAccounts, authedFetch }: { revenueAccounts: an
           <Table size="small">
             <TableHead>
               <TableRow sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
+                <TableCell sx={{ fontWeight: 700, width: 100 }}>Code</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>Service</TableCell>
                 <TableCell sx={{ fontWeight: 700 }} align="right">Unit price</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>GL account</TableCell>
@@ -254,6 +261,7 @@ function ServicesSection({ revenueAccounts, authedFetch }: { revenueAccounts: an
             <TableBody>
               {items.map((it) => (
                 <TableRow key={it.id}>
+                  <TableCell><Typography variant="body2" sx={{ fontFamily: "monospace" }}>{it.code || "—"}</Typography></TableCell>
                   <TableCell><Typography variant="body2" sx={{ fontWeight: 600 }}>{it.name}</Typography></TableCell>
                   <TableCell align="right" sx={{ fontFamily: "monospace" }}>{it.unitPrice != null ? it.unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</TableCell>
                   <TableCell><Typography variant="body2"><b>{it.accountCode}</b> {it.accountName ? `— ${it.accountName}` : ""}</Typography></TableCell>
@@ -272,11 +280,21 @@ function ServicesSection({ revenueAccounts, authedFetch }: { revenueAccounts: an
         <DialogTitle>{editing ? "Edit service" : "Add service"}</DialogTitle>
         <DialogContent dividers>
           <Stack gap={2} sx={{ mt: 0.5 }}>
+            <TextField
+              label="Service code" size="small" value={form.code}
+              onChange={(e) => setForm((f: any) => ({ ...f, code: e.target.value.toUpperCase() }))}
+              placeholder="Auto (SV001)" sx={{ width: 200 }}
+              helperText="Shows in the document line's Product Code column. Leave blank to auto-assign."
+            />
             <TextField label="Service name" fullWidth size="small" value={form.name} onChange={(e) => setForm((f: any) => ({ ...f, name: e.target.value }))} placeholder="e.g. Transportation of Hardcore" />
             <TextField label="Default unit price (optional)" size="small" type="number" value={form.unitPrice} onChange={(e) => setForm((f: any) => ({ ...f, unitPrice: e.target.value }))} />
-            <TextField select label="GL revenue account" fullWidth size="small" value={form.accountCode} onChange={(e) => setForm((f: any) => ({ ...f, accountCode: e.target.value }))}>
-              {revenueAccounts.map((a) => (<MenuItem key={a.code} value={a.code}>{a.code} — {a.name}</MenuItem>))}
-            </TextField>
+            <AccountSelect
+              label="GL account"
+              value={form.accountCode}
+              accounts={revenueAccounts}
+              onChange={(v) => setForm((f: any) => ({ ...f, accountCode: v }))}
+              helperText="Revenue for normal services. An expense account credits it back on invoicing (recharge / cost recovery); a contra account offsets a related balance."
+            />
           </Stack>
         </DialogContent>
         <DialogActions>

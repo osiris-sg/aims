@@ -16,6 +16,19 @@ export class RevenueItemsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(organizationId: string, opts?: { type?: string; activeOnly?: boolean }) {
+    // Backfill codes for pre-code services so nothing shows blank on lines.
+    const uncoded = await this.prisma.revenueItem.findMany({
+      where: { organizationId, OR: [{ code: null }, { code: '' }] },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    for (const u of uncoded) {
+      await this.prisma.revenueItem.update({
+        where: { id: u.id },
+        data: { code: await this.nextServiceCode(organizationId) },
+      });
+    }
+
     const items = await this.prisma.revenueItem.findMany({
       where: {
         organizationId,
@@ -37,12 +50,28 @@ export class RevenueItemsService {
     return a?.id ?? null;
   }
 
+  // Next free SV### code (services master). User-supplied codes win; this is
+  // the fallback so every service ALWAYS has a code (shows in the document
+  // line's Product Code column).
+  private async nextServiceCode(organizationId: string): Promise<string> {
+    const rows = await this.prisma.revenueItem.findMany({
+      where: { organizationId, code: { startsWith: 'SV' } },
+      select: { code: true },
+    });
+    let max = 0;
+    for (const r of rows) {
+      const m = /^SV(\d+)$/.exec(r.code || '');
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return `SV${String(max + 1).padStart(3, '0')}`;
+  }
+
   async create(organizationId: string, dto: ItemDto) {
     const accountId = await this.resolveAccountId(organizationId, dto.accountCode);
     return this.prisma.revenueItem.create({
       data: {
         organizationId,
-        code: dto.code ?? null,
+        code: dto.code?.trim() || (await this.nextServiceCode(organizationId)),
         name: dto.name,
         type: (dto.type || 'SERVICE').toUpperCase(),
         unitPrice: dto.unitPrice ?? null,

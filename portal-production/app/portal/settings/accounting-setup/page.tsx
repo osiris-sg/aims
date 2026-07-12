@@ -160,7 +160,7 @@ export default function AccountingSetupPage() {
             <Tab icon={<AccountTreeIcon />} iconPosition="start" label="Accounts Definition" />
             <Tab icon={<Inventory2Icon />} iconPosition="start" label="Inventory Cost" />
             <Tab icon={<BusinessIcon />} iconPosition="start" label="Cost Centers" />
-            <Tab icon={<SellIcon />} iconPosition="start" label="Revenue Mapping" />
+            <Tab icon={<SellIcon />} iconPosition="start" label="Account Mapping" />
           </Tabs>
         </Box>
 
