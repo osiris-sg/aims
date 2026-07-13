@@ -138,6 +138,8 @@ export class BillsService {
       totalAmount,
       amountPaid,
       currency: c.currency || c.documentInfo?.currency || 'SGD',
+      taxCode: c.documentInfo?.taxCode || null,
+      amountsAre: c.amountsAre || (c.documentInfo?.absorbTax ? 'INCLUSIVE' : 'EXCLUSIVE'),
       lines: c.lines || c.items || [],
       sourcePoId: c.sourcePoId || null,
       matchStatus: c.matchStatus || null,
@@ -230,6 +232,9 @@ export class BillsService {
       description?: string;
       lines: BillLine[];
       taxAmount?: number;
+      taxCode?: string;
+      gstPercent?: number;
+      amountsAre?: 'EXCLUSIVE' | 'INCLUSIVE' | 'NO_TAX';
       sourcePoId?: string;
       inboundChannel?: 'MANUAL' | 'UPLOAD' | 'EMAIL' | 'FROM_PO';
       inboundMeta?: any;
@@ -245,11 +250,16 @@ export class BillsService {
     });
     if (!supplier) throw new BadRequestException('Supplier not found');
 
-    const subtotal = ROUND(dto.lines.reduce((s, l) => s + (l.amount || 0), 0));
-    const taxAmount = ROUND(
-      dto.taxAmount !== undefined ? dto.taxAmount : dto.lines.reduce((s, l) => s + (l.taxAmount || 0), 0),
-    );
-    const totalAmount = ROUND(subtotal + taxAmount);
+    // Amounts-are semantics (Xero-style): EXCLUSIVE = line amounts are net;
+    // INCLUSIVE = line amounts are gross (tax inside); NO_TAX = no tax at all.
+    const amountsAre = dto.amountsAre || 'EXCLUSIVE';
+    const linesSum = ROUND(dto.lines.reduce((s, l) => s + (l.amount || 0), 0));
+    const taxAmount =
+      amountsAre === 'NO_TAX'
+        ? 0
+        : ROUND(dto.taxAmount !== undefined ? dto.taxAmount : dto.lines.reduce((s, l) => s + (l.taxAmount || 0), 0));
+    const subtotal = amountsAre === 'INCLUSIVE' ? ROUND(linesSum - taxAmount) : linesSum;
+    const totalAmount = amountsAre === 'INCLUSIVE' ? linesSum : ROUND(linesSum + taxAmount);
 
     const templateId = await this.getOrCreateBillTemplate(organizationId);
     const billStatus: BillStatus = 'DRAFT';
@@ -267,6 +277,14 @@ export class BillsService {
       taxAmount,
       totalAmount,
       amountPaid: 0,
+      amountsAre,
+      // Same shape the invoice editor writes — the GST report reads
+      // documentInfo.taxCode/gstPercent uniformly across doc types.
+      documentInfo: {
+        taxCode: dto.taxCode || null,
+        gstPercent: dto.gstPercent ?? null,
+        absorbTax: amountsAre === 'INCLUSIVE',
+      },
       lines: dto.lines,
       items: dto.lines, // mirror — readers vary
       billStatus,
@@ -313,16 +331,29 @@ export class BillsService {
     if (dto.dueDate !== undefined) config.dueDate = dto.dueDate || null;
     if (dto.reference !== undefined) config.reference = dto.reference;
     if (dto.description !== undefined) config.description = dto.description;
+    if (dto.amountsAre !== undefined) config.amountsAre = dto.amountsAre;
+    if (dto.taxCode !== undefined || dto.gstPercent !== undefined || dto.amountsAre !== undefined) {
+      config.documentInfo = {
+        ...(config.documentInfo || {}),
+        ...(dto.taxCode !== undefined ? { taxCode: dto.taxCode || null } : {}),
+        ...(dto.gstPercent !== undefined ? { gstPercent: dto.gstPercent } : {}),
+        absorbTax: (config.amountsAre || 'EXCLUSIVE') === 'INCLUSIVE',
+      };
+    }
     if (dto.lines !== undefined) {
-      const subtotal = ROUND(dto.lines.reduce((s: number, l: BillLine) => s + (l.amount || 0), 0));
-      const taxAmount = ROUND(
-        dto.taxAmount !== undefined ? dto.taxAmount : dto.lines.reduce((s: number, l: BillLine) => s + (l.taxAmount || 0), 0),
-      );
+      const amountsAre = config.amountsAre || 'EXCLUSIVE';
+      const linesSum = ROUND(dto.lines.reduce((s: number, l: BillLine) => s + (l.amount || 0), 0));
+      const taxAmount =
+        amountsAre === 'NO_TAX'
+          ? 0
+          : ROUND(
+              dto.taxAmount !== undefined ? dto.taxAmount : dto.lines.reduce((s: number, l: BillLine) => s + (l.taxAmount || 0), 0),
+            );
       config.lines = dto.lines;
       config.items = dto.lines;
-      config.subtotal = subtotal;
+      config.subtotal = amountsAre === 'INCLUSIVE' ? ROUND(linesSum - taxAmount) : linesSum;
       config.taxAmount = taxAmount;
-      config.totalAmount = ROUND(subtotal + taxAmount);
+      config.totalAmount = amountsAre === 'INCLUSIVE' ? linesSum : ROUND(linesSum + taxAmount);
     }
     await this.prisma.document.update({ where: { id }, data: { config: config as Prisma.InputJsonValue } });
     return this.findOne(organizationId, id);
@@ -387,11 +418,23 @@ export class BillsService {
       orderBy: { code: 'asc' },
     });
 
+    // Tax-inclusive bills: line amounts are gross — net them proportionally so
+    // expense debits + input tax + AP credit still balance (rounding diff goes
+    // to the last line).
+    const linesSum = ROUND((bill.lines as any[]).reduce((s: number, l: any) => s + (l.amount || 0), 0));
+    const inclusive = (bill as any).amountsAre === 'INCLUSIVE' && bill.taxAmount > 0 && linesSum > 0;
+    const netFactor = inclusive ? (linesSum - bill.taxAmount) / linesSum : 1;
+
     const lines: Array<{ accountId: string; debit: number; credit: number; description: string }> = [];
     for (const [i, l] of (bill.lines as any[]).entries()) {
       const accountId = l.accountId || fallbackPurchase?.id;
       if (!accountId) throw new BadRequestException(`Bill line ${i + 1}: no accountId and no fallback PURCHASE account in chart`);
-      lines.push({ accountId, debit: ROUND(l.amount || 0), credit: 0, description: l.description || `Bill ${bill.billNumber}` });
+      lines.push({ accountId, debit: ROUND((l.amount || 0) * netFactor), credit: 0, description: l.description || `Bill ${bill.billNumber}` });
+    }
+    if (inclusive) {
+      const targetNet = ROUND(linesSum - bill.taxAmount);
+      const drift = ROUND(targetNet - lines.reduce((s, l) => s + l.debit, 0));
+      if (drift !== 0 && lines.length > 0) lines[lines.length - 1].debit = ROUND(lines[lines.length - 1].debit + drift);
     }
     if (bill.taxAmount > 0 && taxAccount) {
       lines.push({ accountId: taxAccount.id, debit: bill.taxAmount, credit: 0, description: `Input tax — ${bill.billNumber}` });
@@ -430,6 +473,7 @@ export class BillsService {
       taxAmount?: number;
       totalAmount?: number;
       billNumber?: string;
+      amountsAre?: 'EXCLUSIVE' | 'INCLUSIVE' | 'NO_TAX';
     },
   ): Promise<{
     lines: Array<{
@@ -451,9 +495,20 @@ export class BillsService {
     warnings: string[];
   }> {
     const warnings: string[] = [];
-    const billLines = Array.isArray(dto.lines) ? dto.lines : [];
+    const rawLines = Array.isArray(dto.lines) ? dto.lines : [];
     const taxAmount = ROUND(dto.taxAmount || 0);
     const billNumber = dto.billNumber || '';
+
+    // Tax-inclusive: preview the NET expense debits (mirrors post()'s netting).
+    const rawSum = ROUND(rawLines.reduce((s, l) => s + (l.amount || 0), 0));
+    const previewInclusive = dto.amountsAre === 'INCLUSIVE' && taxAmount > 0 && rawSum > 0;
+    const previewFactor = previewInclusive ? (rawSum - taxAmount) / rawSum : 1;
+    const billLines = rawLines.map((l) => ({ ...l, amount: ROUND((l.amount || 0) * previewFactor) }));
+    if (previewInclusive && billLines.length > 0) {
+      const targetNet = ROUND(rawSum - taxAmount);
+      const drift = ROUND(targetNet - billLines.reduce((s, l) => s + (l.amount || 0), 0));
+      if (drift !== 0) billLines[billLines.length - 1].amount = ROUND((billLines[billLines.length - 1].amount || 0) + drift);
+    }
 
     const settings = await this.prisma.accountingSetting.findUnique({ where: { organizationId } });
     const controls = (settings?.controlAccounts as any) || {};

@@ -13,6 +13,7 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  MenuItem,
   Stack,
   Table,
   TableBody,
@@ -58,6 +59,10 @@ type LineForm = {
 
 type Account = { id: string; code: string; name: string; category: "PNL" | "BALANCE_SHEET"; isActive: boolean };
 
+type TaxRateOpt = { id: string; code: string; name: string; rate: number; direction: string; isActive: boolean };
+
+type AmountsAre = "EXCLUSIVE" | "INCLUSIVE" | "NO_TAX";
+
 const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -96,6 +101,12 @@ export default function BillEditorDialog({
   const [dueDate, setDueDate] = useState("");
   const [description, setDescription] = useState("");
   const [taxAmount, setTaxAmount] = useState("0");
+  const [amountsAre, setAmountsAre] = useState<AmountsAre>("EXCLUSIVE");
+  const [taxCode, setTaxCode] = useState("4"); // Input Tax 9% — AP default
+  const [taxRates, setTaxRates] = useState<TaxRateOpt[]>([]);
+  // True while the Tax field holds a user-typed / extracted / stored value we
+  // must not clobber; changing tax code or amounts-are recomputes.
+  const taxManualRef = useRef(false);
   const [lines, setLines] = useState<LineForm[]>([newLine()]);
   const [inboundChannel, setInboundChannel] = useState<string>("MANUAL");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -105,15 +116,17 @@ export default function BillEditorDialog({
 
   const loadSuppliersAndAccounts = useCallback(async () => {
     try {
-      const [sup, acc] = await Promise.all([
+      const [sup, acc, rates] = await Promise.all([
         // Supplier list is a paginated POST (page/limit), not a GET. limit high
         // enough to fill the picker for any org.
         request<any>("/suppliers", { method: "POST", body: JSON.stringify({ page: 1, limit: 1000 }) }),
         request<Account[]>("/accounting/accounts"),
+        request<TaxRateOpt[]>("/accounting/tax-rates").catch(() => [] as TaxRateOpt[]),
       ]);
       const supList: Supplier[] = Array.isArray(sup) ? sup : sup?.docs || sup?.data || [];
       setSuppliers(supList);
       setAccounts((acc || []).filter((a) => a.isActive).sort((a, b) => a.code.localeCompare(b.code)));
+      setTaxRates((Array.isArray(rates) ? rates : []).filter((t) => t.isActive));
     } catch (e: any) {
       toast.error(e?.message || "Failed to load suppliers/accounts");
     }
@@ -129,6 +142,9 @@ export default function BillEditorDialog({
       setDueDate(editing.dueDate ? editing.dueDate.slice(0, 10) : "");
       setDescription(editing.description || "");
       setTaxAmount(String(editing.taxAmount || 0));
+      setAmountsAre((editing.amountsAre as AmountsAre) || "EXCLUSIVE");
+      setTaxCode(editing.taxCode || (editing.amountsAre === "NO_TAX" ? "12" : "4"));
+      taxManualRef.current = true; // keep the stored tax until code/mode changes
       setInboundChannel(editing.inboundChannel || "MANUAL");
       setAttachments(Array.isArray(editing.attachments) ? editing.attachments : []);
       const ls: any[] = Array.isArray(editing.lines) ? editing.lines : [];
@@ -151,18 +167,34 @@ export default function BillEditorDialog({
       setDueDate("");
       setDescription("");
       setTaxAmount("0");
+      setAmountsAre("EXCLUSIVE");
+      setTaxCode("4");
+      taxManualRef.current = false;
       setLines([newLine()]);
       setInboundChannel("MANUAL");
       setAttachments([]);
     }
   }, [open, editing, loadSuppliersAndAccounts]);
 
-  const subtotal = useMemo(
+  const linesSum = useMemo(
     () => lines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0),
     [lines],
   );
   const tax = parseFloat(taxAmount) || 0;
-  const totalAmount = subtotal + tax;
+  const selRate = taxRates.find((t) => t.code === taxCode)?.rate ?? 9;
+  // INCLUSIVE: line amounts are gross → subtotal nets the tax out, total = gross.
+  const subtotal = amountsAre === "INCLUSIVE" ? linesSum - tax : linesSum;
+  const totalAmount = amountsAre === "INCLUSIVE" ? linesSum : linesSum + tax;
+
+  // Recompute tax from the selected code whenever amounts change — unless the
+  // user typed a tax figure (or it came from extraction / a stored bill).
+  useEffect(() => {
+    if (isReadOnly || taxManualRef.current) return;
+    let t = 0;
+    if (amountsAre === "EXCLUSIVE") t = (linesSum * selRate) / 100;
+    else if (amountsAre === "INCLUSIVE") t = (linesSum * selRate) / (100 + selRate);
+    setTaxAmount(t ? t.toFixed(2) : "0");
+  }, [linesSum, amountsAre, selRate, isReadOnly]);
 
   const setLine = (uid: string, patch: Partial<LineForm>) => {
     setLines((rows) =>
@@ -216,7 +248,10 @@ export default function BillEditorDialog({
       if (extracted.billNumber) setBillNumber(extracted.billNumber);
       if (extracted.billDate) setBillDate(String(extracted.billDate).slice(0, 10));
       if (extracted.dueDate) setDueDate(String(extracted.dueDate).slice(0, 10));
-      if (extracted.taxAmount !== undefined) setTaxAmount(String(extracted.taxAmount || 0));
+      if (extracted.taxAmount !== undefined) {
+        setTaxAmount(String(extracted.taxAmount || 0));
+        taxManualRef.current = true; // extracted actuals win over the computed rate
+      }
       if (Array.isArray(extracted.lines) && extracted.lines.length > 0) {
         setLines(
           extracted.lines.map((l: any) => ({
@@ -250,7 +285,10 @@ export default function BillEditorDialog({
         billDate,
         dueDate: dueDate || undefined,
         description: description || undefined,
-        taxAmount: parseFloat(taxAmount) || 0,
+        taxAmount: amountsAre === "NO_TAX" ? 0 : parseFloat(taxAmount) || 0,
+        amountsAre,
+        taxCode,
+        gstPercent: amountsAre === "NO_TAX" ? 0 : selRate,
         lines: lines.map((l) => ({
           description: l.description || undefined,
           quantity: parseFloat(l.quantity) || 0,
@@ -301,8 +339,9 @@ export default function BillEditorDialog({
         method: "POST",
         body: JSON.stringify({
           billNumber: billNumber.trim(),
-          taxAmount: parseFloat(taxAmount) || 0,
+          taxAmount: amountsAre === "NO_TAX" ? 0 : parseFloat(taxAmount) || 0,
           totalAmount,
+          amountsAre,
           lines: lines.map((l) => ({
             description: l.description || undefined,
             amount: parseFloat(l.amount) || 0,
@@ -457,15 +496,54 @@ export default function BillEditorDialog({
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             disabled={isReadOnly}
-            sx={{ gridColumn: { xs: "1 / -1", md: "1 / 4" } }}
+            sx={{ gridColumn: { xs: "1 / -1", md: "1 / 2" } }}
           />
+          <TextField
+            size="small"
+            select
+            label="Amounts are"
+            value={amountsAre}
+            onChange={(e) => {
+              const v = e.target.value as AmountsAre;
+              setAmountsAre(v);
+              taxManualRef.current = false; // mode change → recompute from code
+              if (v === "NO_TAX") setTaxCode("12"); // Out-of-Scope Purchases / No GST
+              else if (taxCode === "12") setTaxCode("4");
+            }}
+            disabled={isReadOnly}
+          >
+            <MenuItem value="EXCLUSIVE">Tax Exclusive</MenuItem>
+            <MenuItem value="INCLUSIVE">Tax Inclusive</MenuItem>
+            <MenuItem value="NO_TAX">No Tax</MenuItem>
+          </TextField>
+          <TextField
+            size="small"
+            select
+            label="Tax code"
+            value={taxRates.some((t) => t.code === taxCode) ? taxCode : ""}
+            onChange={(e) => {
+              setTaxCode(e.target.value);
+              taxManualRef.current = false; // code change → recompute
+            }}
+            disabled={isReadOnly || amountsAre === "NO_TAX"}
+            SelectProps={{ renderValue: (v) => String(v) }}
+          >
+            {taxRates.map((t) => (
+              <MenuItem key={t.id} value={t.code}>
+                {t.code} — {t.name} ({t.rate}%)
+              </MenuItem>
+            ))}
+          </TextField>
           <TextField
             size="small"
             type="number"
             label="Tax (GST)"
             value={taxAmount}
-            onChange={(e) => setTaxAmount(e.target.value)}
-            disabled={isReadOnly}
+            onChange={(e) => {
+              setTaxAmount(e.target.value);
+              taxManualRef.current = true;
+            }}
+            disabled={isReadOnly || amountsAre === "NO_TAX"}
             inputProps={{ step: "0.01", min: 0 }}
           />
         </Box>
@@ -569,7 +647,9 @@ export default function BillEditorDialog({
           <Typography sx={{ fontFamily: "monospace", fontWeight: 600, minWidth: 100, textAlign: "right" }}>
             {fmt(subtotal)}
           </Typography>
-          <Typography variant="body2" sx={{ color: "text.secondary" }}>+ Tax</Typography>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            {amountsAre === "INCLUSIVE" ? "incl. Tax" : "+ Tax"}
+          </Typography>
           <Typography sx={{ fontFamily: "monospace", fontWeight: 600, minWidth: 80, textAlign: "right" }}>
             {fmt(tax)}
           </Typography>
