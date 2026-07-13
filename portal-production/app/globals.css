@@ -66,6 +66,14 @@
   --table-grid: #3a4148;
 }
 
+/* Chrome draws the native date-picker calendar icon black — invert it in dark
+   mode or it vanishes against dark fields (applies to every date input). */
+[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator,
+[data-theme="dark"] input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+[data-theme="dark"] input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+
 body {
   background-color: var(--surface);
   color: var(--on-surface);
