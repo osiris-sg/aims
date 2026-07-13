@@ -17,6 +17,7 @@ import {
 import KeyboardIcon from "@mui/icons-material/Keyboard";
 import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
+import { useNfcScan } from "../../hooks/useNfcScan";
 
 interface ManualAsset {
   id: string;
@@ -49,18 +50,29 @@ const FIELD_BUTTON_SX = {
 export default function ManualEntryPage() {
   const router = useRouter();
   const { getToken } = useAuth();
+  // Re-detect NFC capability here (the hook resolves it on mount, no scan
+  // needed) rather than threading state from the scan home — a device without
+  // NFC has no tap alternative, so it may manually enter ANY tracked asset.
+  const nfc = useNfcScan();
 
   const [assets, setAssets] = useState<ManualAsset[] | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<ManualAsset | null>(null);
   const [serial, setSerial] = useState("");
   const [resolving, setResolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // True once the full (all tracked assets) list was loaded because this
+  // device has no NFC — drives the "all assets available" UI note.
+  const [showingAll, setShowingAll] = useState(false);
   // Multi-match disambiguation (theoretically possible after normalization).
   const [candidates, setCandidates] = useState<ResolveMatch[] | null>(null);
 
-  // Load the org's manual-entry-enabled assets. Exactly one → preselect so
-  // the tech goes straight to the serial field.
+  // Load the picker's assets — but only after NFC detection resolves, so we
+  // request the right list once. NFC-capable → allowManualEntry assets only;
+  // no NFC → all=true widens to every tracked asset with units. Exactly one
+  // result → preselect so the tech goes straight to the serial field.
   useEffect(() => {
+    if (nfc.isSupported === undefined) return; // detection still in flight
+    const all = nfc.isSupported === false;
     let cancelled = false;
     (async () => {
       try {
@@ -70,9 +82,14 @@ export default function ManualEntryPage() {
           setAssets([]);
           return;
         }
-        const res = await request({ path: "/assets/manual-entry", method: "GET" }, {}, token);
+        const res = await request(
+          { path: `/assets/manual-entry${all ? "?all=true" : ""}`, method: "GET" },
+          {},
+          token,
+        );
         if (cancelled) return;
         const list: ManualAsset[] = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+        setShowingAll(all);
         setAssets(list);
         if (list.length === 1) setSelectedAsset(list[0]);
       } catch (e: any) {
@@ -85,7 +102,7 @@ export default function ManualEntryPage() {
     return () => {
       cancelled = true;
     };
-  }, [getToken]);
+  }, [getToken, nfc.isSupported]);
 
   const goToUnit = (m: ResolveMatch) => {
     // Wrong-asset pick: serials are org-unique, so we trust the serial over
@@ -139,8 +156,9 @@ export default function ManualEntryPage() {
     return (
       <Box sx={{ p: 3 }}>
         <Alert severity="info">
-          No assets are enabled for manual serial entry. An admin can enable it per asset
-          (&quot;Allow manual serial entry&quot; in the asset editor).
+          {showingAll
+            ? "No tracked assets with units are available for manual entry yet."
+            : "No assets are enabled for manual serial entry. An admin can enable it per asset (“Allow manual serial entry” in the asset editor)."}
         </Alert>
         <Button sx={{ mt: 2 }} onClick={() => router.push("/scan")}>Back to scan</Button>
       </Box>
@@ -158,6 +176,12 @@ export default function ManualEntryPage() {
           </Typography>
         </Box>
       </Stack>
+
+      {showingAll && (
+        <Alert severity="info">
+          NFC unavailable on this device — all assets available for manual entry.
+        </Alert>
+      )}
 
       {assets.length === 1 ? (
         <Chip label={`${assets[0].name} (${assets[0].skuKey})`} sx={{ alignSelf: "flex-start" }} />

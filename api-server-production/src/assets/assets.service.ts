@@ -277,10 +277,22 @@ export class AssetsService {
     });
   }
 
-  /** Assets exposed to field manual serial entry (allowManualEntry=true). */
-  async getManualEntryAssets(userOrganizationId: string) {
+  /**
+   * Assets exposed to field manual serial entry.
+   *   all=false (default) → only allowManualEntry=true assets. Tapping is
+   *     required for everything else; this is what NFC-capable devices see.
+   *   all=true → every tracked asset with ≥1 inventory unit in the org, for
+   *     no-NFC devices (e.g. iPhones) where manual entry is the only way in.
+   */
+  async getManualEntryAssets(userOrganizationId: string, all = false) {
     return this.prisma.asset.findMany({
-      where: { organizationId: userOrganizationId, deletedAt: null, allowManualEntry: true },
+      where: {
+        organizationId: userOrganizationId,
+        deletedAt: null,
+        ...(all
+          ? { isTracked: true, inventories: { some: {} } }
+          : { allowManualEntry: true }),
+      },
       select: { id: true, name: true, skuKey: true },
       orderBy: { name: 'asc' },
     });

@@ -60,12 +60,20 @@ export class AssetsController {
   }
 
   // Manual-entry asset list for the field scan home: assets whose units are
-  // reached by keyed-in serial instead of an NFC tap (allowManualEntry=true).
+  // reached by keyed-in serial instead of an NFC tap.
+  //   default        → only allowManualEntry=true assets (tapping required for
+  //                     everything else — NFC-capable devices).
+  //   ?all=true      → every tracked asset with ≥1 unit in the org, for devices
+  //                     with no NFC where manual entry is the ONLY path in.
+  // NOTE: `all` is a client-side device-capability signal, not an authorization
+  // boundary — the server can't reliably tell an iPhone from an Android, so this
+  // is a UX nudge, not a lock. See the /scan/manual page.
   @Get('manual-entry')
   @Permissions('field-scan:access')
-  @ApiOperation({ summary: "Org's manual-entry-enabled assets ({id,name,skuKey}) for the field serial-entry picker." })
-  async getManualEntryAssets(@UserOrganization() userOrganization: any) {
-    return this.assetsService.getManualEntryAssets(userOrganization.id);
+  @ApiOperation({ summary: "Assets for the field serial-entry picker ({id,name,skuKey}). ?all=true widens to all tracked assets with units (no-NFC devices)." })
+  @ApiQuery({ name: 'all', type: 'boolean', required: false, description: 'When true, return all tracked assets with ≥1 unit instead of only allowManualEntry ones.' })
+  async getManualEntryAssets(@Query('all') all: string | undefined, @UserOrganization() userOrganization: any) {
+    return this.assetsService.getManualEntryAssets(userOrganization.id, all === 'true');
   }
 
   @Get(':id')
