@@ -9,9 +9,10 @@
 // Data: GET /statements/gst-report
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Box, Stack, Tab, Tabs, Typography, alpha } from "@mui/material";
+import { Box, GlobalStyles, Stack, Tab, Tabs, Typography, alpha } from "@mui/material";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../api";
+import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import ReportShell, { downloadCsv } from "./ReportShell";
 import ReportTable, { ReportRow, fmtAmount, fmtDate } from "./ReportTable";
 import { DateRangeSelect, FilterSelect } from "./DateRangeSelect";
@@ -32,6 +33,7 @@ const longDate = (v: string) =>
 
 export default function GSTReport({ basePath }: { basePath: string }) {
   const { request } = useAccountingApi();
+  const { organization } = useOrganization();
   const init = quarterRange();
   const [from, setFrom] = useState(init.from);
   const [to, setTo] = useState(init.to);
@@ -137,7 +139,81 @@ export default function GSTReport({ basePath }: { basePath: string }) {
     `For the period ${longDate(from)} to ${longDate(to)}`,
   ];
 
+  const money = (v: number | null | undefined) =>
+    (v ?? 0).toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const dmy = (v: string) => new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
+
   return (
+    <>
+    {/* Summary prints as the legacy Form 5 sheet; Details prints the table as-is. */}
+    {view === "summary" && data && (
+      <GlobalStyles styles={{
+        "@media print": {
+          "body *": { visibility: "hidden" },
+          ".gst-f5-print, .gst-f5-print *": { visibility: "visible" },
+          ".gst-f5-print": { display: "block !important", position: "absolute", left: 0, top: 0, width: "100%", padding: "48px 64px", color: "#000", background: "#fff" },
+        },
+      }} />
+    )}
+    {view === "summary" && data && (
+      <Box className="gst-f5-print" sx={{ display: "none" }}>
+        <Typography sx={{ textAlign: "center", fontWeight: 700, fontSize: "1.1rem" }}>{organization?.name || ""}</Typography>
+        <Typography sx={{ textAlign: "center", fontWeight: 600, fontSize: "0.85rem", mb: 3 }}>
+          {new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+        </Typography>
+        <Typography sx={{ textAlign: "center", fontWeight: 700, fontSize: "1rem", mb: 4 }}>GOODS AND SERVICES TAX (Form 5)</Typography>
+
+        <Box sx={{ maxWidth: 620, mx: "auto" }}>
+          <Stack direction="row" sx={{ mb: 0.5 }}>
+            <Typography sx={{ width: 260, fontSize: "0.85rem" }}>GST Registration Number :</Typography>
+            <Typography sx={{ fontSize: "0.85rem" }}>{data.gstRegNo || ""}</Typography>
+          </Stack>
+          <Stack direction="row" sx={{ mb: 3 }}>
+            <Typography sx={{ width: 260, fontSize: "0.85rem" }}>Period From : {dmy(from)}</Typography>
+            <Typography sx={{ fontSize: "0.85rem" }}>Period To : {dmy(to)}</Typography>
+          </Stack>
+
+          {[
+            { label: "Total Value Of Standard - Rated Supplies made", v: data.summary.stdSupplies },
+            { label: "Total Value Of Zero - Rated Supplies made", v: data.summary.zeroSupplies },
+            { label: "Total Value Of Exempted Supplies made", v: data.summary.exemptSupplies },
+            { label: "Total Value Of Taxable Supplies made", v: data.summary.totalSupplies, ruleBelow: true },
+            { label: "Total Value Of Taxable Purchases made", v: data.summary.taxablePurchases, doubleRuleBelow: true },
+          ].map((l: any) => (
+            <Stack key={l.label} direction="row" justifyContent="space-between"
+              sx={{
+                py: 0.6,
+                ...(l.ruleBelow ? { borderBottom: "1px solid #000" } : {}),
+                ...(l.doubleRuleBelow ? { borderBottom: "3px double #000" } : {}),
+              }}>
+              <Typography sx={{ fontSize: "0.85rem" }}>{l.label}</Typography>
+              <Typography sx={{ fontSize: "0.85rem", fontVariantNumeric: "tabular-nums" }}>{money(l.v)}</Typography>
+            </Stack>
+          ))}
+
+          <Box sx={{ mt: 4, pl: 6 }}>
+            {[
+              { label: "Output Tax Due", v: data.summary.outputTax },
+              { label: "Input Tax Claimed", v: data.summary.inputTax },
+              { label: "Nett GST Payable", v: data.summary.nettPayable },
+            ].map((l) => (
+              <Stack key={l.label} direction="row" justifyContent="space-between" sx={{ py: 0.4 }}>
+                <Typography sx={{ fontSize: "0.85rem" }}>{l.label}</Typography>
+                <Typography sx={{ fontSize: "0.85rem", fontVariantNumeric: "tabular-nums" }}>{money(l.v)}</Typography>
+              </Stack>
+            ))}
+            <Stack direction="row" justifyContent="space-between" sx={{ py: 0.4, mt: 3 }}>
+              <Typography sx={{ fontSize: "0.85rem" }}>Major Exporter Scheme</Typography>
+              <Typography sx={{ fontSize: "0.85rem", fontVariantNumeric: "tabular-nums" }}>{money(data.summary.mes)}</Typography>
+            </Stack>
+            <Stack direction="row" justifyContent="space-between" sx={{ py: 0.4, mt: 2 }}>
+              <Typography sx={{ fontSize: "0.85rem" }}>Revenue</Typography>
+              <Typography sx={{ fontSize: "0.85rem", fontVariantNumeric: "tabular-nums" }}>{money(data.summary.revenue)}</Typography>
+            </Stack>
+          </Box>
+        </Box>
+      </Box>
+    )}
     <ReportShell
       title="Goods and Services Tax"
       breadcrumb={{ label: "Reports", href: basePath }}
@@ -201,5 +277,6 @@ export default function GSTReport({ basePath }: { basePath: string }) {
         </Box>
       )}
     </ReportShell>
+    </>
   );
 }

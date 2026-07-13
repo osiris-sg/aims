@@ -631,6 +631,19 @@ export class XeroReportsService {
       preTax: number; rate: number; estimated: number; tax: number; code: string; mismatch: boolean;
       contactId: string | null; side: 'OUTPUT' | 'INPUT';
     };
+    // Xero TaxType → SG tax code (same era mapping as scripts/backfill-tax-codes.ts).
+    // GST returns must be computed LINE-level: e.g. customs/import bills carry
+    // ±taxable-base legs that cancel in the doc total but whose taxable line
+    // MUST land in Box 5 (Xero computes its return this way too). Doc-level
+    // coding is kept as the fallback for native docs without typed lines.
+    const XERO_TAXTYPE_MAP: Record<string, string> = {
+      TAX001: '1', OUTPUTY24: '1', OUTPUTY23: '8', OUTPUT: '10',
+      TAX002: '4', INPUTY24: '4', INPUTY23: '9', INPUT: '11',
+      ZERORATEDOUTPUT: '2', ZERORATEDINPUT: '5',
+      EXEMPTOUTPUT: '3', EXEMPTINPUT: '6',
+      OSOUTPUT: '13', OPINPUT: '12',
+    };
+
     const rows: GstRow[] = [];
     for (const doc of docs) {
       const c: any = doc.config || {};
@@ -638,11 +651,63 @@ export class XeroReportsService {
       const status = (doc.status || '').toLowerCase();
       if (status === 'draft' || status === 'cancelled') continue;
       const di: any = c.documentInfo || {};
-      const code = di.taxCode != null && di.taxCode !== '' ? String(di.taxCode) : null;
-      if (!code) continue; // uncoded = out of scope for the GST report
       const date = c.date ? new Date(c.date) : c.billDate ? new Date(c.billDate) : doc.createdAt;
       if (date < from || date > to) continue;
 
+      const contactId = c.customerId || c.customer?.id || c.supplierId || c.supplier?.id || null;
+      const remarks = c.customerName || c.customer?.name || c.supplierName || c.supplier?.name || (contactId ? 'Unknown' : '');
+      const docSide = (docCode: string | null): 'OUTPUT' | 'INPUT' =>
+        (rateByCode.get(docCode || '')?.direction as any) || (doc.type === 'BILL' || doc.type === 'PURCHASE_RETURN' ? 'INPUT' : 'OUTPUT');
+      // Ledger sign: the side's normal document is its control-account entry —
+      // output invoices credit (−), output CNs debit (+); input bills debit (+),
+      // input CNs / purchase returns credit (−).
+      const signFor = (side: 'OUTPUT' | 'INPUT'): number => {
+        if (side === 'OUTPUT') return doc.type === 'CREDIT_NOTE' ? 1 : -1;
+        return doc.type === 'CREDIT_NOTE' || doc.type === 'PURCHASE_RETURN' ? -1 : 1;
+      };
+      const pushRow = (code: string, net: number, tax: number, rate: number) => {
+        const side = docSide(code);
+        const sign = signFor(side);
+        const est = R((net * rate) / 100);
+        rows.push({
+          docId: doc.id,
+          document: doc.name || '(no #)',
+          type: TYPE_LABEL[doc.type] || doc.type,
+          date,
+          remarks,
+          preTax: R(net * sign),
+          rate,
+          estimated: R(est * sign),
+          tax: R(tax * sign),
+          code,
+          mismatch: Math.abs(est - tax) > 0.01,
+          contactId,
+          side,
+        });
+      };
+
+      // LINE-LEVEL path: items carry Xero tax types → aggregate per code.
+      const items: any[] = Array.isArray(c.items) ? c.items : [];
+      const typedItems = items.filter((it) => it?.taxType && XERO_TAXTYPE_MAP[String(it.taxType)]);
+      if (typedItems.length) {
+        const byCode = new Map<string, { net: number; tax: number }>();
+        for (const it of typedItems) {
+          const lineCode = XERO_TAXTYPE_MAP[String(it.taxType)];
+          const cur = byCode.get(lineCode) || { net: 0, tax: 0 };
+          cur.net = R(cur.net + (Number(it.amount) || 0));
+          cur.tax = R(cur.tax + (Number(it.taxAmount) || 0));
+          byCode.set(lineCode, cur);
+        }
+        for (const [lineCode, agg] of byCode) {
+          const rate = rateByCode.get(lineCode)?.rate ?? 0;
+          pushRow(lineCode, agg.net, agg.tax, rate);
+        }
+        continue;
+      }
+
+      // DOC-LEVEL fallback (native docs without typed lines).
+      const code = di.taxCode != null && di.taxCode !== '' ? String(di.taxCode) : null;
+      if (!code) continue; // uncoded = out of scope for the GST report
       const tr = rateByCode.get(code);
       const tax = R(Number(di.gstAmount ?? c.taxAmount ?? c.xeroTax ?? 0) || 0);
       let net = Number(di.subTotal ?? c.subtotal ?? c.subTotal ?? NaN);
@@ -654,32 +719,7 @@ export class XeroReportsService {
       }
       const diPct = parseFloat(di.gstPercent);
       const rate = Number.isFinite(diPct) ? diPct : (tr?.rate ?? 0);
-
-      const side: 'OUTPUT' | 'INPUT' = (tr?.direction as any) || (doc.type === 'BILL' || doc.type === 'PURCHASE_RETURN' ? 'INPUT' : 'OUTPUT');
-      // Ledger sign: the side's normal document is its control-account entry —
-      // output invoices credit (−), output CNs debit (+); input bills debit (+),
-      // input CNs / purchase returns credit (−).
-      let sign: number;
-      if (side === 'OUTPUT') sign = doc.type === 'CREDIT_NOTE' ? 1 : -1;
-      else sign = doc.type === 'CREDIT_NOTE' || doc.type === 'PURCHASE_RETURN' ? -1 : 1;
-
-      const est = R((net * rate) / 100);
-      const contactId = c.customerId || c.customer?.id || c.supplierId || c.supplier?.id || null;
-      rows.push({
-        docId: doc.id,
-        document: doc.name || '(no #)',
-        type: TYPE_LABEL[doc.type] || doc.type,
-        date,
-        remarks: c.customerName || c.customer?.name || c.supplierName || c.supplier?.name || (contactId ? 'Unknown' : ''),
-        preTax: R(net * sign),
-        rate,
-        estimated: R(est * sign),
-        tax: R(tax * sign),
-        code,
-        mismatch: Math.abs(est - tax) > 0.01,
-        contactId,
-        side,
-      });
+      pushRow(code, net, tax, rate);
     }
 
     // Resolve missing contact names from the masters (flat-id docs).
