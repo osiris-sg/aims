@@ -1,4 +1,4 @@
-import { IsBoolean, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsBoolean, IsLatitude, IsLongitude, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
 
 /**
  * Field create-and-bind: the technician scans an unbound NFC tag, photographs
@@ -39,4 +39,21 @@ export class CreateInventoryAndBindDto {
   @IsString()
   @IsOptional()
   photoKey?: string;
+
+  // One-shot GPS fix captured at tag time (helpers/geolocation.ts). All optional
+  // — omitted when the tech denied location / no signal / timeout, in which case
+  // the bind still proceeds and the tagged* columns stay null. Validators mirror
+  // the MSR DTO's @IsLatitude/@IsLongitude pattern. taggedLocationAt is stamped
+  // server-side (not accepted from the client).
+  @IsOptional()
+  @IsLatitude()
+  taggedLatitude?: number;
+
+  @IsOptional()
+  @IsLongitude()
+  taggedLongitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  taggedLocationAccuracy?: number;
 }

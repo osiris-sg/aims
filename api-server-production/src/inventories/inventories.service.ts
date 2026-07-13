@@ -424,6 +424,21 @@ export class InventoriesService {
         )
       : [];
 
+    // One-shot GPS captured at tag time. Written on whichever branch actually
+    // binds the tag (create-new OR matched-rebind) — both are the moment the
+    // tech tags a unit in the field. Omitted entirely when coords are absent so
+    // the columns stay null; taggedLocationAt is stamped server-side here.
+    const hasCoords =
+      typeof dto.taggedLatitude === 'number' && typeof dto.taggedLongitude === 'number';
+    const taggedLocation = hasCoords
+      ? {
+          taggedLatitude: dto.taggedLatitude,
+          taggedLongitude: dto.taggedLongitude,
+          taggedLocationAccuracy: dto.taggedLocationAccuracy ?? null,
+          taggedLocationAt: new Date(),
+        }
+      : {};
+
     // ---- EXISTING-UNIT BIND (exactly one serial match) ----
     if (matches.length === 1) {
       const unit = matches[0];
@@ -455,7 +470,7 @@ export class InventoriesService {
       //     lives in `sku`, so there's nothing else to write on a match.
       const inventory = await this.prisma.inventory.update({
         where: { id: unit.id },
-        data: { nfcTagUid: tag },
+        data: { nfcTagUid: tag, ...taggedLocation },
         include: { asset: true },
       });
       await this.logBindProvenance(inventory.id, 'matched', dto, technicianUserId);
@@ -496,6 +511,7 @@ export class InventoriesService {
           status: 'instock',
           organizationId,
           nfcTagUid: tag,
+          ...taggedLocation,
         },
         include: { asset: true },
       });

@@ -25,6 +25,7 @@ import AddIcon from "@mui/icons-material/Add";
 import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
+import { capturePosition } from "@/helpers/geolocation";
 
 interface AssetOption {
   id: string;
@@ -112,6 +113,15 @@ export default function BindTagPage() {
   const [extractionFailed, setExtractionFailed] = useState(false);
   const [creating, setCreating] = useState(false);
 
+  // One-shot GPS at tag time. Captured once when the tech reaches the review
+  // step so the fix is ready (and any denial is surfaced) before they commit —
+  // the bind button stays instant. undefined = not yet attempted, null =
+  // denied/timeout/no signal (bind still allowed, with a warning), object = fix.
+  const [taggedCoords, setTaggedCoords] = useState<
+    { latitude: number; longitude: number; accuracy: number | null } | null | undefined
+  >(undefined);
+  const [locating, setLocating] = useState(false);
+
   // Optional customer → project assignment. Both pickers are optional: the
   // tech can bind a tag without touching them, but if a project is picked the
   // new unit is assigned to it right after the bind succeeds.
@@ -161,6 +171,26 @@ export default function BindTagPage() {
     );
     if (exact) setSelectedAsset(exact);
   }, [assetOptions, searchInput, selectedAsset]);
+
+  // Capture the tag-time GPS fix once, when the review step opens. Best-effort:
+  // capturePosition resolves null on denial/timeout/no signal, which we surface
+  // as a warning — it never blocks the bind. Done here (not at submit) so the
+  // fix has time to resolve while the tech picks the product and the warning is
+  // seen in-context before they commit.
+  useEffect(() => {
+    if (step !== "review" || taggedCoords !== undefined) return;
+    let cancelled = false;
+    (async () => {
+      setLocating(true);
+      const coords = await capturePosition();
+      if (cancelled) return;
+      setTaggedCoords(coords);
+      setLocating(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [step, taggedCoords]);
 
   // Debounced asset search. Fires on every searchInput change with a 250 ms
   // tail so typing doesn't hammer the backend on field LTE. The empty-q case
@@ -386,6 +416,17 @@ export default function BindTagPage() {
           nfcTagUid: uid,
           ...(confirmRebind ? { confirmRebind: true } : {}),
           ...(photoKey ? { photoKey } : {}),
+          // Tag-time GPS (best-effort). Omitted entirely when unavailable so the
+          // backend leaves the tagged* columns null; accuracy only when present.
+          ...(taggedCoords
+            ? {
+                taggedLatitude: taggedCoords.latitude,
+                taggedLongitude: taggedCoords.longitude,
+                ...(taggedCoords.accuracy != null
+                  ? { taggedLocationAccuracy: taggedCoords.accuracy }
+                  : {}),
+              }
+            : {}),
         },
         token,
       );
@@ -552,6 +593,25 @@ export default function BindTagPage() {
           {extractionFailed && (
             <Alert severity="warning">
               Couldn&apos;t read the label automatically — please pick the product manually.
+            </Alert>
+          )}
+
+          {/* Tag-time location status. Strongly encouraged but never blocking:
+              a failed fix shows a prominent warning yet the bind still proceeds. */}
+          {locating && (
+            <Alert severity="info" icon={<CircularProgress size={18} />}>
+              Capturing location…
+            </Alert>
+          )}
+          {taggedCoords === null && (
+            <Alert severity="warning">
+              ⚠ Location not captured — GPS unavailable. Enable location and re-tag if possible.
+            </Alert>
+          )}
+          {taggedCoords && (
+            <Alert severity="success" sx={{ py: 0 }}>
+              Location captured
+              {taggedCoords.accuracy != null ? ` (±${Math.round(taggedCoords.accuracy)} m)` : ""}
             </Alert>
           )}
 

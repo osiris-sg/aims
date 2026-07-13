@@ -8,6 +8,10 @@
 export const capturePosition = (): Promise<{
   latitude: number;
   longitude: number;
+  // Horizontal accuracy in metres (68% confidence). Always present on a real
+  // fix; null only if the platform omits it. Additive — existing callers that
+  // read just latitude/longitude are unaffected.
+  accuracy: number | null;
 } | null> =>
   new Promise((resolve) => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
@@ -19,6 +23,7 @@ export const capturePosition = (): Promise<{
         resolve({
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
+          accuracy: pos.coords.accuracy ?? null,
         }),
       () => resolve(null),
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },

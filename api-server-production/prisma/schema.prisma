@@ -184,6 +184,16 @@ model Inventory {
   // This is the primary NFC-binding column going forward; Asset.nfcTagUid is
   // legacy and only retained for backward compatibility.
   nfcTagUid      String?                    @unique
+  // One-shot GPS fix captured at field-bind time (create-and-bind flow only).
+  // Best-effort: null when the tech denied location / no signal / timeout — the
+  // bind is never blocked. Distinct from MSR/delivery coordinates (those track
+  // delivery events); these record WHERE the unit was tagged, for backfill
+  // verification against the water-sg site coordinates. Pre-existing units and
+  // office-created units stay null (no backfill).
+  taggedLatitude         Float?
+  taggedLongitude        Float?
+  taggedLocationAccuracy Float?             // horizontal accuracy in metres (coords.accuracy)
+  taggedLocationAt       DateTime?          // stamped when coords are present
   createdAt      DateTime                   @default(now())
   updatedAt      DateTime                   @updatedAt
   status         InventoryStatus
