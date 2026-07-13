@@ -4,7 +4,6 @@ import { Inter, Manrope, Carlito } from "next/font/google";
 import "./globals.css";
 import { AppRouterCacheProvider } from "@mui/material-nextjs/v15-appRouter";
 import { ThemeModeProvider } from "@/contexts/ThemeModeContext";
-import Head from "next/head";
 import { ClerkProvider } from "@clerk/nextjs";
 import Portal from "@/containers/portal";
 import Providers from "./providers";
@@ -34,8 +33,19 @@ const carlito = Carlito({
 export const metadata: Metadata = {
   title: "AIMS",
   description: "AIMS provides a semaless flow for inventory managment",
-  icons: { icon: "/favicon.png" },
+  // `apple` must be set explicitly: an explicit `icons` object suppresses the
+  // app/apple-icon.png file convention, so without this no apple-touch-icon
+  // link is emitted and iOS falls back to a page screenshot.
+  icons: { icon: "/favicon.png", apple: "/apple-icon.png" },
   manifest: "/manifest.json",
+  // iOS "Add to Home Screen": launch full-screen (no Safari chrome), label the
+  // home-screen icon "AIMS Field", and keep the default status-bar style. The
+  // apple-touch-icon itself is served from app/apple-icon.png by convention.
+  appleWebApp: {
+    capable: true,
+    title: "AIMS Field",
+    statusBarStyle: "default",
+  },
 };
 
 export default function RootLayout({
@@ -46,9 +56,6 @@ export default function RootLayout({
   return (
     <ClerkProvider>
       <html lang="en">
-        <Head>
-          <link rel="icon" href="/favicon.png" type="image/png" />
-        </Head>
         <body className={`${inter.variable} ${manrope.variable} ${carlito.variable} ROOT_LAYOUT`}>
           <AppRouterCacheProvider>
             <ThemeModeProvider>
