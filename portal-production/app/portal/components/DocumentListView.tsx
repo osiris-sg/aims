@@ -48,8 +48,7 @@ const DOC_STATUS_OPTIONS = [
   { value: "pending_return", label: "Pending Return" },
   { value: "returned", label: "Returned" },
 ];
-import { useTemplatePicker } from "./useTemplatePicker";
-import { useNumberFormatPicker } from "./useNumberFormatPicker";
+import { useCreateDocumentFlow } from "./useCreateDocumentFlow";
 
 interface Props {
   documentTypes: string[];
@@ -165,10 +164,12 @@ export default function DocumentListView({
   const router = useRouter();
   const { getToken } = useAuth();
   const { organization } = useOrganization();
-  const { resolveTemplate, dialog: templatePickerDialog } = useTemplatePicker();
-  const { resolveNumberFormat, dialog: numberFormatPickerDialog } = useNumberFormatPicker();
-
-  const [creating, setCreating] = useState(false);
+  // Shared creation flow (number format → template → create → editor) — same
+  // hook backs the AR tab's Create Invoice, so the behaviour stays identical.
+  const { create: handleCreate, creating, dialogs: createFlowDialogs } = useCreateDocumentFlow(
+    createDocumentType,
+    documentLabel
+  );
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
@@ -232,46 +233,6 @@ export default function DocumentListView({
     }
   };
 
-  const handleCreate = async () => {
-    if (!organization?.id || !createDocumentType || creating) return;
-    setCreating(true);
-    try {
-      const token = await getToken();
-      // Step 1 — number format: 0 → legacy, 1 → auto, >1 → popup. null = cancelled.
-      const nf = await resolveNumberFormat(createDocumentType);
-      if (nf === null) {
-        return;
-      }
-      const numberFormatId = nf || undefined;
-      // Step 2 — template via the shared picker: 1 active → straight through,
-      // >1 → popup, 0 → single-resolve fallback. null = no template OR the user
-      // cancelled the popup → abort without creating anything.
-      const templateId = await resolveTemplate(createDocumentType);
-      if (!templateId) {
-        return;
-      }
-      const created = await request(
-        { path: "/documents/basic", method: "POST" },
-        {
-          type: createDocumentType,
-          config: { ...(numberFormatId ? { numberFormatId } : {}) },
-          documentTemplateId: templateId,
-          organizationId: organization.id,
-        },
-        token ?? undefined
-      );
-      if (created?.success && created?.data?.id) {
-        router.push(`/portal/documents/${createDocumentType}/${templateId}/${created.data.id}`);
-      } else {
-        toast.error(`Failed to create ${documentLabel}`);
-      }
-    } catch (err) {
-      console.error("DocumentListView create error:", err);
-      toast.error(`Failed to create ${documentLabel}`);
-    } finally {
-      setCreating(false);
-    }
-  };
 
   // Filtering, sorting, and paging all happen server-side now (see the hooks
   // above). Reset to page 1 whenever the query changes so we don't land on an
@@ -456,8 +417,7 @@ export default function DocumentListView({
         </DialogActions>
       </Dialog>
 
-      {numberFormatPickerDialog}
-      {templatePickerDialog}
+      {createFlowDialogs}
     </MainCard>
   );
 }

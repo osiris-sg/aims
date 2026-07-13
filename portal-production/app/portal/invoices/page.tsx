@@ -16,6 +16,7 @@ import PaymentIcon from "@mui/icons-material/Payment";
 import { Tab, Tabs, Chip, alpha, Stack, Typography } from "@mui/material";
 import { useDeleteDocument, useGetCustomers } from "@/app/portal/hooks/api";
 import { useRouter } from "next/navigation";
+import { useCreateDocumentFlow } from "@/app/portal/components/useCreateDocumentFlow";
 import moment from "moment";
 import StatusChip from "@/components/StatusChip";
 import { toast } from "react-toastify";
@@ -85,6 +86,11 @@ const INVOICE_STATUS_OPTIONS = [
 
 export default function InvoicesPage() {
   const router = useRouter();
+  // Create Invoice here shares the EXACT flow of the Sales > Invoice page
+  // (number-format picker → template picker → create → editor). ?from= on the
+  // editor URL brings the user back to this tab afterwards.
+  const { create: createInvoice, creating: creatingInvoice, dialogs: createFlowDialogs } =
+    useCreateDocumentFlow("INVOICE", "Invoice");
   const { organization } = useOrganization();
   const { getToken } = useAuth();
   const organizationId = organization?.id;
@@ -786,7 +792,8 @@ export default function InvoicesPage() {
         tableName="Invoice List"
         subTitle="Invoice Detail Information"
         buttonName="Create Invoice"
-        onAddClick={handleCreateInvoiceClick}
+        onAddClick={createInvoice}
+        buttonDisabled={creatingInvoice}
         loading={loading || isDocumentTemplateUpdating}
         page={page}
         limit={limit}
@@ -821,6 +828,9 @@ export default function InvoicesPage() {
       />
 
       {/* Customer Selection Drawer */}
+      {/* Shared create-flow pickers (number format + template) */}
+      {createFlowDialogs}
+
       <CustomerSelectionDrawer open={customerDrawerOpen} onClose={handleDrawerClose} onSelectCustomer={handleCustomerSelect} />
 
       {/* Invoice Variant Selection Drawer */}
