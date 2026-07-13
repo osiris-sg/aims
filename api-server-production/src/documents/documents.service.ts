@@ -1240,7 +1240,12 @@ export class DocumentsService {
           const b = newVal ?? '';
           if (String(a) !== String(b)) changes.push(`${label} changed from "${a}" to "${b}"`);
         };
-        if (configAsPlainObject) {
+        // Diff only the sections the incoming payload actually CARRIES. Some
+        // callers (payment/status flows) send a partial or empty config — the
+        // full editor save always sends complete documentInfo/customer. Without
+        // this gate a partial update logged every field as `changed to ""`.
+        const hasInfo = newInfo && Object.keys(newInfo).length > 0;
+        if (configAsPlainObject && hasInfo) {
           track('Document number', oldInfo.documentNumber, newInfo.documentNumber);
           track('Reference', oldInfo.referenceNo, newInfo.referenceNo);
           track('Terms', oldInfo.paymentTerms, newInfo.paymentTerms);
@@ -1256,7 +1261,9 @@ export class DocumentsService {
           if (oldTotal.toFixed(2) !== newTotal.toFixed(2)) {
             changes.push(`Total changed from ${oldTotal.toFixed(2)} to ${newTotal.toFixed(2)}`);
           }
-          track('Customer', oldCfg?.customer?.name, newCfg?.customer?.name);
+          if (newCfg.customer !== undefined) {
+            track('Customer', oldCfg?.customer?.name, newCfg?.customer?.name);
+          }
         }
         const statusChanged = dto.status && dto.status !== existingDocument.status;
         if (statusChanged || changes.length) {
@@ -4010,5 +4017,142 @@ export class DocumentsService {
         error.status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  /**
+   * "Sync to Xero" (editor toolbar, accounting context): push this document
+   * to Xero with full accounting fidelity — doc type (INVOICE→ACCREC sales,
+   * BILL→ACCPAY), real dates, per-line account codes resolved through
+   * XeroAccountMapping, line tax types, tax-inclusive/exclusive per the org's
+   * AccountingSetting. Re-syncing updates the same Xero document (the Xero id
+   * is stamped into config on first sync).
+   */
+  async syncToXero(documentId: string, organizationId: string, actor?: DocumentActor) {
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true, name: true, type: true, status: true, config: true },
+    });
+    if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+    if (!['INVOICE', 'TI', 'TI2', 'BILL'].includes(doc.type)) {
+      throw new HttpException(`Only invoices and bills can be synced to Xero (this is a ${doc.type})`, HttpStatus.BAD_REQUEST);
+    }
+    const c: any = doc.config || {};
+    const isSales = doc.type !== 'BILL';
+    const items: any[] = Array.isArray(c.items) ? c.items : Array.isArray(c.lines) ? c.lines : [];
+    if (!items.length) throw new HttpException('Document has no line items to sync', HttpStatus.BAD_REQUEST);
+
+    // Account-code mapping: AIMS code → Xero code via confirmed XeroAccountMapping;
+    // orgs whose CoA was pulled from Xero map 1:1 so same-code is the fallback.
+    const mappings = await this.prisma.xeroAccountMapping.findMany({
+      where: { organizationId, aimsAccountCode: { not: null }, xeroAccountCode: { not: null } },
+      select: { aimsAccountCode: true, xeroAccountCode: true },
+    });
+    const codeMap = new Map(mappings.map((m) => [m.aimsAccountCode as string, m.xeroAccountCode as string]));
+
+    // Tax-inclusive vs exclusive from the org's accounting settings.
+    const setting = await this.prisma.accountingSetting.findUnique({
+      where: { organizationId },
+      select: { salesTaxInclusive: true, purchasesTaxInclusive: true },
+    });
+    const inclusive = isSales ? !!setting?.salesTaxInclusive : !!setting?.purchasesTaxInclusive;
+    const totalTax = Number(c.gstAmount ?? c.taxAmount ?? c.xeroTax ?? 0) || 0;
+    // The doc's own amounts-are choice (bill editor stores it) beats the org default.
+    const docAmountsAre: string | undefined = c.amountsAre;
+    const lineAmountTypes: 'Exclusive' | 'Inclusive' | 'NoTax' =
+      docAmountsAre === 'INCLUSIVE' ? 'Inclusive'
+      : docAmountsAre === 'NO_TAX' ? 'NoTax'
+      : docAmountsAre === 'EXCLUSIVE' ? 'Exclusive'
+      : totalTax === 0 ? 'NoTax' : inclusive ? 'Inclusive' : 'Exclusive';
+
+    let contactName: string | null =
+      (isSales ? c.customer?.name || c.customerName : c.supplier?.name || c.supplierName) || null;
+    let contactEmail: string | null = (isSales ? c.customerEmail || c.customer?.email : c.supplier?.email) || null;
+    // Native bills carry only supplierId — resolve the master record.
+    if (!contactName && !isSales && c.supplierId) {
+      const sup = await this.prisma.supplier.findFirst({ where: { id: c.supplierId, organizationId }, select: { name: true, email: true } });
+      contactName = sup?.name || null;
+      contactEmail = contactEmail || sup?.email || null;
+    }
+    if (!contactName && isSales && c.customerId) {
+      const cust = await this.prisma.customer.findFirst({ where: { id: c.customerId, organizationId }, select: { name: true, email: true } });
+      contactName = cust?.name || null;
+      contactEmail = contactEmail || cust?.email || null;
+    }
+    if (!contactName) throw new HttpException('Document has no customer/supplier to sync as the Xero contact', HttpStatus.BAD_REQUEST);
+
+    // Native bill lines reference ChartOfAccount by id (accountId), not code —
+    // resolve ids → codes so the Xero mapping below can apply.
+    const accountIds = [...new Set(items.map((it: any) => it.accountId).filter(Boolean))] as string[];
+    const idToCode = new Map<string, string>();
+    if (accountIds.length) {
+      const accts = await this.prisma.chartOfAccount.findMany({
+        where: { id: { in: accountIds }, organizationId },
+        select: { id: true, code: true },
+      });
+      for (const a of accts) idToCode.set(a.id, a.code);
+    }
+
+    const toYmd = (v: any): string | undefined => {
+      const d = v ? new Date(v) : null;
+      return d && !isNaN(d.getTime()) ? d.toISOString().split('T')[0] : undefined;
+    };
+
+    const existingXeroId: string | null = (isSales ? c.xeroInvoiceId : c.xeroBillId) || null;
+    const xeroInvoice = await this.xeroService.upsertDocumentInvoice(organizationId, {
+      xeroId: existingXeroId,
+      type: isSales ? 'ACCREC' : 'ACCPAY',
+      contactName,
+      contactEmail: contactEmail || undefined,
+      date: toYmd(c.date ?? c.billDate) || new Date().toISOString().split('T')[0],
+      dueDate: toYmd(c.dueDate),
+      reference: c.reference || c.poNo || c.qinRef || undefined,
+      invoiceNumber: doc.name || undefined,
+      lineAmountTypes,
+      status: 'DRAFT', // land as Xero draft; approval stays a human decision in Xero
+      lineItems: items.map((it: any) => {
+        const aimsCode = it.accountCode ? String(it.accountCode) : it.accountId ? idToCode.get(it.accountId) : undefined;
+        return {
+          description: it.description || it.itemDescription || '(no description)',
+          quantity: Number(it.quantity) || 1,
+          unitAmount: Number(it.unitPrice ?? it.rate ?? it.amount) || 0,
+          accountCode: aimsCode ? codeMap.get(aimsCode) || aimsCode : undefined,
+          taxType: it.taxType || undefined, // omit → Xero applies the account's default rate
+          taxAmount: it.taxAmount !== undefined && it.taxAmount !== null ? Number(it.taxAmount) : undefined,
+        };
+      }),
+    });
+
+    // Stamp the linkage so re-sync updates instead of duplicating.
+    const stampKey = isSales ? 'xeroInvoiceId' : 'xeroBillId';
+    await this.prisma.document.update({
+      where: { id: doc.id },
+      data: {
+        config: {
+          ...c,
+          [stampKey]: xeroInvoice?.invoiceID || existingXeroId,
+          xeroStatus: String(xeroInvoice?.status ?? 'DRAFT'),
+          xeroSyncedAt: new Date().toISOString(),
+          xeroSyncedBy: actor?.email || actor?.name || 'unknown',
+        } as any,
+      },
+    });
+
+    void this.logDocumentEvent({
+      documentId: doc.id,
+      organizationId,
+      action: 'SENT',
+      detail: `Synced to Xero as ${isSales ? 'sales invoice' : 'bill'} ${xeroInvoice?.invoiceNumber || doc.name} (${existingXeroId ? 'updated' : 'created'}, DRAFT)`,
+      documentName: doc.name || undefined,
+      actor,
+    });
+
+    return {
+      success: true,
+      action: existingXeroId ? 'updated' : 'created',
+      xeroInvoiceId: xeroInvoice?.invoiceID,
+      xeroInvoiceNumber: xeroInvoice?.invoiceNumber,
+      xeroStatus: xeroInvoice?.status,
+      lineAmountTypes,
+    };
   }
 }

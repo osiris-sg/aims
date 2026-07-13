@@ -30,8 +30,10 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import CloseIcon from "@mui/icons-material/Close";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import CloudSyncIcon from "@mui/icons-material/CloudSync";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../../_lib/api";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useAuth } from "@clerk/nextjs";
 import { uploadFile } from "@/helpers/fileUploader";
 import AttachmentUploader, { Attachment } from "@/components/AttachmentUploader";
@@ -88,9 +90,11 @@ export default function BillEditorDialog({
 }) {
   const { request } = useAccountingApi();
   const { getToken } = useAuth();
+  const { isXeroDocSyncEnabled } = useOrganizationFeatures();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [saving, setSaving] = useState(false);
+  const [syncingXero, setSyncingXero] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -694,6 +698,34 @@ export default function BillEditorDialog({
       </DialogContent>
 
       <DialogActions sx={{ px: 3, py: 2 }}>
+        {/* Sync to Xero — feature-flagged; saved bills only (any status: the
+            main use is pushing POSTED bills). Creates/updates a Xero ACCPAY
+            DRAFT with mapped account codes and this bill's amounts-are mode. */}
+        {editing?.id && isXeroDocSyncEnabled && (
+          <Button
+            variant="outlined"
+            startIcon={syncingXero ? <CircularProgress size={14} color="inherit" /> : <CloudSyncIcon />}
+            onClick={async () => {
+              setSyncingXero(true);
+              try {
+                const res: any = await request(`/documents/${editing.id}/sync-to-xero`, { method: "POST" });
+                if (res?.success) {
+                  toast.success(`${res.action === "updated" ? "Updated in Xero" : "Created in Xero"}: ${res.xeroInvoiceNumber || "(auto number)"} — ${res.xeroStatus || "DRAFT"}`);
+                } else {
+                  throw new Error(res?.message || "Xero sync failed");
+                }
+              } catch (e: any) {
+                toast.error(e?.message || "Failed to sync to Xero");
+              } finally {
+                setSyncingXero(false);
+              }
+            }}
+            disabled={saving || extracting || syncingXero}
+            sx={{ mr: "auto" }}
+          >
+            {syncingXero ? "Syncing..." : "Sync to Xero"}
+          </Button>
+        )}
         <Button onClick={onClose} disabled={saving || extracting}>
           Cancel
         </Button>

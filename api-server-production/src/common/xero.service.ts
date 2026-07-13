@@ -20,6 +20,83 @@ export class XeroService {
   }
 
   /**
+   * Full-fidelity document push for the editor's "Sync to Xero" action.
+   * Unlike the legacy createInvoice (sales-only, account 200, taxType NONE,
+   * dated today), this carries everything Xero needs: doc type (ACCREC sales
+   * invoice / ACCPAY bill), real document + due dates, per-line account codes
+   * and tax types, tax-inclusive vs exclusive amounts, and updates in place
+   * when the doc was already synced (xeroId provided).
+   *
+   * Tax handling: pass the line's Xero TaxType when known; when omitted Xero
+   * applies the account's default tax rate — so mapped account codes are the
+   * primary lever for correct GST.
+   */
+  async upsertDocumentInvoice(
+    organizationId: string,
+    data: {
+      xeroId?: string | null; // update this Xero invoice instead of creating
+      type: 'ACCREC' | 'ACCPAY';
+      contactName: string;
+      contactEmail?: string;
+      date: string; // YYYY-MM-DD
+      dueDate?: string;
+      reference?: string;
+      invoiceNumber?: string;
+      lineAmountTypes: 'Exclusive' | 'Inclusive' | 'NoTax';
+      status?: 'DRAFT' | 'SUBMITTED' | 'AUTHORISED';
+      lineItems: Array<{
+        description: string;
+        quantity: number;
+        unitAmount: number;
+        accountCode?: string;
+        taxType?: string;
+        taxAmount?: number;
+      }>;
+    },
+  ) {
+    const tenantId = await this.getTenantId(organizationId);
+    if (!tenantId) {
+      throw new HttpException('Xero not connected — complete the OAuth setup at Accounting → Integrations → Xero first', HttpStatus.BAD_REQUEST);
+    }
+    const contact = await this.getOrCreateContact(tenantId, data.contactName, data.contactEmail);
+
+    const invoice: any = {
+      type: data.type,
+      contact: { contactID: contact.contactID },
+      date: data.date,
+      dueDate: data.dueDate || undefined,
+      reference: data.reference || undefined,
+      invoiceNumber: data.invoiceNumber || undefined,
+      status: (data.status || 'DRAFT') as any,
+      lineAmountTypes: data.lineAmountTypes as any,
+      lineItems: data.lineItems.map((li) => ({
+        description: li.description || '(no description)',
+        quantity: li.quantity,
+        unitAmount: li.unitAmount,
+        accountCode: li.accountCode || undefined,
+        taxType: li.taxType || undefined,
+        // Explicit per-line tax overrides Xero's computed amount (rounding parity).
+        taxAmount: li.taxAmount !== undefined ? li.taxAmount : undefined,
+      })),
+    };
+
+    try {
+      if (data.xeroId) {
+        const res = await this.xeroClient.accountingApi.updateInvoice(tenantId, data.xeroId, { invoices: [invoice] });
+        return res.body.invoices[0];
+      }
+      const res = await this.xeroClient.accountingApi.createInvoices(tenantId, { invoices: [invoice] });
+      return res.body.invoices[0];
+    } catch (error: any) {
+      // Xero validation errors carry detail in response elements — surface them.
+      const elements = error?.response?.body?.Elements || error?.body?.Elements;
+      const validation = elements?.[0]?.ValidationErrors?.map((v: any) => v.Message).join('; ');
+      const msg = validation || error?.response?.body?.Message || error?.message || 'Xero API error';
+      throw new HttpException(`Xero rejected the document: ${msg}`, HttpStatus.BAD_GATEWAY);
+    }
+  }
+
+  /**
    * Create an invoice in Xero
    * Based on: https://developer.xero.com/documentation/api/accounting/invoices
    */

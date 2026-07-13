@@ -60,6 +60,7 @@ import {
   Close as CloseIcon,
   Email as EmailIcon,
   Payment as PaymentIcon,
+  CloudSync as CloudSyncIcon,
   NavigateBefore as NavigateBeforeIcon,
   NavigateNext as NavigateNextIcon,
   Inventory as InventoryIcon,
@@ -230,7 +231,12 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled } = useOrganizationFeatures();
+  // "Sync to Xero" only shows when the editor was opened from the accounting
+  // section (?from=/portal/accounting/... set by the embedded AR list).
+  const openedFromAccounting =
+    typeof window !== "undefined" &&
+    (new URLSearchParams(window.location.search).get("from") || "").startsWith("/portal/accounting");
   // When the list-view feature is on, the back arrow returns to that doc type's
   // list page (e.g. /portal/sales/sales-orders) instead of the generic section
   // landing — so the sidebar highlight + browsing context stay consistent.
@@ -308,6 +314,7 @@ export default function TabbedDocumentCreator({
   const [invoicePreviewData, setInvoicePreviewData] = useState<PreviewResult | null>(null);
   const [invoiceAccounts, setInvoiceAccounts] = useState<PreviewAccount[]>([]);
   const [isConfirming, setIsConfirming] = useState(false);
+  const [isSyncingXero, setIsSyncingXero] = useState(false);
   // Confirm-quotation dialog state. On confirm we resolve the auto-created
   // Order (matched by sourceQuotationId) and offer a one-click jump to it.
   const [convertQuotationDialogOpen, setConvertQuotationDialogOpen] = useState(false);
@@ -2913,6 +2920,32 @@ export default function TabbedDocumentCreator({
   // validates the customer and builds the PDF from the PERSISTED config, so an
   // unsaved customer pick (or any unsaved edit) would 400 or email stale data.
   const [sendEmailDocId, setSendEmailDocId] = useState<string>("");
+  // Push this invoice to Xero (DRAFT, mapped accounts + tax settings). The
+  // backend stamps xeroInvoiceId into config, so re-sync updates in place.
+  const handleSyncToXero = async () => {
+    const docId = existingData?.id || documentId;
+    if (!docId) {
+      toast.error("Save the document before syncing to Xero");
+      return;
+    }
+    setIsSyncingXero(true);
+    try {
+      const token = await getToken();
+      const res = await request({ path: `/documents/${docId}/sync-to-xero`, method: "POST" }, {}, token);
+      if (res?.success) {
+        toast.success(
+          `${res.action === "updated" ? "Updated in Xero" : "Created in Xero"}: ${res.xeroInvoiceNumber || "(auto number)"} — ${res.xeroStatus || "DRAFT"}`,
+        );
+      } else {
+        throw new Error(res?.message || "Xero sync failed");
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to sync to Xero");
+    } finally {
+      setIsSyncingXero(false);
+    }
+  };
+
   const handleOpenSendEmail = async () => {
     if (lockReadOnly) {
       toast.error("Cannot send — someone else is editing this document.");
@@ -3357,6 +3390,22 @@ export default function TabbedDocumentCreator({
               sx={TOOLBAR_BLUE}
             >
               Send Email
+            </Button>
+          )}
+          {/* Sync to Xero — accounting-context only (opened from /portal/accounting),
+              feature-flagged per org, invoices only. Creates/updates a Xero DRAFT
+              with mapped account codes + tax-inclusive/exclusive settings. */}
+          {openedFromAccounting && isXeroDocSyncEnabled && !isTemplateEditMode &&
+           (documentType === "TI" || documentType === "TI2" || documentType === "INVOICE") && (
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<CloudSyncIcon />}
+              onClick={handleSyncToXero}
+              disabled={isSyncingXero}
+              sx={TOOLBAR_BLUE}
+            >
+              {isSyncingXero ? "Syncing..." : "Sync to Xero"}
             </Button>
           )}
           {/* Mark as Paid button for pending_payment invoices */}

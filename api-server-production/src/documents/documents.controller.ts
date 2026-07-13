@@ -283,6 +283,18 @@ export class DocumentsController {
     return await this.documentsService.addDocumentNote(id, organizationId, actorFromReq(req), body?.text);
   }
 
+  // "Sync to Xero" — editor toolbar action (accounting context). Pushes the
+  // invoice/bill to Xero as a DRAFT with mapped accounts + tax settings.
+  @Post(':id/sync-to-xero')
+  @Permissions('documents:update')
+  async syncToXero(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentsService.syncToXero(id, organizationId, actorFromReq(req));
+  }
+
   @Delete('delete/:id')
   @Permissions('documents:delete')
   async deleteDocument(@Param('id') id: string, @Req() req: RequestWithOrganization) {

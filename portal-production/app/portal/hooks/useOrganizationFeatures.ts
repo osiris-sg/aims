@@ -59,6 +59,9 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Email ingestion agent (docs+{org}@ inbound address → AI-classified drafts).
   // Product switch; the runtime switch is EmailIngestConfig.enabled per org.
   enableEmailIngestion: false,
+  // "Sync to Xero" action in the document editor toolbar (accounting context):
+  // pushes the invoice to Xero as a DRAFT with mapped accounts + tax settings.
+  enableXeroDocSync: false,
 };
 
 interface OrganizationUIConfig {
@@ -126,5 +129,6 @@ export function useOrganizationFeatures() {
     isCappitechOrdersEnabled: features.enableCappitechOrders ?? false,
     isNettRoundDownEnabled: features.enableNettRoundDown ?? false,
     isQuotationProjectLinkEnabled: features.enableQuotationProjectLink ?? false,
+    isXeroDocSyncEnabled: features.enableXeroDocSync ?? false,
   };
 }
