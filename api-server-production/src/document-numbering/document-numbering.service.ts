@@ -68,6 +68,43 @@ export class DocumentNumberingService {
     }
   }
 
+  // Highest serial already used by an existing document in this pattern's
+  // namespace. Imported documents (e.g. Xero migrations) carry their own
+  // numbers and never touch nextSerial, so without this the counter lags
+  // behind (or collides with) the imported sequence. Split the pattern at its
+  // serial token, resolve the literal/date prefix+suffix for `when`, and find
+  // the highest serial among matching documents. Serial padding is tolerant
+  // (\d+), so Xero's "BI202607046" bumps a {####} counter to 47.
+  private async maxExistingSerial(
+    organizationId: string,
+    pattern: string,
+    docCode: string,
+    when: Date,
+  ): Promise<number> {
+    const serialToken = /\{(#+)\}/.exec(pattern);
+    if (!serialToken) return 0;
+    const prefix = DocumentNumberingService.format(pattern.slice(0, serialToken.index), 0, when, docCode);
+    const suffix = DocumentNumberingService.format(
+      pattern.slice(serialToken.index + serialToken[0].length),
+      0,
+      when,
+      docCode,
+    );
+    if (!prefix) return 0;
+    const existing = await this.prisma.document.findMany({
+      where: { organizationId, name: { startsWith: prefix } },
+      select: { name: true },
+    });
+    let max = 0;
+    for (const d of existing) {
+      const name = d.name || '';
+      if (suffix && !name.endsWith(suffix)) continue;
+      const mid = name.slice(prefix.length, suffix ? name.length - suffix.length : undefined);
+      if (/^\d+$/.test(mid)) max = Math.max(max, parseInt(mid, 10));
+    }
+    return max;
+  }
+
   // ---------- generation ----------
   // Returns the next number for a document type. `formatId` picks a specific
   // variant; otherwise the single active variant is used. Returns null when the
@@ -92,37 +129,7 @@ export class DocumentNumberingService {
 
     const key = this.resetKey(format.resetPolicy, when);
     const docCode = DOC_CODE[format.documentType] || '';
-
-    // Respect numbers that already exist in this format's namespace — imported
-    // documents (e.g. Xero migrations) carry their own numbers and never touch
-    // nextSerial, so without this the counter lags behind (or collides with)
-    // the imported sequence. Split the pattern at its serial token, resolve the
-    // literal/date prefix+suffix for `when`, and find the highest serial among
-    // existing documents that match; generation starts past it. Serial padding
-    // is tolerant (\d+), so Xero's "BI202607046" bumps a {####} counter to 47.
-    let maxExisting = 0;
-    const serialToken = /\{(#+)\}/.exec(format.pattern);
-    if (serialToken) {
-      const prefix = DocumentNumberingService.format(format.pattern.slice(0, serialToken.index), 0, when, docCode);
-      const suffix = DocumentNumberingService.format(
-        format.pattern.slice(serialToken.index + serialToken[0].length),
-        0,
-        when,
-        docCode,
-      );
-      if (prefix) {
-        const existing = await this.prisma.document.findMany({
-          where: { organizationId, name: { startsWith: prefix } },
-          select: { name: true },
-        });
-        for (const d of existing) {
-          const name = d.name || '';
-          if (suffix && !name.endsWith(suffix)) continue;
-          const mid = name.slice(prefix.length, suffix ? name.length - suffix.length : undefined);
-          if (/^\d+$/.test(mid)) maxExisting = Math.max(maxExisting, parseInt(mid, 10));
-        }
-      }
-    }
+    const maxExisting = await this.maxExistingSerial(organizationId, format.pattern, docCode, when);
 
     // Atomically claim the serial: reset if the reset-window changed, else use
     // nextSerial — never below one past the highest existing number; then bump.
@@ -182,10 +189,25 @@ export class DocumentNumberingService {
 
   // ---------- CRUD ----------
   async list(organizationId: string, documentType?: string) {
-    return this.prisma.documentNumberFormat.findMany({
+    const formats = await this.prisma.documentNumberFormat.findMany({
       where: { organizationId, ...(documentType ? { documentType } : {}) },
       orderBy: [{ documentType: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
+    // Attach the number generation would ACTUALLY mint right now — the raw
+    // nextSerial ignores imported documents and reset windows, so a client
+    // preview computed from it shows stale numbers (e.g. BI2026070005 when the
+    // Xero imports already reach BI202607069).
+    const when = new Date();
+    return Promise.all(
+      formats.map(async (f) => {
+        const docCode = DOC_CODE[f.documentType] || '';
+        const maxExisting = await this.maxExistingSerial(organizationId, f.pattern, docCode, when);
+        const key = this.resetKey(f.resetPolicy, when);
+        const restart = key != null && f.lastResetKey !== key;
+        const serial = Math.max(restart ? 1 : f.nextSerial, maxExisting + 1);
+        return { ...f, preview: DocumentNumberingService.format(f.pattern, serial, when, docCode) };
+      }),
+    );
   }
 
   async create(organizationId: string, dto: FormatDto) {

@@ -861,7 +861,7 @@ export default function InvoicesPage() {
               >
                 <Box sx={{ textAlign: "left" }}>
                   <Typography variant="body2" sx={{ fontWeight: 700 }}>{f.label}</Typography>
-                  <Typography variant="caption" sx={{ color: "text.secondary", fontFamily: "monospace" }}>{f.pattern}</Typography>
+                  <Typography variant="caption" sx={{ color: "text.secondary", fontFamily: "monospace" }}>{f.preview || f.pattern}</Typography>
                 </Box>
               </Button>
             ))}

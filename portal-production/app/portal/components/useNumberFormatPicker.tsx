@@ -24,6 +24,9 @@ interface NumberFormat {
   pattern: string;
   nextSerial: number;
   isActive: boolean;
+  // Server-computed next number — import-aware (scans existing document
+  // numbers), unlike a client render of nextSerial.
+  preview?: string;
 }
 
 // Map any template/variant code (TI2, QO1…) to the canonical numbering type.
@@ -118,7 +121,7 @@ export function useNumberFormatPicker() {
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
                   <Typography variant="body1">{f.label}</Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ fontFamily: "monospace" }}>
-                    {formatPattern(f.pattern, f.nextSerial, now, DOC_CODE[f.documentType])}
+                    {f.preview || formatPattern(f.pattern, f.nextSerial, now, DOC_CODE[f.documentType])}
                   </Typography>
                 </Box>
               }
