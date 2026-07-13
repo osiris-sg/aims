@@ -199,4 +199,18 @@ export class StatementsController {
       compareMonths: compareMonths ? parseInt(compareMonths, 10) : undefined,
     });
   }
+
+  @Get('gst-report')
+  @Permissions('statements:read')
+  @ApiOperation({ summary: 'GST report — per-document details by tax code (Category) + F5 summary boxes' })
+  gstReport(
+    @Req() req: RequestWithOrganization,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('taxCode') taxCode?: string,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.xeroReports.gstReport(organizationId, { from, to, taxCode });
+  }
 }

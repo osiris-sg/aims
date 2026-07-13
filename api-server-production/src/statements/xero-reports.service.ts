@@ -597,4 +597,169 @@ export class XeroReportsService {
       },
     };
   }
+
+  // ------------------------------------------------------------------
+  // GST report — legacy-replica function, Xero-style UI.
+  //   Details: one row per document of the chosen tax code (Category) with
+  //   Pre-Tax / % / Estimated (net × rate) / actual Tax; rows where estimated
+  //   and actual disagree are flagged (the legacy maroon highlight).
+  //   Summary: F5 boxes — supplies by category, taxable purchases, output /
+  //   input tax, net payable, MES, and period Revenue from the GL.
+  // Sign convention (legacy ledger view): credits negative — output-side
+  // invoices/DNs negative, CNs positive; input-side bills positive.
+  // ------------------------------------------------------------------
+  async gstReport(organizationId: string, opts: { from?: string; to?: string; taxCode?: string }) {
+    const from = opts.from ? new Date(opts.from) : new Date('2000-01-01');
+    const to = opts.to ? new Date(opts.to) : new Date();
+    to.setHours(23, 59, 59, 999);
+
+    const [docs, org, taxRates] = await Promise.all([
+      this.prisma.document.findMany({
+        where: { organizationId, type: { in: ['INVOICE', 'TI', 'TI2', 'BILL', 'CREDIT_NOTE', 'DEBIT_NOTE', 'PURCHASE_RETURN'] } },
+        select: { id: true, name: true, type: true, status: true, createdAt: true, config: true },
+      }),
+      this.prisma.organization.findUnique({ where: { id: organizationId }, select: { registrationNumber: true } }),
+      this.prisma.taxRate.findMany({ where: { organizationId } }),
+    ]);
+    const rateByCode = new Map(taxRates.map((t) => [t.code, t]));
+    const TYPE_LABEL: Record<string, string> = {
+      INVOICE: 'INV', TI: 'INV', TI2: 'INV', BILL: 'BILL', CREDIT_NOTE: 'C/N', DEBIT_NOTE: 'D/N', PURCHASE_RETURN: 'P/R',
+    };
+
+    type GstRow = {
+      docId: string; document: string; type: string; date: Date; remarks: string;
+      preTax: number; rate: number; estimated: number; tax: number; code: string; mismatch: boolean;
+      contactId: string | null; side: 'OUTPUT' | 'INPUT';
+    };
+    const rows: GstRow[] = [];
+    for (const doc of docs) {
+      const c: any = doc.config || {};
+      if (c.voided) continue;
+      const status = (doc.status || '').toLowerCase();
+      if (status === 'draft' || status === 'cancelled') continue;
+      const di: any = c.documentInfo || {};
+      const code = di.taxCode != null && di.taxCode !== '' ? String(di.taxCode) : null;
+      if (!code) continue; // uncoded = out of scope for the GST report
+      const date = c.date ? new Date(c.date) : c.billDate ? new Date(c.billDate) : doc.createdAt;
+      if (date < from || date > to) continue;
+
+      const tr = rateByCode.get(code);
+      const tax = R(Number(di.gstAmount ?? c.taxAmount ?? c.xeroTax ?? 0) || 0);
+      let net = Number(di.subTotal ?? c.subtotal ?? c.subTotal ?? NaN);
+      if (!Number.isFinite(net)) {
+        const gross = Number(c.xeroGross ?? di.nettTotal ?? c.nettTotal ?? c.totalAmount ?? 0) || 0;
+        net = R(gross - tax);
+      } else {
+        net = R(net);
+      }
+      const diPct = parseFloat(di.gstPercent);
+      const rate = Number.isFinite(diPct) ? diPct : (tr?.rate ?? 0);
+
+      const side: 'OUTPUT' | 'INPUT' = (tr?.direction as any) || (doc.type === 'BILL' || doc.type === 'PURCHASE_RETURN' ? 'INPUT' : 'OUTPUT');
+      // Ledger sign: the side's normal document is its control-account entry —
+      // output invoices credit (−), output CNs debit (+); input bills debit (+),
+      // input CNs / purchase returns credit (−).
+      let sign: number;
+      if (side === 'OUTPUT') sign = doc.type === 'CREDIT_NOTE' ? 1 : -1;
+      else sign = doc.type === 'CREDIT_NOTE' || doc.type === 'PURCHASE_RETURN' ? -1 : 1;
+
+      const est = R((net * rate) / 100);
+      const contactId = c.customerId || c.customer?.id || c.supplierId || c.supplier?.id || null;
+      rows.push({
+        docId: doc.id,
+        document: doc.name || '(no #)',
+        type: TYPE_LABEL[doc.type] || doc.type,
+        date,
+        remarks: c.customerName || c.customer?.name || c.supplierName || c.supplier?.name || (contactId ? 'Unknown' : ''),
+        preTax: R(net * sign),
+        rate,
+        estimated: R(est * sign),
+        tax: R(tax * sign),
+        code,
+        mismatch: Math.abs(est - tax) > 0.01,
+        contactId,
+        side,
+      });
+    }
+
+    // Resolve missing contact names from the masters (flat-id docs).
+    const unknownIds = [...new Set(rows.filter((r) => r.remarks === 'Unknown' && r.contactId).map((r) => r.contactId as string))];
+    if (unknownIds.length) {
+      const [customers, suppliers] = await Promise.all([
+        this.prisma.customer.findMany({ where: { id: { in: unknownIds } }, select: { id: true, name: true } }),
+        this.prisma.supplier.findMany({ where: { id: { in: unknownIds } }, select: { id: true, name: true } }),
+      ]);
+      const nameById = new Map([...customers, ...suppliers].map((x) => [x.id, x.name]));
+      for (const r of rows) {
+        if (r.remarks === 'Unknown' && r.contactId && nameById.has(r.contactId)) r.remarks = nameById.get(r.contactId)!;
+      }
+    }
+
+    // ---- F5 summary (always across ALL codes; Category only filters Details) ----
+    const sum = (pred: (r: GstRow) => boolean, field: 'preTax' | 'tax') => R(rows.filter(pred).reduce((s, r) => s + r[field], 0));
+    const OUT_STD = new Set(['1', '8', '10']);
+    const IN_TAXABLE = new Set(['4', '5', '7', '9', '11']); // std (all eras) + zero-rated purchases + MES imports
+    const stdSupplies = R(-sum((r) => OUT_STD.has(r.code), 'preTax'));
+    const zeroSupplies = R(-sum((r) => r.code === '2', 'preTax'));
+    const exemptSupplies = R(-sum((r) => r.code === '3', 'preTax'));
+    const taxablePurchases = sum((r) => IN_TAXABLE.has(r.code), 'preTax');
+    const outputTax = R(-sum((r) => r.side === 'OUTPUT', 'tax'));
+    const inputTax = sum((r) => r.side === 'INPUT', 'tax');
+    const mes = sum((r) => r.code === '7', 'preTax');
+    const revenue = await this.periodRevenue(organizationId, from, to);
+
+    const category = opts.taxCode && opts.taxCode !== 'ALL' ? String(opts.taxCode) : 'ALL';
+    const detail = (category === 'ALL' ? rows : rows.filter((r) => r.code === category)).sort(
+      (a, b) => a.date.getTime() - b.date.getTime() || a.document.localeCompare(b.document),
+    );
+
+    return {
+      success: true,
+      data: {
+        gstRegNo: org?.registrationNumber || null,
+        from: from.toISOString(),
+        to: to.toISOString(),
+        category,
+        codes: taxRates
+          .sort((a, b) => (Number(a.code) || 0) - (Number(b.code) || 0))
+          .map((t) => ({ code: t.code, name: t.name, rate: t.rate, direction: t.direction, isActive: t.isActive })),
+        rows: detail.map((r) => ({ ...r, date: r.date.toISOString() })),
+        totals: {
+          preTax: R(detail.reduce((s, r) => s + r.preTax, 0)),
+          estimated: R(detail.reduce((s, r) => s + r.estimated, 0)),
+          tax: R(detail.reduce((s, r) => s + r.tax, 0)),
+        },
+        summary: {
+          stdSupplies,
+          zeroSupplies,
+          exemptSupplies,
+          totalSupplies: R(stdSupplies + zeroSupplies + exemptSupplies),
+          taxablePurchases,
+          outputTax,
+          inputTax,
+          nettPayable: R(outputTax - inputTax),
+          mes,
+          revenue,
+        },
+      },
+    };
+  }
+
+  // Period revenue for the F5 "Revenue" box: net credit movement on income-type
+  // accounts from POSTED journals in the window.
+  private async periodRevenue(organizationId: string, from: Date, to: Date) {
+    const accts = await this.prisma.chartOfAccount.findMany({
+      where: { organizationId, accountType: { in: ['SALES', 'INCOME', 'OTHER_INCOME', 'REVENUE'] } },
+      select: { id: true },
+    });
+    if (!accts.length) return 0;
+    const lines = await this.prisma.journalEntryLine.findMany({
+      where: {
+        accountId: { in: accts.map((a) => a.id) },
+        journalEntry: { organizationId, status: 'POSTED', entryDate: { gte: from, lte: to } },
+      },
+      select: { debit: true, credit: true },
+    });
+    return R(lines.reduce((s, l) => s + (Number(l.credit) - Number(l.debit)), 0));
+  }
 }

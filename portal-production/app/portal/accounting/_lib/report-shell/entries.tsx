@@ -11,6 +11,7 @@ import IncomeExpenseByContactReport from "./IncomeExpenseByContactReport";
 import { GLDetailReport, GLSummaryReport } from "./GLReports";
 import { TrialBalanceXero, JournalReportXero, BankSummaryReport, ForeignBankListingReport } from "./LedgerReports";
 import { ProfitLossXero, BalanceSheetXero } from "./FinancialStatements";
+import GSTReportShell from "./GSTReport";
 
 const AR_BASE = "/portal/accounting/receivables";
 const AP_BASE = "/portal/accounting/payables";
@@ -36,3 +37,4 @@ export const BankSummary = () => <BankSummaryReport basePath={GL_BASE} />;
 export const ForeignBankListing = () => <ForeignBankListingReport basePath={GL_BASE} />;
 export const ProfitLoss = () => <ProfitLossXero basePath="/portal/accounting/reports" />;
 export const BalanceSheet = () => <BalanceSheetXero basePath="/portal/accounting/reports" />;
+export const GSTReturn = () => <GSTReportShell basePath={GL_BASE} />;

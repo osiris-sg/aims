@@ -32,6 +32,8 @@ export interface ReportRow {
   kind: ReportRowKind;
   cells: (string | number | null | { text: string; href?: string; onClick?: () => void })[];
   key: string;
+  /** flag row (e.g. GST estimated ≠ actual) — rendered with an error tint */
+  highlight?: boolean;
 }
 
 export default function ReportTable({
@@ -102,7 +104,10 @@ export default function ReportTable({
                 key={r.key}
                 sx={{
                   ...(r.kind === "total" ? { "& td": { borderTop: (t: any) => `1px solid ${t.palette.text.primary}` } } : {}),
-                  "&:hover": r.kind === "row" ? { bgcolor: (t) => alpha(t.palette.primary.main, 0.04) } : {},
+                  ...(r.highlight ? { bgcolor: (t: any) => alpha(t.palette.error.main, 0.08) } : {}),
+                  "&:hover": r.kind === "row"
+                    ? { bgcolor: (t) => alpha(r.highlight ? t.palette.error.main : t.palette.primary.main, r.highlight ? 0.14 : 0.04) }
+                    : {},
                 }}
               >
                 {r.cells.map((c, i) => (

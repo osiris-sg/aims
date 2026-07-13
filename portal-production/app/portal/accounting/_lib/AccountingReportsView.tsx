@@ -20,7 +20,7 @@ import StarIcon from "@mui/icons-material/Star";
 import StarBorderIcon from "@mui/icons-material/StarBorder";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
-import GstPage from "../gst/page";
+
 import CashFlowPage from "../cash-flow/page";
 import BudgetVsActualPage from "../budget-vs-actual/page";
 import InvoicesPage from "../../invoices/page";
@@ -36,7 +36,7 @@ import {
   ContactTransactionsSummary, IncomeExpensesByContact,
   GeneralLedgerDetail, GeneralLedgerSummary,
   AccountTransactions, ExpenseListing, TrialBalanceReport, JournalReport, BankSummary,
-  ProfitLoss, BalanceSheet, ForeignBankListing,
+  ProfitLoss, BalanceSheet, ForeignBankListing, GSTReturn,
 } from "./report-shell/entries";
 import SupplierStatementPage from "../supplier-statement/page";
 import SalesByCustomerPage from "../sales-by-customer/page";
@@ -98,7 +98,7 @@ export const REPORTS: ReportEntry[] = [
   { key: "pl", label: "Profit and Loss", description: "Income, cost of sales and expenses with period comparison", category: "Ledger", Component: ProfitLoss },
   { key: "bs", label: "Balance Sheet", description: "Assets, liabilities and equity as at a date, with year comparison", category: "Ledger", Component: BalanceSheet },
   { key: "expense-listing", label: "Expense Listing", description: "Every expense and purchase transaction for a period, by account", category: "Ledger", Component: ExpenseListing },
-  { key: "gst", label: "GST", description: "GST collected and paid for the period", category: "Ledger", Component: GstPage },
+  { key: "gst", label: "GST", description: "GST details by tax code + F5 summary for the period", category: "Ledger", Component: GSTReturn },
 
   // Financial (remaining)
   { key: "cf", label: "Cash Flow", description: "Operating, investing and financing cash movements", category: "Financial", Component: CashFlowPage },
