@@ -79,14 +79,22 @@ export default function DynamicSidebarContent() {
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
 
-  // When the list-view feature is on and we're inside a document editor URL
-  // (/portal/documents/<type>/...), behave for sidebar-highlight purposes as if
-  // we were still on the originating list page. Keeps e.g. the "Sales Orders"
-  // item highlighted while the user is editing a sales-order draft.
-  const remappedListRoute = isDocumentListViewEnabled
-    ? getListRouteFromPathname(rawPathname)
-    : null;
-  const pathname = remappedListRoute ?? rawPathname;
+  // When we're inside a document editor URL (/portal/documents/<type>/...),
+  // behave for sidebar-highlight purposes as if we were still on the
+  // originating page. An explicit ?from=<portal path> on the editor URL wins
+  // (set by embedded lists like the AR tab, so Accounting stays highlighted
+  // instead of jumping to Sales > Invoice); otherwise fall back to the
+  // type→list-route map when the list-view feature is on.
+  const [fromPath, setFromPath] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    const p = new URLSearchParams(window.location.search).get("from");
+    setFromPath(p && p.startsWith("/portal") ? p.split("?")[0] : null);
+  }, [rawPathname]);
+  const isEditorPath = rawPathname.startsWith("/portal/documents/");
+  const remappedListRoute =
+    (isEditorPath && fromPath) ||
+    (isDocumentListViewEnabled ? getListRouteFromPathname(rawPathname) : null);
+  const pathname = remappedListRoute || rawPathname;
 
 
   // Handle submenu toggles

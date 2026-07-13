@@ -183,6 +183,7 @@ function ServicesSection({ revenueAccounts, authedFetch }: { revenueAccounts: an
   const [editing, setEditing] = useState<Service | null>(null);
   const [form, setForm] = useState<any>(blankSvc);
   const [saving, setSaving] = useState(false);
+  const [q, setQ] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -234,9 +235,23 @@ function ServicesSection({ revenueAccounts, authedFetch }: { revenueAccounts: an
     }
   };
 
+  // Free-text search across code / name / GL account (same as the products
+  // section's search).
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (!s) return items;
+    return items.filter((it) =>
+      [it.code, it.name, it.accountCode, it.accountName].some((v) => String(v ?? "").toLowerCase().includes(s))
+    );
+  }, [items, q]);
+
   return (
     <Box>
-      <Stack direction="row" justifyContent="flex-end" sx={{ mb: 1.5 }}>
+      <Stack direction="row" gap={1.5} alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }}>
+        <Stack direction="row" gap={1.5} alignItems="center">
+          <TextField size="small" placeholder="Search services…" value={q} onChange={(e) => setQ(e.target.value)} sx={{ minWidth: 280 }} InputProps={{ startAdornment: <SearchIcon fontSize="small" sx={{ color: "text.secondary", mr: 1 }} /> }} />
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>{filtered.length} of {items.length} services</Typography>
+        </Stack>
         <Button startIcon={<AddIcon />} variant="contained" onClick={openNew}>Add service</Button>
       </Stack>
       {loading ? (
@@ -259,7 +274,7 @@ function ServicesSection({ revenueAccounts, authedFetch }: { revenueAccounts: an
               </TableRow>
             </TableHead>
             <TableBody>
-              {items.map((it) => (
+              {filtered.map((it) => (
                 <TableRow key={it.id}>
                   <TableCell><Typography variant="body2" sx={{ fontFamily: "monospace" }}>{it.code || "—"}</Typography></TableCell>
                   <TableCell><Typography variant="body2" sx={{ fontWeight: 600 }}>{it.name}</Typography></TableCell>

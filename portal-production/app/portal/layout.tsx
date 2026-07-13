@@ -3,7 +3,6 @@ import React, { useEffect, useState } from "react";
 import styles from "./layout.module.scss";
 import { Box } from "@mui/material";
 import DesktopSideBar from "@/components/Sidebar/DestopSideBar";
-import DocumentSidebar from "@/components/Sidebar/DocumentSidebar";
 import AppNavbar from "@/components/Appnavbar";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -16,7 +15,6 @@ import { useAuth } from "@clerk/nextjs";
 import FieldOnlyGuard from "./components/FieldOnlyGuard";
 import OrgSwitcher from "@/components/OrgSwitcher";
 import ViewingAsBanner from "@/components/ViewingAsBanner";
-import { useOrganizationFeatures } from "./hooks/useOrganizationFeatures";
 
 interface Props {
   children: React.ReactNode;
@@ -117,18 +115,15 @@ export default function Layout(props: Props) {
   );
 }
 
-// Sidebar + navbar choice. The document editor pages normally swap in the
-// compact DocumentSidebar, but when the enableDocumentListView feature flag
-// is on we keep the regular DesktopSideBar + AppNavbar so the user stays
-// anchored to the originating list view (matches the back-button behaviour
-// in TabbedDocumentCreator).
-function PortalChrome({ isDocumentPage }: { isDocumentPage: boolean }) {
-  const { isDocumentListViewEnabled } = useOrganizationFeatures();
-  const useDocumentChrome = isDocumentPage && !isDocumentListViewEnabled;
+// Sidebar + navbar: always the regular chrome. Editor-first mode used to swap
+// in the compact DocumentSidebar on editor pages; that context switch was
+// dropped (guru, 2026-07-13) — the normal sidebar + navbar stay everywhere in
+// both modes. (isDocumentPage kept in the signature for call-site stability.)
+function PortalChrome({ isDocumentPage: _isDocumentPage }: { isDocumentPage: boolean }) {
   return (
     <>
-      {useDocumentChrome ? <DocumentSidebar /> : <DesktopSideBar />}
-      {!useDocumentChrome && <AppNavbar />}
+      <DesktopSideBar />
+      <AppNavbar />
     </>
   );
 }

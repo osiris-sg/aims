@@ -238,6 +238,14 @@ export default function TabbedDocumentCreator({
   // confirmed docs' stored templateVariant may not be in LIST_ROUTES, which
   // used to drop them onto the generic /portal/sales instead of the real list.
   const resolveBackRoute = (docType: string) => {
+    // An explicit ?from=<portal path> on the editor URL wins — set by embedded
+    // lists (e.g. the AR tab at /portal/accounting/receivables) so Back returns
+    // to the actual origin instead of the type's default list page. Validated
+    // to an in-portal path so a crafted link can't redirect elsewhere.
+    if (typeof window !== "undefined") {
+      const fromParam = new URLSearchParams(window.location.search).get("from");
+      if (fromParam && fromParam.startsWith("/portal")) return fromParam;
+    }
     const fromUrl =
       typeof window !== "undefined" ? getListRouteFromPathname(window.location.pathname) : null;
     return (isDocumentListViewEnabled && (fromUrl || getDocumentListRoute(docType))) || getParentRoute(docType);
@@ -2444,6 +2452,10 @@ export default function TabbedDocumentCreator({
           type: documentType,
           documentNumber: (formData as any)?.name || (formData as any)?.documentInfo?.documentNumber,
           taxAmount,
+          // Tax-inclusive doc → line amounts are gross; the preview nets them.
+          amountsInclusive:
+            (formData as any)?.documentInfo?.absorbTax === "Y" ||
+            (formData as any)?.documentInfo?.absorbTax === true,
           lines: (items || []).map((it: any) => ({
             description: it.description || undefined,
             amount: parseFloat(it.amount) || 0,
