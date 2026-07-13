@@ -16,6 +16,7 @@ import { PrismaService } from './common/prisma.service';
 import { DocumentTemplatesModule } from './documentTemplates/documentTemplates.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { PublicDeliveryModule } from './public-delivery/public-delivery.module';
+import { PublicApiModule } from './public-api/public-api.module';
 import { DocumentsModule } from './documents/documents.module';
 import { TimelineItemsModule } from './timeline-items/timeline-items.module';
 import { RolesModule } from './roles/roles.module';
@@ -106,6 +107,7 @@ import { PostingQueueModule } from './posting-queue/posting-queue.module';
     BankRecModule,
     XeroSyncModule,
     PublicDeliveryModule,
+    PublicApiModule,
     IngestionModule,
     IngestionEmailModule,
     PostingQueueModule,
