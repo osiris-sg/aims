@@ -89,9 +89,13 @@ export class XeroService {
       return res.body.invoices[0];
     } catch (error: any) {
       // Xero validation errors carry detail in response elements — surface them.
+      const status = error?.response?.statusCode || error?.statusCode;
       const elements = error?.response?.body?.Elements || error?.body?.Elements;
       const validation = elements?.[0]?.ValidationErrors?.map((v: any) => v.Message).join('; ');
-      const msg = validation || error?.response?.body?.Message || error?.message || 'Xero API error';
+      const msg =
+        status === 429
+          ? 'Xero API rate limit reached (daily cap) — try again after the quota resets'
+          : validation || error?.response?.body?.Message || error?.message || (status ? `HTTP ${status}` : 'Xero API error');
       throw new HttpException(`Xero rejected the document: ${msg}`, HttpStatus.BAD_GATEWAY);
     }
   }
@@ -465,7 +469,13 @@ export class XeroService {
       return response.body.contacts[0];
     } catch (error) {
       console.error('Error managing Xero contact:', error);
-      throw new HttpException(`Failed to manage Xero contact: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
+      // xero-node throws raw response objects (no .message) — surface the real cause.
+      const status = error?.response?.statusCode || error?.statusCode;
+      const detail =
+        status === 429
+          ? 'Xero API rate limit reached (daily cap) — try again after the quota resets'
+          : error?.response?.body?.Message || error?.message || (status ? `HTTP ${status}` : 'unknown error');
+      throw new HttpException(`Failed to manage Xero contact: ${detail}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 

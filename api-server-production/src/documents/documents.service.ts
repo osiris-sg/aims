@@ -4044,10 +4044,14 @@ export class DocumentsService {
     // Account-code mapping: AIMS code → Xero code via confirmed XeroAccountMapping;
     // orgs whose CoA was pulled from Xero map 1:1 so same-code is the fallback.
     const mappings = await this.prisma.xeroAccountMapping.findMany({
-      where: { organizationId, aimsAccountCode: { not: null }, xeroAccountCode: { not: null } },
+      where: { organizationId },
       select: { aimsAccountCode: true, xeroAccountCode: true },
     });
-    const codeMap = new Map(mappings.map((m) => [m.aimsAccountCode as string, m.xeroAccountCode as string]));
+    const codeMap = new Map(
+      mappings
+        .filter((m) => m.aimsAccountCode && m.xeroAccountCode)
+        .map((m) => [m.aimsAccountCode as string, m.xeroAccountCode as string]),
+    );
 
     // Tax-inclusive vs exclusive from the org's accounting settings.
     const setting = await this.prisma.accountingSetting.findUnique({
