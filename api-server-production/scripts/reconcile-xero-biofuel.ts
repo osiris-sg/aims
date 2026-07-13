@@ -186,7 +186,8 @@ async function pullXeroAmountDue(tokens: Awaited<ReturnType<typeof getXeroTokens
     const invs: any[] = res.Invoices || [];
     if (invs.length === 0) break;
     for (const inv of invs) {
-      if (['VOIDED', 'DELETED'].includes(inv.Status)) continue;
+      // Drafts aren't AR/AP yet (Xero's own aged reports exclude them too).
+      if (['VOIDED', 'DELETED', 'DRAFT', 'SUBMITTED'].includes(inv.Status)) continue;
       // Respect as-of: only count invoices dated on/before the cut-off.
       if (inv.DateString && new Date(inv.DateString).getTime() > asofMs) continue;
       const due = Number(inv.AmountDue) || 0;
@@ -215,9 +216,14 @@ async function reconcileAR(tokens: Awaited<ReturnType<typeof getXeroTokens>>, ai
   });
   let aimsAR = 0;
   let aimsCount = 0;
+  const asofMs = ASOF.getTime();
   for (const inv of invoices) {
     const c: any = inv.config || {};
     if (c.voided) continue;
+    // Symmetric with the Xero side: drafts aren't AR yet.
+    if (['DRAFT', 'SUBMITTED'].includes((c.xeroStatus || '').toUpperCase())) continue;
+    // Same as-of cut as the Xero side (post-dated invoices excluded equally).
+    if (c.date && new Date(c.date).getTime() > asofMs) continue;
     const owed = Number(c.xeroBalance ?? 0);
     if (owed <= 0.005) continue;
     aimsAR += owed;
@@ -253,8 +259,12 @@ async function reconcileAP(tokens: Awaited<ReturnType<typeof getXeroTokens>>, ai
   });
   let aimsAP = 0;
   let aimsCount = 0;
+  const asofMs = ASOF.getTime();
   for (const b of bills) {
     const c: any = b.config || {};
+    // Same as-of cut as the Xero side (post-dated bills excluded equally).
+    const bdate = c.billDate || c.date;
+    if (bdate && new Date(bdate).getTime() > asofMs) continue;
     // Mirror bills.service toBill(): AIMS-native bills carry billStatus;
     // Xero-imported ones derive status from xeroStatus and balance from
     // xeroBalance (AmountDue at import) / xeroGross.

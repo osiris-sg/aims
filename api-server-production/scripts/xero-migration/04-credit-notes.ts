@@ -18,7 +18,9 @@ import { PrismaClient, DocumentStatus, Prisma } from "@prisma/client";
 import * as dotenv from "dotenv";
 dotenv.config();
 
-import { BIOFUEL_ORG_ID, getXeroTokens, xeroGet } from "./_common";
+import { BIOFUEL_ORG_ID, getXeroTokens, xeroGet, modifiedSinceArg } from "./_common";
+
+const MODIFIED_SINCE = modifiedSinceArg();
 
 const prisma = new PrismaClient();
 
@@ -132,7 +134,7 @@ async function importType(tokens: any, side: "AR" | "AP") {
       pageSize: 100,
       where: `Type=="${xeroType}"`,
       order: "Date ASC",
-    });
+    }, { modifiedAfter: MODIFIED_SINCE });
     const notes = list.CreditNotes || [];
     if (notes.length === 0) break;
     totalSeen += notes.length;
@@ -229,6 +231,7 @@ async function importType(tokens: any, side: "AR" | "AP") {
               name: cnNumber,
               type: "CREDIT_NOTE",
               status: mapStatus(cn.Status),
+              createdAt: date, // real Xero credit-note date, not import time
               config: config as Prisma.InputJsonValue,
             },
           });

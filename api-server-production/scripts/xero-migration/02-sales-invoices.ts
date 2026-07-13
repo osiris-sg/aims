@@ -22,7 +22,10 @@ import { PrismaClient, DocumentStatus, Prisma } from "@prisma/client";
 import * as dotenv from "dotenv";
 dotenv.config();
 
-import { BIOFUEL_ORG_ID, getXeroTokens, xeroGet } from "./_common";
+import { BIOFUEL_ORG_ID, getXeroTokens, xeroGet, modifiedSinceArg } from "./_common";
+
+// --modified-since=<ISO>: incremental pull (only docs Xero modified after this).
+const MODIFIED_SINCE = modifiedSinceArg();
 
 const prisma = new PrismaClient();
 
@@ -119,7 +122,7 @@ async function main() {
       pageSize: 100,
       where: 'Type=="ACCREC"',
       order: "Date ASC",
-    });
+    }, { modifiedAfter: MODIFIED_SINCE });
     const invs = list.Invoices || [];
     if (invs.length === 0) break;
     totalSeen += invs.length;
@@ -191,39 +194,62 @@ async function main() {
       };
 
       try {
-        // Match by (name, organizationId, documentTemplateId) per the unique
-        // constraint @@unique([name, organizationId, documentTemplateId])
-        const existing = await prisma.document.findFirst({
-          where: {
-            organizationId: BIOFUEL_ORG_ID,
-            type: "INVOICE",
-            OR: [
-              { name: invoiceNumber },
-              { config: { path: ["xeroInvoiceId"], equals: inv.InvoiceID } },
-            ],
-          },
+        // Match by xeroInvoiceId first; fall back to name only when that row
+        // has no (or the same) xeroInvoiceId — Xero allows duplicate invoice
+        // numbers, and a blind name-match collapses two real invoices into one.
+        let existing = await prisma.document.findFirst({
+          where: { organizationId: BIOFUEL_ORG_ID, type: "INVOICE", config: { path: ["xeroInvoiceId"], equals: inv.InvoiceID } },
           select: { id: true, documentTemplateId: true },
         });
+        let nameTakenByOther = false;
+        if (!existing) {
+          const byName = await prisma.document.findFirst({
+            where: { organizationId: BIOFUEL_ORG_ID, type: "INVOICE", name: invoiceNumber },
+            select: { id: true, documentTemplateId: true, config: true },
+          });
+          if (byName) {
+            const otherId = (byName.config as any)?.xeroInvoiceId;
+            if (!otherId || otherId === inv.InvoiceID) existing = { id: byName.id, documentTemplateId: byName.documentTemplateId };
+            else nameTakenByOther = true;
+          }
+        }
+        const rowName = nameTakenByOther ? `${invoiceNumber} (${inv.InvoiceID.slice(0, 4)})` : invoiceNumber;
 
         if (existing) {
-          await prisma.document.update({
-            where: { id: existing.id },
-            data: {
-              name: invoiceNumber,
-              type: "INVOICE",
-              status: mapStatus(inv.Status),
-              config: config as unknown as Prisma.InputJsonValue,
-            },
-          });
+          try {
+            await prisma.document.update({
+              where: { id: existing.id },
+              data: {
+                name: rowName,
+                type: "INVOICE",
+                status: mapStatus(inv.Status),
+                config: config as unknown as Prisma.InputJsonValue,
+              },
+            });
+          } catch (e: any) {
+            if (e?.code !== "P2002") throw e;
+            // rowName belongs to the other row of a duplicate-numbered pair —
+            // keep this row's existing (suffixed) name, refresh the rest.
+            await prisma.document.update({
+              where: { id: existing.id },
+              data: {
+                type: "INVOICE",
+                status: mapStatus(inv.Status),
+                config: config as unknown as Prisma.InputJsonValue,
+              },
+            });
+          }
           updated++;
         } else {
+          if (nameTakenByOther) console.log(`  ⚠ duplicate invoice number in Xero: ${invoiceNumber} — creating second row as "${rowName}"`);
           await prisma.document.create({
             data: {
               organizationId: BIOFUEL_ORG_ID,
               documentTemplateId: INVOICE_TEMPLATE_ID,
-              name: invoiceNumber,
+              name: rowName,
               type: "INVOICE",
               status: mapStatus(inv.Status),
+              createdAt: date, // real Xero invoice date, not import time
               config: config as unknown as Prisma.InputJsonValue,
             },
           });

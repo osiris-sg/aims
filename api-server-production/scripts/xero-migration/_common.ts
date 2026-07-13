@@ -138,10 +138,20 @@ export async function getXeroTokens(prisma: PrismaClient, organizationId: string
   return tokens;
 }
 
+/** Parse a --modified-since=<ISO> CLI flag (shared by the import scripts). */
+export function modifiedSinceArg(): Date | null {
+  const hit = process.argv.find((a) => a.startsWith('--modified-since='));
+  if (!hit) return null;
+  const d = new Date(hit.split('=').slice(1).join('='));
+  if (isNaN(d.getTime())) throw new Error(`Bad --modified-since value: ${hit}`);
+  return d;
+}
+
 export async function xeroGet<T = any>(
   tokens: XeroTokens,
   path: string,
   query: Record<string, string | number> = {},
+  opts: { modifiedAfter?: Date | null } = {},
 ): Promise<T> {
   // Throttle.
   const delta = Date.now() - lastRequestAt;
@@ -160,13 +170,14 @@ export async function xeroGet<T = any>(
   }
 
   for (let attempt = 1; attempt <= 5; attempt++) {
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${tokens.accessToken}`,
-        "Xero-Tenant-Id": tokens.tenantId,
-        Accept: "application/json",
-      },
-    });
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${tokens.accessToken}`,
+      "Xero-Tenant-Id": tokens.tenantId,
+      Accept: "application/json",
+    };
+    // Incremental pulls: Xero returns only records modified after this time.
+    if (opts.modifiedAfter) headers["If-Modified-Since"] = opts.modifiedAfter.toUTCString();
+    const res = await fetch(url, { headers });
 
     if (res.status === 401 && tokens.refresh && attempt < 5) {
       // Token expired mid-run (or clock skew beat the proactive check).

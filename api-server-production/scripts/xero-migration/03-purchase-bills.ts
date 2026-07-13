@@ -19,7 +19,9 @@ import { PrismaClient, DocumentStatus, Prisma } from "@prisma/client";
 import * as dotenv from "dotenv";
 dotenv.config();
 
-import { BIOFUEL_ORG_ID, getXeroTokens, xeroGet } from "./_common";
+import { BIOFUEL_ORG_ID, getXeroTokens, xeroGet, modifiedSinceArg } from "./_common";
+
+const MODIFIED_SINCE = modifiedSinceArg();
 
 const prisma = new PrismaClient();
 
@@ -115,7 +117,7 @@ async function main() {
       pageSize: 100,
       where: 'Type=="ACCPAY"',
       order: "Date ASC",
-    });
+    }, { modifiedAfter: MODIFIED_SINCE });
     const invs = list.Invoices || [];
     if (invs.length === 0) break;
     totalSeen += invs.length;
@@ -199,37 +201,63 @@ async function main() {
       };
 
       try {
-        const existing = await prisma.document.findFirst({
-          where: {
-            organizationId: BIOFUEL_ORG_ID,
-            type: "BILL",
-            OR: [
-              { config: { path: ["xeroBillId"], equals: inv.InvoiceID } },
-              { name: billNumber },
-            ],
-          },
+        // Match by xeroBillId first. Fall back to name ONLY if that row has
+        // no (or the same) xeroBillId — Xero allows duplicate bill numbers,
+        // and a blind name-match collapses two real bills into one AIMS row.
+        let existing = await prisma.document.findFirst({
+          where: { organizationId: BIOFUEL_ORG_ID, type: "BILL", config: { path: ["xeroBillId"], equals: inv.InvoiceID } },
           select: { id: true },
         });
+        let nameTakenByOther = false;
+        if (!existing) {
+          const byName = await prisma.document.findFirst({
+            where: { organizationId: BIOFUEL_ORG_ID, type: "BILL", name: billNumber },
+            select: { id: true, config: true },
+          });
+          if (byName) {
+            const otherId = (byName.config as any)?.xeroBillId;
+            if (!otherId || otherId === inv.InvoiceID) existing = { id: byName.id };
+            else nameTakenByOther = true; // duplicate number in Xero — new row
+          }
+        }
+        // Duplicate number: disambiguate the Document.name (unique per org+template).
+        const rowName = nameTakenByOther ? `${billNumber} (${inv.InvoiceID.slice(0, 4)})` : billNumber;
 
         if (existing) {
-          await prisma.document.update({
-            where: { id: existing.id },
-            data: {
-              name: billNumber,
-              type: "BILL",
-              status: mapStatus(inv.Status),
-              config: config as unknown as Prisma.InputJsonValue,
-            },
-          });
+          try {
+            await prisma.document.update({
+              where: { id: existing.id },
+              data: {
+                name: rowName,
+                type: "BILL",
+                status: mapStatus(inv.Status),
+                config: config as unknown as Prisma.InputJsonValue,
+              },
+            });
+          } catch (e: any) {
+            if (e?.code !== "P2002") throw e;
+            // rowName is held by the OTHER row of a duplicate-numbered pair —
+            // keep this row's existing (suffixed) name, refresh the rest.
+            await prisma.document.update({
+              where: { id: existing.id },
+              data: {
+                type: "BILL",
+                status: mapStatus(inv.Status),
+                config: config as unknown as Prisma.InputJsonValue,
+              },
+            });
+          }
           updated++;
         } else {
+          if (nameTakenByOther) console.log(`  ⚠ duplicate bill number in Xero: ${billNumber} — creating second row as "${rowName}"`);
           await prisma.document.create({
             data: {
               organizationId: BIOFUEL_ORG_ID,
               documentTemplateId: BILL_TEMPLATE_ID,
-              name: billNumber,
+              name: rowName,
               type: "BILL",
               status: mapStatus(inv.Status),
+              createdAt: date, // real Xero bill date, not import time
               config: config as unknown as Prisma.InputJsonValue,
             },
           });

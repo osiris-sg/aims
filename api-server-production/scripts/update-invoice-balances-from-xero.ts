@@ -3,7 +3,12 @@
  * balance + paid/unpaid status on the matching AIMS invoice, so AR ties to Xero.
  */
 import { Prisma } from '@prisma/client';
-import { getXeroTokens, xeroGet, createScriptPrisma, withDbRetry } from './xero-migration/_common';
+import { getXeroTokens, xeroGet, createScriptPrisma, withDbRetry, modifiedSinceArg } from './xero-migration/_common';
+
+// Incremental mode: only pull invoices Xero modified after this. NOTE: the
+// phantom reverse-sweep is skipped in this mode — absence from a partial pull
+// means nothing. Run without the flag periodically for the full sweep.
+const MODIFIED_SINCE = modifiedSinceArg();
 const prisma = createScriptPrisma();
 const ORG = '52e90ba8-bfbd-48b0-bb76-4f9667bf74f1';
 const R = (n: number) => Math.round(n * 100) / 100;
@@ -13,7 +18,7 @@ async function main() {
   // 1) Pull all ACCREC invoice summaries (list endpoint carries AmountDue).
   const all: any[] = [];
   for (let page = 1; ; page++) {
-    const res = await xeroGet<any>(tokens, '/Invoices', { page, pageSize: 100, where: 'Type=="ACCREC"' });
+    const res = await xeroGet<any>(tokens, '/Invoices', { page, pageSize: 100, where: 'Type=="ACCREC"' }, { modifiedAfter: MODIFIED_SINCE });
     const invs = res.Invoices || [];
     all.push(...invs);
     process.stdout.write(`\r  pulled ${all.length}...`);
@@ -47,9 +52,10 @@ async function main() {
   // Reverse sweep: a Xero-imported AIMS invoice still carrying a balance but
   // ABSENT from the Xero pull was deleted in Xero (deleted invoices drop out
   // of the /Invoices API entirely) — neutralize it or AR drifts forever.
+  // Only valid on a FULL pull; with --modified-since the pull is partial.
   const seen = new Set(all.map((i) => (i.InvoiceNumber || '').trim()).filter(Boolean));
   let phantoms = 0;
-  for (const d of aims) {
+  for (const d of MODIFIED_SINCE ? [] : aims) {
     const c: any = d.config || {};
     if (!c.xeroImported || c.voided) continue;
     if (Number(c.xeroBalance || 0) <= 0.005) continue;

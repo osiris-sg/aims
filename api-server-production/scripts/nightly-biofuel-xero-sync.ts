@@ -49,15 +49,18 @@ function clearJournalCache() {
 
 async function main() {
   const startedAt = Date.now();
+  // Fast path: only pull documents Xero modified in the last 3 days (buffer
+  // covers a missed night or two). Drift triggers a full pass below.
+  const since = `--modified-since=${new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString()}`;
   let ok =
-    run("[1/4] sales invoices (AR)", "scripts/xero-migration/02-sales-invoices.ts") &&
-    run("[2/4] purchase bills (AP)", "scripts/xero-migration/03-purchase-bills.ts") &&
-    run("[3/4] credit notes", "scripts/xero-migration/04-credit-notes.ts");
+    run("[1/4] sales invoices (AR, incremental)", "scripts/xero-migration/02-sales-invoices.ts", [since]) &&
+    run("[2/4] purchase bills (AP, incremental)", "scripts/xero-migration/03-purchase-bills.ts", [since]) &&
+    run("[3/4] credit notes (incremental)", "scripts/xero-migration/04-credit-notes.ts", [since]);
   if (!ok) process.exit(1);
 
   // Fast-path GL: append-only.
   if (!run("[GL fast] journal append (--resume)", "scripts/sync-gl-from-xero.ts", ["--resume"])) process.exit(1);
-  if (!run("[balances] AR true-up", "scripts/update-invoice-balances-from-xero.ts")) process.exit(1);
+  if (!run("[balances] AR true-up (incremental)", "scripts/update-invoice-balances-from-xero.ts", [since])) process.exit(1);
 
   // Independent verification.
   if (run("[reconcile] Xero vs AIMS", "scripts/reconcile-xero-biofuel.ts")) {
@@ -65,12 +68,18 @@ async function main() {
     process.exit(0);
   }
 
-  // Drift found — likely a late-voided doc whose journal Xero removed and the
-  // append-only pass kept. Do one full wipe-and-reload, then re-verify.
-  console.warn("\n⚠ reconcile found drift — running FULL GL reload then re-verifying...");
+  // Drift found — e.g. a late-voided/deleted doc the incremental window
+  // missed, or a journal Xero removed. Escalate to a FULL pass: complete doc
+  // refresh (incl. phantom sweep), full GL wipe-and-reload, then re-verify.
+  console.warn("\n⚠ reconcile found drift — running FULL refresh + GL reload then re-verifying...");
+  const okFull =
+    run("[full] sales invoices", "scripts/xero-migration/02-sales-invoices.ts") &&
+    run("[full] purchase bills", "scripts/xero-migration/03-purchase-bills.ts") &&
+    run("[full] credit notes", "scripts/xero-migration/04-credit-notes.ts");
+  if (!okFull) process.exit(1);
   clearJournalCache();
   if (!run("[GL full] wipe-and-reload", "scripts/sync-gl-from-xero.ts")) process.exit(1);
-  if (!run("[balances] AR true-up (post-reload)", "scripts/update-invoice-balances-from-xero.ts")) process.exit(1);
+  if (!run("[balances] AR true-up + phantom sweep", "scripts/update-invoice-balances-from-xero.ts")) process.exit(1);
 
   if (run("[reconcile 2nd] Xero vs AIMS", "scripts/reconcile-xero-biofuel.ts")) {
     console.log(`\n✓ NIGHTLY SYNC CLEAN (after full reload) in ${Math.round((Date.now() - startedAt) / 60000)} min`);
