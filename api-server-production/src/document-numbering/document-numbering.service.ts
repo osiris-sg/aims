@@ -91,13 +91,46 @@ export class DocumentNumberingService {
     }
 
     const key = this.resetKey(format.resetPolicy, when);
+    const docCode = DOC_CODE[format.documentType] || '';
+
+    // Respect numbers that already exist in this format's namespace — imported
+    // documents (e.g. Xero migrations) carry their own numbers and never touch
+    // nextSerial, so without this the counter lags behind (or collides with)
+    // the imported sequence. Split the pattern at its serial token, resolve the
+    // literal/date prefix+suffix for `when`, and find the highest serial among
+    // existing documents that match; generation starts past it. Serial padding
+    // is tolerant (\d+), so Xero's "BI202607046" bumps a {####} counter to 47.
+    let maxExisting = 0;
+    const serialToken = /\{(#+)\}/.exec(format.pattern);
+    if (serialToken) {
+      const prefix = DocumentNumberingService.format(format.pattern.slice(0, serialToken.index), 0, when, docCode);
+      const suffix = DocumentNumberingService.format(
+        format.pattern.slice(serialToken.index + serialToken[0].length),
+        0,
+        when,
+        docCode,
+      );
+      if (prefix) {
+        const existing = await this.prisma.document.findMany({
+          where: { organizationId, name: { startsWith: prefix } },
+          select: { name: true },
+        });
+        for (const d of existing) {
+          const name = d.name || '';
+          if (suffix && !name.endsWith(suffix)) continue;
+          const mid = name.slice(prefix.length, suffix ? name.length - suffix.length : undefined);
+          if (/^\d+$/.test(mid)) maxExisting = Math.max(maxExisting, parseInt(mid, 10));
+        }
+      }
+    }
+
     // Atomically claim the serial: reset if the reset-window changed, else use
-    // nextSerial; then bump.
+    // nextSerial — never below one past the highest existing number; then bump.
     const claimed = await this.prisma.$transaction(async (tx) => {
       const f = await tx.documentNumberFormat.findUnique({ where: { id: format!.id } });
       if (!f) throw new NotFoundException('Number format not found');
       const restart = key != null && f.lastResetKey !== key;
-      const serial = restart ? 1 : f.nextSerial;
+      const serial = Math.max(restart ? 1 : f.nextSerial, maxExisting + 1);
       await tx.documentNumberFormat.update({
         where: { id: f.id },
         data: { nextSerial: serial + 1, ...(key != null ? { lastResetKey: key } : {}) },
@@ -105,7 +138,7 @@ export class DocumentNumberingService {
       return serial;
     });
 
-    return DocumentNumberingService.format(format.pattern, claimed, when, DOC_CODE[format.documentType] || '');
+    return DocumentNumberingService.format(format.pattern, claimed, when, docCode);
   }
 
   // Roll the counter back when a just-numbered document is deleted (e.g. the
