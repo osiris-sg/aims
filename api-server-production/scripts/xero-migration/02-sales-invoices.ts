@@ -170,6 +170,11 @@ async function main() {
       const config = {
         date: date.toISOString(),
         dueDate: dueDate?.toISOString() || null,
+        // Native AIMS field names — the portal reads these (nettTotal = gross
+        // incl. GST). Without them the list falls back to Σ items = net-of-GST.
+        subTotal: inv.SubTotal ?? 0,
+        gstAmount: inv.TotalTax ?? 0,
+        nettTotal: inv.Total ?? 0,
         items,
         customer: customer ? { id: customer.id, name: customer.name } : { id: null, name: inv.Contact?.Name || "(unknown)" },
         customerId: customer?.id || null,

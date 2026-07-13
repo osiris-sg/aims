@@ -53,6 +53,9 @@ async function main() {
   // covers a missed night or two). Drift triggers a full pass below.
   const since = `--modified-since=${new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString()}`;
   let ok =
+    // Contacts FIRST — new Xero customers/suppliers must exist before the doc
+    // importers run, or their invoices land with customerId=null ("N/A" in UI).
+    run("[0/4] contacts", "scripts/xero-migration/01-contacts.ts") &&
     run("[1/4] sales invoices (AR, incremental)", "scripts/xero-migration/02-sales-invoices.ts", [since]) &&
     run("[2/4] purchase bills (AP, incremental)", "scripts/xero-migration/03-purchase-bills.ts", [since]) &&
     run("[3/4] credit notes (incremental)", "scripts/xero-migration/04-credit-notes.ts", [since]);

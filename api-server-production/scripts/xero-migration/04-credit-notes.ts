@@ -173,6 +173,11 @@ async function importType(tokens: any, side: "AR" | "AP") {
 
       const config: any = {
         date: date.toISOString(),
+        // Native AIMS total fields (nettTotal = gross incl. GST) — the portal
+        // reads these; without them lists fall back to Σ items = net.
+        subTotal: cn.SubTotal ?? 0,
+        gstAmount: cn.TotalTax ?? 0,
+        nettTotal: cn.Total ?? 0,
         items,
         subtype: side,
         xeroImported: true,

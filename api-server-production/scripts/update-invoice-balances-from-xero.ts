@@ -44,7 +44,10 @@ async function main() {
 
     const doc = byName.get(number);
     if (!doc) { notInAims++; continue; }
-    const newStatus = isVoid ? 'draft' : due <= 0.005 ? 'paid' : 'pending_payment';
+    // Preserve draft-ness: a DRAFT/SUBMITTED invoice has AmountDue > 0 but is
+    // NOT awaiting payment — it isn't approved yet.
+    const isDraft = status === 'DRAFT' || status === 'SUBMITTED';
+    const newStatus = isVoid || isDraft ? 'draft' : due <= 0.005 ? 'paid' : 'pending_payment';
     const config = { ...((doc.config as any) || {}), xeroInvoiceId: inv.InvoiceID, xeroStatus: status, xeroGross: R(total), xeroBalance: R(due), xeroAmountPaid: R(paidAmt), voided: isVoid, paymentStatus: newStatus, paymentStatusSource: 'xero-api-amountdue', xeroLastSyncAt: new Date().toISOString() };
     await withDbRetry(() => prisma.document.update({ where: { id: doc.id }, data: { status: newStatus as any, config: config as Prisma.InputJsonValue } }), `update ${number}`);
     matched++;

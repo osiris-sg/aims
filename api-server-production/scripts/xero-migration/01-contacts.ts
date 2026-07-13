@@ -116,7 +116,15 @@ async function main() {
             xeroLastSyncAt: new Date(),
           };
           if (existing) {
-            await prisma.customer.update({ where: { id: existing.id }, data: payload });
+            try {
+              await prisma.customer.update({ where: { id: existing.id }, data: payload });
+            } catch (e: any) {
+              if (e?.code !== "P2002") throw e;
+              // Another contact's row already holds this email (Xero contacts
+              // can share one email). Keep this row's email; refresh the rest.
+              const { email: _skip, ...rest } = payload;
+              await prisma.customer.update({ where: { id: existing.id }, data: rest });
+            }
             custUpdated++;
           } else {
             // Watch for email collision (unique on email + organizationId).
@@ -153,7 +161,14 @@ async function main() {
             xeroLastSyncAt: new Date(),
           };
           if (existing) {
-            await prisma.supplier.update({ where: { id: existing.id }, data: payload });
+            try {
+              await prisma.supplier.update({ where: { id: existing.id }, data: payload });
+            } catch (e: any) {
+              if (e?.code !== "P2002") throw e;
+              // Shared-email collision — keep this row's email, refresh the rest.
+              const { email: _skip, ...rest } = payload;
+              await prisma.supplier.update({ where: { id: existing.id }, data: rest });
+            }
             supUpdated++;
           } else {
             if (email) {
