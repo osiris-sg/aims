@@ -861,6 +861,28 @@ export default function TabbedDocumentCreator({
     setItemsState(update);
   }, [markEdited]);
 
+  // Terms drive the due date: "30 Days" → doc date + 30; "0 DAYS"/CASH/COD →
+  // due on the doc date. Recomputes whenever terms or the document date change;
+  // unparseable custom terms ("50% upfront") leave dueDate alone.
+  useEffect(() => {
+    const terms = String(formData?.documentInfo?.paymentTerms ?? formData?.paymentTerms ?? "");
+    const baseDate = formData?.documentInfo?.date || (formData as any)?.date;
+    if (!baseDate || !terms) return;
+    let days: number | null = null;
+    const m = terms.match(/(\d+)\s*day/i);
+    if (m) days = parseInt(m[1], 10);
+    else if (/^\s*(cash|c\.?o\.?d\.?|due on receipt)\s*$/i.test(terms)) days = 0;
+    if (days == null || !Number.isFinite(days)) return;
+    const d = new Date(baseDate);
+    if (isNaN(d.getTime())) return;
+    d.setDate(d.getDate() + days);
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    setFormDataState((prev: any) =>
+      prev?.dueDate === iso ? prev : { ...prev, dueDate: iso, documentInfo: { ...(prev?.documentInfo || {}), dueDate: iso } },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData?.documentInfo?.paymentTerms, formData?.paymentTerms, formData?.documentInfo?.date, (formData as any)?.date]);
+
   // ── Biofuel DO "Our Ref" quotation selector ────────────────────────────
   // On Biofuel DOs, Reference No is picked from the customer's CONFIRMED
   // quotations via a search dialog (Customer-code-field pattern). The editor
@@ -2931,6 +2953,7 @@ export default function TabbedDocumentCreator({
     setIsSyncingXero(true);
     try {
       const token = await getToken();
+      if (!token) { toast.error("Authentication required"); return; }
       const res = await request({ path: `/documents/${docId}/sync-to-xero`, method: "POST" }, {}, token);
       if (res?.success) {
         toast.success(
