@@ -122,7 +122,7 @@ export default function InvoicesPage() {
   // active status tab, and the quick "Record Payment" dialog.
   type PaymentSummaryRow = { totalPaid: number; paymentCount: number; lastPaymentDate: string | null };
   const [paymentSummary, setPaymentSummary] = useState<Record<string, PaymentSummaryRow>>({});
-  const [arTab, setArTab] = useState<"all" | "awaiting" | "overdue" | "paid">("all");
+  const [arTab, setArTab] = useState<"all" | "draft" | "awaiting" | "overdue" | "paid">("all");
   const [payDialogOpen, setPayDialogOpen] = useState(false);
   const [payDialogInvoice, setPayDialogInvoice] = useState<any>(null);
   // When a document type has >1 numbering variant, ask which to use before creating.
@@ -189,8 +189,9 @@ export default function InvoicesPage() {
   // wins outright — Xero-imported invoices carry status='paid' but have no
   // AIMS Payment rows, so deriving only from payments left the Paid tab at 0
   // while the chips (and the money cards, which check doc.status) said PAID.
-  const arStatusOf = (doc: any): "paid" | "overdue" | "awaiting" => {
+  const arStatusOf = (doc: any): "draft" | "paid" | "overdue" | "awaiting" => {
     const st = (doc.status || "").toLowerCase();
+    if (!st || st === "draft") return "draft";
     if (st === "paid" || st === "completed") return "paid";
     const total = getInvoiceTotal(doc);
     const paid = paymentSummary[doc.id]?.totalPaid ?? 0;
@@ -309,7 +310,8 @@ export default function InvoicesPage() {
         const isDraft = (row.original.status || "draft") === "draft";
         return (
           <Box sx={{ display: "flex", gap: "var(--default-gap)", justifyContent: "center" }}>
-            {status !== "paid" && (
+            {/* Drafts can't take payments — confirm the invoice first. */}
+            {!isDraft && status !== "paid" && (
               <IconButton
                 title="Record payment"
                 onClick={() => {
@@ -339,7 +341,13 @@ export default function InvoicesPage() {
               </IconButton>
             )}
             <IconButton
-              onClick={() => router.push(`/portal/documents/${documentType}/${templateId}/${id}`)}
+              onClick={() => {
+                // Pass the CURRENT page (this list is embedded on both the AR
+                // tab and /portal/invoices) so the editor's Back returns here
+                // instead of the type's default list.
+                const from = encodeURIComponent(window.location.pathname + window.location.search);
+                router.push(`/portal/documents/${documentType}/${templateId}/${id}?from=${from}`);
+              }}
               sx={{
               color: "text.secondary",
               "&:hover": { color: "primary.main" },
@@ -532,16 +540,18 @@ export default function InvoicesPage() {
   })();
 
   const arCounts = (() => {
-    let awaiting = 0,
+    let draft = 0,
+      awaiting = 0,
       overdue = 0,
       paid = 0;
     for (const d of documents.docs) {
       const s = arStatusOf(d);
-      if (s === "awaiting") awaiting += 1;
+      if (s === "draft") draft += 1;
+      else if (s === "awaiting") awaiting += 1;
       else if (s === "overdue") overdue += 1;
       else if (s === "paid") paid += 1;
     }
-    return { all: documents.docs.length, awaiting, overdue, paid };
+    return { all: documents.docs.length, draft, awaiting, overdue, paid };
   })();
 
   // Add useState and onSubmit above return
@@ -800,6 +810,7 @@ export default function InvoicesPage() {
                 sx={{ minHeight: 36, "& .MuiTab-root": { minHeight: 36, textTransform: "none", fontWeight: 600 } }}
               >
                 <Tab value="all" label={<TabLabel text="All" count={arCounts.all} />} />
+                <Tab value="draft" label={<TabLabel text="Draft" count={arCounts.draft} />} />
                 <Tab value="awaiting" label={<TabLabel text="Awaiting Payment" count={arCounts.awaiting} tone="info" />} />
                 <Tab value="overdue" label={<TabLabel text="Overdue" count={arCounts.overdue} tone="error" />} />
                 <Tab value="paid" label={<TabLabel text="Paid" count={arCounts.paid} tone="success" />} />

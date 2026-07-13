@@ -32,6 +32,12 @@ export class PaymentsService {
         throw new HttpException('Invoice not found', HttpStatus.NOT_FOUND);
       }
 
+      // Drafts aren't receivables yet — confirm the invoice before recording
+      // payments (mirrors the AR list, which hides Record Payment on drafts).
+      if ((document.status || '').toLowerCase() === 'draft') {
+        throw new HttpException('Invoice is still a draft — confirm it before recording a payment', HttpStatus.BAD_REQUEST);
+      }
+
       // Validate customer matches
       const config: any = document.config;
       if (config.customer?.id !== createPaymentDto.customerId) {
