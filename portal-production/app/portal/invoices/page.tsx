@@ -208,13 +208,11 @@ export default function InvoicesPage() {
       accessorKey: "associated_customer",
       header: "Associated Customer",
     },
-    {
-      accessorKey: "associated_item",
-      header: "Associated Item",
-    },
+    // "Associated Item" dropped from all document lists (2026-07-13, guru).
     {
       accessorKey: "dueDate",
       header: "Due Date",
+      nowrap: true,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => {
         const dueDate = row.original.config?.dueDate;
@@ -224,6 +222,7 @@ export default function InvoicesPage() {
     {
       accessorKey: "status",
       header: "Status",
+      nowrap: true,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => {
         const status = row.original.status;
@@ -276,6 +275,7 @@ export default function InvoicesPage() {
     {
       accessorKey: "outstanding",
       header: "Outstanding",
+      nowrap: true,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => {
         const total = getInvoiceTotal(row.original);
@@ -298,6 +298,7 @@ export default function InvoicesPage() {
     {
       accessorKey: "daysOverdue",
       header: "Age",
+      nowrap: true,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => {
         const status = arStatusOf(row.original);
@@ -321,12 +322,14 @@ export default function InvoicesPage() {
     {
       accessorKey: "createdAt",
       header: "Created Date",
+      nowrap: true,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
     },
     {
       accessorKey: "action",
       header: "Action",
+      nowrap: true,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => {
         const { documentType, templateId, id } = row.original;

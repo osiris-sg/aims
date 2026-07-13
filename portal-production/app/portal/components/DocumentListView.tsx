@@ -289,15 +289,11 @@ export default function DocumentListView({
       enableSorting: false, // JSON-derived (config), not server-sortable
       cell: ({ row }: any) => row.original.associated_customer || "—",
     },
-    {
-      accessorKey: "associated_item",
-      header: "Item",
-      enableSorting: false, // JSON-derived (config), not server-sortable
-      cell: ({ row }: any) => row.original.associated_item || "—",
-    },
+    // "Associated Item" dropped from all document lists (2026-07-13, guru).
     {
       accessorKey: "status",
       header: "Status",
+      nowrap: true,
       cell: ({ row }: any) => {
         const status = row.original.status || "draft";
         return (
@@ -310,11 +306,13 @@ export default function DocumentListView({
     {
       accessorKey: "createdAt",
       header: "Created",
+      nowrap: true,
       cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
     },
     {
       accessorKey: "action",
       header: "Action",
+      nowrap: true,
       cell: ({ row }: any) => {
         const { documentType, templateId, id, status } = row.original;
         const isDraft = (status || "draft") === "draft";

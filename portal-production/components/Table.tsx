@@ -139,7 +139,7 @@ export default function Table(props: Props) {
                   key={header.id}
                   colSpan={header.colSpan}
                   sx={(t) => ({
-                    padding: isMobile ? "12px 12px" : "16px 24px",
+                    padding: isMobile ? "8px 10px" : "10px 16px",
                     ...(header.id === "select"
                       ? {
                           width: "40px",
@@ -194,7 +194,7 @@ export default function Table(props: Props) {
                     <TableCell
                       key={`loading-${header.id}`}
                       sx={{
-                        padding: isMobile ? "10px 12px" : "16px 24px",
+                        padding: isMobile ? "8px 10px" : "8px 16px",
                         ...(header.id === "select"
                           ? {
                               width: "40px",
@@ -227,16 +227,16 @@ export default function Table(props: Props) {
                       },
                       // Allow rows to expand vertically based on content
                       height: "auto",
-                      minHeight: "48px",
+                      minHeight: "40px",
                     }}
                   >
                     {row.getVisibleCells().map((cell: any) => {
-                      // Per-column opt-out from the nowrap+ellipsis default.
-                      // Set `wrap: true` on a column def to let its cell grow
-                      // vertically instead of clipping horizontally — useful
-                      // for chip-bearing columns where "Route Order" would
-                      // otherwise get cut to "Route Or…".
-                      const wrap = cell.column.columnDef.wrap === true;
+                      // Cells WRAP by default — long values grow the row
+                      // instead of silently truncating ("Qingjian Intern…").
+                      // Structured columns (dates, amounts, status, actions)
+                      // opt out with `nowrap: true` on the column def to stay
+                      // on one line. (`wrap: true` kept for back-compat.)
+                      const wrap = cell.column.columnDef.nowrap !== true;
                       const isDescription = cell.column.id === "description";
                       return (
                       <TableCell
@@ -261,7 +261,7 @@ export default function Table(props: Props) {
                                       whiteSpace: "normal",
                                       wordBreak: "break-word",
                                       overflow: "visible",
-                                      verticalAlign: "top",
+                                      verticalAlign: "middle",
                                       height: "auto",
                                       minHeight: "auto",
                                       boxSizing: "border-box",
@@ -275,7 +275,7 @@ export default function Table(props: Props) {
                                 whiteSpace: "normal",
                                 wordBreak: "break-word",
                                 overflow: "visible",
-                                verticalAlign: "top",
+                                verticalAlign: "middle",
                               }
                             : {
                                 whiteSpace: "nowrap",

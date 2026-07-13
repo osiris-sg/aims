@@ -206,10 +206,8 @@ export default function SalesDocumentList({
       accessorKey: "name",
       header: "Document Name",
     },
-    {
-      accessorKey: "associated_item",
-      header: "Associated Item",
-    },
+    // "Associated Item" dropped from all document lists (2026-07-13, guru) —
+    // it was N/A on nearly every row; re-add here if it earns its keep.
     {
       accessorKey: "associated_customer",
       header: "Associated Customer",
@@ -217,11 +215,13 @@ export default function SalesDocumentList({
     {
       accessorKey: "createdAt",
       header: "Created Date",
+      nowrap: true,
       cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
     },
     {
       accessorKey: "status",
       header: "Status",
+      nowrap: true,
       cell: ({ row }: any) => {
         const status = row.original.status;
         return (
@@ -241,6 +241,7 @@ export default function SalesDocumentList({
     {
       accessorKey: "action",
       header: "Action",
+      nowrap: true,
       cell: ({ row }: any) => {
         const { documentType, templateId, id, status } = row.original;
         const isDraft = (status || "draft") === "draft";
