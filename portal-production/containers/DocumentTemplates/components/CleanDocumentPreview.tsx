@@ -1187,6 +1187,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             ? subtotalAfterDiscount * gstPercent / (100 + gstPercent)
             : subtotalAfterDiscount * (gstPercent / 100);
           const finalTotal = isAbsorbTax ? subtotalAfterDiscount : subtotalAfterDiscount + gstAmount;
+          // Tax-inclusive: line amounts are gross, so the printed Sub-Total is net of GST.
+          const displayGross = isAbsorbTax ? grossTotal - gstAmount : grossTotal;
+          const displayNet = isAbsorbTax ? subtotalAfterDiscount - gstAmount : subtotalAfterDiscount;
 
           return (
             <Box sx={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid #000", pt: 1 }}>
@@ -1198,7 +1201,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 </Box>
                 <Box sx={{ display: "flex", alignItems: "center" }}>
                   <Typography sx={{ fontSize: "0.8125rem" }}>Sub-total:</Typography>
-                  <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 50, textAlign: "right" }}>{subtotalAfterDiscount.toFixed(2)}</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 50, textAlign: "right" }}>{displayNet.toFixed(2)}</Typography>
                 </Box>
                 <Box sx={{ display: "flex", alignItems: "center" }}>
                   <Typography sx={{ fontSize: "0.8125rem" }}>GST</Typography>
@@ -1211,7 +1214,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               <Box sx={{ minWidth: 200 }}>
                 <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                   <Typography sx={{ fontSize: "0.8125rem" }}>Sub-Total</Typography>
-                  <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{grossTotal.toFixed(2)}</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{displayGross.toFixed(2)}</Typography>
                 </Box>
                 {discountPercent > 0 && (
                   <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
@@ -1225,7 +1228,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 {discountPercent > 0 && (
                   <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                     <Typography sx={{ fontSize: "0.8125rem" }}>Sub-Total</Typography>
-                    <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{subtotalAfterDiscount.toFixed(2)}</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{displayNet.toFixed(2)}</Typography>
                   </Box>
                 )}
                 <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
@@ -1242,6 +1245,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right", minWidth: 50 }}>{finalTotal.toFixed(2)}</Typography>
                   </Box>
                 </Box>
+                {isAbsorbTax && gstPercent > 0 && (
+                  <Typography sx={{ fontSize: "0.6875rem", fontStyle: "italic", textAlign: "right", mt: 0.3 }}>
+                    Amounts shown are tax inclusive
+                  </Typography>
+                )}
               </Box>
             </Box>
           );
@@ -1253,11 +1261,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           const discountPercent = data.documentInfo?.discountPercent || data.documentInfo?.discount || 0;
           const isTaxApplicable = data.documentInfo?.taxApplicable !== 'N' && data.documentInfo?.taxApplicable !== false;
           const gstPercent = isTaxApplicable ? (data.documentInfo?.gstPercent || 9) : 0;
+          const isAbsorbTax = data.documentInfo?.absorbTax === 'Y' || data.documentInfo?.absorbTax === true;
           const grossTotal = subtotal;
           const discountAmount = data.documentInfo?.discountAmount != null ? Number(data.documentInfo.discountAmount) : grossTotal * (discountPercent / 100);
           const subtotalAfterDiscount = grossTotal - discountAmount;
-          const gstAmount = subtotalAfterDiscount * (gstPercent / 100);
-          const finalTotal = subtotalAfterDiscount + gstAmount;
+          const gstAmount = isAbsorbTax && gstPercent > 0
+            ? subtotalAfterDiscount * gstPercent / (100 + gstPercent)
+            : subtotalAfterDiscount * (gstPercent / 100);
+          const finalTotal = isAbsorbTax ? subtotalAfterDiscount : subtotalAfterDiscount + gstAmount;
 
           // Convert number to words
           const numberToWords = (num: number): string => {
@@ -2230,11 +2241,17 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             const isTaxApplicable = data.documentInfo?.taxApplicable !== 'N' && data.documentInfo?.taxApplicable !== false;
           const gstPercent = isTaxApplicable ? (data.documentInfo?.gstPercent || 9) : 0;
 
+            const isAbsorbTax = data.documentInfo?.absorbTax === 'Y' || data.documentInfo?.absorbTax === true;
             const grossTotal = subtotal;
             const discountAmount = data.documentInfo?.discountAmount != null ? Number(data.documentInfo.discountAmount) : grossTotal * (discountPercent / 100);
             const subtotalAfterDiscount = grossTotal - discountAmount;
-            const gstAmount = subtotalAfterDiscount * (gstPercent / 100);
-            const finalTotal = subtotalAfterDiscount + gstAmount;
+            const gstAmount = isAbsorbTax && gstPercent > 0
+              ? subtotalAfterDiscount * gstPercent / (100 + gstPercent)
+              : subtotalAfterDiscount * (gstPercent / 100);
+            const finalTotal = isAbsorbTax ? subtotalAfterDiscount : subtotalAfterDiscount + gstAmount;
+            // Tax-inclusive: line amounts are gross, so the printed Sub-Total is net of GST.
+            const displayGross = isAbsorbTax ? grossTotal - gstAmount : grossTotal;
+            const displayNet = isAbsorbTax ? subtotalAfterDiscount - gstAmount : subtotalAfterDiscount;
 
             return (
               <Box sx={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid #000", pt: 1 }}>
@@ -2246,7 +2263,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   </Box>
                   <Box sx={{ display: "flex", alignItems: "center" }}>
                     <Typography sx={{ fontSize: "0.8125rem" }}>Sub-total:</Typography>
-                    <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 50, textAlign: "right" }}>{subtotalAfterDiscount.toFixed(2)}</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 50, textAlign: "right" }}>{displayNet.toFixed(2)}</Typography>
                   </Box>
                   <Box sx={{ display: "flex", alignItems: "center" }}>
                     <Typography sx={{ fontSize: "0.8125rem" }}>GST</Typography>
@@ -2259,7 +2276,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 <Box sx={{ minWidth: 200 }}>
                   <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                     <Typography sx={{ fontSize: "0.8125rem" }}>Sub-Total</Typography>
-                    <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{grossTotal.toFixed(2)}</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{displayGross.toFixed(2)}</Typography>
                   </Box>
                   {discountPercent > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
@@ -2273,7 +2290,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   {discountPercent > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                       <Typography sx={{ fontSize: "0.8125rem" }}>Sub-Total</Typography>
-                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{subtotalAfterDiscount.toFixed(2)}</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{displayNet.toFixed(2)}</Typography>
                     </Box>
                   )}
                   <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
@@ -2290,6 +2307,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                       <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right", minWidth: 50 }}>{finalTotal.toFixed(2)}</Typography>
                     </Box>
                   </Box>
+                  {isAbsorbTax && gstPercent > 0 && (
+                    <Typography sx={{ fontSize: "0.6875rem", fontStyle: "italic", textAlign: "right", mt: 0.3 }}>
+                      Amounts shown are tax inclusive
+                    </Typography>
+                  )}
                 </Box>
               </Box>
             );
@@ -2300,11 +2322,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             const discountPercent = data.documentInfo?.discountPercent || data.documentInfo?.discount || 0;
             const isTaxApplicable = data.documentInfo?.taxApplicable !== 'N' && data.documentInfo?.taxApplicable !== false;
           const gstPercent = isTaxApplicable ? (data.documentInfo?.gstPercent || 9) : 0;
+            const isAbsorbTax = data.documentInfo?.absorbTax === 'Y' || data.documentInfo?.absorbTax === true;
             const grossTotal = subtotal;
             const discountAmount = data.documentInfo?.discountAmount != null ? Number(data.documentInfo.discountAmount) : grossTotal * (discountPercent / 100);
             const subtotalAfterDiscount = grossTotal - discountAmount;
-            const gstAmount = subtotalAfterDiscount * (gstPercent / 100);
-            const finalTotal = subtotalAfterDiscount + gstAmount;
+            const gstAmount = isAbsorbTax && gstPercent > 0
+              ? subtotalAfterDiscount * gstPercent / (100 + gstPercent)
+              : subtotalAfterDiscount * (gstPercent / 100);
+            const finalTotal = isAbsorbTax ? subtotalAfterDiscount : subtotalAfterDiscount + gstAmount;
 
             const numberToWords = (num: number): string => {
               const ones = ['', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE',
@@ -2583,6 +2608,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               ? grossTotal * gstPercent / (100 + gstPercent)
               : grossTotal * (gstPercent / 100);
             const finalTotal = (isAbsorbTax ? grossTotal : grossTotal + gstAmount) - poTotalPoints;
+            // Tax-inclusive: line amounts are gross, so the printed SUB-TOTAL is net of GST.
+            const displayGross = isAbsorbTax ? grossTotal - gstAmount : grossTotal;
 
             return (
               <>
@@ -2590,7 +2617,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   <Box sx={{ minWidth: 250 }}>
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                       <Typography sx={{ fontSize: "0.8125rem" }}>SUB-TOTAL</Typography>
-                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{grossTotal.toFixed(2)}</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{displayGross.toFixed(2)}</Typography>
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                       <Typography sx={{ fontSize: "0.8125rem" }}>GST</Typography>
@@ -2612,6 +2639,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                         <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right", minWidth: 60 }}>{finalTotal.toFixed(2)}</Typography>
                       </Box>
                     </Box>
+                    {isAbsorbTax && gstPercent > 0 && (
+                      <Typography sx={{ fontSize: "0.6875rem", fontStyle: "italic", textAlign: "right", mt: 0.3 }}>
+                        Amounts shown are tax inclusive
+                      </Typography>
+                    )}
                   </Box>
                 </Box>
 
@@ -2850,6 +2882,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               ? grossTotal * gstPercent / (100 + gstPercent)
               : grossTotal * (gstPercent / 100);
             const finalTotal = (isAbsorbTax ? grossTotal : grossTotal + gstAmount) - poTotalPoints;
+            // Tax-inclusive: line amounts are gross, so the printed SUB-TOTAL is net of GST.
+            const displayGross = isAbsorbTax ? grossTotal - gstAmount : grossTotal;
 
             return (
               <>
@@ -2857,7 +2891,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   <Box sx={{ minWidth: 250 }}>
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                       <Typography sx={{ fontSize: "0.8125rem" }}>SUB-TOTAL</Typography>
-                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{grossTotal.toFixed(2)}</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{displayGross.toFixed(2)}</Typography>
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                       <Typography sx={{ fontSize: "0.8125rem" }}>GST</Typography>
@@ -2879,6 +2913,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                         <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right", minWidth: 60 }}>{finalTotal.toFixed(2)}</Typography>
                       </Box>
                     </Box>
+                    {isAbsorbTax && gstPercent > 0 && (
+                      <Typography sx={{ fontSize: "0.6875rem", fontStyle: "italic", textAlign: "right", mt: 0.3 }}>
+                        Amounts shown are tax inclusive
+                      </Typography>
+                    )}
                   </Box>
                 </Box>
 

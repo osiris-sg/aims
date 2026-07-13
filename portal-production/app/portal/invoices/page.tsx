@@ -17,6 +17,7 @@ import { Tab, Tabs, Chip, alpha, Stack, Typography } from "@mui/material";
 import { useDeleteDocument, useGetCustomers } from "@/app/portal/hooks/api";
 import { useRouter } from "next/navigation";
 import moment from "moment";
+import StatusChip from "@/components/StatusChip";
 import { toast } from "react-toastify";
 import { DOCUMENT_API } from "../documents/constants";
 import { ROUTES } from "@/routes";
@@ -184,8 +185,13 @@ export default function InvoicesPage() {
     return diff;
   };
 
-  // Derived per-invoice status for AR tabs. "paid" beats document status.
+  // Derived per-invoice status for AR tabs. A document explicitly marked paid
+  // wins outright — Xero-imported invoices carry status='paid' but have no
+  // AIMS Payment rows, so deriving only from payments left the Paid tab at 0
+  // while the chips (and the money cards, which check doc.status) said PAID.
   const arStatusOf = (doc: any): "paid" | "overdue" | "awaiting" => {
+    const st = (doc.status || "").toLowerCase();
+    if (st === "paid" || st === "completed") return "paid";
     const total = getInvoiceTotal(doc);
     const paid = paymentSummary[doc.id]?.totalPaid ?? 0;
     if (total > 0 && paid >= total - 0.005) return "paid";
@@ -202,7 +208,7 @@ export default function InvoicesPage() {
       accessorKey: "name",
       header: "Document SKU",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      cell: ({ row }: any) => row.original.name,
+      cell: ({ row }: any) => <Box sx={{ fontFamily: "monospace", fontWeight: 600 }}>{row.original.name}</Box>,
     },
     {
       accessorKey: "associated_customer",
@@ -216,7 +222,7 @@ export default function InvoicesPage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => {
         const dueDate = row.original.config?.dueDate;
-        return dueDate ? moment(dueDate).format("DD/MM/YYYY") : "N/A";
+        return dueDate ? moment(dueDate).format("DD/MM/YYYY") : <Box component="span" sx={{ color: "text.disabled" }}>—</Box>;
       },
     },
     {
@@ -224,63 +230,20 @@ export default function InvoicesPage() {
       header: "Status",
       nowrap: true,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      cell: ({ row }: any) => {
-        const status = row.original.status;
-        // Format status for display
-        const formatStatus = (status: string) => {
-          if (!status) return "Draft";
-          return status
-            .split("_")
-            .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
-            .join(" ");
-        };
-
-        // Get color based on status
-        const getStatusColor = (status: string) => {
-          switch (status) {
-            case "draft":
-              return "text.secondary";
-            case "pending_delivery":
-              return "warning.main";
-            case "delivered_not_installed":
-              return "info.main";
-            case "delivered_installed":
-              return "success.main";
-            case "pending_payment":
-              return "warning.main";
-            case "paid":
-              return "success.main";
-            case "pending_return":
-              return "warning.main";
-            case "returned":
-              return "text.secondary";
-            default:
-              return "text.primary";
-          }
-        };
-
-        return (
-          <Box
-            sx={{
-              color: getStatusColor(status || "draft"),
-              fontWeight: 500,
-              textTransform: "capitalize",
-            }}
-          >
-            {formatStatus(status || "draft")}
-          </Box>
-        );
-      },
+      cell: ({ row }: any) => <StatusChip status={row.original.status} />,
     },
     {
       accessorKey: "outstanding",
       header: "Outstanding",
       nowrap: true,
+      align: "right",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => {
         const total = getInvoiceTotal(row.original);
         const paid = paymentSummary[row.original.id]?.totalPaid ?? 0;
-        const outstanding = Math.max(0, total - paid);
+        // Status-paid invoices (e.g. Xero imports without AIMS payment rows)
+        // owe nothing regardless of recorded payments.
+        const outstanding = arStatusOf(row.original) === "paid" ? 0 : Math.max(0, total - paid);
         const fmt = (n: number) =>
           n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         return (
@@ -330,6 +293,8 @@ export default function InvoicesPage() {
       accessorKey: "action",
       header: "Action",
       nowrap: true,
+      align: "center",
+      pxWidth: 200, // 4 icons max (pay/view/download/delete) — never squeezed
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => {
         const { documentType, templateId, id } = row.original;
@@ -343,7 +308,7 @@ export default function InvoicesPage() {
         const status = arStatusOf(row.original);
         const isDraft = (row.original.status || "draft") === "draft";
         return (
-          <Box sx={{ display: "flex", gap: "var(--default-gap)" }}>
+          <Box sx={{ display: "flex", gap: "var(--default-gap)", justifyContent: "center" }}>
             {status !== "paid" && (
               <IconButton
                 title="Record payment"

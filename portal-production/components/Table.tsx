@@ -123,7 +123,9 @@ export default function Table(props: Props) {
       sx={{
         width: "100%",
         maxWidth: "100%",
-        overflowX: "hidden", // Prevent horizontal overflow
+        // Never CLIP content — if columns genuinely can't fit, scroll
+        // horizontally instead of silently cutting off the action icons.
+        overflowX: "auto",
         "& .MuiTable-root": {
           width: "100%",
           maxWidth: "100%",
@@ -146,6 +148,15 @@ export default function Table(props: Props) {
                           minWidth: "40px",
                           maxWidth: "40px",
                         }
+                      : header.column.columnDef.pxWidth
+                      ? {
+                          // Fixed pixel width — icon/action columns reserve
+                          // exactly the space their content needs so the icons
+                          // can never be squeezed out and clipped.
+                          width: `${header.column.columnDef.pxWidth}px`,
+                          minWidth: `${header.column.columnDef.pxWidth}px`,
+                          maxWidth: `${header.column.columnDef.pxWidth}px`,
+                        }
                       : header.column.columnDef.size
                       ? {
                           width: `${header.column.columnDef.size}%`,
@@ -160,6 +171,9 @@ export default function Table(props: Props) {
                     fontWeight: 700,
                     letterSpacing: "0.1em",
                     textTransform: "uppercase",
+                    // Header follows its column's alignment (align: "right" for
+                    // money columns, "center" for icon/action columns).
+                    textAlign: header.column.columnDef.align || "left",
                   })}
                 >
                   {header.isPlaceholder ? null : header.column.getCanSort() ? (
@@ -242,13 +256,21 @@ export default function Table(props: Props) {
                       <TableCell
                         key={cell.id}
                         sx={{
-                          padding: isMobile ? "10px 12px" : "16px 24px",
+                          padding: isMobile ? "8px 10px" : "8px 16px",
                           fontSize: isMobile ? "0.8125rem" : "0.875rem",
+                          textAlign: cell.column.columnDef.align || "left",
                           ...(cell.column.id === "select"
                             ? {
                                 width: "40px",
                                 minWidth: "40px",
                                 maxWidth: "40px",
+                              }
+                            : cell.column.columnDef.pxWidth
+                            ? {
+                                width: `${cell.column.columnDef.pxWidth}px`,
+                                minWidth: `${cell.column.columnDef.pxWidth}px`,
+                                maxWidth: `${cell.column.columnDef.pxWidth}px`,
+                                overflow: "visible",
                               }
                             : cell.column.columnDef.size
                             ? {

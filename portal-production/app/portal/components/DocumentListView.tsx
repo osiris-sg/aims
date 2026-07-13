@@ -7,6 +7,7 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import StatusChip from "@/components/StatusChip";
 import {
   Box,
   Card,
@@ -281,7 +282,8 @@ export default function DocumentListView({
     {
       accessorKey: "name",
       header: `${documentLabel} #`,
-      cell: ({ row }: any) => row.original.name || "—",
+      cell: ({ row }: any) =>
+        row.original.name ? <Box sx={{ fontFamily: "monospace", fontWeight: 600 }}>{row.original.name}</Box> : "—",
     },
     {
       accessorKey: "associated_customer",
@@ -294,14 +296,7 @@ export default function DocumentListView({
       accessorKey: "status",
       header: "Status",
       nowrap: true,
-      cell: ({ row }: any) => {
-        const status = row.original.status || "draft";
-        return (
-          <Box sx={{ color: getStatusColor(status), fontWeight: 500, textTransform: "capitalize" }}>
-            {formatStatus(status)}
-          </Box>
-        );
-      },
+      cell: ({ row }: any) => <StatusChip status={row.original.status} />,
     },
     {
       accessorKey: "createdAt",
@@ -313,11 +308,13 @@ export default function DocumentListView({
       accessorKey: "action",
       header: "Action",
       nowrap: true,
+      align: "center",
+      pxWidth: 150, // fits all row icons — never squeezed/clipped
       cell: ({ row }: any) => {
         const { documentType, templateId, id, status } = row.original;
         const isDraft = (status || "draft") === "draft";
         return (
-          <Box sx={{ display: "flex", gap: 0.5 }}>
+          <Box sx={{ display: "flex", gap: 0.5, justifyContent: "center" }}>
             <IconButton
               onClick={() => router.push(`/portal/documents/${documentType}/${templateId}/${id}`)}
               sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}

@@ -27,6 +27,7 @@ import { toast } from "react-toastify";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
+import StatusChip from "@/components/StatusChip";
 
 interface Document {
   id: string;
@@ -205,6 +206,7 @@ export default function SalesDocumentList({
     {
       accessorKey: "name",
       header: "Document Name",
+      cell: ({ row }: any) => <Box sx={{ fontFamily: "monospace", fontWeight: 600 }}>{row.original.name}</Box>,
     },
     // "Associated Item" dropped from all document lists (2026-07-13, guru) —
     // it was N/A on nearly every row; re-add here if it earns its keep.
@@ -222,26 +224,15 @@ export default function SalesDocumentList({
       accessorKey: "status",
       header: "Status",
       nowrap: true,
-      cell: ({ row }: any) => {
-        const status = row.original.status;
-        return (
-          <Box
-            sx={{
-              color: getStatusColor(status || "draft"),
-              fontWeight: 500,
-              textTransform: "capitalize",
-            }}
-          >
-            {formatStatus(status || "draft")}
-          </Box>
-        );
-      },
+      cell: ({ row }: any) => <StatusChip status={row.original.status} />,
     },
     ...additionalColumns,
     {
       accessorKey: "action",
       header: "Action",
       nowrap: true,
+      align: "center",
+      pxWidth: 150, // fits all row icons — never squeezed/clipped
       cell: ({ row }: any) => {
         const { documentType, templateId, id, status } = row.original;
         const isDraft = (status || "draft") === "draft";
@@ -252,7 +243,7 @@ export default function SalesDocumentList({
         };
 
         return (
-          <Box sx={{ display: "flex", gap: "var(--default-gap)" }}>
+          <Box sx={{ display: "flex", gap: "var(--default-gap)", justifyContent: "center" }}>
             <IconButton
               onClick={() =>
                 router.push(`/portal/documents/${documentType}/${templateId}/${id}`)
