@@ -3889,10 +3889,16 @@ export class DocumentsService {
             taxAmount,
             grossAmount,
             // Per-line revenue accounts from the Revenue Master File (config.items[].accountCode).
-            revenueLines: itemsForTotal.map((it: any) => ({
-              accountCode: it.accountCode || it.revenueAccountCode || null,
-              amount: parseFloat(it.amount) || (parseFloat(it.quantity) * parseFloat(it.unitPrice)) || 0,
-            })),
+            // Tax-inclusive docs carry GROSS line amounts — scale them to net so the
+            // revenue credits exclude GST (postFromInvoice expects line NET).
+            revenueLines: (() => {
+              const inclusive = di?.absorbTax === 'Y' || di?.absorbTax === true;
+              const factor = inclusive && fallbackNet > 0 ? netAmount / fallbackNet : 1;
+              return itemsForTotal.map((it: any) => ({
+                accountCode: it.accountCode || it.revenueAccountCode || null,
+                amount: Math.round((parseFloat(it.amount) || (parseFloat(it.quantity) * parseFloat(it.unitPrice)) || 0) * factor * 100) / 100,
+              }));
+            })(),
           });
           if (entry) {
             console.log('✅ [GL auto-post] journal entry created', {

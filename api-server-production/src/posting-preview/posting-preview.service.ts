@@ -53,6 +53,8 @@ export type PreviewDto = {
   taxAmount?: number;
   totalAmount?: number;
   documentNumber?: string;
+  // Tax-inclusive document: line amounts are GROSS (tax inside).
+  amountsInclusive?: boolean;
 };
 
 /**
@@ -118,9 +120,27 @@ export class PostingPreviewService {
   // Cr Revenue per line (AI-suggested SALES/INCOME account) / Cr GST.
   private async previewSalesSide(organizationId: string, dto: PreviewDto): Promise<PreviewResult> {
     const warnings: string[] = [];
-    const docLines = Array.isArray(dto.lines) ? dto.lines : [];
+    const allLines = Array.isArray(dto.lines) ? dto.lines : [];
     const tax = ROUND(dto.taxAmount || 0);
     const docNo = dto.documentNumber || '';
+
+    // Zero-amount lines (e.g. reference/annotation rows) post nothing — keep
+    // them out of the journal and away from the AI. lineIndex stays the
+    // ORIGINAL index so the caller's apply-back still maps to its rows.
+    const docLines = allLines
+      .map((l, originalIndex) => ({ ...l, originalIndex }))
+      .filter((l) => Math.abs(ROUND(l.amount || 0)) > EPS);
+
+    // Tax-inclusive: line amounts are gross — net the revenue credits so GST
+    // isn't double-counted, and AR equals the gross line total (not lines+tax).
+    const rawSum = ROUND(docLines.reduce((s, l) => s + (l.amount || 0), 0));
+    const inclusive = !!dto.amountsInclusive && tax > 0 && rawSum > 0;
+    if (inclusive) {
+      const factor = (rawSum - tax) / rawSum;
+      for (const l of docLines) l.amount = ROUND((l.amount || 0) * factor);
+      const drift = ROUND(rawSum - tax - docLines.reduce((s, l) => s + (l.amount || 0), 0));
+      if (drift !== 0 && docLines.length > 0) docLines[docLines.length - 1].amount = ROUND((docLines[docLines.length - 1].amount || 0) + drift);
+    }
 
     const controls = await this.getControls(organizationId);
     const debtorCode = controls.debtorControl || 'CA001';
@@ -159,7 +179,8 @@ export class PostingPreviewService {
 
     let sumLines = 0;
     for (const l of docLines) sumLines += ROUND(l.amount || 0);
-    const gross = ROUND(dto.totalAmount != null ? dto.totalAmount : sumLines + tax);
+    // Inclusive: AR = the gross line total (tax already inside). Exclusive: net + tax.
+    const gross = inclusive ? rawSum : ROUND(dto.totalAmount != null ? dto.totalAmount : sumLines + tax);
 
     // Dr Accounts Receivable (control) — shown first.
     out.push({
@@ -173,9 +194,11 @@ export class PostingPreviewService {
       source: 'control',
     });
 
-    // Cr Revenue per line.
+    // Cr Revenue per line. `k` indexes the filtered set (suggestions);
+    // `i` is the caller's original row index (apply-back mapping).
     let sumCredit = 0;
-    for (const [i, l] of docLines.entries()) {
+    for (const [k, l] of docLines.entries()) {
+      const i = l.originalIndex;
       const amt = ROUND(l.amount || 0);
       sumCredit += amt;
       const desc = stripHtml(l.description) || `Invoice ${docNo}`.trim();
@@ -185,8 +208,8 @@ export class PostingPreviewService {
           select: { id: true, code: true, name: true },
         });
         out.push({ role: 'line', lineIndex: i, accountId: a?.id ?? null, accountCode: a?.code ?? null, accountName: a?.name ?? null, debit: 0, credit: amt, description: desc, source: 'existing' });
-      } else if (suggestions[i]) {
-        const s = suggestions[i]!;
+      } else if (suggestions[k]) {
+        const s = suggestions[k]!;
         out.push({ role: 'line', lineIndex: i, accountId: s.accountId, accountCode: s.code, accountName: s.name, debit: 0, credit: amt, description: desc, source: s.source, confidence: s.confidence, reason: s.reason });
       } else if (fallbackSales) {
         out.push({ role: 'line', lineIndex: i, accountId: fallbackSales.id, accountCode: fallbackSales.code, accountName: fallbackSales.name, debit: 0, credit: amt, description: desc, source: 'fallback', reason: 'Default sales account (no AI suggestion)' });
