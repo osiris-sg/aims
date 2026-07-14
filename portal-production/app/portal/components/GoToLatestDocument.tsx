@@ -77,7 +77,9 @@ export default function GoToLatestDocument({
             return;
           }
 
-          // Create the document
+          // Create the document. Re-fetch the token — the list fetch + template
+          // picker above can outlive the 60s Clerk token and 401 the create.
+          const freshToken = await getToken();
           const createResponse = await request(
             { path: "/documents/basic", method: "POST" },
             {
@@ -86,7 +88,7 @@ export default function GoToLatestDocument({
               documentTemplateId: templateId,
               organizationId: organization.id,
             },
-            token ?? undefined
+            freshToken ?? token ?? undefined
           );
 
           if (createResponse?.success && createResponse?.data?.id) {

@@ -692,13 +692,17 @@ export default function InvoicesPage() {
       };
       console.log("Request payload:", requestPayload);
 
+      // Re-fetch the token: the numbering + template lookups above can take
+      // seconds, and Clerk tokens live 60s — reusing the flow-start token
+      // intermittently 401s right here (JWT expired mid-flow).
+      const freshToken = await getToken();
       const response = await request(
         {
           path: "/documents/basic",
           method: "POST",
         },
         requestPayload,
-        token ?? undefined
+        freshToken ?? token ?? undefined
       );
 
       console.log("=== RESPONSE RECEIVED ===");

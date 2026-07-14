@@ -353,7 +353,9 @@ export default function SalesDocumentList({
 
       const documentTemplateId = templateResponse.data.id;
 
-      // Create the document
+      // Create the document. Re-fetch the token — the template lookup above can
+      // outlive the 60s Clerk token and 401 the create.
+      const freshToken = await getToken();
       const response = await request(
         {
           path: "/documents/basic",
@@ -365,7 +367,7 @@ export default function SalesDocumentList({
           documentTemplateId: documentTemplateId,
           organizationId: organization.id,
         },
-        token ?? undefined
+        freshToken ?? token ?? undefined
       );
 
       if (response?.data?.id) {

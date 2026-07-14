@@ -114,6 +114,9 @@ export default function CreateDocument() {
         };
       }
 
+      // Re-fetch the token — earlier lookups in this flow can outlive the 60s
+      // Clerk token and 401 the create.
+      const freshToken = await getToken();
       const response = await request(
         {
           path: "/documents/basic",
@@ -125,7 +128,7 @@ export default function CreateDocument() {
           documentTemplateId: documentTemplateId,
           organizationId: organizationId,
         },
-        token ?? undefined
+        freshToken ?? token ?? undefined
       );
 
       const createdDocumentId = response?.data.id;
