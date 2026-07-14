@@ -178,6 +178,13 @@ export function transformFormDataForBackend(
     result.referenceQuotationDate = formData.documentInfo.referenceQuotationDate;
   }
 
+  // Persist Reference for types whose stored field-configs predate the field
+  // (invoices — injected editor-side); types with a real field-def already
+  // wrote the same flat key above, so this is a no-op for them.
+  if (formData.documentInfo?.referenceNo !== undefined) {
+    result.referenceNo = formData.documentInfo.referenceNo;
+  }
+
   // Handle GST registration number
   result.gstRegNo = formData.company?.gstRegNo || organization?.registrationNumber || '';
 
@@ -271,6 +278,12 @@ export function transformBackendDataForForm(
   // Rehydrate the referenced quotation's confirm date (Biofuel DO "Our Ref").
   if (backendData.referenceQuotationDate !== undefined) {
     result.documentInfo.referenceQuotationDate = backendData.referenceQuotationDate;
+  }
+
+  // Rehydrate Reference for editor-injected fields (invoices) — types with a
+  // field-def already set this via the field loop; same value either way.
+  if (backendData.referenceNo !== undefined && result.documentInfo.referenceNo === undefined) {
+    result.documentInfo.referenceNo = backendData.referenceNo;
   }
 
   // Ensure documentInfo has documentNumber from name field

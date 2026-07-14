@@ -3787,6 +3787,17 @@ export default function TabbedDocumentCreator({
                           fields = [...fields, { fieldName: "salesMobile", displayLabel: "Salesman Mobile", fieldType: "text", required: false }];
                         }
                       }
+                      // Invoices: add a Reference row (guru, 2026-07-14). The
+                      // stored template field-configs predate it, so inject
+                      // editor-side; saves flat as config.referenceNo via the
+                      // transformer's special-case (same as DO's field).
+                      if (
+                        (documentType === "TI" || documentType === "TI2" || documentType === "INVOICE") &&
+                        tab.tabId === "general" &&
+                        !fields.some((f: any) => f.fieldName === "documentInfo.referenceNo")
+                      ) {
+                        fields = [...fields, { fieldName: "documentInfo.referenceNo", displayLabel: "Reference", fieldType: "text", required: false }];
+                      }
                       // DO templates carry contactName/contactNumber but no contact
                       // field — inject one so the Contact row hosts the attention
                       // trio + Terms (the name/number fields are hidden below and
