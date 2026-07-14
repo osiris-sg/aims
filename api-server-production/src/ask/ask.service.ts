@@ -133,7 +133,8 @@ When answering financial questions:
 - When listing transactions/accounts, return data via the 'show_table' final-output tool so the UI can render it.
 - When highlighting a single key number, use 'show_kpi'.
 - When the answer points to a full report page, use 'show_link' so the user can drill in.
-- If the question isn't accounting-related or can't be answered with available tools, say so plainly.`;
+- If the question isn't accounting-related or can't be answered with available tools, say so plainly.
+- The user may attach PDFs or images (supplier statements, bank statements, invoices, receipts). Read them carefully and, when useful, cross-check their figures against the ledger using your tools (e.g. compare a supplier statement to aged payables, or a bank statement to the bank account ledger). Point out any discrepancies you find.`;
   }
 
   // Streaming variant: emits SSE-style events so the UI can narrate the agent's
@@ -147,6 +148,7 @@ When answering financial questions:
     question: string,
     history: Array<{ role: 'user' | 'assistant'; content: string }> | undefined,
     emit: (e: any) => void,
+    files?: Array<{ name?: string; mediaType: string; base64: string }>,
   ): Promise<void> {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
@@ -157,9 +159,21 @@ When answering financial questions:
     const tools = this.buildTools();
     const systemPrompt = this.buildSystemPrompt();
     const attachments: Attachment[] = [];
+    // Uploaded PDFs/images ride on the user turn as content blocks (same
+    // pattern as the document assistant) so the model can read them alongside
+    // the ledger tools — e.g. "does this supplier statement match my AP?".
+    const userContent: any[] = [];
+    for (const f of files || []) {
+      if (f.mediaType === 'application/pdf') {
+        userContent.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: f.base64 } });
+      } else {
+        userContent.push({ type: 'image', source: { type: 'base64', media_type: f.mediaType || 'image/jpeg', data: f.base64 } });
+      }
+    }
+    userContent.push({ type: 'text', text: question || 'Please analyse the attached file(s) in the context of my accounts.' });
     const messages: Anthropic.MessageParam[] = [
       ...(history || []).map((m) => ({ role: m.role, content: m.content })),
-      { role: 'user', content: question },
+      { role: 'user', content: userContent },
     ];
 
     try {

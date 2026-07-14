@@ -25,6 +25,8 @@ import SendIcon from "@mui/icons-material/Send";
 import CloseIcon from "@mui/icons-material/Close";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import AttachFileIcon from "@mui/icons-material/AttachFile";
+import InsertDriveFileOutlinedIcon from "@mui/icons-material/InsertDriveFileOutlined";
 import Link from "next/link";
 import { toast } from "react-toastify";
 import { useAuth } from "@clerk/nextjs";
@@ -34,7 +36,26 @@ type Attachment =
   | { type: "table"; title?: string; columns: string[]; rows: Array<Array<string | number>> }
   | { type: "link"; href: string; label: string };
 
-type Turn = { role: "user" | "assistant"; content: string; attachments?: Attachment[] };
+type Turn = { role: "user" | "assistant"; content: string; attachments?: Attachment[]; files?: string[] };
+
+// Uploaded PDF/image waiting to ride on the next question (base64, like the
+// document assistant's attachments).
+type PendingFile = { name: string; mediaType: string; base64: string };
+
+const MAX_FILE_MB = 10;
+
+function fileToPending(file: File): Promise<PendingFile> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const base64 = result.includes(",") ? result.split(",")[1] : result;
+      resolve({ name: file.name, mediaType: file.type || "application/octet-stream", base64 });
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 const SUGGESTIONS = [
   "Who owes me the most money?",
@@ -70,7 +91,29 @@ export default function AccountingAssistantDrawer({ open, onClose }: { open: boo
   const [turns, setTurns] = useState<Turn[]>([]);
   const [streaming, setStreaming] = useState<Turn | null>(null);
   const [statusLabel, setStatusLabel] = useState<string | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  const addFiles = useCallback(async (list: FileList | null) => {
+    if (!list?.length) return;
+    for (const file of Array.from(list)) {
+      if (!/^(image\/|application\/pdf)/.test(file.type)) {
+        toast.error(`${file.name}: only PDFs and images are supported`);
+        continue;
+      }
+      if (file.size > MAX_FILE_MB * 1024 * 1024) {
+        toast.error(`${file.name}: larger than ${MAX_FILE_MB}MB`);
+        continue;
+      }
+      try {
+        const pf = await fileToPending(file);
+        setPendingFiles((prev) => [...prev, pf]);
+      } catch {
+        toast.error(`Couldn't read ${file.name}`);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -79,14 +122,17 @@ export default function AccountingAssistantDrawer({ open, onClose }: { open: boo
   const submit = useCallback(
     async (q: string) => {
       const trimmed = q.trim();
-      if (!trimmed || loading) return;
+      // Files alone are a valid question ("analyse this statement").
+      if ((!trimmed && pendingFiles.length === 0) || loading) return;
       setLoading(true);
+      const files = pendingFiles;
+      setPendingFiles([]);
       const history = turns.map((t) => ({ role: t.role, content: t.content }));
-      setTurns((prev) => [...prev, { role: "user", content: trimmed }]);
+      setTurns((prev) => [...prev, { role: "user", content: trimmed || "Analyse the attached file(s).", files: files.map((f) => f.name) }]);
       setInput("");
       const acc: Turn = { role: "assistant", content: "", attachments: [] };
       setStreaming({ ...acc });
-      setStatusLabel("Thinking…");
+      setStatusLabel(files.length ? "Reading your file…" : "Thinking…");
 
       try {
         const token = await getToken();
@@ -99,7 +145,11 @@ export default function AccountingAssistantDrawer({ open, onClose }: { open: boo
         const resp = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/ask/stream`, {
           method: "POST",
           headers,
-          body: JSON.stringify({ question: trimmed, history }),
+          body: JSON.stringify({
+            question: trimmed,
+            history,
+            ...(files.length ? { attachments: files } : {}),
+          }),
         });
         if (!resp.ok || !resp.body) throw new Error(`Assistant failed (${resp.status})`);
 
@@ -141,7 +191,7 @@ export default function AccountingAssistantDrawer({ open, onClose }: { open: boo
         setLoading(false);
       }
     },
-    [loading, turns, getToken],
+    [loading, turns, getToken, pendingFiles],
   );
 
   return (
@@ -195,7 +245,7 @@ export default function AccountingAssistantDrawer({ open, onClose }: { open: boo
           </Stack>
         )}
         <Stack gap={2}>
-          {turns.map((t, i) => (t.role === "user" ? <UserMsg key={i} text={t.content} /> : <AssistantMsg key={i} turn={t} />))}
+          {turns.map((t, i) => (t.role === "user" ? <UserMsg key={i} text={t.content} files={t.files} /> : <AssistantMsg key={i} turn={t} />))}
           {streaming && <AssistantMsg turn={streaming} statusLabel={statusLabel} />}
           {!streaming && statusLabel && <ThinkingRow label={statusLabel} />}
           <div ref={scrollRef} />
@@ -211,20 +261,50 @@ export default function AccountingAssistantDrawer({ open, onClose }: { open: boo
             ))}
           </Stack>
         )}
+        {pendingFiles.length > 0 && (
+          <Stack direction="row" gap={0.75} flexWrap="wrap" sx={{ mb: 1 }}>
+            {pendingFiles.map((f, i) => (
+              <Chip
+                key={`${f.name}-${i}`}
+                icon={<InsertDriveFileOutlinedIcon />}
+                label={f.name}
+                size="small"
+                onDelete={() => setPendingFiles((prev) => prev.filter((_, j) => j !== i))}
+                sx={{ maxWidth: 260 }}
+              />
+            ))}
+          </Stack>
+        )}
         <Stack direction="row" alignItems="center" gap={1}>
+          <input
+            type="file"
+            accept="application/pdf,image/*"
+            multiple
+            hidden
+            ref={fileInputRef}
+            onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }}
+          />
+          <IconButton
+            size="small"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={loading}
+            title="Attach a PDF or image (statement, invoice, receipt)"
+          >
+            <AttachFileIcon fontSize="small" />
+          </IconButton>
           <TextField
             fullWidth
             size="small"
             multiline
             maxRows={4}
-            placeholder="Ask about your accounts…"
+            placeholder={pendingFiles.length ? "Ask about the attached file…" : "Ask about your accounts…"}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(input); } }}
             disabled={loading}
             InputProps={{ sx: { fontSize: "0.9375rem" } }}
           />
-          <Button variant="contained" onClick={() => submit(input)} disabled={loading || !input.trim()} sx={{ minWidth: 44, px: 1.5 }}>
+          <Button variant="contained" onClick={() => submit(input)} disabled={loading || (!input.trim() && pendingFiles.length === 0)} sx={{ minWidth: 44, px: 1.5 }}>
             {loading ? <CircularProgress size={16} color="inherit" /> : <SendIcon fontSize="small" />}
           </Button>
         </Stack>
@@ -233,11 +313,20 @@ export default function AccountingAssistantDrawer({ open, onClose }: { open: boo
   );
 }
 
-function UserMsg({ text }: { text: string }) {
+function UserMsg({ text, files }: { text: string; files?: string[] }) {
   return (
     <Stack direction="row" gap={1} alignItems="flex-start">
       <Box sx={{ width: 26, height: 26, borderRadius: "50%", bgcolor: (t) => alpha(t.palette.text.primary, 0.08), display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.7rem", fontWeight: 700, flexShrink: 0, mt: 0.25 }}>You</Box>
-      <Typography variant="body2" sx={{ fontWeight: 500, whiteSpace: "pre-wrap" }}>{text}</Typography>
+      <Box sx={{ minWidth: 0 }}>
+        <Typography variant="body2" sx={{ fontWeight: 500, whiteSpace: "pre-wrap" }}>{text}</Typography>
+        {!!files?.length && (
+          <Stack direction="row" gap={0.5} flexWrap="wrap" sx={{ mt: 0.5 }}>
+            {files.map((f, i) => (
+              <Chip key={`${f}-${i}`} icon={<InsertDriveFileOutlinedIcon />} label={f} size="small" variant="outlined" sx={{ maxWidth: 240 }} />
+            ))}
+          </Stack>
+        )}
+      </Box>
     </Stack>
   );
 }

@@ -41,7 +41,13 @@ export class AskController {
   async askStream(
     @Req() req: RequestWithOrganization,
     @Res() res: Response,
-    @Body() body: { question: string; history?: Array<{ role: 'user' | 'assistant'; content: string }> },
+    @Body()
+    body: {
+      question: string;
+      history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+      // Uploaded PDFs/images (base64) the assistant should read alongside the ledger.
+      attachments?: Array<{ name?: string; mediaType: string; base64: string }>;
+    },
   ): Promise<void> {
     const orgId = requireOrgId(req);
     res.setHeader('Content-Type', 'text/event-stream');
@@ -57,7 +63,7 @@ export class AskController {
       try { res.write(`data: ${JSON.stringify(e)}\n\n`); } catch { closed = true; }
     };
 
-    await this.service.askStream(orgId, body.question, body.history, emit);
+    await this.service.askStream(orgId, body.question, body.history, emit, body.attachments);
     res.end();
   }
 }
