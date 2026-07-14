@@ -76,6 +76,18 @@ export class AssetsController {
     return this.assetsService.getManualEntryAssets(userOrganization.id, all === 'true');
   }
 
+  // Photo→serial for the field manual-entry page: same nameplate extraction as
+  // POST /assets/extract-label, but guarded by field-scan:access (the field
+  // flow's permission) instead of the bind permission. Reuses the identical
+  // extractLabel service call — no separate extraction logic.
+  @Post('manual-entry/extract-label')
+  @Permissions('field-scan:access')
+  @ApiOperation({ summary: 'Field manual-entry: extract model + serial from a nameplate photo (base64) via Claude vision.' })
+  @ApiBody({ type: ExtractLabelDto })
+  async extractLabelForField(@Body() body: ExtractLabelDto) {
+    return this.assetsService.extractLabel(body.image);
+  }
+
   @Get(':id')
   @Permissions('assets:read-id')
   @ApiOperation({ summary: 'Get an asset by its ID' })
