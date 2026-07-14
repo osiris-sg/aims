@@ -6,7 +6,8 @@ import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
-import { Box, Button, Typography, Avatar, Grid, Skeleton, Stack, useTheme, IconButton, Chip } from "@mui/material";
+import { Box, Button, Typography, Avatar, Grid, Skeleton, Stack, useTheme, IconButton, Chip, TextField } from "@mui/material";
+import { toast } from "react-toastify";
 import DateRangePicker from "@/form-components/FormDateRangePicker";
 
 import EditIcon from "@mui/icons-material/Edit";
@@ -43,6 +44,8 @@ interface Inventory {
     image: string;
     description: string;
   };
+  // SIM card ID (typically the TSS child unit). Office-editable on this page.
+  simCardId?: string | null;
   // Unit-level hierarchy (enforceable asset hierarchy): the parent unit this
   // unit is a component of, and this unit's own component units.
   parentInventory?: HierarchyUnit | null;
@@ -102,6 +105,9 @@ export default function ViewInventoryPage({ params }: { params: { sku: string } 
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
   // water-sg linkage (fetched from the cached map; fails soft to null).
   const [waterSgSite, setWaterSgSite] = useState<{ siteId: string; siteName: string } | null>(null);
+  // SIM card ID — office-editable text field (used on the TSS child unit).
+  const [simCardId, setSimCardId] = useState("");
+  const [savingSim, setSavingSim] = useState(false);
 
   const fetchInventory = async () => {
     if (!organizationId) return;
@@ -123,11 +129,36 @@ export default function ViewInventoryPage({ params }: { params: { sku: string } 
       if (response.success) {
         setInventory(response.data);
         setValue("status", response.data.status);
+        setSimCardId(response.data.simCardId ?? "");
       }
     } catch (error) {
       console.error("Error fetching inventory:", error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSaveSimCardId = async () => {
+    if (!inventory) return;
+    setSavingSim(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const response = await request(
+        { path: "/inventories/update", method: "PUT" },
+        { id: inventory.id, simCardId: simCardId.trim() },
+        token
+      );
+      if (response.success) {
+        toast.success("SIM Card ID saved");
+        await fetchInventory();
+      } else {
+        toast.error(response.message ?? "Failed to save SIM Card ID");
+      }
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to save SIM Card ID");
+    } finally {
+      setSavingSim(false);
     }
   };
 
@@ -372,6 +403,35 @@ export default function ViewInventoryPage({ params }: { params: { sku: string } 
                       </>
                     )}
                   </Stack>
+
+                  {/* SIM Card ID — office fills this on the TSS child unit. */}
+                  {!isLoading && (
+                    <Stack direction="column" gap={1} sx={{ mt: 1 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        SIM Card ID
+                      </Typography>
+                      <Stack direction="row" gap={1} alignItems="center">
+                        <TextField
+                          size="small"
+                          placeholder="e.g. 8965...."
+                          value={simCardId}
+                          onChange={(e) => setSimCardId(e.target.value)}
+                          sx={{ maxWidth: 260 }}
+                        />
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          onClick={handleSaveSimCardId}
+                          disabled={
+                            savingSim ||
+                            simCardId.trim() === (inventory.simCardId ?? "").trim()
+                          }
+                        >
+                          {savingSim ? "Saving..." : "Save"}
+                        </Button>
+                      </Stack>
+                    </Stack>
+                  )}
                 </Stack>
 
                 <Stack direction="column" gap="var(--default-gap)" sx={{ mt: "var(--default-gap)" }}>

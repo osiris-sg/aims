@@ -39,4 +39,16 @@ export class UnitBySidResponseDto {
 
   @ApiProperty({ description: 'Longitude captured when the unit was tagged, or null.', nullable: true })
   taggedLongitude: number | null;
+
+  @ApiProperty({
+    description:
+      "The linked TSS child unit and its SIM card, or null when the SIDS unit has no TSS child. water-sg displays simCardId as 'Sim Card ID'.",
+    nullable: true,
+    type: 'object',
+    properties: {
+      sku: { type: 'string' },
+      simCardId: { type: 'string', nullable: true },
+    },
+  })
+  child: { sku: string; simCardId: string | null } | null;
 }

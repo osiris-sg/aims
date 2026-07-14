@@ -43,6 +43,13 @@ export class PublicApiService {
             projectDeployment: { select: { type: true, deployedDate: true } },
           },
         },
+        // The linked TSS child unit (the one that carries the SIM card). A SIDS
+        // system has at most one TSS child; scope to the TSS asset defensively.
+        childInventories: {
+          where: { asset: { is: { skuKey: 'TSS' } } },
+          take: 1,
+          select: { sku: true, simCardId: true },
+        },
       },
     });
 
@@ -51,6 +58,7 @@ export class PublicApiService {
     }
 
     const active = unit.assignments[0] ?? null;
+    const child = unit.childInventories[0] ?? null;
 
     // Build the response field-by-field — never spread the Prisma row.
     return {
@@ -65,6 +73,8 @@ export class PublicApiService {
       deployedDate: active?.projectDeployment?.deployedDate?.toISOString() ?? null,
       taggedLatitude: unit.taggedLatitude ?? null,
       taggedLongitude: unit.taggedLongitude ?? null,
+      // The TSS child + its SIM card, or null when no TSS child exists.
+      child: child ? { sku: child.sku, simCardId: child.simCardId ?? null } : null,
     };
   }
 

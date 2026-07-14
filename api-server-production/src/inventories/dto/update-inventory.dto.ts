@@ -41,4 +41,10 @@ export class UpdateInventoryDto extends PartialType(CreateInventoryDto) {
   @IsString()
   @IsOptional()
   cameraP2P?: string;
+
+  // SIM card ID — filled by the office on the TSS child unit's detail page.
+  // Flows into the update via the service's spread of the DTO.
+  @IsString()
+  @IsOptional()
+  simCardId?: string;
 }

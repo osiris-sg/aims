@@ -179,6 +179,10 @@ model Inventory {
   // lookups. Distinct from `sku` (which is our own per-unit identifier).
   serialNumber   String?
   cameraP2P      String?
+  // SIM card identifier for units that carry a cellular modem — in practice the
+  // TSS child unit of a SIDS system. Nullable; filled by the office on the unit
+  // detail page. Exposed to water-sg via the public-api child projection.
+  simCardId      String?
   // Hardware UID of the NFC tag bound to this individual unit (chip serial).
   // Set via the field PWA's create-and-bind flow. Globally unique across orgs.
   // This is the primary NFC-binding column going forward; Asset.nfcTagUid is

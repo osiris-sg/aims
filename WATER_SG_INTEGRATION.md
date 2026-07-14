@@ -45,7 +45,8 @@ The payload is wrapped in the AIMS standard envelope; read the object under `dat
     "deploymentType": "SALE",
     "deployedDate": "2025-10-28T16:00:00.000Z",
     "taggedLatitude": null,
-    "taggedLongitude": null
+    "taggedLongitude": null,
+    "child": { "sku": "TSS-PENDING-SID045", "simCardId": "8965010000000000001" }
   }
 }
 ```
@@ -56,6 +57,7 @@ Field notes:
 - `deploymentType` — `RENTAL` | `SALE` | `SERVICE`, or `null` when unassigned.
 - `deployedDate` — ISO-8601 UTC, or `null`.
 - `taggedLatitude` / `taggedLongitude` — GPS captured when the unit was field-tagged; `null` for units tagged before that feature or bound without a fix.
+- `child` — the linked **TSS child unit** (the component that carries the SIM card), or `null` when the SIDS unit has no TSS child. `child.simCardId` is `null` until the office fills it in AIMS. Display `child.simCardId` under "AIMS Unit ID" as **"Sim Card ID"**.
 
 Example — unassigned unit:
 
@@ -65,7 +67,8 @@ Example — unassigned unit:
   "data": {
     "sidId": "999", "sku": "SID 999", "assetName": "Silt Imagery Detection System",
     "status": "instock", "project": null, "deploymentType": null,
-    "deployedDate": null, "taggedLatitude": 1.3521, "taggedLongitude": 103.8198
+    "deployedDate": null, "taggedLatitude": 1.3521, "taggedLongitude": 103.8198,
+    "child": null
   }
 }
 ```

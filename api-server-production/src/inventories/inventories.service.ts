@@ -725,8 +725,10 @@ export class InventoriesService {
     try {
       // Pending-placeholder auto-flip: a 'pending' child placeholder becomes a
       // real unit the moment it is edited to a real identity — a sku that no
-      // longer carries the -PENDING- marker, or a serialNumber. Only fires when
-      // the caller didn't set a status themselves.
+      // longer carries the -PENDING- marker, a serialNumber, or a SIM card id
+      // (the office completing a TSS child by entering its SIM). Only fires when
+      // the caller didn't set a status themselves. A blank simCardId ('') does
+      // NOT flip (clearing the field is not "completing" it).
       const data: any = {
         ...updateInventoryDto,
         status: updateInventoryDto.status as InventoryStatus,
@@ -737,7 +739,10 @@ export class InventoriesService {
           select: { status: true, sku: true },
         });
         const newSku = updateInventoryDto.sku ?? current?.sku ?? '';
-        const gotRealIdentity = !newSku.includes('-PENDING-') || !!updateInventoryDto.serialNumber;
+        const gotRealIdentity =
+          !newSku.includes('-PENDING-') ||
+          !!updateInventoryDto.serialNumber ||
+          !!updateInventoryDto.simCardId;
         if (current?.status === InventoryStatus.pending && gotRealIdentity) {
           data.status = InventoryStatus.instock;
         }
