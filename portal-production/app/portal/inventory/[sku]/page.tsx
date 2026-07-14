@@ -63,6 +63,16 @@ const INVENTORY_STATUS = [
   { value: "RETIRED", label: "Retired" },
 ];
 
+// Canonicalize a SKU to the water-sg join key ("SID 045" → "045"); null outside
+// 1–999. Mirrors the inventory list + backend /public-api canonicalization.
+function canonicalizeSid(sku: string): string | null {
+  const digits = (sku ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+  const n = parseInt(digits, 10);
+  if (!Number.isFinite(n) || n < 1 || n > 999) return null;
+  return String(n).padStart(3, "0");
+}
+
 export default function ViewInventoryPage({ params }: { params: { sku: string } }) {
   const router = useRouter();
   const theme = useTheme();
@@ -79,6 +89,8 @@ export default function ViewInventoryPage({ params }: { params: { sku: string } 
   const [isLoadingQR, setIsLoadingQR] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
+  // water-sg linkage (fetched from the cached map; fails soft to null).
+  const [waterSgSite, setWaterSgSite] = useState<{ siteId: string; siteName: string } | null>(null);
 
   const fetchInventory = async () => {
     if (!organizationId) return;
@@ -209,6 +221,27 @@ export default function ViewInventoryPage({ params }: { params: { sku: string } 
     }
   }, [inventory?.id]);
 
+  // Resolve this unit's water-sg site from the cached linkage map (one call,
+  // server-cached). Fails soft — no card shown if unlinked or water-sg is down.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request({ path: "/inventories/water-sg-links", method: "GET" }, {}, token);
+        const links = (res?.data?.links ?? res?.links) ?? {};
+        const canonical = canonicalizeSid(params.sku);
+        if (!cancelled) setWaterSgSite(canonical ? (links[canonical] ?? null) : null);
+      } catch {
+        // Non-fatal — leave the linkage unshown.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken, params.sku]);
+
   const timelineColumns = [
     {
       id: "message",
@@ -249,6 +282,28 @@ export default function ViewInventoryPage({ params }: { params: { sku: string } 
         <Typography variant="body1" color="text.secondary">
           Inventory / <strong>{params.sku}</strong>
         </Typography>
+
+        {waterSgSite && (
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              p: 1.5,
+              border: 1,
+              borderColor: "divider",
+              borderRadius: 1,
+              bgcolor: "action.hover",
+              alignSelf: "flex-start",
+            }}
+          >
+            <Typography variant="body2">
+              Linked to <strong>water-sg Site {waterSgSite.siteId}</strong>
+              {waterSgSite.siteName ? ` — ${waterSgSite.siteName}` : ""}
+            </Typography>
+          </Box>
+        )}
+
         <Grid container spacing={3} sx={{ mt: 2 }}>
           <Grid item xs={12} md={6}>
             {isLoading ? (

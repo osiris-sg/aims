@@ -1,6 +1,8 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
+import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import type { FilterField } from "@/components/FilterDrawer";
@@ -46,6 +48,23 @@ function EditableSkuCell({ row, onSave, onCancel }: { row: any; onSave: (id: str
   );
 }
 
+// Canonicalize an AIMS SKU to the water-sg join key: the SID number, zero-padded
+// to 3 (e.g. "SID 045" → "045"). Returns null for anything outside 1–999 (e.g.
+// MG serials), so only SID-family units ever match the linkage map. Mirrors the
+// backend /public-api canonicalization.
+function canonicalizeSid(sku: string): string | null {
+  const digits = (sku ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+  const n = parseInt(digits, 10);
+  if (!Number.isFinite(n) || n < 1 || n > 999) return null;
+  return String(n).padStart(3, "0");
+}
+
+interface WaterSgSite {
+  siteId: string;
+  siteName: string;
+}
+
 interface Inventory {
   id: string;
   sku: string;
@@ -84,6 +103,28 @@ export default function InventoryPage() {
   const [selectedInventory, setSelectedInventory] = useState<Inventory | null>(null);
   const [selectedSku, setSelectedSku] = useState<string | null>(null);
   const [editingSkuId, setEditingSkuId] = useState<string | null>(null);
+
+  // water-sg linkage map (canonical SID → site), fetched ONCE and joined
+  // client-side per row — no per-row calls. Fails soft to an empty map, so the
+  // inventory page renders normally even if water-sg / the endpoint is down.
+  const { getToken } = useAuth();
+  const [waterSgLinks, setWaterSgLinks] = useState<Record<string, WaterSgSite>>({});
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request({ path: "/inventories/water-sg-links", method: "GET" }, {}, token);
+        if (!cancelled) setWaterSgLinks((res?.data?.links ?? res?.links) ?? {});
+      } catch {
+        // Non-fatal — leave the map empty; the column just stays blank.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken]);
 
   // Backend expects status/category as arrays; wrap single-select values.
   const apiFilters = useMemo(
@@ -229,6 +270,27 @@ export default function InventoryPage() {
               </Typography>
             )}
           </Box>
+        );
+      },
+    },
+    {
+      id: "waterSgSite",
+      accessorKey: "sku",
+      header: "water-sg Site",
+      cell: (info: any) => {
+        // Populated only for units water-sg has linked (SID-family). All others
+        // — non-linked or non-water-sg units — canonicalize to a miss → blank.
+        const canonical = canonicalizeSid(info.row.original.sku);
+        const site = canonical ? waterSgLinks[canonical] : undefined;
+        if (!site) return null;
+        return (
+          <Chip
+            size="small"
+            color="info"
+            variant="outlined"
+            label={`Site ${site.siteId}`}
+            title={site.siteName}
+          />
         );
       },
     },

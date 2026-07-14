@@ -41,6 +41,16 @@ export interface WaterSgCreateSiteResult {
   alreadyExists?: boolean;
 }
 
+// One water-sg site that staff have linked to an AIMS unit. `canonical` is the
+// zero-padded SID number water-sg computes from its free-typed aimsUnitId
+// (e.g. "045") — AIMS matches its own canonicalized SKU against this.
+export interface WaterSgLinkedSite {
+  aimsUnitId: string;
+  canonical: string;
+  siteId: string;
+  siteName: string;
+}
+
 /**
  * Thin client for the water-sg site API. Mirrors S3Service's shape: ConfigService
  * injected, endpoints + key read once in the constructor from flat env keys.
@@ -153,5 +163,44 @@ export class WaterSgService {
     const alreadyExists = data?.alreadyExists ?? data?.exists ?? false;
 
     return { ok: true, id, alreadyExists };
+  }
+
+  /**
+   * Pull the full list of AIMS-linked water-sg sites. Reuses the same Bearer
+   * key as the outbound create calls; the base is derived from WATER_SG_API_URL
+   * (the SIDS create URL) so no extra env is needed. Throws on missing config,
+   * timeout, or non-2xx — the caller (WaterSgLinkService) fails soft. An 8s
+   * timeout keeps a slow/hung water-sg from stalling the request that triggers
+   * a cache refresh.
+   */
+  async getLinkedSites(): Promise<WaterSgLinkedSite[]> {
+    if (!this.apiUrl) {
+      throw new Error('WATER_SG_API_URL is not configured');
+    }
+    const base = new URL(this.apiUrl).origin;
+    const res = await fetch(`${base}/api/linked-sites`, {
+      headers: { Authorization: `Bearer ${this.apiKey}` },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(
+        `water-sg linked-sites failed: HTTP ${res.status} ${res.statusText} ${body}`.trim(),
+      );
+    }
+    // water-sg returns a TOP-LEVEL ARRAY of
+    //   { aimsUnitId, aimsUnitIdCanonical, siteId, siteName }
+    // (their canonical field is `aimsUnitIdCanonical`, not `canonical`). Tolerate
+    // an enveloped `{ sites: [...] }` and a legacy `canonical` key defensively.
+    const data = (await res.json().catch(() => null)) as any;
+    const arr = Array.isArray(data) ? data : Array.isArray(data?.sites) ? data.sites : [];
+    return arr
+      .map((s: any) => ({
+        aimsUnitId: String(s?.aimsUnitId ?? ''),
+        canonical: String(s?.aimsUnitIdCanonical ?? s?.canonical ?? ''),
+        siteId: String(s?.siteId ?? ''),
+        siteName: String(s?.siteName ?? ''),
+      }))
+      .filter((s: WaterSgLinkedSite) => s.canonical && s.siteId);
   }
 }

@@ -9,6 +9,7 @@ import { CreateInventoryAndBindDto } from './dto/create-and-bind.dto';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
+import { WaterSgLinkService } from 'src/common/services/water-sg-link.service';
 
 // Extend Request type to include userOrganization + the Clerk-resolved user
 // (clerk strategy attaches the User row at request.user — see clerk.strategy.ts).
@@ -25,7 +26,10 @@ interface RequestWithOrganization extends Request {
 @Controller('inventories')
 @UseGuards(ClerkAuthGuard)
 export class InventoriesController {
-  constructor(private readonly inventoriesService: InventoriesService) {}
+  constructor(
+    private readonly inventoriesService: InventoriesService,
+    private readonly waterSgLinkService: WaterSgLinkService,
+  ) {}
 
   @Post()
   @Permissions('inventories:read')
@@ -35,6 +39,16 @@ export class InventoriesController {
       throw new Error('User is not assigned to any organization');
     }
     return await this.inventoriesService.getInventories(getInventoryDto, organizationId);
+  }
+
+  // Cached water-sg linkage map (canonical SID → { siteId, siteName }). Static
+  // route — must stay ABOVE the parameterized :id routes. The portal fetches
+  // this ONCE per inventory list/detail load and joins client-side (no per-row
+  // calls). Fails soft to an empty object if water-sg is unreachable.
+  @Get('water-sg-links')
+  @Permissions('inventories:read')
+  async getWaterSgLinks() {
+    return { links: await this.waterSgLinkService.getLinksObject() };
   }
 
   // Field manual entry: resolve a keyed-in serial to a unit. Static route —
