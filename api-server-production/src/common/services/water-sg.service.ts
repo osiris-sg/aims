@@ -177,15 +177,19 @@ export class WaterSgService {
     if (!this.apiUrl) {
       throw new Error('WATER_SG_API_URL is not configured');
     }
-    const base = new URL(this.apiUrl).origin;
-    const res = await fetch(`${base}/api/linked-sites`, {
+    const url = `${new URL(this.apiUrl).origin}/api/linked-sites`;
+    // Log the derived target so Render logs reveal WHICH host we hit — the base
+    // is the origin of WATER_SG_API_URL, and a wrong env there 404s into an
+    // empty map (blank column) with no other symptom.
+    this.logger.log(`getLinkedSites → GET ${url}`);
+    const res = await fetch(url, {
       headers: { Authorization: `Bearer ${this.apiKey}` },
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(
-        `water-sg linked-sites failed: HTTP ${res.status} ${res.statusText} ${body}`.trim(),
+        `water-sg linked-sites ${url} failed: HTTP ${res.status} ${res.statusText} ${body}`.trim(),
       );
     }
     // water-sg returns a TOP-LEVEL ARRAY of
@@ -194,13 +198,28 @@ export class WaterSgService {
     // an enveloped `{ sites: [...] }` and a legacy `canonical` key defensively.
     const data = (await res.json().catch(() => null)) as any;
     const arr = Array.isArray(data) ? data : Array.isArray(data?.sites) ? data.sites : [];
-    return arr
+    const links = arr
       .map((s: any) => ({
         aimsUnitId: String(s?.aimsUnitId ?? ''),
-        canonical: String(s?.aimsUnitIdCanonical ?? s?.canonical ?? ''),
+        // Re-canonicalize on OUR side to the exact join form the portal uses
+        // ("045"), so a format difference from water-sg (e.g. "45", unpadded)
+        // still matches. Falls back through their field name variants.
+        canonical: this.canonicalizeSid(s?.aimsUnitIdCanonical ?? s?.canonical ?? s?.aimsUnitId),
         siteId: String(s?.siteId ?? ''),
         siteName: String(s?.siteName ?? ''),
       }))
       .filter((s: WaterSgLinkedSite) => s.canonical && s.siteId);
+    this.logger.log(`getLinkedSites: ${links.length} link(s) parsed`);
+    return links;
+  }
+
+  /** Digits → integer 1..999 → zero-padded to 3 ("SID 045"/"45" → "045").
+   *  Returns '' when there's no usable SID number. Matches the portal's rule. */
+  private canonicalizeSid(raw: unknown): string {
+    const digits = String(raw ?? '').replace(/\D/g, '');
+    if (!digits) return '';
+    const n = parseInt(digits, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 999) return '';
+    return String(n).padStart(3, '0');
   }
 }

@@ -80,6 +80,17 @@ export default function ViewInventoryPage({ params }: { params: { sku: string } 
   const { getToken } = useAuth();
   const organizationId = organization?.id;
   const { control, setValue } = useForm();
+  // The route param can arrive percent-encoded (e.g. "SID%20045"). Decode it for
+  // display and for the water-sg canonicalization — otherwise "%20" injects the
+  // digits "20" and the SID number is corrupted. (Idempotent for already-decoded
+  // values; guarded against a malformed sequence.)
+  const decodedSku = (() => {
+    try {
+      return decodeURIComponent(params.sku);
+    } catch {
+      return params.sku;
+    }
+  })();
 
   const [inventory, setInventory] = useState<Inventory | null>(null);
   const [timelineItems, setTimelineItems] = useState<TimelineItem[]>([]);
@@ -231,7 +242,7 @@ export default function ViewInventoryPage({ params }: { params: { sku: string } 
         if (!token) return;
         const res = await request({ path: "/inventories/water-sg-links", method: "GET" }, {}, token);
         const links = (res?.data?.links ?? res?.links) ?? {};
-        const canonical = canonicalizeSid(params.sku);
+        const canonical = canonicalizeSid(decodedSku);
         if (!cancelled) setWaterSgSite(canonical ? (links[canonical] ?? null) : null);
       } catch {
         // Non-fatal — leave the linkage unshown.
@@ -280,7 +291,7 @@ export default function ViewInventoryPage({ params }: { params: { sku: string } 
     <MainCard>
       <Box sx={{ gap: "var(--default-gap)", display: "flex", flexDirection: "column" }}>
         <Typography variant="body1" color="text.secondary">
-          Inventory / <strong>{params.sku}</strong>
+          Inventory / <strong>{decodedSku}</strong>
         </Typography>
 
         {waterSgSite && (
@@ -327,7 +338,7 @@ export default function ViewInventoryPage({ params }: { params: { sku: string } 
                   ) : (
                     <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                       <Typography variant="h5" fontWeight="bold">
-                        {params.sku}
+                        {decodedSku}
                       </Typography>
                       {/* Auto-created placeholder awaiting its real serial/SKU
                           (edit the SKU from the inventory list to claim it). */}
