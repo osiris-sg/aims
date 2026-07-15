@@ -240,7 +240,12 @@ export class InventoriesService {
           sku,
           organizationId,
         },
-        include: InventoriesService.HIERARCHY_INCLUDE,
+        include: {
+          ...InventoriesService.HIERARCHY_INCLUDE,
+          // Top-level asset (incl. skuKey) so the detail page can gate fields —
+          // e.g. the SIM Card ID input shows only on SIMCARD units.
+          asset: { select: { id: true, name: true, skuKey: true, image: true, description: true } },
+        },
       });
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);

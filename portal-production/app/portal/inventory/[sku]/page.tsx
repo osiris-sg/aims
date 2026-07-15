@@ -41,6 +41,7 @@ interface Inventory {
   asset: {
     id: string;
     name: string;
+    skuKey: string;
     image: string;
     description: string;
   };
@@ -404,8 +405,10 @@ export default function ViewInventoryPage({ params }: { params: { sku: string } 
                     )}
                   </Stack>
 
-                  {/* SIM Card ID — office fills this on the TSS child unit. */}
-                  {!isLoading && (
+                  {/* SIM Card ID — shown ONLY on Sim Card child units (the SIM
+                      holder). Office fills it here; entering it also completes
+                      the pending placeholder (pending → instock). */}
+                  {!isLoading && inventory.asset?.skuKey === "SIMCARD" && (
                     <Stack direction="column" gap={1} sx={{ mt: 1 }}>
                       <Typography variant="body2" color="text.secondary">
                         SIM Card ID

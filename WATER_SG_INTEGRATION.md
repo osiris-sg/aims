@@ -57,7 +57,7 @@ Field notes:
 - `deploymentType` — `RENTAL` | `SALE` | `SERVICE`, or `null` when unassigned.
 - `deployedDate` — ISO-8601 UTC, or `null`.
 - `taggedLatitude` / `taggedLongitude` — GPS captured when the unit was field-tagged; `null` for units tagged before that feature or bound without a fix.
-- `child` — the linked **TSS child unit** (the component that carries the SIM card), or `null` when the SIDS unit has no TSS child. `child.simCardId` is `null` until the office fills it in AIMS. Display `child.simCardId` under "AIMS Unit ID" as **"Sim Card ID"**.
+- `child` — the linked **Sim Card child unit** (the SIM holder — this replaced TSS in that role; TSS is still a child of the SIDS system but is never returned here). `child` is `null` when the SIDS unit has no Sim Card child; `child.simCardId` is `null` until the office fills it in AIMS. `child.sku` looks like `SIMCARD-PENDING-SID045` until completed. Display `child.simCardId` under "AIMS Unit ID" as **"Sim Card ID"**.
 
 Example — unassigned unit:
 
@@ -94,6 +94,32 @@ curl -H "Authorization: Bearer $WATER_SG_INBOUND_API_KEY" \
 curl -H "X-Api-Key: $WATER_SG_INBOUND_API_KEY" \
   "https://<AIMS_BACKEND_HOST>/public-api/unit-by-sid/SID%20045"
 ```
+
+## Inbound pull API — list SIDS units (for the link dropdown)
+
+### `GET /public-api/sids-units`
+
+Same auth as `unit-by-sid` (`Authorization: Bearer <WATER_SG_INBOUND_API_KEY>` or `X-Api-Key`). Returns **every** SIDS unit in AIMS. Used to populate water-sg's "link this site to an AIMS unit" dropdown.
+
+**⚠️ Filtering is water-sg's job.** AIMS does **not** know which units are already linked — that link lives only in water-sg (`Site.aimsUnitId`). So AIMS returns the full list, and **water-sg excludes the ones its own sites already reference** by matching each unit's `sidId` against its existing `Site.aimsUnitId` values. AIMS returns *all*; water-sg subtracts *its own linked set*.
+
+Response `200` (under the standard `data` envelope):
+
+```json
+{
+  "success": true,
+  "data": {
+    "units": [
+      { "sidId": "025", "sku": "SID 025", "status": "sold" },
+      { "sidId": "031", "sku": "SID 031", "status": "rental" },
+      { "sidId": null,  "sku": "TEMP-SIDS-XYZ", "status": "instock" }
+    ]
+  }
+}
+```
+
+- `sidId` — canonical 3-digit id, or `null` if the sku has no 1–999 number (match on `sidId`; skip nulls in the dropdown).
+- `status` — `instock` | `rental` | `sold`.
 
 ### Notes for water-sg
 

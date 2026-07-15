@@ -43,10 +43,11 @@ export class PublicApiService {
             projectDeployment: { select: { type: true, deployedDate: true } },
           },
         },
-        // The linked TSS child unit (the one that carries the SIM card). A SIDS
-        // system has at most one TSS child; scope to the TSS asset defensively.
+        // The linked Sim Card child unit (the SIM holder — replaces TSS in this
+        // role). A SIDS system has at most one Sim Card child; scope to the
+        // SIMCARD asset. TSS is still a child but is never the SIM source here.
         childInventories: {
-          where: { asset: { is: { skuKey: 'TSS' } } },
+          where: { asset: { is: { skuKey: 'SIMCARD' } } },
           take: 1,
           select: { sku: true, simCardId: true },
         },
@@ -73,9 +74,37 @@ export class PublicApiService {
       deployedDate: active?.projectDeployment?.deployedDate?.toISOString() ?? null,
       taggedLatitude: unit.taggedLatitude ?? null,
       taggedLongitude: unit.taggedLongitude ?? null,
-      // The TSS child + its SIM card, or null when no TSS child exists.
+      // The Sim Card child + its SIM, or null when no Sim Card child exists.
       child: child ? { sku: child.sku, simCardId: child.simCardId ?? null } : null,
     };
+  }
+
+  /**
+   * List ALL SIDS-line units for water-sg's "link a site" dropdown.
+   *
+   * DESIGN: AIMS does not know which SIDS units are already linked to a
+   * water-sg site — that link lives only in water-sg (Site.aimsUnitId). So this
+   * returns EVERY SIDS unit; water-sg excludes the ones its own sites already
+   * reference (matching each unit's `sidId` against its Site.aimsUnitId values).
+   */
+  async getSidsUnits(): Promise<{ units: Array<{ sidId: string | null; sku: string; status: string }> }> {
+    const units = await this.prisma.inventory.findMany({
+      where: { organizationId: BIOFUEL_ORG_ID, asset: { is: { waterSgProductLine: 'SIDS' } } },
+      select: { sku: true, status: true },
+      orderBy: { sku: 'asc' },
+    });
+    return {
+      units: units.map((u) => ({ sidId: this.sidIdFromSku(u.sku), sku: u.sku, status: u.status })),
+    };
+  }
+
+  /** Digits of a value → integer 1..999 → zero-padded to 3 ("SID 045"/"45" →
+   *  "045"). Returns null when there's no usable SID number. */
+  private sidIdFromSku(value: string): string | null {
+    const digits = (value ?? '').replace(/\D/g, '');
+    const n = Number(digits);
+    if (!digits || !Number.isInteger(n) || n < 1 || n > 999) return null;
+    return String(n).padStart(3, '0');
   }
 
   /**
@@ -83,14 +112,12 @@ export class PublicApiService {
    * sku: "SID 045" }. Rejects anything without a 1..999 numeric part.
    */
   private canonicalizeSid(raw: string): { sidId: string; sku: string } {
-    const digits = (raw ?? '').replace(/\D/g, '');
-    const n = Number(digits);
-    if (!digits || !Number.isInteger(n) || n < 1 || n > 999) {
+    const sidId = this.sidIdFromSku(raw);
+    if (!sidId) {
       throw new BadRequestException(
         `Invalid SIDS ID "${raw}". Expected a number 1-999 (e.g. "45", "045", or "SID 045").`,
       );
     }
-    const sidId = String(n).padStart(3, '0');
     return { sidId, sku: `SID ${sidId}` };
   }
 }
