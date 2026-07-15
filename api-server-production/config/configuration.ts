@@ -23,4 +23,10 @@ export default () => ({
     API_URL: process.env.WATER_SG_API_URL,
     API_KEY: process.env.WATER_SG_API_KEY,
   },
+  WHATSAPP: {
+    APP_ID: process.env.META_APP_ID,
+    APP_SECRET: process.env.META_APP_SECRET,
+    WEBHOOK_VERIFY_TOKEN: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN,
+    API_VERSION: process.env.WHATSAPP_API_VERSION || 'v23.0',
+  },
 });

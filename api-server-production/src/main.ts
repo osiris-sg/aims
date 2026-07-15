@@ -59,8 +59,17 @@ async function bootstrap() {
     rawBody: false,
   });
   // Base64-encoded nameplate photos for /assets/extract-label can run several MB.
+  // The verify hook keeps the raw bytes on req.rawBody so webhook handlers
+  // (e.g. WhatsApp's X-Hub-Signature-256) can validate HMAC signatures.
   const { json, urlencoded } = await import('express');
-  app.use(json({ limit: '15mb' }));
+  app.use(
+    json({
+      limit: '15mb',
+      verify: (req: any, _res, buf) => {
+        req.rawBody = buf;
+      },
+    }),
+  );
   app.use(urlencoded({ extended: true, limit: '15mb' }));
   AppModule.registerSwagger(app);
   app.enableCors(corsOptions);

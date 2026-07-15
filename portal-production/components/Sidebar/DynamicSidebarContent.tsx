@@ -35,6 +35,7 @@ import {
   ReceiptLong,
   Build,
   FolderCopy,
+  WhatsApp,
 } from "@mui/icons-material";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -62,6 +63,7 @@ const iconMap: Record<string, React.ComponentType> = {
   ReceiptLong,
   Build,
   FolderCopy,
+  WhatsApp,
 };
 
 const getIcon = (iconName?: string) => {

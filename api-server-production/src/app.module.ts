@@ -56,6 +56,7 @@ import { DocumentAssistantModule } from './document-assistant/document-assistant
 import { IngestionModule } from './ingestion/ingestion.module';
 import { IngestionEmailModule } from './ingestion-email/ingestion-email.module';
 import { PostingQueueModule } from './posting-queue/posting-queue.module';
+import { WhatsAppModule } from './whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -111,6 +112,7 @@ import { PostingQueueModule } from './posting-queue/posting-queue.module';
     IngestionModule,
     IngestionEmailModule,
     PostingQueueModule,
+    WhatsAppModule,
   ],
   controllers: [AppController],
   providers: [

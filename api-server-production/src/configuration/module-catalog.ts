@@ -178,6 +178,14 @@ export const MODULE_CATALOG: CatalogModule[] = [
     config: { route: '/portal/integrations' },
   },
   {
+    moduleCode: 'WHATSAPP',
+    displayName: 'WhatsApp',
+    icon: 'WhatsApp',
+    sortOrder: 14,
+    defaultEnabled: false,
+    config: { route: '/portal/whatsapp' },
+  },
+  {
     moduleCode: 'ADMIN',
     displayName: 'Admin Panel',
     icon: 'AdminPanelSettings',

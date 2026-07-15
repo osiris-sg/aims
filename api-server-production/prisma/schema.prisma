@@ -91,6 +91,8 @@ model Organization {
   emailIngestConfig     EmailIngestConfig?
   emailIngestLogs       EmailIngestLog[]
   passTrackerEntries    PassTrackerEntry[]
+  whatsAppConnection    WhatsAppConnection?
+  whatsAppMessages      WhatsAppMessage[]
 }
 
 model Asset {
@@ -2002,4 +2004,57 @@ enum MaintenanceReportKind {
   DO_START
   DO_ACK
   DO_INSTALL
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WhatsApp Business Platform (Meta Cloud API) — per-org connection created by
+// the Embedded Signup flow (client shares their WABA + phone number with our
+// Tech Provider app), plus a message log for outbound alerts / inbound replies.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model WhatsAppConnection {
+  id                 String   @id @default(uuid())
+  organizationId     String   @unique
+  // IDs handed back by Embedded Signup's postMessage session-info payload.
+  wabaId             String
+  phoneNumberId      String   @unique
+  displayPhoneNumber String?
+  verifiedName       String?
+  // Business token from exchanging the Embedded Signup auth code. Scoped to
+  // the client's shared WABA only — not our whole app.
+  accessToken        String
+  // 6-digit two-step-verification PIN set when we registered the number on
+  // Cloud API; needed again for any future re-registration.
+  pin                String?
+  status             String   @default("CONNECTED") // CONNECTED | DISCONNECTED | ERROR
+  lastError          String?
+  connectedAt        DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model WhatsAppMessage {
+  id             String  @id @default(uuid())
+  organizationId String
+  direction      String // OUTBOUND | INBOUND
+  // E.164 counterparty number (recipient for outbound, sender for inbound).
+  counterparty   String
+  // Meta's message id (wamid...) — idempotency anchor for webhook redeliveries.
+  waMessageId    String? @unique
+  templateName   String?
+  body           String?
+  // queued → sent → delivered → read, or failed (statuses arrive via webhook).
+  status         String  @default("queued")
+  error          String?
+  payload        Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
 }
