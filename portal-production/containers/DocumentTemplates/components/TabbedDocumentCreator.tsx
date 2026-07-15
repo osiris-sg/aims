@@ -73,6 +73,7 @@ import {
   MoreVert as MoreVertIcon,
   KeyboardArrowDown as KeyboardArrowDownIcon,
   Autorenew as AutorenewIcon,
+  DragIndicator as DragIndicatorIcon,
 } from "@mui/icons-material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import DocumentAssistantDrawer, { ProposalPatch } from "./DocumentAssistantDrawer";
@@ -393,6 +394,25 @@ export default function TabbedDocumentCreator({
   const [selectedItemIds, setSelectedItemIds] = useState<number[]>([]);
   const toggleItemSelected = (id: number) =>
     setSelectedItemIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  // Drag-to-reorder item rows (global, all doc types — guru 2026-07-15).
+  // Native HTML5 DnD from the ⠿ handle; reorder is resolved by item ID against
+  // the FULL items array (the render map filters tag-group rows, so its index
+  // can't be trusted). The new order autosaves like any other items change.
+  const [dragItemId, setDragItemId] = useState<number | null>(null);
+  const [dragOverItemId, setDragOverItemId] = useState<number | null>(null);
+  const moveItemRow = (fromId: number, toId: number) => {
+    if (fromId === toId) return;
+    setItems((prev: any[]) => {
+      const arr = [...prev];
+      const from = arr.findIndex((i: any) => i.id === fromId);
+      const to = arr.findIndex((i: any) => i.id === toId);
+      if (from < 0 || to < 0 || from === to) return prev;
+      const [moved] = arr.splice(from, 1);
+      arr.splice(to, 0, moved);
+      return arr;
+    });
+  };
 
   // Pending tag state — after a CU is picked from the Stock Card we open a
   // small dialog asking the user for the CU's qty + price before committing
@@ -4620,6 +4640,9 @@ export default function TabbedDocumentCreator({
                           }}
                         >
                           <TableRow>
+                            {!isTemplateEditMode && (
+                              <TableCell sx={{ width: "24px", minWidth: "24px", maxWidth: "24px", p: "0 !important" }} />
+                            )}
                             {isItemTaggingEnabled && !isTemplateEditMode && (
                               <TableCell sx={{ width: 40, p: 0 }} />
                             )}
@@ -4699,7 +4722,12 @@ export default function TabbedDocumentCreator({
                                     columnId === "amount" ? "right" : "left"
                                   }
                                   sx={{
-                                    width: columnId === "description" ? "38%" :
+                                    // Description is the flexible column ("auto"):
+                                    // with every column %-sized and summing < 100%,
+                                    // fixed table layout spreads the excess over ALL
+                                    // columns — which inflated the 24px drag-handle
+                                    // column. One auto column absorbs it all instead.
+                                    width: columnId === "description" ? "auto" :
                                            columnId === "item" ? "10%" :
                                            columnId === "uom" ? "6%" :
                                            columnId === "quantity" ? "8%" :
@@ -4731,7 +4759,56 @@ export default function TabbedDocumentCreator({
                         </TableHead>
                         <TableBody>
                           {items.filter((it: any) => !it.isTagGroup).map((item: any, index: number) => (
-                            <TableRow key={item.id}>
+                            <TableRow
+                              key={item.id}
+                              onDragOver={(e) => {
+                                if (dragItemId == null) return;
+                                e.preventDefault();
+                                if (dragOverItemId !== item.id) setDragOverItemId(item.id);
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                if (dragItemId != null) moveItemRow(dragItemId, item.id);
+                                setDragItemId(null);
+                                setDragOverItemId(null);
+                              }}
+                              sx={{
+                                ...(dragItemId === item.id ? { opacity: 0.35 } : {}),
+                                ...(dragOverItemId === item.id && dragItemId !== item.id
+                                  ? { "& .MuiTableCell-root": { boxShadow: (t: any) => `inset 0 2px 0 0 ${t.palette.primary.main}` } }
+                                  : {}),
+                              }}
+                            >
+                              {!isTemplateEditMode && (
+                                <TableCell sx={{ width: "24px", minWidth: "24px", maxWidth: "24px", p: "0 !important", textAlign: "center" }}>
+                                  <Box
+                                    component="span"
+                                    draggable
+                                    onDragStart={(e: React.DragEvent) => {
+                                      setDragItemId(item.id);
+                                      e.dataTransfer.effectAllowed = "move";
+                                      // Ghost the whole row, not just the handle icon.
+                                      const tr = (e.target as HTMLElement).closest("tr");
+                                      if (tr) e.dataTransfer.setDragImage(tr, 16, 18);
+                                    }}
+                                    onDragEnd={() => {
+                                      setDragItemId(null);
+                                      setDragOverItemId(null);
+                                    }}
+                                    sx={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      cursor: "grab",
+                                      color: "text.disabled",
+                                      "&:hover": { color: "text.secondary" },
+                                      "&:active": { cursor: "grabbing" },
+                                    }}
+                                    title="Drag to reorder"
+                                  >
+                                    <DragIndicatorIcon sx={{ fontSize: 16 }} />
+                                  </Box>
+                                </TableCell>
+                              )}
                               {isItemTaggingEnabled && !isTemplateEditMode && (
                                 <TableCell sx={{ width: 40, p: 0, textAlign: 'center' }}>
                                   <Checkbox
