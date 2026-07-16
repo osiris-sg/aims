@@ -463,6 +463,9 @@ export class ProjectsService {
               ...it,
               subAssets: subAssetsForItem(it),
             })),
+            // Invoice's real issue date (config.date); createdAt is only the
+            // row-import timestamp, so surface the true date for the UI.
+            date: (config as any)?.date ?? null,
             amount: readDocAmount(config),
             paid: payments.reduce((p, pay) => p + (pay.amount ?? 0), 0),
           })),
@@ -500,6 +503,7 @@ export class ProjectsService {
         .filter((d) => !d.projectDeploymentId)
         .map(({ payments, config, ...rest }) => ({
           ...rest,
+          date: (config as any)?.date ?? null,
           amount: readDocAmount(config),
           paid: payments.reduce((p, pay) => p + (pay.amount ?? 0), 0),
         }));
@@ -507,6 +511,7 @@ export class ProjectsService {
       // Flat chronological invoice/DO list (excluding quotations)
       const allInvoices = nonQuotationDocs.map(({ payments, config, ...rest }) => ({
         ...rest,
+        date: (config as any)?.date ?? null,
         amount: readDocAmount(config),
         paid: payments.reduce((p, pay) => p + (pay.amount ?? 0), 0),
       }));
@@ -858,6 +863,7 @@ export class ProjectsService {
       // can render line items the same way DOs do.
       invoices: invoicesBucket.map(({ payments, config, ...rest }) => ({
         ...rest,
+        date: (config as any)?.date ?? null,
         amount: readDocAmount(config),
         paid: payments.reduce((p: number, pay: any) => p + (pay.amount ?? 0), 0),
       })),

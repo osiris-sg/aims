@@ -112,6 +112,7 @@ interface Deployment {
     type: string;
     status: string;
     createdAt: string;
+    date: string | null;
     amount: number;
     paid: number;
     documentItems: DocumentItemRow[];
@@ -680,7 +681,7 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
                   columns={[
                     { id: "name", accessorKey: "name", header: "Doc No.", cell: (i: any) => i.getValue() ?? "—" },
                     { id: "type", accessorKey: "type", header: "Type", cell: (i: any) => i.getValue() },
-                    { id: "createdAt", accessorKey: "createdAt", header: "Date", cell: (i: any) => fmtDate(i.getValue()) },
+                    { id: "date", accessorKey: "date", header: "Date", cell: (i: any) => fmtDate(i.row.original.date ?? i.row.original.createdAt) },
                     { id: "amount", accessorKey: "amount", header: "Amount", cell: (i: any) => fmtMoney(i.getValue()) },
                     { id: "paid", accessorKey: "paid", header: "Paid", cell: (i: any) => fmtMoney(i.getValue()) },
                     { id: "status", accessorKey: "status", header: "Status", cell: (i: any) => i.getValue() },
@@ -1366,7 +1367,7 @@ function DeploymentCard({
                     <Stack direction="row" gap={1.5} alignItems="center" flexWrap="wrap" sx={{ mb: inv.documentItems.length ? 1 : 0 }}>
                       <Typography variant="subtitle2">{inv.name}</Typography>
                       <Chip size="small" variant="outlined" label={inv.type} />
-                      <Typography variant="caption" color="text.secondary">{fmtDate(inv.createdAt)}</Typography>
+                      <Typography variant="caption" color="text.secondary">{fmtDate(inv.date ?? inv.createdAt)}</Typography>
                       <Box sx={{ flexGrow: 1 }} />
                       <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums" }}>
                         <strong>{fmtMoney(inv.amount, ccy)}</strong>

@@ -291,10 +291,12 @@ export default function InvoicesPage() {
     },
     {
       accessorKey: "createdAt",
-      header: "Created Date",
+      header: "Invoice Date",
       nowrap: true,
+      // Show the invoice's real issue date (config.date); fall back to the row
+      // creation timestamp only when an invoice has no issue date recorded.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
+      cell: ({ row }: any) => moment(row.original.config?.date ?? row.original.createdAt).format("DD/MM/YYYY"),
     },
     {
       accessorKey: "action",
