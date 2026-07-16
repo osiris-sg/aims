@@ -707,10 +707,10 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
               { id: "name", accessorKey: "name", header: "Doc No.", cell: (i: any) => i.getValue() ?? "—" },
               { id: "type", accessorKey: "type", header: "Type", cell: (i: any) => i.getValue() },
               {
-                id: "createdAt",
-                accessorKey: "createdAt",
+                id: "date",
+                accessorKey: "date",
                 header: "Date",
-                cell: (i: any) => fmtDate(i.getValue()),
+                cell: (i: any) => fmtDate(i.row.original.date ?? i.row.original.createdAt),
               },
               {
                 id: "amount",
