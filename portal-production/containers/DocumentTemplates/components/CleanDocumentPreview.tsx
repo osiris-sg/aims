@@ -3560,6 +3560,23 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 {data.footerMessage || data.documentInfo?.footerMessage || "We trust that the above meets your requirements and look forward to receiving your favourable reply soon. Should you have any further queries regarding the above, please do not hesitate to contact the undersigned. Thank you."}
               </Typography>
 
+              {/* 3b. Per-quote Notes / Terms & Conditions — the Footer-tab
+                  fields (config.note / config.termsAndConditions). Each renders
+                  only when filled, so existing quotes with empty values are
+                  unchanged. Mirrors the generic-footer treatment below. */}
+              {data.note && (
+                <Box sx={{ mb: 2, pageBreakInside: "avoid", breakInside: "avoid" }}>
+                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Notes:</Typography>
+                  <RichContent text={data.note} sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }} />
+                </Box>
+              )}
+              {data.termsAndConditions && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Terms &amp; Conditions:</Typography>
+                  <RichContent text={data.termsAndConditions} sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }} />
+                </Box>
+              )}
+
               {/* 4. Dual signature block — LEFT Biofuel / RIGHT customer (50/50) */}
               <Box sx={{ display: "flex", justifyContent: "space-between", gap: 4, mb: 4, pageBreakInside: "avoid", breakInside: "avoid" }}>
                 {/* LEFT — Biofuel */}

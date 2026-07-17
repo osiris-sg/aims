@@ -669,7 +669,11 @@ export default function TabbedDocumentCreator({
       salesPerson: existingData?.documentInfo?.salesPerson || existingData?.salesPerson || "",
       soNo: existingData?.documentInfo?.soNo || existingData?.soNo || "",
       page: existingData?.documentInfo?.page || existingData?.page || "1",
-      paymentTerms: existingData?.documentInfo?.paymentTerms || existingData?.paymentTerms || "0 DAYS",
+      // Biofuel quotations: reconcile the nested default with the flat/render
+      // default ("30 days") so nothing shows a phantom "0 DAYS" that the PDF
+      // (which reads the flat paymentTerms) never uses. Other doc types (e.g.
+      // invoices) keep their "0 DAYS" default unchanged.
+      paymentTerms: existingData?.documentInfo?.paymentTerms || existingData?.paymentTerms || (isBiofuel && isQuotation ? "30 days" : "0 DAYS"),
       currency: existingData?.documentInfo?.currency
         || existingData?.currency
         || (organization as any)?.defaultCurrency
