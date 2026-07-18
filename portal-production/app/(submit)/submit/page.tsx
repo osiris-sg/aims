@@ -10,14 +10,47 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import DescriptionIcon from "@mui/icons-material/Description";
 
-type DocType = "DO" | "QUOTATION" | "INVOICE";
+type DocType =
+  | "DO"
+  | "QUOTATION"
+  | "INVOICE"
+  | "SALES_ORDER"
+  | "CREDIT_NOTE"
+  | "DEBIT_NOTE"
+  | "PO"
+  | "PR"
+  | "SAI"
+  | "SAO";
 type Phase = "idle" | "extracting" | "saving" | "done";
 
-const TYPES: { value: DocType; label: string }[] = [
-  { value: "DO", label: "Delivery Order" },
-  { value: "QUOTATION", label: "Quotation" },
-  { value: "INVOICE", label: "Invoice" },
+// Type strings match the portal's per-type list pages (createDocumentType in
+// app/portal/sales|inventory/constants.ts) so template resolution behaves the
+// same as portal uploads. All 10 resolve to a Biofuel-owned template
+// (verified against createFromExtraction's resolver). DO is kept (not
+// DELIVERY_ORDER) — it's what this page has always sent and resolves fine.
+const TYPE_GROUPS: { group: string; types: { value: DocType; label: string }[] }[] = [
+  {
+    group: "Sales",
+    types: [
+      { value: "DO", label: "Delivery Order" },
+      { value: "QUOTATION", label: "Quotation" },
+      { value: "INVOICE", label: "Invoice" },
+      { value: "SALES_ORDER", label: "Sales Order" },
+      { value: "CREDIT_NOTE", label: "Credit Note" },
+      { value: "DEBIT_NOTE", label: "Debit Note" },
+    ],
+  },
+  {
+    group: "Inventory",
+    types: [
+      { value: "PO", label: "Purchase Order" },
+      { value: "PR", label: "Purchase Return" },
+      { value: "SAI", label: "Stock Adjustment In" },
+      { value: "SAO", label: "Stock Adjustment Out" },
+    ],
+  },
 ];
+const TYPES = TYPE_GROUPS.flatMap((g) => g.types);
 
 // Same mapping DocumentUploadDialog uses: AIMS doc type → extraction enum.
 function toExtractionType(aimsType: string): string {
@@ -189,10 +222,10 @@ export default function SubmitPage() {
 
   // ── Type chooser ────────────────────────────────────────────────────────
   if (!docType) {
+    // 10 types: top-aligned scrollable list (centering would clip on phones),
+    // grouped Sales / Inventory with the original 3 first under Sales.
     return (
-      <Box
-        sx={{ minHeight: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", p: 3, gap: 3 }}
-      >
+      <Box sx={{ minHeight: "100vh", display: "flex", flexDirection: "column", p: 3, pt: 4, gap: 2.5 }}>
         <Box textAlign="center">
           <Typography variant="h5" fontWeight={700}>
             Submit a document
@@ -201,24 +234,35 @@ export default function SubmitPage() {
             Choose what you&apos;re submitting.
           </Typography>
         </Box>
-        <Stack spacing={2}>
-          {TYPES.map((t) => (
-            <Button
-              key={t.value}
-              variant="outlined"
-              size="large"
-              fullWidth
-              startIcon={<DescriptionIcon />}
-              onClick={() => {
-                setErrorMsg(null);
-                setDocType(t.value);
-              }}
-              sx={{ py: 2.5, fontSize: "1.15rem", justifyContent: "flex-start", pl: 3 }}
+        {TYPE_GROUPS.map((g) => (
+          <Box key={g.group}>
+            <Typography
+              variant="overline"
+              color="text.secondary"
+              sx={{ display: "block", mb: 1, letterSpacing: 1 }}
             >
-              {t.label}
-            </Button>
-          ))}
-        </Stack>
+              {g.group}
+            </Typography>
+            <Stack spacing={1.5}>
+              {g.types.map((t) => (
+                <Button
+                  key={t.value}
+                  variant="outlined"
+                  size="large"
+                  fullWidth
+                  startIcon={<DescriptionIcon />}
+                  onClick={() => {
+                    setErrorMsg(null);
+                    setDocType(t.value);
+                  }}
+                  sx={{ py: 1.75, fontSize: "1.05rem", justifyContent: "flex-start", pl: 3 }}
+                >
+                  {t.label}
+                </Button>
+              ))}
+            </Stack>
+          </Box>
+        ))}
       </Box>
     );
   }
