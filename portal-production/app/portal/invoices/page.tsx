@@ -240,6 +240,22 @@ export default function InvoicesPage() {
       cell: ({ row }: any) => <StatusChip status={row.original.status} />,
     },
     {
+      // Xero sync state: grey until the invoice is pushed to / imported from
+      // Xero; then a green chip carrying the Xero-side status.
+      accessorKey: "xeroSync",
+      header: "Xero",
+      nowrap: true,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      cell: ({ row }: any) => {
+        const cfg = row.original?.config || {};
+        return cfg.xeroInvoiceId ? (
+          <Chip size="small" variant="outlined" color="success" label={`Xero · ${cfg.xeroStatus || "SYNCED"}`} sx={{ fontSize: "0.65rem" }} />
+        ) : (
+          <Chip size="small" variant="outlined" label="Not synced" sx={{ fontSize: "0.65rem", opacity: 0.6 }} />
+        );
+      },
+    },
+    {
       accessorKey: "outstanding",
       header: "Outstanding",
       nowrap: true,

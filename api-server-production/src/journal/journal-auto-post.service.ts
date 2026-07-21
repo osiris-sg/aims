@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { JournalService } from './journal.service';
+import { refWith } from '../common/doc-ref';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 
@@ -474,7 +475,8 @@ export class JournalAutoPostService {
         {
           entryDate: paymentDate.toISOString(),
           type: 'PAYMENT',
-          reference: paymentReference ?? undefined,
+          // Customer money in = REC (doc-type prefix plan).
+          reference: paymentReference ? refWith('REC', paymentReference) : undefined,
           description: `Auto-posted from payment ${paymentReference ?? paymentId} — ${customerName ?? ''}`.trim(),
           sourcePaymentId: paymentId,
           sourceDocumentId: documentId ?? undefined,
@@ -490,6 +492,219 @@ export class JournalAutoPostService {
       this.logger.error(`[postFromPayment] journal.create threw: ${e?.message || e}`);
       throw e;
     }
+  }
+
+  /**
+   * Manual Offset (legacy AR): credit notes knocked off against invoices.
+   * Both sides are ALREADY posted to the debtor control, so the offset itself
+   * moves nothing — a journal exists only when the settled base values differ
+   * (foreign docs at different historical rates): Dr debtor at the CN's
+   * historical base / Cr debtor at the invoice's, difference to FX gain/loss.
+   * Returns null when there is nothing to post.
+   */
+  async postFromManualOffset(args: {
+    organizationId: string;
+    offsetDocumentId: string;
+    offsetNumber?: string | null;
+    entryDate: Date;
+    customerName?: string | null;
+    debits: Array<{ documentId: string; amount: number; currency?: string | null }>; // invoices settled
+    credits: Array<{ documentId: string; amount: number; currency?: string | null }>; // credit notes consumed
+    userId?: string;
+  }) {
+    const { organizationId, offsetDocumentId, offsetNumber, customerName } = args;
+    const controls = await this.getControlAccounts(organizationId);
+    if (!controls) return null;
+    const debtor = await this.resolveAccountByCode(organizationId, controls.debtorControl);
+    if (!debtor) return null;
+
+    // Re-save = repost safety (offsets are create-only today, but keep the
+    // same void-previous contract as every other poster).
+    const existing = await this.prisma.journalEntry.findFirst({
+      where: { organizationId, sourceDocumentId: offsetDocumentId, type: 'PAYMENT', status: { not: 'VOID' } },
+      select: { id: true },
+    });
+    if (existing) await this.journal.void(organizationId, existing.id, args.userId);
+
+    const setting = await this.prisma.accountingSetting.findUnique({
+      where: { organizationId },
+      select: { baseCurrency: true },
+    });
+    const base = (setting?.baseCurrency || 'SGD').toUpperCase();
+    const histBase = async (a: { documentId: string; amount: number; currency?: string | null }) => {
+      const cur = (a.currency || base).toUpperCase();
+      const hist = cur !== base ? (await this.historicalRateForDocument(organizationId, a.documentId)) ?? 1 : 1;
+      return { baseAmount: ROUND(a.amount * hist), hist, foreign: cur !== base };
+    };
+
+    type Line = { accountId: string; debit: number; credit: number; description: string; foreignAmount?: number; exchangeRate?: number };
+    const lines: Line[] = [];
+    let drTotal = 0;
+    let crTotal = 0;
+    let anyForeign = false;
+    for (const c of args.credits) {
+      const { baseAmount, hist, foreign } = await histBase(c);
+      anyForeign = anyForeign || foreign;
+      drTotal = ROUND(drTotal + baseAmount);
+      lines.push({
+        accountId: debtor.id,
+        debit: baseAmount,
+        credit: 0,
+        description: `Offset credit note — ${customerName ?? ''}`.trim(),
+        ...(foreign ? { foreignAmount: ROUND(c.amount), exchangeRate: hist } : {}),
+      });
+    }
+    for (const d of args.debits) {
+      const { baseAmount, hist, foreign } = await histBase(d);
+      anyForeign = anyForeign || foreign;
+      crTotal = ROUND(crTotal + baseAmount);
+      lines.push({
+        accountId: debtor.id,
+        debit: 0,
+        credit: baseAmount,
+        description: `Offset invoice — ${customerName ?? ''}`.trim(),
+        ...(foreign ? { foreignAmount: ROUND(d.amount), exchangeRate: hist } : {}),
+      });
+    }
+    const diff = ROUND(drTotal - crTotal); // >0 → FX credit (gain) balances it
+    if (!anyForeign || Math.abs(diff) <= 0.005) return null; // control nets out — nothing to post
+    const fxAccount = await this.resolveFxGainLossAccount(organizationId, controls);
+    if (!fxAccount) {
+      this.logger.warn(`[postFromManualOffset] FX difference of ${diff} but no FX gain/loss account; skipping post`);
+      return null;
+    }
+    lines.push({
+      accountId: fxAccount.id,
+      debit: diff < 0 ? -diff : 0,
+      credit: diff > 0 ? diff : 0,
+      description: `Realised FX ${diff > 0 ? 'gain' : 'loss'} — Manual Offset ${offsetNumber ?? ''}`.trim(),
+    });
+
+    return this.journal.create(
+      organizationId,
+      {
+        entryDate: args.entryDate.toISOString(),
+        type: 'PAYMENT',
+        reference: offsetNumber ?? undefined,
+        description: `Manual Offset ${offsetNumber ?? ''} — ${customerName ?? ''}`.trim(),
+        sourceDocumentId: offsetDocumentId,
+        currency: base,
+        lines,
+      },
+      args.userId,
+      { autoPost: true },
+    );
+  }
+
+  /**
+   * Official Receipt — ONE receipt allocated across MANY invoices posts ONE
+   * journal (legacy-UX overhaul):
+   *   Dr Bank/Cash (deposit-to)   receipt total (base)
+   *     Cr Trade Debtors          one credit per allocation, at each invoice's
+   *                               HISTORICAL rate so the control clears exactly
+   *     ± Realised FX gain/loss   residual (foreign receipts)
+   * Re-save reposts: any previous journal for the receipt is voided first.
+   * Allocation payment rows carry NO per-payment journal — this is it.
+   */
+  async postFromReceipt(args: {
+    organizationId: string;
+    receiptDocumentId: string;
+    receiptNumber?: string | null;
+    entryDate: Date;
+    customerName?: string | null;
+    bankAccountCode: string;
+    currency?: string | null;
+    rate?: number | null;
+    amount: number; // receipt total, in receipt currency
+    allocations: Array<{ documentId: string; amount: number }>; // receipt currency
+    userId?: string;
+  }) {
+    const { organizationId, receiptDocumentId, receiptNumber, entryDate, customerName } = args;
+    const controls = await this.getControlAccounts(organizationId);
+    if (!controls) {
+      this.logger.warn(`[postFromReceipt] org=${organizationId} has no controlAccounts; skipping`);
+      return null;
+    }
+    const debtor = await this.resolveAccountByCode(organizationId, controls.debtorControl);
+    const bank = await this.resolveAccountByCode(organizationId, args.bankAccountCode);
+    if (!debtor || !bank) {
+      this.logger.warn(
+        `[postFromReceipt] missing accounts (debtor=${controls.debtorControl}, bank=${args.bankAccountCode}); skipping`,
+      );
+      return null;
+    }
+
+    // Re-save = repost: void the previous journal for this receipt.
+    const existing = await this.prisma.journalEntry.findFirst({
+      where: { organizationId, sourceDocumentId: receiptDocumentId, type: 'PAYMENT', status: { not: 'VOID' } },
+      select: { id: true, journalNumber: true },
+    });
+    if (existing) await this.journal.void(organizationId, existing.id, args.userId);
+
+    const setting = await this.prisma.accountingSetting.findUnique({
+      where: { organizationId },
+      select: { baseCurrency: true },
+    });
+    const base = (setting?.baseCurrency || 'SGD').toUpperCase();
+    const currency = (args.currency || base).toUpperCase();
+    const isForeign = currency !== base;
+    const rate = isForeign ? Number(args.rate) || 1 : 1;
+
+    type Line = { accountId: string; debit: number; credit: number; description: string; foreignAmount?: number; exchangeRate?: number };
+    const lines: Line[] = [];
+    const bankBase = ROUND(args.amount * rate);
+    lines.push({
+      accountId: bank.id,
+      debit: bankBase,
+      credit: 0,
+      description: `Official Receipt ${receiptNumber ?? ''}`.trim(),
+      ...(isForeign ? { foreignAmount: ROUND(args.amount), exchangeRate: rate } : {}),
+    });
+    let arBaseTotal = 0;
+    for (const a of args.allocations) {
+      const hist = isForeign ? (await this.historicalRateForDocument(organizationId, a.documentId)) ?? rate : 1;
+      const arBase = ROUND(a.amount * hist);
+      arBaseTotal = ROUND(arBaseTotal + arBase);
+      lines.push({
+        accountId: debtor.id,
+        debit: 0,
+        credit: arBase,
+        description: `Settle invoice — ${customerName ?? ''}`.trim(),
+        ...(isForeign ? { foreignAmount: ROUND(a.amount), exchangeRate: hist } : {}),
+      });
+    }
+    const diff = ROUND(bankBase - arBaseTotal); // >0 → realised gain
+    if (Math.abs(diff) > 0.005) {
+      const fxAccount = await this.resolveFxGainLossAccount(organizationId, controls);
+      if (!fxAccount) {
+        this.logger.warn(`[postFromReceipt] realised FX of ${diff} but no FX gain/loss account; skipping post`);
+        return null;
+      }
+      lines.push({
+        accountId: fxAccount.id,
+        debit: diff < 0 ? -diff : 0,
+        credit: diff > 0 ? diff : 0,
+        description: `Realised FX ${diff > 0 ? 'gain' : 'loss'} — ${receiptNumber ?? ''} (${currency} @ receipt ${rate})`.trim(),
+      });
+    }
+
+    const created = await this.journal.create(
+      organizationId,
+      {
+        entryDate: entryDate.toISOString(),
+        type: 'PAYMENT',
+        // Official Receipt = REC (doc-type prefix plan).
+        reference: receiptNumber ? refWith('REC', receiptNumber) : undefined,
+        description: `Official Receipt ${receiptNumber ?? ''} — ${customerName ?? ''}`.trim(),
+        sourceDocumentId: receiptDocumentId,
+        currency,
+        lines,
+      },
+      args.userId,
+      { autoPost: true },
+    );
+    this.logger.log(`[postFromReceipt] created journal=${created.journalNumber} (${lines.length} lines)`);
+    return created;
   }
 
   /**

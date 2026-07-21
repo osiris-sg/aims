@@ -32,10 +32,41 @@ export class PaymentsService {
         throw new HttpException('Invoice not found', HttpStatus.NOT_FOUND);
       }
 
-      // Drafts aren't receivables yet — confirm the invoice before recording
-      // payments (mirrors the AR list, which hides Record Payment on drafts).
+      // No-draft model: a SAVED invoice is already in the GL/AR and can take
+      // payments. Only block documents that were never posted (unsaved legacy
+      // drafts with no journal entry).
       if ((document.status || '').toLowerCase() === 'draft') {
-        throw new HttpException('Invoice is still a draft — confirm it before recording a payment', HttpStatus.BAD_REQUEST);
+        const posted = await this.prisma.journalEntry.findFirst({
+          where: { organizationId, sourceDocumentId: document.id, type: 'INVOICE', status: { not: 'VOID' } },
+          select: { id: true },
+        });
+        if (!posted) {
+          throw new HttpException('Invoice has not been saved/posted yet — save it before recording a payment', HttpStatus.BAD_REQUEST);
+        }
+      }
+
+      // No overpayments — AIMS has no customer-credit ledger, so cap the
+      // payment at the invoice's remaining balance (gross incl. GST).
+      const cfg: any = document.config || {};
+      const di: any = cfg.documentInfo || {};
+      const itemsSum = (cfg.items || []).reduce(
+        (s: number, it: any) => s + (parseFloat(it.amount) || parseFloat(it.quantity) * parseFloat(it.unitPrice) || 0),
+        0,
+      );
+      const invoiceGross =
+        parseFloat(cfg.xeroGross ?? di.nettTotal ?? cfg.nettTotal ?? cfg.totalAmount ?? 'NaN') || itemsSum;
+      if (invoiceGross > 0) {
+        const prior = await this.prisma.payment.aggregate({
+          where: { documentId: createPaymentDto.documentId, organizationId },
+          _sum: { amount: true },
+        });
+        const alreadyPaid = Number(prior._sum.amount || 0);
+        if (createPaymentDto.amount > invoiceGross - alreadyPaid + 0.005) {
+          throw new HttpException(
+            `Payment exceeds the remaining balance (${(invoiceGross - alreadyPaid).toFixed(2)})`,
+            HttpStatus.BAD_REQUEST,
+          );
+        }
       }
 
       // Validate customer matches
@@ -92,6 +123,9 @@ export class PaymentsService {
           paymentDate: new Date(createPaymentDto.paymentDate),
           customerName: result.payment.customer?.name,
           amount: createPaymentDto.amount,
+          // "Deposit to" account from the payment dialog — without it the
+          // poster guesses (first bank/cash-named account in the chart).
+          cashAccountCode: createPaymentDto.cashAccountCode,
           userId,
         });
         console.log('✅ Journal entry auto-posted for payment:', result.payment.id);
@@ -397,7 +431,8 @@ export class PaymentsService {
    * Automatically update invoice status based on payment amounts
    * Called after creating or updating payments
    */
-  private async updateInvoiceStatusAfterPayment(documentId: string, organizationId: string) {
+  // Public: the receipts service reuses this after replacing allocation rows.
+  async updateInvoiceStatusAfterPayment(documentId: string, organizationId: string) {
     try {
       // Get the document
       const document = await this.prisma.document.findFirst({
@@ -422,17 +457,22 @@ export class PaymentsService {
         return;
       }
 
-      // Calculate invoice total from config.items
+      // Invoice total = GROSS incl. GST. Items sum alone is the NET on
+      // tax-exclusive invoices — using it flipped invoices to "paid" while the
+      // GST portion was still outstanding. Prefer the explicit totals.
       const config: any = document.config;
       const items = config?.items || [];
+      const di: any = config?.documentInfo || {};
 
-      const invoiceAmount = items.reduce((sum: number, item: any) => {
+      const itemsSum = items.reduce((sum: number, item: any) => {
         const amount =
           parseFloat(item.amount) ||
           (parseFloat(item.quantity) * parseFloat(item.unitPrice)) ||
           0;
         return sum + amount;
       }, 0);
+      const invoiceAmount =
+        parseFloat(config?.xeroGross ?? di.nettTotal ?? config?.nettTotal ?? config?.totalAmount ?? 'NaN') || itemsSum;
 
       // Get all payments for this document
       const payments = await this.prisma.payment.findMany({
@@ -442,25 +482,43 @@ export class PaymentsService {
         },
       });
 
-      // Calculate total paid
-      const totalPaid = payments.reduce((sum, payment) => {
+      // Calculate total NATIVE paid (AIMS Payment rows)
+      const nativePaid = payments.reduce((sum, payment) => {
         return sum + parseFloat(payment.amount.toString());
       }, 0);
 
+      // Xero-imported invoices may have been PARTIALLY paid in Xero before
+      // migration — that portion exists only as (gross − import-time balance).
+      // Stash the import-time balance once (xeroImportBalance) so recomputes
+      // never resurrect the Xero-paid portion.
+      const isXeroImported = !!config?.xeroImported;
+      let importPaid = 0;
+      let importBalanceStamp: Record<string, number> = {};
+      if (isXeroImported) {
+        let importBalance = Number(config?.xeroImportBalance);
+        if (!Number.isFinite(importBalance)) {
+          importBalance = Number(config?.xeroBalance);
+          if (!Number.isFinite(importBalance)) importBalance = invoiceAmount;
+          importBalanceStamp = { xeroImportBalance: Math.round(importBalance * 100) / 100 };
+        }
+        importPaid = Math.max(0, Math.round((invoiceAmount - importBalance) * 100) / 100);
+      }
+      const totalPaid = Math.round((importPaid + nativePaid) * 100) / 100;
+
       // Determine new status based on payment coverage
       let newStatus: DocumentStatus = document.status as DocumentStatus;
-      if (totalPaid >= invoiceAmount) newStatus = DocumentStatus.paid;
+      if (totalPaid >= invoiceAmount - 0.005) newStatus = DocumentStatus.paid;
       else if (totalPaid > 0) newStatus = DocumentStatus.pending_payment;
 
       // Refresh the outstanding balance ON THE DOCUMENT — this is the single
-      // source AR / the SOA / aging / AI tools all read now that the
-      // Transaction sub-ledger is retired.
+      // LIVE source AR / the SOA / aging / AI tools all read (readers must NOT
+      // subtract payments again).
       const outstanding = Math.max(0, Math.round((invoiceAmount - totalPaid) * 100) / 100);
       await this.prisma.document.update({
         where: { id: documentId },
         data: {
           status: newStatus,
-          config: { ...config, xeroBalance: outstanding, xeroAmountPaid: Math.round(totalPaid * 100) / 100 } as any,
+          config: { ...config, ...importBalanceStamp, xeroBalance: outstanding, xeroAmountPaid: totalPaid } as any,
         },
       });
       console.log(`✅ Invoice ${document.name}: balance ${outstanding}, status ${newStatus} (Paid: ${totalPaid}/${invoiceAmount})`);

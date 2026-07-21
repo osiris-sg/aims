@@ -233,6 +233,147 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
   };
 
   // Special layout for Tax Invoice
+  // ── Official Receipt (legacy-UX overhaul) ────────────────────────────────
+  // One receipt allocated across a customer's invoices. data carries:
+  // receiptNumber, date, chequeNo, remarks, customerLabel, paymentMethod,
+  // currency, rate, receiptAmount, depositLabel, allocations[{reference, date,
+  // description, amount}]. Rendered through the same print pipeline as every
+  // other document so fonts/margins/PDF stay identical.
+  if (documentType === "OFFICIAL_RECEIPT" || documentType === "OR") {
+    const r: any = data || {};
+    const allocs: any[] = Array.isArray(r.allocations) ? r.allocations : [];
+    const receiptTotal = allocs.reduce((sum: number, a: any) => sum + (Number(a.amount) || 0), 0);
+    const orWords = (num: number): string => {
+      const ones = ["", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE", "TEN", "ELEVEN", "TWELVE", "THIRTEEN", "FOURTEEN", "FIFTEEN", "SIXTEEN", "SEVENTEEN", "EIGHTEEN", "NINETEEN"];
+      const tens = ["", "", "TWENTY", "THIRTY", "FORTY", "FIFTY", "SIXTY", "SEVENTY", "EIGHTY", "NINETY"];
+      if (!num) return "ZERO ONLY.";
+      const convertHundreds = (n: number): string => {
+        let str = "";
+        if (n >= 100) { str += ones[Math.floor(n / 100)] + " HUNDRED "; n %= 100; }
+        if (n >= 20) { str += tens[Math.floor(n / 10)] + " "; n %= 10; }
+        if (n > 0) str += ones[n] + " ";
+        return str;
+      };
+      let result = "";
+      const dollars = Math.floor(num);
+      const cents = Math.round((num - dollars) * 100);
+      if (dollars >= 1000000) result += convertHundreds(Math.floor(dollars / 1000000)) + "MILLION ";
+      if (dollars >= 1000) result += convertHundreds(Math.floor((dollars % 1000000) / 1000)) + "THOUSAND ";
+      result += convertHundreds(dollars % 1000);
+      if (cents > 0) result += "AND CENTS " + convertHundreds(cents);
+      return result.trim() + " ONLY.";
+    };
+    const orBase = Math.round((Number(r.receiptAmount) || receiptTotal) * (Number(r.rate) || 1) * 100) / 100;
+    return (
+      <Paper
+        data-print-paper
+        sx={{
+          width: "210mm",
+          minHeight: "297mm",
+          margin: "0 auto",
+          p: "20mm",
+          backgroundColor: "white",
+          fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
+          fontWeight: 400,
+          fontSize: "0.8125rem",
+          lineHeight: 1.6,
+          color: "#000",
+          display: "flex",
+          flexDirection: "column",
+          "@media print": {
+            margin: 0,
+            padding: 0,
+            boxShadow: "none",
+          },
+        }}
+      >
+        {/* Company letterhead */}
+        <Box sx={{ textAlign: "center", mb: 1 }}>
+          <Typography sx={{ fontWeight: 700, fontSize: "1.15rem" }}>{r.company?.name || organization?.name || ""}</Typography>
+          {(r.company?.address || organization?.address) && (
+            <Typography sx={{ fontSize: "0.8125rem" }}>{r.company?.address || organization?.address}</Typography>
+          )}
+          <Typography sx={{ fontSize: "0.8125rem" }}>
+            {(r.company?.phoneNumber || organization?.phoneNumber) ? `Tel: ${r.company?.phoneNumber || organization?.phoneNumber}` : ""}
+            {(r.company?.gstRegNo || organization?.registrationNumber) ? `  GST Reg. No. ${r.company?.gstRegNo || organization?.registrationNumber}` : ""}
+          </Typography>
+        </Box>
+        <Typography sx={{ textAlign: "center", fontWeight: 700, fontSize: "1rem", letterSpacing: 2, my: 2 }}>
+          OFFICIAL RECEIPT
+        </Typography>
+
+        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
+          <Box>
+            <Typography sx={{ fontSize: "0.8125rem" }}>Received From:</Typography>
+            <Typography sx={{ fontSize: "0.9375rem", fontWeight: 700 }}>{r.customerLabel || "—"}</Typography>
+            {r.remarks && <Typography sx={{ fontSize: "0.8125rem", mt: 0.5 }}>{r.remarks}</Typography>}
+          </Box>
+          <Box sx={{ textAlign: "right" }}>
+            <Typography sx={{ fontSize: "0.8125rem" }}>
+              Receipt No. : <b>{r.receiptNumber || ""}</b>
+            </Typography>
+            <Typography sx={{ fontSize: "0.8125rem" }}>Date : {r.date ? new Date(r.date).toLocaleDateString("en-GB") : ""}</Typography>
+            {r.chequeNo && <Typography sx={{ fontSize: "0.8125rem" }}>Cheque No. : {r.chequeNo}</Typography>}
+            {r.paymentMethod && (
+              <Typography sx={{ fontSize: "0.8125rem", textTransform: "capitalize" }}>Payment : {r.paymentMethod}</Typography>
+            )}
+          </Box>
+        </Box>
+
+        <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", "& th, & td": { fontSize: "0.8125rem", py: 0.6, px: 1 } }}>
+          <Box component="thead">
+            <Box component="tr" sx={{ "& th": { borderTop: "1px solid #000", borderBottom: "1px solid #000", textAlign: "left" } }}>
+              <Box component="th">Reference</Box>
+              <Box component="th">Date</Box>
+              <Box component="th">Description</Box>
+              <Box component="th" sx={{ textAlign: "right !important" }}>Amount ({r.currency || "SGD"})</Box>
+            </Box>
+          </Box>
+          <Box component="tbody">
+            {allocs.map((a: any, i: number) => (
+              <Box component="tr" key={i}>
+                <Box component="td" sx={{ fontFamily: "monospace" }}>{a.reference}</Box>
+                <Box component="td">{a.date ? new Date(a.date).toLocaleDateString("en-GB") : ""}</Box>
+                <Box component="td">{a.description || "INVOICE"}</Box>
+                <Box component="td" sx={{ textAlign: "right", fontFamily: "monospace" }}>
+                  {(Number(a.amount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Box>
+              </Box>
+            ))}
+          </Box>
+        </Box>
+
+        <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1 }}>
+          <Box sx={{ minWidth: 240, borderTop: "1px solid #000", pt: 0.5 }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+              <Typography sx={{ fontSize: "0.875rem", fontWeight: 700 }}>Total Received</Typography>
+              <Typography sx={{ fontSize: "0.875rem", fontWeight: 700, fontFamily: "monospace" }}>
+                {(r.currency || "SGD")}{" "}
+                {(Number(r.receiptAmount) || receiptTotal).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
+        <Typography sx={{ fontSize: "0.8125rem", mt: 2, borderBottom: "2px solid #000", pb: 1 }}>
+          S'PORE DOLLAR {orWords(orBase)}
+        </Typography>
+
+        <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2 }}>
+          <Typography sx={{ fontSize: "0.8125rem" }}>{r.depositLabel ? `Deposit to: ${r.depositLabel}` : ""}</Typography>
+          {r.currency && r.currency !== "SGD" && (
+            <Typography sx={{ fontSize: "0.8125rem" }}>Rate: {r.rate} ({r.currency} → SGD)</Typography>
+          )}
+        </Box>
+
+        <Box sx={{ mt: "auto", pt: 4, textAlign: "right" }}>
+          <Typography sx={{ fontSize: "0.75rem", fontStyle: "italic" }}>
+            This is a computer generated receipt. No signature is required.
+          </Typography>
+        </Box>
+      </Paper>
+    );
+  }
+
   if (documentType === "TI") {
     return (
       <Paper

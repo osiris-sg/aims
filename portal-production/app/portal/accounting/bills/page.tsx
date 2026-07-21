@@ -212,6 +212,22 @@ export default function BillsPage() {
       },
     },
     {
+      // Xero sync state: grey "Not synced" until the doc is pushed/imported;
+      // then a green chip carrying the Xero-side status (DRAFT/AUTHORISED/…).
+      accessorKey: "xeroSyncStatus",
+      header: "Xero",
+      cell: ({ row }: any) => {
+        const b: any = row.original;
+        return b.xeroBillId ? (
+          <Tooltip title={b.xeroSyncedAt ? `Synced ${new Date(b.xeroSyncedAt).toLocaleString()}` : "Linked to Xero"}>
+            <Chip size="small" variant="outlined" color="success" label={`Xero · ${b.xeroSyncStatus || "SYNCED"}`} sx={{ fontSize: "0.65rem" }} />
+          </Tooltip>
+        ) : (
+          <Chip size="small" variant="outlined" label="Not synced" sx={{ fontSize: "0.65rem", opacity: 0.6 }} />
+        );
+      },
+    },
+    {
       accessorKey: "inboundChannel",
       header: "Channel",
       cell: ({ row }: any) => (

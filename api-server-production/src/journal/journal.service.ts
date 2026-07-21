@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../common/prisma.service';
 import { CreateJournalEntryDto, JournalLineDto, UpdateJournalEntryDto } from './dto/journal-entry.dto';
 import { AnomaliesService } from '../anomalies/anomalies.service';
+import { docRef } from '../common/doc-ref';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 
@@ -119,6 +120,19 @@ export class JournalService {
   ) {
     const { totalDebit, totalCredit } = this.validateLines(dto.lines);
     await this.assertAccountsBelongToOrg(organizationId, dto.lines.map((l) => l.accountId));
+
+    // Doc-type reference prefix (guru 2026-07-20): every document-sourced
+    // journal stores "{PREFIX} {number}" (INV/C/N/SIN/...). PAYMENT-type
+    // entries are stamped at their call sites instead (REC for customer money,
+    // P/V for supplier payments) — the source doc there is the invoice, whose
+    // INV prefix would be wrong for a payment reference.
+    if (dto.reference && dto.sourceDocumentId && dto.type !== 'PAYMENT') {
+      const src = await this.prisma.document.findFirst({
+        where: { id: dto.sourceDocumentId, organizationId },
+        select: { type: true },
+      });
+      if (src?.type) dto.reference = docRef(src.type, dto.reference);
+    }
 
     // Period-lock guard — refuse to create an entry dated inside a closed
     // period. The Close Wizard itself bypasses this when posting the year-end

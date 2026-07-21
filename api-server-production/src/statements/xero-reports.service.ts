@@ -1,5 +1,6 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { docRef } from '../common/doc-ref';
 
 // Xero-parity AR/AP reports: Aged Summary/Detail, Invoice Summary, Contact
 // Transactions, Income & Expenses by Contact. All read the Document table
@@ -103,9 +104,10 @@ export class XeroReportsService {
       let outstanding: number;
       let paid: number;
       if (c.xeroBalance !== undefined && c.xeroBalance !== null) {
-        outstanding = R(Number(c.xeroBalance));
-        // AIMS payments recorded after import reduce it further.
-        outstanding = R(Math.max(0, outstanding - recordedPaid));
+        // xeroBalance is maintained LIVE by updateInvoiceStatusAfterPayment on
+        // every native payment — it is already net of payments. Subtracting
+        // recorded payments again double-counted every post-import payment.
+        outstanding = R(Math.max(0, Number(c.xeroBalance)));
         paid = R(gross - outstanding);
       } else {
         paid = recordedPaid;
@@ -127,7 +129,10 @@ export class XeroReportsService {
 
       rows.push({
         id: doc.id,
-        number: doc.name || '(no #)',
+        // Doc-type reference prefix (guru 2026-07-20): every accounting report
+        // shows "{PREFIX} {number}" — INV for invoices, SIN for supplier
+        // invoices — stamped once here so aged/invoice/contact reports agree.
+        number: docRef(doc.type, doc.name || '(no #)'),
         contactId,
         contactName,
         date,
@@ -613,14 +618,22 @@ export class XeroReportsService {
     const to = opts.to ? new Date(opts.to) : new Date();
     to.setHours(23, 59, 59, 999);
 
-    const [docs, org, taxRates] = await Promise.all([
+    const [docs, org, taxRates, postedJes] = await Promise.all([
       this.prisma.document.findMany({
         where: { organizationId, type: { in: ['INVOICE', 'TI', 'TI2', 'BILL', 'CREDIT_NOTE', 'DEBIT_NOTE', 'PURCHASE_RETURN'] } },
         select: { id: true, name: true, type: true, status: true, createdAt: true, config: true },
       }),
       this.prisma.organization.findUnique({ where: { id: organizationId }, select: { registrationNumber: true } }),
       this.prisma.taxRate.findMany({ where: { organizationId } }),
+      // No-draft model: a SAVED document posts to the GL while its status may
+      // still read "draft" until Confirm. Such docs belong in the GST return —
+      // this set marks which drafts are actually posted.
+      this.prisma.journalEntry.findMany({
+        where: { organizationId, status: { not: 'VOID' }, sourceDocumentId: { not: null } },
+        select: { sourceDocumentId: true },
+      }),
     ]);
+    const postedDocIds = new Set(postedJes.map((j) => j.sourceDocumentId as string));
     const rateByCode = new Map(taxRates.map((t) => [t.code, t]));
     const TYPE_LABEL: Record<string, string> = {
       INVOICE: 'INV', TI: 'INV', TI2: 'INV', BILL: 'BILL', CREDIT_NOTE: 'C/N', DEBIT_NOTE: 'D/N', PURCHASE_RETURN: 'P/R',
@@ -649,7 +662,10 @@ export class XeroReportsService {
       const c: any = doc.config || {};
       if (c.voided) continue;
       const status = (doc.status || '').toLowerCase();
-      if (status === 'draft' || status === 'cancelled') continue;
+      if (status === 'cancelled') continue;
+      // Drafts count only when actually posted to the GL (saved under the
+      // no-draft model); unsaved legacy drafts stay out of the return.
+      if (status === 'draft' && !postedDocIds.has(doc.id)) continue;
       const di: any = c.documentInfo || {};
       const date = c.date ? new Date(c.date) : c.billDate ? new Date(c.billDate) : doc.createdAt;
       if (date < from || date > to) continue;

@@ -63,6 +63,10 @@ export default function RecordPaymentDialog({
   const [amount, setAmount] = useState("");
   const [paymentDate, setPaymentDate] = useState(moment().format("YYYY-MM-DD"));
   const [paymentMethod, setPaymentMethod] = useState("cash");
+  // "Deposit to" — which bank/cash GL account the money landed in. "" = let
+  // the backend fall back to the org's defaults.
+  const [depositAccount, setDepositAccount] = useState("");
+  const [bankAccounts, setBankAccounts] = useState<Array<{ code: string; name: string }>>([]);
   const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -91,12 +95,35 @@ export default function RecordPaymentDialog({
     }
   }, [open, invoice, customers]);
 
+  // Load the org's bank/cash accounts for the "Deposit to" picker (once per open).
+  useEffect(() => {
+    if (!open || bankAccounts.length) return;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res: any = await request({ path: "/accounting/accounts", method: "GET" }, {}, token);
+        const list: any[] = res?.data ?? res ?? [];
+        const banks = list.filter((a) => {
+          if (!a?.isActive) return false;
+          if (a.accountType === "FOREIGN_BANK") return true;
+          const n = String(a.name || "").toLowerCase();
+          return a.accountType === "CURRENT_ASSET" && (/\bbank\b/.test(n) || /\bcash\b/.test(n));
+        });
+        setBankAccounts(banks.map((a) => ({ code: a.code, name: a.name })));
+      } catch {
+        /* picker stays empty — backend defaults still apply */
+      }
+    })();
+  }, [open, bankAccounts.length, getToken]);
+
   const resetForm = () => {
     setSelectedCustomer(null);
     setSelectedInvoice(null);
     setAmount("");
     setPaymentDate(moment().format("YYYY-MM-DD"));
     setPaymentMethod("cash");
+    setDepositAccount("");
     setReference("");
     setNotes("");
     setCustomerInvoices([]);
@@ -203,12 +230,22 @@ export default function RecordPaymentDialog({
       return;
     }
 
+    // No overpayments — AIMS has no customer-credit handling, so a payment
+    // above the remaining balance would silently overstate cash and AR relief
+    // (mirrors the bills dialog's guard).
+    const remaining = Number(invoiceSummary?.remainingBalance);
+    if (Number.isFinite(remaining) && parseFloat(amount) > remaining + 0.005) {
+      toast.error(`Amount exceeds the remaining balance (SGD ${remaining.toFixed(2)})`);
+      return;
+    }
+
     const paymentData = {
       customerId: selectedCustomer.id,
       documentId: selectedInvoice.id,
       amount: parseFloat(amount),
       paymentDate,
       paymentMethod,
+      cashAccountCode: depositAccount || undefined,
       reference: reference.trim() || undefined,
       notes: notes.trim() || undefined,
       attachments: attachments.length ? attachments : undefined,
@@ -369,6 +406,27 @@ export default function RecordPaymentDialog({
             {PAYMENT_METHODS.map((method) => (
               <MenuItem key={method.value} value={method.value}>
                 {method.label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        {/* Deposit to — bank/cash GL account the payment lands in. Blank = org default. */}
+        <FormControl fullWidth margin="normal">
+          <InputLabel shrink>Deposit to</InputLabel>
+          <Select
+            value={depositAccount}
+            onChange={(e) => setDepositAccount(e.target.value)}
+            label="Deposit to"
+            displayEmpty
+            notched
+          >
+            <MenuItem value="">
+              <em>Auto (organisation default)</em>
+            </MenuItem>
+            {bankAccounts.map((a) => (
+              <MenuItem key={a.code} value={a.code}>
+                {a.code} — {a.name}
               </MenuItem>
             ))}
           </Select>

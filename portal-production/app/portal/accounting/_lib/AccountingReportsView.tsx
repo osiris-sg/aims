@@ -20,10 +20,12 @@ import StarIcon from "@mui/icons-material/Star";
 import StarBorderIcon from "@mui/icons-material/StarBorder";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 import CashFlowPage from "../cash-flow/page";
 import BudgetVsActualPage from "../budget-vs-actual/page";
 import InvoicesPage from "../../invoices/page";
+import ARWorkspace from "./ARWorkspace";
 import BillsPage from "../bills/page";
 import BankReconciliationPage from "../bank-reconciliation/page";
 import StatementOfAccountPage from "../../reports/statement-of-account/page";
@@ -33,7 +35,7 @@ import RecurringInvoicesView from "../recurring-invoices/RecurringInvoicesView";
 import {
   AgedReceivablesSummary, AgedReceivablesDetail, AgedPayablesSummary, AgedPayablesDetail,
   ReceivableInvoices, ReceivableInvoiceDetail, PayableInvoices, PayableInvoiceDetail,
-  ContactTransactionsSummary, IncomeExpensesByContact,
+  ContactTransactionsSummary, IncomeExpensesByContact, DebtorStatement, AuditTrail, ReceiptListing, SummaryAgeing, DetailedAgeing, DebtorListing, HistoricalListing,
   GeneralLedgerDetail, GeneralLedgerSummary,
   AccountTransactions, ExpenseListing, TrialBalanceReport, JournalReport, BankSummary,
   ProfitLoss, BalanceSheet, ForeignBankListing, GSTReturn,
@@ -65,12 +67,21 @@ interface ReportEntry {
 // active-report lookup below scans this full list.
 export const REPORTS: ReportEntry[] = [
   // Receivables
-  { key: "ar", label: "Accounts Receivable", description: "Outstanding invoices and customer balances", category: "Receivables", Component: InvoicesPage },
+  // AR landing = customer-balance workspace (legacy AR screen, modern UI —
+  // guru 2026-07-14); the invoice list stays reachable as "ar-invoices".
+  { key: "ar", label: "Accounts Receivable", description: "Customer balances with drill-down transaction history", category: "Receivables", Component: ARWorkspace },
+  { key: "ar-invoices", label: "Invoice List", description: "All invoices with payment status, tabs and quick payment recording", category: "Receivables", Component: InvoicesPage },
   { key: "ar-aging", label: "Aged Receivables Summary", description: "Outstanding invoices per customer, bucketed by age", category: "Receivables", Component: AgedReceivablesSummary },
   { key: "ar-aging-detail", label: "Aged Receivables Detail", description: "Every outstanding invoice, aged and grouped by customer", category: "Receivables", Component: AgedReceivablesDetail },
   { key: "receivable-invoices", label: "Receivable Invoice Summary", description: "Invoices for a period — gross, payments and balance per customer", category: "Receivables", Component: ReceivableInvoices },
   { key: "receivable-invoice-detail", label: "Receivable Invoice Detail", description: "Every invoice line item for a period, grouped by customer", category: "Receivables", Component: ReceivableInvoiceDetail },
   { key: "soa", label: "Customer Statement", description: "Per-customer statement of account", category: "Receivables", Component: StatementOfAccountPage },
+  { key: "debtor-statement", label: "Debtor Statement", description: "Legacy statement-of-account — open items, running balance and monthly ageing", category: "Receivables", Component: DebtorStatement },
+  { key: "receipt-listing", label: "Receipts Listing", description: "Official receipts for a period, grouped by deposit-to bank account", category: "Receivables", Component: ReceiptListing },
+  { key: "summary-ageing", label: "Summary Ageing Analysis", description: "Outstanding per customer bucketed by calendar month, with customer contact info", category: "Receivables", Component: SummaryAgeing },
+  { key: "detailed-ageing", label: "Detailed Ageing Analysis", description: "Every outstanding document per customer, aged by calendar month with running balance", category: "Receivables", Component: DetailedAgeing },
+  { key: "debtor-listing", label: "Debtor Listing", description: "Every debtor's balance as at a cut-off date — local and foreign amounts, DR/CR", category: "Receivables", Component: DebtorListing },
+  { key: "historical-listing", label: "Historical Listing", description: "Per-debtor transaction history for a period with BALANCE B/F and sub-totals", category: "Receivables", Component: HistoricalListing },
   { key: "sbc", label: "Sales by Customer", description: "Revenue breakdown by customer", category: "Receivables", Component: SalesByCustomerPage },
   { key: "contact-transactions", label: "Contact Transactions", description: "Opening, movement and closing balance for one contact", category: "Receivables", Component: ContactTransactionsSummary },
   { key: "income-expense-by-contact", label: "Income and Expenses by Contact", description: "Per-contact income and spend across comparison months", category: "Receivables", Component: IncomeExpensesByContact },
@@ -91,6 +102,7 @@ export const REPORTS: ReportEntry[] = [
   { key: "account-transactions", label: "Account Transactions", description: "Transactions for chosen accounts over a period", category: "Ledger", Component: AccountTransactions },
   { key: "tb", label: "Trial Balance", description: "Debits and credits across all accounts, with year comparison", category: "Ledger", Component: TrialBalanceReport },
   { key: "journal", label: "Journal Report", description: "Every posted journal with its balanced lines", category: "Ledger", Component: JournalReport },
+  { key: "audit-trail", label: "Audit Trail", description: "Every posted journal line for a period, filterable by document prefix", category: "Ledger", Component: AuditTrail },
 
   // Financial statements & tax — live in the General Ledger section (guru:
   // mirror the legacy software's GL menu — GL / TB / Journal / GST / P&L+BS /
@@ -262,14 +274,39 @@ function ReportsInner({
   const router = useRouter();
   const searchParams = useSearchParams();
   const { organization } = useOrganization();
+  const { isLegacyAccountingUxEnabled } = useOrganizationFeatures();
   const { favourites, toggle: toggleFavourite } = useFavouriteReports(organization?.id);
 
   const rawTab = searchParams.get("tab");
-  // Active report scans the FULL registry, so any ?tab= deep-link (e.g. the Hub
-  // anomaly links to ?tab=audit / ?tab=gst) resolves from any section page.
-  const activeReport = useMemo(() => REPORTS.find((r) => r.key === rawTab) || null, [rawTab]);
+  // Legacy-UX-only reports: hidden from the directory (and unresolvable via
+  // ?tab=) for orgs without the enableLegacyAccountingUx flag.
+  const LEGACY_ONLY_REPORT_KEYS = ["debtor-statement", "audit-trail", "receipt-listing", "summary-ageing", "detailed-ageing", "debtor-listing", "historical-listing"];
+  const visibleReports = useMemo(
+    () => (isLegacyAccountingUxEnabled ? REPORTS : REPORTS.filter((r) => !LEGACY_ONLY_REPORT_KEYS.includes(r.key))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isLegacyAccountingUxEnabled],
+  );
+  // Active report scans the FULL (flag-filtered) registry, so any ?tab=
+  // deep-link (e.g. the Hub anomaly links to ?tab=audit / ?tab=gst) resolves
+  // from any section page.
+  const activeReport = useMemo(() => visibleReports.find((r) => r.key === rawTab) || null, [visibleReports, rawTab]);
+
+  // Legacy accounting UX (feature flag): entering the AR section lands straight
+  // on the AR workspace (legacy software's "Accounts Receivable" home — KPIs +
+  // customer balances), not the report directory. Reports stay reachable via
+  // the workspace's View Reports dialog; ?tab= deep-links still win.
+  const legacyLanding =
+    !rawTab && isLegacyAccountingUxEnabled && categories.length === 1 && categories[0] === "Receivables"
+      ? REPORTS.find((r) => r.key === "ar") || null
+      : null;
 
   const [search, setSearch] = useState("");
+
+  // (after all hooks) Legacy-UX landing takes over the AR directory view.
+  if (legacyLanding && !activeReport) {
+    const LandingComponent = legacyLanding.Component;
+    return <LandingComponent />;
+  }
 
   const openReport = (key: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -277,7 +314,20 @@ function ReportsInner({
     router.replace(`${basePath}?${params.toString()}`);
   };
 
+  // An explicit ?back=<portal path> wins over the directory — set by pages
+  // that deep-link into a report (e.g. the Official Receipt's side rail) so
+  // Back returns to where the user actually came from. Validated to an
+  // in-portal path so a crafted link can't redirect elsewhere.
+  const backTarget = (() => {
+    const b = searchParams.get("back");
+    return b && b.startsWith("/portal") ? b : null;
+  })();
+
   const goToDirectory = () => {
+    if (backTarget) {
+      router.push(backTarget);
+      return;
+    }
     const params = new URLSearchParams(searchParams.toString());
     params.delete("tab");
     const qs = params.toString();
@@ -311,7 +361,7 @@ function ReportsInner({
             onClick={goToDirectory}
             sx={{ textTransform: "none", color: "text.secondary" }}
           >
-            Back to {title}
+            {backTarget ? "Back" : `Back to ${title}`}
           </Button>
           <Typography variant="subtitle1" sx={{ fontWeight: 600, flex: 1, color: "text.primary" }}>
             {activeReport.label}
@@ -336,7 +386,7 @@ function ReportsInner({
     r.description.toLowerCase().includes(term) ||
     r.category.toLowerCase().includes(term);
 
-  const sectionReports = REPORTS.filter(inSection);
+  const sectionReports = visibleReports.filter(inSection);
   const favouriteReports = sectionReports.filter((r) => favourites.has(r.key) && matches(r));
 
   const grouped = new Map<ReportCategory, ReportEntry[]>();

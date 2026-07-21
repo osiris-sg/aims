@@ -118,6 +118,15 @@ import { useGetInventoriesForItemTable } from "../hooks/useGetInventoriesForItem
 import { getTemplateFormFields } from "../utils/templateFieldSync";
 import { useGetDocuments } from "@/app/portal/hooks/api";
 import { TemplateFieldConfig } from "../types/templateFieldTypes";
+import {
+  OrReceiptNoInput,
+  OrCustomerInput,
+  OrCreditInput,
+  OrDebitInput,
+  OrAmountInput,
+  OfficialReceiptOffsetSection,
+  receiptCustomerPatch,
+} from "./OfficialReceiptSection";
 import { getDocumentListRoute, getListRouteFromPathname } from "@/app/portal/components/documentRoutes"; // co-pkg: depends on fa8351c
 
 // Helper to determine the parent route based on document type
@@ -443,6 +452,10 @@ export default function TabbedDocumentCreator({
   const isStockAdjustmentOut = documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_OUT";
   const isStockAdjustment = isStockAdjustmentIn || isStockAdjustmentOut;
   const isDeliveryOrder = documentType === "DO" || documentType === "DELIVERY_ORDER";
+  // Official Receipt (legacy accounting UX): the receipt lives in this editor
+  // like any document — its own field rows + the Offset Transactions grid in
+  // place of the items table. Saves route to PUT /receipts (page onSave).
+  const isOfficialReceipt = documentType === "OFFICIAL_RECEIPT" || documentType === "OR";
   const isQuotation =
     documentType === "QUOTATION" ||
     documentType === "QO" ||
@@ -560,12 +573,19 @@ export default function TabbedDocumentCreator({
     return result;
   }, [onSave, lockEnabled, lockReadOnly, lock.lostLock, lock.holderName, lock.version, lock.refreshVersion]);
 
-  // Draft autosave: while we hold the lock on a persisted draft, edits save
-  // automatically (debounced) so there's no manual Save button — Confirm stays
-  // explicit. New (unsaved) drafts and the template editor keep the manual Save.
-  const autosaveActive = lockEnabled && !lockReadOnly && !isTemplateEditMode;
+  // Manual-save model (2026-07-15, global): autosave is RETIRED. Documents are
+  // edited freely in memory and persist only on Save — which also posts the
+  // document to the GL (save = post; re-save = void old journal + repost).
+  // Leaving with unsaved changes prompts Save / Discard. Confirm stays the
+  // finalise/stock/lock step and no longer owns GL.
+  const autosaveActive = false;
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const isAutosavingRef = useRef(false);
+  // Render-visible dirty flag (isDirtyRef mirrors it for non-render checks).
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  // Save / Discard / Cancel prompt when navigating away with unsaved edits.
+  const [unsavedExitDialogOpen, setUnsavedExitDialogOpen] = useState(false);
+  const exitAfterPromptRef = useRef<string | null>(null);
 
   // Past descriptions history hook
   const { pastDescriptions, isLoading: isLoadingDescriptions } = usePastDescriptions();
@@ -777,6 +797,9 @@ export default function TabbedDocumentCreator({
     remarks: existingData?.remarks || "",
     agreementText: existingData?.agreementText || "",
     title: existingData?.title || "",
+    // Official Receipt state (header amounts + offset allocations) — rides in
+    // formData so dirty tracking / exit prompt / Save all work unchanged.
+    orData: existingData?.orData || null,
   });
 
   // Load template field configuration
@@ -876,11 +899,13 @@ export default function TabbedDocumentCreator({
   const markEdited = lock.markEdited;
   const setFormData = useCallback((update: any) => {
     isDirtyRef.current = true;
+    setHasUnsavedChanges(true);
     markEdited(); // real edit → bump the lock's idle clock on next heartbeat
     setFormDataState(update);
   }, [markEdited]);
   const setItems = useCallback((update: any) => {
     isDirtyRef.current = true;
+    setHasUnsavedChanges(true);
     markEdited();
     setItemsState(update);
   }, [markEdited]);
@@ -1905,6 +1930,8 @@ export default function TabbedDocumentCreator({
       TI2: "Tax Invoice",
       INVOICE: "Tax Invoice",
       MSR: "Maintenance Service Report",
+      OFFICIAL_RECEIPT: "Official Receipt",
+      OR: "Official Receipt",
     };
     return titles[documentType] || "Document";
   };
@@ -2598,11 +2625,49 @@ export default function TabbedDocumentCreator({
   // Xero-style per-document "History & notes" drawer (⋮ menu).
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
 
+  // Official Receipt delete (⋮ menu) — server voids the JE, removes the
+  // allocation payments and restores invoice statuses (idempotent DELETE).
+  const [orDeleteConfirmOpen, setOrDeleteConfirmOpen] = useState(false);
+  const handleDeleteReceipt = async () => {
+    setOrDeleteConfirmOpen(false);
+    const docId = existingData?.id || documentId;
+    if (!docId) return;
+    try {
+      const token = await getToken();
+      if (!token) {
+        toast.error("Authentication required");
+        return;
+      }
+      await request({ path: `/receipts/${docId}`, method: "DELETE" }, {}, token);
+      toast.success("Receipt deleted — journal voided");
+      isDirtyRef.current = false;
+      setHasUnsavedChanges(false);
+      router.push(resolveBackRoute(documentType));
+    } catch (error) {
+      console.error("Error deleting receipt:", error);
+      toast.error("Failed to delete receipt");
+    }
+  };
+
   const handleAddNewDocument = async () => {
     try {
       const token = await getToken();
       if (!token) {
         toast.error("Authentication required");
+        return;
+      }
+      // Receipts have their own create endpoint (OR-###### numbering, control
+      // accounts prefilled) and their own edit route.
+      if (isOfficialReceipt) {
+        const response = await request({ path: "/receipts", method: "POST" }, {}, token);
+        const newId = response?.data?.id || response?.id;
+        if (newId) {
+          toast.success("New Official Receipt created");
+          onDocumentCreated?.();
+          router.push(`/portal/accounting/receipts/${newId}${typeof window !== "undefined" ? window.location.search : ""}`);
+        } else {
+          toast.error(response?.message || "Failed to create receipt");
+        }
         return;
       }
       const templateId = existingData?.documentTemplateId || pathSegments[3] || documentId;
@@ -2921,43 +2986,69 @@ export default function TabbedDocumentCreator({
       return;
     }
 
-    const pending = isDirtyRef.current || isAutosavingRef.current || saveStatus === "saving";
+    const pending = isDirtyRef.current || saveStatus === "saving";
     if (!pending) {
       router.push(backRoute);
       return;
     }
-    setSavingExitDialogOpen(true);
+    // Manual-save model: never silently save on exit — the user decides.
+    exitAfterPromptRef.current = backRoute;
+    setUnsavedExitDialogOpen(true);
+  };
+
+  // Save the current editor state (the manual Save action; also used by the
+  // exit prompt's "Save & leave"). Saving posts the document to the GL
+  // server-side (void old journal + repost on every save).
+  const performManualSave = async (): Promise<boolean> => {
+    // Official Receipt: server posts ONE journal on save, so the receipt must
+    // be complete and fully allocated (legacy rule: Balance 0.00, no
+    // on-account credit) before it can leave the editor.
+    if (isOfficialReceipt) {
+      const od: any = (formData as any).orData || {};
+      const orReceived = Math.round((parseFloat(od.receiptAmount) || 0) * 100) / 100;
+      const orOffset = Math.round(
+        ((Array.isArray(od.allocations) ? od.allocations : []) as any[]).reduce(
+          (s, a) => s + (Number(a.amount) || 0), 0) * 100,
+      ) / 100;
+      const orError = !formData.customer?.id
+        ? "Select a customer first"
+        : !od.debitAccountCode
+        ? "Select the account to DEBIT (deposit to)"
+        : orReceived <= 0
+        ? "Enter the receipt amount"
+        : Math.abs(orReceived - orOffset) > 0.005
+        ? "Balance must be 0.00 — allocate the full receipt amount to invoices"
+        : null;
+      if (orError) {
+        toast.error(orError);
+        return false;
+      }
+    }
+    setSaveStatus("saving");
     try {
-      // Let any in-flight autosave settle first (avoids a double-save / version race).
-      let waited = 0;
-      while (isAutosavingRef.current && waited < 15000) {
-        await new Promise((r) => setTimeout(r, 150));
-        waited += 150;
+      const name = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || "SYS";
+      const ts = new Date().toISOString();
+      if (isTemplateEditMode) {
+        await guardedSave({ ...formData, config: templateMethods.getValues() });
+      } else {
+        await guardedSave({
+          ...formData,
+          items,
+          name: formData.name || (formData?.documentInfo as any)?.documentNumber,
+          savedBy: name,
+          savedAt: ts,
+          lastUsedBy: name,
+          lastUsedAt: ts,
+        });
+        await persistProjectLinkIfChanged();
       }
-      if (isDirtyRef.current) {
-        setSaveStatus("saving");
-        const name = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || "SYS";
-        const ts = new Date().toISOString();
-        if (isTemplateEditMode) {
-          await guardedSave({ ...formData, config: templateMethods.getValues() });
-        } else {
-          await guardedSave({
-            ...formData,
-            items,
-            name: formData.name || (formData?.documentInfo as any)?.documentNumber,
-            savedBy: name,
-            savedAt: ts,
-            lastUsedBy: name,
-            lastUsedAt: ts,
-          });
-          await persistProjectLinkIfChanged();
-        }
-        isDirtyRef.current = false;
-        setSaveStatus("saved");
-      }
-    } finally {
-      setSavingExitDialogOpen(false);
-      router.push(backRoute);
+      isDirtyRef.current = false;
+      setHasUnsavedChanges(false);
+      setSaveStatus("saved");
+      return true;
+    } catch {
+      setSaveStatus("error");
+      return false;
     }
   };
 
@@ -3097,9 +3188,23 @@ export default function TabbedDocumentCreator({
     }
   };
 
+  // Browser-level guard: closing/refreshing the tab with unsaved edits gets
+  // the native "leave site?" prompt (in-app navigation uses the Save/Discard
+  // dialog via handleBackClick).
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [hasUnsavedChanges]);
+
   // Debounce: 2s after the last edit, autosave the draft. Re-runs on every
   // items/formData change (resetting the timer), so it only fires once editing
   // pauses. Gated on holding the lock + having real unsaved edits (isDirtyRef).
+  // RETIRED under the manual-save model — autosaveActive is hard false.
   useEffect(() => {
     if (!autosaveActive) return;
     if (!isDirtyRef.current) return;
@@ -3249,7 +3354,7 @@ export default function TabbedDocumentCreator({
               </Tooltip>
             </>
           )}
-          {!isTemplateEditMode && (
+          {!isTemplateEditMode && !isOfficialReceipt && (
             <Button
               size="small"
               variant={assistantOpen ? "contained" : "outlined"}
@@ -3413,7 +3518,7 @@ export default function TabbedDocumentCreator({
             </Button>
           )}
           {/* Confirm button for non-Purchase Order/Return, non-Quotation, non-Stock Adjustment, non-DO, and non-Invoice documents */}
-          {!isDocumentConfirmed && !isTemplateEditMode && !isPurchaseDocument && !isStockAdjustment && !isDeliveryOrder && !isInvoiceType &&
+          {!isDocumentConfirmed && !isTemplateEditMode && !isPurchaseDocument && !isStockAdjustment && !isDeliveryOrder && !isInvoiceType && !isOfficialReceipt &&
            !(documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (
             <Button
               size="small"
@@ -3491,45 +3596,26 @@ export default function TabbedDocumentCreator({
             </Typography>
           )}
           {!isDocumentConfirmed && !autosaveActive && (
-            <Button
-              size="small"
-              variant="contained"
-              startIcon={<SaveIcon />}
-              onClick={async () => {
-                // Get current user info for tracking
-                const currentUserName = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || 'SYS';
-                const currentTimestamp = new Date().toISOString();
-
-                if (isTemplateEditMode) {
-                  // Save template configuration
-                  const templateConfig = templateMethods.getValues();
-                  await guardedSave({ ...formData, config: templateConfig });
-                  toast.success("Template saved");
-                } else {
-                  // Save document data with name field, items, and tracking info
-                  const saveData = {
-                    ...formData,
-                    items: items,
-                    name: formData.name || formData.documentInfo.documentNumber,
-                    // Tracking info for draft save
-                    savedBy: currentUserName,
-                    savedAt: currentTimestamp,
-                    lastUsedBy: currentUserName,
-                    lastUsedAt: currentTimestamp,
-                  };
-                  console.log("Direct Save - Data being sent to onSave:", saveData);
-                  console.log("Direct Save - deliveryTo in saveData:", saveData.deliveryTo);
-                  console.log("Direct Save - issueBy in saveData:", saveData.issueBy);
-                  console.log("Direct Save - Items in saveData:", JSON.stringify(saveData.items, null, 2));
-                  await guardedSave(saveData);
-                  // Persist any pending quotation→project link.
-                  await persistProjectLinkIfChanged();
-                  toast.success("Document saved as draft");
-                }
-              }}
-            >
-              {isTemplateEditMode ? "Save Template" : isQuotation ? "Save" : "Save as Draft"}
-            </Button>
+            <>
+              {hasUnsavedChanges && saveStatus !== "saving" && (
+                <Typography variant="body2" sx={{ color: "warning.main", fontWeight: 600, px: 0.5 }}>
+                  Unsaved changes
+                </Typography>
+              )}
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={saveStatus === "saving" ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />}
+                disabled={saveStatus === "saving"}
+                onClick={async () => {
+                  const ok = await performManualSave();
+                  if (ok) toast.success(isTemplateEditMode ? "Template saved" : "Document saved");
+                  else toast.error("Save failed — please try again");
+                }}
+              >
+                {isTemplateEditMode ? "Save Template" : "Save"}
+              </Button>
+            </>
           )}
           {isDocumentConfirmed && (
             <Typography
@@ -3569,7 +3655,7 @@ export default function TabbedDocumentCreator({
               <ListItemIcon><AddIcon fontSize="small" /></ListItemIcon>
               <ListItemText>New {getDocumentTitle()}</ListItemText>
             </MenuItem>
-            {(existingData?.id || documentId) && (
+            {(existingData?.id || documentId) && !isOfficialReceipt && (
               <MenuItem onClick={() => { closeMoreMenu(); handleDuplicateDocument(); }}>
                 <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Duplicate</ListItemText>
@@ -3609,14 +3695,24 @@ export default function TabbedDocumentCreator({
               <ListItemIcon><SearchIcon fontSize="small" /></ListItemIcon>
               <ListItemText>Locate</ListItemText>
             </MenuItem>
-            <MenuItem onClick={() => { closeMoreMenu(); setStockCardDialogOpen(true); }}>
-              <ListItemIcon><InventoryIcon fontSize="small" /></ListItemIcon>
-              <ListItemText>Stock Card</ListItemText>
-            </MenuItem>
+            {!isOfficialReceipt && (
+              <MenuItem onClick={() => { closeMoreMenu(); setStockCardDialogOpen(true); }}>
+                <ListItemIcon><InventoryIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Stock Card</ListItemText>
+              </MenuItem>
+            )}
             {(existingData?.id || documentId) && (
               <MenuItem onClick={() => { closeMoreMenu(); setHistoryDrawerOpen(true); }}>
                 <ListItemIcon><HistoryIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>History &amp; notes</ListItemText>
+              </MenuItem>
+            )}
+            {/* Receipts: legacy toolbar's Delete — voids the journal and
+                restores the allocated invoices to outstanding. */}
+            {isOfficialReceipt && (existingData?.id || documentId) && (
+              <MenuItem onClick={() => { closeMoreMenu(); setOrDeleteConfirmOpen(true); }} sx={{ color: "error.main" }}>
+                <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
+                <ListItemText>Delete</ListItemText>
               </MenuItem>
             )}
             {/* AI posting-preview ("Review") for Invoices — suggests a revenue
@@ -3789,7 +3885,7 @@ export default function TabbedDocumentCreator({
           {/* Dynamic Tabs based on template config */}
           {templateFieldConfig?.tabs.map((tab, index) => (
             <TabPanel key={tab.tabId} value={mainTabValue} index={index}>
-              <Card sx={{ flexShrink: 0, maxHeight: 320, display: "flex", flexDirection: "column" }}>
+              <Card sx={{ flexShrink: 0, maxHeight: isOfficialReceipt ? 420 : 320, display: "flex", flexDirection: "column" }}>
                 <CardContent sx={{ p: 1, flex: 1, overflow: "auto", "&:last-child": { pb: 1 } }}>
                   <Collapse in={!isFieldsCollapsed} timeout="auto" unmountOnExit>
                   {/* Quotations: drop the RE (documentInfo.subject) row — replaced
@@ -3856,7 +3952,32 @@ export default function TabbedDocumentCreator({
                         : []
                     }
                     customInputs={
-                      // Biofuel DO: Reference No = quotation picker (Customer-code
+                      // Official Receipt: the legacy header rows that need more
+                      // than a plain input (read-only number, customer picker
+                      // without the attention trio, account echoes, amount trio).
+                      isOfficialReceipt
+                        ? {
+                            orReceiptNo: <OrReceiptNoInput formData={formData} setFormData={setFormData} />,
+                            orCustomer: (
+                              <OrCustomerInput
+                                formData={formData}
+                                setFormData={setFormData}
+                                customers={customers}
+                                onOpenDialog={() => {
+                                  // Same shared Locate Customer dialog as every
+                                  // other document's Customer-code field.
+                                  setCustomerFieldName("customer");
+                                  setCustomerStoreMode("object");
+                                  setIsSupplierDialog(false);
+                                  setCustomerDialogOpen(true);
+                                }}
+                              />
+                            ),
+                            orCredit: <OrCreditInput formData={formData} setFormData={setFormData} />,
+                            orDebit: <OrDebitInput formData={formData} setFormData={setFormData} />,
+                            orAmountRow: <OrAmountInput formData={formData} setFormData={setFormData} />,
+                          }
+                        : // Biofuel DO: Reference No = quotation picker (Customer-code
                       // pattern — search icon opens the dialog). Editor shows just
                       // the quotation number; the confirm date is stored alongside
                       // and only printed ("Our Ref. No : QO… dated dd/mm/yyyy").
@@ -4571,7 +4692,16 @@ export default function TabbedDocumentCreator({
             </TabPanel>
           )}
 
-          {/* ITEMS SECTION - Always visible */}
+          {/* ITEMS SECTION - Always visible (Official Receipts swap it for the
+              legacy Offset Transactions grid — allocations, not line items) */}
+          {isOfficialReceipt ? (
+            <OfficialReceiptOffsetSection
+              formData={formData}
+              setFormData={setFormData}
+              receiptId={(existingData?.id || documentId) as string | undefined}
+              disabled={lockReadOnly}
+            />
+          ) : (
           <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
             <Card sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
               <CardContent sx={{ p: 1, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>
@@ -5621,6 +5751,7 @@ export default function TabbedDocumentCreator({
               </CardContent>
             </Card>
           </Box>
+          )}
           </Box>
         ) : (
           // PREVIEW MODE - Show clean document layout
@@ -5646,6 +5777,29 @@ export default function TabbedDocumentCreator({
                     (existingData as any)?.columnLabels ?? existingData?.config?.columnLabels,
                   internalColumns:
                     (existingData as any)?.internalColumns ?? existingData?.config?.internalColumns,
+                  // Official Receipt: map the editor state onto the preview's
+                  // OFFICIAL_RECEIPT data contract (allocations are stored
+                  // enriched with reference/date/description by the grid).
+                  ...(isOfficialReceipt
+                    ? (() => {
+                        const od: any = (formData as any).orData || {};
+                        return {
+                          receiptNumber: formData.documentInfo?.documentNumber || formData.name,
+                          date: od.date,
+                          chequeNo: od.chequeNo,
+                          remarks: od.remarks,
+                          customerLabel: formData.customer?.id
+                            ? `${formData.customer.customerCode ? `${formData.customer.customerCode} — ` : ""}${formData.customer.name || ""}`
+                            : "",
+                          paymentMethod: od.chequeNo ? "cheque" : "transfer",
+                          currency: od.currency || "SGD",
+                          rate: Number(od.rate) || 1,
+                          receiptAmount: Number(od.receiptAmount) || 0,
+                          depositLabel: od.depositLabel || od.debitAccountCode || "",
+                          allocations: Array.isArray(od.allocations) ? od.allocations : [],
+                        };
+                      })()
+                    : {}),
                 }}
                 organization={organization}
                 // Field-tech delivery reports linked to this document. When
@@ -5741,6 +5895,62 @@ export default function TabbedDocumentCreator({
             </Typography>
           </Box>
         </DialogContent>
+      </Dialog>
+
+      {/* Unsaved-changes exit prompt (manual-save model): the user decides. */}
+      <Dialog
+        open={unsavedExitDialogOpen}
+        onClose={() => saveStatus !== "saving" && setUnsavedExitDialogOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 2 } }}
+      >
+        <DialogTitle>Unsaved changes</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            This document has changes that haven't been saved.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button
+            onClick={() => setUnsavedExitDialogOpen(false)}
+            disabled={saveStatus === "saving"}
+          >
+            Keep editing
+          </Button>
+          <Button
+            color="error"
+            onClick={() => {
+              isDirtyRef.current = false;
+              setHasUnsavedChanges(false);
+              setUnsavedExitDialogOpen(false);
+              const dest = exitAfterPromptRef.current;
+              exitAfterPromptRef.current = null;
+              if (dest) router.push(dest);
+            }}
+            disabled={saveStatus === "saving"}
+          >
+            Discard changes
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={saveStatus === "saving" ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />}
+            disabled={saveStatus === "saving"}
+            onClick={async () => {
+              const ok = await performManualSave();
+              if (!ok) {
+                toast.error("Save failed — staying on the document");
+                return;
+              }
+              setUnsavedExitDialogOpen(false);
+              const dest = exitAfterPromptRef.current;
+              exitAfterPromptRef.current = null;
+              if (dest) router.push(dest);
+            }}
+          >
+            Save &amp; leave
+          </Button>
+        </DialogActions>
       </Dialog>
 
       {/* Confirm Document Dialog */}
@@ -6210,11 +6420,35 @@ export default function TabbedDocumentCreator({
         documents={documentsForLocate}
         documentLabel={getDocumentTitle()}
         onSelectDocument={(doc) => {
+          // Receipts live on their own route (saves go to PUT /receipts).
+          if (isOfficialReceipt) {
+            router.push(`/portal/accounting/receipts/${doc.id}${typeof window !== "undefined" ? window.location.search : ""}`);
+            return;
+          }
           // Navigate to the selected document
           const urlType = pathSegments[2] || documentType;
           router.push(`/portal/documents/${urlType}/${doc.templateId}/${doc.id}`);
         }}
       />
+
+      {/* Official Receipt delete confirmation (⋮ menu → Delete) */}
+      {isOfficialReceipt && (
+        <Dialog open={orDeleteConfirmOpen} onClose={() => setOrDeleteConfirmOpen(false)} maxWidth="xs" fullWidth>
+          <DialogTitle>Delete receipt</DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              Delete {formData.documentInfo?.documentNumber || formData.name || "this receipt"}? Its journal will be
+              voided and the allocated invoices restored to outstanding.
+            </Typography>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button onClick={() => setOrDeleteConfirmOpen(false)}>Cancel</Button>
+            <Button color="error" variant="contained" onClick={handleDeleteReceipt}>
+              Delete
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
 
       {/* AI Document Assistant sidebar — always available in the editor */}
       {!isTemplateEditMode && (
@@ -6809,6 +7043,9 @@ export default function TabbedDocumentCreator({
                 ...(customerCurrency ? { currency: customerCurrency } : {}),
               },
               ...(customerCurrency ? { currency: customerCurrency } : {}),
+              // Official Receipt: a customer switch invalidates the offset
+              // allocations and pulls the receipt currency from the master.
+              ...(isOfficialReceipt ? { orData: receiptCustomerPatch(formData, customer).orData } : {}),
             });
             // Call the customer change handler to fetch related data
             if (onCustomerChange && customer.id) {

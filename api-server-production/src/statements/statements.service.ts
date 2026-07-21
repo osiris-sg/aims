@@ -1,5 +1,6 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { docRef, refWith } from '../common/doc-ref';
 import { GenerateSOADto } from './dto/generate-soa.dto';
 
 export interface AgingBucket {
@@ -69,17 +70,20 @@ export class StatementsService {
         const gross = R(c.xeroGross ?? c.totalAmount ?? 0);
         if (gross <= 0) continue;
         if (doc.type === 'INVOICE') {
-          add(d, { date: d, reference: doc.name || '(no #)', description: `Invoice ${doc.name || ''}`.trim(), transactionType: 'INVOICE', debit: gross, credit: 0, balance: 0, documentType: 'INVOICE' }, gross);
+          add(d, { date: d, reference: docRef(doc.type, doc.name || '(no #)'), description: `Invoice ${doc.name || ''}`.trim(), transactionType: 'INVOICE', debit: gross, credit: 0, balance: 0, documentType: 'INVOICE' }, gross);
           const paid = R(gross - R(c.xeroBalance ?? gross));
           if (isXero && paid > 0.005) {
-            add(d, { date: d, reference: doc.name || '', description: `Payment / credits applied — ${doc.name || ''}`.trim(), transactionType: 'PAYMENT', debit: 0, credit: paid, balance: 0, documentType: 'PAYMENT' }, -paid);
+            add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: `Payment / credits applied — ${doc.name || ''}`.trim(), transactionType: 'PAYMENT', debit: 0, credit: paid, balance: 0, documentType: 'PAYMENT' }, -paid);
           }
         } else if (doc.type === 'CREDIT_NOTE' && !isXero) {
-          add(d, { date: d, reference: doc.name || '', description: `Credit Note ${doc.name || ''}`.trim(), transactionType: 'CREDIT_NOTE', debit: 0, credit: gross, balance: 0, documentType: 'CREDIT_NOTE' }, -gross);
+          add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: `Credit Note ${doc.name || ''}`.trim(), transactionType: 'CREDIT_NOTE', debit: 0, credit: gross, balance: 0, documentType: 'CREDIT_NOTE' }, -gross);
         }
       }
       for (const p of payments) {
-        add(p.paymentDate, { date: p.paymentDate, reference: p.reference || p.id.slice(0, 8), description: `Payment via ${p.paymentMethod || ''}${p.reference ? ` ref ${p.reference}` : ''}`.trim(), transactionType: 'PAYMENT', debit: 0, credit: p.amount, balance: 0, documentType: 'PAYMENT', paymentMethod: p.paymentMethod }, -p.amount);
+        // Customer money in = REC; Manual Offsets stay plain (a function, not
+        // a document type — guru's prefix plan).
+        const payRef = p.reference || p.id.slice(0, 8);
+        add(p.paymentDate, { date: p.paymentDate, reference: p.paymentMethod === 'offset' ? payRef : refWith('REC', payRef), description: `Payment via ${p.paymentMethod || ''}${p.reference ? ` ref ${p.reference}` : ''}`.trim(), transactionType: 'PAYMENT', debit: 0, credit: p.amount, balance: 0, documentType: 'PAYMENT', paymentMethod: p.paymentMethod }, -p.amount);
       }
 
       all.sort((a, b) => a.date.getTime() - b.date.getTime());
@@ -389,8 +393,10 @@ export class StatementsService {
       txs.push({
         date: d,
         type: 'BILL',
-        reference: b.name || '(no #)',
-        description: `Bill ${b.name || ''}`.trim(),
+        // Supplier Invoice = SIN (doc-type prefix plan; "bill" reads as
+        // "Supplier Invoice" in reports — guru).
+        reference: refWith('SIN', b.name || '(no #)'),
+        description: `Supplier Invoice ${b.name || ''}`.trim(),
         debit: gross,
         credit: 0,
         balance: 0,
@@ -404,7 +410,8 @@ export class StatementsService {
         txs.push({
           date: d,
           type: 'PAYMENT',
-          reference: b.name || '(no #)',
+          // Supplier payment = P/V (doc-type prefix plan).
+          reference: refWith('P/V', b.name || '(no #)'),
           description: `Payment for ${b.name || ''}`.trim(),
           debit: 0,
           credit: gross,
@@ -426,7 +433,8 @@ export class StatementsService {
       txs.push({
         date: d,
         type: 'PAYMENT',
-        reference: linkedBill?.name || p.reference || p.id.slice(0, 8),
+        // Supplier payment = P/V (doc-type prefix plan).
+        reference: refWith('P/V', linkedBill?.name || p.reference || p.id.slice(0, 8)),
         description: `Payment via ${p.paymentMethod}${p.reference ? ` ref ${p.reference}` : ''}`,
         debit: 0,
         credit: p.amount,

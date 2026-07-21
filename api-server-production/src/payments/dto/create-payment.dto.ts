@@ -47,6 +47,11 @@ export class CreatePaymentDto {
   @IsNotEmpty()
   paymentMethod: string;
 
+  @ApiProperty({ description: '"Deposit to" GL account code (bank/cash) for the journal — org defaults apply when omitted', required: false })
+  @IsString()
+  @IsOptional()
+  cashAccountCode?: string;
+
   @ApiProperty({ description: 'Reference number (check number, transfer reference)', required: false })
   @IsString()
   @IsOptional()

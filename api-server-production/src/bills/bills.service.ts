@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
 import { JournalService } from '../journal/journal.service';
+import { refWith } from '../common/doc-ref';
 import { ChartOfAccountsService } from '../accounting/chart-of-accounts.service';
 import { AccountMemoryService } from '../account-memory/account-memory.service';
 
@@ -147,6 +148,11 @@ export class BillsService {
       inboundChannel: c.inboundChannel || (c.xeroImported ? 'XERO' : 'MANUAL'),
       inboundMeta: c.inboundMeta || null,
       journalEntryId: c.journalEntryId || null,
+      // Xero linkage: present when the bill was pushed to Xero (or imported
+      // from it). xeroSyncStatus mirrors the Xero-side doc status.
+      xeroBillId: c.xeroBillId || null,
+      xeroSyncStatus: c.xeroBillId ? c.xeroStatus || 'SYNCED' : null,
+      xeroSyncedAt: c.xeroSyncedAt || null,
       approvedBy: c.approvedBy || null,
       approvedAt: c.approvedAt || null,
       postedAt: c.postedAt || null,
@@ -446,7 +452,8 @@ export class BillsService {
       {
         entryDate: new Date(bill.billDate).toISOString(),
         type: 'BILL' as any,
-        reference: bill.billNumber,
+        // Supplier Invoice = SIN (doc-type prefix plan).
+        reference: refWith('SIN', bill.billNumber),
         description: `Bill from supplier (id=${bill.supplierId})`,
         lines,
       },
@@ -950,7 +957,8 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       {
         entryDate: dto.paymentDate,
         type: 'PAYMENT' as any,
-        reference: dto.reference || bill.billNumber,
+        // Supplier payment = P/V payment voucher (doc-type prefix plan).
+        reference: refWith('P/V', dto.reference || bill.billNumber),
         description: `Payment voucher — bill ${bill.billNumber}`,
         lines: [
           { accountId: creditor.id, debit: dto.amount, credit: 0, description: `Settle AP — ${bill.billNumber}` },

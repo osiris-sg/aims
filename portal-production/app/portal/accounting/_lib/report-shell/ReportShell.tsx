@@ -4,13 +4,15 @@
 // Update button, white report card, and a footer bar (compact toggle, row
 // info, export). All colors via theme tokens — dark-mode safe.
 
-import React from "react";
+import React, { useState } from "react";
 import {
-  Box, Button, CircularProgress, FormControlLabel,
-  Stack, Switch, Tooltip, Typography,
+  Box, Button, CircularProgress, FormControlLabel, InputAdornment,
+  Stack, Switch, TextField, Tooltip, Typography,
 } from "@mui/material";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import PrintOutlinedIcon from "@mui/icons-material/PrintOutlined";
+import SearchIcon from "@mui/icons-material/Search";
+import { ReportSearchContext } from "./ReportTable";
 
 export interface ReportShellProps {
   title: string;
@@ -34,6 +36,9 @@ export default function ReportShell({
   title, filters, onUpdate, loading, headerLines,
   cardActions, footerInfo, onExportCsv, compact, onCompactChange, children,
 }: ReportShellProps) {
+  // In-report search — provided via context so every ReportTable in this
+  // report filters its rows live (guru 2026-07-15: search on ALL reports).
+  const [reportSearch, setReportSearch] = useState("");
   // NOTE: the hosting section page already shows "Back to X | <Report name>",
   // so the shell renders no header of its own — the report card carries the
   // title (guru, 2026-07-10).
@@ -74,9 +79,25 @@ export default function ReportShell({
                     <Typography key={l} variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>{l}</Typography>
                   ))}
                 </Box>
-                {cardActions}
+                <Stack direction="row" gap={1} alignItems="center">
+                  <TextField
+                    size="small"
+                    placeholder="Search report…"
+                    value={reportSearch}
+                    onChange={(e) => setReportSearch(e.target.value)}
+                    sx={{ width: 220, displayPrint: "none" }}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <SearchIcon fontSize="small" />
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                  {cardActions}
+                </Stack>
               </Stack>
-              {children}
+              <ReportSearchContext.Provider value={reportSearch}>{children}</ReportSearchContext.Provider>
             </Box>
           </Box>
 

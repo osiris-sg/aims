@@ -6,7 +6,7 @@ import { useGetCustomers } from "@/app/portal/hooks/api/useCustomers";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import type { FilterField } from "@/components/FilterDrawer";
-import { Box, IconButton, Alert, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button } from "@mui/material";
+import { Box, Chip, IconButton, Alert, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button } from "@mui/material";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import DownloadIcon from "@mui/icons-material/Download";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -214,6 +214,27 @@ export default function DocumentsPage() {
           >
             {formatStatus(status || "draft")}
           </Box>
+        );
+      },
+    },
+    {
+      // Xero sync state for GL-relevant docs (invoices / bills / credit &
+      // debit notes): grey "Not synced" until pushed to / imported from Xero,
+      // then green with the Xero-side status. Non-GL types show a dash.
+      accessorKey: "xeroSync",
+      header: "Xero",
+      enableSorting: false, // JSON-derived (config), not server-sortable
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      cell: ({ row }: any) => {
+        const GL_TYPES = ["INVOICE", "TI", "TI2", "BILL", "CREDIT_NOTE", "DEBIT_NOTE"];
+        const type = row.original.documentType;
+        if (!GL_TYPES.includes(type)) return <Box sx={{ color: "text.disabled" }}>—</Box>;
+        const cfg = row.original.config || {};
+        const xeroId = cfg.xeroInvoiceId || cfg.xeroBillId || cfg.xeroCreditNoteId;
+        return xeroId ? (
+          <Chip size="small" variant="outlined" color="success" label={`Xero · ${cfg.xeroStatus || "SYNCED"}`} sx={{ fontSize: "0.65rem" }} />
+        ) : (
+          <Chip size="small" variant="outlined" label="Not synced" sx={{ fontSize: "0.65rem", opacity: 0.6 }} />
         );
       },
     },

@@ -255,7 +255,10 @@ function CustomerCodeField({
         }}
         onKeyDown={handleKeyDown}
         size="small"
-        sx={{ ...inputSx, flex: 1, minWidth: 80 }}
+        // Compact code box + bold name echo beside it (guru 2026-07-17,
+        // adopted from the Official Receipt field) — the code identifies,
+        // the echoed company name confirms.
+        sx={{ ...inputSx, width: 180, flexShrink: 0 }}
         InputProps={{
           startAdornment: (
             <InputAdornment position="start" sx={{ mr: 0 }}>
@@ -271,6 +274,21 @@ function CustomerCodeField({
           ),
         }}
       />
+      {(() => {
+        // Object mode keeps the stored name even before the master list loads;
+        // code mode (suppliers) resolves the name from the looked-up record.
+        const echoName =
+          selectedCustomer?.name ||
+          (storeMode === 'object' ? currentValue?.name : '') ||
+          '';
+        return echoName ? (
+          <Typography
+            sx={{ fontSize: '13px', fontWeight: 700, fontFamily: fieldFontFamily, whiteSpace: 'nowrap' }}
+          >
+            {echoName}
+          </Typography>
+        ) : null;
+      })()}
       {/* Points-of-Contact ("Attn To") dropdown + inline "+ Add contact".
           Picking or creating a POC fills documentInfo.contact (name - phone)
           AND the attention.{name,phoneNumber,email} header/footer fields. The
@@ -486,7 +504,8 @@ function SalesmanCodeField({ salesmen, formData, setFormData, onOpenDialog, inpu
         }}
         onKeyDown={handleKeyDown}
         size="small"
-        sx={{ ...inputSx, flex: 1, minWidth: 60 }}
+        // Compact code box + bold name echo (same pattern as Customer code).
+        sx={{ ...inputSx, width: 180, flexShrink: 0 }}
         InputProps={{
           startAdornment: (
             <InputAdornment position="start" sx={{ mr: 0 }}>
@@ -502,6 +521,11 @@ function SalesmanCodeField({ salesmen, formData, setFormData, onOpenDialog, inpu
           ),
         }}
       />
+      {selectedSalesman?.name && (
+        <Typography sx={{ fontSize: '13px', fontWeight: 700, fontFamily: fieldFontFamily, whiteSpace: 'nowrap' }}>
+          {selectedSalesman.name}
+        </Typography>
+      )}
     </Box>
   );
 }
@@ -575,11 +599,16 @@ const HEADER_FIELD_ORDER = [
 const HEADER_INPUT_MAX_WIDTH: Record<string, number> = {
   'documentInfo.documentNumber': 300,
   'documentInfo.date': 180,
-  'documentInfo.salesPerson': 300,
+  // documentInfo.salesPerson deliberately uncapped: the code box is fixed at
+  // 180px and the salesman's name echoes beside it (needs the row width).
   'salesMobile': 300,
   'documentInfo.poNo': 420,
   'documentInfo.doNo': 420,
   'documentInfo.currency': 180,
+  // Official Receipt rows (legacy proportions)
+  'orData.date': 180,
+  'orData.chequeNo': 300,
+  'orData.remarks': 620,
 };
 
 // Exported so sibling components (e.g. the quotation Project picker row in

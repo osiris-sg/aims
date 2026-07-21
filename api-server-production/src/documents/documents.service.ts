@@ -7,6 +7,7 @@ import { XeroService } from 'src/common/xero.service';
 import { PriceHistoryService } from '../price-history/price-history.service';
 import { EmailService } from '../email/email.service';
 import { JournalAutoPostService } from '../journal/journal-auto-post.service';
+import { JournalService } from '../journal/journal.service';
 import { OrdersService } from '../orders/orders.service';
 import { DocumentTemplatesService } from '../documentTemplates/documentTemplates.service';
 import { DocumentNumberingService } from '../document-numbering/document-numbering.service';
@@ -31,6 +32,7 @@ export class DocumentsService {
     private priceHistoryService: PriceHistoryService,
     private emailService: EmailService,
     private journalAutoPost: JournalAutoPostService,
+    private journalService: JournalService,
     private s3Service: S3Service,
     private pdfGeneratorService: PdfGeneratorService,
     private ordersService: OrdersService,
@@ -66,6 +68,142 @@ export class DocumentsService {
         ...(opts.changes?.length ? { changes: opts.changes } : {}),
       },
     });
+  }
+
+
+  // ── GL on save (no-draft model, 2026-07-15) ──────────────────────────────
+  // Saving a transactional document posts it to the GL immediately; re-saving
+  // voids the previous journal (with a reversing entry) and posts a fresh one,
+  // so the ledger always mirrors the latest saved state. Confirm no longer
+  // owns GL — it remains the finalise / stock-deduction / lock step and only
+  // posts as a fallback when no entry exists (docs saved before this change).
+  private static readonly SAVE_GL_TYPES: Record<string, 'INVOICE' | 'CREDIT_NOTE' | 'DEBIT_NOTE' | 'PURCHASE_ORDER' | 'PURCHASE_RETURN'> = {
+    INVOICE: 'INVOICE', TI: 'INVOICE', TI2: 'INVOICE',
+    CN: 'CREDIT_NOTE', CREDIT_NOTE: 'CREDIT_NOTE',
+    DN: 'DEBIT_NOTE', DEBIT_NOTE: 'DEBIT_NOTE',
+    PO: 'PURCHASE_ORDER', PURCHASE_ORDER: 'PURCHASE_ORDER',
+    PR: 'PURCHASE_RETURN', PURCHASE_RETURN: 'PURCHASE_RETURN',
+  };
+
+  async repostGlForDocument(
+    organizationId: string,
+    documentId: string,
+    docType: string,
+    config: any,
+    documentName?: string | null,
+    actor?: DocumentActor,
+  ): Promise<void> {
+    const jeType = DocumentsService.SAVE_GL_TYPES[(docType || '').toUpperCase()];
+    if (!jeType) return;
+    try {
+      const cfg: any = config || {};
+      const di: any = cfg.documentInfo || {};
+      const items: any[] = cfg.items || [];
+      const partyName = cfg?.customer?.name || cfg?.customerName || cfg?.supplier?.name || cfg?.supplierName || null;
+
+      // Same totals precedence as the confirm-time posting paths.
+      const explicitNet = parseFloat(cfg?.subTotal ?? di?.subTotal ?? cfg?.summary?.subTotal ?? 'NaN');
+      const explicitTax = parseFloat(cfg?.gstAmount ?? di?.gstAmount ?? cfg?.summary?.taxAmount ?? cfg?.tax?.amount ?? 'NaN');
+      const explicitGross = parseFloat(cfg?.nettTotal ?? di?.nettTotal ?? cfg?.summary?.grandTotal ?? 'NaN');
+      const fallbackNet = items.reduce((sum: number, item: any) => {
+        const amt = parseFloat(item.amount) || (parseFloat(item.quantity) * parseFloat(item.unitPrice)) || 0;
+        return sum + amt;
+      }, 0);
+      const org = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { taxRate: true } });
+      const docPct = parseFloat(di?.gstPercent);
+      const rate = (Number.isFinite(docPct) ? docPct : (org?.taxRate ?? 0)) / 100;
+      const netAmount = !Number.isNaN(explicitNet) ? explicitNet : fallbackNet;
+      const taxAmount = !Number.isNaN(explicitTax) ? explicitTax : netAmount * rate;
+      const grossAmount = !Number.isNaN(explicitGross) ? explicitGross : netAmount + taxAmount;
+
+      const existing = await this.journalAutoPost.alreadyPostedForDocument(organizationId, documentId, jeType);
+
+      // Nothing postable yet (no items / zero gross) — void any stale entry so
+      // the GL never shows amounts the document no longer carries.
+      if (!(grossAmount > 0) || items.length === 0) {
+        if (existing) {
+          await this.journalService.void(organizationId, existing.id, actor?.id);
+          void this.logDocumentEvent({
+            documentId,
+            organizationId,
+            action: 'EDITED',
+            detail: `GL entry ${existing.journalNumber} voided — document no longer has postable amounts`,
+            documentName: documentName ?? undefined,
+            actor,
+          });
+        }
+        return;
+      }
+
+      if (existing) {
+        await this.journalService.void(organizationId, existing.id, actor?.id);
+      }
+
+      const entryDate = cfg?.date ? new Date(cfg.date) : new Date();
+      let entry: any = null;
+      if (jeType === 'INVOICE') {
+        // Tax-inclusive docs carry GROSS line amounts — scale to net for the
+        // per-line revenue credits (postFromInvoice expects line NET).
+        const inclusive = di?.absorbTax === 'Y' || di?.absorbTax === true;
+        const factor = inclusive && fallbackNet > 0 ? netAmount / fallbackNet : 1;
+        entry = await this.journalAutoPost.postFromInvoice({
+          organizationId,
+          documentId,
+          invoiceNumber: documentName || cfg?.documentNumber,
+          entryDate,
+          customerName: partyName,
+          netAmount,
+          taxAmount,
+          grossAmount,
+          revenueLines: items.map((it: any) => ({
+            accountCode: it.accountCode || it.revenueAccountCode || null,
+            amount: Math.round((parseFloat(it.amount) || (parseFloat(it.quantity) * parseFloat(it.unitPrice)) || 0) * factor * 100) / 100,
+          })),
+          userId: actor?.id,
+        });
+      } else {
+        const baseArgs: any = {
+          organizationId,
+          documentId,
+          documentNumber: documentName || cfg?.documentNumber,
+          entryDate,
+          netAmount,
+          taxAmount,
+          grossAmount,
+        };
+        if (jeType === 'CREDIT_NOTE') {
+          if (cfg?.subtype === 'AP') {
+            entry = await this.journalAutoPost.postFromPurchaseReturn({ ...baseArgs, supplierName: partyName });
+            if (entry) {
+              entry = await this.prisma.journalEntry.update({ where: { id: entry.id }, data: { type: 'CREDIT_NOTE' } });
+            }
+          } else {
+            entry = await this.journalAutoPost.postFromCreditNote({ ...baseArgs, customerName: partyName });
+          }
+        } else if (jeType === 'DEBIT_NOTE') {
+          entry = await this.journalAutoPost.postFromDebitNote({ ...baseArgs, customerName: partyName });
+        } else if (jeType === 'PURCHASE_ORDER') {
+          entry = await this.journalAutoPost.postFromPurchaseOrder({ ...baseArgs, supplierName: partyName });
+        } else if (jeType === 'PURCHASE_RETURN') {
+          entry = await this.journalAutoPost.postFromPurchaseReturn({ ...baseArgs, supplierName: partyName });
+        }
+      }
+
+      if (entry) {
+        void this.logDocumentEvent({
+          documentId,
+          organizationId,
+          action: 'EDITED',
+          detail: existing
+            ? `GL updated on save: ${existing.journalNumber} voided, ${entry.journalNumber} posted (gross ${grossAmount.toFixed(2)})`
+            : `Posted to GL on save: ${entry.journalNumber} (gross ${grossAmount.toFixed(2)})`,
+          documentName: documentName ?? undefined,
+          actor,
+        });
+      }
+    } catch (e) {
+      console.error('[GL on save] failed for', docType, documentId, e);
+    }
   }
 
   async getDocumentHistory(documentId: string, organizationId: string) {
@@ -943,6 +1081,28 @@ export class DocumentsService {
         }
       }
 
+      // ---- GL on save (no-draft model) ----
+      // Every save of a transactional document mirrors it into the GL: void the
+      // previous entry (reversing entry preserved for the audit trail) + post
+      // fresh from the just-saved config. Best-effort — a posting failure never
+      // fails the save (surfaced in history + logs instead).
+      // Only full editor saves (config with an items array) repost — partial
+      // updates (status flips, payment bookkeeping, link flows) leave the GL alone.
+      if (
+        DocumentsService.SAVE_GL_TYPES[(dto.type || existingDocument.type || '').toUpperCase()] &&
+        configAsPlainObject &&
+        Array.isArray((configAsPlainObject as any).items)
+      ) {
+        await this.repostGlForDocument(
+          organizationId,
+          id,
+          dto.type || existingDocument.type,
+          configAsPlainObject,
+          updatedDocument.name,
+          actor,
+        );
+      }
+
       // ---- GL auto-post for non-invoice transactional types ----
       // Credit Note / Debit Note / Purchase Order / Purchase Return — when status flips to "confirmed".
       const GL_TYPES: Record<string, 'CREDIT_NOTE' | 'DEBIT_NOTE' | 'PURCHASE_ORDER' | 'PURCHASE_RETURN'> = {
@@ -1358,13 +1518,18 @@ export class DocumentsService {
 
   async deleteDocument(id: string, organizationId: string, actor?: DocumentActor) {
     try {
-      // Transaction sub-ledger retired — nothing to clean up there. (Payments
-      // referencing this document are handled by their own FK/flow.)
+      // No-draft model: a saved document may already sit in the GL — void its
+      // journal (reversing entry preserved) before the document row goes away.
       try {
-        // no-op
+        const doomed = await this.prisma.document.findFirst({ where: { id, organizationId }, select: { type: true } });
+        const jeType = doomed ? DocumentsService.SAVE_GL_TYPES[(doomed.type || '').toUpperCase()] : undefined;
+        if (jeType) {
+          const existing = await this.journalAutoPost.alreadyPostedForDocument(organizationId, id, jeType);
+          if (existing) await this.journalService.void(organizationId, existing.id, actor?.id);
+        }
       } catch (error) {
-        console.error('Failed during document pre-delete cleanup:', error);
-        // Continue with document deletion even if cleanup fails
+        console.error('Failed voiding GL entry during document delete:', error);
+        // Continue with document deletion even if the void fails
       }
 
       // Delete the document
@@ -3883,7 +4048,13 @@ export class DocumentsService {
           gross: grossAmount,
         });
 
-        if (grossAmount <= 0) {
+        // No-draft model: the GL entry is normally posted at SAVE time now.
+        // Confirm only posts as a fallback for documents saved before the
+        // model change (no existing entry).
+        const alreadyPosted = await this.journalAutoPost.alreadyPostedForDocument(organizationId, documentId, 'INVOICE');
+        if (alreadyPosted) {
+          console.log('📒 [GL auto-post] entry already posted at save — confirm skips GL', alreadyPosted.journalNumber);
+        } else if (grossAmount <= 0) {
           console.warn('📒 [GL auto-post] grossAmount <= 0, skipping');
         } else {
           const entry = await this.journalAutoPost.postFromInvoice({
@@ -3980,7 +4151,12 @@ export class DocumentsService {
         return sum + amount;
       }, 0);
       const isXero = !!config?.xeroImported;
-      const invoiceAmount = isXero ? Number(config.xeroGross ?? itemsTotal) : itemsTotal;
+      // Native invoices: prefer the editor's GROSS (documentInfo.nettTotal —
+      // items sum alone is the NET on tax-exclusive docs, so the summary
+      // understated the balance by the GST portion).
+      const nativeGross =
+        parseFloat(config?.documentInfo?.nettTotal ?? config?.nettTotal ?? 'NaN') || itemsTotal;
+      const invoiceAmount = isXero ? Number(config.xeroGross ?? itemsTotal) : nativeGross;
 
       // Native Payment rows recorded against this invoice.
       const payments = await this.prisma.payment.findMany({
@@ -3994,8 +4170,10 @@ export class DocumentsService {
       let totalPaid: number;
       let remainingBalance: number;
       if (isXero) {
+        // xeroBalance is maintained LIVE by updateInvoiceStatusAfterPayment —
+        // already net of native payments (subtracting them again double-counted).
         const xeroBalance = Number(config.xeroBalance ?? 0);
-        remainingBalance = xeroBalance - nativePaid;
+        remainingBalance = xeroBalance;
         totalPaid = invoiceAmount - remainingBalance;
       } else {
         totalPaid = nativePaid;

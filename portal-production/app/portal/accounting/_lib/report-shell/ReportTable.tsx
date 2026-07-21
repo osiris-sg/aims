@@ -4,8 +4,14 @@
 // rows, right-aligned numerics with dash-for-zero and (parens) negatives,
 // optional drill-down links. Theme-token colors only.
 
-import React from "react";
+import React, { createContext, useContext } from "react";
 import { Box, Link as MuiLink, Table, TableBody, TableCell, TableHead, TableRow, Typography, alpha } from "@mui/material";
+
+// In-report search: ReportShell owns the search box and provides the term;
+// every ReportTable under it filters its rows. Group headers stay when they
+// match themselves (whole group shown) or when any of their rows match;
+// subtotal/total rows are dropped while searching (they wouldn't add up).
+export const ReportSearchContext = createContext<string>("");
 
 export const fmtAmount = (v: number | null | undefined, dashZero = true): string => {
   if (v == null || (dashZero && Math.abs(v) < 0.005)) return "-";
@@ -36,6 +42,46 @@ export interface ReportRow {
   highlight?: boolean;
 }
 
+const cellText = (c: ReportRow["cells"][number]): string => {
+  if (c == null) return "";
+  if (typeof c === "object") return c.text ?? "";
+  if (typeof c === "number") return `${fmtAmount(c)} ${c}`;
+  return String(c);
+};
+
+function filterReportRows(rows: ReportRow[], term: string): ReportRow[] {
+  const t = term.trim().toLowerCase();
+  if (!t) return rows;
+  const out: ReportRow[] = [];
+  let pendingGroup: ReportRow | null = null;
+  let groupMatched = false; // group title itself matched → keep its whole block
+  for (const r of rows) {
+    if (r.kind === "group") {
+      pendingGroup = r;
+      groupMatched = cellText(r.cells[0]).toLowerCase().includes(t);
+      if (groupMatched) {
+        out.push(r);
+        pendingGroup = null;
+      }
+      continue;
+    }
+    if (r.kind !== "row") {
+      // Subtotals/totals don't correspond to a filtered subset — drop them,
+      // except inside a fully-matched group where the block stays intact.
+      if (groupMatched) out.push(r);
+      continue;
+    }
+    if (groupMatched || r.cells.map(cellText).join(" ").toLowerCase().includes(t)) {
+      if (pendingGroup) {
+        out.push(pendingGroup);
+        pendingGroup = null;
+      }
+      out.push(r);
+    }
+  }
+  return out;
+}
+
 export default function ReportTable({
   columns, rows, compact = true,
 }: {
@@ -44,6 +90,8 @@ export default function ReportTable({
   compact?: boolean;
 }) {
   const py = compact ? 0.5 : 1.1;
+  const searchTerm = useContext(ReportSearchContext);
+  rows = filterReportRows(rows, searchTerm);
   const renderCell = (c: ReportRow["cells"][number], col: ReportColumn, bold: boolean) => {
     const align = col.align || "left";
     let content: React.ReactNode;
@@ -88,6 +136,15 @@ export default function ReportTable({
           </TableRow>
         </TableHead>
         <TableBody>
+          {rows.length === 0 && searchTerm.trim() !== "" && (
+            <TableRow>
+              <TableCell colSpan={columns.length} sx={{ borderBottom: "none" }}>
+                <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: "center" }}>
+                  No rows match “{searchTerm.trim()}”.
+                </Typography>
+              </TableCell>
+            </TableRow>
+          )}
           {rows.map((r) => {
             if (r.kind === "group") {
               return (
