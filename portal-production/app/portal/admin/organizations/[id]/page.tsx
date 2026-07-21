@@ -98,6 +98,7 @@ import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
 import CleanDocumentPreview from "@/containers/DocumentTemplates/components/CleanDocumentPreview";
 import EmailIngestionTab from "./EmailIngestionTab";
+import { FEATURE_FLAG_DEFAULTS } from "@/app/portal/hooks/useOrganizationFeatures";
 
 // Icon mapping for Material-UI icons
 const iconMap: Record<string, React.ComponentType> = {
@@ -1666,15 +1667,10 @@ export default function OrganizationDetailPage() {
                   </AccordionSummary>
                   <AccordionDetails>
                     <List>
+                      {/* Every flag the portal knows about renders for every
+                          org — saved values override the code defaults. */}
                       {Object.entries({
-                        enableAssetTrackingMode: false,
-                        enableProjects: true,
-                        enableDocumentAI: true,
-                        enableCustomFields: true,
-                        enableAnalytics: true,
-                        enableXeroIntegration: false,
-                        enableEditInventorySku: false,
-                        enableServiceItems: false,
+                        ...FEATURE_FLAG_DEFAULTS,
                         ...uiConfigForm.features,
                       }).map(([key, value]) => (
                         <ListItem key={key}>
