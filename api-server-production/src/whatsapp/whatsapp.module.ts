@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { WhatsAppAgentService } from './whatsapp-agent.service';
 import { WhatsAppController } from './whatsapp.controller';
 import { WhatsAppService } from './whatsapp.service';
 
@@ -9,7 +10,7 @@ import { WhatsAppService } from './whatsapp.service';
 // template/text messages.
 @Module({
   controllers: [WhatsAppController],
-  providers: [WhatsAppService, PrismaService],
+  providers: [WhatsAppService, WhatsAppAgentService, PrismaService],
   exports: [WhatsAppService],
 })
 export class WhatsAppModule {}

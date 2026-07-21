@@ -178,12 +178,19 @@ export const MODULE_CATALOG: CatalogModule[] = [
     config: { route: '/portal/integrations' },
   },
   {
-    moduleCode: 'WHATSAPP',
-    displayName: 'WhatsApp',
-    icon: 'WhatsApp',
+    moduleCode: 'CRM',
+    displayName: 'CRM',
+    icon: 'SupportAgent',
     sortOrder: 14,
     defaultEnabled: false,
-    config: { route: '/portal/whatsapp' },
+    config: {
+      route: '/portal/crm',
+      subMenus: [
+        { key: 'whatsapp', label: 'WhatsApp' },
+        { key: 'agent', label: 'AI Agent' },
+        { key: 'suggestions', label: 'Suggestions' },
+      ],
+    },
   },
   {
     moduleCode: 'ADMIN',

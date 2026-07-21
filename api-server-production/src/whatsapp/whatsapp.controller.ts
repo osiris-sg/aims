@@ -1,9 +1,12 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Logger,
+  Param,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -17,6 +20,7 @@ import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { Public } from '../decorators/public.decorator';
 import { OnboardDto, SendTemplateDto, SendTextDto } from './dto/whatsapp.dto';
+import { WhatsAppAgentService } from './whatsapp-agent.service';
 import { WhatsAppService } from './whatsapp.service';
 
 interface RequestWithOrganization extends Request {
@@ -40,6 +44,7 @@ export class WhatsAppController {
 
   constructor(
     private readonly service: WhatsAppService,
+    private readonly agent: WhatsAppAgentService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -74,8 +79,13 @@ export class WhatsAppController {
   @Post('send-text')
   @Permissions('whatsapp:send')
   @ApiOperation({ summary: 'Send a free-form text (24h customer-service window only)' })
-  sendText(@Req() req: RequestWithOrganization, @Body() body: SendTextDto) {
-    return this.service.sendText(requireOrgId(req), body);
+  async sendText(@Req() req: RequestWithOrganization, @Body() body: SendTextDto) {
+    const orgId = requireOrgId(req);
+    const result = await this.service.sendText(orgId, body);
+    // A human replied from the Messages page — the AI's pending draft for this
+    // chat is moot.
+    await this.agent.closePendingForCounterparty(orgId, body?.to || '');
+    return result;
   }
 
   @Get('messages')
@@ -83,6 +93,82 @@ export class WhatsAppController {
   @ApiOperation({ summary: 'Recent inbound/outbound WhatsApp message log for the org' })
   messages(@Req() req: RequestWithOrganization, @Query('limit') limit?: string) {
     return this.service.listMessages(requireOrgId(req), limit ? Number(limit) : undefined);
+  }
+
+  // ── AI agent ───────────────────────────────────────────────────────────────
+
+  @Get('agent/config')
+  @Permissions('whatsapp:read')
+  @ApiOperation({ summary: "Org's AI agent settings" })
+  agentConfig(@Req() req: RequestWithOrganization) {
+    return this.agent.getConfig(requireOrgId(req));
+  }
+
+  @Put('agent/config')
+  @Permissions('whatsapp:manage')
+  @ApiOperation({ summary: 'Update AI agent settings (enable, auto-send scope, guidance)' })
+  updateAgentConfig(@Req() req: RequestWithOrganization, @Body() body: any) {
+    return this.agent.updateConfig(requireOrgId(req), body || {});
+  }
+
+  @Get('agent/qna')
+  @Permissions('whatsapp:read')
+  @ApiOperation({ summary: 'List AI training Q&A pairs' })
+  listQnA(@Req() req: RequestWithOrganization) {
+    return this.agent.listQnA(requireOrgId(req));
+  }
+
+  @Post('agent/qna')
+  @Permissions('whatsapp:manage')
+  @ApiOperation({ summary: 'Add a training Q&A pair (question is embedded for retrieval)' })
+  addQnA(@Req() req: RequestWithOrganization, @Body() body: { question: string; answer: string }) {
+    return this.agent.addQnA(requireOrgId(req), body?.question, body?.answer);
+  }
+
+  @Delete('agent/qna/:id')
+  @Permissions('whatsapp:manage')
+  @ApiOperation({ summary: 'Delete a training Q&A pair' })
+  deleteQnA(@Req() req: RequestWithOrganization, @Param('id') id: string) {
+    return this.agent.deleteQnA(requireOrgId(req), id);
+  }
+
+  @Post('agent/dry-run')
+  @Permissions('whatsapp:read')
+  @ApiOperation({ summary: 'Test the agent (no send). Optional counterparty loads that chat history + customer record' })
+  dryRun(@Req() req: RequestWithOrganization, @Body() body: { message: string; counterparty?: string }) {
+    return this.service.dryRun(requireOrgId(req), body?.message || '', body?.counterparty);
+  }
+
+  @Post('history-sync')
+  @Permissions('whatsapp:manage')
+  @ApiOperation({ summary: 'Request coexistence chat-history delivery (last ~180 days) via the history webhook' })
+  historySync(@Req() req: RequestWithOrganization) {
+    return this.service.requestHistorySync(requireOrgId(req));
+  }
+
+  @Get('agent/suggestions')
+  @Permissions('whatsapp:read')
+  @ApiOperation({ summary: 'List agent suggestions (default: all recent; ?status=PENDING to filter)' })
+  suggestions(@Req() req: RequestWithOrganization, @Query('status') status?: string) {
+    return this.agent.listSuggestions(requireOrgId(req), status);
+  }
+
+  @Post('agent/suggestions/:id/approve')
+  @Permissions('whatsapp:send')
+  @ApiOperation({ summary: 'Approve (optionally edit) a pending suggestion and send it' })
+  approveSuggestion(
+    @Req() req: RequestWithOrganization,
+    @Param('id') id: string,
+    @Body() body: { reply?: string },
+  ) {
+    return this.service.approveSuggestion(requireOrgId(req), id, body?.reply);
+  }
+
+  @Post('agent/suggestions/:id/dismiss')
+  @Permissions('whatsapp:send')
+  @ApiOperation({ summary: 'Dismiss a pending suggestion without sending' })
+  dismissSuggestion(@Req() req: RequestWithOrganization, @Param('id') id: string) {
+    return this.agent.dismissSuggestion(requireOrgId(req), id);
   }
 
   // ── Meta webhook (public — Meta's servers call this, not our users) ────────

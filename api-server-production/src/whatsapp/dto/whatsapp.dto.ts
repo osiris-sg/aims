@@ -8,6 +8,10 @@ export interface OnboardDto {
   code: string;
   wabaId: string;
   phoneNumberId: string;
+  // True when the number came through the Coexistence flow (featureType
+  // whatsapp_business_app_onboarding): the WhatsApp Business app keeps the
+  // number, so Cloud API phone registration must be SKIPPED.
+  coexistence?: boolean;
 }
 
 export interface SendTemplateDto {
