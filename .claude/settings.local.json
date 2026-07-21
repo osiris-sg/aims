@@ -20,7 +20,17 @@
       "Bash(brew install *)",
       "Bash(warp-cli --version)",
       "Bash(node -e ' *)",
-      "mcp__playwright__browser_snapshot"
+      "mcp__playwright__browser_snapshot",
+      "Bash(ps -p 17135 -o command=)",
+      "Bash(ps -p 8625 -o command=)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:4040/whatsapp/webhook?hub.mode=subscribe)",
+      "Bash(curl -s -o /dev/null -w \"portal\\(3000\\): %{http_code}\\\\n\" http://localhost:3000)",
+      "Bash(curl -s -o /dev/null -w \"api\\(4040\\): %{http_code}\\\\n\" http://localhost:4040/api)",
+      "Bash(echo \"api starting pid $!\")",
+      "Bash(echo \"portal starting pid $!\")",
+      "WebSearch",
+      "WebFetch(domain:www.airwallex.com)",
+      "WebFetch(domain:help.airwallex.com)"
     ]
   }
 }

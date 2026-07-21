@@ -177,7 +177,17 @@ export async function xeroGet<T = any>(
     };
     // Incremental pulls: Xero returns only records modified after this time.
     if (opts.modifiedAfter) headers["If-Modified-Since"] = opts.modifiedAfter.toUTCString();
-    const res = await fetch(url, { headers });
+    let res: Response;
+    try {
+      res = await fetch(url, { headers });
+    } catch (e: any) {
+      // Network-level failure (wifi blip, DNS) — back off and retry.
+      if (attempt >= 5) throw e;
+      const wait = attempt * 15;
+      console.warn(`  ⏸ network error (${(e?.message || '').slice(0, 60)}), retrying in ${wait}s...`);
+      await new Promise((r) => setTimeout(r, wait * 1000));
+      continue;
+    }
 
     if (res.status === 401 && tokens.refresh && attempt < 5) {
       // Token expired mid-run (or clock skew beat the proactive check).
