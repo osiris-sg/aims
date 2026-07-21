@@ -164,51 +164,53 @@ const theme = createTheme({
     primaryFixedDim: tokens.primaryFixedDim,
   },
   shape: {
-    borderRadius: 8,
+    borderRadius: 10,
   },
   typography: {
     fontFamily:
-      'Inter, "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      "'Helvetica Neue', Helvetica, Arial, sans-serif",
     htmlFontSize: 16,
     fontSize: 12,
     h1: {
-      fontFamily: 'Manrope, Inter, sans-serif',
+      fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif",
       fontSize: "1.875rem",
       fontWeight: 800,
       letterSpacing: "-0.02em",
       lineHeight: 1.2,
     },
     h2: {
-      fontFamily: 'Manrope, Inter, sans-serif',
+      fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif",
       fontSize: "1.5rem",
       fontWeight: 800,
       letterSpacing: "-0.015em",
       lineHeight: 1.25,
     },
     h3: {
-      fontFamily: 'Manrope, Inter, sans-serif',
+      fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif",
       fontSize: "1.25rem",
       fontWeight: 700,
       letterSpacing: "-0.01em",
     },
     h4: {
-      fontFamily: 'Manrope, Inter, sans-serif',
+      fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif",
       fontSize: "1.125rem",
       fontWeight: 700,
       letterSpacing: "-0.005em",
     },
+    // Type scale aligned with darkTheme (guru 2026-07-15: both modes must have
+    // the SAME density/sizes — dark's tighter scale is the reference).
     h5: {
-      fontFamily: 'Manrope, Inter, sans-serif',
-      fontSize: "1rem",
-      fontWeight: 700,
+      fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif",
+      fontSize: "0.95rem",
+      fontWeight: 600,
     },
     h6: {
-      fontFamily: 'Manrope, Inter, sans-serif',
-      fontSize: "0.875rem",
-      fontWeight: 700,
+      fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif",
+      fontSize: "0.85rem",
+      fontWeight: 600,
     },
     body1: {
-      fontSize: "0.875rem",
+      fontSize: "0.8125rem",
       lineHeight: 1.5,
     },
     body2: {
@@ -217,13 +219,13 @@ const theme = createTheme({
       color: tokens.onSurfaceVariant,
     },
     caption: {
-      fontSize: "0.75rem",
+      fontSize: "0.6875rem",
       letterSpacing: "0.02em",
     },
     button: {
-      fontSize: "0.875rem",
-      fontWeight: 600,
-      letterSpacing: "0.005em",
+      fontSize: "0.8125rem",
+      fontWeight: 500,
+      letterSpacing: "0.01em",
     },
     overline: {
       fontSize: "0.625rem",
@@ -248,7 +250,7 @@ const theme = createTheme({
     },
     MuiListItemText: {
       styleOverrides: {
-        primary: { fontSize: "0.875rem", fontWeight: 500 },
+        primary: { fontSize: "0.8125rem", fontWeight: 500 },
         secondary: { fontSize: "0.75rem", color: tokens.onSurfaceVariant },
       },
     },
@@ -257,11 +259,11 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           "& .MuiOutlinedInput-root": {
-            borderRadius: 6,
+            borderRadius: 10,
             // White field + visible border — the gray surfaceContainer fill
             // blended invisibly into gray page backgrounds (list-page search).
             backgroundColor: tokens.surfaceContainerLowest,
-            fontSize: "0.875rem",
+            fontSize: "0.8125rem",
             transition: "background-color 160ms ease, box-shadow 160ms ease",
             "& fieldset": {
               borderColor: "var(--field-border)",
@@ -279,7 +281,7 @@ const theme = createTheme({
             },
           },
           "& .MuiInputLabel-root": {
-            fontSize: "0.875rem",
+            fontSize: "0.8125rem",
             color: tokens.onSurfaceVariant,
           },
         },
@@ -287,28 +289,28 @@ const theme = createTheme({
     },
     MuiInputBase: {
       styleOverrides: {
-        root: { fontSize: "0.875rem" },
-        input: { fontSize: "0.875rem", padding: "8px 12px" },
+        root: { fontSize: "0.8125rem" },
+        input: { fontSize: "0.8125rem", padding: "8px 12px" },
       },
     },
     MuiOutlinedInput: {
       styleOverrides: {
         root: {
-          borderRadius: 6,
+          borderRadius: 10,
         },
       },
     },
     MuiSelect: {
       defaultProps: { size: "small" },
       styleOverrides: {
-        select: { fontSize: "0.875rem", padding: "8px 12px" },
+        select: { fontSize: "0.8125rem", padding: "8px 12px" },
       },
     },
     MuiMenuItem: {
       styleOverrides: {
         root: {
-          fontSize: "0.875rem",
-          borderRadius: 4,
+          fontSize: "0.8125rem",
+          borderRadius: 6,
           margin: "2px 6px",
           "&.Mui-selected": {
             backgroundColor: tokens.secondaryContainer,
@@ -320,7 +322,7 @@ const theme = createTheme({
     MuiMenu: {
       styleOverrides: {
         paper: {
-          borderRadius: 8,
+          borderRadius: 12,
           boxShadow: `0 16px 48px ${alpha(tokens.onSurface, 0.08)}`,
           border: `1px solid ${alpha(tokens.outlineVariant, 0.15)}`,
         },
@@ -329,22 +331,22 @@ const theme = createTheme({
     MuiTableCell: {
       styleOverrides: {
         root: {
-          fontSize: "0.875rem",
-          padding: "16px 24px",
+          // Density matched to darkTheme (guru: both modes same structure).
+          fontSize: "0.8125rem",
+          padding: "10px 16px",
           borderBottom: `1px solid ${alpha(tokens.outlineVariant, 0.1)}`,
           color: tokens.onSurface,
         },
         head: {
-          fontSize: "0.625rem",
-          fontWeight: 700,
+          fontSize: "0.6875rem",
+          fontWeight: 600,
           textTransform: "uppercase",
-          letterSpacing: "0.1em",
+          letterSpacing: "0.08em",
           color: tokens.onSurfaceVariant,
           backgroundColor: tokens.surfaceContainerLow,
           // Clear rule under the header — its grey bg matches the app bg, so
           // a near-transparent underline let it float without separation.
           borderBottom: "1px solid #D5D8DC",
-          padding: "16px 24px",
         },
       },
     },
@@ -361,8 +363,8 @@ const theme = createTheme({
     MuiTab: {
       styleOverrides: {
         root: {
-          fontSize: "0.875rem",
-          fontWeight: 600,
+          fontSize: "0.8125rem",
+          fontWeight: 500,
           minHeight: 40,
           textTransform: "none",
           letterSpacing: 0,
@@ -384,7 +386,7 @@ const theme = createTheme({
           fontSize: "0.625rem",
           fontWeight: 700,
           height: 22,
-          borderRadius: 4,
+          borderRadius: 999,
           letterSpacing: "0.02em",
           textTransform: "uppercase",
         },
@@ -407,11 +409,11 @@ const theme = createTheme({
       defaultProps: { size: "small", disableElevation: true },
       styleOverrides: {
         root: {
-          borderRadius: 6,
-          fontWeight: 600,
+          borderRadius: 10,
+          fontWeight: 500,
           textTransform: "none",
-          fontSize: "0.875rem",
-          padding: "8px 16px",
+          fontSize: "0.8125rem",
+          padding: "6px 14px",
           letterSpacing: "0.005em",
         },
         // PayLane primary CTA: solid near-black, subtle hover lift
@@ -443,17 +445,17 @@ const theme = createTheme({
       defaultProps: { size: "small" },
       styleOverrides: {
         root: {
-          borderRadius: 6,
+          borderRadius: 10,
           "&:hover": { backgroundColor: tokens.surfaceContainerHigh },
         },
       },
     },
     MuiAutocomplete: {
       styleOverrides: {
-        input: { fontSize: "0.875rem" },
-        option: { fontSize: "0.875rem" },
+        input: { fontSize: "0.8125rem" },
+        option: { fontSize: "0.8125rem" },
         paper: {
-          borderRadius: 8,
+          borderRadius: 12,
           boxShadow: `0 16px 48px ${alpha(tokens.onSurface, 0.08)}`,
         },
       },
@@ -463,7 +465,7 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           backgroundColor: tokens.surfaceContainerLowest,
-          borderRadius: 8,
+          borderRadius: 14,
           backgroundImage: "none",
           border: `1px solid ${alpha(tokens.outlineVariant, 0.1)}`,
           boxShadow: "none",
@@ -480,7 +482,7 @@ const theme = createTheme({
         root: {
           backgroundImage: "none",
         },
-        rounded: { borderRadius: 8 },
+        rounded: { borderRadius: 14 },
       },
     },
     MuiDrawer: {
@@ -505,7 +507,7 @@ const theme = createTheme({
       styleOverrides: {
         paper: {
           backgroundColor: tokens.surfaceContainerLowest,
-          borderRadius: 12,
+          borderRadius: 16,
           boxShadow: `0 32px 80px ${alpha(tokens.onSurface, 0.18)}`,
         },
       },
@@ -521,7 +523,7 @@ const theme = createTheme({
           backgroundColor: tokens.onSurface,
           color: tokens.surfaceContainerLowest,
           fontSize: "0.6875rem",
-          borderRadius: 4,
+          borderRadius: 6,
           padding: "6px 10px",
         },
         arrow: { color: tokens.onSurface },

@@ -1,6 +1,6 @@
 // "use client";
 import type { Metadata } from "next";
-import { Inter, Manrope, Carlito } from "next/font/google";
+import { Carlito } from "next/font/google";
 import "./globals.css";
 import { AppRouterCacheProvider } from "@mui/material-nextjs/v15-appRouter";
 import { ThemeModeProvider } from "@/contexts/ThemeModeContext";
@@ -8,20 +8,10 @@ import { ClerkProvider } from "@clerk/nextjs";
 import Portal from "@/containers/portal";
 import Providers from "./providers";
 
-const inter = Inter({
-  weight: ["300", "400", "500", "600", "700"],
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-inter",
-});
-
-const manrope = Manrope({
-  weight: ["400", "500", "600", "700", "800"],
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-manrope",
-});
-
+// The app UI renders in the system 'Helvetica Neue'/Arial stack (guru
+// 2026-07-17: the "paper document" look app-wide) — no webfont needed.
+// Inter/Manrope were removed: they were downloaded but never actually applied
+// (themes referenced plain names while next/font registers hashed ones).
 // Carlito is used for document templates (Calibri-compatible print output)
 const carlito = Carlito({
   weight: ["400", "700"],
@@ -56,7 +46,7 @@ export default function RootLayout({
   return (
     <ClerkProvider>
       <html lang="en">
-        <body className={`${inter.variable} ${manrope.variable} ${carlito.variable} ROOT_LAYOUT`}>
+        <body className={`${carlito.variable} ROOT_LAYOUT`}>
           <AppRouterCacheProvider>
             <ThemeModeProvider>
               <Providers>

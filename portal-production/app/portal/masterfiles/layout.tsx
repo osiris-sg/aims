@@ -16,6 +16,7 @@ export default function MasterFilesLayout({ children }: { children: React.ReactN
     { label: "Suppliers", value: "/portal/masterfiles/suppliers" },
     { label: "Products", value: "/portal/masterfiles/products" },
     { label: "Inventory", value: "/portal/masterfiles/inventory" },
+    { label: "Services", value: "/portal/masterfiles/services" },
   ];
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: string) => {
@@ -34,7 +35,7 @@ export default function MasterFilesLayout({ children }: { children: React.ReactN
           Master Files
         </Typography>
         <Typography variant="subtitle1" sx={{ color: "text.secondary", mt: 1 }}>
-          Manage customers, suppliers, products and inventory
+          Manage customers, suppliers, products, inventory and services
         </Typography>
       </Box>
 

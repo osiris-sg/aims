@@ -111,7 +111,7 @@ export default function PageTable(props: Props) {
         <Grid2 container spacing={2} alignItems="center">
           <Grid2 size={{ xs: 12, md: 4 }}>
             <Box>
-              <Typography sx={{ fontFamily: "Manrope, Inter, sans-serif", fontSize: "1.875rem", fontWeight: 800, letterSpacing: "-0.025em", color: "text.primary", lineHeight: 1.2 }}>{tableName}</Typography>
+              <Typography sx={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontSize: "1.875rem", fontWeight: 800, letterSpacing: "-0.025em", color: "text.primary", lineHeight: 1.2 }}>{tableName}</Typography>
               <Typography sx={{ fontSize: "1rem", color: "text.secondary", mt: 0.5 }}>
                 {subTitle}
               </Typography>

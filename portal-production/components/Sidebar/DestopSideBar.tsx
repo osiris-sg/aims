@@ -111,7 +111,7 @@ export default function DesktopSideBar() {
                 <Typography
                   sx={{
                     color: "#FFFFFF",
-                    fontFamily: 'Manrope, Inter, sans-serif',
+                    fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif",
                     fontWeight: 800,
                     fontSize: "1.125rem",
                     letterSpacing: "-0.01em",

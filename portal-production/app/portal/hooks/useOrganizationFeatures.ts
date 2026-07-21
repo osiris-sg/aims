@@ -62,6 +62,9 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // "Sync to Xero" action in the document editor toolbar (accounting context):
   // pushes the invoice to Xero as a DRAFT with mapped accounts + tax settings.
   enableXeroDocSync: false,
+  // Accounting UX overhaul: legacy-software workflows (screen structure, entry
+  // flow) rendered with the modern AIMS UI. OFF = current Xero-like layout.
+  enableLegacyAccountingUx: false,
 };
 
 interface OrganizationUIConfig {
@@ -130,5 +133,6 @@ export function useOrganizationFeatures() {
     isNettRoundDownEnabled: features.enableNettRoundDown ?? false,
     isQuotationProjectLinkEnabled: features.enableQuotationProjectLink ?? false,
     isXeroDocSyncEnabled: features.enableXeroDocSync ?? false,
+    isLegacyAccountingUxEnabled: features.enableLegacyAccountingUx ?? false,
   };
 }
