@@ -30,7 +30,9 @@
       "Bash(echo \"portal starting pid $!\")",
       "WebSearch",
       "WebFetch(domain:www.airwallex.com)",
-      "WebFetch(domain:help.airwallex.com)"
+      "WebFetch(domain:help.airwallex.com)",
+      "Bash(echo \"portal exit: $?\")",
+      "Read(//tmp/**)"
     ]
   }
 }
