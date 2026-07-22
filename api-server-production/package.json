@@ -21,6 +21,8 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "db:push": "npx prisma db push",
+    "render-env:staging": "ts-node --transpile-only scripts/update-render-env.ts staging",
+    "render-env:prod": "ts-node --transpile-only scripts/update-render-env.ts prod",
     "db:push:staging": "dotenv -e .env.staging -- npx prisma db push",
     "db:push:prod": "dotenv -e .env.production -- npx prisma db push",
     "create-standard-quotation": "node scripts/create-standard-quotation.js",
