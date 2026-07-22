@@ -42,16 +42,28 @@ function parseEnvFile(file: string): Map<string, string> {
   return out;
 }
 
-function apiKey(root: string): string {
-  if (process.env.RENDER_API_KEY) return process.env.RENDER_API_KEY;
-  const keyFile = path.join(root, '.env.render');
-  if (fs.existsSync(keyFile)) {
-    const k = parseEnvFile(keyFile).get('RENDER_API_KEY');
+// Placeholder-aware: REPLACE_ME / empty count as "not set".
+function realKey(v: string | undefined | null): string | null {
+  return v && v !== 'REPLACE_ME' ? v : null;
+}
+
+function apiKey(root: string, targetEnvFile: string): string {
+  const fromProcess = realKey(process.env.RENDER_API_KEY);
+  if (fromProcess) return fromProcess;
+  // .env.render first (canonical), then the env file being synced, then .env.
+  for (const f of ['.env.render', targetEnvFile, '.env']) {
+    const p = path.join(root, f);
+    if (!fs.existsSync(p)) continue;
+    const k = realKey(parseEnvFile(p).get('RENDER_API_KEY'));
     if (k) return k;
   }
-  console.error('✗ No RENDER_API_KEY. Export it or put RENDER_API_KEY=... in api-server-production/.env.render');
+  console.error('✗ RENDER_API_KEY is still the REPLACE_ME placeholder. Paste the real key into api-server-production/.env.render (or any .env file).');
   process.exit(1);
 }
+
+// Never push these to the Render service env — the API key is an
+// account-admin credential, not app config.
+const NEVER_SYNC = new Set(['RENDER_API_KEY']);
 
 async function render(key: string, method: string, url: string, body?: unknown) {
   const res = await fetch(`${API}${url}`, {
@@ -100,8 +112,9 @@ async function main() {
     console.error(`✗ ${svc.envFile} not found at ${envPath}`);
     process.exit(1);
   }
-  const key = apiKey(root);
+  const key = apiKey(root, svc.envFile);
   const desired = parseEnvFile(envPath);
+  for (const k of NEVER_SYNC) desired.delete(k);
   const current = await fetchCurrent(key, svc.serviceId);
 
   const added = Array.from(desired.keys()).filter((k) => !current.has(k));
