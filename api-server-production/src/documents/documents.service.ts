@@ -2216,6 +2216,17 @@ export class DocumentsService {
       references: extracted?.references || {},
       items: configItems,
       totals: extracted?.totals || {},
+      // ALSO write the native total fields — lists/reports/AR feeds read
+      // nettTotal/subTotal/gstAmount; extraction-only docs used to show $0.00
+      // because their values lived solely under `totals` (found via the
+      // BIPL-JPSG "empty draft" investigation, 2026-07-22).
+      ...(extracted?.totals?.total != null
+        ? {
+            nettTotal: Number(extracted.totals.total) || 0,
+            subTotal: Number(extracted.totals.subtotal ?? extracted.totals.total) || 0,
+            gstAmount: Math.round(((Number(extracted.totals.total) || 0) - (Number(extracted.totals.subtotal ?? extracted.totals.total) || 0)) * 100) / 100,
+          }
+        : {}),
       notes: extracted?.notes || undefined,
       source: {
         extractedFrom,

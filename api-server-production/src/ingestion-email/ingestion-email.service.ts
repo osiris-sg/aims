@@ -333,13 +333,37 @@ export class IngestionEmailService {
       supplierId = supplier.id;
     }
 
+    // Forwarded JP-pass bills carry the recharge invoice number in the email
+    // subject ("Fw: Invoice BIPL-JPSG-INV-… - Jurong Port Pass Application -
+    // <customer>") — stamp it as the bill reference so the AP bill links to
+    // the AR recharge invoice from birth (previously backfilled by script).
+    const rechargeRef = (payload.subject || '').match(/(BIPL-JPSG-INV-[\d-]+)/)?.[1];
+
+    // JP-pass bills arriving by email are the external-customer recharge flow
+    // — ALWAYS account 443 (guru, 2026-07-22) with NO GST (disbursements).
+    // 442 (internal passes) is only ever assigned manually/by scripts. Other
+    // suppliers' bills keep the extracted tax/account handling untouched.
+    const isJpPass = !!rechargeRef || /^JP26/.test(extracted.billNumber || '') || /jurong port/i.test(issuerName || '');
+    let jpAccountId: string | undefined;
+    if (isJpPass) {
+      const acct = await this.prisma.chartOfAccount.findFirst({
+        where: { organizationId, code: '443' },
+        select: { id: true },
+      });
+      jpAccountId = acct?.id;
+    }
+    const rawLines = extracted.lines || [{ description: 'Imported from email', amount: extracted.totalAmount || 0 }];
+    const lines = isJpPass && jpAccountId ? rawLines.map((l: any) => ({ ...l, accountId: jpAccountId })) : rawLines;
+
     const bill = await this.bills.create(organizationId, undefined, {
       supplierId,
       billNumber: extracted.billNumber || `EMAIL-${Date.now()}`,
       billDate: extracted.billDate || new Date().toISOString(),
       dueDate: extracted.dueDate || undefined,
-      lines: extracted.lines || [{ description: 'Imported from email', amount: extracted.totalAmount || 0 }],
-      taxAmount: extracted.taxAmount,
+      reference: rechargeRef || undefined,
+      lines,
+      taxAmount: isJpPass ? 0 : extracted.taxAmount,
+      ...(isJpPass ? { amountsAre: 'NO_TAX' as const } : {}),
       inboundChannel: 'EMAIL',
       inboundMeta: {
         ...extracted.meta,
@@ -376,7 +400,31 @@ export class IngestionEmailService {
       fileUrl,
       'email',
     );
-    return created?.id ?? null;
+    if (!created?.id) return null;
+
+    // JP-pass recharge invoices (BIPL-JPSG-…): disbursement recharges — force
+    // NO GST and point every item at the accountant's 443 "JP Pass Application
+    // (External Customers)". Other invoices keep their extracted values.
+    const createdRow = await this.prisma.document.findUnique({ where: { id: created.id }, select: { name: true } });
+    const isJpsgRecharge = /BIPL-JPSG/i.test(String(createdRow?.name || ''));
+    if (isJpsgRecharge) {
+      const doc = await this.prisma.document.findUnique({ where: { id: created.id }, select: { config: true } });
+      const cfg = (doc?.config && typeof doc.config === 'object' ? doc.config : {}) as Record<string, any>;
+      const items = (cfg.items || []).map((it: any) => ({ ...it, accountCode: '443' }));
+      await this.prisma.document.update({
+        where: { id: created.id },
+        data: {
+          config: {
+            ...cfg,
+            items,
+            gstAmount: 0,
+            subTotal: Number(cfg.nettTotal ?? cfg.subTotal ?? 0),
+            documentInfo: { ...(cfg.documentInfo || {}), taxCode: null },
+          } as unknown as Prisma.InputJsonValue,
+        },
+      });
+    }
+    return created.id;
   }
 
   // ── Credit notes: Document type CREDIT_NOTE + config.subtype 'AR'|'AP' ────
