@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
 import AdmZip = require('adm-zip');
 import { Prisma } from '@prisma/client';
@@ -226,7 +226,7 @@ export class IngestionEmailService {
             issuerName,
           );
         } else {
-          createdId = await this.createInvoice(organizationId, buffer, mimetype, fileUrl);
+          createdId = await this.createInvoice(organizationId, buffer, mimetype, fileUrl, payload);
           if (createdId) createdInvoiceIds.push(createdId);
         }
 
@@ -337,7 +337,13 @@ export class IngestionEmailService {
     // subject ("Fw: Invoice BIPL-JPSG-INV-… - Jurong Port Pass Application -
     // <customer>") — stamp it as the bill reference so the AP bill links to
     // the AR recharge invoice from birth (previously backfilled by script).
-    const rechargeRef = (payload.subject || '').match(/(BIPL-JPSG-INV-[\d-]+)/)?.[1];
+    // Fallback: some emails put the number only in the sibling invoice-PDF
+    // attachment's filename ("Invoice_BIPL-JPSG-INV-….pdf"), not the subject.
+    const rechargeRef =
+      (payload.subject || '').match(/(BIPL-JPSG-INV-[\d-]+)/)?.[1] ||
+      (payload.attachments || [])
+        .map((a) => (a.filename || '').match(/(BIPL-JPSG-INV-[\d-]+)/)?.[1])
+        .find(Boolean);
 
     // JP-pass bills arriving by email are the external-customer recharge flow
     // — ALWAYS account 443 (guru, 2026-07-22) with NO GST (disbursements).
@@ -355,23 +361,49 @@ export class IngestionEmailService {
     const rawLines = extracted.lines || [{ description: 'Imported from email', amount: extracted.totalAmount || 0 }];
     const lines = isJpPass && jpAccountId ? rawLines.map((l: any) => ({ ...l, accountId: jpAccountId })) : rawLines;
 
-    const bill = await this.bills.create(organizationId, undefined, {
-      supplierId,
-      billNumber: extracted.billNumber || `EMAIL-${Date.now()}`,
-      billDate: extracted.billDate || new Date().toISOString(),
-      dueDate: extracted.dueDate || undefined,
-      reference: rechargeRef || undefined,
-      lines,
-      taxAmount: isJpPass ? 0 : extracted.taxAmount,
-      ...(isJpPass ? { amountsAre: 'NO_TAX' as const } : {}),
-      inboundChannel: 'EMAIL',
-      inboundMeta: {
-        ...extracted.meta,
-        fromAddress: payload.from,
-        subject: payload.subject,
-        filename,
-      },
-    });
+    let bill: any;
+    try {
+      bill = await this.bills.create(organizationId, undefined, {
+        supplierId,
+        billNumber: extracted.billNumber || `EMAIL-${Date.now()}`,
+        billDate: extracted.billDate || new Date().toISOString(),
+        dueDate: extracted.dueDate || undefined,
+        reference: rechargeRef || undefined,
+        lines,
+        taxAmount: isJpPass ? 0 : extracted.taxAmount,
+        ...(isJpPass ? { amountsAre: 'NO_TAX' as const } : {}),
+        inboundChannel: 'EMAIL',
+        inboundMeta: {
+          ...extracted.meta,
+          fromAddress: payload.from,
+          subject: payload.subject,
+          filename,
+        },
+      });
+    } catch (e: any) {
+      // Bill already in AIMS (e.g. imported earlier by the zip batch, then the
+      // same passes arrive again by email next to their recharge invoice).
+      // Don't lose the linkage: back-stamp the invoice ref onto the existing
+      // bill when it only carries a generic/absent reference.
+      if (e instanceof ConflictException && extracted.billNumber) {
+        const existing = await this.prisma.document.findFirst({
+          where: { organizationId, type: 'BILL', name: extracted.billNumber },
+          select: { id: true, config: true },
+        });
+        if (existing) {
+          const cfg: any = existing.config || {};
+          if (rechargeRef && (!cfg.reference || /^JP Pass application$/i.test(cfg.reference))) {
+            await this.prisma.document.update({
+              where: { id: existing.id },
+              data: { config: { ...cfg, reference: rechargeRef } as unknown as Prisma.InputJsonValue },
+            });
+            this.logger.log(`bill ${extracted.billNumber} already exists — back-stamped ref ${rechargeRef}`);
+          }
+          return { id: existing.id, billNumber: extracted.billNumber, totalAmount: null };
+        }
+      }
+      throw e;
+    }
     return {
       id: bill.id,
       billNumber: (bill as any).billNumber || extracted.billNumber || '',
@@ -386,6 +418,7 @@ export class IngestionEmailService {
     buffer: Buffer,
     mimetype: string,
     fileUrl: string,
+    payload?: InboundEmailPayload,
   ): Promise<string | null> {
     const extracted = await this.extraction.processDocumentFile(
       // processDocumentFile only reads buffer + mimetype off the Multer file.
@@ -410,7 +443,28 @@ export class IngestionEmailService {
     if (isJpsgRecharge) {
       const doc = await this.prisma.document.findUnique({ where: { id: created.id }, select: { config: true } });
       const cfg = (doc?.config && typeof doc.config === 'object' ? doc.config : {}) as Record<string, any>;
-      const items = (cfg.items || []).map((it: any) => ({ ...it, accountCode: '443' }));
+      // Line coding: the catalog service item for external JP passes (SV025 →
+      // 443) so the editor's Product Code column self-fills; resolved by
+      // account so a re-coded catalog item keeps working.
+      const svc = await this.prisma.revenueItem.findFirst({
+        where: { organizationId, accountCode: '443', isActive: true },
+        select: { code: true },
+      });
+      const items = (cfg.items || []).map((it: any) => ({
+        ...it,
+        accountCode: '443',
+        ...(svc?.code ? { itemCode: svc.code, isService: true } : {}),
+      }));
+      // Mirror of the bill-side ref: the recharge invoice references the JP
+      // pass bills that arrived in the same email (filenames "JP2607…_<id>.pdf").
+      const passRefs = Array.from(
+        new Set(
+          (payload?.attachments || [])
+            .map((a) => (a.filename || '').match(/^(JP\d{8,})/)?.[1])
+            .filter(Boolean) as string[],
+        ),
+      );
+      const reference = cfg.documentInfo?.reference || (passRefs.length ? passRefs.join(', ') : undefined);
       await this.prisma.document.update({
         where: { id: created.id },
         data: {
@@ -419,7 +473,17 @@ export class IngestionEmailService {
             items,
             gstAmount: 0,
             subTotal: Number(cfg.nettTotal ?? cfg.subTotal ?? 0),
-            documentInfo: { ...(cfg.documentInfo || {}), taxCode: null },
+            // referenceNo is the key the invoice template actually renders;
+            // reference is kept for the CN-allocation / bill-linkage logic.
+            // taxApplicable/gstPercent must be forced too — the preview
+            // COMPUTES GST from them even when gstAmount is 0.
+            documentInfo: {
+              ...(cfg.documentInfo || {}),
+              taxCode: null,
+              taxApplicable: 'N',
+              gstPercent: 0,
+              ...(reference ? { reference, referenceNo: reference } : {}),
+            },
           } as unknown as Prisma.InputJsonValue,
         },
       });
@@ -477,8 +541,26 @@ export class IngestionEmailService {
       patch.customer = null;
     }
 
-    const doc = await this.prisma.document.findUnique({ where: { id: created.id }, select: { config: true } });
+    const doc = await this.prisma.document.findUnique({ where: { id: created.id }, select: { config: true }, });
     const config = (doc?.config && typeof doc.config === 'object' ? doc.config : {}) as Record<string, any>;
+
+    // JPSG recharge credit notes: same coding as their invoices — SV025/443,
+    // no GST (disbursements).
+    const createdRow = await this.prisma.document.findUnique({ where: { id: created.id }, select: { name: true } });
+    if (subtype === 'AR' && /BIPL-JPSG/i.test(String(createdRow?.name || ''))) {
+      const svc = await this.prisma.revenueItem.findFirst({
+        where: { organizationId, accountCode: '443', isActive: true },
+        select: { code: true },
+      });
+      patch.items = (config.items || []).map((it: any) => ({
+        ...it,
+        accountCode: '443',
+        ...(svc?.code ? { itemCode: svc.code, isService: true } : {}),
+      }));
+      patch.gstAmount = 0;
+      patch.documentInfo = { ...(config.documentInfo || {}), taxCode: null, taxApplicable: 'N', gstPercent: 0 };
+    }
+
     await this.prisma.document.update({
       where: { id: created.id },
       data: { config: { ...config, ...patch } as unknown as Prisma.InputJsonValue },
