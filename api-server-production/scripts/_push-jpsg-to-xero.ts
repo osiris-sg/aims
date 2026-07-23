@@ -62,6 +62,9 @@ async function main() {
   };
   const linesFor = (c: any) => ((c.items || []) as any[]).map(it => {
     const qty = Number(it.quantity) || 0, unit = Number(it.unitPrice) || 0, amt = Number(it.amount) || 0;
+    // zero-amount rows (e.g. the JP bill-number listing) go as description-only
+    // lines so Xero leaves Qty/Price/Amount blank instead of showing 0.00
+    if (amt === 0 && unit === 0) return { Description: it.description || '' };
     const ok = qty > 0 && Math.abs(qty * unit - amt) < 0.01;
     return { Description: it.description || 'Jurong Port Pass Application', Quantity: ok ? qty : 1, UnitAmount: ok ? unit : amt, AccountCode: '443', TaxType: 'NONE' };
   });
