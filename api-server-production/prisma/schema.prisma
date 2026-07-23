@@ -96,6 +96,7 @@ model Organization {
   whatsAppQnA           WhatsAppQnA[]
   whatsAppAgentConfig   WhatsAppAgentConfig?
   whatsAppSuggestions   WhatsAppSuggestion[]
+  apiKeys               ApiKey[]
 }
 
 model Asset {
@@ -2135,4 +2136,28 @@ model WhatsAppSuggestion {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, status, createdAt])
+}
+
+// External API keys — lets outside apps call the public /v1 API. The key IS
+// the org context (no org in the payload). Only the SHA-256 hash is stored;
+// the plaintext is shown once at creation. Revocation = set revokedAt.
+model ApiKey {
+  id             String    @id @default(uuid())
+  organizationId String
+  name           String // human label, e.g. "Weighbridge feed"
+  prefix         String // first chars of the key (aims_xxxx…) for display
+  keyHash        String    @unique // sha256(plaintext key)
+  scopes         String[]  @default(["documents:create", "documents:read"])
+  // When true, documents created by this key auto-post to the GL on create;
+  // when false (default) they land as glPosting=pending in the Posting Queue.
+  autoPost       Boolean   @default(false)
+  lastUsedAt     DateTime?
+  revokedAt      DateTime?
+  createdBy      String? // Clerk userId of the admin who minted it
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }

@@ -98,6 +98,7 @@ import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
 import CleanDocumentPreview from "@/containers/DocumentTemplates/components/CleanDocumentPreview";
 import EmailIngestionTab from "./EmailIngestionTab";
+import ApiKeysTab from "./ApiKeysTab";
 import { FEATURE_FLAG_DEFAULTS } from "@/app/portal/hooks/useOrganizationFeatures";
 
 // Icon mapping for Material-UI icons
@@ -1091,6 +1092,7 @@ export default function OrganizationDetailPage() {
             <Tab icon={<ThemeIcon />} label="UI Configuration" />
             <Tab icon={<SettingsIcon />} label="Settings" />
             <Tab icon={<Email />} label="Email Ingestion" />
+            <Tab icon={<AdminPanelSettings />} label="API Keys" />
           </Tabs>
         </Box>
 
@@ -1721,6 +1723,11 @@ export default function OrganizationDetailPage() {
         {/* EMAIL INGESTION TAB */}
         <TabPanel value={tabValue} index={5}>
           <EmailIngestionTab organizationId={organizationId} />
+        </TabPanel>
+
+        {/* API KEYS TAB — external /v1 API key management */}
+        <TabPanel value={tabValue} index={6}>
+          <ApiKeysTab organizationId={organizationId} />
         </TabPanel>
       </Paper>
 

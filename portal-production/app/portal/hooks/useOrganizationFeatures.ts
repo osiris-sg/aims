@@ -65,6 +65,10 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Accounting UX overhaul: legacy-software workflows (screen structure, entry
   // flow) rendered with the modern AIMS UI. OFF = current Xero-like layout.
   enableLegacyAccountingUx: false,
+  // External /v1 API (per-org API keys let outside apps create invoices/bills/
+  // credit notes). Keys are managed in the admin org "API Keys" tab; a key only
+  // exists if an admin minted one, so this flag is the product-level switch.
+  enableExternalApi: false,
 };
 
 interface OrganizationUIConfig {

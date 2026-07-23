@@ -57,6 +57,7 @@ import { DocumentAssistantModule } from './document-assistant/document-assistant
 import { IngestionModule } from './ingestion/ingestion.module';
 import { IngestionEmailModule } from './ingestion-email/ingestion-email.module';
 import { PostingQueueModule } from './posting-queue/posting-queue.module';
+import { ApiV1Module } from './api-v1/api-v1.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
 
 @Module({
@@ -114,6 +115,7 @@ import { WhatsAppModule } from './whatsapp/whatsapp.module';
     IngestionModule,
     IngestionEmailModule,
     PostingQueueModule,
+    ApiV1Module,
     WhatsAppModule,
   ],
   controllers: [AppController],
@@ -132,12 +134,15 @@ export class AppModule {
 
   static registerSwagger(app) {
     const config = new DocumentBuilder()
-      .setTitle('Your API Title')
-      .setDescription('Your API Description')
+      .setTitle('AIMS API')
+      .setDescription(
+        'AIMS backend API. External integrators: see the "v1 (external API)" tag — ' +
+          'authenticate with your organization API key via `Authorization: Bearer aims_…` (or `X-Api-Key`).',
+      )
       .setVersion('1.0')
-      // .addTag('cats') // You can add tags to group your endpoints
-      // .addBearerAuth() // For Bearer token authentication
-      // .addOAuth2()    // For OAuth2 authentication
+      .addBearerAuth() // Clerk JWT for the portal-facing endpoints
+      // Per-org external API keys for /v1 (matches @ApiSecurity('api-key')).
+      .addApiKey({ type: 'apiKey', name: 'X-Api-Key', in: 'header' }, 'api-key')
       .build();
     const document = SwaggerModule.createDocument(app, config);
     SwaggerModule.setup('api', app, document); // 'api' is the path where Swagger UI will be available
