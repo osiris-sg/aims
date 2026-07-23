@@ -48,7 +48,8 @@ export class PostingQueueService {
 
     const where: Prisma.DocumentWhereInput = {
       organizationId,
-      type: 'INVOICE',
+      // Credit notes from the external /v1 API queue here too (reversed JE on post).
+      type: { in: ['INVOICE', 'CREDIT_NOTE'] },
       config: { path: ['glPosting', 'status'], equals: 'pending' },
       ...(opts.search
         ? { name: { contains: opts.search, mode: 'insensitive' } }
@@ -62,7 +63,7 @@ export class PostingQueueService {
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
-        select: { id: true, name: true, status: true, config: true, createdAt: true },
+        select: { id: true, name: true, type: true, status: true, config: true, createdAt: true },
       }),
     ]);
 
@@ -70,12 +71,13 @@ export class PostingQueueService {
     return { total, page, limit, rows };
   }
 
-  private shapeRow(d: { id: string; name: string | null; status: string; config: any; createdAt: Date }) {
+  private shapeRow(d: { id: string; name: string | null; type?: string; status: string; config: any; createdAt: Date }) {
     const c = (d.config || {}) as any;
     const items = Array.isArray(c.items) ? c.items : [];
     return {
       id: d.id,
       name: d.name,
+      type: d.type ?? 'INVOICE',
       date: c.date ?? null,
       customerName: c.customer?.name ?? '',
       subtotal: ROUND(c.subTotal),
@@ -161,14 +163,36 @@ export class PostingQueueService {
         return { documentId, invoiceNumber, ok: true, skipped: true, journalEntryId: c.glPosting.journalEntryId };
       }
       // Idempotency: don't double-post if a non-void JE already exists.
-      const already = await this.autoPost.alreadyPostedForDocument(organizationId, documentId, 'INVOICE');
+      const already = await this.autoPost.alreadyPostedForDocument(organizationId, documentId, doc.type);
       if (already) {
         await this.stampPosted(documentId, c, already.id, userId);
         return { documentId, invoiceNumber, ok: true, skipped: true, journalEntryId: already.id };
       }
 
-      const lines = await this.buildLines(organizationId, c, invoiceNumber);
       const entryDate = c.date ? new Date(c.date) : new Date();
+
+      // Credit notes post the reversed entry (Cr AR / Dr revenue) via the
+      // existing auto-post path; invoices post per-line below.
+      if (doc.type === 'CREDIT_NOTE') {
+        const entry = await this.autoPost.postFromCreditNote({
+          organizationId,
+          documentId,
+          documentNumber: invoiceNumber,
+          entryDate,
+          customerName: c.customer?.name,
+          netAmount: ROUND(c.subTotal),
+          taxAmount: ROUND(c.gstAmount),
+          grossAmount: ROUND(c.nettTotal),
+          userId,
+        });
+        if (!entry) {
+          return { documentId, invoiceNumber, ok: false, error: 'Credit-note post skipped (accounts not configured)' };
+        }
+        await this.stampPosted(documentId, c, entry.id, userId);
+        return { documentId, invoiceNumber, ok: true, journalEntryId: entry.id };
+      }
+
+      const lines = await this.buildLines(organizationId, c, invoiceNumber);
 
       const created = await this.journal.create(
         organizationId,
@@ -253,8 +277,8 @@ export class PostingQueueService {
   // ---- helpers ------------------------------------------------------------
   private async loadInvoice(organizationId: string, documentId: string) {
     const doc = await this.prisma.document.findFirst({
-      where: { id: documentId, organizationId, type: 'INVOICE' },
-      select: { id: true, name: true, config: true, status: true },
+      where: { id: documentId, organizationId, type: { in: ['INVOICE', 'CREDIT_NOTE'] } },
+      select: { id: true, name: true, type: true, config: true, status: true },
     });
     if (!doc) throw new NotFoundException('Invoice not found in this organization');
     return doc;

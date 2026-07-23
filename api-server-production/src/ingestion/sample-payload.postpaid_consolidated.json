@@ -1,0 +1,54 @@
+{
+  "_note": "POSTPAID consolidated payload (guru, 2026-07-23). NOT YET ACCEPTED by the ingestion endpoint — spec only. Differences vs prepaid_daily: ONE consolidated invoice per request (not a batch), period-based (periodFrom/periodTo), lines = materialSummaries[], dailyBreakdowns[] is a per-day appendix for the invoice rendering, dates are DD/MM/YYYY (not ISO), idempotency key = invoiceNumber (no transactionId), single paymentMethod (expected rail; money NOT yet collected — AR stays open until paid). transactionCount = number of underlying weighbridge transactions consolidated.",
+  "type": "postpaid_consolidated",
+  "platform": {
+    "name": "Biofuel Industries Pte. Ltd.",
+    "uen": "200303416N",
+    "address": "22 Tuas Ave 2, Singapore 639453",
+    "contactNumber": "+65 8902 0505"
+  },
+  "invoice": {
+    "invoiceNumber": "BIPL-JPSG-INV-20260629-0054",
+    "invoiceDate": "01/07/2026",
+    "periodFrom": "22/06/2026",
+    "periodTo": "28/06/2026",
+    "currency": "SGD"
+  },
+  "client": {
+    "name": "Chuan Lim Construction Pte Ltd",
+    "uen": "199600684W",
+    "address": "20 Senoko Drive",
+    "attention": "Cindy Herlina",
+    "mobile": "92778118",
+    "email": "Cindy.herlina@chuanlim.com"
+  },
+  "materialSummaries": [
+    {
+      "description": "Mixed Soil",
+      "qtyTonnes": 5048.74,
+      "rate": 16.0,
+      "gstPercent": 9,
+      "subtotal": 80779.84,
+      "gst": 7270.19,
+      "amount": 88050.03
+    }
+  ],
+  "dailyBreakdowns": [
+    { "date": "22/06/2026", "items": [{ "materialType": "Mixed Soil", "tonnes": 956.56, "loads": 64 }] },
+    { "date": "23/06/2026", "items": [{ "materialType": "Mixed Soil", "tonnes": 1224.69, "loads": 85 }] },
+    { "date": "24/06/2026", "items": [{ "materialType": "Mixed Soil", "tonnes": 1077.18, "loads": 70 }] },
+    { "date": "25/06/2026", "items": [{ "materialType": "Mixed Soil", "tonnes": 833.58, "loads": 55 }] },
+    { "date": "26/06/2026", "items": [{ "materialType": "Mixed Soil", "tonnes": 160.49, "loads": 10 }] },
+    { "date": "27/06/2026", "items": [{ "materialType": "Mixed Soil", "tonnes": 283.74, "loads": 17 }] },
+    { "date": "28/06/2026", "items": [{ "materialType": "Mixed Soil", "tonnes": 512.5, "loads": 36 }] }
+  ],
+  "transportSummaries": null,
+  "totals": {
+    "soilSubtotal": 80779.84,
+    "gst": 7270.19,
+    "transportSubtotal": null,
+    "total": 88050.03
+  },
+  "transactionCount": 337,
+  "paymentMethod": "bank_transfer"
+}

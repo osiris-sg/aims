@@ -54,6 +54,11 @@ export class IngestionService {
         `This ingestion endpoint only accepts Biofuel batches (platform.uen must be ${BIOFUEL_UEN}); got "${payload.platform?.uen}"`,
       );
     }
+    // Postpaid: ONE consolidated period invoice per request — own structure.
+    if ((payload.type || '').toLowerCase() === 'postpaid_consolidated') {
+      return this.ingestPostpaid(payload);
+    }
+
     const invoices = Array.isArray(payload.invoices) ? payload.invoices : [];
     if (invoices.length === 0) {
       throw new BadRequestException('Payload has no invoices');
@@ -110,6 +115,176 @@ export class IngestionService {
       failed,
       customersCreated,
       results,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // postpaid_consolidated: ONE consolidated invoice covering a billing period.
+  // Idempotency key = invoice.invoiceNumber. Dates arrive as DD/MM/YYYY.
+  // Postpaid = the client has NOT paid yet: the invoice queues for review and
+  // posts revenue-only (Dr AR / Cr 209 / Cr GST); AR stays open until payment.
+  // `paymentMethod` (bank_transfer | airwallex) is the EXPECTED rail — stored
+  // for the accountant, no settlement JE at posting time.
+  // -------------------------------------------------------------------------
+  private async ingestPostpaid(payload: IngestBatchDto) {
+    const header = payload.invoice;
+    if (!header?.invoiceNumber?.trim()) {
+      throw new BadRequestException('postpaid_consolidated requires invoice.invoiceNumber');
+    }
+    const summaries = Array.isArray(payload.materialSummaries) ? payload.materialSummaries : [];
+    if (summaries.length === 0) {
+      throw new BadRequestException('postpaid_consolidated requires materialSummaries');
+    }
+    const client = payload.client || {};
+    if (!client.name && !client.uen) {
+      throw new BadRequestException('postpaid_consolidated requires client.name or client.uen');
+    }
+
+    const organizationId = BIOFUEL_ORG_ID;
+    const templateId = await this.resolveConsolidatedTemplateId(organizationId);
+    const invoiceNumber = header.invoiceNumber.trim();
+
+    const customerCache = new Map<string, { id: string; name: string }>();
+    const { customer, created: createdCustomer } = await this.resolveCustomer(
+      client,
+      organizationId,
+      customerCache,
+    );
+
+    // DD/MM/YYYY → dates
+    const invoiceDate = this.parseDMY(header.invoiceDate) || new Date();
+    const periodFromStr = this.formatDayDisplay(this.parseDMY(header.periodFrom));
+    const periodToStr = this.formatDayDisplay(this.parseDMY(header.periodTo));
+    const periodStr =
+      periodFromStr && periodToStr ? `${periodFromStr} – ${periodToStr}` : periodFromStr || periodToStr || '';
+
+    // Lines from the material summaries. `amount` (gross) = subtotal + gst per
+    // line; the item's standard `amount` stays NET so posting math is uniform.
+    const items = summaries.map((m, i) => ({
+      lineNumber: i + 1,
+      no: i + 1,
+      description: m.description ?? '',
+      qtyTonnes: this.num(m.qtyTonnes),
+      rate: this.num(m.rate),
+      gstPercentLine: this.num(m.gstPercent, 9),
+      grossAmount: this.num(m.amount),
+      // Standard fields (GL posting + generic renderers):
+      quantity: this.num(m.qtyTonnes),
+      unitPrice: this.num(m.rate),
+      amount: this.num(m.subtotal),
+      taxAmount: this.num(m.gst),
+      accountCode: DISPOSAL_REVENUE_ACCOUNT,
+      itemCode: null,
+      taxType: null,
+      discount: 0,
+    }));
+
+    const subTotal = this.num(payload.totals?.soilSubtotal, items.reduce((s, it) => s + it.amount, 0));
+    const gstAmount = this.num(payload.totals?.gst, items.reduce((s, it) => s + it.taxAmount, 0));
+    const nettTotal = this.num(payload.totals?.total, subTotal + gstAmount);
+    const gstPercent = this.num(summaries[0]?.gstPercent, subTotal > 0 ? Math.round((gstAmount / subTotal) * 100) : 9);
+
+    const config: Prisma.InputJsonValue = {
+      date: invoiceDate.toISOString(),
+      dueDate: null,
+      documentNumber: invoiceNumber,
+      items,
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        address: client.address ?? '',
+        uen: client.uen ?? '',
+      },
+      customerId: customer.id,
+      billTo: client.address ?? '',
+      attention: {
+        name: client.attention ?? '',
+        phone: client.mobile ?? '',
+        email: client.email ?? '',
+      },
+      subTotal,
+      gstAmount,
+      nettTotal,
+      documentInfo: {
+        documentNumber: invoiceNumber,
+        date: invoiceDate.toISOString(),
+        period: periodStr,
+        currency: header.currency || 'SGD',
+        gstPercent,
+      },
+      // Consolidated-invoice extras (drive the JPSG_CONSOLIDATED render):
+      consolidated: {
+        periodFrom: header.periodFrom ?? null,
+        periodTo: header.periodTo ?? null,
+        dailyBreakdowns: (payload.dailyBreakdowns as any) ?? [],
+        transportSummaries: (payload.transportSummaries as any) ?? null,
+        transactionCount: payload.transactionCount ?? null,
+        paymentMethod: payload.paymentMethod ?? null,
+      },
+      glPosting: {
+        status: 'pending',
+        journalEntryId: null,
+        postedAt: null,
+        postedBy: null,
+        rejectedAt: null,
+        rejectedBy: null,
+        rejectReason: null,
+        source: 'weighbridge_json',
+      },
+      ingestBatch: {
+        type: payload.type ?? null,
+        date: header.invoiceDate ?? null,
+        sentAt: payload.sentAt ?? null,
+      },
+      xeroImported: false,
+    };
+
+    // Idempotent upsert by invoice number (the postpaid key). Never clobber an
+    // already-posted invoice's GL state.
+    const existing = await this.prisma.document.findFirst({
+      where: { organizationId, type: 'INVOICE', name: invoiceNumber },
+      select: { id: true, config: true },
+    });
+
+    let documentId: string;
+    let outcome: 'created' | 'updated';
+    if (existing) {
+      const prevGl = (existing.config as any)?.glPosting;
+      const merged =
+        prevGl && prevGl.status === 'posted' ? { ...(config as any), glPosting: prevGl } : config;
+      await this.prisma.document.update({
+        where: { id: existing.id },
+        data: { documentTemplateId: templateId, status: 'confirmed', config: merged },
+      });
+      documentId = existing.id;
+      outcome = 'updated';
+    } else {
+      const doc = await this.prisma.document.create({
+        data: {
+          organizationId,
+          documentTemplateId: templateId,
+          name: invoiceNumber,
+          type: 'INVOICE',
+          status: 'confirmed',
+          config,
+        },
+        select: { id: true },
+      });
+      documentId = doc.id;
+      outcome = 'created';
+    }
+
+    return {
+      organizationId,
+      org: 'Biofuel Industries Pte Ltd',
+      batchType: payload.type ?? 'postpaid_consolidated',
+      batchDate: header.invoiceDate ?? null,
+      totalInvoices: 1,
+      created: outcome === 'created' ? 1 : 0,
+      updated: outcome === 'updated' ? 1 : 0,
+      failed: 0,
+      customersCreated: createdCustomer ? 1 : 0,
+      results: [{ invoiceNumber, transactionId: invoiceNumber, outcome, documentId }] as PerInvoiceResult[],
     };
   }
 
@@ -473,6 +648,37 @@ export class IngestionService {
     throw new BadRequestException(
       'JPSG_DISPOSAL invoice template not found for this org — run scripts/create-jpsg-invoice-template.ts first',
     );
+  }
+
+  private async resolveConsolidatedTemplateId(organizationId: string): Promise<string> {
+    // Bespoke consolidated postpaid invoice template (period header + material
+    // summary + daily breakdown). Seed via scripts/create-jpsg-consolidated-template.ts.
+    const tmpl = await this.prisma.documentTemplate.findFirst({
+      where: { organizationId, type: 'INVOICE', templateVariant: 'JPSG_CONSOLIDATED' },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    if (tmpl) return tmpl.id;
+    throw new BadRequestException(
+      'JPSG_CONSOLIDATED invoice template not found for this org — run scripts/create-jpsg-consolidated-template.ts first',
+    );
+  }
+
+  // "DD/MM/YYYY" (weighbridge postpaid format) → Date, else null.
+  private parseDMY(s?: string | null): Date | null {
+    if (!s) return null;
+    const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s.trim());
+    if (m) {
+      const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    const fallback = new Date(s);
+    return Number.isNaN(fallback.getTime()) ? null : fallback;
+  }
+
+  private formatDayDisplay(d?: Date | null): string {
+    if (!d) return '';
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   }
 
   private formatDay(iso: string): string {

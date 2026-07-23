@@ -9,5 +9,6 @@ import { PostingQueueService } from './posting-queue.service';
   imports: [JournalModule, PostingPreviewModule],
   controllers: [PostingQueueController],
   providers: [PostingQueueService, PrismaService],
+  exports: [PostingQueueService],
 })
 export class PostingQueueModule {}

@@ -46,12 +46,47 @@ export interface IngestInvoice {
   timestamp?: string;
 }
 
+// ---- postpaid_consolidated (ONE period invoice per request) ---------------
+
+export interface PostpaidInvoiceHeader {
+  invoiceNumber: string; // idempotency key for postpaid
+  invoiceDate?: string; // DD/MM/YYYY
+  periodFrom?: string; // DD/MM/YYYY
+  periodTo?: string; // DD/MM/YYYY
+  currency?: string;
+}
+
+export interface PostpaidMaterialSummary {
+  description?: string;
+  qtyTonnes?: number;
+  rate?: number; // S$ per tonne
+  gstPercent?: number;
+  subtotal?: number;
+  gst?: number;
+  amount?: number; // subtotal + gst
+}
+
+export interface PostpaidDailyBreakdown {
+  date?: string; // DD/MM/YYYY
+  items?: Array<{ materialType?: string; tonnes?: number; loads?: number }>;
+}
+
 export interface IngestBatchDto {
-  type?: string; // e.g. "prepaid_daily"
-  date?: string; // batch date, e.g. "2026-06-26"
+  type?: string; // "prepaid_daily" | "jp_passes_daily" | "postpaid_consolidated"
+  date?: string; // batch date, e.g. "2026-06-26" (daily types)
   sentAt?: string;
   platform?: IngestPlatform;
+  // daily types:
   invoices?: IngestInvoice[];
   totalInvoices?: number;
   grandTotal?: { subtotal?: number; gst?: number; total?: number };
+  // postpaid_consolidated:
+  invoice?: PostpaidInvoiceHeader;
+  client?: IngestClient;
+  materialSummaries?: PostpaidMaterialSummary[];
+  dailyBreakdowns?: PostpaidDailyBreakdown[];
+  transportSummaries?: unknown | null; // shape TBD — stored raw for audit
+  totals?: { soilSubtotal?: number; gst?: number; transportSubtotal?: number | null; total?: number };
+  transactionCount?: number;
+  paymentMethod?: string; // "bank_transfer" | "airwallex" — expected rail (unpaid)
 }
