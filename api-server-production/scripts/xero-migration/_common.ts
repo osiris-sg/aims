@@ -80,7 +80,8 @@ export type XeroTokens = {
   refresh: () => Promise<void>;
 };
 
-async function refreshInPlace(prisma: PrismaClient, organizationId: string, tokens: { accessToken: string; refreshToken: string; accessTokenExpiresAt: Date }) {
+async function refreshInPlace(_ignored: PrismaClient, organizationId: string, tokens: { accessToken: string; refreshToken: string; accessTokenExpiresAt: Date }) {
+  const prisma = getTokenClient();
   console.log("  ↻ refreshing Xero access token...");
   const clientId = process.env.XERO_CLIENT_ID!;
   const clientSecret = process.env.XERO_CLIENT_SECRET!;
@@ -113,7 +114,28 @@ async function refreshInPlace(prisma: PrismaClient, organizationId: string, toke
   tokens.accessTokenExpiresAt = updated.accessTokenExpiresAt;
 }
 
-export async function getXeroTokens(prisma: PrismaClient, organizationId: string): Promise<XeroTokens> {
+// TOKEN RULE (2026-07-22): PROD DB is the sole owner of the Xero token —
+// scripts always read/persist tokens there, regardless of which DB their
+// data targets. Prevents the cross-env refresh races that burnt the lineage.
+let tokenClient: PrismaClient | null = null;
+function getTokenClient(): PrismaClient {
+  if (tokenClient) return tokenClient;
+  const fs2 = require('fs') as typeof import('fs');
+  // Local dev: read the prod DB URL from .env.production. On Render (no env
+  // files) DATABASE_URL is already the prod DB — use it directly.
+  let url: string | undefined;
+  if (fs2.existsSync('.env.production')) {
+    url = fs2.readFileSync('.env.production', 'utf8').match(/^DATABASE_URL="?([^"\n]+)"?/m)?.[1];
+  }
+  url = url || process.env.DATABASE_URL;
+  if (!url) throw new Error('no prod DATABASE_URL for token sourcing');
+  const { PrismaClient: PC } = require('@prisma/client');
+  tokenClient = new PC({ datasources: { db: { url } } });
+  return tokenClient!;
+}
+
+export async function getXeroTokens(_dataPrisma: PrismaClient, organizationId: string): Promise<XeroTokens> {
+  const prisma = getTokenClient();
   const conn = await prisma.xeroConnection.findUnique({ where: { organizationId } });
   if (!conn) throw new Error(`No XeroConnection for org ${organizationId}. Connect at /xero/connect first.`);
 

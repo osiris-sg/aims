@@ -73,7 +73,11 @@ async function reconcileGL(tokens: Awaited<ReturnType<typeof getXeroTokens>>) {
       const jdate = new Date(jrnl.JournalDate);
       if (jdate.getTime() > asofMs) continue; // respect as-of cut-off
       for (const l of jrnl.JournalLines || []) {
-        const code = (l.AccountCode ?? '(none)').toString();
+        // Xero bank accounts (Customer Deposits, Airwallex) and some CoA rows
+        // have no Code — key those by normalized name so each keeps its own
+        // row instead of collapsing into one '(none)' bucket.
+        const rawCode = (l.AccountCode ?? '').toString().trim();
+        const code = rawCode || '~' + (l.AccountName || '(unnamed)').toLowerCase().replace(/\s+/g, ' ').trim();
         const cur = xeroByCode.get(code) || { name: l.AccountName || '', net: 0 };
         cur.net += Number(l.NetAmount) || 0;
         if (!cur.name && l.AccountName) cur.name = l.AccountName;
@@ -104,6 +108,27 @@ async function reconcileGL(tokens: Awaited<ReturnType<typeof getXeroTokens>>) {
     const cur = aimsByCode.get(code) || { name: a?.name || '', net: 0 };
     cur.net += net;
     aimsByCode.set(code, cur);
+  }
+
+  // Pair accounts the two systems code differently: any AIMS code with no Xero
+  // counterpart is re-keyed onto the Xero account with the same normalized name
+  // (covers code-less Xero bank accounts → AIMS X-…/CD… codes, and code clashes
+  // like Airwallex Fees 403 in Xero vs 405 in AIMS).
+  const normName = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+  const xeroByName = new Map<string, string>(); // norm(name) -> xero key (codes unmatched in AIMS only)
+  for (const [code, v] of xeroByCode)
+    if (!aimsByCode.has(code)) {
+      const k = normName(v.name);
+      xeroByName.set(k, xeroByName.has(k) ? '(ambiguous)' : code);
+    }
+  for (const [code, v] of Array.from(aimsByCode)) {
+    if (xeroByCode.has(code)) continue;
+    const target = xeroByName.get(normName(v.name));
+    if (!target || target === '(ambiguous)') continue;
+    const cur = aimsByCode.get(target) || { name: v.name, net: 0 };
+    cur.net += v.net;
+    aimsByCode.set(target, cur);
+    aimsByCode.delete(code);
   }
 
   // how much of AIMS GL is NOT from the Xero import (i.e. live AIMS activity)?

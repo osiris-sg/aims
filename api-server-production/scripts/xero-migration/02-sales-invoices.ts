@@ -221,6 +221,25 @@ async function main() {
         const rowName = nameTakenByOther ? `${invoiceNumber} (${inv.InvoiceID.slice(0, 4)})` : invoiceNumber;
 
         if (existing) {
+          // AIMS-pushed invoices: refresh only the Xero mirror fields (see 03).
+          const existingCfg: any = (await prisma.document.findUnique({ where: { id: existing.id }, select: { config: true } }))?.config || {};
+          if (existingCfg.xeroSyncedAt || existingCfg.xeroSyncedBy) {
+            await prisma.document.update({
+              where: { id: existing.id },
+              data: {
+                config: {
+                  ...existingCfg,
+                  xeroStatus: inv.Status,
+                  xeroBalance: inv.AmountDue ?? existingCfg.xeroBalance,
+                  xeroAmountPaid: inv.AmountPaid ?? existingCfg.xeroAmountPaid,
+                  xeroGross: inv.Total ?? existingCfg.xeroGross,
+                  xeroLastSyncAt: new Date().toISOString(),
+                } as unknown as Prisma.InputJsonValue,
+              },
+            });
+            updated++;
+            continue;
+          }
           try {
             await prisma.document.update({
               where: { id: existing.id },

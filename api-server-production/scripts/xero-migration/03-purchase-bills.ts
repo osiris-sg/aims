@@ -224,6 +224,28 @@ async function main() {
         const rowName = nameTakenByOther ? `${billNumber} (${inv.InvoiceID.slice(0, 4)})` : billNumber;
 
         if (existing) {
+          // AIMS-pushed bills (Sync-to-Xero / JP batch push): Xero's copy is a
+          // projection of OUR data — a full config replace would wipe the rich
+          // AIMS fields (reference, inboundMeta, billStatus, attachment flags).
+          // Only refresh the Xero-status/balance mirror fields.
+          const existingCfg: any = (await prisma.document.findUnique({ where: { id: existing.id }, select: { config: true } }))?.config || {};
+          if (existingCfg.xeroSyncedAt || existingCfg.xeroSyncedBy) {
+            await prisma.document.update({
+              where: { id: existing.id },
+              data: {
+                config: {
+                  ...existingCfg,
+                  xeroStatus: inv.Status,
+                  xeroBalance: inv.AmountDue ?? existingCfg.xeroBalance,
+                  xeroAmountPaid: inv.AmountPaid ?? existingCfg.xeroAmountPaid,
+                  xeroGross: inv.Total ?? existingCfg.xeroGross,
+                  xeroLastSyncAt: new Date().toISOString(),
+                } as unknown as Prisma.InputJsonValue,
+              },
+            });
+            updated++;
+            continue;
+          }
           try {
             await prisma.document.update({
               where: { id: existing.id },
