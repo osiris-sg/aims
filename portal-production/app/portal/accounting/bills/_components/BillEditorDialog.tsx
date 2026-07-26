@@ -29,6 +29,8 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import CloseIcon from "@mui/icons-material/Close";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import CloudSyncIcon from "@mui/icons-material/CloudSync";
 import { toast } from "react-toastify";
@@ -36,6 +38,7 @@ import { useAccountingApi } from "../../_lib/api";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useAuth } from "@clerk/nextjs";
 import { uploadFile } from "@/helpers/fileUploader";
+import { expandUploadFiles, UPLOAD_ACCEPT } from "@/helpers/uploadExpand";
 import AttachmentUploader, { Attachment } from "@/components/AttachmentUploader";
 import PostingPreviewDialog, { PreviewResult } from "@/components/PostingPreviewDialog";
 
@@ -65,6 +68,34 @@ type TaxRateOpt = { id: string; code: string; name: string; rate: number; direct
 
 type AmountsAre = "EXCLUSIVE" | "INCLUSIVE" | "NO_TAX";
 
+// Bulk upload: each selected file becomes one batch item, reviewed and saved
+// one at a time via the ‹ › pager while the rest extract in the background
+// (guru 2026-07-26).
+type BatchItem = {
+  uid: string;
+  file: File;
+  status: "pending" | "extracting" | "ready" | "error" | "saved";
+  form?: FormSnapshot;
+  error?: string;
+  billId?: string;
+};
+
+type FormSnapshot = {
+  supplierId: string | null;
+  billNumber: string;
+  billDate: string;
+  dueDate: string;
+  reference: string;
+  description: string;
+  taxAmount: string;
+  taxManual: boolean;
+  amountsAre: AmountsAre;
+  taxCode: string;
+  lines: LineForm[];
+  inboundChannel: string;
+  attachments: Attachment[];
+};
+
 const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -82,11 +113,18 @@ export default function BillEditorDialog({
   editing,
   onClose,
   onSaved,
+  batchFiles,
+  onRefresh,
 }: {
   open: boolean;
   editing: any | null;
   onClose: () => void;
   onSaved: () => void;
+  // Pre-expanded files from the "Upload Bills" bulk entry point — opens the
+  // dialog straight into batch mode.
+  batchFiles?: File[] | null;
+  // List refresh that does NOT close the dialog (used after each batch save).
+  onRefresh?: () => void;
 }) {
   const { request } = useAccountingApi();
   const { getToken } = useAuth();
@@ -118,6 +156,14 @@ export default function BillEditorDialog({
   const [inboundChannel, setInboundChannel] = useState<string>("MANUAL");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Batch (bulk-upload) state. batchRef is the source of truth for the async
+  // extraction loop; setBatch mirrors it into React for rendering.
+  const [batch, setBatch] = useState<BatchItem[] | null>(null);
+  const [batchIdx, setBatchIdx] = useState(0);
+  const batchRef = useRef<BatchItem[] | null>(null);
+  const batchLoopRunning = useRef(false);
+  const batchAbortRef = useRef(false);
+  const loadedIdxRef = useRef(-1); // which batch item the visible form belongs to
 
   const isReadOnly = !!editing && editing.status !== "DRAFT" && editing.status !== "PENDING_APPROVAL";
 
@@ -222,30 +268,36 @@ export default function BillEditorDialog({
   };
 
   // ---------- PDF / image upload → LLM extract ----------
+  // Extraction + S3 upload for one file, in parallel — the analysed file is
+  // kept as the bill's supporting document (not discarded). Never throws for
+  // the upload; extraction errors propagate to the caller.
+  const extractRaw = async (file: File) => {
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    const mediaType = file.type as any;
+    const [extracted, uploaded] = await Promise.all([
+      request<any>("/bills/extract", { method: "POST", body: JSON.stringify({ base64, mediaType }) }),
+      (async () => {
+        try {
+          const token = await getToken();
+          if (!token) return null;
+          return await uploadFile({ file, folder: "bills/attachments", token });
+        } catch {
+          return null; // never block the extract/attach flow on an upload hiccup
+        }
+      })(),
+    ]);
+    return { extracted, uploaded };
+  };
+
   const handleFile = async (file: File) => {
     setExtracting(true);
     try {
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      const mediaType = file.type as any;
-      // Run the AI extraction AND the S3 upload in parallel — the analysed file
-      // is kept as the bill's supporting document (not discarded).
-      const [extracted, uploaded] = await Promise.all([
-        request<any>("/bills/extract", { method: "POST", body: JSON.stringify({ base64, mediaType }) }),
-        (async () => {
-          try {
-            const token = await getToken();
-            if (!token) return null;
-            return await uploadFile({ file, folder: "bills/attachments", token });
-          } catch {
-            return null; // never block the extract/attach flow on an upload hiccup
-          }
-        })(),
-      ]);
+      const { extracted, uploaded } = await extractRaw(file);
       // Attach the source file regardless of whether extraction succeeded.
       if (uploaded) setAttachments((prev) => [...prev, uploaded]);
       if (!extracted) {
@@ -281,6 +333,186 @@ export default function BillEditorDialog({
       setExtracting(false);
     }
   };
+
+  // ---------- Bulk upload batch ----------
+  const syncBatch = () => setBatch(batchRef.current ? [...batchRef.current] : null);
+
+  const captureForm = (): FormSnapshot => ({
+    supplierId, billNumber, billDate, dueDate, reference, description,
+    taxAmount, taxManual: taxManualRef.current, amountsAre, taxCode,
+    lines, inboundChannel, attachments,
+  });
+
+  const restoreForm = (fm: FormSnapshot | null) => {
+    setSupplierId(fm?.supplierId ?? null);
+    setBillNumber(fm?.billNumber ?? "");
+    setBillDate(fm?.billDate || todayIso());
+    setDueDate(fm?.dueDate ?? "");
+    setReference(fm?.reference ?? "");
+    setDescription(fm?.description ?? "");
+    setTaxAmount(fm?.taxAmount ?? "0");
+    taxManualRef.current = fm?.taxManual ?? false;
+    setAmountsAre(fm?.amountsAre ?? "EXCLUSIVE");
+    setTaxCode(fm?.taxCode ?? "4");
+    setLines(fm?.lines?.length ? fm.lines : [newLine()]);
+    setInboundChannel(fm?.inboundChannel ?? "UPLOAD");
+    setAttachments(fm?.attachments ?? []);
+  };
+
+  // Map one file's extraction into a full form snapshot (batch items always
+  // start from a blank form, so a full snapshot — not a selective merge — is
+  // correct here).
+  const extractToSnapshot = async (file: File): Promise<{ form: FormSnapshot; ok: boolean; error?: string }> => {
+    let extracted: any = null;
+    let uploaded: Attachment | null = null;
+    let error: string | undefined;
+    try {
+      const res = await extractRaw(file);
+      extracted = res.extracted;
+      uploaded = res.uploaded as any;
+    } catch (e: any) {
+      error = e?.message || "Extraction failed";
+    }
+    const form: FormSnapshot = {
+      supplierId: extracted?.supplierIdGuess?.id ?? null,
+      billNumber: extracted?.billNumber ?? "",
+      billDate: extracted?.billDate ? String(extracted.billDate).slice(0, 10) : todayIso(),
+      dueDate: extracted?.dueDate ? String(extracted.dueDate).slice(0, 10) : "",
+      reference: "",
+      description: "",
+      taxAmount: extracted?.taxAmount !== undefined ? String(extracted.taxAmount || 0) : "0",
+      taxManual: extracted?.taxAmount !== undefined,
+      amountsAre: "EXCLUSIVE",
+      taxCode: "4",
+      lines:
+        Array.isArray(extracted?.lines) && extracted.lines.length > 0
+          ? extracted.lines.map((l: any) => ({
+              uid: Math.random().toString(36).slice(2),
+              description: l.description || "",
+              quantity: String(l.quantity ?? 1),
+              unitPrice: String(l.unitPrice ?? ""),
+              amount: String(l.amount ?? ""),
+              accountId: null,
+            }))
+          : [newLine()],
+      inboundChannel: "UPLOAD",
+      attachments: uploaded ? [uploaded] : [],
+    };
+    return { form, ok: !!extracted, error: extracted ? undefined : error || "Couldn't extract — fill in manually" };
+  };
+
+  // Sequential background loop — one extraction at a time, skipping anything
+  // already handled. Safe to call repeatedly (e.g. after adding more files).
+  const runBatchLoop = async () => {
+    if (batchLoopRunning.current) return;
+    batchLoopRunning.current = true;
+    try {
+      for (;;) {
+        const items = batchRef.current;
+        if (!items || batchAbortRef.current) return;
+        const it = items.find((x) => x.status === "pending");
+        if (!it) return;
+        it.status = "extracting";
+        syncBatch();
+        const res = await extractToSnapshot(it.file);
+        if (batchAbortRef.current || !batchRef.current) return;
+        it.form = res.form;
+        it.status = res.ok ? "ready" : "error";
+        it.error = res.error;
+        syncBatch();
+      }
+    } finally {
+      batchLoopRunning.current = false;
+    }
+  };
+
+  const startBatch = (fs: File[]) => {
+    const items: BatchItem[] = fs.map((file) => ({
+      uid: Math.random().toString(36).slice(2),
+      file,
+      status: "pending",
+    }));
+    batchAbortRef.current = false;
+    batchRef.current = items;
+    loadedIdxRef.current = -1;
+    setBatchIdx(0);
+    restoreForm(null); // blank while the first file extracts
+    syncBatch();
+    void runBatchLoop();
+  };
+
+  // Entry for the dialog's own file input (multiple + ZIP). One file with no
+  // active batch keeps the classic in-place prefill; anything more becomes a
+  // batch (appending to it if one is already running).
+  const handleFiles = async (list: FileList | File[]) => {
+    const fs = await expandUploadFiles(list);
+    if (!fs.length) return;
+    if (batchRef.current) {
+      const seen = new Set(batchRef.current.map((b) => `${b.file.name}|${b.file.size}`));
+      const fresh = fs.filter((x) => !seen.has(`${x.name}|${x.size}`));
+      batchRef.current.push(
+        ...fresh.map((file) => ({ uid: Math.random().toString(36).slice(2), file, status: "pending" as const })),
+      );
+      syncBatch();
+      void runBatchLoop();
+      return;
+    }
+    if (fs.length === 1) {
+      void handleFile(fs[0]);
+      return;
+    }
+    startBatch(fs);
+  };
+
+  // Navigate the pager. Persists in-progress edits onto the item being left.
+  const gotoBatch = (next: number) => {
+    const items = batchRef.current;
+    if (!items || next < 0 || next >= items.length) return;
+    if (loadedIdxRef.current >= 0 && items[loadedIdxRef.current] && items[loadedIdxRef.current].status !== "extracting" && items[loadedIdxRef.current].status !== "pending") {
+      items[loadedIdxRef.current].form = captureForm();
+    }
+    loadedIdxRef.current = -1;
+    if (!items[next].form) restoreForm(null); // target still extracting
+    setBatchIdx(next);
+    syncBatch();
+  };
+
+  // Load the current item's snapshot into the form once its extraction lands.
+  useEffect(() => {
+    if (!batch) return;
+    const it = batch[batchIdx];
+    if (!it || loadedIdxRef.current === batchIdx) return;
+    if (it.status === "ready" || it.status === "error" || it.status === "saved") {
+      restoreForm(it.form ?? null);
+      loadedIdxRef.current = batchIdx;
+      if (it.status === "error") toast.warn(`${it.file.name}: ${it.error || "couldn't extract"}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batch, batchIdx]);
+
+  // Bulk entry point: files handed in by the bills page's Upload Bills button.
+  useEffect(() => {
+    if (!open || editing || !batchFiles?.length) return;
+    if (batchFiles.length === 1) void handleFile(batchFiles[0]);
+    else startBatch(batchFiles);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editing, batchFiles]);
+
+  // Tear the batch down when the dialog closes.
+  useEffect(() => {
+    if (!open) {
+      batchAbortRef.current = true;
+      batchRef.current = null;
+      setBatch(null);
+      setBatchIdx(0);
+      loadedIdxRef.current = -1;
+    }
+  }, [open]);
+
+  const currentItem = batch?.[batchIdx] ?? null;
+  const currentExtracting = !!currentItem && (currentItem.status === "pending" || currentItem.status === "extracting");
+  const batchBusyCount = batch ? batch.filter((b) => b.status === "pending" || b.status === "extracting").length : 0;
+  const batchSavedCount = batch ? batch.filter((b) => b.status === "saved").length : 0;
 
   const submit = async () => {
     if (!supplierId) return toast.error("Supplier is required");
@@ -330,7 +562,32 @@ export default function BillEditorDialog({
           toast.warn(`Bill saved but attachment update failed: ${e?.message || "unknown"}`);
         }
       }
-      onSaved();
+      // Batch mode: mark this item saved, refresh the list behind the dialog,
+      // and hop to the next unsaved bill. Only when every item is saved (or
+      // there is nothing left to review) does the dialog close.
+      if (batchRef.current) {
+        const items = batchRef.current;
+        const it = items[batchIdx];
+        if (it) {
+          it.status = "saved";
+          it.billId = billId;
+          it.form = captureForm();
+        }
+        onRefresh?.();
+        let nextIdx = -1;
+        for (let step = 1; step < items.length; step++) {
+          const j = (batchIdx + step) % items.length;
+          if (items[j].status !== "saved") { nextIdx = j; break; }
+        }
+        syncBatch();
+        if (nextIdx >= 0) gotoBatch(nextIdx);
+        else {
+          toast.success(`All ${items.length} bills saved`);
+          onSaved();
+        }
+      } else {
+        onSaved();
+      }
     } catch (e: any) {
       toast.error(e?.message || "Save failed");
     } finally {
@@ -385,8 +642,21 @@ export default function BillEditorDialog({
         <Stack direction="row" alignItems="center" justifyContent="space-between">
           <Stack direction="row" gap={1.5} alignItems="center">
             <Typography variant="h6" sx={{ fontWeight: 700 }}>
-              {editing ? `Bill — ${editing.billNumber}` : "New Bill"}
+              {editing ? `Bill — ${editing.billNumber}` : batch ? `New Bills — ${batchIdx + 1} of ${batch.length}` : "New Bill"}
             </Typography>
+            {batch && (
+              <>
+                <IconButton size="small" onClick={() => gotoBatch(batchIdx - 1)} disabled={batchIdx === 0 || saving}>
+                  <ChevronLeftIcon fontSize="small" />
+                </IconButton>
+                <IconButton size="small" onClick={() => gotoBatch(batchIdx + 1)} disabled={batchIdx >= batch.length - 1 || saving}>
+                  <ChevronRightIcon fontSize="small" />
+                </IconButton>
+                <Chip size="small" variant="outlined" label={currentItem?.file.name} sx={{ maxWidth: 240 }} />
+                {currentItem?.status === "saved" && <Chip size="small" color="success" label="Saved" />}
+                {currentItem?.status === "error" && <Chip size="small" color="warning" label="Extract failed — fill manually" />}
+              </>
+            )}
             {editing && (
               <Chip
                 size="small"
@@ -410,7 +680,29 @@ export default function BillEditorDialog({
         </Stack>
       </DialogTitle>
 
-      <DialogContent dividers>
+      <DialogContent dividers sx={{ position: "relative" }}>
+        {/* While the currently-viewed batch item is still extracting, veil the
+            form — its snapshot loads in the moment extraction lands. */}
+        {currentExtracting && (
+          <Box
+            sx={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 5,
+              display: "flex",
+              flexDirection: "column",
+              gap: 1.5,
+              alignItems: "center",
+              justifyContent: "center",
+              bgcolor: (t: any) => alpha(t.palette.background.paper, 0.85),
+            }}
+          >
+            <CircularProgress size={28} />
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              Extracting {currentItem?.file.name}…
+            </Typography>
+          </Box>
+        )}
         {!editing && (
           <Paper
             variant="outlined"
@@ -427,21 +719,37 @@ export default function BillEditorDialog({
           >
             <AutoAwesomeIcon sx={{ color: "primary.main" }} />
             <Box sx={{ flex: 1 }}>
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                Drop a PDF or image of the supplier's bill — Claude will extract it for you.
-              </Typography>
-              <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                Works on most invoices. You'll review the extracted form before saving. For multiple files or a ZIP, use Upload Bills on the bills list.
-              </Typography>
+              {batch ? (
+                <>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    {batchBusyCount > 0
+                      ? `Extracting ${batch.length - batchBusyCount + 1} of ${batch.length} in the background…`
+                      : `All ${batch.length} files extracted.`}
+                    {batchSavedCount > 0 ? ` ${batchSavedCount} saved.` : ""}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                    Use the ‹ › arrows to move between bills — review each one and save it.
+                  </Typography>
+                </>
+              ) : (
+                <>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    Drop PDFs or images of supplier bills — Claude will extract them for you.
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                    Works on most invoices. Select multiple files or a ZIP to review them one by one.
+                  </Typography>
+                </>
+              )}
             </Box>
             <input
               type="file"
-              accept="application/pdf,image/*"
+              accept={UPLOAD_ACCEPT}
+              multiple
               hidden
               ref={fileInputRef}
               onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleFile(f);
+                if (e.target.files?.length) void handleFiles(e.target.files);
                 e.target.value = "";
               }}
             />
@@ -452,7 +760,7 @@ export default function BillEditorDialog({
               disabled={extracting || saving}
               onClick={() => fileInputRef.current?.click()}
             >
-              {extracting ? "Extracting..." : "Upload bill"}
+              {extracting ? "Extracting..." : batch ? "Add files" : "Upload bills"}
             </Button>
           </Paper>
         )}
@@ -747,7 +1055,7 @@ export default function BillEditorDialog({
             variant="outlined"
             startIcon={<AutoAwesomeIcon />}
             onClick={openReview}
-            disabled={saving || extracting}
+            disabled={saving || extracting || currentExtracting}
           >
             Review
           </Button>
@@ -756,10 +1064,10 @@ export default function BillEditorDialog({
           <Button
             variant="contained"
             onClick={submit}
-            disabled={saving || extracting}
+            disabled={saving || extracting || currentExtracting || currentItem?.status === "saved"}
             startIcon={saving ? <CircularProgress size={14} color="inherit" /> : undefined}
           >
-            {editing ? "Save changes" : "Save"}
+            {editing ? "Save changes" : currentItem?.status === "saved" ? "Saved" : batch ? `Save bill ${batchIdx + 1} of ${batch.length}` : "Save"}
           </Button>
         )}
       </DialogActions>

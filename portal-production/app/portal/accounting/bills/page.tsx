@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Box,
   Chip,
@@ -20,8 +20,8 @@ import PaymentIcon from "@mui/icons-material/Payment";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import BillEditorDialog from "./_components/BillEditorDialog";
-import DocumentUploadDialog from "@/app/portal/components/DocumentUploadDialog";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import { expandUploadFiles, UPLOAD_ACCEPT } from "@/helpers/uploadExpand";
 import { Button } from "@mui/material";
 import RecordBillPaymentDialog from "./_components/RecordBillPaymentDialog";
 import PageTable from "@/components/PageTable";
@@ -69,7 +69,10 @@ export default function BillsPage() {
   const [filters, setFilters] = useState<any>({});
 
   const [editorOpen, setEditorOpen] = useState(false);
-  const [uploadOpen, setUploadOpen] = useState(false);
+  // Bulk upload: expanded files handed to BillEditorDialog's batch mode
+  // (first bill shown while the rest extract in the background).
+  const [batchFiles, setBatchFiles] = useState<File[] | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [editing, setEditing] = useState<Bill | null>(null);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [payingBill, setPayingBill] = useState<Bill | null>(null);
@@ -331,7 +334,7 @@ export default function BillsPage() {
         buttonName="New Bill"
         onAddClick={() => { setEditing(null); setEditorOpen(true); }}
         actionButtons={[
-          <Button key="upload-bills" variant="outlined" startIcon={<CloudUploadIcon />} onClick={() => setUploadOpen(true)}>
+          <Button key="upload-bills" variant="outlined" startIcon={<CloudUploadIcon />} onClick={() => uploadInputRef.current?.click()}>
             Upload Bills
           </Button>,
         ]}
@@ -349,23 +352,32 @@ export default function BillsPage() {
         totalDocs={visible.length}
       />
 
+      {/* Hidden picker behind "Upload Bills" — multi-select + ZIP, expanded
+          client-side, then reviewed one-by-one in the editor's batch mode
+          (guru 2026-07-26). */}
+      <input
+        type="file"
+        accept={UPLOAD_ACCEPT}
+        multiple
+        hidden
+        ref={uploadInputRef}
+        onChange={async (e) => {
+          const files = await expandUploadFiles(e.target.files);
+          e.target.value = "";
+          if (!files.length) return;
+          setEditing(null);
+          setBatchFiles(files);
+          setEditorOpen(true);
+        }}
+      />
+
       <BillEditorDialog
         open={editorOpen}
         editing={editing}
-        onClose={() => setEditorOpen(false)}
-        onSaved={() => { setEditorOpen(false); load(); }}
-      />
-
-      {/* Shared multi-file/ZIP upload — same experience as every document list
-          (guru 2026-07-26: all uploads consistent). Each file becomes a bill
-          via /bills/extract-create. */}
-      <DocumentUploadDialog
-        open={uploadOpen}
-        onClose={() => setUploadOpen(false)}
-        documentType="BILL"
-        documentLabel="Bill"
-        mode="bill"
-        onCreated={load}
+        batchFiles={batchFiles}
+        onClose={() => { setEditorOpen(false); setBatchFiles(null); }}
+        onSaved={() => { setEditorOpen(false); setBatchFiles(null); load(); }}
+        onRefresh={load}
       />
 
       {payingBill && (
