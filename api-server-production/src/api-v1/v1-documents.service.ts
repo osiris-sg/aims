@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { AUTO_POST_INGEST_FLAG, isOrgFeatureEnabled } from '../common/org-features';
 import { PrismaService } from '../common/prisma.service';
 import { CustomersService } from '../customers/customers.service';
 import { BillsService } from '../bills/bills.service';
@@ -177,7 +178,7 @@ export class V1DocumentsService {
 
     // Per-key auto-post; otherwise the doc waits in the Posting Queue.
     let posting: any = { status: 'pending' };
-    if (apiKey.autoPost) {
+    if (apiKey.autoPost || (await isOrgFeatureEnabled(this.prisma as any, organizationId, AUTO_POST_INGEST_FLAG))) {
       posting = await this.autoPostSalesDoc(organizationId, type, documentId, {
         number,
         customerName: customer.name,
@@ -310,7 +311,7 @@ export class V1DocumentsService {
         reference: dto.reference,
         lines: billLines,
         taxAmount,
-      });
+      }, { postOnSave: false });
       outcome = 'updated';
     } else {
       bill = await this.bills.create(organizationId, undefined, {
@@ -329,7 +330,7 @@ export class V1DocumentsService {
           externalId: dto.externalId ?? null,
           metadata: (dto.metadata as any) ?? null,
         },
-      });
+      }, { postOnSave: false });
       outcome = 'created';
       // Stamp externalId where findExisting can see it on re-sends.
       if (dto.externalId) {
@@ -347,7 +348,7 @@ export class V1DocumentsService {
     }
 
     let posting: any = { status: 'draft' };
-    if (apiKey.autoPost) {
+    if (apiKey.autoPost || (await isOrgFeatureEnabled(this.prisma as any, organizationId, AUTO_POST_INGEST_FLAG))) {
       try {
         const posted = await this.bills.post(organizationId, bill.id);
         posting = { status: 'posted', billStatus: posted.status };

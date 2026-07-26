@@ -3,6 +3,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
 import { AuditService } from '../common/audit.service';
 import { CustomersService } from '../customers/customers.service';
+import { PostingQueueService } from '../posting-queue/posting-queue.service';
+import { AUTO_POST_INGEST_FLAG, isOrgFeatureEnabled } from '../common/org-features';
 import { IngestBatchDto, IngestClient, IngestInvoice } from './dto/ingest-batch.dto';
 
 // ---------------------------------------------------------------------------
@@ -41,7 +43,21 @@ export class IngestionService {
     private readonly prisma: PrismaService,
     private readonly customers: CustomersService,
     private readonly audit: AuditService,
+    private readonly postingQueue: PostingQueueService,
   ) {}
+
+  // guru 2026-07-24 (final): intake endpoints DEFAULT TO UNCONFIRMED and wait
+  // in the Posting Queue (glPosting=pending, no journal). Only the org-level
+  // enableAutoPostIngest feature flag auto-posts on arrival — via the queue's
+  // own engine so the AI per-line account resolution still applies.
+  private async maybeAutoPost(organizationId: string, documentId: string) {
+    try {
+      if (!(await isOrgFeatureEnabled(this.prisma as any, organizationId, AUTO_POST_INGEST_FLAG))) return;
+      await this.postingQueue.postBatch(organizationId, [documentId], 'ingest-auto');
+    } catch (e: any) {
+      this.logger?.warn?.(`Ingest ${documentId}: auto-post skipped — ${e?.message || e}`);
+    }
+  }
 
   async ingestBatch(payload: IngestBatchDto) {
     // --- Validate the batch envelope -------------------------------------
@@ -254,7 +270,7 @@ export class IngestionService {
         prevGl && prevGl.status === 'posted' ? { ...(config as any), glPosting: prevGl } : config;
       await this.prisma.document.update({
         where: { id: existing.id },
-        data: { documentTemplateId: templateId, status: 'confirmed', config: merged },
+        data: { documentTemplateId: templateId, status: 'unconfirmed', config: merged },
       });
       documentId = existing.id;
       outcome = 'updated';
@@ -265,7 +281,7 @@ export class IngestionService {
           documentTemplateId: templateId,
           name: invoiceNumber,
           type: 'INVOICE',
-          status: 'confirmed',
+          status: 'unconfirmed',
           config,
         },
         select: { id: true },
@@ -273,6 +289,9 @@ export class IngestionService {
       documentId = doc.id;
       outcome = 'created';
     }
+
+    // Unconfirmed + pending in the posting queue; org flag may auto-post.
+    await this.maybeAutoPost(organizationId, documentId);
 
     return {
       organizationId,
@@ -454,10 +473,12 @@ export class IngestionService {
         data: {
           name: inv.invoiceNumber,
           documentTemplateId: templateId,
-          status: 'confirmed',
+          status: 'unconfirmed',
           config: mergedConfig,
         },
       });
+      // Unconfirmed + pending in the posting queue; org flag may auto-post.
+      await this.maybeAutoPost(organizationId, existing.id);
       return {
         result: {
           invoiceNumber: inv.invoiceNumber,
@@ -475,11 +496,14 @@ export class IngestionService {
         documentTemplateId: templateId,
         name: inv.invoiceNumber,
         type: 'INVOICE',
-        status: 'confirmed',
+        status: 'unconfirmed',
         config,
       },
       select: { id: true },
     });
+
+    // Unconfirmed + pending in the posting queue; org flag may auto-post.
+    await this.maybeAutoPost(organizationId, doc.id);
 
     // Document-history "Created" entry — same resource/resourceId convention as
     // DocumentsService.logDocumentEvent, attributed to the ingestion pipeline.

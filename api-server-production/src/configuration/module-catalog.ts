@@ -147,6 +147,9 @@ export const MODULE_CATALOG: CatalogModule[] = [
         { key: 'ledger', label: 'General Ledger' },
         { key: 'receivables', label: 'Accounts Receivable' },
         { key: 'payables', label: 'Accounts Payable' },
+        // adminOnly: sidebar hides this from non-admin roles (superadmin/Admin
+        // only) — the queue is where admins confirm-post unconfirmed things.
+        { key: 'posting-queue', label: 'Posting Queue', adminOnly: true },
         { key: 'reports', label: 'Reports' },
         { key: 'setup', label: 'Setup', href: '/portal/settings/accounting-setup' },
       ],

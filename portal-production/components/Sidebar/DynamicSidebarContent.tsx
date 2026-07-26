@@ -78,7 +78,13 @@ export default function DynamicSidebarContent() {
   const theme = useTheme();
   const rawPathname = usePathname();
   const { modules, loading, error, isModuleEnabled } = useConfiguration();
-  const { isModuleAllowed } = useUserPermissions();
+  const { isModuleAllowed, userRoles } = useUserPermissions();
+  // adminOnly submenus (e.g. Accounting → Posting Queue) show only for
+  // superadmin/Admin roles. Empty-roles fallback mirrors isModuleAllowed —
+  // the backend still enforces real permissions on the page itself.
+  const isAdminUser =
+    userRoles.length === 0 ||
+    userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
   const { isDocumentListViewEnabled } = useOrganizationFeatures();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
@@ -189,8 +195,11 @@ export default function DynamicSidebarContent() {
     .map(m => {
       const hide = HIDDEN_SUBMENUS[m.moduleCode];
       const subMenus = (m.config as any)?.subMenus;
-      if (!hide || !Array.isArray(subMenus)) return m;
-      const filtered = subMenus.filter((s: any) => !hide.includes(typeof s === 'string' ? s : s?.key));
+      if (!Array.isArray(subMenus)) return m;
+      const filtered = subMenus.filter((s: any) => {
+        if (typeof s === 'object' && s?.adminOnly && !isAdminUser) return false;
+        return !hide?.includes(typeof s === 'string' ? s : s?.key);
+      });
       return { ...m, config: { ...(m.config as any), subMenus: filtered } };
     })
     .sort((a, b) => orderKey(a) - orderKey(b));

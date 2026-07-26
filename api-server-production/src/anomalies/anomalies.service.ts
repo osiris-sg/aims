@@ -113,7 +113,7 @@ export class AnomaliesService {
     const count = await this.prisma.document.count({
       where: {
         organizationId,
-        status: 'draft',
+        status: { in: ['draft', 'unconfirmed'] as any },
         createdAt: { lt: cutoff },
       },
     });

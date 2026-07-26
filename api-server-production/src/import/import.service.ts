@@ -9,7 +9,7 @@ const ORGANIZATION_ID = '52e90ba8-bfbd-48b0-bb76-4f9667bf74f1'; // Biofuel
 const STATUS_MAP: Record<string, string> = {
   Paid: 'confirmed',
   Approved: 'confirmed',
-  Draft: 'draft',
+  Draft: 'unconfirmed',
 };
 
 // Exactly one of inventoryId / assetId must be set on an Assignment.
@@ -477,7 +477,7 @@ export class ImportService {
       });
     }
 
-    const documentStatus = STATUS_MAP[body.status] || 'draft';
+    const documentStatus = STATUS_MAP[body.status] || 'unconfirmed';
 
     // Get GST rate from first item with tax
     const firstItemWithTax = configItems.find(item => parseFloat(item.tax) > 0);

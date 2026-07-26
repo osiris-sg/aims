@@ -3,6 +3,7 @@ import { createHash } from 'crypto';
 import AdmZip = require('adm-zip');
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
+import { AUTO_POST_INGEST_FLAG, isOrgFeatureEnabled } from '../common/org-features';
 import { S3Service } from '../common/services/s3.service';
 import { BillsService } from '../bills/bills.service';
 import { DocumentsService } from '../documents/documents.service';
@@ -379,7 +380,10 @@ export class IngestionEmailService {
           subject: payload.subject,
           filename,
         },
-      });
+      },
+      // Machine intake: UNCONFIRMED with no journal unless the org's
+      // enableAutoPostIngest flag is on (guru 2026-07-24).
+      { postOnSave: await isOrgFeatureEnabled(this.prisma as any, organizationId, AUTO_POST_INGEST_FLAG) });
     } catch (e: any) {
       // Bill already in AIMS (e.g. imported earlier by the zip batch, then the
       // same passes arrive again by email next to their recharge invoice).
