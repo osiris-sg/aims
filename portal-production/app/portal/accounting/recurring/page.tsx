@@ -89,7 +89,7 @@ export default function RecurringPage() {
     setRunningId(t.id);
     try {
       const res = await request<{ journalNumber: string }>(`/recurring-journals/${t.id}/run`, { method: "POST" });
-      toast.success(`Posted draft ${res.journalNumber} — review in Audit Trail`);
+      toast.success(`Posted ${res.journalNumber} as unconfirmed — review in the Posting Queue`);
       load();
     } catch (e: any) {
       toast.error(e?.message || "Run failed");
@@ -223,7 +223,7 @@ export default function RecurringPage() {
         columns={columns}
         data={paged}
         tableName="Recurring Journals"
-        subTitle="Templates that auto-create DRAFT journal entries on a schedule. Drafts always need review before posting."
+        subTitle="Templates that auto-create unconfirmed journal entries on a schedule. They stay in the Posting Queue until confirmed."
         buttonName="New Template"
         onAddClick={() => { setEditing(null); setEditorOpen(true); }}
         loading={loading}

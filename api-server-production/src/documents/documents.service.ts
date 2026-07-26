@@ -1,6 +1,8 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { PrismaService } from 'src/common/prisma.service';
+import { isUnconfirmedDoc } from '../common/doc-status';
+import { AccountMemoryService } from '../account-memory/account-memory.service';
 import { CreateDocumentWithTimelineDto } from './dto/create-document-with-timeline.dto';
 import { InventoryStatus, DocumentStatus, ItemType, DeliveryStatus, DeploymentType } from '@prisma/client';
 import { XeroService } from 'src/common/xero.service';
@@ -39,7 +41,66 @@ export class DocumentsService {
     private documentTemplatesService: DocumentTemplatesService,
     private documentNumbering: DocumentNumberingService,
     private auditService: AuditService,
+    private accountMemory: AccountMemoryService,
   ) {}
+
+  /**
+   * Line coding for extracted documents (guru 2026-07-26): stamp each line
+   * with the org's Revenue Master File item (product/service code + its GL
+   * account) when the match is unambiguous, and fall back to the learned
+   * account-memory suggestion for the account. Benefits every extraction
+   * entry point (upload, email worker, extract-url). Ambiguous matches are
+   * left uncoded — the Posting Queue's AI review remains the arbiter.
+   */
+  private async codeExtractedLines(organizationId: string, items: any[], docType: string): Promise<any[]> {
+    if (!Array.isArray(items) || items.length === 0) return items;
+    try {
+      const revenueItems = await this.prisma.revenueItem.findMany({
+        where: { organizationId, isActive: true },
+        select: { code: true, name: true, type: true, accountCode: true, accountId: true },
+      });
+      const norm = (t: string) => String(t || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+      const side = ['BILL', 'PO', 'PURCHASE_ORDER', 'PR', 'PURCHASE_RETURN'].includes(String(docType).toUpperCase()) ? 'PURCHASE' : 'SALES';
+      const learned = await this.accountMemory
+        .resolveBatch(organizationId, side, items.map((it: any) => String(it?.description || '')))
+        .catch(() => items.map(() => null));
+
+      return items.map((it: any, i: number) => {
+        if (it.itemCode || it.accountCode) return it; // already coded
+        const desc = norm(it.description);
+        if (!desc) return it;
+        // Revenue Master File: exact code token first, then name containment.
+        const byCode = revenueItems.filter((r) => r.code && desc.includes(norm(r.code)) && norm(r.code).length >= 3);
+        const byName = byCode.length
+          ? []
+          : revenueItems.filter((r) => {
+              const n = norm(r.name);
+              return n.length >= 6 && (desc.includes(n) || n.includes(desc));
+            });
+        const hits = byCode.length ? byCode : byName;
+        if (hits.length === 1) {
+          const r = hits[0];
+          return {
+            ...it,
+            itemCode: r.code || undefined,
+            isService: r.type === 'SERVICE' ? true : it.isService,
+            accountCode: r.accountCode || undefined,
+            accountId: r.accountId || undefined,
+            codedFrom: 'revenue-master',
+          };
+        }
+        // Learned account mapping (accountant's past corrections).
+        const l: any = learned[i];
+        if (l?.accountCode) {
+          return { ...it, accountCode: l.accountCode, accountId: l.accountId || undefined, codedFrom: 'account-memory' };
+        }
+        return it;
+      });
+    } catch (e: any) {
+      console.warn('codeExtractedLines skipped:', e?.message || e);
+      return items;
+    }
+  }
 
   // ── Document history (Xero-style "History and notes") ────────────────────
   // Events are AuditLog rows keyed by resource='document' + resourceId (the
@@ -784,9 +845,12 @@ export class DocumentsService {
         if (currentStatus === newStatus) {
           console.log(`Status unchanged: keeping document as "${currentStatus}"`);
         } else {
-          // Define valid status transitions for invoices
+          // Define valid status transitions for invoices (guru 2026-07-24
+          // status model: unconfirmed → confirm → pending_payment ["Awaiting
+          // payment"] → paid; 'draft' kept readable for pre-backfill data).
           const validTransitions: Record<string, string[]> = {
-            'draft': ['confirmed'], // draft can only go to confirmed
+            'draft': ['unconfirmed', 'confirmed', 'pending_payment'],
+            'unconfirmed': ['confirmed', 'pending_payment'],
             'confirmed': ['pending_payment'], // confirmed can go to pending_payment (after email sent)
             'pending_payment': ['paid'], // pending_payment can go to paid
             'paid': [], // paid is final status
@@ -1664,8 +1728,8 @@ export class DocumentsService {
           );
         }
 
-        // Create Xero invoice if this is a TI (Invoice) document and status is not draft
-        if (dto.type === 'TI' && dto.status !== 'draft') {
+        // Create Xero invoice if this is a TI (Invoice) document and status is not unconfirmed
+        if (dto.type === 'TI' && !isUnconfirmedDoc(dto.status)) {
           console.log('🟡 XERO: Attempting to create invoice for TI document:', createdDocument.id, 'with status:', dto.status);
           try {
             const xeroResult = await this.createXeroInvoice(createdDocument, configAsPlainObject, organizationId);
@@ -2173,6 +2237,8 @@ export class DocumentsService {
           tax: typeof it?.tax === 'number' ? it.tax : parseFloat(it?.tax) || undefined,
         }),
       );
+      // Stamp product/service codes + GL accounts (guru 2026-07-26).
+      configItems = await this.codeExtractedLines(organizationId, configItems, type);
     }
 
     // Map extracted → AIMS document config shape.
@@ -2346,7 +2412,7 @@ export class DocumentsService {
           type: original.type,
           config: original.config,
           organizationId: original.organizationId,
-          status: 'draft', // Always set revision status to draft
+          status: 'unconfirmed', // Always set revision status to unconfirmed
           name: nameWithRevision,
           baseDocumentId,
           revisionNumber: nextRevisionNumber,
@@ -2562,7 +2628,7 @@ export class DocumentsService {
       const [total, thisMonth, drafts] = await Promise.all([
         this.prisma.document.count({ where: base }),
         this.prisma.document.count({ where: { ...base, createdAt: { gte: monthStart } } }),
-        this.prisma.document.count({ where: { ...base, status: 'draft' as any } }),
+        this.prisma.document.count({ where: { ...base, status: { in: ['draft', 'unconfirmed'] as any } } }),
       ]);
       return { total, thisMonth, drafts };
     } catch (error) {
@@ -3790,6 +3856,9 @@ export class DocumentsService {
         },
       });
 
+      // Any journals born while this document was unconfirmed flip now.
+      await this.journalService.markConfirmedForDocument(organizationId, documentId).catch(() => undefined);
+
       console.log('✅ DO CONFIRM: Document confirmed successfully');
 
       void this.logDocumentEvent({
@@ -3979,11 +4048,16 @@ export class DocumentsService {
         },
         data: {
           config: updatedConfig,
-          status: 'confirmed',
+          // guru 2026-07-24: confirm goes STRAIGHT to Awaiting payment
+          // (pending_payment) — no resting 'confirmed' state for invoices.
+          status: 'pending_payment',
           ...(inheritedProjectId ? { projectId: inheritedProjectId } : {}),
           ...(inheritedDeploymentId ? { projectDeploymentId: inheritedDeploymentId } : {}),
         },
       });
+
+      // The invoice's journals stop being "unconfirmed" now.
+      await this.journalService.markConfirmedForDocument(organizationId, documentId).catch(() => undefined);
 
       console.log('✅ INVOICE CONFIRM: Document confirmed successfully');
 

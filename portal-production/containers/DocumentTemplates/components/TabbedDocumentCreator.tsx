@@ -296,13 +296,14 @@ export default function TabbedDocumentCreator({
   const [isFieldsCollapsed, setIsFieldsCollapsed] = useState(false);
   // Items section tabs
   const [itemsTabValue, setItemsTabValue] = useState(0);
-  const documentStatus = existingData?.status || "draft";
-  // A document is editable ONLY while it is a draft. Once it moves past draft —
-  // "confirmed" and every post-confirm status (pending_payment, paid,
-  // pending_delivery, delivered_*, pending_return, returned, cancelled, …) — it
-  // is locked to the read-only preview. Named "confirmed" for history; it really
-  // means "not a draft" so all downstream lock/preview gates cover those states.
-  const isDocumentConfirmed = documentStatus !== "draft";
+  const documentStatus = existingData?.status || "unconfirmed";
+  // A document is editable ONLY while it is UNCONFIRMED (guru 2026-07-24
+  // status model; "draft" stays readable for pre-backfill data). Once it moves
+  // past that — "confirmed" and every post-confirm status (pending_payment,
+  // paid, delivered_*, …) — it is locked to the read-only preview. Named
+  // "confirmed" for history; it really means "not unconfirmed" so all
+  // downstream lock/preview gates cover those states.
+  const isDocumentConfirmed = !["draft", "unconfirmed"].includes(documentStatus);
   const isDocumentEditable = !isDocumentConfirmed && !isTemplateEditMode;
 
   // Force preview mode for confirmed documents or when initialPreviewMode is set
@@ -2951,9 +2952,9 @@ export default function TabbedDocumentCreator({
   // flush the save, then auto-navigate. Otherwise we leave immediately.
   const handleBackClick = async () => {
     const backRoute = resolveBackRoute(documentType);
-    const documentStatus = existingData?.status || "draft";
-    // Any non-draft (locked) document: nothing to save/clean up — just leave.
-    if (documentStatus !== "draft") {
+    const documentStatus = existingData?.status || "unconfirmed";
+    // Any confirmed (locked) document: nothing to save/clean up — just leave.
+    if (!["draft", "unconfirmed"].includes(documentStatus)) {
       router.push(backRoute);
       return;
     }
@@ -3143,7 +3144,7 @@ export default function TabbedDocumentCreator({
       // persisted. Safe no-op for non-quotation flows and for unchanged links.
       await persistProjectLinkIfChanged();
     }
-    toast.success("Document saved as draft");
+    toast.success("Document saved");
     // Navigate to parent page after saving
     router.push(resolveBackRoute(documentType));
   };
@@ -3907,14 +3908,16 @@ export default function TabbedDocumentCreator({
                           fields = [...fields, { fieldName: "salesMobile", displayLabel: "Salesman Mobile", fieldType: "text", required: false }];
                         }
                       }
-                      // Invoices: add a Reference row (guru, 2026-07-14). The
-                      // stored template field-configs predate it, so inject
-                      // editor-side; saves flat as config.referenceNo via the
-                      // transformer's special-case (same as DO's field).
+                      // EVERY document type gets a Reference row (guru,
+                      // 2026-07-24: the free-text "what is this for" ref, also
+                      // shown as a list column). Stored template field-configs
+                      // predate it, so inject editor-side; saves flat as
+                      // config.referenceNo via the transformer's special-case.
+                      // Official Receipts keep their fixed legacy layout.
                       if (
-                        (documentType === "TI" || documentType === "TI2" || documentType === "INVOICE") &&
+                        !isOfficialReceipt &&
                         tab.tabId === "general" &&
-                        !fields.some((f: any) => f.fieldName === "documentInfo.referenceNo")
+                        !fields.some((f: any) => f.fieldName === "documentInfo.referenceNo" || f.fieldName === "referenceNo")
                       ) {
                         fields = [...fields, { fieldName: "documentInfo.referenceNo", displayLabel: "Reference", fieldType: "text", required: false }];
                       }

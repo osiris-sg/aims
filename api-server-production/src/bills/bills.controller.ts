@@ -117,6 +117,16 @@ export class BillsController {
     return this.service.createFromPo(requireOrgId(req), poId, req.auth?.userId);
   }
 
+  @Post('extract-create')
+  @Permissions('bills:create')
+  @ApiOperation({ summary: 'Extract a PDF/image AND create the bill in one call — powers the shared multi-file upload dialog' })
+  extractCreate(
+    @Req() req: RequestWithOrganization,
+    @Body() body: { base64: string; mediaType?: string; filename?: string; attachments?: Array<{ fileKey: string; fileName: string; mimeType?: string; label?: string }> },
+  ) {
+    return this.service.createFromUpload(requireOrgId(req), req.auth?.userId, body);
+  }
+
   @Post('extract')
   @Permissions('bills:create')
   @ApiOperation({ summary: 'Extract bill data from an uploaded PDF/image via Claude vision — returns parsed structure for review' })

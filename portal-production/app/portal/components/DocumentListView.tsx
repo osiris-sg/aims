@@ -38,7 +38,7 @@ import type { FilterField } from "@/components/FilterDrawer";
 // Document statuses (NOT the legacy inventory statuses the old `availableFilters`
 // path produced). Customer is appended at runtime.
 const DOC_STATUS_OPTIONS = [
-  { value: "draft", label: "Draft" },
+  { value: "unconfirmed", label: "Unconfirmed" },
   { value: "confirmed", label: "Confirmed" },
   { value: "pending_delivery", label: "Pending Delivery" },
   { value: "delivered_not_installed", label: "Delivered (Not Installed)" },
@@ -70,7 +70,9 @@ interface DocumentRow {
 }
 
 const formatStatus = (status: string) => {
-  if (!status) return "Draft";
+  if (!status) return "Unconfirmed";
+  if (status === "draft" || status === "unconfirmed") return "Unconfirmed";
+  if (status === "pending_payment") return "Awaiting Payment";
   return status
     .split("_")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
@@ -80,6 +82,7 @@ const formatStatus = (status: string) => {
 const getStatusColor = (status: string) => {
   switch (status) {
     case "draft":
+    case "unconfirmed":
       return "text.secondary";
     case "confirmed":
     case "delivered_installed":
@@ -252,6 +255,17 @@ export default function DocumentListView({
       enableSorting: false, // JSON-derived (config), not server-sortable
       cell: ({ row }: any) => row.original.associated_customer || "—",
     },
+    {
+      // Free-text Reference — what the document is FOR (guru 2026-07-24:
+      // every document carries one and every list shows it).
+      accessorKey: "reference",
+      header: "Reference",
+      enableSorting: false, // JSON-derived (config), not server-sortable
+      cell: ({ row }: any) => {
+        const c: any = row.original.config || {};
+        return c?.documentInfo?.referenceNo || c?.referenceNo || c?.reference || c?.xeroReference || "—";
+      },
+    },
     // "Associated Item" dropped from all document lists (2026-07-13, guru).
     {
       accessorKey: "status",
@@ -273,7 +287,7 @@ export default function DocumentListView({
       pxWidth: 150, // fits all row icons — never squeezed/clipped
       cell: ({ row }: any) => {
         const { documentType, templateId, id, status } = row.original;
-        const isDraft = (status || "draft") === "draft";
+        const isDraft = ["draft", "unconfirmed"].includes(status || "unconfirmed");
         return (
           <Box sx={{ display: "flex", gap: 0.5, justifyContent: "center" }}>
             <IconButton
@@ -374,7 +388,7 @@ export default function DocumentListView({
               </Grid>
               <Grid item xs={12} sm={4}>
                 <StatCard
-                  title="DRAFTS"
+                  title="UNCONFIRMED"
                   value={stats.drafts}
                   icon={<DraftsOutlinedIcon />}
                   color="customYellow.dark"
@@ -392,6 +406,10 @@ export default function DocumentListView({
           onClose={() => setUploadOpen(false)}
           documentType={createDocumentType}
           documentLabel={documentLabel}
+          onCreated={() => {
+            refetch();
+            refetchStats();
+          }}
         />
       )}
 
@@ -399,7 +417,7 @@ export default function DocumentListView({
         <DialogTitle>Delete {documentLabel}</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Delete &quot;{docToDelete?.name || "this draft"}&quot;? This cannot be undone.
+            Delete &quot;{docToDelete?.name || "this document"}&quot;? This cannot be undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>

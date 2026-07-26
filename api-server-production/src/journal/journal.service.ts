@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { CreateJournalEntryDto, JournalLineDto, UpdateJournalEntryDto } from './dto/journal-entry.dto';
 import { AnomaliesService } from '../anomalies/anomalies.service';
 import { docRef } from '../common/doc-ref';
+import { isUnconfirmedDoc } from '../common/doc-status';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 
@@ -37,6 +38,25 @@ export class JournalService {
   // Add controls.cashAccount / controls.bankAccount overrides if/when an org
   // needs explicit control over what counts as cash.
   // ----------------------------------------------------------------------
+  /**
+   * Document confirmed → its journals stop being "unconfirmed" (guru
+   * 2026-07-24 status model). Safe to call for any doc type; no-op when the
+   * document has no journals.
+   */
+  async markConfirmedForDocument(organizationId: string, documentId: string) {
+    await this.prisma.journalEntry.updateMany({
+      where: { organizationId, sourceDocumentId: documentId, isUnconfirmed: true },
+      data: { isUnconfirmed: false },
+    });
+  }
+
+  /** Confirm a single journal (manual JV confirm flow). */
+  async confirmEntry(organizationId: string, id: string) {
+    const entry = await this.prisma.journalEntry.findFirst({ where: { id, organizationId }, select: { id: true } });
+    if (!entry) throw new NotFoundException('Journal entry not found');
+    return this.prisma.journalEntry.update({ where: { id }, data: { isUnconfirmed: false } });
+  }
+
   isCashOrBankAccount(a: { code: string; name?: string | null; accountType?: string | null }): boolean {
     if (a.code === 'CA004' || a.code === 'CA600' || a.code === 'CA006' || /^CA1\d{2}$/.test(a.code)) return true;
     if (a.accountType === 'FOREIGN_BANK') return true;
@@ -116,7 +136,14 @@ export class JournalService {
     organizationId: string,
     dto: CreateJournalEntryDto,
     userId?: string,
-    options?: { autoPost?: boolean; bypassPeriodLock?: boolean },
+    options?: {
+      autoPost?: boolean;
+      bypassPeriodLock?: boolean;
+      // Force the confirmed tag even when the source document reads
+      // unconfirmed at create time (e.g. bills post their JE during the
+      // confirm step, just before the status flips).
+      confirmedSource?: boolean;
+    },
   ) {
     const { totalDebit, totalCredit } = this.validateLines(dto.lines);
     await this.assertAccountsBelongToOrg(organizationId, dto.lines.map((l) => l.accountId));
@@ -126,12 +153,26 @@ export class JournalService {
     // entries are stamped at their call sites instead (REC for customer money,
     // P/V for supplier payments) — the source doc there is the invoice, whose
     // INV prefix would be wrong for a payment reference.
-    if (dto.reference && dto.sourceDocumentId && dto.type !== 'PAYMENT') {
+    // The same lookup drives the UNCONFIRMED tag (guru 2026-07-24): journals
+    // post immediately, but one born from an unconfirmed document is flagged
+    // isUnconfirmed until the document is confirmed (markConfirmedForDocument).
+    let isUnconfirmed = false;
+    if (dto.sourceDocumentId) {
       const src = await this.prisma.document.findFirst({
         where: { id: dto.sourceDocumentId, organizationId },
-        select: { type: true },
+        select: { type: true, status: true },
       });
-      if (src?.type) dto.reference = docRef(src.type, dto.reference);
+      if (src?.type && dto.reference && dto.type !== 'PAYMENT') {
+        dto.reference = docRef(src.type, dto.reference);
+      }
+      if (src && options?.confirmedSource !== true) {
+        isUnconfirmed = isUnconfirmedDoc(src.status as any);
+      }
+    }
+    // Manual vouchers (guru 2026-07-24): Save posts immediately but the JV
+    // stays UNCONFIRMED until an accountant confirms it.
+    if ((dto as any).unconfirmed === true && options?.confirmedSource !== true) {
+      isUnconfirmed = true;
     }
 
     // Period-lock guard — refuse to create an entry dated inside a closed
@@ -173,6 +214,7 @@ export class JournalService {
               sourcePaymentId: dto.sourcePaymentId,
               totalDebit,
               totalCredit,
+              isUnconfirmed,
               status: options?.autoPost ? 'POSTED' : 'DRAFT',
               postedAt: options?.autoPost ? new Date() : null,
               postedBy: options?.autoPost ? userId : null,
@@ -792,7 +834,14 @@ export class JournalService {
   // journal like Xero ("ID <n> <narration>" → lines → Total).
   async journalReport(
     organizationId: string,
-    opts: { startDate?: Date; endDate?: Date; orderBy?: 'journalNumber' | 'entryDate' | 'postedAt' },
+    opts: {
+      startDate?: Date;
+      endDate?: Date;
+      orderBy?: 'journalNumber' | 'entryDate' | 'postedAt';
+      // Journal Voucher Listing (legacy): DRAFT entries too — rendered as the
+      // red "Unconfirmed Journal Voucher(s)" section. Default stays POSTED-only.
+      includeUnposted?: boolean;
+    },
   ) {
     const MAX_JOURNALS = 500;
     const eod = opts.endDate ? new Date(opts.endDate) : new Date();
@@ -807,7 +856,7 @@ export class JournalService {
     const entries = await this.prisma.journalEntry.findMany({
       where: {
         organizationId,
-        status: 'POSTED',
+        status: opts.includeUnposted ? { in: ['POSTED', 'DRAFT'] } : 'POSTED',
         entryDate: { ...(opts.startDate ? { gte: opts.startDate } : {}), lte: eod },
       },
       include: {
@@ -824,6 +873,9 @@ export class JournalService {
       journalNumber: e.journalNumber,
       entryDate: e.entryDate.toISOString(),
       type: e.type,
+      status: e.status,
+      isUnconfirmed: (e as any).isUnconfirmed ?? false,
+      currency: (e as any).currency ?? null,
       reference: e.reference ?? '',
       description: e.description ?? '',
       postedAt: e.postedAt?.toISOString() ?? null,
@@ -837,6 +889,8 @@ export class JournalService {
         description: l.description ?? '',
         debit: ROUND(l.debit),
         credit: ROUND(l.credit),
+        foreignAmount: l.foreignAmount != null ? ROUND(l.foreignAmount) : null,
+        exchangeRate: l.exchangeRate ?? null,
       })),
     }));
     return {

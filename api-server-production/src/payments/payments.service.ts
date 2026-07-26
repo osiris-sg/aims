@@ -35,7 +35,7 @@ export class PaymentsService {
       // No-draft model: a SAVED invoice is already in the GL/AR and can take
       // payments. Only block documents that were never posted (unsaved legacy
       // drafts with no journal entry).
-      if ((document.status || '').toLowerCase() === 'draft') {
+      if (['draft', 'unconfirmed'].includes((document.status || '').toLowerCase())) {
         const posted = await this.prisma.journalEntry.findFirst({
           where: { organizationId, sourceDocumentId: document.id, type: 'INVOICE', status: { not: 'VOID' } },
           select: { id: true },

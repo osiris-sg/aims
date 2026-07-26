@@ -665,7 +665,7 @@ export class XeroReportsService {
       if (status === 'cancelled') continue;
       // Drafts count only when actually posted to the GL (saved under the
       // no-draft model); unsaved legacy drafts stay out of the return.
-      if (status === 'draft' && !postedDocIds.has(doc.id)) continue;
+      if ((status === 'draft' || status === 'unconfirmed') && !postedDocIds.has(doc.id)) continue;
       const di: any = c.documentInfo || {};
       const date = c.date ? new Date(c.date) : c.billDate ? new Date(c.billDate) : doc.createdAt;
       if (date < from || date > to) continue;

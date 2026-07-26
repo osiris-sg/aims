@@ -462,7 +462,7 @@ export default function page() {
         id: documentId as string,
         type: type as string,
         config: configData,
-        status: data.status || 'draft', // Use provided status or default to draft
+        status: data.status || 'unconfirmed', // Use provided status or default to unconfirmed
         customerId: data.customer?.id || null,
         projectId: data.project?.id || data.projectId || null,
         documentTemplateId: documentMetadata?.documentTemplateId || params.id as string,

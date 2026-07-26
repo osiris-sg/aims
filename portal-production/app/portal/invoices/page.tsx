@@ -78,9 +78,9 @@ interface Filters {
 // Customer field is appended at runtime (its options are the org's customers).
 // Category is intentionally omitted (invoices have none).
 const INVOICE_STATUS_OPTIONS = [
-  { value: "draft", label: "Draft" },
+  { value: "unconfirmed", label: "Unconfirmed" },
   { value: "confirmed", label: "Confirmed" },
-  { value: "pending_payment", label: "Pending Payment" },
+  { value: "pending_payment", label: "Awaiting Payment" },
   { value: "paid", label: "Paid" },
 ];
 
@@ -197,7 +197,7 @@ export default function InvoicesPage() {
   // while the chips (and the money cards, which check doc.status) said PAID.
   const arStatusOf = (doc: any): "draft" | "paid" | "overdue" | "awaiting" => {
     const st = (doc.status || "").toLowerCase();
-    if (!st || st === "draft") return "draft";
+    if (!st || st === "draft" || st === "unconfirmed") return "draft";
     if (st === "paid" || st === "completed") return "paid";
     const total = getInvoiceTotal(doc);
     const paid = paymentSummary[doc.id]?.totalPaid ?? 0;
@@ -220,6 +220,20 @@ export default function InvoicesPage() {
     {
       accessorKey: "associated_customer",
       header: "Associated Customer",
+    },
+    {
+      // Free-text Reference — what the invoice is FOR (guru 2026-07-24).
+      accessorKey: "reference",
+      header: "Reference",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      cell: ({ row }: any) => {
+        const c: any = row.original.config || {};
+        return (
+          c?.documentInfo?.referenceNo || c?.referenceNo || c?.reference || c?.xeroReference || (
+            <Box component="span" sx={{ color: "text.disabled" }}>—</Box>
+          )
+        );
+      },
     },
     // "Associated Item" dropped from all document lists (2026-07-13, guru).
     {
@@ -331,7 +345,7 @@ export default function InvoicesPage() {
         };
 
         const status = arStatusOf(row.original);
-        const isDraft = (row.original.status || "draft") === "draft";
+        const isDraft = ["draft", "unconfirmed"].includes(row.original.status || "unconfirmed");
         return (
           <Box sx={{ display: "flex", gap: "var(--default-gap)", justifyContent: "center" }}>
             {/* Drafts can't take payments — confirm the invoice first. */}
@@ -839,7 +853,7 @@ export default function InvoicesPage() {
                 sx={{ minHeight: 36, "& .MuiTab-root": { minHeight: 36, textTransform: "none", fontWeight: 600 } }}
               >
                 <Tab value="all" label={<TabLabel text="All" count={arCounts.all} />} />
-                <Tab value="draft" label={<TabLabel text="Draft" count={arCounts.draft} />} />
+                <Tab value="draft" label={<TabLabel text="Unconfirmed" count={arCounts.draft} />} />
                 <Tab value="awaiting" label={<TabLabel text="Awaiting Payment" count={arCounts.awaiting} tone="info" />} />
                 <Tab value="overdue" label={<TabLabel text="Overdue" count={arCounts.overdue} tone="error" />} />
                 <Tab value="paid" label={<TabLabel text="Paid" count={arCounts.paid} tone="success" />} />

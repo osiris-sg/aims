@@ -379,7 +379,7 @@ model Document {
   type               String // Document type: INVOICE, QUOTATION, etc.
   organizationId     String
   name               String? // Document number/identifier
-  status             DocumentStatus @default(draft)
+  status             DocumentStatus @default(unconfirmed)
 
   // Revision fields for document versioning
   baseDocumentId String? @db.Uuid
@@ -860,6 +860,7 @@ enum InventoryStatus {
 
 enum DocumentStatus {
   draft
+  unconfirmed
   confirmed
   pending_delivery
   delivered_not_installed
@@ -1338,6 +1339,10 @@ model JournalEntry {
   entryDate      DateTime
   type           String // MANUAL | INVOICE | PAYMENT | CREDIT_NOTE | DEBIT_NOTE | OPENING_BALANCE | ADJUSTMENT
   status         String   @default("DRAFT") // DRAFT | POSTED | VOID
+  // Posted immediately but born from an UNCONFIRMED document (guru 2026-07-24
+  // status model: no drafts — docs are unconfirmed until confirmed, their JEs
+  // post right away tagged here and flip on document confirm).
+  isUnconfirmed  Boolean  @default(false)
   reference      String? // Source document number, payment reference, etc.
   description    String?
   totalDebit     Float    @default(0)

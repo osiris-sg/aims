@@ -36,6 +36,8 @@ import PostingPreviewDialog, {
 } from "@/components/PostingPreviewDialog";
 
 type QueueItem = {
+  rowType?: "DOC" | "JV";
+  type?: string;
   id: string;
   name: string | null;
   date: string | null;
@@ -89,10 +91,18 @@ export default function PostingQueuePage() {
     load();
   }, [load]);
 
-  // Group rows by ingest batch (type + date); ungrouped rows fall under "Other".
+  // Group rows by ingest batch (type + date); ungrouped rows fall under
+  // "Other"; unconfirmed JOURNAL VOUCHERS get their own (red) group.
   const groups = useMemo(() => {
     const map = new Map<string, { label: string; rows: QueueItem[]; total: number }>();
     for (const it of items) {
+      if (it.rowType === "JV") {
+        const g = map.get("__jv") || { label: "Unconfirmed Journal Voucher(s)", rows: [], total: 0 };
+        g.rows.push(it);
+        g.total += it.totalAmount;
+        map.set("__jv", g);
+        continue;
+      }
       const b = it.ingestBatch;
       const key = b?.date ? `${b.type || "batch"}|${b.date}` : "other";
       const label = b?.date ? `${b.type || "batch"} · ${fmtDate(b.date)}` : "Other";
@@ -177,14 +187,39 @@ export default function PostingQueuePage() {
     if (selected.size === 0) return;
     setPosting(true);
     try {
-      const res = await request<{ posted: number; skipped: number; failed: number; results: any[] }>(
-        "/posting-queue/post-batch",
-        { method: "POST", body: JSON.stringify({ documentIds: Array.from(selected) }) },
-      );
-      const parts = [`${res.posted} posted`];
-      if (res.skipped) parts.push(`${res.skipped} skipped`);
-      if (res.failed) parts.push(`${res.failed} failed`);
-      res.failed ? toast.warn(parts.join(", ")) : toast.success(parts.join(", "));
+      const byId = new Map(items.map((i) => [i.id, i]));
+      const docIds: string[] = [];
+      const jvs: QueueItem[] = [];
+      for (const id of Array.from(selected)) {
+        const it = byId.get(id);
+        if (it?.rowType === "JV") jvs.push(it);
+        else docIds.push(id);
+      }
+      const parts: string[] = [];
+      let failed = 0;
+      if (docIds.length) {
+        const res = await request<{ posted: number; skipped: number; failed: number; results: any[] }>(
+          "/posting-queue/post-batch",
+          { method: "POST", body: JSON.stringify({ documentIds: docIds }) },
+        );
+        parts.push(`${res.posted} posted`);
+        if (res.skipped) parts.push(`${res.skipped} skipped`);
+        failed += res.failed || 0;
+      }
+      // Manual JVs: confirming from the queue (draft JVs post first).
+      let jvOk = 0;
+      for (const j of jvs) {
+        try {
+          if (j.status === "draft-jv") await request(`/journal/entries/${j.id}/post`, { method: "POST" });
+          await request(`/journal/entries/${j.id}/confirm`, { method: "POST" });
+          jvOk++;
+        } catch {
+          failed++;
+        }
+      }
+      if (jvOk) parts.push(`${jvOk} JV${jvOk === 1 ? "" : "s"} confirmed`);
+      if (failed) parts.push(`${failed} failed`);
+      failed ? toast.warn(parts.join(", ")) : toast.success(parts.join(", "));
       load();
     } catch (e: any) {
       toast.error(e?.message || "Batch post failed");
@@ -221,7 +256,7 @@ export default function PostingQueuePage() {
             Posting Queue
           </Typography>
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            Invoices created but not yet posted to the general ledger
+            Every unconfirmed document and journal voucher, waiting for review
           </Typography>
         </Box>
         <Button startIcon={<RefreshIcon />} onClick={load} disabled={loading}>
@@ -235,7 +270,7 @@ export default function PostingQueuePage() {
         </Box>
       ) : items.length === 0 ? (
         <Paper variant="outlined" sx={{ p: 6, textAlign: "center", color: "text.secondary" }}>
-          Nothing pending — all invoices are posted.
+          Nothing pending — everything is confirmed and posted.
         </Paper>
       ) : (
         <TableContainer component={Paper} variant="outlined">
@@ -266,35 +301,51 @@ export default function PostingQueuePage() {
                         onChange={() => toggleGroup(g.rows)}
                       />
                     </TableCell>
-                    <TableCell colSpan={5} sx={{ fontWeight: 600 }}>
-                      {g.label} · {g.rows.length} invoice{g.rows.length === 1 ? "" : "s"}
+                    <TableCell colSpan={5} sx={{ fontWeight: 600, color: g.label.startsWith("Unconfirmed Journal") ? "error.main" : "text.primary" }}>
+                      {g.label} · {g.rows.length} row{g.rows.length === 1 ? "" : "s"}
                     </TableCell>
                     <TableCell align="right" sx={{ fontWeight: 600 }}>
                       {fmt(g.total)}
                     </TableCell>
                     <TableCell colSpan={2} />
                   </TableRow>
-                  {g.rows.map((r) => (
-                    <TableRow key={r.id} hover selected={selected.has(r.id)}>
-                      <TableCell padding="checkbox">
-                        <Checkbox checked={selected.has(r.id)} onChange={() => toggle(r.id)} />
-                      </TableCell>
-                      <TableCell>{r.name}</TableCell>
-                      <TableCell>{fmtDate(r.date)}</TableCell>
-                      <TableCell>{r.customerName}</TableCell>
-                      <TableCell align="right">{fmt(r.subtotal)}</TableCell>
-                      <TableCell align="right">{fmt(r.taxAmount)}</TableCell>
-                      <TableCell align="right">{fmt(r.totalAmount)}</TableCell>
-                      <TableCell align="center">
-                        <Chip size="small" label="Pending" color="warning" variant="outlined" />
-                      </TableCell>
-                      <TableCell align="right">
-                        <Button size="small" onClick={() => openReview(r.id)}>
-                          Review
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {g.rows.map((r) => {
+                    const isJv = r.rowType === "JV";
+                    // Legacy look: unconfirmed journal vouchers read RED.
+                    const jvSx = isJv ? { color: "error.main", fontWeight: 600 } : undefined;
+                    const typeLabel =
+                      r.type === "CREDIT_NOTE" ? "C/N" :
+                      r.type === "DEBIT_NOTE" ? "D/N" :
+                      r.type === "BILL" ? "SIN" :
+                      r.type === "OFFICIAL_RECEIPT" ? "REC" :
+                      r.type === "JOURNAL_VOUCHER" ? "J/V" : "INV";
+                    return (
+                      <TableRow key={r.id} hover selected={selected.has(r.id)}>
+                        <TableCell padding="checkbox">
+                          <Checkbox checked={selected.has(r.id)} onChange={() => toggle(r.id)} />
+                        </TableCell>
+                        <TableCell sx={jvSx}>
+                          <Chip size="small" label={typeLabel} variant="outlined" color={isJv ? "error" : "default"} sx={{ mr: 1, fontSize: "0.65rem" }} />
+                          {r.name}
+                        </TableCell>
+                        <TableCell sx={jvSx}>{fmtDate(r.date)}</TableCell>
+                        <TableCell sx={jvSx}>{r.customerName}</TableCell>
+                        <TableCell align="right" sx={jvSx}>{fmt(r.subtotal)}</TableCell>
+                        <TableCell align="right" sx={jvSx}>{fmt(r.taxAmount)}</TableCell>
+                        <TableCell align="right" sx={jvSx}>{fmt(r.totalAmount)}</TableCell>
+                        <TableCell align="center">
+                          <Chip size="small" label={isJv ? "Unconfirmed" : "Pending"} color={isJv ? "error" : "warning"} variant="outlined" />
+                        </TableCell>
+                        <TableCell align="right">
+                          {!isJv && (r.type === "INVOICE" || r.type === "CREDIT_NOTE" || !r.type) && (
+                            <Button size="small" onClick={() => openReview(r.id)}>
+                              Review
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </Fragment>
               ))}
             </TableBody>

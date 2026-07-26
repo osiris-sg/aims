@@ -135,7 +135,7 @@ export default function page() {
         id: documentId,
         type: type as string,
         config: data,
-        status: data.status || documentMetadata?.status || 'draft',
+        status: data.status || documentMetadata?.status || 'unconfirmed',
         customerId: data.customer?.id || data.customerId || null,
         projectId: data.project?.id || data.projectId || null,
         documentTemplateId: documentMetadata?.documentTemplateId || id,

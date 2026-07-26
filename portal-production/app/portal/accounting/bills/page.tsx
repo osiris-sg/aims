@@ -20,6 +20,9 @@ import PaymentIcon from "@mui/icons-material/Payment";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import BillEditorDialog from "./_components/BillEditorDialog";
+import DocumentUploadDialog from "@/app/portal/components/DocumentUploadDialog";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import { Button } from "@mui/material";
 import RecordBillPaymentDialog from "./_components/RecordBillPaymentDialog";
 import PageTable from "@/components/PageTable";
 
@@ -38,6 +41,7 @@ type Bill = {
   amountPaid: number;
   matchStatus?: string | null;
   inboundChannel?: string | null;
+  reference?: string | null;
   supplier?: { id: string; name: string } | null;
   supplierId?: string | null;
 };
@@ -65,6 +69,7 @@ export default function BillsPage() {
   const [filters, setFilters] = useState<any>({});
 
   const [editorOpen, setEditorOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
   const [editing, setEditing] = useState<Bill | null>(null);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [payingBill, setPayingBill] = useState<Bill | null>(null);
@@ -137,7 +142,7 @@ export default function BillsPage() {
     catch (e: any) { toast.error(e?.message || "Approve failed"); }
   };
   const reject = async (b: Bill) => {
-    if (!confirm("Reject and send back to DRAFT?")) return;
+    if (!confirm("Reject and send back to Unconfirmed?")) return;
     try { await request(`/bills/${b.id}/reject`, { method: "POST" }); toast.success("Rejected"); load(); }
     catch (e: any) { toast.error(e?.message || "Reject failed"); }
   };
@@ -170,6 +175,12 @@ export default function BillsPage() {
       accessorKey: "supplier",
       header: "Supplier",
       cell: ({ row }: any) => row.original.supplier?.name || "—",
+    },
+    {
+      // Free-text Reference — what the bill is FOR (guru 2026-07-24).
+      accessorKey: "reference",
+      header: "Reference",
+      cell: ({ row }: any) => row.original.reference || "—",
     },
     {
       accessorKey: "billDate",
@@ -208,7 +219,10 @@ export default function BillsPage() {
       header: "Status",
       cell: ({ row }: any) => {
         const s = row.original.status as Bill["status"];
-        return <Chip size="small" variant="outlined" color={STATUS_COLOR[s] || "default"} label={s.replace("_", " ")} sx={{ fontSize: "0.7rem" }} />;
+        // guru 2026-07-24 status model: DRAFT reads "Unconfirmed", POSTED
+        // (confirmed, unpaid) reads "Awaiting Payment".
+        const label = s === "DRAFT" ? "UNCONFIRMED" : s === "POSTED" ? "AWAITING PAYMENT" : s.replace("_", " ");
+        return <Chip size="small" variant="outlined" color={STATUS_COLOR[s] || "default"} label={label} sx={{ fontSize: "0.7rem" }} />;
       },
     },
     {
@@ -300,9 +314,9 @@ export default function BillsPage() {
           sx={{ px: 1, minHeight: 40, "& .MuiTab-root": { minHeight: 40, textTransform: "none", fontWeight: 600 } }}
         >
           <Tab value="all" label={<TabLabel text="All" count={counts.all} />} />
-          <Tab value="DRAFT" label={<TabLabel text="Draft" count={counts.DRAFT} />} />
+          <Tab value="DRAFT" label={<TabLabel text="Unconfirmed" count={counts.DRAFT} />} />
           <Tab value="PENDING_APPROVAL" label={<TabLabel text="Pending Approval" count={counts.PENDING_APPROVAL} tone="warning" />} />
-          <Tab value="POSTED" label={<TabLabel text="Posted" count={counts.POSTED} tone="info" />} />
+          <Tab value="POSTED" label={<TabLabel text="Awaiting Payment" count={counts.POSTED} tone="info" />} />
           <Tab value="PAID" label={<TabLabel text="Paid" count={counts.PAID} tone="success" />} />
           <Tab value="VOID" label={<TabLabel text="Void" count={counts.VOID} />} />
         </Tabs>
@@ -316,6 +330,11 @@ export default function BillsPage() {
         subTitle="Supplier bills — submit → optional approval → posts to GL as a payable"
         buttonName="New Bill"
         onAddClick={() => { setEditing(null); setEditorOpen(true); }}
+        actionButtons={[
+          <Button key="upload-bills" variant="outlined" startIcon={<CloudUploadIcon />} onClick={() => setUploadOpen(true)}>
+            Upload Bills
+          </Button>,
+        ]}
         loading={loading}
         page={page}
         limit={limit}
@@ -335,6 +354,18 @@ export default function BillsPage() {
         editing={editing}
         onClose={() => setEditorOpen(false)}
         onSaved={() => { setEditorOpen(false); load(); }}
+      />
+
+      {/* Shared multi-file/ZIP upload — same experience as every document list
+          (guru 2026-07-26: all uploads consistent). Each file becomes a bill
+          via /bills/extract-create. */}
+      <DocumentUploadDialog
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        documentType="BILL"
+        documentLabel="Bill"
+        mode="bill"
+        onCreated={load}
       />
 
       {payingBill && (

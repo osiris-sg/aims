@@ -103,6 +103,9 @@ export default function BillEditorDialog({
   const [billNumber, setBillNumber] = useState("");
   const [billDate, setBillDate] = useState(todayIso);
   const [dueDate, setDueDate] = useState("");
+  // Free-text Reference — what the bill is FOR (guru 2026-07-24; shown as a
+  // list column like every other document type).
+  const [reference, setReference] = useState("");
   const [description, setDescription] = useState("");
   const [taxAmount, setTaxAmount] = useState("0");
   const [amountsAre, setAmountsAre] = useState<AmountsAre>("EXCLUSIVE");
@@ -144,6 +147,7 @@ export default function BillEditorDialog({
       setBillNumber(editing.billNumber || "");
       setBillDate(editing.billDate ? editing.billDate.slice(0, 10) : todayIso());
       setDueDate(editing.dueDate ? editing.dueDate.slice(0, 10) : "");
+      setReference(editing.reference || "");
       setDescription(editing.description || "");
       setTaxAmount(String(editing.taxAmount || 0));
       setAmountsAre((editing.amountsAre as AmountsAre) || "EXCLUSIVE");
@@ -169,6 +173,7 @@ export default function BillEditorDialog({
       setBillNumber("");
       setBillDate(todayIso());
       setDueDate("");
+      setReference("");
       setDescription("");
       setTaxAmount("0");
       setAmountsAre("EXCLUSIVE");
@@ -288,6 +293,7 @@ export default function BillEditorDialog({
         billNumber: billNumber.trim(),
         billDate,
         dueDate: dueDate || undefined,
+        reference: reference.trim() || undefined,
         description: description || undefined,
         taxAmount: amountsAre === "NO_TAX" ? 0 : parseFloat(taxAmount) || 0,
         amountsAre,
@@ -310,7 +316,7 @@ export default function BillEditorDialog({
       } else {
         const created: any = await request("/bills", { method: "POST", body: JSON.stringify(body) });
         billId = created?.id;
-        toast.success("Bill saved as DRAFT");
+        toast.success("Bill saved — posted as unconfirmed");
       }
       // Persist attachments after we have the bill id. Sends the full list
       // so the backend can dedupe; harmless if no new files were added.
@@ -425,7 +431,7 @@ export default function BillEditorDialog({
                 Drop a PDF or image of the supplier's bill — Claude will extract it for you.
               </Typography>
               <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                Works on most invoices. You'll review the extracted form before saving.
+                Works on most invoices. You'll review the extracted form before saving. For multiple files or a ZIP, use Upload Bills on the bills list.
               </Typography>
             </Box>
             <input
@@ -492,6 +498,13 @@ export default function BillEditorDialog({
             InputLabelProps={{ shrink: true }}
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
+            disabled={isReadOnly}
+          />
+          <TextField
+            size="small"
+            label="Reference"
+            value={reference}
+            onChange={(e) => setReference(e.target.value)}
             disabled={isReadOnly}
           />
           <TextField
@@ -746,7 +759,7 @@ export default function BillEditorDialog({
             disabled={saving || extracting}
             startIcon={saving ? <CircularProgress size={14} color="inherit" /> : undefined}
           >
-            {editing ? "Save changes" : "Save as Draft"}
+            {editing ? "Save changes" : "Save"}
           </Button>
         )}
       </DialogActions>

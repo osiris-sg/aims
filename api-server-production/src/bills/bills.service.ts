@@ -51,9 +51,9 @@ type BillLine = {
 type BillStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'POSTED' | 'PAID' | 'VOID';
 
 // Map our fine-grained billStatus to the coarse DocumentStatus enum (draft/confirmed/cancelled).
-function toDocStatus(billStatus: BillStatus): 'draft' | 'confirmed' | 'cancelled' {
+function toDocStatus(billStatus: BillStatus): 'unconfirmed' | 'confirmed' | 'cancelled' {
   if (billStatus === 'VOID') return 'cancelled';
-  if (billStatus === 'DRAFT' || billStatus === 'PENDING_APPROVAL') return 'draft';
+  if (billStatus === 'DRAFT' || billStatus === 'PENDING_APPROVAL') return 'unconfirmed';
   return 'confirmed';
 }
 
@@ -123,7 +123,7 @@ export class BillsService {
       const xs = c.xeroStatus;
       if (xs === 'Paid') billStatus = 'PAID';
       else if (xs === 'Voided' || xs === 'Deleted' || doc.status === 'cancelled') billStatus = 'VOID';
-      else if (xs === 'Draft' || doc.status === 'draft') billStatus = 'DRAFT';
+      else if (xs === 'Draft' || doc.status === 'draft' || doc.status === 'unconfirmed') billStatus = 'DRAFT';
       else billStatus = 'POSTED';
     }
     return {
@@ -229,6 +229,10 @@ export class BillsService {
   async create(
     organizationId: string,
     userId: string | undefined,
+    // opts.postOnSave=false → machine intake (email/v1 ingest): the bill stays
+    // UNCONFIRMED with NO journal until reviewed (or the org's
+    // enableAutoPostIngest flag / apiKey.autoPost posts it explicitly).
+    // Default true = user saves post immediately (guru 2026-07-24).
     dto: {
       supplierId: string;
       billNumber: string;
@@ -245,6 +249,7 @@ export class BillsService {
       inboundChannel?: 'MANUAL' | 'UPLOAD' | 'EMAIL' | 'FROM_PO';
       inboundMeta?: any;
     },
+    opts?: { postOnSave?: boolean },
   ) {
     if (!dto.supplierId) throw new BadRequestException('supplierId required');
     if (!dto.billNumber?.trim()) throw new BadRequestException('billNumber required');
@@ -311,7 +316,19 @@ export class BillsService {
           config: config as unknown as Prisma.InputJsonValue,
         },
       });
-      return this.toBill({ ...doc, attachments: null } as any, supplier.name);
+      // guru 2026-07-24: every save posts to the GL immediately as an
+      // UNCONFIRMED journal — ingested/API bills surface in the posting queue
+      // via the tag, not by delaying the post. Best-effort: a missing chart
+      // account must not block bill capture.
+      if (opts?.postOnSave !== false) {
+        try {
+          const posted = await this.postBillJournal(organizationId, doc.id, userId, { confirmed: false });
+          await this.patchConfig(doc.id, { journalEntryId: posted.id });
+        } catch (e: any) {
+          console.warn(`Bill ${dto.billNumber}: save-post skipped — ${e?.message || e}`);
+        }
+      }
+      return this.findOne(organizationId, doc.id);
     } catch (e: any) {
       if (e.code === 'P2002') {
         throw new ConflictException(`Bill ${dto.billNumber} already exists for this supplier`);
@@ -320,7 +337,7 @@ export class BillsService {
     }
   }
 
-  async update(organizationId: string, id: string, dto: Partial<any>) {
+  async update(organizationId: string, id: string, dto: Partial<any>, opts?: { postOnSave?: boolean }) {
     const existing = await this.findOne(organizationId, id);
     if (existing.status !== 'DRAFT' && existing.status !== 'PENDING_APPROVAL') {
       throw new BadRequestException(`Can't edit a ${existing.status} bill — void and re-create`);
@@ -362,6 +379,29 @@ export class BillsService {
       config.totalAmount = amountsAre === 'INCLUSIVE' ? linesSum : ROUND(linesSum + taxAmount);
     }
     await this.prisma.document.update({ where: { id }, data: { config: config as Prisma.InputJsonValue } });
+
+    // Re-save = void + repost the unconfirmed journal (same contract as the
+    // document editor's save). Machine intake (postOnSave=false) only reposts
+    // when a journal already existed — an unposted queue bill stays unposted.
+    try {
+      let hadLive = false;
+      if (existing.journalEntryId) {
+        const live = await this.prisma.journalEntry.findFirst({
+          where: { id: existing.journalEntryId, organizationId, status: { not: 'VOID' } },
+          select: { id: true },
+        });
+        if (live) {
+          hadLive = true;
+          await this.journal.void(organizationId, live.id, undefined);
+        }
+      }
+      if (opts?.postOnSave !== false || hadLive) {
+        const posted = await this.postBillJournal(organizationId, id, undefined, { confirmed: false });
+        await this.patchConfig(id, { journalEntryId: posted.id });
+      }
+    } catch (e: any) {
+      console.warn(`Bill ${id}: re-save post skipped — ${e?.message || e}`);
+    }
     return this.findOne(organizationId, id);
   }
 
@@ -401,6 +441,38 @@ export class BillsService {
   async post(organizationId: string, id: string, userId?: string) {
     const bill = await this.findOne(organizationId, id);
     if (bill.status === 'POSTED' || bill.status === 'PAID') return bill;
+
+    // guru 2026-07-24: every save already posted an UNCONFIRMED journal —
+    // confirming just flips the tag; no second journal.
+    if (bill.journalEntryId) {
+      const live = await this.prisma.journalEntry.findFirst({
+        where: { id: bill.journalEntryId, organizationId, status: { not: 'VOID' } },
+        select: { id: true },
+      });
+      if (live) {
+        await this.patchStatus(id, 'POSTED');
+        await this.patchConfig(id, { postedAt: new Date().toISOString(), postedBy: userId });
+        await this.journal.markConfirmedForDocument(organizationId, id);
+        return this.findOne(organizationId, id);
+      }
+    }
+
+    const posted = await this.postBillJournal(organizationId, id, userId, { confirmed: true });
+    await this.patchStatus(id, 'POSTED');
+    await this.patchConfig(id, { journalEntryId: posted.id, postedAt: new Date().toISOString(), postedBy: userId });
+    return this.findOne(organizationId, id);
+  }
+
+  // Builds + posts the bill's journal (Dr expense lines / Dr input tax / Cr AP).
+  // confirmed=false → the entry carries the UNCONFIRMED tag (save-posting);
+  // confirmed=true → the posting IS the confirm step (legacy pre-JE bills).
+  private async postBillJournal(
+    organizationId: string,
+    id: string,
+    userId: string | undefined,
+    opts: { confirmed: boolean },
+  ) {
+    const bill = await this.findOne(organizationId, id);
 
     const settings = await this.prisma.accountingSetting.findUnique({ where: { organizationId } });
     const controls = (settings?.controlAccounts as any) || {};
@@ -455,15 +527,13 @@ export class BillsService {
         // Supplier Invoice = SIN (doc-type prefix plan).
         reference: refWith('SIN', bill.billNumber),
         description: `Bill from supplier (id=${bill.supplierId})`,
+        sourceDocumentId: id,
         lines,
       },
       userId,
+      opts.confirmed ? { confirmedSource: true } : undefined,
     );
-    const posted = await this.journal.post(organizationId, entry.id, userId);
-
-    await this.patchStatus(id, 'POSTED');
-    await this.patchConfig(id, { journalEntryId: posted.id, postedAt: new Date().toISOString(), postedBy: userId });
-    return this.findOne(organizationId, id);
+    return this.journal.post(organizationId, entry.id, userId);
   }
 
   // ---- AI posting preview (dry-run — does NOT write anything) ----
@@ -632,8 +702,9 @@ export class BillsService {
   async voidBill(organizationId: string, id: string, userId?: string) {
     const bill = await this.findOne(organizationId, id);
     if (bill.status === 'VOID') return bill;
-    if (bill.status === 'POSTED' && bill.journalEntryId) {
-      await this.journal.void(organizationId, bill.journalEntryId, userId);
+    // Unconfirmed bills carry a save-posted journal too — void it as well.
+    if (bill.journalEntryId) {
+      await this.journal.void(organizationId, bill.journalEntryId, userId).catch(() => undefined);
     }
     await this.patchStatus(id, 'VOID');
     await this.patchConfig(id, { voidedAt: new Date().toISOString(), voidedBy: userId });
@@ -960,6 +1031,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         // Supplier payment = P/V payment voucher (doc-type prefix plan).
         reference: refWith('P/V', dto.reference || bill.billNumber),
         description: `Payment voucher — bill ${bill.billNumber}`,
+        sourceDocumentId: billId,
         lines: [
           { accountId: creditor.id, debit: dto.amount, credit: 0, description: `Settle AP — ${bill.billNumber}` },
           { accountId: bankAccount.id, debit: 0, credit: dto.amount, description: `${dto.paymentMethod}${dto.reference ? ` ref ${dto.reference}` : ''}` },
@@ -1012,6 +1084,61 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
   }
 
   // ---------- Attachments on the bill itself ----------
+  /**
+   * One-shot upload flow (guru 2026-07-26, shared upload dialog): extract the
+   * file, resolve/placeholder the supplier, create the bill (user-driven →
+   * save-posts an unconfirmed journal), attach the source file. Used by the
+   * consistent multi-file/ZIP upload experience.
+   */
+  async createFromUpload(
+    organizationId: string,
+    userId: string | undefined,
+    body: {
+      base64: string;
+      mediaType?: string;
+      filename?: string;
+      attachments?: Array<{ fileKey: string; fileName: string; mimeType?: string; label?: string }>;
+    },
+  ) {
+    const extracted = await this.extractFromFile(organizationId, body.base64, (body.mediaType as any) ?? 'application/pdf');
+    if (!extracted) throw new BadRequestException(`Couldn't extract ${body.filename || 'the file'} — create the bill manually`);
+
+    let supplierId = extracted.supplierIdGuess?.id as string | undefined;
+    if (!supplierId) {
+      const name = (extracted.supplierName || '').trim();
+      if (name) {
+        const existing = await this.prisma.supplier.findFirst({
+          where: { organizationId, name: { equals: name, mode: 'insensitive' } },
+          select: { id: true },
+        });
+        supplierId = existing?.id;
+        if (!supplierId) {
+          const created = await this.prisma.supplier.create({
+            data: { organizationId, name },
+            select: { id: true },
+          });
+          supplierId = created.id;
+        }
+      }
+    }
+    if (!supplierId) throw new BadRequestException(`No supplier found on ${body.filename || 'the file'} — create the bill manually`);
+
+    const bill = await this.create(organizationId, userId, {
+      supplierId,
+      billNumber: extracted.billNumber || `UPLOAD-${new Date().toISOString().slice(0, 10)}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+      billDate: extracted.billDate || new Date().toISOString(),
+      dueDate: extracted.dueDate || undefined,
+      lines: extracted.lines?.length ? extracted.lines : [{ description: body.filename || 'Uploaded bill', amount: extracted.totalAmount || 0 }],
+      taxAmount: extracted.taxAmount,
+      inboundChannel: 'UPLOAD',
+      inboundMeta: { ...extracted.meta, filename: body.filename },
+    });
+    if (body.attachments?.length) {
+      await this.addAttachments(organizationId, bill.id, body.attachments, userId || 'system').catch(() => undefined);
+    }
+    return this.findOne(organizationId, bill.id);
+  }
+
   async addAttachments(
     organizationId: string,
     billId: string,

@@ -143,7 +143,7 @@ export class ReceiptsService {
         documentTemplateId: templateId,
         type: 'OFFICIAL_RECEIPT',
         name: number,
-        status: 'draft',
+        status: 'unconfirmed',
         config: {
           date: new Date().toISOString().slice(0, 10),
           chequeNo: null,
@@ -233,7 +233,7 @@ export class ReceiptsService {
       if (c.voided) continue;
       const status = (d.status || '').toLowerCase();
       if (status === 'cancelled') continue;
-      if (status === 'draft' && !posted.has(d.id) && !c.xeroImported) continue;
+      if ((status === 'draft' || status === 'unconfirmed') && !posted.has(d.id) && !c.xeroImported) continue;
       const di: any = c.documentInfo || {};
       const tax = Number(di.gstAmount ?? c.taxAmount ?? c.xeroTax ?? 0) || 0;
       let gross = Number(c.xeroGross ?? di.nettTotal ?? c.nettTotal ?? c.totalAmount ?? NaN);
@@ -509,7 +509,7 @@ export class ReceiptsService {
       if (c.voided) continue;
       const status = (d.status || '').toLowerCase();
       if (status === 'cancelled') continue;
-      if (status === 'draft' && !posted.has(d.id) && !c.xeroImported) continue;
+      if ((status === 'draft' || status === 'unconfirmed') && !posted.has(d.id) && !c.xeroImported) continue;
       const di: any = c.documentInfo || {};
       const tax = Number(di.gstAmount ?? c.taxAmount ?? c.xeroTax ?? 0) || 0;
       let gross = Number(c.xeroGross ?? di.nettTotal ?? c.nettTotal ?? c.totalAmount ?? NaN);

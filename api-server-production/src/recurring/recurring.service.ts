@@ -3,7 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { JournalService } from '../journal/journal.service';
 
 // ---------------------------------------------------------------------------
-// Recurring Journal Templates — user-defined JEs that auto-create DRAFT
+// Recurring Journal Templates — user-defined JEs that auto-create unconfirmed
 // entries on a schedule. Trigger is lazy: the Finance Hub calls runDue() on
 // every load and creates drafts for any active template whose nextRunDate has
 // passed (and isn't beyond endDate).
@@ -143,7 +143,7 @@ export class RecurringService {
   }
 
   // Run all templates that are active + due. Called by the hub on load and by
-  // the manual "Run now" admin button. Creates DRAFT entries, advances
+  // the manual "Run now" admin button. Creates unconfirmed entries, advances
   // nextRunDate. Returns a summary of what ran.
   async runDue(organizationId: string, userId?: string, now: Date = new Date()) {
     const due = await this.prisma.recurringJournalTemplate.findMany({
@@ -168,7 +168,9 @@ export class RecurringService {
             reference: tmpl.reference ?? undefined,
             description: `Recurring: ${tmpl.name}`,
             lines: tmpl.lines as any,
-          },
+            // Machine-created JV: waits in the Posting Queue until confirmed.
+            unconfirmed: true,
+          } as any,
           userId,
         );
         await this.prisma.recurringJournalTemplate.update({
@@ -201,7 +203,9 @@ export class RecurringService {
         reference: tmpl.reference ?? undefined,
         description: `Recurring: ${tmpl.name}`,
         lines: tmpl.lines as any,
-      },
+        // Machine-created JV: waits in the Posting Queue until confirmed.
+        unconfirmed: true,
+      } as any,
       userId,
     );
     await this.prisma.recurringJournalTemplate.update({
