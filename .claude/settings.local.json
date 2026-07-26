@@ -33,7 +33,9 @@
       "WebFetch(domain:help.airwallex.com)",
       "Bash(echo \"portal exit: $?\")",
       "Read(//tmp/**)",
-      "WebFetch(domain:developers.facebook.com)"
+      "WebFetch(domain:developers.facebook.com)",
+      "Bash(npx nest *)",
+      "Bash(echo \"backend exit: $?\")"
     ]
   }
 }
