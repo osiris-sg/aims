@@ -18,18 +18,29 @@ import { useSearchParams } from "next/navigation";
 import {
   Autocomplete,
   Box,
+  Button,
+  CircularProgress,
   Dialog,
   DialogContent,
   DialogTitle,
   IconButton,
   Paper,
+  Stack,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
+import NavigateBeforeIcon from "@mui/icons-material/NavigateBefore";
+import NavigateNextIcon from "@mui/icons-material/NavigateNext";
+import FolderZipOutlinedIcon from "@mui/icons-material/FolderZipOutlined";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
+import JSZip from "jszip";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../api";
 import { useGetCustomers } from "@/app/portal/hooks/api";
+import { useOrganization } from "@hooks/useOrganization";
 import ReportShell, { downloadCsv } from "./ReportShell";
 import ReportTable, { ReportRow, fmtDate } from "./ReportTable";
 import { FilterSelect } from "./DateRangeSelect";
@@ -97,7 +108,12 @@ export default function DebtorStatementReport() {
   const [scope, setScope] = useState<"outstanding" | "current">("outstanding");
   const [loading, setLoading] = useState(false);
   const [statements, setStatements] = useState<CustomerStatement[] | null>(null);
+  // One statement on screen at a time (guru 2026-07-24) — step customer by
+  // customer with ‹ ›; the ZIP download covers the whole range.
+  const [current, setCurrent] = useState(0);
+  const [zipping, setZipping] = useState(false);
   const [monthDetail, setMonthDetail] = useState<{ label: string; docs: AgedDoc[] } | null>(null);
+  const { organization } = useOrganization();
 
   const sortedCustomers = useMemo(
     () =>
@@ -199,6 +215,7 @@ export default function DebtorStatementReport() {
           });
         }
         setStatements(built);
+        setCurrent(0);
         if (!built.length) toast.info("Nothing to show for that range");
       } catch (e: any) {
         toast.error(e?.message || "Failed to load the statements");
@@ -249,6 +266,106 @@ export default function DebtorStatementReport() {
   ];
 
   const grandOwed = R((statements || []).reduce((s, st) => s + st.closing, 0));
+
+  // One A4 PDF per customer (auto page-breaks for long statements), all
+  // bundled into a single ZIP (guru 2026-07-24).
+  const statementPdf = (s: CustomerStatement): ArrayBuffer => {
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+    // Letterhead
+    doc.setFont("helvetica", "bold").setFontSize(13);
+    doc.text(organization?.name || "", pageW / 2, 15, { align: "center" });
+    doc.setFont("helvetica", "normal").setFontSize(9);
+    doc.text(fmtDate(new Date().toISOString()), pageW / 2, 20, { align: "center" });
+    doc.setFont("helvetica", "bold").setFontSize(12);
+    doc.text("STATEMENT-OF-ACCOUNT", pageW - 12, 30, { align: "right" });
+    doc.setFont("helvetica", "normal").setFontSize(9);
+    doc.text(`To : ${s.customer.name}${s.customer.code ? `  (${s.customer.code})` : ""}`, 12, 38);
+    doc.text(`PERIOD ENDING : ${fmtDate(asOf)}`, pageW - 12, 38, { align: "right" });
+    doc.text(scope === "outstanding" ? "All outstanding items" : "Current month transactions", 12, 43);
+
+    autoTable(doc, {
+      startY: 48,
+      head: [["Reference", "Date", "Remarks", "Debit", "Credit", "Balance"]],
+      body: s.rows.map((r) => [
+        r.reference,
+        r.date ? fmtDate(r.date) : "",
+        r.remarks,
+        r.debit ? fmt(r.debit) : "",
+        r.credit ? fmt(r.credit) : "",
+        fmt(r.running),
+      ]),
+      foot: [["TOTAL", "", "", fmt(s.totalDebit), fmt(s.totalCredit), fmt(s.closing)]],
+      theme: "plain",
+      styles: { fontSize: 8, cellPadding: 1.2, textColor: 0 },
+      headStyles: { fontStyle: "bold", lineWidth: { top: 0.3, bottom: 0.3 }, lineColor: 0 },
+      footStyles: { fontStyle: "bold", lineWidth: { top: 0.3 }, lineColor: 0 },
+      columnStyles: {
+        0: { cellWidth: 34 },
+        1: { cellWidth: 20 },
+        3: { halign: "right", cellWidth: 22 },
+        4: { halign: "right", cellWidth: 22 },
+        5: { halign: "right", cellWidth: 24 },
+      },
+      margin: { left: 12, right: 12 },
+    });
+
+    // Ageing Analysis box — moves to a fresh page when it won't fit.
+    let y = ((doc as any).lastAutoTable?.finalY || 60) + 10;
+    if (y > 240) {
+      doc.addPage();
+      y = 20;
+    }
+    doc.setFont("helvetica", "bold").setFontSize(9);
+    doc.text("Ageing Analysis:", 12, y);
+    y += 3;
+    const boxW = (pageW - 24) / 6;
+    doc.setLineWidth(0.3).rect(12, y, pageW - 24, 24);
+    s.buckets.forEach((b, i) => {
+      const col = i % 6;
+      const row = Math.floor(i / 6);
+      const bx = 12 + col * boxW;
+      const by = y + row * 12;
+      doc.setFont("helvetica", "bold").setFontSize(6.5);
+      doc.text(b.label, bx + 2, by + 4);
+      doc.setFont("helvetica", "normal").setFontSize(8);
+      doc.text(b.amount ? fmt(b.amount) : "", bx + boxW - 2, by + 9, { align: "right" });
+    });
+    y += 24 + 12;
+    if (y > 280) {
+      doc.addPage();
+      y = 20;
+    }
+    doc.setFont("helvetica", "normal").setFontSize(7.5);
+    doc.text("This is a computer generated Statement. No signature is required.", pageW / 2, y, { align: "center" });
+    return doc.output("arraybuffer");
+  };
+
+  const downloadZip = async () => {
+    if (!statements?.length) return;
+    setZipping(true);
+    try {
+      const zip = new JSZip();
+      const seen = new Set<string>();
+      for (const s of statements) {
+        let base = `${s.customer.code || s.customer.name || "customer"}`.replace(/[^\w.-]+/g, "_");
+        if (seen.has(base)) base = `${base}-${s.customer.id.slice(0, 6)}`;
+        seen.add(base);
+        zip.file(`${base}-Statement-${asOf}.pdf`, statementPdf(s));
+      }
+      const blob = await zip.generateAsync({ type: "blob" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `Debtor-Statements-${asOf}.zip`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast.success(`${statements.length} statement PDF${statements.length === 1 ? "" : "s"} zipped`);
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't build the ZIP");
+    } finally {
+      setZipping(false);
+    }
+  };
 
   const exportCsv = () => {
     if (!statements?.length) return;
@@ -326,60 +443,96 @@ export default function DebtorStatementReport() {
             ]
           : []
       }
+      cardActions={
+        statements?.length ? (
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={zipping ? <CircularProgress size={14} /> : <FolderZipOutlinedIcon />}
+            disabled={zipping}
+            onClick={downloadZip}
+          >
+            Print all (ZIP)
+          </Button>
+        ) : undefined
+      }
       footerInfo={
-        statements
-          ? `${statements.length} customer${statements.length === 1 ? "" : "s"} · Total owed ${fmt(grandOwed)}`
+        statements?.length
+          ? `Customer ${current + 1} of ${statements.length} · Range total owed ${fmt(grandOwed)}`
           : ""
       }
       onExportCsv={statements?.length ? exportCsv : undefined}
     >
-      {statements ? (
+      {statements && statements.length > 0 ? (
         <>
-          {statements.map((s, si) => (
-            <Box
-              key={s.customer.id}
-              sx={{
-                mb: si < statements.length - 1 ? 4 : 0,
-                "@media print": { pageBreakAfter: si < statements.length - 1 ? "always" : "auto" },
-              }}
-            >
-              <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.5 }}>
-                {s.customer.name}
-                {s.customer.code ? ` (${s.customer.code})` : ""}
-              </Typography>
-              <ReportTable columns={columns} rows={rowsFor(s)} />
+          {(() => {
+            const s = statements[Math.min(current, statements.length - 1)];
+            return (
+              <Box key={s.customer.id}>
+                {/* One customer per view (guru 2026-07-24) — step through the
+                    range with ‹ ›; long statements paginate in their PDF. */}
+                <Stack direction="row" alignItems="center" gap={1} sx={{ mb: 1.5 }}>
+                  <Tooltip title="Previous customer">
+                    <span>
+                      <IconButton size="small" onClick={() => setCurrent((c) => Math.max(0, c - 1))} disabled={current === 0}>
+                        <NavigateBeforeIcon />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Next customer">
+                    <span>
+                      <IconButton
+                        size="small"
+                        onClick={() => setCurrent((c) => Math.min(statements.length - 1, c + 1))}
+                        disabled={current >= statements.length - 1}
+                      >
+                        <NavigateNextIcon />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                    {s.customer.name}
+                    {s.customer.code ? ` (${s.customer.code})` : ""}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: "text.secondary", ml: 1 }}>
+                    {current + 1} / {statements.length}
+                  </Typography>
+                </Stack>
 
-              <Typography variant="subtitle2" sx={{ fontWeight: 700, mt: 2, mb: 1 }}>
-                Ageing Analysis
-              </Typography>
-              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(3, 1fr)", md: "repeat(6, 1fr)" }, gap: 1 }}>
-                {s.buckets.map((b) => (
-                  <Paper
-                    key={b.label}
-                    variant="outlined"
-                    onClick={() => b.amount > 0 && setMonthDetail({ label: `${s.customer.name} · ${b.label}`, docs: b.docs })}
-                    title={b.amount > 0 ? "Detailed Ageing Analysis" : undefined}
-                    sx={{
-                      p: 1,
-                      borderRadius: 1.5,
-                      cursor: b.amount > 0 ? "pointer" : "default",
-                      opacity: b.amount > 0 ? 1 : 0.65,
-                      "&:hover": b.amount > 0 ? { borderColor: "text.secondary", bgcolor: "action.hover" } : undefined,
-                    }}
-                  >
-                    <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: "text.secondary", whiteSpace: "nowrap" }}>
-                      {b.label}
-                    </Typography>
-                    <Typography
-                      sx={{ fontFamily: "monospace", fontWeight: 700, textAlign: "right", color: b.amount > 0 ? "error.main" : "text.secondary" }}
+                <ReportTable columns={columns} rows={rowsFor(s)} />
+
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, mt: 2, mb: 1 }}>
+                  Ageing Analysis
+                </Typography>
+                <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(3, 1fr)", md: "repeat(6, 1fr)" }, gap: 1 }}>
+                  {s.buckets.map((b) => (
+                    <Paper
+                      key={b.label}
+                      variant="outlined"
+                      onClick={() => b.amount > 0 && setMonthDetail({ label: `${s.customer.name} · ${b.label}`, docs: b.docs })}
+                      title={b.amount > 0 ? "Detailed Ageing Analysis" : undefined}
+                      sx={{
+                        p: 1,
+                        borderRadius: 1.5,
+                        cursor: b.amount > 0 ? "pointer" : "default",
+                        opacity: b.amount > 0 ? 1 : 0.65,
+                        "&:hover": b.amount > 0 ? { borderColor: "text.secondary", bgcolor: "action.hover" } : undefined,
+                      }}
                     >
-                      {fmt(b.amount)}
-                    </Typography>
-                  </Paper>
-                ))}
+                      <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: "text.secondary", whiteSpace: "nowrap" }}>
+                        {b.label}
+                      </Typography>
+                      <Typography
+                        sx={{ fontFamily: "monospace", fontWeight: 700, textAlign: "right", color: b.amount > 0 ? "error.main" : "text.secondary" }}
+                      >
+                        {fmt(b.amount)}
+                      </Typography>
+                    </Paper>
+                  ))}
+                </Box>
               </Box>
-            </Box>
-          ))}
+            );
+          })()}
 
           {/* Detailed Ageing Analysis drill */}
           <Dialog open={Boolean(monthDetail)} onClose={() => setMonthDetail(null)} maxWidth="sm" fullWidth>

@@ -152,7 +152,10 @@ export default function JournalEntryDialog({
     return null;
   };
 
-  const submit = async (action: "draft" | "post") => {
+  // guru 2026-07-24 status model: ONE Save — the voucher posts to the GL
+  // immediately but stays UNCONFIRMED until an accountant confirms it
+  // (POST /journal/entries/:id/confirm). No more draft stage.
+  const submit = async (action: "post") => {
     const err = validate();
     if (err) {
       toast.error(err);
@@ -165,6 +168,7 @@ export default function JournalEntryDialog({
         type,
         reference: reference || undefined,
         description: description || undefined,
+        unconfirmed: true,
         lines: lines.map((l) => ({
           accountId: l.accountId!,
           description: l.description || undefined,
@@ -176,13 +180,8 @@ export default function JournalEntryDialog({
         method: "POST",
         body: JSON.stringify(body),
       });
-
-      if (action === "post") {
-        await request(`/journal/entries/${created.id}/post`, { method: "POST" });
-        toast.success(`Posted ${created.journalNumber}`);
-      } else {
-        toast.success(`Draft ${created.journalNumber} saved`);
-      }
+      await request(`/journal/entries/${created.id}/post`, { method: "POST" });
+      toast.success(`${created.journalNumber} saved — posted as unconfirmed`);
 
       onCreated?.();
       onClose();
@@ -391,20 +390,12 @@ export default function JournalEntryDialog({
           Cancel
         </Button>
         <Button
-          onClick={() => submit("draft")}
-          variant="outlined"
-          disabled={!!saving}
-          startIcon={saving === "draft" ? <CircularProgress size={14} /> : undefined}
-        >
-          Save as Draft
-        </Button>
-        <Button
           onClick={() => submit("post")}
           variant="contained"
           disabled={!!saving || !totals.balanced}
           startIcon={saving === "post" ? <CircularProgress size={14} color="inherit" /> : undefined}
         >
-          Save & Post
+          Save
         </Button>
       </DialogActions>
     </Dialog>

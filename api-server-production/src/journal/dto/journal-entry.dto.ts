@@ -84,6 +84,10 @@ export class CreateJournalEntryDto {
   @IsString()
   sourcePaymentId?: string;
 
+  @ApiPropertyOptional({ description: 'Manual voucher saved as UNCONFIRMED (posts to GL, awaits confirm)' })
+  @IsOptional()
+  unconfirmed?: boolean;
+
   @ApiProperty({ type: [JournalLineDto] })
   @IsArray()
   @ArrayMinSize(2)

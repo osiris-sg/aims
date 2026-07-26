@@ -35,7 +35,7 @@ import RecurringInvoicesView from "../recurring-invoices/RecurringInvoicesView";
 import {
   AgedReceivablesSummary, AgedReceivablesDetail, AgedPayablesSummary, AgedPayablesDetail,
   ReceivableInvoices, ReceivableInvoiceDetail, PayableInvoices, PayableInvoiceDetail,
-  ContactTransactionsSummary, IncomeExpensesByContact, DebtorStatement, AuditTrail, ReceiptListing, SummaryAgeing, DetailedAgeing, DebtorListing, HistoricalListing,
+  ContactTransactionsSummary, IncomeExpensesByContact, DebtorStatement, AuditTrail, ReceiptListing, SummaryAgeing, DetailedAgeing, DebtorListing, HistoricalListing, JvListing,
   GeneralLedgerDetail, GeneralLedgerSummary,
   AccountTransactions, ExpenseListing, TrialBalanceReport, JournalReport, BankSummary,
   ProfitLoss, BalanceSheet, ForeignBankListing, GSTReturn,
@@ -82,6 +82,7 @@ export const REPORTS: ReportEntry[] = [
   { key: "detailed-ageing", label: "Detailed Ageing Analysis", description: "Every outstanding document per customer, aged by calendar month with running balance", category: "Receivables", Component: DetailedAgeing },
   { key: "debtor-listing", label: "Debtor Listing", description: "Every debtor's balance as at a cut-off date — local and foreign amounts, DR/CR", category: "Receivables", Component: DebtorListing },
   { key: "historical-listing", label: "Historical Listing", description: "Per-debtor transaction history for a period with BALANCE B/F and sub-totals", category: "Receivables", Component: HistoricalListing },
+  { key: "jv-listing", label: "Journal Voucher Listing", description: "Every journal line for a period — Unconfirmed and Confirmed vouchers with foreign amounts", category: "Ledger", Component: JvListing },
   { key: "sbc", label: "Sales by Customer", description: "Revenue breakdown by customer", category: "Receivables", Component: SalesByCustomerPage },
   { key: "contact-transactions", label: "Contact Transactions", description: "Opening, movement and closing balance for one contact", category: "Receivables", Component: ContactTransactionsSummary },
   { key: "income-expense-by-contact", label: "Income and Expenses by Contact", description: "Per-contact income and spend across comparison months", category: "Receivables", Component: IncomeExpensesByContact },
@@ -280,7 +281,7 @@ function ReportsInner({
   const rawTab = searchParams.get("tab");
   // Legacy-UX-only reports: hidden from the directory (and unresolvable via
   // ?tab=) for orgs without the enableLegacyAccountingUx flag.
-  const LEGACY_ONLY_REPORT_KEYS = ["debtor-statement", "audit-trail", "receipt-listing", "summary-ageing", "detailed-ageing", "debtor-listing", "historical-listing"];
+  const LEGACY_ONLY_REPORT_KEYS = ["debtor-statement", "audit-trail", "receipt-listing", "summary-ageing", "detailed-ageing", "debtor-listing", "historical-listing", "jv-listing"];
   const visibleReports = useMemo(
     () => (isLegacyAccountingUxEnabled ? REPORTS : REPORTS.filter((r) => !LEGACY_ONLY_REPORT_KEYS.includes(r.key))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -401,7 +402,10 @@ function ReportsInner({
   const hasAnyMatch = favouriteReports.length > 0 || Array.from(grouped.values()).some((g) => g.length > 0);
 
   return (
-    <Box sx={{ px: 3, py: 3, maxWidth: 1400, mx: "auto", width: "100%" }}>
+    // Directory is deliberately NARROWER than the reports themselves (980 vs
+    // 1400): the card grid was stretching edge-to-edge with the columns far
+    // apart — squeeze it into a centred block (guru 2026-07-24).
+    <Box sx={{ px: 3, py: 3, maxWidth: 980, mx: "auto", width: "100%" }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 3, flexWrap: "wrap", gap: 2 }}>
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 700 }}>

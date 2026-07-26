@@ -60,6 +60,12 @@ export class JournalController {
     return this.service.create(requireOrgId(req), dto, req.auth?.userId);
   }
 
+  @Post('entries/:id/confirm')
+  @Permissions('journal:post')
+  confirmEntry(@Req() req: RequestWithOrganization, @Param('id') id: string) {
+    return this.service.confirmEntry(requireOrgId(req), id);
+  }
+
   @Post('entries/:id/post')
   @Permissions('journal:post')
   post(@Req() req: RequestWithOrganization, @Param('id') id: string) {
@@ -111,6 +117,7 @@ export class JournalController {
       startDate: q.startDate ? new Date(q.startDate) : undefined,
       endDate: q.endDate ? new Date(q.endDate) : undefined,
       orderBy: q.orderBy,
+      includeUnposted: q.includeUnposted === 'true' || q.includeUnposted === '1',
     });
   }
 
