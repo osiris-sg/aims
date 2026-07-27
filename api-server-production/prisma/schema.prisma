@@ -88,6 +88,7 @@ model Organization {
   xeroAccountMappings   XeroAccountMapping[]
   xeroSyncRuns          XeroSyncRun[]
   serviceReports        MaintenanceServiceReport[]
+  deliveries            Delivery[]
   emailIngestConfig     EmailIngestConfig?
   emailIngestLogs       EmailIngestLog[]
   passTrackerEntries    PassTrackerEntry[]
@@ -260,6 +261,7 @@ model Customer {
   projects        Project[]         @relation("CustomerProjects")
   orders          Order[]           @relation("CustomerOrders")
   contacts        CustomerContact[]
+  deliveries      Delivery[]
 
   @@unique([email, organizationId])
   @@unique([id, organizationId])
@@ -420,6 +422,7 @@ model Document {
   msrInvoices        MaintenanceServiceReport[] @relation("MsrInvoice") // Service reports that produced THIS invoice
   orderSources       Order[]                    @relation("OrderSourceQuotation") // Orders auto-created when this quotation was confirmed
   deliveryShareLinks DeliveryShareLink[] // Guest (no-login) delivery links scoped to THIS delivery order
+  deliveries         Delivery[] // Standalone physical-delivery runs later linked to THIS delivery order
 
   // Self-relation for revisions: base document -> many revisions
   baseDocument Document?  @relation("DocumentRevisions", fields: [baseDocumentId], references: [id])
@@ -677,6 +680,7 @@ model Project {
   assignments      Assignment[]
   documents        Document[]
   deployments      ProjectDeployment[]
+  deliveries       Delivery[]
   organization     Organization?       @relation(fields: [organizationId], references: [id])
   siteOffice       SiteOffice?         @relation("SiteOfficeProjects", fields: [siteOfficeId], references: [id])
   customer         Customer?           @relation("CustomerProjects", fields: [customerId], references: [id])
@@ -1880,6 +1884,11 @@ model MaintenanceServiceReport {
   // DO-flow `documentId` above so the two linkages don't fight.
   invoiceDocumentId String?                        @db.Uuid
   invoiceDocument   Document?                      @relation("MsrInvoice", fields: [invoiceDocumentId], references: [id], onDelete: SetNull)
+  // FK to the standalone Delivery run this report belongs to (delivery-first
+  // flow). Grouping key alongside documentId — DO-first rows keep documentId,
+  // standalone rows carry deliveryId; both may be set once linked.
+  deliveryId        String?                        @db.Uuid
+  delivery          Delivery?                      @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
   createdAt         DateTime                       @default(now())
   updatedAt         DateTime                       @updatedAt
 
@@ -1895,6 +1904,7 @@ model MaintenanceServiceReport {
   @@index([assetId, status])
   @@index([organizationId, kind, createdAt])
   @@index([documentId, kind])
+  @@index([deliveryId, kind])
   @@index([organizationId, reportNumber(sort: Desc)])
 }
 
@@ -2165,4 +2175,80 @@ model ApiKey {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Standalone Delivery (phase 1) — the PHYSICAL delivery run, decoupled from
+// the DO document. Commercially neutral: no pricing, no stock deduction
+// (deduction/invoicing stay on the DO). Links to a DO via documentId —
+// nullable and NON-unique (many runs may fulfil one DO), set at creation
+// (DO-first) or later from the office (delivery-first). Proof (photos,
+// signature, GPS, pings) stays on MaintenanceServiceReport rows, which carry
+// deliveryId as the grouping key alongside the existing documentId.
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum DeliveryRunStatus {
+  in_progress // rider started; not all items acknowledged yet
+  delivered   // every item acknowledged (not_installed or better)
+  completed   // every item completed / install-skipped
+  cancelled   // abandoned — reserved units restored to instock
+}
+
+model Delivery {
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String
+  // Per-org serial (paper-trail analogue, same pattern as MSR.reportNumber).
+  // Assigned at creation — required, unlike MSR's nullable historic rows.
+  deliveryNumber Int
+  status         DeliveryRunStatus @default(in_progress)
+  riderUserId    String
+  riderName      String?
+  projectId      String?           @db.Uuid
+  customerId     String?           @db.Uuid
+  siteAddress    String? // free-text drop site when no project is linked yet
+  notes          String?
+  // THE LINK — the DO this run fulfils. Nullable (delivery-first runs have
+  // none until the office links/creates one) and non-unique (a DO can accrue
+  // several physical runs). SetNull: deleting a DO never destroys the run.
+  documentId     String?           @db.Uuid
+  startedAt      DateTime          @default(now())
+  completedAt    DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  organization Organization               @relation(fields: [organizationId], references: [id])
+  project      Project?                   @relation(fields: [projectId], references: [id])
+  customer     Customer?                  @relation(fields: [customerId], references: [id])
+  document     Document?                  @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  items        DeliveryItem[]
+  reports      MaintenanceServiceReport[]
+
+  @@unique([organizationId, deliveryNumber])
+  @@index([documentId])
+  @@index([organizationId, status, createdAt])
+}
+
+model DeliveryItem {
+  id          String   @id @default(uuid()) @db.Uuid
+  deliveryId  String   @db.Uuid
+  delivery    Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  // Phase 1: every line maps to a known catalog asset; tracked units also
+  // carry the specific inventory unit. Plain UUIDs (no FK) — mirrors how
+  // DocumentItem references stock without hard coupling.
+  assetId     String   @db.Uuid
+  inventoryId String?  @db.Uuid
+  description String?
+  quantity    Int      @default(1)
+  // Same per-item lifecycle as DocumentItem.deliveryStatus (shared enum):
+  // not_delivered → delivering → not_installed → completed.
+  deliveryStatus DeliveryStatus @default(not_delivered)
+  deliveringAt   DateTime?
+  deliveredAt    DateTime?
+  completedAt    DateTime?
+  installSkipped Boolean        @default(false)
+  // Deliberately NO deductedAt — stock deduction is the DO's job, performed
+  // at link time through the existing DocumentItem claim.
+
+  @@unique([deliveryId, inventoryId]) // a unit can't be scanned twice into one run
+  @@index([inventoryId])
 }

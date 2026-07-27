@@ -6,6 +6,7 @@ import { WaterSgService, WaterSgCreateSiteResult } from 'src/common/services/wat
 import { EmailService } from '../email/email.service';
 import { DocumentsService } from '../documents/documents.service';
 import { DocumentTemplatesService } from '../documentTemplates/documentTemplates.service';
+import { DeliveriesService } from '../deliveries/deliveries.service';
 import { CreateMaintenanceReportDto } from './dto/create-maintenance-report.dto';
 import { SignMaintenanceReportDto } from './dto/sign-maintenance-report.dto';
 import { CreateLocationPingsDto } from './dto/location-ping.dto';
@@ -22,6 +23,7 @@ export class MaintenanceReportsService {
     private readonly documentsService: DocumentsService,
     private readonly documentTemplatesService: DocumentTemplatesService,
     private readonly waterSg: WaterSgService,
+    private readonly deliveriesService: DeliveriesService,
   ) {}
 
   async create(dto: CreateMaintenanceReportDto, organizationId: string, technicianUserId: string) {
@@ -48,6 +50,9 @@ export class MaintenanceReportsService {
       ...(dto.kind ? { kind: dto.kind } : {}),
       // FK to the Document being delivered (DO_START / DO_ACK). Null for SERVICE.
       ...(dto.documentId ? { documentId: dto.documentId } : {}),
+      // FK to the standalone Delivery run (delivery-first flow). Null for
+      // SERVICE and for DO-first rows.
+      ...(dto.deliveryId ? { deliveryId: dto.deliveryId } : {}),
       // Geolocation captured at submission. Submission proceeds even if these
       // are absent (browser denial / no signal); just write null.
       ...(typeof dto.latitude === 'number' ? { latitude: dto.latitude } : {}),
@@ -314,6 +319,10 @@ export class MaintenanceReportsService {
         where: { id: updated.documentId },
         data: { status: 'delivered_installed' },
       });
+    } else if (updated.kind === 'DO_INSTALL' && updated.deliveryId) {
+      // Standalone run: the fold in recomputeRunStatus derives delivered/
+      // completed from item states — monotonic, so it never downgrades.
+      await this.deliveriesService.recomputeRunStatus(updated.deliveryId, organizationId);
     }
 
     // When a delivery acknowledgment is signed, advance the parent DO to
@@ -333,6 +342,9 @@ export class MaintenanceReportsService {
           data: { status: 'delivered_not_installed' },
         });
       }
+    } else if (updated.kind === 'DO_ACK' && updated.deliveryId) {
+      // Standalone run: item-state fold (never downgrades — see above).
+      await this.deliveriesService.recomputeRunStatus(updated.deliveryId, organizationId);
     }
 
     // Per-item DO delivery transition (Phase 3): a signed DO_ACK deducts stock
@@ -368,10 +380,33 @@ export class MaintenanceReportsService {
       kind: MaintenanceReportKind;
       status: string;
       documentId: string | null;
+      deliveryId?: string | null;
       inventoryId: string | null;
     },
     organizationId: string,
   ): Promise<void> {
+    // Standalone-delivery arm (delivery-first, no DO yet): advance the
+    // DeliveryItem's state machine instead of the DO's DocumentItem. No stock
+    // deduction, no unit flip, no Document.status — those stay the DO's job
+    // (performed at link time). DO-first rows (documentId set) take the
+    // original branch below, bit-identical to before.
+    if (!report.documentId && report.deliveryId && report.inventoryId) {
+      try {
+        if (report.kind === 'DO_START') {
+          await this.deliveriesService.advanceDeliveryItem(report.deliveryId, report.inventoryId, 'start', organizationId);
+        } else if (report.kind === 'DO_ACK' && report.status === 'completed') {
+          await this.deliveriesService.advanceDeliveryItem(report.deliveryId, report.inventoryId, 'ack', organizationId);
+        } else if (report.kind === 'DO_INSTALL' && report.status === 'completed') {
+          await this.deliveriesService.advanceDeliveryItem(report.deliveryId, report.inventoryId, 'install', organizationId);
+        }
+      } catch (err: any) {
+        this.logger.error(
+          `Standalone delivery transition failed for report ${report.id} (kind=${report.kind}): ${err?.message}`,
+          err?.stack,
+        );
+      }
+      return;
+    }
     if (!report.documentId || !report.inventoryId) return;
     try {
       if (report.kind === 'DO_START') {
@@ -435,6 +470,7 @@ export class MaintenanceReportsService {
       id: string;
       inventoryId: string | null;
       documentId: string | null;
+      deliveryId?: string | null;
       latitude: number | null;
       longitude: number | null;
     },
@@ -480,8 +516,20 @@ export class MaintenanceReportsService {
             },
           })
         : null;
-      const name = doc?.project?.name ?? inv.sku;
-      const customerName = doc?.project?.customer?.name ?? undefined;
+      // Standalone-delivery arm: no DO, so read project/customer off the
+      // Delivery run itself. Same fallback chain — SKU when neither is linked.
+      const run = !report.documentId && report.deliveryId
+        ? await this.prisma.delivery.findUnique({
+            where: { id: report.deliveryId },
+            select: {
+              project: { select: { name: true, customer: { select: { name: true } } } },
+              customer: { select: { name: true } },
+            },
+          })
+        : null;
+      const name = doc?.project?.name ?? run?.project?.name ?? inv.sku;
+      const customerName =
+        doc?.project?.customer?.name ?? run?.project?.customer?.name ?? run?.customer?.name ?? undefined;
 
       // Send 0,0 when GPS is missing (the 2b decision) so the site still lands.
       const lat = report.latitude ?? 0;
@@ -1044,7 +1092,7 @@ export class MaintenanceReportsService {
   ) {
     const report = await this.prisma.maintenanceServiceReport.findFirst({
       where: { id: reportId, organizationId },
-      select: { id: true, kind: true, documentId: true },
+      select: { id: true, kind: true, documentId: true, deliveryId: true },
     });
     if (!report) throw new NotFoundException('Report not found');
     if (report.kind !== 'DO_START') {
@@ -1060,6 +1108,18 @@ export class MaintenanceReportsService {
           kind: 'DO_ACK',
           organizationId,
         },
+        select: { id: true },
+      });
+      if (ack) {
+        throw new BadRequestException(
+          'Delivery already acknowledged — pings rejected',
+        );
+      }
+    } else if (report.deliveryId) {
+      // Standalone run: the sibling DO_ACK is matched by deliveryId instead —
+      // closes the "pings never end" hole for document-less deliveries.
+      const ack = await this.prisma.maintenanceServiceReport.findFirst({
+        where: { deliveryId: report.deliveryId, kind: 'DO_ACK', organizationId },
         select: { id: true },
       });
       if (ack) {
@@ -1105,7 +1165,7 @@ export class MaintenanceReportsService {
   ) {
     const report = await this.prisma.maintenanceServiceReport.findFirst({
       where: { id: reportId, organizationId },
-      select: { id: true, kind: true, documentId: true },
+      select: { id: true, kind: true, documentId: true, deliveryId: true },
     });
     if (!report) throw new NotFoundException('Report not found');
 
@@ -1117,6 +1177,13 @@ export class MaintenanceReportsService {
           kind: 'DO_ACK',
           organizationId,
         },
+        select: { id: true },
+      });
+      isActive = !ack;
+    } else if (report.deliveryId) {
+      // Standalone run: track closes on the deliveryId-matched DO_ACK.
+      const ack = await this.prisma.maintenanceServiceReport.findFirst({
+        where: { deliveryId: report.deliveryId, kind: 'DO_ACK', organizationId },
         select: { id: true },
       });
       isActive = !ack;

@@ -42,6 +42,14 @@ export class CreateMaintenanceReportDto {
   @IsUUID()
   documentId?: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Standalone Delivery run this report belongs to (delivery-first flow, no DO yet). Mirrors documentId.',
+  })
+  @IsOptional()
+  @IsUUID()
+  deliveryId?: string;
+
   @ApiPropertyOptional({ description: 'GPS latitude captured at submission.' })
   @IsOptional()
   @IsLatitude()

@@ -3492,7 +3492,10 @@ export class DocumentsService {
             ? InventoryStatus.sold
             : InventoryStatus.rental;
         await tx.inventory.updateMany({
-          where: { id: inventoryId, status: InventoryStatus.instock },
+          // 'reserved' included so a unit soft-held by a standalone Delivery
+          // flips correctly when its DO deducts at link time. DO-first is
+          // unaffected — instock still matches exactly as before.
+          where: { id: inventoryId, status: { in: [InventoryStatus.instock, InventoryStatus.reserved] } },
           data: { status: deliveredStatus },
         });
       }
@@ -3619,6 +3622,42 @@ export class DocumentsService {
     }
 
     return this.prisma.documentItem.findUnique({ where: { id: target.id } });
+  }
+
+  /**
+   * Link-time deduction for a standalone Delivery being attached to this DO
+   * (deliveries.service.link). Runs the DO's OWN exactly-once deduction
+   * (deductedAt claim) for each already-delivered unit — the same private
+   * routine the DO-first ack path uses; re-calls are idempotent no-ops.
+   * Deliberately does NOT touch the completion gate / auto-invoice.
+   */
+  async deductLinkedDeliveryUnits(
+    documentId: string,
+    organizationId: string,
+    inventoryIds: string[],
+  ): Promise<number> {
+    if (!inventoryIds.length) return 0;
+    const document = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true, name: true },
+    });
+    if (!document) {
+      throw new HttpException('Delivery Order not found', HttpStatus.NOT_FOUND);
+    }
+    let deducted = 0;
+    for (const inventoryId of inventoryIds) {
+      const row = await this.prisma.documentItem.findFirst({
+        where: {
+          documentId,
+          deductedAt: null,
+          OR: [{ inventoryId }, { itemId: inventoryId, itemType: ItemType.INVENTORY }],
+        },
+      });
+      if (!row) continue; // not on this DO, or already deducted — no-op
+      const ok = await this.deductDocumentItemStock(row, documentId, document.name, organizationId);
+      if (ok) deducted++;
+    }
+    return deducted;
   }
 
   /**
