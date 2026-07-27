@@ -35,7 +35,21 @@
       "Read(//tmp/**)",
       "WebFetch(domain:developers.facebook.com)",
       "Bash(npx nest *)",
-      "Bash(echo \"backend exit: $?\")"
+      "Bash(echo \"backend exit: $?\")",
+      "Skill(claude-api)",
+      "Bash(lsof -iTCP:3000 -sTCP:LISTEN -P)",
+      "Bash(lsof -iTCP:3001 -sTCP:LISTEN -P)",
+      "Bash(lsof -iTCP:8080 -sTCP:LISTEN -P)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" -X POST http://localhost:4040/guide/stream -H \"Content-Type: application/json\" -d '{\"question\":\"hi\"}')",
+      "Bash(curl -s http://localhost:3000/portal)",
+      "Bash(ps -p 89200 -o command=)",
+      "Bash(ps -p 51454 -o command=)",
+      "Bash(ps -p 51452 -o pid,etime,command)",
+      "Bash(curl -s -o /dev/null -w \"root: %{http_code}\\\\n\" http://localhost:3000/)",
+      "Bash(kill 51452 51454)",
+      "Bash(curl -s -o /dev/null -w \"portal: %{http_code}\\\\n\" http://localhost:3000/sign-in)",
+      "Bash(awk '{print $6, $7, $8}')",
+      "Bash(curl -s -o /dev/null -w \"guide route: %{http_code}\\\\n\" -X POST http://localhost:4040/guide/stream -H \"Content-Type: application/json\" -d '{\"question\":\"hi\"}')"
     ]
   }
 }
