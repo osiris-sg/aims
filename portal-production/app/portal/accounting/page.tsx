@@ -122,6 +122,7 @@ export default function AccountingHubPage() {
         </Box>
         <Stack direction="row" gap={1}>
           <Button
+            data-tour="finance-ask-ai"
             startIcon={<AutoAwesomeIcon />}
             variant={assistantOpen ? "contained" : "outlined"}
             size="small"
@@ -237,6 +238,7 @@ export default function AccountingHubPage() {
             New Invoice
           </Button>
           <Button
+            data-tour="new-journal-entry"
             size="small"
             variant="contained"
             startIcon={<AddIcon />}
@@ -254,6 +256,7 @@ export default function AccountingHubPage() {
             View Journal Log
           </Button>
           <Button
+            data-tour="close-period"
             size="small"
             variant="outlined"
             startIcon={<LockIcon />}

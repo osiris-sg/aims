@@ -1,0 +1,92 @@
+// ---------------------------------------------------------------------------
+// AIMS Guide assistant — built-in knowledge of the CURRENT app, compiled from
+// a full codebase survey (2026-07-27). This is the assistant's ONLY source of
+// app truth beyond the per-request screen list, so keep it accurate and terse:
+// it rides on every /guide/stream request (behind a prompt-cache breakpoint).
+// When a feature ships or changes, update the matching section here (and add
+// a data-tour anchor + prebuilt guide when it deserves a walkthrough).
+// Retired modules (Documents, standalone Invoices, Payments, Assets, User
+// Management, Audit, Analytics, Integrations) are deliberately absent.
+// ---------------------------------------------------------------------------
+
+export const APP_KNOWLEDGE = `
+=== CORE CONCEPTS ===
+- Sales documents (quotation, sales order, delivery order/DO, invoice, debit/credit note, purchase order/PO, purchase return, stock adjustment) share ONE editor. Create buttons on Sales list pages open it. There is NO autosave — press Save (top right) to keep a draft. Confirm finalises a document, locks it, and assigns its number.
+- Paper trail: Quotation → (confirm) → Delivery Order → Invoice. Line items carry across via the editor's "Extract from…" menu actions. Confirming an invoice deducts stock and posts to the ledger.
+- CREATE vs UPLOAD: every Sales list page has "Create <type>" (blank editor; a numbering-format picker and template picker may appear first when several are active) AND an "Upload <type>" button (upload existing PDFs/images or a ZIP → AI-extracts each into a draft for review).
+- Editing a CONFIRMED document: it can't be edited directly — open it and use ⋮ → "Create Revision", which makes an editable new revision.
+- Deleting documents happens from the LIST pages (trash icon, shown on draft/unconfirmed rows only), not inside the editor (only Official Receipts have in-editor delete).
+- Every list page shares the same shell: search box, "Filter" button (right-side drawer), sortable column headers, page-size dropdown, pager, a primary Create button and sometimes extra action buttons beside it.
+
+=== DOCUMENT EDITOR (opens from any Sales list) ===
+Toolbar (left→right): Back; Prev/Next document arrows; "Ask AI" (AI assistant drawer: chat, attach PDF/image to extract, Apply-suggestion cards that fill the form); Preview/Edit toggle (hidden once confirmed); type-specific Confirm button; Send Email; Save; ⋮ more-actions menu.
+- Confirm variants: "Confirm Delivery Order" (needs a linked Project first when enableQuotationProjectLink is on); "Confirm Invoice" split-button (dropdown adds "Confirm & make recurring" → jumps to recurring-invoice setup prefilled); "Confirm Quotation" (only with enableConfirmQuotation; auto-creates an Order and offers "Go to Order"); POs use "Receive" mode first (enter Received Qty per line, then Confirm Purchase Order); purchase returns and stock adjustments have their own Confirm dialogs.
+- SEND EMAIL: invoices and quotations only (hidden while an invoice is awaiting payment). Saves first, then opens the email dialog: TO/CC/BCC recipient chips (TO prefills from the document's Attention contact when name+email+phone are all filled), editable subject and body, the document's PDF attached automatically. There is NO WhatsApp send in the editor (WhatsApp lives under CRM).
+- "Mark as Paid": invoices awaiting payment — opens the record-payment dialog.
+- "Sync to Xero": invoices only, only when opened from Accounting and enableXeroDocSync is on — creates/updates a DRAFT invoice in Xero.
+- ⋮ menu: New <type>; Duplicate; Create Revision (confirmed docs only); Extract from Quotation (on DO / sales order) and Extract from DO (on invoice); Print/PDF (switches to Preview then browser print — this is how you save a PDF); Locate (jump to another document); Stock Card lookup; History & notes (audit timeline + add notes); Review Posting (invoice, AI-suggests GL account per line, dry-run); View Original (docs created from an uploaded file); DO-only: Show Route, Share delivery link (public guest link to view/update the DO), Bulk complete (mark all lines delivered + trigger invoice).
+- Header fields: customer/supplier code box with search icon (opens the picker dialog); "+ Add contact" creates a customer contact inline; the Attention trio (person/phone/email) is what prefills email TO; Project picker on quotations/DOs (with enableQuotationProjectLink, after a customer is chosen; "Create new project" inline).
+- Line items: Add Item (product picker); Add Service (with enableServiceItems); pencil icon re-picks a row; drag handle reorders; trash deletes a line; discount %/$ toggle; price-tier tag icon (asset custom prices); clock icon shows price history (pick one to apply). Footer sub-tab holds Notes and Terms & Conditions.
+- Unsaved changes prompt on leaving: Keep editing / Discard / Save & leave. A concurrent-edit banner shows if someone else has the doc open (Take over / Reload).
+- Official Receipt (OR) editor extras: Offset Transactions grid allocates the receipt against open invoices (must balance to 0.00 before saving); side buttons: Debtor Statement, Manual Offset (apply credit notes against invoices — the only place credit notes are applied), Audit Trail.
+
+=== ACCOUNTING ===
+Finance Hub (/portal/accounting): KPI tiles (click to drill into the matching report), Action Queue, Quick Actions (New Journal Entry, Close Period wizard, New Invoice, links to Recurring/Fixed Assets/Budgets/Bills/Posting Queue/Bank Rec/Xero/Reports/Settings), and the "Ask AI" drawer (streams answers about YOUR numbers; can attach a PDF/image, e.g. a supplier statement to cross-check).
+Bills (/portal/accounting/bills): supplier bills. Status tabs All/Unconfirmed/Pending Approval/Awaiting Payment/Paid/Void. "New Bill" manual entry; "Upload Bills" = bulk intake (many files or ZIP → AI-extracted, reviewed one-by-one with prev/next, each saved as its own bill). Row actions: submit for approval (draft), approve & post (green check), reject (red X), record payment (card icon, posted bills with balance), view/edit (editable only while draft/pending), void (creates reversing journal if posted). Bill editor: dropzone to auto-fill from a file, tax treatment (exclusive/inclusive/no tax + tax code), line accounts (blank = auto), "Review" = AI-suggested GL accounts dry-run, attach source documents, "Sync to Xero" (flag-gated). Payments record amount/date/method/bank account + proof attachment; partial payments allowed.
+Accounts Receivable (/portal/accounting/receivables): customer balances workspace (cut-off date, search, click a customer to drill into their running-balance ledger, Statement of Accounts button) + buttons to record an Official Receipt or post a Journal Voucher + "View Reports" (receipt listing, ageing analyses, debtor listing…). Invoice list tab has per-row "Record payment". Recording customer payments/receipts = Official Receipt (allocate against invoices) or the invoice row's Record payment.
+Accounts Payable (/portal/accounting/payables): the Bills screen embedded + aged payables reports, supplier statement (pick supplier + dates + Run), purchases by supplier.
+Posting Queue (/portal/accounting/posting-queue, ADMINS ONLY): ingested/unconfirmed documents & draft journal vouchers grouped by batch. Select rows → "Post to GL" or "Reject" (with reason). "Review" per row shows AI-suggested Dr/Cr accounts before posting.
+General Ledger (/portal/accounting/ledger + /general-ledger): all-accounts browser (period presets, search, click an account code for its detailed ledger, Excel export, Print). Audit Trail: filter/search journals, view lines, Post a draft, Void (reversing entry).
+Manual journal entries: Finance Hub → "New Journal Entry" (or AR → "Journal Voucher"): date, type, reference, Dr/Cr lines with account autocomplete; Save only when balanced; posts as UNCONFIRMED and waits in the Posting Queue.
+Close Period: Finance Hub → "Close Period" wizard — month-end (locks period) or year-end (retained-earnings rollover + lock); runs preflight checks first; unlocking is admin-only.
+Bank Reconciliation (/portal/accounting/bank-reconciliation): pick bank account, upload a PDF statement (AI-extracted) or import CSV (column mapping dialog), auto-match, then per line: "Post as new" (pick contra account, AI "Suggest" available), ignore, or unmatch. Summary tiles show bank vs GL balance.
+Recurring journals (/portal/accounting/recurring): templates with frequency/next run + Dr/Cr lines; Active switch; play icon runs now (posts unconfirmed → Posting Queue).
+Recurring invoices (/portal/accounting/recurring-invoices): schedules with customer, template, frequency, line items supporting date tokens like {MONTH YEAR}; switch between "Draft for review" and "Fully automatic (confirm + email)"; play icon generates now; can be created prefilled from an invoice's "Confirm & make recurring".
+Reports (/portal/accounting/reports): directory of report cards (searchable, star favourites) — GL Detail/Summary, Account Transactions, Trial Balance, Journal, Profit & Loss, Balance Sheet, GST (Details + F5 Summary tabs), Expense Listing, Bank Summary, Aged Receivables/Payables Summary+Detail, Cash Flow, Budget vs Actual, Fixed Assets register, Statement of Accounts (per-customer; Download CSV / Print / Print-all ZIP — NO email/send option exists), Sales by Customer, Purchases by Supplier. Every report: set filters then "Update"; Print and Export CSV in the footer. Several legacy reports (debtor statement, audit trail tab, receipt listing, ageing, JV listing) only appear with enableLegacyAccountingUx on.
+Budgets (/portal/accounting/budget): spreadsheet grid per P&L account × month, "Copy from last year", "Save all".
+Fixed assets (/portal/accounting/fixed-assets): register with add/edit dialogs (cost, salvage, method); depreciation auto-posts during month-end close.
+Xero (/portal/accounting/integrations/xero): Connect (OAuth), Sync now (pull chart+contacts), AI Auto-map, per-row account mapping. Flags: enableXeroIntegration, enableXeroDocSync.
+Accounting Setup (/portal/settings/accounting-setup) tabs: Default Settings (base currency, last-price switches, perpetual inventory, opening balances, DOCUMENT NUMBER SEQUENCES — add variants per doc type with a visual block builder, reset policy, start number, apply-to-all switch); Financial Settings (currency + standing FX rates, financial year end, GST config, tax defaults, period lock date, timezone); Tax Rates (add/edit/deactivate GST codes); Accounts Definition (chart of accounts: code ranges, control accounts, add/edit/deactivate accounts, seed defaults when empty); Inventory Cost (per-unit cost grid); Cost Centers; Account Mapping (map products to sales/rental GL accounts; add services with GL account).
+
+=== SALES & INVENTORY LISTS ===
+- With enableDocumentListView ON, each Sales/Inventory document page shows a list (stat cards: Total / This Month / Unconfirmed; Create + Upload buttons; eye = open in editor; trash = delete, drafts only; filters: created-on, status, customer). With the flag OFF, the page auto-opens the LATEST document of that type in the editor (and auto-creates one if none exist).
+- Upload <type> dialog: drag-drop multiple images/PDFs (10MB each) or a ZIP (25MB); "Upload & Extract" AI-creates unconfirmed drafts (matches PO + customer, codes lines from the Revenue Master File); per-file ✓/✗ results with Open buttons.
+- Inventory purchases/purchases-return/adjustment-in/adjustment-out work exactly like Sales lists for PO/PR/SAI/SAO. Supplier bills moved to /portal/accounting/bills.
+- Stock Card (Sales → Stock Card or Inventory → Stock Card): search a product's stock position; eye icon opens the product detail dialog.
+- Inventory list (/portal/inventory, also Master Files → Inventory): "Add Items" drawer (pick product, quantity → auto-generates SKUs), QR icon per unit, eye opens the unit page (timeline history, parent/component units), trash deletes; inline SKU rename needs enableEditInventorySku. Filters: status (rental/reserved/maintenance/sold/instock), category, product.
+- Products (/portal/inventory/products, also Master Files → Products): table or hierarchy view; Add Product; pencil edits; delete requires typing the product name; hierarchy view adds parts under parents.
+- Inventory → Reports is a "coming soon" placeholder — send users to Accounting reports or Stock Card instead.
+
+=== MASTER FILES (Organization Settings → Master Files) ===
+Tabs: Customers / Suppliers / Products / Inventory / Services.
+- Customers (/portal/customers): Add Customer drawer (name, email, phone, address, GST reg no, currency, salesman, multiple contacts); pencil edits; eye opens the customer page (add/edit/delete Site Offices there); trash deletes.
+- Suppliers (/portal/suppliers): Add Supplier drawer (name, email, phone, address, GST reg no, currency); edit/delete; no detail page.
+- Services: Add Service (code optional, name, unit price, GL account required); edit/delete; these become pickable "Add Service" lines in the editor.
+
+=== PROJECTS ===
+List (/portal/projects): Add Project → 3-step wizard (details + inline add-customer/site-office → optional add items from inventory → review/submit); eye opens the project, pencil edits, trash deletes; filters: status, customer, start/end dates.
+Project page tabs: Active on Site / Past Deployments / Sales & Services / All Invoices / Quotations / Field Reports.
+- "New Deployment" dialog: type Rental (recurring, Monthly Rate) / Sale / Service, deployed date, notes.
+- Off-hire a deployment: stop-circle icon on an active deployment card (also auto-pauses its linked recurring invoice schedules).
+- "Add DO" on a deployment card attaches an unattached delivery order; "View details" expands deployed items, DOs and monthly invoices.
+- "Create Quotation" on the Quotations tab makes a quotation pre-linked to the project.
+- Field Reports tab shows service reports + delivery scans from the field app (photos, routes).
+
+=== ORDERS ===
+/portal/orders. Slim list (default): pipeline-stage tabs (QO Confirmed → DO draft/confirmed/delivered/installed → Invoice draft/confirmed), search, eye opens the order. Order page: tick line items → "Create DO from selected" / "Create Invoice from selected"; open the source quotation or any linked document chip. With enableCappitechOrders ON: also Create SO/PO from selected, per-line discounts with recalibrate, and a "Upload & Verify" panel that scans supplier DOs / tax invoices against the order (batch verification with per-file status).
+
+=== CRM ===
+/portal/crm — WhatsApp: Connect WhatsApp (Meta signup popup) or connect an existing WhatsApp Business app number; once connected: send a template message or free-text (24h reply window), Recent messages log, Disconnect. AI Agent tab: enable the agent (drafts a reply for every incoming message), optional auto-send with an allowed-topics box, general instructions, training example pairs (required before auto-send), and a test panel. Suggestions tab: review queue — edit the suggested reply, "Approve & send", or Dismiss; history below.
+
+=== SERVICE REPORTS ===
+/portal/maintenance-reports: list of field service reports (search, click a row to open). Reports are CREATED IN THE AIMS FIELD APP (NFC scan flow), not in the portal — the New Report button is intentionally disabled. Report page: full checklist, remarks, technician + client signatures (signed in the field app); "Create Invoice" (only when payment is required and none exists yet) / "View Invoice"; Print (browser PDF).
+
+=== OTHER REPORTS ===
+/portal/reports: Statement of Account (pick customer + dates → Generate; Export CSV; Print; aging buckets — NO email-to-customer action exists) and Price History (filter by customer/item/dates; Export CSV).
+
+=== SETTINGS & ADMIN ===
+Company Profile (/portal/settings/company-profile) tabs: General (name, address, phone, reg no, currency), Bank Details (shown on documents), Branding (logo + default stamp), Document Names (rename document types per org), Doc Defaults (default T&Cs / notes / footer per document type — new documents inherit these).
+Admin Panel (/portal/admin, admins only): configuration (modules, custom fields, UI theme, feature-flag switches), organizations management (orgs, API keys, email ingestion, templates).
+Account/password/profile: the user avatar menu at the bottom of the sidebar (Clerk account panel) — not a portal route.
+Each document's own change history: editor ⋮ → History & notes.
+`;

@@ -120,7 +120,8 @@ export default function PageTable(props: Props) {
           <Grid2 size={{ xs: 12, md: 8 }}>
             <Box sx={{ display: "flex", justifyContent: "flex-end", gap: "var(--half-gap)" }}>
               {buttonName && (
-                <Button variant="contained" color="primary" startIcon={<AddCircleOutlineIcon />} onClick={onAddClick} disabled={buttonDisabled}>
+                // data-tour: stable anchor for AIMS Guide walkthroughs
+                <Button data-tour="page-create-button" variant="contained" color="primary" startIcon={<AddCircleOutlineIcon />} onClick={onAddClick} disabled={buttonDisabled}>
                   {buttonName}
                 </Button>
               )}
@@ -128,7 +129,8 @@ export default function PageTable(props: Props) {
               {actionButtons && actionButtons.map((btn, idx) => <React.Fragment key={idx}>{btn}</React.Fragment>)}
 
               {filters && filterConfig && filterConfig.length > 0 && (
-                <Button variant="outlined" color="primary" onClick={() => setOpenFilters(true)} sx={{ display: "flex", p: 0, minWidth: "100px" }}>
+                // data-tour: stable anchor for AIMS Guide walkthroughs
+                <Button data-tour="page-filter-button" variant="outlined" color="primary" onClick={() => setOpenFilters(true)} sx={{ display: "flex", p: 0, minWidth: "100px" }}>
                   {hasActiveFilters(filters) ? (
                     <Box sx={{ display: "flex", alignItems: "center", p: 1, gap: 0.25 }}>
                       <IconX />
@@ -142,7 +144,10 @@ export default function PageTable(props: Props) {
                   )}
                 </Button>
               )}
-              <FormInputBox fullWidth startIcon={<SearchIcon />} control={control} name="search" placeHolder="Search" />
+              {/* data-tour wrapper: anchor for AIMS Guide walkthroughs */}
+              <Box data-tour="page-search" sx={{ width: "100%" }}>
+                <FormInputBox fullWidth startIcon={<SearchIcon />} control={control} name="search" placeHolder="Search" />
+              </Box>
               <IconButton>
                 <NotificationsNoneIcon />
               </IconButton>

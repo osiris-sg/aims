@@ -456,6 +456,7 @@ export default function BankReconciliationPage() {
           />
           <Button
             startIcon={uploading ? <CircularProgress size={14} /> : <AutoAwesomeIcon />}
+            data-tour="bankrec-upload"
             variant="contained"
             size="small"
             disabled={!bankAccountId || uploading}

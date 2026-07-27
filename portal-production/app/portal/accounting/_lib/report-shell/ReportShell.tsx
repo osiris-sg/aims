@@ -4,11 +4,12 @@
 // Update button, white report card, and a footer bar (compact toggle, row
 // info, export). All colors via theme tokens — dark-mode safe.
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   Box, Button, CircularProgress, FormControlLabel, InputAdornment,
-  Stack, Switch, TextField, Tooltip, Typography,
+  Menu, MenuItem, Stack, Switch, TextField, Tooltip, Typography,
 } from "@mui/material";
+import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import PrintOutlinedIcon from "@mui/icons-material/PrintOutlined";
 import SearchIcon from "@mui/icons-material/Search";
@@ -39,6 +40,28 @@ export default function ReportShell({
   // In-report search — provided via context so every ReportTable in this
   // report filters its rows live (guru 2026-07-15: search on ALL reports).
   const [reportSearch, setReportSearch] = useState("");
+
+  // Export dropdown. Excel export is generic: it serialises the rendered
+  // report tables from the DOM into an Excel-compatible HTML .xls, so every
+  // report gets it without a per-report exporter.
+  const [exportAnchor, setExportAnchor] = useState<null | HTMLElement>(null);
+  const reportContentRef = useRef<HTMLDivElement | null>(null);
+  const exportExcel = () => {
+    const tables = reportContentRef.current?.querySelectorAll("table");
+    if (!tables || tables.length === 0) return;
+    const tableHtml = Array.from(tables).map((t) => t.outerHTML).join("<br/>");
+    const html =
+      `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">` +
+      `<head><meta charset="utf-8"/><style>td,th{font-family:Helvetica,Arial,sans-serif;font-size:11pt;}</style></head>` +
+      `<body><b>${title}</b><br/>${(headerLines || []).join("<br/>")}<br/><br/>${tableHtml}</body></html>`;
+    const blob = new Blob(["﻿", html], { type: "application/vnd.ms-excel" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${title.replace(/[^\w-]+/g, "_").toLowerCase()}.xls`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
   // NOTE: the hosting section page already shows "Back to X | <Report name>",
   // so the shell renders no header of its own — the report card carries the
   // title (guru, 2026-07-10).
@@ -47,8 +70,11 @@ export default function ReportShell({
       <Box sx={{ display: "flex", flex: 1, minHeight: 0 }}>
         {/* Main column */}
         <Box sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-          {/* Filter bar */}
-          <Box sx={{ px: 3, py: 2 }}>
+          {/* Filter bar — width-capped with the report card so filters and
+              content share the same centred column (guru 2026-07-27: reports
+              read like Xero's — compact centred card, columns close together,
+              not stretched across the whole screen). */}
+          <Box sx={{ px: 3, py: 2, maxWidth: 1140, mx: "auto", width: "100%" }}>
             <Stack direction="row" flexWrap="wrap" alignItems="flex-end" sx={{ gap: 2 }}>
               {filters}
               <Button
@@ -64,7 +90,7 @@ export default function ReportShell({
           </Box>
 
           {/* Report card */}
-          <Box sx={{ px: 3, pb: 3, flex: 1 }}>
+          <Box sx={{ px: 3, pb: 3, flex: 1, maxWidth: 1140, mx: "auto", width: "100%" }}>
             <Box sx={{
               bgcolor: "background.paper",
               border: (t) => `1px solid ${t.palette.divider}`,
@@ -97,7 +123,9 @@ export default function ReportShell({
                   {cardActions}
                 </Stack>
               </Stack>
-              <ReportSearchContext.Provider value={reportSearch}>{children}</ReportSearchContext.Provider>
+              <ReportSearchContext.Provider value={reportSearch}>
+                <Box ref={reportContentRef}>{children}</Box>
+              </ReportSearchContext.Provider>
             </Box>
           </Box>
 
@@ -122,9 +150,32 @@ export default function ReportShell({
               <Tooltip title="Print / save as PDF">
                 <Button size="small" variant="outlined" startIcon={<PrintOutlinedIcon />} onClick={() => window.print()}>Print</Button>
               </Tooltip>
-              {onExportCsv && (
-                <Button size="small" variant="outlined" startIcon={<FileDownloadOutlinedIcon />} onClick={onExportCsv}>Export CSV</Button>
-              )}
+              {/* Export dropdown — pick the destination format (guru 2026-07-27). */}
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<FileDownloadOutlinedIcon />}
+                endIcon={<ArrowDropDownIcon />}
+                onClick={(e) => setExportAnchor(e.currentTarget)}
+              >
+                Export
+              </Button>
+              <Menu anchorEl={exportAnchor} open={!!exportAnchor} onClose={() => setExportAnchor(null)}
+                anchorOrigin={{ vertical: "top", horizontal: "right" }}
+                transformOrigin={{ vertical: "bottom", horizontal: "right" }}
+              >
+                {onExportCsv && (
+                  <MenuItem onClick={() => { setExportAnchor(null); onExportCsv(); }}>
+                    CSV (.csv)
+                  </MenuItem>
+                )}
+                <MenuItem onClick={() => { setExportAnchor(null); exportExcel(); }}>
+                  Excel (.xls)
+                </MenuItem>
+                <MenuItem onClick={() => { setExportAnchor(null); window.print(); }}>
+                  PDF (print dialog)
+                </MenuItem>
+              </Menu>
             </Stack>
           </Box>
         </Box>

@@ -291,6 +291,7 @@ export default function DocumentListView({
         return (
           <Box sx={{ display: "flex", gap: 0.5, justifyContent: "center" }}>
             <IconButton
+              data-tour="document-row-view"
               onClick={() => router.push(`/portal/documents/${documentType}/${templateId}/${id}`)}
               sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}
             >
@@ -328,6 +329,7 @@ export default function DocumentListView({
   const uploadButton = createDocumentType ? (
     <Button
       key="upload-doc"
+      data-tour="document-upload"
       variant="outlined"
       startIcon={<CloudUploadIcon />}
       onClick={() => setUploadOpen(true)}

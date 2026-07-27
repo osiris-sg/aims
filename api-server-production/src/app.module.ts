@@ -59,6 +59,7 @@ import { IngestionEmailModule } from './ingestion-email/ingestion-email.module';
 import { PostingQueueModule } from './posting-queue/posting-queue.module';
 import { ApiV1Module } from './api-v1/api-v1.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
+import { GuideModule } from './guide/guide.module';
 
 @Module({
   imports: [
@@ -99,6 +100,7 @@ import { WhatsAppModule } from './whatsapp/whatsapp.module';
     MaintenanceReportsModule,
     AskModule,
     DocumentAssistantModule,
+    GuideModule,
     AnomaliesModule,
     CloseModule,
     RecurringModule,

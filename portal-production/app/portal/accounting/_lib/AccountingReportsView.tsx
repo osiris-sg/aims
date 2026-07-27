@@ -402,10 +402,7 @@ function ReportsInner({
   const hasAnyMatch = favouriteReports.length > 0 || Array.from(grouped.values()).some((g) => g.length > 0);
 
   return (
-    // Directory is deliberately NARROWER than the reports themselves (980 vs
-    // 1400): the card grid was stretching edge-to-edge with the columns far
-    // apart — squeeze it into a centred block (guru 2026-07-24).
-    <Box sx={{ px: 3, py: 3, maxWidth: 980, mx: "auto", width: "100%" }}>
+    <Box sx={{ px: 3, py: 3, maxWidth: 1400, mx: "auto", width: "100%" }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 3, flexWrap: "wrap", gap: 2 }}>
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 700 }}>

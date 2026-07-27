@@ -334,7 +334,7 @@ export default function BillsPage() {
         buttonName="New Bill"
         onAddClick={() => { setEditing(null); setEditorOpen(true); }}
         actionButtons={[
-          <Button key="upload-bills" variant="outlined" startIcon={<CloudUploadIcon />} onClick={() => uploadInputRef.current?.click()}>
+          <Button key="upload-bills" data-tour="bills-upload" variant="outlined" startIcon={<CloudUploadIcon />} onClick={() => uploadInputRef.current?.click()}>
             Upload Bills
           </Button>,
         ]}

@@ -235,7 +235,8 @@ function CustomerCodeField({
   };
 
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', flex: 1, gap: 1 }}>
+    // data-tour: anchor for AIMS Guide walkthroughs (customer step)
+    <Box data-tour="editor-customer" sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', flex: 1, gap: 1 }}>
       <TextField
         value={selectedCustomer ? (selectedCustomer.customerCode || '') : customerCodeInput}
         onChange={(e) => {

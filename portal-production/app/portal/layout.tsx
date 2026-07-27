@@ -15,6 +15,7 @@ import { useAuth } from "@clerk/nextjs";
 import FieldOnlyGuard from "./components/FieldOnlyGuard";
 import OrgSwitcher from "@/components/OrgSwitcher";
 import ViewingAsBanner from "@/components/ViewingAsBanner";
+import GuideAssistant from "./components/GuideAssistant/GuideAssistant";
 
 interface Props {
   children: React.ReactNode;
@@ -106,6 +107,9 @@ export default function Layout(props: Props) {
                 {!isDocumentPage && <OrgSwitcher />}
                 {children}
               </Box>
+              {/* AIMS Guide bubble (bottom-right) — self-hides unless the
+                  org's enableGuideAssistant feature flag is on. */}
+              <GuideAssistant />
               <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick rtl={false} pauseOnFocusLoss draggable pauseOnHover theme={mode} />
             </Box>
           </SidebarProvider>

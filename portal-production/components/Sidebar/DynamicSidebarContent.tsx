@@ -269,6 +269,7 @@ export default function DynamicSidebarContent() {
         }}
       >
         <ListItemButton
+          data-tour={`nav-${module.moduleCode}`}
           selected={isActive}
           component={parentNavigates || !hasSubMenus || isCollapsed ? Link : "div"}
           href={parentNavigates || !hasSubMenus || isCollapsed ? parentHref : undefined}
@@ -342,6 +343,7 @@ export default function DynamicSidebarContent() {
                 return (
                   <ListItemButton
                     key={submenuKey}
+                    data-tour={`nav-${module.moduleCode}-${submenuKey}`}
                     sx={{
                       pl: 4.5,
                       minHeight: 32,

@@ -3359,6 +3359,7 @@ export default function TabbedDocumentCreator({
             <Button
               size="small"
               variant={assistantOpen ? "contained" : "outlined"}
+              data-tour="editor-ask-ai"
               startIcon={<AutoAwesomeIcon />}
               onClick={() => setAssistantOpen((o) => !o)}
               color="secondary"
@@ -3368,6 +3369,7 @@ export default function TabbedDocumentCreator({
           )}
           {!isDocumentConfirmed && (
             <Button
+              data-tour="editor-preview"
               size="small"
               variant={previewMode ? "contained" : "text"}
               startIcon={previewMode ? <EditIcon /> : <PreviewIcon />}
@@ -3440,6 +3442,7 @@ export default function TabbedDocumentCreator({
           {/* Confirm button for Delivery Orders */}
           {!isDocumentConfirmed && !isTemplateEditMode && isDeliveryOrder && (
             <Button
+              data-tour="editor-confirm"
               size="small"
               variant="contained"
               startIcon={<CheckCircleIcon />}
@@ -3464,6 +3467,7 @@ export default function TabbedDocumentCreator({
             <>
               <ButtonGroup size="small" variant="contained">
                 <Button
+                  data-tour="editor-confirm"
                   startIcon={<CheckCircleIcon />}
                   onClick={() => {
                     makeRecurringAfterConfirmRef.current = false;
@@ -3508,6 +3512,7 @@ export default function TabbedDocumentCreator({
           {!isDocumentConfirmed && !isTemplateEditMode && isConfirmQuotationEnabled &&
            (documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" || documentType === "QO2") && (
             <Button
+              data-tour="editor-confirm"
               size="small"
               variant="contained"
               startIcon={<CheckCircleIcon />}
@@ -3536,6 +3541,7 @@ export default function TabbedDocumentCreator({
           {documentStatus !== "pending_payment" &&
            (documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || isQuotation) && (
             <Button
+              data-tour="editor-send-email"
               size="small"
               variant="contained"
               startIcon={<EmailIcon />}
@@ -3604,6 +3610,7 @@ export default function TabbedDocumentCreator({
                 </Typography>
               )}
               <Button
+                data-tour="editor-save"
                 size="small"
                 variant="contained"
                 startIcon={saveStatus === "saving" ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />}
@@ -3639,7 +3646,7 @@ export default function TabbedDocumentCreator({
           )}
           {/* ⋮ overflow menu — secondary actions (Xero-style) */}
           <Tooltip title="More actions">
-            <IconButton size="small" onClick={(e) => setMoreMenuAnchor(e.currentTarget)}>
+            <IconButton data-tour="editor-more-menu" size="small" onClick={(e) => setMoreMenuAnchor(e.currentTarget)}>
               <MoreVertIcon />
             </IconButton>
           </Tooltip>
@@ -5434,6 +5441,7 @@ export default function TabbedDocumentCreator({
                         visible without scrolling to the end of the items list. */}
                     <Box sx={{ pt: 1, pb: 0.5, pl: 1, display: "flex", gap: 1, flexShrink: 0 }}>
                       <Button
+                        data-tour="editor-add-item"
                         variant="contained"
                         startIcon={<AddIcon />}
                         onClick={() => {

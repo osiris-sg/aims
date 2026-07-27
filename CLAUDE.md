@@ -11,6 +11,28 @@ This is a monorepo containing an Asset and Inventory Management System (AIMS) wi
 - **api-server-production/**: NestJS backend API server with PostgreSQL/Prisma
 - **portal-production/**: Next.js frontend portal with Redux and Material-UI
 
+## AIMS Guide assistant — keep its knowledge in sync (EVERY feature you ship)
+
+The in-app help bubble ("AIMS Guide", bottom-right of the portal, flag
+`enableGuideAssistant`) answers "how do I…" questions, navigates users, and
+plays spotlight walkthroughs. Its ONLY knowledge of the app is
+`api-server-production/src/guide/app-knowledge.ts` — it does NOT read the code.
+
+**Whenever you ship or change a user-facing feature, you MUST:**
+1. Add/update the matching line in `app-knowledge.ts` (which screen, which
+   button, what it does, flags/roles that gate it). If the feature is retired,
+   remove its line.
+2. If the feature deserves a walkthrough: stamp a `data-tour="…"` attribute on
+   the key control, document the anchor token in `guide.service.ts`
+   (KNOWLEDGE_FOOTER), and add a prebuilt guide in
+   `portal-production/app/portal/components/GuideAssistant/guides.ts`.
+
+Other invariants: legacy modules are blocklisted in `LEGACY_MODULES`
+(duplicated in `guides.ts` AND `guide.service.ts` — keep in sync); the
+assistant only sees screens the current user's org + role allow; guide
+descriptions must distinguish create-from-scratch vs upload-existing-file.
+Full context: memory note `guide-assistant.md`.
+
 ## Development Commands
 
 ### Backend (api-server-production/)
