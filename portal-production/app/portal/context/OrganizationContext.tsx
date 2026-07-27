@@ -176,6 +176,27 @@ function useOrganizationFetcher(enabled: boolean): OrganizationContextType {
     fetchUserOrganization();
   }, [fetchUserOrganization]);
 
+  // Self-heal on tab return: the org fetch runs ONCE per user (fetchedForUserId
+  // guard) — if that single attempt died while the tab was waking (expired
+  // Clerk token / suspended network), nothing ever retried and the whole app
+  // sat on a spinner until a hard refresh. On visibility/focus, retry ONLY
+  // when the last attempt didn't succeed (guard still prevents redundant
+  // fetches after a good load).
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      if (user && fetchedForUserId.current !== user.id) {
+        fetchUserOrganization();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [user, fetchUserOrganization]);
+
   const setActiveOrgId = useCallback((id: string | null) => {
     if (typeof window === "undefined") return;
     if (id) {

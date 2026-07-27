@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "../hooks/useOrganization";
 
@@ -85,11 +85,16 @@ export const ConfigurationProvider: React.FC<ConfigurationProviderProps> = ({ ch
   const [customFields, setCustomFields] = useState<Record<string, CustomField[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Once we've rendered ANY configuration (fetched or default), background
+  // refreshes must not flip the sidebar back to a spinner — that's what made
+  // "return to tab" look permanently stuck. Also throttle focus refetches.
+  const hasLoadedOnceRef = useRef(false);
+  const lastFetchAtRef = useRef(0);
 
   const fetchConfiguration = async () => {
     // Wait for the organization fetch to settle before deciding what to render.
     if (!isOrgLoaded) {
-      setLoading(true);
+      if (!hasLoadedOnceRef.current) setLoading(true);
       return;
     }
 
@@ -98,14 +103,16 @@ export const ConfigurationProvider: React.FC<ConfigurationProviderProps> = ({ ch
       // sidebar isn't blank — surface the org error so the user knows.
       setError(orgError || "Unable to load your organization. Showing default navigation.");
       setDefaultConfiguration();
+      hasLoadedOnceRef.current = true;
       setLoading(false);
       return;
     }
 
     try {
       console.log("Fetching configuration for org:", organization.id);
-      setLoading(true);
+      if (!hasLoadedOnceRef.current) setLoading(true);
       setError(null);
+      lastFetchAtRef.current = Date.now();
 
       const token = await getToken();
       if (!token) {
@@ -123,10 +130,19 @@ export const ConfigurationProvider: React.FC<ConfigurationProviderProps> = ({ ch
         const activeOrgId = window.sessionStorage.getItem("aims-admin-active-org");
         if (activeOrgId) cfgHeaders["X-Active-Org-Id"] = activeOrgId;
       }
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/configuration/complete`,
-        { headers: cfgHeaders }
-      );
+      // Hard timeout — a fetch fired mid-wake (stale socket / suspended network)
+      // can hang indefinitely and previously left the sidebar spinning forever.
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      let response: Response;
+      try {
+        response = await fetch(
+          `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/configuration/complete`,
+          { headers: cfgHeaders, signal: controller.signal }
+        );
+      } finally {
+        clearTimeout(timeout);
+      }
 
       if (!response.ok) {
         throw new Error(`Failed to fetch configuration: ${response.statusText}`);
@@ -134,23 +150,23 @@ export const ConfigurationProvider: React.FC<ConfigurationProviderProps> = ({ ch
 
       const responseData = await response.json();
 
-      console.log("Configuration response data:", responseData);
-      console.log("Response data.data:", responseData.data);
-      console.log("Modules:", responseData.data?.modules);
-      console.log("UIConfig:", responseData.data?.uiConfig);
-
       // Extract from wrapped response (global interceptor wraps in { success, data, message })
       const data = responseData.data || responseData;
 
       setModules(data.modules || []);
       setUIConfig(data.uiConfig || {});
       setCustomFields(data.customFields || {});
+      hasLoadedOnceRef.current = true;
     } catch (err) {
       console.error("Error fetching configuration:", err);
       setError(err instanceof Error ? err.message : "Failed to load configuration");
 
-      // Set default configuration on error
-      setDefaultConfiguration();
+      // Set default configuration on error — but only if we have nothing yet;
+      // a failed background refresh keeps the last good modules on screen.
+      if (!hasLoadedOnceRef.current) {
+        setDefaultConfiguration();
+        hasLoadedOnceRef.current = true;
+      }
     } finally {
       setLoading(false);
     }
@@ -218,6 +234,25 @@ export const ConfigurationProvider: React.FC<ConfigurationProviderProps> = ({ ch
 
   useEffect(() => {
     fetchConfiguration();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [organization?.id, isOrgLoaded]);
+
+  // Self-heal on tab return: a sleeping tab's in-flight fetch can die (expired
+  // Clerk token / suspended network) leaving the nav stuck until a manual
+  // refresh. When the tab becomes visible again, quietly refetch (throttled to
+  // once per 30s; hasLoadedOnceRef keeps the current nav rendered meanwhile).
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastFetchAtRef.current < 30_000) return;
+      fetchConfiguration();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organization?.id, isOrgLoaded]);
 
