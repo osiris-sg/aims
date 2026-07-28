@@ -118,6 +118,23 @@ export class DocumentTemplatesController {
     return await this.documentTemplatesService.deleteDocumentTemplates(deleteDocumentTemplateDto, organizationId);
   }
 
+  // Rename a template from the admin Manage Templates dialog. Deliberately NOT
+  // the generic /update route — that one rebuilds `config` from the DTO body
+  // (a name-only payload would wipe the design) and is scoped to the caller's
+  // own org, while this dialog manages the cross-org shared pool.
+  @Post('variants/:id/rename')
+  @Permissions('documentTemplates:update')
+  async renameTemplateVariant(
+    @Param('id') id: string,
+    @Body() body: { name?: string },
+    @Req() req: RequestWithOrganization,
+  ) {
+    if (!req.userOrganization?.id) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentTemplatesService.renameTemplateVariant(id, body?.name ?? '');
+  }
+
   @Post('variants/:id/activate')
   @Permissions('documentTemplates:update')
   async activateTemplateVariant(@Param('id') id: string, @Req() req: RequestWithOrganization, @Headers('x-organization-id') headerOrgId?: string) {

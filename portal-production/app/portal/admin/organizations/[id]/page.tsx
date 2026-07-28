@@ -43,6 +43,7 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  Tooltip,
 } from "@mui/material";
 import {
   Edit as EditIcon,
@@ -260,6 +261,10 @@ export default function OrganizationDetailPage() {
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [previewTemplate, setPreviewTemplate] = useState<any>(null);
   const [mockData, setMockData] = useState<any>(null);
+  // Inline template rename (Manage Templates dialog)
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [editingTemplateName, setEditingTemplateName] = useState("");
+  const [renamingTemplate, setRenamingTemplate] = useState(false);
   // Module management state
   const [addModuleDialogOpen, setAddModuleDialogOpen] = useState(false);
   const [editModuleDialogOpen, setEditModuleDialogOpen] = useState(false);
@@ -923,6 +928,40 @@ export default function OrganizationDetailPage() {
     } catch (error) {
       console.error("Error activating template:", error);
       toast.error("Failed to activate template");
+    }
+  };
+
+  // Rename a shared-pool template (name-only endpoint — the generic /update
+  // would clobber config). New name shows for every org listing this template.
+  const handleRenameTemplate = async (templateId: string) => {
+    const name = editingTemplateName.trim();
+    if (!name) {
+      toast.warn("Template name cannot be empty");
+      return;
+    }
+    setRenamingTemplate(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const response = await request(
+        { path: `/documentTemplates/variants/${templateId}/rename`, method: "POST" },
+        { name },
+        token,
+        { "x-organization-id": organizationId }
+      );
+      if (response.success !== false) {
+        toast.success("Template renamed");
+        setEditingTemplateId(null);
+        setEditingTemplateName("");
+        handleManageTemplates(selectedDocType);
+      } else {
+        toast.error(response.message || "Rename failed");
+      }
+    } catch (error) {
+      console.error("Error renaming template:", error);
+      toast.error("Failed to rename template");
+    } finally {
+      setRenamingTemplate(false);
     }
   };
 
@@ -2030,9 +2069,41 @@ export default function OrganizationDetailPage() {
                             </IconButton>
                             <Box sx={{ flex: 1 }}>
                               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                                <Typography variant="subtitle1" fontWeight={500}>
-                                  {template.name || resolveTemplateVariant(template, selectedDocType)}
-                                </Typography>
+                                {editingTemplateId === template.id ? (
+                                  // Inline rename — Enter saves, Escape cancels.
+                                  <TextField
+                                    size="small"
+                                    autoFocus
+                                    fullWidth
+                                    value={editingTemplateName}
+                                    disabled={renamingTemplate}
+                                    onChange={(e) => setEditingTemplateName(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") handleRenameTemplate(template.id);
+                                      if (e.key === "Escape") { setEditingTemplateId(null); setEditingTemplateName(""); }
+                                    }}
+                                    onBlur={() => {
+                                      if (!renamingTemplate) { setEditingTemplateId(null); setEditingTemplateName(""); }
+                                    }}
+                                  />
+                                ) : (
+                                  <>
+                                    <Typography variant="subtitle1" fontWeight={500}>
+                                      {template.name || resolveTemplateVariant(template, selectedDocType)}
+                                    </Typography>
+                                    <Tooltip title="Rename template (changes it for every org using it)">
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => {
+                                          setEditingTemplateId(template.id);
+                                          setEditingTemplateName(template.name || "");
+                                        }}
+                                      >
+                                        <EditIcon fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                  </>
+                                )}
                                 <Chip
                                   label={resolveTemplateVariant(template, selectedDocType)}
                                   size="small"

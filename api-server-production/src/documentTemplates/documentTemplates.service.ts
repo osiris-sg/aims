@@ -307,6 +307,30 @@ export class DocumentTemplatesService {
     }
   }
 
+  // Rename a shared-pool template (admin Manage Templates dialog). Name-only —
+  // never touches config/type. Templates are cross-org shared, so the new name
+  // shows for every org that lists/activated this template.
+  async renameTemplateVariant(id: string, name: string) {
+    try {
+      const trimmed = (name || '').trim();
+      if (!trimmed) {
+        throw new HttpException('Template name cannot be empty', HttpStatus.BAD_REQUEST);
+      }
+      const template = await this.prisma.documentTemplate.findUnique({ where: { id } });
+      if (!template) {
+        throw new HttpException('Template not found', HttpStatus.NOT_FOUND);
+      }
+      return await this.prisma.documentTemplate.update({
+        where: { id },
+        data: { name: trimmed },
+      });
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      console.error('Error renaming template variant:', error);
+      throw new HttpException(error.message || 'Internal Server Error', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
   async activateTemplateVariant(id: string, organizationId: string) {
     try {
       // The template may belong to ANY org (shared pool), so look it up by id
