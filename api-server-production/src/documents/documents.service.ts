@@ -4,7 +4,7 @@ import { PrismaService } from 'src/common/prisma.service';
 import { isUnconfirmedDoc } from '../common/doc-status';
 import { AccountMemoryService } from '../account-memory/account-memory.service';
 import { CreateDocumentWithTimelineDto } from './dto/create-document-with-timeline.dto';
-import { InventoryStatus, DocumentStatus, ItemType, DeliveryStatus, DeploymentType } from '@prisma/client';
+import { InventoryStatus, DocumentStatus, ItemType, DeliveryStatus, DeploymentType, Prisma } from '@prisma/client';
 import { XeroService } from 'src/common/xero.service';
 import { PriceHistoryService } from '../price-history/price-history.service';
 import { EmailService } from '../email/email.service';
@@ -3658,6 +3658,166 @@ export class DocumentsService {
       if (ok) deducted++;
     }
     return deducted;
+  }
+
+  // Eligible = created but NOT completed / in the return cycle. Shared by the
+  // auto-bind slot search and its already-bound pre-guard.
+  private static readonly BIND_ELIGIBLE_DO_STATUSES: any = {
+    notIn: ['delivered_installed', 'pending_return', 'returned'],
+  };
+
+  /**
+   * Auto-bind (tag-time): fill ONE unbound asset-level slot on the given DO
+   * with a specific physical unit. A "slot" is a DocumentItem the office left
+   * at asset level: itemType=ASSET, inventoryId NULL, same asset, still
+   * not_delivered and never deducted — office-bound unit rows can never match,
+   * so the DO-first unit-level path is untouched by construction.
+   *
+   * DUAL WRITE (mandatory): the DocumentItem row AND the matching config.items
+   * line are converted together in one transaction. syncDocumentItems pairs
+   * rows by itemId derived from config.items[].inventoryItemId — a row-only
+   * bind would be retired and recreated unbound on the next office edit.
+   * After the write the row is byte-identical to an office-picked unit row
+   * ({itemId: unit, itemType: INVENTORY, inventoryId: unit, assetId: null}),
+   * so scan-context, advanceDeliveryItem, deduction and the preview all work
+   * with no downstream change.
+   *
+   * Concurrency: the row update is a claim (updateMany gated inventoryId:null)
+   * — count 0 means another tag filled the slot first; we move to the next
+   * slot. Returns the bound DocumentItem id, or null (no slot / already bound
+   * elsewhere / config line unresolvable).
+   */
+  async bindUnitToUnboundDoSlot(
+    documentId: string,
+    organizationId: string,
+    unit: { id: string; assetId: string; sku: string | null },
+  ): Promise<string | null> {
+    // Pre-guard: a unit already bound on ANY active DO is never re-bound —
+    // one physical unit can only be "the delivered unit" of one open DO.
+    const alreadyBound = await this.prisma.documentItem.findFirst({
+      where: {
+        OR: [{ inventoryId: unit.id }, { itemId: unit.id, itemType: ItemType.INVENTORY }],
+        document: {
+          organizationId,
+          type: { in: ['DELIVERY_ORDER', 'DO'] },
+          status: DocumentsService.BIND_ELIGIBLE_DO_STATUSES,
+        },
+      },
+      select: { id: true, documentId: true },
+    });
+    if (alreadyBound) {
+      console.log(
+        `auto-bind: unit ${unit.sku ?? unit.id} already bound on document ${alreadyBound.documentId} — skipping`,
+      );
+      return null;
+    }
+
+    const slots = await this.prisma.documentItem.findMany({
+      where: {
+        documentId,
+        itemType: ItemType.ASSET,
+        inventoryId: null,
+        isService: false,
+        deliveryStatus: DeliveryStatus.not_delivered,
+        deductedAt: null,
+        OR: [{ assetId: unit.assetId }, { itemId: unit.assetId }],
+      },
+      orderBy: { lineNumber: 'asc' }, // first-unbound-first
+    });
+
+    for (const slot of slots) {
+      try {
+        const boundId = await this.prisma.$transaction(async (tx) => {
+          // Claim the slot — exactly-once even under concurrent tagging.
+          const claim = await tx.documentItem.updateMany({
+            where: { id: slot.id, inventoryId: null },
+            data: {
+              itemId: unit.id,
+              itemType: ItemType.INVENTORY,
+              inventoryId: unit.id,
+              assetId: null,
+            },
+          });
+          if (claim.count === 0) return null; // lost the race — next slot
+
+          // Mirror into config.items (the renderer / sync source of truth).
+          // Match by the slot's lineNumber position, validated against the
+          // asset; fall back to the first still-unbound line for this asset.
+          const doc = await tx.document.findUnique({
+            where: { id: documentId },
+            select: { config: true },
+          });
+          const config: any = doc?.config ?? {};
+          const items: any[] = Array.isArray(config.items) ? config.items : [];
+          let idx = (slot.lineNumber ?? 0) - 1;
+          const lineMatches = (it: any) =>
+            it && !it.inventoryItemId && (it.assetId === unit.assetId || it.itemId === unit.assetId);
+          if (!(idx >= 0 && idx < items.length && lineMatches(items[idx]))) {
+            idx = items.findIndex(lineMatches);
+          }
+          if (idx < 0) {
+            // Config line unresolvable — abort so the two layers never diverge
+            // (a row-only bind would be wiped by the next syncDocumentItems).
+            throw new Error('config line for slot not found');
+          }
+          items[idx] = {
+            ...items[idx],
+            inventoryItemId: unit.id,
+            ...(unit.sku ? { serialNumbers: [unit.sku] } : {}),
+          };
+          await tx.document.update({
+            where: { id: documentId },
+            data: { config: { ...config, items } as Prisma.InputJsonValue },
+          });
+          return slot.id;
+        });
+        if (boundId) {
+          console.log(`auto-bind: unit ${unit.sku ?? unit.id} bound into DO ${documentId} slot ${boundId}`);
+          return boundId;
+        }
+      } catch (err: any) {
+        // Rolled back (claim + config stay consistent). Log and try next slot.
+        console.warn(`auto-bind: slot ${slot.id} failed (${err?.message}) — trying next`);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Tag-time entry point: find the project's NEWEST eligible DO that still has
+   * an unbound slot for this unit's asset, and bind into it. No slot anywhere
+   * → returns null and the assign proceeds untouched (locked rule).
+   */
+  async bindTaggedUnitToProjectDo(
+    projectId: string,
+    organizationId: string,
+    unit: { id: string; assetId: string; sku: string | null },
+  ): Promise<string | null> {
+    const candidates = await this.prisma.document.findMany({
+      where: {
+        organizationId,
+        projectId,
+        type: { in: ['DELIVERY_ORDER', 'DO'] },
+        status: DocumentsService.BIND_ELIGIBLE_DO_STATUSES,
+        documentItems: {
+          some: {
+            itemType: ItemType.ASSET,
+            inventoryId: null,
+            isService: false,
+            deliveryStatus: DeliveryStatus.not_delivered,
+            deductedAt: null,
+            OR: [{ assetId: unit.assetId }, { itemId: unit.assetId }],
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' }, // NEWEST candidate DO first (locked)
+      select: { id: true },
+    });
+    for (const doc of candidates) {
+      const bound = await this.bindUnitToUnboundDoSlot(doc.id, organizationId, unit);
+      if (bound) return bound;
+    }
+    return null;
   }
 
   /**

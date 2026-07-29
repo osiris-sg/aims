@@ -248,7 +248,9 @@ export default function AssignToProjectPage() {
       if (!token) throw new Error("Not signed in");
       const res = await request(
         { path: `/projects/${selectedProject.id}/field-deploy`, method: "POST" },
-        { inventoryId: ctx.inventory.id, assetId, type: deploymentType },
+        // autoBind: opt-in to the DO auto-bind for THIS flow only (existing
+        // instock unit being assigned) — the tag-new bind flow never sends it.
+        { inventoryId: ctx.inventory.id, assetId, type: deploymentType, autoBind: true },
         token,
       );
       if (res?.success === false) throw new Error(res?.message ?? "Assignment failed");

@@ -380,6 +380,27 @@ export class DeliveriesService {
 
     await this.prisma.delivery.update({ where: { id: deliveryId }, data: { documentId } });
 
+    // Bind each delivered unit into an unbound asset-level slot on this DO
+    // FIRST (shared auto-bind helper — same semantics as tag-time binding).
+    // Without this, asset-level rows would get status stamped below but be
+    // invisible to the unit-keyed deduction matcher — the Layer-2 gap. Bound
+    // rows become ordinary unit rows, so stamping + deduction just work.
+    const unitSkus = await this.prisma.inventory.findMany({
+      where: { id: { in: delivery.items.map((i) => i.inventoryId).filter((v): v is string => !!v) } },
+      select: { id: true, sku: true },
+    });
+    const skuById = new Map(unitSkus.map((u) => [u.id, u.sku]));
+    for (const item of delivery.items) {
+      if (!item.inventoryId) continue;
+      await this.documentsService
+        .bindUnitToUnboundDoSlot(documentId, organizationId, {
+          id: item.inventoryId,
+          assetId: item.assetId,
+          sku: skuById.get(item.inventoryId) ?? null,
+        })
+        .catch((err) => this.logger.warn(`link: auto-bind failed for unit ${item.inventoryId}: ${err?.message}`));
+    }
+
     // Stamp item states across (unit-level match, incl. asset-level DO rows —
     // same matching family as documents.advanceDeliveryItem). Only ever
     // advances a DO row; a more-advanced DO row is left alone.

@@ -1,5 +1,6 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/common/prisma.service';
+import { DocumentsService } from 'src/documents/documents.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 // import { DeleteProjectDto } from './dto/delete-project.dto';
@@ -52,7 +53,10 @@ function deploymentName(deploymentNumber: number | null | undefined): string {
 
 @Injectable()
 export class ProjectsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly documentsService: DocumentsService,
+  ) {}
 
   async getProjects(getProjectDto: GetProjectDto, organizationId: string) {
     try {
@@ -654,7 +658,7 @@ export class ProjectsService {
   async fieldDeploy(
     projectId: string,
     organizationId: string,
-    body: { inventoryId: string; assetId: string; type?: 'RENTAL' | 'SALE' },
+    body: { inventoryId: string; assetId: string; type?: 'RENTAL' | 'SALE'; autoBind?: boolean },
   ) {
     const { inventoryId, assetId, type } = body ?? ({} as any);
     if (!inventoryId || !assetId) {
@@ -692,9 +696,14 @@ export class ProjectsService {
     const description = `${inventory.asset.name} - ${inventory.sku}`;
     const now = new Date();
 
-    for (let attempt = 0; attempt < 3; attempt++) {
+    // Capture-then-bind: the tx result is held so the DO auto-bind (below) can
+    // run AFTER the assignment/deployment/status-flip commit, on every success
+    // path — including the already_on_project short-circuit (idempotent; a DO
+    // may have been created after the unit was first assigned).
+    let result: { status: 'already_on_project' | 'moved' | 'added'; deployment: any } | null = null;
+    for (let attempt = 0; attempt < 3 && !result; attempt++) {
       try {
-        return await this.prisma.$transaction(async (tx) => {
+        result = await this.prisma.$transaction(async (tx) => {
           // One unit, one ACTIVE project. "Active" = an assignment with no
           // endDate. Decide skip / add / soft-move BEFORE allocating anything.
           const active = await tx.assignment.findMany({
@@ -762,7 +771,36 @@ export class ProjectsService {
         throw err;
       }
     }
-    throw new HttpException('Could not allocate a deployment number after 3 attempts', HttpStatus.CONFLICT);
+    if (!result) {
+      throw new HttpException('Could not allocate a deployment number after 3 attempts', HttpStatus.CONFLICT);
+    }
+
+    // DO auto-bind — NARROWED SCOPE (re-scoped from the original tag-time
+    // trigger): fires ONLY for the assign-existing-unit flow, and only on the
+    // pristine "existing, instock, unassigned → assigned" transition:
+    //   • body.autoBind — caller opt-in. The field Assign page sends true; the
+    //     tag-brand-new bind flow (scan/bind) sends nothing → default false →
+    //     freshly tagged units never auto-bind.
+    //   • inventory.status was 'instock' PRE-assign (loaded before the tx —
+    //     the tx has since flipped it to rental/sold).
+    //   • result.status === 'added' — the unit had NO active assignment.
+    //     'moved' and 'already_on_project' deliberately do NOT bind.
+    // "Not already bound to any DO" is enforced inside the helper's pre-guard.
+    // Best-effort — a bind failure must NEVER fail the assign. No slot → the
+    // assign stands alone and the DO is untouched.
+    if (body.autoBind === true && inventory.status === InventoryStatus.instock && result.status === 'added') {
+      try {
+        await this.documentsService.bindTaggedUnitToProjectDo(projectId, organizationId, {
+          id: inventoryId,
+          assetId,
+          sku: inventory.sku ?? null,
+        });
+      } catch (err: any) {
+        console.warn(`fieldDeploy: DO auto-bind failed for unit ${inventory.sku}: ${err?.message}`);
+      }
+    }
+
+    return result;
   }
 
   async attachDocumentToDeployment(
