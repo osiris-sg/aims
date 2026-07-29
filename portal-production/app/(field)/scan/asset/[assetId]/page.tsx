@@ -55,6 +55,16 @@ interface ScanContext {
   installableDeliveryOrder: { id: string; name?: string | null; createdAt: string; status: string } | null;
   canAckInstall: boolean;
   recentServiceReports: Array<{ id: string; createdAt: string; status: string }>;
+  // Standalone-delivery keys (Layer 3, additive). All absent/false in every
+  // DO-first scenario.
+  standaloneDelivery?: {
+    id: string;
+    deliveryNumber: number;
+    status: string;
+    stage: "start" | "ack_delivery" | "ack_install" | "completed";
+  } | null;
+  canStartStandaloneDelivery?: boolean;
+  riderOpenDelivery?: { id: string; deliveryNumber: number } | null;
 }
 
 // Per-item status → chip label + colour for the delivery-items list.
@@ -75,6 +85,10 @@ export default function AssetActionChooser() {
   const [data, setData] = useState<ScanContext | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Standalone basket-add (Layer 3): error + busy state for the
+  // "Add to Delivery #N" card; reservation 400s surface here.
+  const [addErr, setAddErr] = useState<string | null>(null);
+  const [addBusy, setAddBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -141,6 +155,30 @@ export default function AssetActionChooser() {
   const invQuery = inventory ? `?inventoryId=${encodeURIComponent(inventory.id)}` : "";
   const doRef = resolvedDeliveryOrder?.name ?? resolvedDeliveryOrder?.id ?? "";
 
+  // Standalone basket-add (Layer 3): reserve this unit into the rider's open
+  // run via POST /deliveries/:id/items, then land on the run's basket page.
+  // A reservation 400 ("not available") surfaces as a clean inline alert.
+  const addToOpenRun = async () => {
+    if (!data.riderOpenDelivery || !inventory || addBusy) return;
+    setAddErr(null);
+    setAddBusy(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request(
+        { path: `/deliveries/${data.riderOpenDelivery.id}/items`, method: "POST" },
+        { assetId, inventoryId: inventory.id },
+        token,
+      );
+      if (res.success === false) throw new Error(res.message ?? "Could not add unit");
+      router.push(`/scan/delivery/${data.riderOpenDelivery.id}`);
+    } catch (e: any) {
+      setAddErr(e?.message ?? "Unit not available — already out for delivery");
+    } finally {
+      setAddBusy(false);
+    }
+  };
+
   const deliveryCard: { title: string; subtitle: string; icon: React.ReactNode; onClick?: () => void } = (() => {
     switch (deliveryStage) {
       case "start":
@@ -174,14 +212,57 @@ export default function AssetActionChooser() {
           subtitle: doRef ? `${doRef} · delivered & installed` : "Delivered & installed",
           icon: <CheckCircleIcon color="success" sx={{ fontSize: 48 }} />,
         };
-      default:
-        // null stage: no delivery order for this asset/unit. Mirror the prior
-        // no-DO behaviour — a disabled "Start Delivery" card.
+      default: {
+        // null stage: no DO for this asset/unit. Standalone-delivery arm
+        // (Layer 3): an open run containing this unit shows ITS stage and
+        // routes into the run's basket; an instock unit with no run gets an
+        // ACTIVE Start Delivery card (or "Add to Delivery #N" when the rider
+        // already has a run open). Anything else keeps the prior disabled card.
+        const standalone = data.standaloneDelivery;
+        if (standalone) {
+          const stageTitle =
+            standalone.stage === "completed"
+              ? "Delivery Completed"
+              : standalone.stage === "ack_install"
+                ? "Complete Installation"
+                : standalone.stage === "ack_delivery"
+                  ? "Acknowledge Delivery"
+                  : "Continue Delivery";
+          return {
+            title: stageTitle,
+            subtitle: `Delivery #${standalone.deliveryNumber} — no DO yet`,
+            icon:
+              standalone.stage === "completed" ? (
+                <CheckCircleIcon color="success" sx={{ fontSize: 48 }} />
+              ) : (
+                <LocalShippingIcon color="primary" sx={{ fontSize: 48 }} />
+              ),
+            onClick: () => router.push(`/scan/delivery/${standalone.id}`),
+          };
+        }
+        if (data.canStartStandaloneDelivery && data.riderOpenDelivery) {
+          return {
+            title: `Add to Delivery #${data.riderOpenDelivery.deliveryNumber}`,
+            subtitle: addBusy ? "Adding unit…" : "Add this unit to your delivery in progress",
+            icon: <LocalShippingIcon color="primary" sx={{ fontSize: 48 }} />,
+            onClick: addToOpenRun,
+          };
+        }
+        if (data.canStartStandaloneDelivery) {
+          return {
+            title: "Start Delivery",
+            subtitle: "No DO yet — deliver now, office links the DO later",
+            icon: <LocalShippingIcon color="primary" sx={{ fontSize: 48 }} />,
+            onClick: () =>
+              router.push(`/scan/asset/${assetId}/delivery-start${invQuery ? `${invQuery}&` : "?"}standalone=1`),
+          };
+        }
         return {
           title: "Start Delivery",
           subtitle: "No open delivery order",
           icon: <LocalShippingIcon color="disabled" sx={{ fontSize: 48 }} />,
         };
+      }
     }
   })();
 
@@ -238,6 +319,9 @@ export default function AssetActionChooser() {
           </CardActionArea>
         </Card>
       )}
+
+      {/* Reservation failure from the standalone "Add to Delivery" card. */}
+      {addErr && <Alert severity="warning">{addErr}</Alert>}
 
       {/* Single morphing delivery card: Start Delivery → Acknowledge Delivery →
           Complete Installation → Completed, driven by deliveryStage. */}

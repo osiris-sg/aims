@@ -34,6 +34,9 @@ export default function StartDeliveryPage() {
   const bgLocation = useBackgroundLocationContext();
   const assetId = params?.assetId as string;
   const inventoryId = search?.get("inventoryId") ?? null;
+  // Standalone mode (Layer 3): no DO exists — create a Delivery run first,
+  // then the DO_START MSR carries deliveryId instead of documentId.
+  const standalone = search?.get("standalone") === "1";
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Optional outbound-condition photos (no minimum) — same shared capture
@@ -58,6 +61,11 @@ export default function StartDeliveryPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Standalone runs have no DO to resolve — skip the context re-fetch.
+      if (standalone) {
+        setContextLoading(false);
+        return;
+      }
       try {
         const token = await getToken();
         if (!token) return;
@@ -82,12 +90,16 @@ export default function StartDeliveryPage() {
     return () => {
       cancelled = true;
     };
-  }, [assetId, getToken, inventoryId]);
+  }, [assetId, getToken, inventoryId, standalone]);
 
   const confirm = async () => {
     setError(null);
-    if (!doId) {
+    if (!standalone && !doId) {
       setError("No open delivery order found for this asset.");
+      return;
+    }
+    if (standalone && !inventoryId) {
+      setError("Standalone delivery needs a specific scanned unit.");
       return;
     }
     setSubmitting(true);
@@ -105,6 +117,25 @@ export default function StartDeliveryPage() {
         user?.primaryEmailAddress?.emailAddress ??
         undefined;
 
+      // Standalone (Layer 3): create the Delivery run FIRST — this atomically
+      // reserves the scanned unit (a 400 here means it's already out) — then
+      // the DO_START MSR carries deliveryId (documentId stays null).
+      let deliveryId: string | null = null;
+      if (standalone) {
+        const runRes = await request(
+          { path: "/deliveries", method: "POST" },
+          {
+            assetId,
+            inventoryId,
+            ...(technicianName ? { riderName: technicianName } : {}),
+          },
+          token,
+        );
+        if (runRes.success === false) throw new Error(runRes.message ?? "Could not start delivery");
+        deliveryId = runRes.data?.id ?? runRes.id;
+        if (!deliveryId) throw new Error("No delivery id returned");
+      }
+
       const res = await request(
         { path: "/maintenance-reports", method: "POST" },
         {
@@ -112,7 +143,7 @@ export default function StartDeliveryPage() {
           ...(inventoryId ? { inventoryId } : {}),
           description: "Delivery started",
           kind: "DO_START",
-          documentId: doId,
+          ...(standalone && deliveryId ? { deliveryId } : { documentId: doId }),
           ...(technicianName ? { technicianName } : {}),
           ...(photos.length ? { photos: photos.map((p) => p.key) } : {}),
         },
@@ -129,6 +160,11 @@ export default function StartDeliveryPage() {
       // navigation below shouldn't be gated on the foreground service start
       // (which awaits Android permission prompts that can take seconds).
       void bgLocation.start(reportId);
+      if (standalone && deliveryId) {
+        // Standalone: land on the run's basket so more units can be scanned in.
+        router.replace(`/scan/delivery/${deliveryId}`);
+        return;
+      }
       // Carry inventoryId through to /done so its "Back to this asset" link
       // can restore the full scan context — without it the action chooser
       // can't find the DO that references this inventory unit and shows
@@ -154,7 +190,16 @@ export default function StartDeliveryPage() {
         destination.
       </Typography>
 
-      {doName && (
+      {standalone ? (
+        <Box sx={{ p: 1.5, bgcolor: "action.hover", borderRadius: 1, minWidth: 280, textAlign: "center" }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+            New Delivery
+          </Typography>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+            No DO yet — the office links one later
+          </Typography>
+        </Box>
+      ) : doName ? (
         <Box sx={{ p: 1.5, bgcolor: "action.hover", borderRadius: 1, minWidth: 280, textAlign: "center" }}>
           <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
             Delivery Order
@@ -163,7 +208,7 @@ export default function StartDeliveryPage() {
             {doName}
           </Typography>
         </Box>
-      )}
+      ) : null}
 
       <Box sx={{ width: "100%", maxWidth: 360 }}>
         <PhotoCaptureField
@@ -191,7 +236,7 @@ export default function StartDeliveryPage() {
         <Button
           variant="contained"
           onClick={confirm}
-          disabled={submitting || contextLoading || uploading || !doId}
+          disabled={submitting || contextLoading || uploading || (!standalone && !doId)}
           fullWidth
           sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
         >
