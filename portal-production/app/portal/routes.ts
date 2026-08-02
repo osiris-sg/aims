@@ -33,6 +33,8 @@ export const ROUTES = {
 
   PROJECTS: "/portal/projects",
 
+  DELIVERIES: "/portal/deliveries",
+
   DOCUMENTS: "/portal/documents",
   VIEW_DOCUMENTS: "/portal/documents/view",
   EDIT_DOCUMENTS: "/portal/documents/edit",

@@ -561,6 +561,20 @@ export default function DynamicSidebarContent() {
         }}
       >
         {enabledModules.map((module, index) => renderMenuItem(module, index))}
+        {/* Deliveries queue (phase-1 layer 4) — static frontend entry rendered
+            through the same renderMenuItem as catalog modules. TODO: promote to
+            a real module-catalog entry (backend module-catalog.ts) so orgs can
+            enable/disable + order it like everything else. */}
+        {renderMenuItem(
+          {
+            moduleCode: "DELIVERIES",
+            displayName: "Deliveries",
+            icon: "LocalShipping",
+            enabled: true,
+            config: { route: "/portal/deliveries" },
+          } as any,
+          enabledModules.length,
+        )}
         {secondaryItems.map((item) => renderSecondaryItem(item))}
       </List>
     </Stack>

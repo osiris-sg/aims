@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
-import { Prisma, MaintenanceReportKind, DeliveryStatus, ItemType } from '@prisma/client';
+import { Prisma, MaintenanceReportKind, DeliveryStatus, InventoryStatus, ItemType } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
 import { WaterSgService, WaterSgCreateSiteResult } from 'src/common/services/water-sg.service';
@@ -754,7 +754,7 @@ export class MaintenanceReportsService {
    * Linkage is via MaintenanceServiceReport.documentId. Historic DO_ACK rows
    * with null documentId are intentionally ignored (audit trail only).
    */
-  async getScanContext(assetId: string, organizationId: string, inventoryId?: string) {
+  async getScanContext(assetId: string, organizationId: string, inventoryId?: string, technicianUserId?: string) {
     const asset = await this.prisma.asset.findFirst({
       where: { id: assetId, organizationId },
       include: { category: true },
@@ -1012,6 +1012,65 @@ export class MaintenanceReportsService {
       take: 5,
     });
 
+    // ── Standalone Delivery (delivery-first, Layer 3) — ADDITIVE reads ──────
+    // Three optional keys drive the chooser's currently-disabled no-DO branch:
+    //   standaloneDelivery        — the unit's OPEN run (wins over an older DO
+    //                               per the resolution-ambiguity rule)
+    //   canStartStandaloneDelivery — no DO, no run, unit instock → offer Start
+    //   riderOpenDelivery          — this rider's own open run, for the
+    //                               "Add to Delivery #N" basket-add card
+    // All three stay null/false in every DO-first scenario, leaving the
+    // existing response (and chooser behavior) bit-identical.
+    let standaloneDelivery: {
+      id: string;
+      deliveryNumber: number;
+      status: string;
+      stage: 'start' | 'ack_delivery' | 'ack_install' | 'completed';
+    } | null = null;
+    let canStartStandaloneDelivery = false;
+    let riderOpenDelivery: { id: string; deliveryNumber: number } | null = null;
+    if (inventoryId) {
+      const runItem = await this.prisma.deliveryItem.findFirst({
+        where: {
+          inventoryId,
+          delivery: { organizationId, status: { in: ['in_progress', 'delivered'] } },
+        },
+        orderBy: { delivery: { startedAt: 'desc' } },
+        include: {
+          delivery: { select: { id: true, deliveryNumber: true, status: true, startedAt: true } },
+        },
+      });
+      const run = runItem?.delivery ?? null;
+      // Open run wins over an OLDER DO; a NEWER DO keeps today's behavior.
+      const runWins =
+        !!run && (!resolvedDeliveryOrder || run.startedAt > resolvedDeliveryOrder.createdAt);
+      if (runWins && runItem) {
+        standaloneDelivery = {
+          id: run!.id,
+          deliveryNumber: run!.deliveryNumber,
+          status: run!.status,
+          stage:
+            runItem.deliveryStatus === DeliveryStatus.completed
+              ? 'completed'
+              : runItem.deliveryStatus === DeliveryStatus.not_installed
+                ? 'ack_install'
+                : runItem.deliveryStatus === DeliveryStatus.delivering
+                  ? 'ack_delivery'
+                  : 'start',
+        };
+      }
+      if (!resolvedDeliveryOrder && !run && inventory?.status === InventoryStatus.instock) {
+        canStartStandaloneDelivery = true;
+        if (technicianUserId) {
+          riderOpenDelivery = await this.prisma.delivery.findFirst({
+            where: { organizationId, riderUserId: technicianUserId, status: 'in_progress' },
+            orderBy: { startedAt: 'desc' },
+            select: { id: true, deliveryNumber: true },
+          });
+        }
+      }
+    }
+
     return {
       asset,
       inventory,
@@ -1029,6 +1088,10 @@ export class MaintenanceReportsService {
       installableDeliveryOrder,
       canAckInstall,
       recentServiceReports: recentReports,
+      // Standalone-delivery keys (Layer 3) — see block above.
+      standaloneDelivery,
+      canStartStandaloneDelivery,
+      riderOpenDelivery,
     };
   }
 

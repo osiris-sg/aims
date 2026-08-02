@@ -144,9 +144,13 @@ export class MaintenanceReportsController {
   getScanContext(
     @Param('assetId') assetId: string,
     @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
     @Query('inventoryId') inventoryId?: string,
   ) {
-    return this.service.getScanContext(assetId, org.id, inventoryId);
+    // technicianUserId powers the additive standalone-delivery reads (the
+    // rider's own open run for "Add to Delivery #N"); optional — everything
+    // DO-first ignores it.
+    return this.service.getScanContext(assetId, org.id, inventoryId, req.user?.id);
   }
 
   /**
