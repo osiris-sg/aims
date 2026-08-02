@@ -1,23 +1,49 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Stack, Typography } from "@mui/material";
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  List,
+  ListItemButton,
+  ListItemText,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
-import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
+import NfcIcon from "@mui/icons-material/Nfc";
+import KeyboardIcon from "@mui/icons-material/Keyboard";
 import HandymanIcon from "@mui/icons-material/Handyman";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { request } from "@/helpers/request";
+import { useNfcScan } from "../../../hooks/useNfcScan";
 
 /**
- * Standalone-delivery BASKET (Layer 3). The rider's view of an in-progress
- * Delivery run: every item with its status, per-item Ack / Install actions
- * (routing into the delivery ack/install pages → the shared sign flow), and
- * "Scan another unit" (→ /scan; the action chooser shows "Add to Delivery #N"
- * for the rider's open run and surfaces reservation 400s cleanly).
+ * Standalone-delivery BASKET (Layer 3 + in-basket scanning patch).
  *
- * Commerce-free by design: no prices, no stock — this is the physical run.
- * The office links/creates the DO later from the Deliveries queue.
+ * Every item is independently actionable through its own lifecycle:
+ *   not_delivered → [Start delivery] → delivering → [Acknowledge]
+ *   → not_installed → [Complete installation] → completed
+ * (The Start button is Fix B — items added before the DO_START-on-add fix, or
+ * whose auto-start failed, are unsticked with one tap.)
+ *
+ * Units are added IN the basket: inline NFC scan (useNfcScan — native or Web
+ * NFC) or a manual-serial dialog (field-resolve, assetId optional). Both call
+ * POST /deliveries/:id/items then fire the unit's DO_START (Fix A) so it lands
+ * already 'delivering'. The old route-out via /scan remains as a fallback for
+ * browsers without Web NFC.
  */
 
 type ItemStatus = "not_delivered" | "delivering" | "not_installed" | "completed";
@@ -45,6 +71,14 @@ interface Run {
   items: RunItem[];
 }
 
+interface ResolveMatch {
+  inventoryId: string;
+  assetId: string;
+  sku: string;
+  assetName?: string | null;
+  skuKey?: string | null;
+}
+
 const STATUS_CHIP: Record<ItemStatus, { label: string; color: "default" | "warning" | "info" | "success" }> = {
   not_delivered: { label: "Not delivered", color: "default" },
   delivering: { label: "Delivering", color: "warning" },
@@ -63,10 +97,21 @@ export default function DeliveryBasketPage() {
   const params = useParams();
   const router = useRouter();
   const { getToken } = useAuth();
+  const nfc = useNfcScan();
   const deliveryId = params?.deliveryId as string;
   const [run, setRun] = useState<Run | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Inline add/start feedback (reservation 400s, unknown tag, dup-in-run…)
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  // Manual-serial dialog
+  const [manualOpen, setManualOpen] = useState(false);
+  const [serial, setSerial] = useState("");
+  const [resolving, setResolving] = useState(false);
+  const [candidates, setCandidates] = useState<ResolveMatch[] | null>(null);
+  // Guards double-handling the same NFC read (uid persists until next startScan)
+  const handledUidRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -89,6 +134,134 @@ export default function DeliveryBasketPage() {
     void load();
   }, [load]);
 
+  // Fire a unit's DO_START (Fix A/B — advances not_delivered → delivering).
+  const startUnit = useCallback(
+    async (assetId: string, inventoryId: string, token: string) => {
+      await request(
+        { path: "/maintenance-reports", method: "POST" },
+        { assetId, inventoryId, kind: "DO_START", deliveryId, description: "Delivery started (added to run)" },
+        token,
+      );
+    },
+    [deliveryId],
+  );
+
+  // Add a resolved unit to the run (+ auto-start it). Shared by NFC + manual.
+  const addUnit = useCallback(
+    async (assetId: string, inventoryId: string, sku?: string) => {
+      setBusy(true);
+      setActionMsg(null);
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const res = await request(
+          { path: `/deliveries/${deliveryId}/items`, method: "POST" },
+          { assetId, inventoryId },
+          token,
+        );
+        if (res.success === false) throw new Error(res.message ?? "Could not add unit");
+        // Fix A: auto-start — the unit is on the truck. Best-effort; a failure
+        // leaves the item startable via its own Start button (Fix B).
+        await startUnit(assetId, inventoryId, token).catch(() => undefined);
+        setActionMsg(sku ? `${sku} added ✓` : "Unit added ✓");
+        await load();
+      } catch (e: any) {
+        setActionMsg(e?.message ?? "Unit not available — already out for delivery");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [deliveryId, getToken, load, startUnit],
+  );
+
+  // Fix B: per-item Start button for stuck/not-yet-started items.
+  const startItem = useCallback(
+    async (it: RunItem) => {
+      if (!it.inventoryId) return;
+      setBusy(true);
+      setActionMsg(null);
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        await startUnit(it.assetId, it.inventoryId, token);
+        await load();
+      } catch (e: any) {
+        setActionMsg(e?.message ?? "Failed to start delivery for this unit");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [getToken, load, startUnit],
+  );
+
+  // Inline NFC: observe scanned uid → resolve to a unit → add. The hook resets
+  // uid on each startScan, and auto-stops after one read.
+  useEffect(() => {
+    const uid = nfc.uid;
+    if (!uid || uid === handledUidRef.current) return;
+    handledUidRef.current = uid;
+    (async () => {
+      setBusy(true);
+      setActionMsg(null);
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const res = await request(
+          { path: `/assets/by-nfc-uid/${encodeURIComponent(uid)}`, method: "GET" },
+          {},
+          token,
+        );
+        const payload = res.data ?? res;
+        const assetId = payload?.asset?.id;
+        const inventoryId = payload?.inventory?.id;
+        if (!assetId || !inventoryId) {
+          setActionMsg("Tag isn't bound to a unit — bind it from the scan page first.");
+          return;
+        }
+        setBusy(false); // addUnit manages its own busy state
+        await addUnit(assetId, inventoryId, payload?.inventory?.sku);
+        return;
+      } catch (e: any) {
+        const status = e?.response?.status ?? e?.status;
+        setActionMsg(status === 404 ? "Tag isn't bound to a unit — bind it from the scan page first." : e?.message ?? "Tag lookup failed");
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }, [nfc.uid, addUnit, getToken]);
+
+  // Manual serial resolve (assetId optional — org-wide serial match).
+  const resolveSerial = async () => {
+    const q = serial.trim();
+    if (!q) return;
+    setResolving(true);
+    setCandidates(null);
+    setActionMsg(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request(
+        { path: `/inventories/field-resolve?serial=${encodeURIComponent(q)}`, method: "GET" },
+        {},
+        token,
+      );
+      const matches: ResolveMatch[] = (res?.data ?? res)?.matches ?? [];
+      if (matches.length === 0) {
+        setActionMsg(`No unit found for "${q}" — check the serial.`);
+      } else if (matches.length === 1) {
+        setManualOpen(false);
+        setSerial("");
+        await addUnit(matches[0].assetId, matches[0].inventoryId, matches[0].sku);
+      } else {
+        setCandidates(matches); // pick list inside the dialog
+      }
+    } catch (e: any) {
+      setActionMsg(e?.message ?? "Lookup failed");
+    } finally {
+      setResolving(false);
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
@@ -106,12 +279,12 @@ export default function DeliveryBasketPage() {
     );
   }
 
-  // Per-item route into the ack/install twins. The shared sign page needs the
-  // ASSET id (its routes live under /scan/asset/[assetId]) — carried as query.
   const ackHref = (it: RunItem) =>
     `/scan/delivery/${run.id}/ack?assetId=${encodeURIComponent(it.assetId)}${it.inventoryId ? `&inventoryId=${encodeURIComponent(it.inventoryId)}` : ""}`;
   const installHref = (it: RunItem) =>
     `/scan/delivery/${run.id}/install?assetId=${encodeURIComponent(it.assetId)}${it.inventoryId ? `&inventoryId=${encodeURIComponent(it.inventoryId)}` : ""}`;
+
+  const canAdd = run.status === "in_progress";
 
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5 }}>
@@ -125,6 +298,16 @@ export default function DeliveryBasketPage() {
           </Typography>
         </Box>
       </Stack>
+
+      {actionMsg && (
+        <Alert
+          severity={actionMsg.endsWith("✓") ? "success" : "warning"}
+          onClose={() => setActionMsg(null)}
+        >
+          {actionMsg}
+        </Alert>
+      )}
+      {nfc.error && <Alert severity="warning">{nfc.error}</Alert>}
 
       <Typography variant="subtitle1" fontWeight={600}>
         Items ({run.items.length})
@@ -148,8 +331,23 @@ export default function DeliveryBasketPage() {
                   </Box>
                   <Chip size="small" label={chip.label} color={chip.color} />
                 </Stack>
-                {(it.deliveryStatus === "delivering" || it.deliveryStatus === "not_installed") && (
+                {it.deliveryStatus !== "completed" && (
                   <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
+                    {/* Fix B: not-yet-started items get their own Start action —
+                        every item is independently actionable regardless of
+                        scan order. */}
+                    {it.deliveryStatus === "not_delivered" && it.inventoryId && (
+                      <Button
+                        size="small"
+                        variant="contained"
+                        startIcon={<PlayArrowIcon />}
+                        onClick={() => startItem(it)}
+                        disabled={busy}
+                        sx={{ minHeight: 40 }}
+                      >
+                        Start delivery
+                      </Button>
+                    )}
                     {it.deliveryStatus === "delivering" && (
                       <Button
                         size="small"
@@ -180,29 +378,86 @@ export default function DeliveryBasketPage() {
         })}
       </Stack>
 
-      {run.status === "in_progress" && (
-        <Button
-          variant="outlined"
-          size="large"
-          startIcon={<QrCodeScannerIcon />}
-          onClick={() => router.push("/scan")}
-          sx={{ py: 1.5, minHeight: 48 }}
-        >
-          Scan another unit
-        </Button>
+      {canAdd && (
+        <Stack spacing={1.5}>
+          {/* Inline NFC — only when the platform supports it. */}
+          {nfc.isSupported && (
+            <Button
+              variant={nfc.isScanning ? "outlined" : "contained"}
+              size="large"
+              startIcon={nfc.isScanning ? <CircularProgress size={18} /> : <NfcIcon />}
+              onClick={() => (nfc.isScanning ? nfc.stopScan() : nfc.startScan())}
+              disabled={busy}
+              sx={{ py: 1.5, minHeight: 48 }}
+            >
+              {nfc.isScanning ? "Hold tag to phone… (tap to cancel)" : "Scan tag to add unit"}
+            </Button>
+          )}
+          <Button
+            variant="outlined"
+            size="large"
+            startIcon={<KeyboardIcon />}
+            onClick={() => {
+              setManualOpen(true);
+              setCandidates(null);
+            }}
+            disabled={busy}
+            sx={{ py: 1.5, minHeight: 48 }}
+          >
+            Enter serial to add unit
+          </Button>
+          {/* Fallback: full scanner page (devices without Web NFC in-browser). */}
+          <Button variant="text" size="small" onClick={() => router.push("/scan")} sx={{ color: "text.secondary" }}>
+            Use the scanner page instead
+          </Button>
+        </Stack>
       )}
-      <Typography variant="caption" color="text.secondary" sx={{ textAlign: "center" }}>
-        Tap a unit&apos;s tag (or use manual entry) — the asset screen will offer
-        &quot;Add to Delivery #{run.deliveryNumber}&quot;.
-      </Typography>
 
       <Button
         variant="text"
-        sx={{ mt: 2, color: "text.secondary", alignSelf: "center" }}
+        sx={{ mt: 1, color: "text.secondary", alignSelf: "center" }}
         onClick={() => router.push("/scan")}
       >
         Done for now
       </Button>
+
+      {/* Manual-serial add dialog */}
+      <Dialog open={manualOpen} onClose={() => !resolving && setManualOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Add unit by serial</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            label="Serial number"
+            value={serial}
+            onChange={(e) => setSerial(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && resolveSerial()}
+            sx={{ mt: 1 }}
+          />
+          {candidates && (
+            <List dense sx={{ mt: 1 }}>
+              {candidates.map((m) => (
+                <ListItemButton
+                  key={m.inventoryId}
+                  onClick={async () => {
+                    setManualOpen(false);
+                    setSerial("");
+                    await addUnit(m.assetId, m.inventoryId, m.sku);
+                  }}
+                >
+                  <ListItemText primary={m.sku} secondary={m.assetName ?? m.skuKey ?? undefined} />
+                </ListItemButton>
+              ))}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setManualOpen(false)} disabled={resolving}>Cancel</Button>
+          <Button variant="contained" onClick={resolveSerial} disabled={resolving || !serial.trim()}>
+            {resolving ? <CircularProgress size={18} /> : "Find unit"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

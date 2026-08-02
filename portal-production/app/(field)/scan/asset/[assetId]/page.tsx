@@ -171,6 +171,21 @@ export default function AssetActionChooser() {
         token,
       );
       if (res.success === false) throw new Error(res.message ?? "Could not add unit");
+      // Fix A: a unit joining an in-progress run is on the truck — fire its
+      // DO_START so it advances not_delivered → delivering and is immediately
+      // actionable in the basket. Best-effort: the add already succeeded, so a
+      // failure here just leaves the item startable via the basket's button.
+      await request(
+        { path: "/maintenance-reports", method: "POST" },
+        {
+          assetId,
+          inventoryId: inventory.id,
+          kind: "DO_START",
+          deliveryId: data.riderOpenDelivery.id,
+          description: "Delivery started (added to run)",
+        },
+        token,
+      ).catch(() => undefined);
       router.push(`/scan/delivery/${data.riderOpenDelivery.id}`);
     } catch (e: any) {
       setAddErr(e?.message ?? "Unit not available — already out for delivery");
