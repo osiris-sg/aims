@@ -1,0 +1,898 @@
+[
+ {
+  "at": "2026-07-05T19:40",
+  "subject": "Test ingest 001",
+  "invoice": "BIPL-JPSG-INV-20260630-0077",
+  "bills": [
+   "JP2606030067",
+   "JP2606230079"
+  ]
+ },
+ {
+  "at": "2026-07-05T19:42",
+  "subject": "Test ingest 001",
+  "invoice": "BIPL-JPSG-INV-20260630-0077",
+  "bills": [
+   "JP2606030067",
+   "JP2606230079"
+  ]
+ },
+ {
+  "at": "2026-07-05T19:51",
+  "subject": "Test ingest 001",
+  "invoice": "BIPL-JPSG-INV-20260630-0077",
+  "bills": [
+   "JP2606030067",
+   "JP2606230079"
+  ]
+ },
+ {
+  "at": "2026-07-05T20:27",
+  "subject": "Test Email",
+  "invoice": "BIPL-JPSG-INV-20260630-0077",
+  "bills": [
+   "JP2606230079",
+   "JP2606030067"
+  ]
+ },
+ {
+  "at": "2026-07-05T20:40",
+  "subject": "Test Email 2",
+  "invoice": "BIPL-JPSG-INV-20260630-0077",
+  "bills": [
+   "JP2606030067",
+   "JP2606230079"
+  ]
+ },
+ {
+  "at": "2026-07-06T06:58",
+  "subject": "Fwd: Test Email 2",
+  "invoice": "BIPL-JPSG-INV-20260630-0077",
+  "bills": [
+   "JP2606030067",
+   "JP2606230079"
+  ]
+ },
+ {
+  "at": "2026-07-06T09:57",
+  "subject": "Fwd: Test Email 2",
+  "invoice": "BIPL-JPSG-INV-20260630-0077",
+  "bills": [
+   "JP2606030067",
+   "JP2606230079"
+  ]
+ },
+ {
+  "at": "2026-07-11T13:39",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260505-0002 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260505-0002",
+  "bills": []
+ },
+ {
+  "at": "2026-07-11T13:43",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260506-0001 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260506-0001",
+  "bills": [
+   "JP2605060098"
+  ]
+ },
+ {
+  "at": "2026-07-11T13:48",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260507-0001 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260507-0001",
+  "bills": [
+   "JP2605060085",
+   "JP2605060087",
+   "JP2605060111",
+   "JP2605060113",
+   "JP2605060114"
+  ]
+ },
+ {
+  "at": "2026-07-11T13:48",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260511-0001 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260511-0001",
+  "bills": [
+   "JP2605080093",
+   "JP2605080096",
+   "JP2605080097",
+   "JP2605110095"
+  ]
+ },
+ {
+  "at": "2026-07-11T13:49",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260514-0003 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260514-0003",
+  "bills": [
+   "JP2605140105"
+  ]
+ },
+ {
+  "at": "2026-07-11T13:50",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260520-0001 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260520-0001",
+  "bills": [
+   "JP2605200028",
+   "JP2605200030",
+   "JP2605200032",
+   "JP2605200033",
+   "JP2605200035",
+   "JP2605200036",
+   "JP2605200037",
+   "JP2605200038",
+   "JP2605200040",
+   "JP2605200041"
+  ]
+ },
+ {
+  "at": "2026-07-11T13:51",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260521-0001 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260521-0001",
+  "bills": [
+   "JP2605210050",
+   "JP2605210051",
+   "JP2605210053",
+   "JP2605210055",
+   "JP2605210056",
+   "JP2605210057"
+  ]
+ },
+ {
+  "at": "2026-07-11T13:51",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260521-0002 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260521-0002",
+  "bills": [
+   "JP2605210099",
+   "JP2605210060",
+   "JP2605210061",
+   "JP2605210063",
+   "JP2605210064"
+  ]
+ },
+ {
+  "at": "2026-07-11T14:21",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260505-0002 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260505-0002",
+  "bills": []
+ },
+ {
+  "at": "2026-07-11T14:25",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260506-0001 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260506-0001",
+  "bills": [
+   "JP2605060098"
+  ]
+ },
+ {
+  "at": "2026-07-11T14:26",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260505-0002 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260505-0002",
+  "bills": [
+   "JP2605050140",
+   "JP2605050141",
+   "JP2605050143",
+   "JP2605050144",
+   "JP2605050122",
+   "JP2605050129",
+   "JP2605050130",
+   "JP2605050133",
+   "JP2605050135",
+   "JP2605050136",
+   "JP2605050139"
+  ]
+ },
+ {
+  "at": "2026-07-11T14:30",
+  "subject": "Fw: Credit Note — Partial Refund for METROCON PTE LTD",
+  "invoice": "BIPL-JPSG-INV-20260515-0002",
+  "bills": []
+ },
+ {
+  "at": "2026-07-11T14:32",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260507-0001 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260507-0001",
+  "bills": [
+   "JP2605060085",
+   "JP2605060087",
+   "JP2605060111",
+   "JP2605060113",
+   "JP2605060114"
+  ]
+ },
+ {
+  "at": "2026-07-11T14:33",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260511-0001 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260511-0001",
+  "bills": [
+   "JP2605080093",
+   "JP2605080096",
+   "JP2605080097",
+   "JP2605110095"
+  ]
+ },
+ {
+  "at": "2026-07-11T14:35",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260514-0003 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260514-0003",
+  "bills": [
+   "JP2605140105"
+  ]
+ },
+ {
+  "at": "2026-07-11T14:41",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260520-0001 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260520-0001",
+  "bills": [
+   "JP2605200028",
+   "JP2605200030",
+   "JP2605200032",
+   "JP2605200033",
+   "JP2605200035",
+   "JP2605200036",
+   "JP2605200037",
+   "JP2605200038",
+   "JP2605200040",
+   "JP2605200041"
+  ]
+ },
+ {
+  "at": "2026-07-11T14:42",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260521-0001 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260521-0001",
+  "bills": [
+   "JP2605210050",
+   "JP2605210051",
+   "JP2605210053",
+   "JP2605210055",
+   "JP2605210056",
+   "JP2605210057"
+  ]
+ },
+ {
+  "at": "2026-07-11T14:44",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260521-0002 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260521-0002",
+  "bills": [
+   "JP2605210099",
+   "JP2605210060",
+   "JP2605210061",
+   "JP2605210063",
+   "JP2605210064"
+  ]
+ },
+ {
+  "at": "2026-07-11T14:45",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260521-0003 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260521-0003",
+  "bills": [
+   "JP2605210066",
+   "JP2605210067",
+   "JP2605210068",
+   "JP2605210069",
+   "JP2605210071",
+   "JP2605210072",
+   "JP2605210074",
+   "JP2605210075",
+   "JP2605210076",
+   "JP2605210078"
+  ]
+ },
+ {
+  "at": "2026-07-11T14:46",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260522-0001 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260522-0001",
+  "bills": [
+   "JP2605230001",
+   "JP2605230002",
+   "JP2605230003",
+   "JP2605230004",
+   "JP2605230005",
+   "JP2605230006",
+   "JP2605230007",
+   "JP2605230008",
+   "JP2605230009",
+   "JP2605230010"
+  ]
+ },
+ {
+  "at": "2026-07-11T14:48",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260522-0002 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260522-0002",
+  "bills": [
+   "JP2605220111",
+   "JP2605220109",
+   "JP2605220107",
+   "JP2605220106",
+   "JP2605220112",
+   "JP2605220115",
+   "JP2605220116",
+   "JP2605220117",
+   "JP2605220118",
+   "JP2605220119"
+  ]
+ },
+ {
+  "at": "2026-07-11T14:50",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260522-0003 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260522-0003",
+  "bills": [
+   "JP2605220105",
+   "JP2605220104",
+   "JP2605220102",
+   "JP2605220101",
+   "JP2605220100",
+   "JP2605220099",
+   "JP2605220098"
+  ]
+ },
+ {
+  "at": "2026-07-11T14:53",
+  "subject": "Fw: Credit Note — Partial Refund for YONGSHENG E & C PTE LTD",
+  "invoice": "BIPL-JPSG-INV-20260523-0005",
+  "bills": []
+ },
+ {
+  "at": "2026-07-11T14:54",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260524-0001 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260524-0001",
+  "bills": [
+   "JP2605240005",
+   "JP2605240006",
+   "JP2605240007",
+   "JP2605240008"
+  ]
+ },
+ {
+  "at": "2026-07-11T14:55",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260526-0065 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260526-0065",
+  "bills": [
+   "JP2605240009",
+   "JP2605260112",
+   "JP2605260113"
+  ]
+ },
+ {
+  "at": "2026-07-11T14:56",
+  "subject": "Fw: Credit Note — Partial Refund for New Season Contractors ",
+  "invoice": "BIPL-JPSG-INV-20260526-0066",
+  "bills": []
+ },
+ {
+  "at": "2026-07-11T14:57",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260529-0001 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260529-0001",
+  "bills": [
+   "JP2605290048"
+  ]
+ },
+ {
+  "at": "2026-07-11T14:59",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260609-0023 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260609-0023",
+  "bills": [
+   "JP2606080087"
+  ]
+ },
+ {
+  "at": "2026-07-11T14:59",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260615-0063 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260615-0063",
+  "bills": [
+   "JP2606150077",
+   "JP2606150079",
+   "JP2606150095",
+   "JP2606150096",
+   "JP2606150098"
+  ]
+ },
+ {
+  "at": "2026-07-11T15:01",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260624-0151 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260624-0151",
+  "bills": [
+   "JP2606240123",
+   "JP2606240121",
+   "JP2606240118",
+   "JP2606240116"
+  ]
+ },
+ {
+  "at": "2026-07-11T15:02",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260630-0076 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260630-0076",
+  "bills": [
+   "JP2606240173"
+  ]
+ },
+ {
+  "at": "2026-07-11T15:02",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260630-0077 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260630-0077",
+  "bills": [
+   "JP2606030067",
+   "JP2606230079"
+  ]
+ },
+ {
+  "at": "2026-07-11T15:04",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260630-0078 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260630-0078",
+  "bills": [
+   "JP2606240176",
+   "JP2606240181"
+  ]
+ },
+ {
+  "at": "2026-07-11T15:05",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260630-0079 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260630-0079",
+  "bills": [
+   "JP2605220081",
+   "JP2605280045",
+   "JP2605280056",
+   "JP2605280058",
+   "JP2605280059",
+   "JP2605280064",
+   "JP2605280068",
+   "JP2605280069",
+   "JP2605280071",
+   "JP2605280072"
+  ]
+ },
+ {
+  "at": "2026-07-11T15:07",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260630-0080 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260630-0080",
+  "bills": [
+   "JP2605280073",
+   "JP2605280074",
+   "JP2605280075",
+   "JP2605280076",
+   "JP2605280077",
+   "JP2605280080",
+   "JP2605280081",
+   "JP2605280082",
+   "JP2605280084",
+   "JP2606030059"
+  ]
+ },
+ {
+  "at": "2026-07-11T15:08",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260630-0081 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260630-0081",
+  "bills": [
+   "JP2606030060",
+   "JP2606030061",
+   "JP2606030064",
+   "JP2606030068",
+   "JP2606030069",
+   "JP2606030070",
+   "JP2606030071",
+   "JP2606030096",
+   "JP2606030098",
+   "JP2606030100"
+  ]
+ },
+ {
+  "at": "2026-07-11T15:09",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260630-0082 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260630-0082",
+  "bills": [
+   "JP2606030101",
+   "JP2606030103",
+   "JP2606030104",
+   "JP2606030107",
+   "JP2606030108",
+   "JP2606030109",
+   "JP2606230075",
+   "JP2606230077",
+   "JP2606230078",
+   "JP2606230080"
+  ]
+ },
+ {
+  "at": "2026-07-11T15:11",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260630-0083 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260630-0083",
+  "bills": [
+   "JP2606240097",
+   "JP2606240098",
+   "JP2606240099",
+   "JP2606240100",
+   "JP2606240160",
+   "JP2606240161",
+   "JP2606240169",
+   "JP2606240170",
+   "JP2606240171",
+   "JP2606240172"
+  ]
+ },
+ {
+  "at": "2026-07-11T15:11",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260630-0084 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260630-0084",
+  "bills": [
+   "JP2606240175",
+   "JP2606240177",
+   "JP2606240179",
+   "JP2606240180",
+   "JP2606240182",
+   "JP2606240184",
+   "JP2606240185",
+   "JP2606240186",
+   "JP2606240187",
+   "JP2606240188"
+  ]
+ },
+ {
+  "at": "2026-07-11T15:12",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260630-0085 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260630-0085",
+  "bills": [
+   "JP2606240189"
+  ]
+ },
+ {
+  "at": "2026-07-11T15:14",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260630-0143 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260630-0143",
+  "bills": [
+   "JP2606030067",
+   "JP2606230079"
+  ]
+ },
+ {
+  "at": "2026-07-11T15:14",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260708-0089 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260708-0089",
+  "bills": [
+   "JP2607080091"
+  ]
+ },
+ {
+  "at": "2026-07-11T15:14",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260630-0081 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260630-0081",
+  "bills": [
+   "JP2606030060",
+   "JP2606030061",
+   "JP2606030064",
+   "JP2606030068",
+   "JP2606030069",
+   "JP2606030070",
+   "JP2606030071",
+   "JP2606030096",
+   "JP2606030098",
+   "JP2606030100"
+  ]
+ },
+ {
+  "at": "2026-07-11T15:14",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260630-0082 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260630-0082",
+  "bills": [
+   "JP2606030101",
+   "JP2606030103",
+   "JP2606030104",
+   "JP2606030107",
+   "JP2606030108",
+   "JP2606030109",
+   "JP2606230075",
+   "JP2606230077",
+   "JP2606230078",
+   "JP2606230080"
+  ]
+ },
+ {
+  "at": "2026-07-14T07:35",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260714-0041 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260714-0041",
+  "bills": [
+   "JP2607140084",
+   "JP2607140082",
+   "JP2607140068",
+   "JP2607140062",
+   "JP2607140060",
+   "JP2607140058",
+   "JP2607140040",
+   "JP2607100093"
+  ]
+ },
+ {
+  "at": "2026-07-14T08:49",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260714-0047 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260714-0047",
+  "bills": [
+   "JP2607140098",
+   "JP2607140096",
+   "JP2607140094"
+  ]
+ },
+ {
+  "at": "2026-07-14T09:08",
+  "subject": "Fw: Invoice JPINV-20260430-1ED325BD - Jurong Port Pass Appli",
+  "invoice": "JPINV-20260430-1ED325BD",
+  "bills": [
+   "JP2604300060",
+   "JP2604300061",
+   "JP2604300064",
+   "JP2604300065",
+   "JP2604300066",
+   "JP2604300068",
+   "JP2604300072"
+  ]
+ },
+ {
+  "at": "2026-07-14T09:19",
+  "subject": "Fw: Invoice JPINV-20260430-2CD9AA63 - Jurong Port Pass Appli",
+  "invoice": "JPINV-20260430-2CD9AA63",
+  "bills": [
+   "JP2604290113",
+   "JP2604290118",
+   "JP2604290119",
+   "JP2604290120",
+   "JP2604290121",
+   "JP2604300024",
+   "JP2604300025"
+  ]
+ },
+ {
+  "at": "2026-07-14T09:53",
+  "subject": "Fw: Invoice JPINV-20260501-F7FC3DEC - Jurong Port Pass Appli",
+  "invoice": "JPINV-20260501-F7FC3DEC",
+  "bills": [
+   "JP2605010013",
+   "JP2605010014",
+   "JP2605010015",
+   "JP2605010016"
+  ]
+ },
+ {
+  "at": "2026-07-14T09:54",
+  "subject": "Fw: Invoice JPINV-20260430-D07606D1 - Jurong Port Pass Appli",
+  "invoice": "JPINV-20260430-D07606D1",
+  "bills": [
+   "JP2604300077",
+   "JP2604300078",
+   "JP2604300080"
+  ]
+ },
+ {
+  "at": "2026-07-14T10:02",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260506-0001 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260506-0001",
+  "bills": [
+   "JP2605060098"
+  ]
+ },
+ {
+  "at": "2026-07-14T10:02",
+  "subject": "Fw: Invoice JPINV-20260430-2CD9AA63 - Jurong Port Pass Appli",
+  "invoice": "JPINV-20260430-2CD9AA63",
+  "bills": [
+   "JP2604290113",
+   "JP2604290118",
+   "JP2604290119",
+   "JP2604290120",
+   "JP2604290121",
+   "JP2604300024",
+   "JP2604300025"
+  ]
+ },
+ {
+  "at": "2026-07-16T02:51",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260715-0090 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260715-0090",
+  "bills": [
+   "JP2607150051",
+   "JP2607150050",
+   "JP2607150049"
+  ]
+ },
+ {
+  "at": "2026-07-16T02:51",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260715-0093 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260715-0093",
+  "bills": [
+   "JP2607150092"
+  ]
+ },
+ {
+  "at": "2026-07-21T03:19",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260720-0094 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260720-0094",
+  "bills": [
+   "JP2607200071",
+   "JP2607150095",
+   "JP2607150097",
+   "JP2607150098",
+   "JP2607150099",
+   "JP2607150101",
+   "JP2607150106",
+   "JP2607150108",
+   "JP2607150109"
+  ]
+ },
+ {
+  "at": "2026-07-21T03:19",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260720-0148 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260720-0148",
+  "bills": [
+   "JP2607200110",
+   "JP2607200108"
+  ]
+ },
+ {
+  "at": "2026-07-21T03:19",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260720-0168 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260720-0168",
+  "bills": [
+   "JP2607200127",
+   "JP2607200126",
+   "JP2607200125",
+   "JP2607200124",
+   "JP2607200122",
+   "JP2607200118",
+   "JP2607200115",
+   "JP2607200114",
+   "JP2607200112",
+   "JP2607200111"
+  ]
+ },
+ {
+  "at": "2026-07-21T03:19",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260720-0172 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260720-0172",
+  "bills": [
+   "JP2607200097"
+  ]
+ },
+ {
+  "at": "2026-07-21T09:32",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260721-0033 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260721-0033",
+  "bills": [
+   "JP2604300017",
+   "JP2605010018",
+   "JP2605010019",
+   "JP2605010020",
+   "JP2605020017",
+   "JP2605140041",
+   "JP2605140043",
+   "JP2605140044",
+   "JP2605140045"
+  ]
+ },
+ {
+  "at": "2026-07-21T09:32",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260721-0034 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260721-0034",
+  "bills": [
+   "JP2605140042"
+  ]
+ },
+ {
+  "at": "2026-07-21T09:33",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260721-0035 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260721-0035",
+  "bills": [
+   "JP2605010017"
+  ]
+ },
+ {
+  "at": "2026-07-21T09:33",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260721-0036 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260721-0036",
+  "bills": [
+   "JP2607140113",
+   "JP2607140114"
+  ]
+ },
+ {
+  "at": "2026-07-21T09:33",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260721-0037 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260721-0037",
+  "bills": [
+   "JP2605040076",
+   "JP2605040079",
+   "JP2605040082",
+   "JP2605040084",
+   "JP2605040086",
+   "JP2605040087",
+   "JP2605040088",
+   "JP2605040089",
+   "JP2605040090",
+   "JP2605040098"
+  ]
+ },
+ {
+  "at": "2026-07-21T09:33",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260721-0038 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260721-0038",
+  "bills": [
+   "JP2606240096",
+   "JP2606240108",
+   "JP2606240111",
+   "JP2606240162",
+   "JP2606240163",
+   "JP2606240164",
+   "JP2606240165",
+   "JP2606240166",
+   "JP2606240167",
+   "JP2607140112"
+  ]
+ },
+ {
+  "at": "2026-07-21T09:33",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260721-0039 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260721-0039",
+  "bills": [
+   "JP2606240089",
+   "JP2606240090",
+   "JP2606240092",
+   "JP2606240093",
+   "JP2606240095",
+   "JP2605050048",
+   "JP2605050051",
+   "JP2605050052",
+   "JP2605050055",
+   "JP2605050060"
+  ]
+ },
+ {
+  "at": "2026-07-21T09:33",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260721-0040 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260721-0040",
+  "bills": [
+   "JP2605050022",
+   "JP2605050023",
+   "JP2605050024",
+   "JP2605050025",
+   "JP2605050026",
+   "JP2605050027",
+   "JP2605050034",
+   "JP2605050039",
+   "JP2605050046",
+   "JP2605050047"
+  ]
+ },
+ {
+  "at": "2026-07-21T09:35",
+  "subject": "Fw: Credit Note — Full Refund for MSK Star Engineering Pte l",
+  "invoice": "BIPL-JPSG-INV-20260721-0152",
+  "bills": []
+ },
+ {
+  "at": "2026-07-21T09:35",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260721-0153 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260721-0153",
+  "bills": [
+   "JP2605040077"
+  ]
+ },
+ {
+  "at": "2026-07-23T02:11",
+  "subject": "Fw: Invoice BIPL-JPSG-INV-20260715-0092 - Jurong Port Pass A",
+  "invoice": "BIPL-JPSG-INV-20260715-0092",
+  "bills": [
+   "JP2607140114",
+   "JP2607140113",
+   "JP2607140112"
+  ]
+ },
+ {
+  "at": "2026-07-28T06:38",
+  "subject": "Fw: Invoice JPINV-20260430-2CD9AA63 - Jurong Port Pass Appli",
+  "invoice": "JPINV-20260430-2CD9AA63",
+  "bills": [
+   "JP2604290113",
+   "JP2604290118",
+   "JP2604290119",
+   "JP2604290120",
+   "JP2604290121",
+   "JP2604300024",
+   "JP2604300025"
+  ]
+ }
+]

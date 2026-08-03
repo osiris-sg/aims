@@ -49,7 +49,15 @@
       "Bash(kill 51452 51454)",
       "Bash(curl -s -o /dev/null -w \"portal: %{http_code}\\\\n\" http://localhost:3000/sign-in)",
       "Bash(awk '{print $6, $7, $8}')",
-      "Bash(curl -s -o /dev/null -w \"guide route: %{http_code}\\\\n\" -X POST http://localhost:4040/guide/stream -H \"Content-Type: application/json\" -d '{\"question\":\"hi\"}')"
+      "Bash(curl -s -o /dev/null -w \"guide route: %{http_code}\\\\n\" -X POST http://localhost:4040/guide/stream -H \"Content-Type: application/json\" -d '{\"question\":\"hi\"}')",
+      "Bash(nohup npm run start:dev)",
+      "Bash(echo \"api starting: $!\")",
+      "Bash(nohup npm run dev)",
+      "Bash(echo \"portal starting: $!\")",
+      "Bash(mkdir -p aspire)",
+      "Bash(unzip -o -q \"/Users/guru/Downloads/rCHGZOZsTN4Tr9opnBZwEbDFkaSp0Qv65GuAi7oK.zip\" -d aspire)",
+      "WebFetch(domain:chatgpt.com)",
+      "Bash(python3 classify.py)"
     ]
   }
 }

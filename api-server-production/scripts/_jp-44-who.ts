@@ -9,31 +9,26 @@ const m = fs.readFileSync('.env.production', 'utf8').match(/^DATABASE_URL="?([^"
 const prisma = new PrismaClient({ adapter: new PrismaNeon({ connectionString: new URL(m[1]).toString() }) } as any);
 const REFS = `JP2606080024 JP2606080025 JP2605300031 JP2605300030 JP2605300029 JP2605300024 JP2605300022 JP2605300021 JP2605300020 JP2605300018 JP2605300016 JP2605300014 JP2605300013 JP2605300011 JP2605300010 JP2605300008 JP2605300007 JP2605210095 JP2605140108 JP2605140109 JP2605140024 JP2605140022 JP2605120135 JP2605120133 JP2605120060 JP2605120059 JP2605120058 JP2605120054 JP2605120053 JP2605120051 JP2605120049 JP2605120044 JP2605120043 JP2605120041 JP2605120040 JP2605120037 JP2605120036 JP2605120034 JP2605120032 JP2605110121 JP2605120030 JP2605120031 JP2605110122 JP2607170118`.trim().split(/\s+/);
 async function main() {
-  console.log(`checking ${REFS.length} refs...`);
-  // Pass 1: document names containing the ref.
   const docs = await prisma.document.findMany({
-    where: { organizationId: ORG, OR: REFS.map((r) => ({ name: { contains: r } })) },
-    select: { id: true, name: true, type: true, status: true },
+    where: { organizationId: ORG, type: 'BILL', name: { in: REFS } },
+    select: { name: true, config: true },
   });
-  const byRef = new Map<string, any[]>();
-  for (const r of REFS) byRef.set(r, docs.filter((d) => (d.name || '').includes(r)));
-  const missing = REFS.filter((r) => !byRef.get(r)!.length);
-  console.log(`name matches: ${REFS.length - missing.length}/${REFS.length}`);
+  const byName = new Map(docs.map(d => [d.name, d]));
+  const tally = new Map<string, string[]>();
   for (const r of REFS) {
-    const hits = byRef.get(r)!;
-    if (hits.length) console.log(`  ✓ ${r}: ${hits.map((h) => `${h.name} [${h.type}/${h.status}]`).join('; ')}`);
+    const d = byName.get(r);
+    if (!d) { (tally.get('NOT IN PROD') || tally.set('NOT IN PROD', []).get('NOT IN PROD'))!.push(r); continue; }
+    const c: any = d.config || {};
+    const ref: string = c.reference || '';
+    // "JPxxxx (CUSTOMER)" pattern → extract customer; else use the raw ref.
+    const mm = ref.match(/\(([^)]+)\)\s*$/);
+    const who = mm ? mm[1] : ref || (c.description || '(no reference)');
+    if (!tally.has(who)) tally.set(who, []);
+    tally.get(who)!.push(r);
   }
-  if (missing.length) {
-    console.log(`missing by name (${missing.length}): ${missing.join(', ')}`);
-    // Pass 2: search config JSON text for the first few missing.
-    for (const r of missing) {
-      const rows: any[] = await prisma.$queryRawUnsafe(
-        `SELECT id, name, type, status FROM "Document" WHERE "organizationId" = $1 AND config::text LIKE $2 LIMIT 5`,
-        ORG, `%${r}%`,
-      );
-      if (rows.length) console.log(`  ~ ${r} found in config of: ${rows.map((x) => `${x.name} [${x.type}/${x.status}]`).join('; ')}`);
-      else console.log(`  ✗ ${r}: nowhere in prod documents`);
-    }
+  for (const [who, list] of tally) {
+    console.log(`\n${who} — ${list.length} bills:`);
+    console.log('  ' + list.join(', '));
   }
 }
 main().catch(e => { console.error(e.message); process.exit(1); }).finally(() => prisma.$disconnect());
