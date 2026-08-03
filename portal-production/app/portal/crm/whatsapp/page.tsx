@@ -34,6 +34,7 @@ import {
 import { WhatsApp as WhatsAppIcon, Refresh, LinkOff, Send } from "@mui/icons-material";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
+import ContactSelect from "../_components/ContactSelect";
 import { useWhatsAppApi } from "../_lib/api";
 
 const META_APP_ID = process.env.NEXT_PUBLIC_META_APP_ID ?? "1735244581178849";
@@ -383,13 +384,11 @@ export default function WhatsAppPage() {
             Send a message
           </Typography>
           <Stack spacing={2}>
-            <TextField
+            <ContactSelect
               label="Recipient (with country code)"
-              placeholder="6591234567"
               value={sendTo}
-              onChange={(e) => setSendTo(e.target.value)}
-              size="small"
-              sx={{ maxWidth: 320 }}
+              onChange={setSendTo}
+              sx={{ maxWidth: 380 }}
             />
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ sm: "center" }}>
               <TextField

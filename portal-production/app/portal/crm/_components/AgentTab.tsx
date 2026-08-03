@@ -27,6 +27,7 @@ import {
 import { Add, Delete, Psychology, Save } from "@mui/icons-material";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "react-toastify";
+import ContactSelect from "./ContactSelect";
 import { useWhatsAppApi } from "../_lib/api";
 
 interface AgentConfig {
@@ -301,13 +302,11 @@ export default function AgentTab() {
             multiline
             size="small"
           />
-          <TextField
+          <ContactSelect
             label="Customer number (optional)"
-            placeholder="6591234567"
             value={testCounterparty}
-            onChange={(e) => setTestCounterparty(e.target.value)}
-            size="small"
-            sx={{ minWidth: 210 }}
+            onChange={setTestCounterparty}
+            sx={{ minWidth: 240 }}
             helperText="Loads that chat's history + customer record"
           />
           <Button variant="contained" disabled={testing || !testMessage.trim()} onClick={runTest}>

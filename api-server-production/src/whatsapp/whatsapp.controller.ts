@@ -95,6 +95,50 @@ export class WhatsAppController {
     return this.service.listMessages(requireOrgId(req), limit ? Number(limit) : undefined);
   }
 
+  @Get('contacts')
+  @Permissions('whatsapp:read')
+  @ApiOperation({ summary: 'Contact book: every number messaged with, best-known name, AI permission, recent first' })
+  contacts(@Req() req: RequestWithOrganization) {
+    return this.service.listContacts(requireOrgId(req));
+  }
+
+  @Post('contacts/:waId/agent-permission')
+  @Permissions('whatsapp:manage')
+  @ApiOperation({ summary: 'Approve / block / reset AI auto-reply for a number ({permission: APPROVED|BLOCKED|null})' })
+  setContactPermission(
+    @Req() req: RequestWithOrganization,
+    @Param('waId') waId: string,
+    @Body() body: { permission: string | null },
+  ) {
+    return this.service.setContactAgentPermission(requireOrgId(req), waId, body?.permission ?? null);
+  }
+
+  // ── Scheduled messages ─────────────────────────────────────────────────────
+
+  @Get('schedule')
+  @Permissions('whatsapp:read')
+  @ApiOperation({ summary: 'List scheduled messages for the org (upcoming first, then history)' })
+  listScheduled(@Req() req: RequestWithOrganization) {
+    return this.service.listScheduledMessages(requireOrgId(req));
+  }
+
+  @Post('schedule')
+  @Permissions('whatsapp:send')
+  @ApiOperation({ summary: 'Schedule a free-text message to a number at a future time' })
+  createScheduled(
+    @Req() req: RequestWithOrganization,
+    @Body() body: { to: string; body: string; scheduledAt: string },
+  ) {
+    return this.service.createScheduledMessage(requireOrgId(req), body, req.auth?.userId);
+  }
+
+  @Post('schedule/:id/cancel')
+  @Permissions('whatsapp:send')
+  @ApiOperation({ summary: 'Cancel a pending scheduled message' })
+  cancelScheduled(@Req() req: RequestWithOrganization, @Param('id') id: string) {
+    return this.service.cancelScheduledMessage(requireOrgId(req), id);
+  }
+
   // ── AI agent ───────────────────────────────────────────────────────────────
 
   @Get('agent/config')
@@ -141,9 +185,9 @@ export class WhatsAppController {
 
   @Post('history-sync')
   @Permissions('whatsapp:manage')
-  @ApiOperation({ summary: 'Request coexistence chat-history delivery (last ~180 days) via the history webhook' })
-  historySync(@Req() req: RequestWithOrganization) {
-    return this.service.requestHistorySync(requireOrgId(req));
+  @ApiOperation({ summary: 'Request coexistence data sync via webhook (?type=history | contacts)' })
+  historySync(@Req() req: RequestWithOrganization, @Query('type') type?: string) {
+    return this.service.requestHistorySync(requireOrgId(req), type === 'contacts' ? 'smb_app_state_sync' : 'history');
   }
 
   @Get('agent/suggestions')

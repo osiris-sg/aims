@@ -1,19 +1,39 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
 import { OnboardDto, SendTemplateDto, SendTextDto } from './dto/whatsapp.dto';
 import { WhatsAppAgentService } from './whatsapp-agent.service';
 
+// How often the scheduled-message loop scans for due messages.
+const SCHEDULER_TICK_MS = 60_000;
+
 @Injectable()
-export class WhatsAppService {
+export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WhatsAppService.name);
+  private schedulerTimer: NodeJS.Timeout | null = null;
+  private schedulerRunning = false;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly agent: WhatsAppAgentService,
   ) {}
+
+  onModuleInit() {
+    this.schedulerTimer = setInterval(() => void this.deliverDueScheduledMessages(), SCHEDULER_TICK_MS);
+  }
+
+  onModuleDestroy() {
+    if (this.schedulerTimer) clearInterval(this.schedulerTimer);
+  }
 
   private get apiVersion(): string {
     return this.configService.get<string>('WHATSAPP.API_VERSION') || 'v23.0';
@@ -296,6 +316,14 @@ export class WhatsAppService {
     const config = await this.agent.getConfig(inbound.organizationId);
     if (!config.enabled) return;
 
+    // Per-number override: a BLOCKED contact never gets an auto-reply (the
+    // draft still goes to the review queue).
+    const contact = await this.prisma.whatsAppContact.findUnique({
+      where: { organizationId_waId: { organizationId: inbound.organizationId, waId: inbound.counterparty } },
+      select: { agentAutoReply: true },
+    });
+    const numberBlocked = contact?.agentAutoReply === 'BLOCKED';
+
     // Recent conversation with this counterparty for context (oldest first).
     const history = (
       await this.prisma.whatsAppMessage.findMany({
@@ -311,7 +339,7 @@ export class WhatsAppService {
       .catch(() => null);
 
     const verdict = await this.agent.draftReply(inbound.organizationId, inbound.body, history, customerContext);
-    const autoSend = config.autoSendEnabled && verdict.canAutoSend;
+    const autoSend = config.autoSendEnabled && verdict.canAutoSend && !numberBlocked;
 
     const suggestion = await this.prisma.whatsAppSuggestion.create({
       data: {
@@ -336,6 +364,239 @@ export class WhatsAppService {
       this.logger.log(`Agent auto-replied to ${inbound.counterparty} (confidence ${verdict.confidence})`);
     } else {
       this.logger.log(`Agent queued suggestion for ${inbound.counterparty} (${verdict.reason})`);
+    }
+  }
+
+  // ── Contacts ──────────────────────────────────────────────────────────────
+
+  private async upsertContact(
+    organizationId: string,
+    waId: string,
+    data: { profileName?: string; appContactName?: string; lastMessageAt?: Date },
+  ) {
+    await this.prisma.whatsAppContact
+      .upsert({
+        where: { organizationId_waId: { organizationId, waId } },
+        update: data,
+        create: { organizationId, waId, ...data },
+      })
+      .catch(() => {}); // concurrent webhook deliveries can race — last write wins is fine
+  }
+
+  /**
+   * Contact book for pickers: everyone we've exchanged messages with, best
+   * available name first (phone address book > WhatsApp push name > AIMS
+   * customer record).
+   */
+  async listContacts(organizationId: string) {
+    // Sweep message history so pre-feature conversations appear too.
+    const counterparties = await this.prisma.whatsAppMessage.groupBy({
+      by: ['counterparty'],
+      where: { organizationId, counterparty: { not: '' } },
+      _max: { createdAt: true },
+    });
+    const known = await this.prisma.whatsAppContact.findMany({ where: { organizationId } });
+    const knownById = new Map(known.map((c) => [c.waId, c]));
+
+    const customers = await this.prisma.customer.findMany({
+      where: { organizationId, phone: { not: null } },
+      select: { name: true, phone: true },
+    });
+    const customerByTail = new Map(
+      customers
+        .map((c) => [(c.phone || '').replace(/\D/g, '').slice(-8), c.name] as const)
+        .filter(([tail]) => tail.length === 8),
+    );
+
+    const merged = new Map<
+      string,
+      { waId: string; name: string | null; lastMessageAt: Date | null; agentAutoReply: string | null }
+    >();
+    for (const row of counterparties) {
+      const waId = row.counterparty.replace(/\D/g, '');
+      if (waId.length < 8) continue;
+      const contact = knownById.get(waId);
+      merged.set(waId, {
+        waId,
+        name: contact?.appContactName || contact?.profileName || customerByTail.get(waId.slice(-8)) || null,
+        lastMessageAt: row._max.createdAt,
+        agentAutoReply: contact?.agentAutoReply || null,
+      });
+    }
+    for (const contact of known) {
+      if (merged.has(contact.waId)) continue;
+      merged.set(contact.waId, {
+        waId: contact.waId,
+        name: contact.appContactName || contact.profileName || customerByTail.get(contact.waId.slice(-8)) || null,
+        lastMessageAt: contact.lastMessageAt,
+        agentAutoReply: contact.agentAutoReply || null,
+      });
+    }
+    return Array.from(merged.values()).sort(
+      (a, b) => (b.lastMessageAt?.getTime() || 0) - (a.lastMessageAt?.getTime() || 0),
+    );
+  }
+
+  /** Approve / block / reset the AI auto-reply permission for one number. */
+  async setContactAgentPermission(organizationId: string, waId: string, permission: string | null) {
+    const digits = (waId || '').replace(/\D/g, '');
+    if (digits.length < 8) throw new BadRequestException('Invalid number');
+    const value = permission ? permission.toUpperCase() : null;
+    if (value && !['APPROVED', 'BLOCKED'].includes(value)) throw new BadRequestException('Invalid permission');
+    await this.prisma.whatsAppContact.upsert({
+      where: { organizationId_waId: { organizationId, waId: digits } },
+      update: { agentAutoReply: value },
+      create: { organizationId, waId: digits, agentAutoReply: value },
+    });
+    return { waId: digits, agentAutoReply: value };
+  }
+
+  // ── Scheduled messages ────────────────────────────────────────────────────
+
+  async createScheduledMessage(
+    organizationId: string,
+    dto: {
+      to: string;
+      body: string;
+      scheduledAt: string;
+      recurrence?: string;
+      recurEvery?: number;
+      recurUntil?: string | null;
+    },
+    userId?: string,
+  ) {
+    const to = (dto?.to || '').replace(/\D/g, '');
+    if (!to || to.length < 8) throw new BadRequestException('A valid recipient number (with country code) is required');
+    if (!dto?.body?.trim()) throw new BadRequestException('Message body is required');
+    const when = new Date(dto?.scheduledAt || '');
+    if (Number.isNaN(when.getTime())) throw new BadRequestException('A valid scheduled time is required');
+    if (when.getTime() < Date.now() - 60_000) throw new BadRequestException('Scheduled time is in the past');
+
+    const recurrence = (dto.recurrence || 'NONE').toUpperCase();
+    const VALID = ['NONE', 'DAILY', 'WEEKLY', 'MONTHLY', 'CUSTOM_DAYS'];
+    if (!VALID.includes(recurrence)) throw new BadRequestException('Invalid recurrence');
+    let recurEvery: number | null = null;
+    if (recurrence === 'CUSTOM_DAYS') {
+      recurEvery = Math.floor(Number(dto.recurEvery));
+      if (!recurEvery || recurEvery < 1) throw new BadRequestException('Custom recurrence needs a day interval of 1 or more');
+    }
+    const recurUntil = dto.recurUntil ? new Date(dto.recurUntil) : null;
+    if (recurUntil && Number.isNaN(recurUntil.getTime())) throw new BadRequestException('Invalid end date');
+
+    await this.requireConnection(organizationId); // fail early if org has no active number
+    return this.prisma.whatsAppScheduledMessage.create({
+      data: {
+        organizationId,
+        to,
+        body: dto.body.trim(),
+        scheduledAt: when,
+        recurrence,
+        recurEvery,
+        recurUntil,
+        createdBy: userId || null,
+      },
+    });
+  }
+
+  /** Advance a date by one recurrence step; null once the series should end. */
+  private nextOccurrence(from: Date, recurrence: string, recurEvery: number | null): Date | null {
+    const d = new Date(from);
+    switch (recurrence) {
+      case 'DAILY':
+        d.setDate(d.getDate() + 1);
+        return d;
+      case 'WEEKLY':
+        d.setDate(d.getDate() + 7);
+        return d;
+      case 'MONTHLY':
+        d.setMonth(d.getMonth() + 1);
+        return d;
+      case 'CUSTOM_DAYS':
+        if (!recurEvery || recurEvery < 1) return null;
+        d.setDate(d.getDate() + recurEvery);
+        return d;
+      default:
+        return null;
+    }
+  }
+
+  async listScheduledMessages(organizationId: string) {
+    return this.prisma.whatsAppScheduledMessage.findMany({
+      where: { organizationId },
+      orderBy: [{ status: 'asc' }, { scheduledAt: 'desc' }],
+      take: 200,
+    });
+  }
+
+  async cancelScheduledMessage(organizationId: string, id: string) {
+    const res = await this.prisma.whatsAppScheduledMessage.updateMany({
+      where: { id, organizationId, status: 'PENDING' },
+      data: { status: 'CANCELLED' },
+    });
+    if (!res.count) throw new BadRequestException('Message not found or no longer pending');
+    return { cancelled: true };
+  }
+
+  /**
+   * Scheduler tick: send everything due. Free-text delivery is subject to
+   * WhatsApp's 24h customer-service window — Meta accepts the send either way,
+   * so a closed window surfaces later via webhook status, not here.
+   */
+  private async deliverDueScheduledMessages() {
+    if (this.schedulerRunning) return; // don't overlap slow ticks
+    this.schedulerRunning = true;
+    try {
+      const due = await this.prisma.whatsAppScheduledMessage.findMany({
+        where: { status: 'PENDING', scheduledAt: { lte: new Date() } },
+        orderBy: { scheduledAt: 'asc' },
+        take: 25,
+      });
+      for (const msg of due) {
+        // Claim first so a crash can't double-send.
+        const claimed = await this.prisma.whatsAppScheduledMessage.updateMany({
+          where: { id: msg.id, status: 'PENDING' },
+          data: { status: 'SENDING' },
+        });
+        if (!claimed.count) continue;
+        try {
+          const sent = await this.sendText(msg.organizationId, { to: msg.to, body: msg.body });
+          // Compute the next occurrence for recurring rows; if there is one and
+          // it's within the series window, re-arm this row instead of closing it.
+          let next: Date | null = null;
+          if (msg.recurrence && msg.recurrence !== 'NONE') {
+            next = this.nextOccurrence(msg.scheduledAt, msg.recurrence, msg.recurEvery);
+            if (next && msg.recurUntil && next.getTime() > msg.recurUntil.getTime()) next = null;
+          }
+          await this.prisma.whatsAppScheduledMessage.update({
+            where: { id: msg.id },
+            data: next
+              ? { status: 'PENDING', scheduledAt: next, sentMessageId: sent.id, error: null, recurCount: { increment: 1 } }
+              : { status: 'SENT', sentMessageId: sent.id, error: null, recurCount: { increment: 1 } },
+          });
+          this.logger.log(
+            `Scheduled message ${msg.id} sent to ${msg.to}${next ? ` — next ${next.toISOString()}` : ''}`,
+          );
+        } catch (e: any) {
+          // Recurring rows keep going after a single failure — re-arm the next
+          // occurrence so one closed 24h window doesn't kill the series.
+          let next: Date | null = null;
+          if (msg.recurrence && msg.recurrence !== 'NONE') {
+            next = this.nextOccurrence(msg.scheduledAt, msg.recurrence, msg.recurEvery);
+            if (next && msg.recurUntil && next.getTime() > msg.recurUntil.getTime()) next = null;
+          }
+          await this.prisma.whatsAppScheduledMessage.update({
+            where: { id: msg.id },
+            data: next
+              ? { status: 'PENDING', scheduledAt: next, error: e.message?.slice(0, 500) || 'send failed' }
+              : { status: 'FAILED', error: e.message?.slice(0, 500) || 'send failed' },
+          });
+          this.logger.error(`Scheduled message ${msg.id} failed: ${e.message}`);
+        }
+      }
+    } catch (e) {
+      this.logger.error(`Scheduler tick failed: ${(e as Error).message}`);
+    } finally {
+      this.schedulerRunning = false;
     }
   }
 
@@ -364,12 +625,12 @@ export class WhatsAppService {
    * the `history` webhook (last ~180 days, only if the user shared history
    * during onboarding).
    */
-  async requestHistorySync(organizationId: string) {
+  async requestHistorySync(organizationId: string, syncType: 'history' | 'smb_app_state_sync' = 'history') {
     const connection = await this.requireConnection(organizationId);
     const resp = await this.graph(`${connection.phoneNumberId}/smb_app_data`, {
       method: 'POST',
       token: connection.accessToken,
-      body: { messaging_product: 'whatsapp', sync_type: 'history' },
+      body: { messaging_product: 'whatsapp', sync_type: syncType },
     });
     return resp;
   }
@@ -425,7 +686,7 @@ export class WhatsAppService {
       for (const change of changes) {
         const value = change?.value;
         const field: string = change?.field;
-        if (!value || !['messages', 'smb_message_echoes', 'history'].includes(field)) continue;
+        if (!value || !['messages', 'smb_message_echoes', 'history', 'smb_app_state_sync'].includes(field)) continue;
 
         const phoneNumberId: string | undefined = value?.metadata?.phone_number_id;
         if (!phoneNumberId) continue;
@@ -474,6 +735,30 @@ export class WhatsAppService {
         if (field === 'history') {
           await this.ingestHistoryChunk(connection.organizationId, connection.displayPhoneNumber, value);
           continue;
+        }
+
+        // Coexistence contact sync: the phone's saved address-book names.
+        if (field === 'smb_app_state_sync') {
+          const entries: any[] = value.state_sync || value.contacts || [];
+          for (const entry of entries) {
+            const contact = entry?.contact || entry;
+            const waId = String(contact?.phone_number || contact?.wa_id || '').replace(/\D/g, '');
+            const name = contact?.full_name || contact?.first_name || null;
+            if (!waId || !name || entry?.action === 'remove') continue;
+            await this.upsertContact(connection.organizationId, waId, { appContactName: name });
+          }
+          continue;
+        }
+
+        // WhatsApp push names of inbound senders ride along on message events.
+        for (const c of value.contacts || []) {
+          const waId = String(c?.wa_id || '').replace(/\D/g, '');
+          if (waId && c?.profile?.name) {
+            await this.upsertContact(connection.organizationId, waId, {
+              profileName: c.profile.name,
+              lastMessageAt: new Date(),
+            });
+          }
         }
 
         // Delivery receipts for messages we sent.
