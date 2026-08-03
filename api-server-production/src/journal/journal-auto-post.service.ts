@@ -613,6 +613,9 @@ export class JournalAutoPostService {
     entryDate: Date;
     customerName?: string | null;
     bankAccountCode: string;
+    // Credit-side account (guru 2026-07-28: selectable in the OR editor).
+    // Defaults to the debtor control when absent.
+    creditAccountCode?: string | null;
     currency?: string | null;
     rate?: number | null;
     amount: number; // receipt total, in receipt currency
@@ -625,11 +628,12 @@ export class JournalAutoPostService {
       this.logger.warn(`[postFromReceipt] org=${organizationId} has no controlAccounts; skipping`);
       return null;
     }
-    const debtor = await this.resolveAccountByCode(organizationId, controls.debtorControl);
+    const creditCode = args.creditAccountCode || controls.debtorControl;
+    const debtor = await this.resolveAccountByCode(organizationId, creditCode);
     const bank = await this.resolveAccountByCode(organizationId, args.bankAccountCode);
     if (!debtor || !bank) {
       this.logger.warn(
-        `[postFromReceipt] missing accounts (debtor=${controls.debtorControl}, bank=${args.bankAccountCode}); skipping`,
+        `[postFromReceipt] missing accounts (credit=${creditCode}, bank=${args.bankAccountCode}); skipping`,
       );
       return null;
     }

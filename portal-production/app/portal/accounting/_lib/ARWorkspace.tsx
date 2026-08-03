@@ -30,7 +30,6 @@ import {
   Typography,
   alpha,
 } from "@mui/material";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AssessmentOutlinedIcon from "@mui/icons-material/AssessmentOutlined";
 import CloseIcon from "@mui/icons-material/Close";
 import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
@@ -214,30 +213,31 @@ export default function ARWorkspace() {
       <Typography variant="caption" sx={{ color: "text.secondary", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700 }}>
         {label}
       </Typography>
-      <Typography sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.25rem", mt: 0.5, color: tone || "text.primary" }}>
+      <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: "1.25rem", mt: 0.5, color: tone || "text.primary" }}>
         {fmt(value)}
       </Typography>
     </Paper>
   );
 
   const headCellSx = { fontWeight: 700, fontSize: "0.7rem", letterSpacing: "0.08em", textTransform: "uppercase", color: "text.secondary" } as const;
-  const monoRight = { fontFamily: "monospace", textAlign: "right" } as const;
+  const monoRight = { fontVariantNumeric: "tabular-nums", textAlign: "right" } as const;
 
   // =====================================================================
   // Drill-in: legacy "Debtor Historical Listing"
   // =====================================================================
-  if (selected) {
-    return (
-      <Box sx={{ px: 3, py: 3, maxWidth: 1400, mx: "auto", width: "100%" }}>
+  // Debtor ledger — opens as a LARGE DIALOG over the balances list instead of
+  // swapping the page away (guru 2026-07-31).
+  const debtorDialog = (
+    <Dialog open={!!selected} onClose={() => setSelected(null)} fullWidth maxWidth="lg">
+      <DialogContent sx={{ p: 3 }}>
+        {selected && (
+          <>
         <Stack direction="row" alignItems="center" gap={1.5} sx={{ mb: 2, flexWrap: "wrap" }}>
-          <IconButton onClick={() => setSelected(null)} size="small">
-            <ArrowBackIcon />
-          </IconButton>
           <Box sx={{ mr: 2 }}>
             <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.1 }}>
               {selected.name}
             </Typography>
-            <Typography variant="caption" sx={{ color: "text.secondary", fontFamily: "monospace" }}>
+            <Typography variant="caption" sx={{ color: "text.secondary", fontVariantNumeric: "tabular-nums" }}>
               {selected.code || "—"}
             </Typography>
           </Box>
@@ -262,17 +262,26 @@ export default function ARWorkspace() {
             <Typography variant="caption" sx={{ color: "text.secondary", mr: 1 }}>
               Balance B/F
             </Typography>
-            <Typography component="span" sx={{ fontFamily: "monospace", fontWeight: 700 }}>
+            <Typography component="span" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
               {fmt(ledger?.opening ?? 0)}
             </Typography>
           </Paper>
           <Button
             variant="outlined"
             startIcon={<ReceiptLongOutlinedIcon />}
-            onClick={() => router.push(`/portal/accounting/receivables?tab=soa`)}
+            // Deep-link into the legacy Statement-Of-Accounts report with this
+            // customer + period prefilled and auto-loaded (guru 2026-07-31).
+            onClick={() =>
+              router.push(
+                `/portal/accounting/receivables?tab=debtor-statement&contactId=${selected.id}&asOf=${toPeriod}`
+              )
+            }
           >
             Statement of Accounts
           </Button>
+          <IconButton onClick={() => setSelected(null)} size="small">
+            <CloseIcon fontSize="small" />
+          </IconButton>
         </Stack>
 
         {ledgerLoading ? (
@@ -280,8 +289,13 @@ export default function ARWorkspace() {
             <CircularProgress />
           </Box>
         ) : (
-          <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, maxHeight: "62vh" }}>
-            <Table size="small" stickyHeader>
+          <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, maxHeight: "55vh" }}>
+            <Table size="small" stickyHeader sx={(t) => ({
+              "& tbody td": {
+                py: 0.5,
+                borderBottom: `1px solid ${t.palette.mode === "dark" ? "rgba(255,255,255,0.32)" : "rgba(0,0,0,0.32)"}`,
+              },
+            })}>
               <TableHead>
                 <TableRow>
                   <TableCell sx={headCellSx}>Reference</TableCell>
@@ -295,7 +309,7 @@ export default function ARWorkspace() {
               <TableBody>
                 {(ledger?.txs || []).map((t, i) => (
                   <TableRow key={i} hover>
-                    <TableCell sx={{ fontFamily: "monospace", fontWeight: 600 }}>{t.reference || "—"}</TableCell>
+                    <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{t.reference || "—"}</TableCell>
                     <TableCell sx={{ whiteSpace: "nowrap" }}>{dmy(t.date)}</TableCell>
                     <TableCell>{t.description || ""}</TableCell>
                     <TableCell sx={monoRight}>{t.debit ? fmt(t.debit) : ""}</TableCell>
@@ -338,13 +352,15 @@ export default function ARWorkspace() {
               <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                 {x.label}
               </Typography>
-              <Typography sx={{ fontFamily: "monospace", fontWeight: 700 }}>{fmt(x.value)}</Typography>
+              <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{fmt(x.value)}</Typography>
             </Box>
           ))}
         </Paper>
-      </Box>
-    );
-  }
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
 
   // =====================================================================
   // Landing: customer balances
@@ -391,6 +407,7 @@ export default function ARWorkspace() {
             Official Receipt opens the real document editor on the latest saved
             receipt (legacy behaviour), or a fresh OR-numbered shell when none. */}
         <Button
+          data-tour="ar-official-receipt"
           variant="contained"
           startIcon={openingReceipt ? <CircularProgress size={16} color="inherit" /> : <ReceiptLongOutlinedIcon />}
           disabled={openingReceipt}
@@ -427,7 +444,13 @@ export default function ARWorkspace() {
         </Box>
       ) : (
         <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, maxHeight: "58vh" }}>
-          <Table size="small" stickyHeader>
+          {/* Tight rows + dashed separators (guru 2026-07-28). */}
+          <Table size="small" stickyHeader sx={(t) => ({
+              "& tbody td": {
+                py: 0.5,
+                borderBottom: `1px solid ${t.palette.mode === "dark" ? "rgba(255,255,255,0.32)" : "rgba(0,0,0,0.32)"}`,
+              },
+            })}>
             <TableHead>
               <TableRow>
                 <TableCell sx={{ ...headCellSx, width: 130 }}>Customer Code</TableCell>
@@ -448,7 +471,7 @@ export default function ARWorkspace() {
                   }}
                   sx={{ cursor: "pointer" }}
                 >
-                  <TableCell sx={{ fontFamily: "monospace", fontWeight: 600 }}>{codeById.get(r.contactId) || "—"}</TableCell>
+                  <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{codeById.get(r.contactId) || "—"}</TableCell>
                   <TableCell>{r.contactName}</TableCell>
                   <TableCell sx={{ ...monoRight, fontWeight: 600 }}>{fmt(r.total)}</TableCell>
                   <TableCell>{r.currency || "SGD"}</TableCell>
@@ -488,9 +511,12 @@ export default function ARWorkspace() {
           <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", letterSpacing: "0.06em" }}>
             Total Receivables{search ? " (filtered)" : ""}
           </Typography>
-          <Typography sx={{ fontFamily: "monospace", fontWeight: 700 }}>{fmt(search ? visibleTotal : grandTotal)}</Typography>
+          <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{fmt(search ? visibleTotal : grandTotal)}</Typography>
         </Box>
       </Paper>
+
+      {/* ---------- Debtor ledger dialog ---------- */}
+      {debtorDialog}
 
       {/* ---------- View Reports dialog ---------- */}
       <Dialog open={reportsOpen} onClose={() => setReportsOpen(false)} maxWidth="md" fullWidth>

@@ -101,6 +101,7 @@ export default function OfficialReceiptPage() {
         chequeNo: od.chequeNo || null,
         remarks: od.remarks || null,
         customerId: data?.customer?.id,
+        creditAccountCode: od.creditAccountCode || null,
         debitAccountCode: od.debitAccountCode,
         currency: od.currency || "SGD",
         rate: parseFloat(od.rate) || 1,

@@ -186,6 +186,9 @@ export function OrCustomerInput({ formData, setFormData, customers = [], onOpenD
   return (
     <>
       <TextField
+        // Same data-tour token as the main editor's customer field so receipt
+        // walkthroughs can spotlight it.
+        data-tour="editor-customer"
         size="small"
         value={input}
         placeholder="Code"
@@ -298,7 +301,7 @@ export function AccountSelectDialog({
                     handleClose();
                   }}
                 >
-                  <TableCell sx={{ fontFamily: "monospace" }}>{a.code}</TableCell>
+                  <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{a.code}</TableCell>
                   <TableCell>{a.name}</TableCell>
                   <TableCell>{String(a.accountType || "").replace(/_/g, " ")}</TableCell>
                 </TableRow>
@@ -328,14 +331,43 @@ export function AccountSelectDialog({
   );
 }
 
-export function OrCreditInput({ formData }: RowProps) {
+// Accounts to CREDIT — same code-box + search → Locate Account pattern as the
+// DEBIT field (guru 2026-07-28), but over the FULL chart (default 610 AR;
+// deposit receipts credit CD/liability accounts instead).
+export function OrCreditInput({ formData, setFormData }: RowProps) {
   const accounts = useOrAccounts();
   const code = formData?.orData?.creditAccountCode || "";
-  const name = accounts.find((a) => a.code === code)?.name || "";
+  const [input, setInput] = useState(code);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  useEffect(() => setInput(code), [code]);
+  const selected = accounts.find((a) => a.code === code);
+  const commit = (acc: OrAccount) => setOrData(formData, setFormData, { creditAccountCode: acc.code });
   return (
     <>
-      <TextField size="small" value={code} InputProps={{ readOnly: true }} sx={{ ...headerInputSx, width: 130 }} />
-      <AccountEcho currency={formData?.orData?.currency || "SGD"} name={name || (code ? "" : "")} />
+      <TextField
+        size="small"
+        value={input}
+        placeholder="Code"
+        onChange={(e) => {
+          const v = e.target.value;
+          setInput(v);
+          const match = accounts.find((a) => String(a.code).toLowerCase() === v.trim().toLowerCase());
+          if (match && match.code !== code) commit(match);
+        }}
+        onBlur={() => setInput(code)}
+        sx={{ ...headerInputSx, width: 180 }}
+        InputProps={{
+          startAdornment: (
+            <InputAdornment position="start" sx={{ mr: 0 }}>
+              <IconButton size="small" onClick={() => setDialogOpen(true)} sx={{ p: 0.25, ml: -0.5 }} title="Search">
+                <SearchIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </InputAdornment>
+          ),
+        }}
+      />
+      <AccountEcho currency={formData?.orData?.currency || "SGD"} name={selected?.name || ""} />
+      <AccountSelectDialog open={dialogOpen} onClose={() => setDialogOpen(false)} accounts={accounts} onSelect={commit} />
     </>
   );
 }
@@ -392,7 +424,8 @@ export function OrAmountInput({ formData, setFormData }: RowProps) {
   const rate = Number(od.rate) || 1;
   const amount = Number(od.receiptAmount) || 0;
   return (
-    <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "nowrap" }}>
+    // data-tour: anchor for AIMS Guide walkthroughs (receipt amount step)
+    <Box data-tour="or-amount" sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "nowrap" }}>
       <Typography sx={{ fontSize: "13px", fontWeight: 700, color: "text.secondary" }}>{currency}</Typography>
       <TextField
         size="small"
@@ -583,7 +616,7 @@ export function OfficialReceiptOffsetSection({
         ))}
       </Stack>
 
-      <Card sx={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
+      <Card data-tour="or-offset-grid" sx={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <CardContent sx={{ p: 1, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>
           <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
             <Tabs value={0} sx={{ minHeight: 32, "& .MuiTab-root": { minHeight: 32, py: 0 } }}>
@@ -592,6 +625,19 @@ export function OfficialReceiptOffsetSection({
           </Box>
 
           <Box sx={{ flex: 1, minHeight: 120, display: "flex", flexDirection: "column", pt: 1 }}>
+            {/* The lock/read-only state only gates allocations + save (header
+                inputs stay typeable), so say WHY the ticks are disabled. */}
+            {disabled && (
+              <Alert severity="warning" variant="outlined" sx={{ mb: 1, alignSelf: "flex-start" }}>
+                Read-only — another session holds this receipt&apos;s edit lock. Close the other tab
+                or use &quot;Take over&quot; in the banner at the top of the page.
+              </Alert>
+            )}
+            {!disabled && customerId && invoices.length > 0 && received <= 0 && (
+              <Alert severity="info" variant="outlined" sx={{ mb: 1, alignSelf: "flex-start" }}>
+                Enter the receipt amount first — allocations unlock once there is money to allocate.
+              </Alert>
+            )}
             {!customerId ? (
               <Alert severity="info" variant="outlined" sx={{ alignSelf: "flex-start" }}>
                 Pick a customer to list their unpaid invoices.
@@ -606,14 +652,25 @@ export function OfficialReceiptOffsetSection({
               </Alert>
             ) : (
               <TableContainer component={Paper} variant="outlined" sx={{ flex: 1, minHeight: 0, borderRadius: 1.5 }}>
-                <Table size="small" stickyHeader>
+                {/* Tight rows + visible separators — same treatment as the AR
+                    workspace tables (guru 2026-07-28). */}
+                <Table
+                  size="small"
+                  stickyHeader
+                  sx={(t) => ({
+                    "& tbody td": {
+                      py: 0.5,
+                      borderBottom: `1px solid ${t.palette.mode === "dark" ? "rgba(255,255,255,0.32)" : "rgba(0,0,0,0.32)"}`,
+                    },
+                  })}
+                >
                   <TableHead>
                     <TableRow>
-                      <TableCell sx={{ ...headCellSx, width: 44 }} />
                       <TableCell sx={headCellSx}>Reference</TableCell>
                       <TableCell sx={headCellSx}>Date</TableCell>
                       <TableCell sx={headCellSx}>Remarks</TableCell>
                       <TableCell sx={{ ...headCellSx, textAlign: "right" }}>Outstanding</TableCell>
+                      <TableCell sx={{ ...headCellSx, width: 44 }} />
                       <TableCell sx={{ ...headCellSx, textAlign: "right", width: 150 }}>Allocated</TableCell>
                     </TableRow>
                   </TableHead>
@@ -626,6 +683,11 @@ export function OfficialReceiptOffsetSection({
                           hover
                           sx={ticked ? { bgcolor: (t) => alpha(t.palette.primary.main, 0.06) } : undefined}
                         >
+                          <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{inv.reference}</TableCell>
+                          <TableCell>{inv.date ? new Date(inv.date).toLocaleDateString("en-GB") : "—"}</TableCell>
+                          <TableCell>{inv.remarks}</TableCell>
+                          <TableCell sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(inv.outstanding)}</TableCell>
+                          {/* Tick sits beside the Allocated box it controls (guru 2026-07-28). */}
                           <TableCell padding="checkbox">
                             <Checkbox
                               size="small"
@@ -634,10 +696,6 @@ export function OfficialReceiptOffsetSection({
                               disabled={disabled || received <= 0}
                             />
                           </TableCell>
-                          <TableCell sx={{ fontFamily: "monospace" }}>{inv.reference}</TableCell>
-                          <TableCell>{inv.date ? new Date(inv.date).toLocaleDateString("en-GB") : "—"}</TableCell>
-                          <TableCell>{inv.remarks}</TableCell>
-                          <TableCell sx={{ textAlign: "right", fontFamily: "monospace" }}>{fmt(inv.outstanding)}</TableCell>
                           <TableCell sx={{ textAlign: "right" }}>
                             <TextField
                               size="small"
@@ -661,13 +719,13 @@ export function OfficialReceiptOffsetSection({
               <Typography variant="body2" sx={{ color: "text.secondary" }}>
                 Received
               </Typography>
-              <Typography sx={{ fontFamily: "monospace", fontWeight: 600, minWidth: 100, textAlign: "right" }}>
+              <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, minWidth: 100, textAlign: "right" }}>
                 {fmt(received)}
               </Typography>
               <Typography variant="body2" sx={{ color: "text.secondary" }}>
                 Offset
               </Typography>
-              <Typography sx={{ fontFamily: "monospace", fontWeight: 600, minWidth: 100, textAlign: "right" }}>
+              <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, minWidth: 100, textAlign: "right" }}>
                 {fmt(offset)}
               </Typography>
               <Typography variant="body2" sx={{ fontWeight: 700 }}>
@@ -675,7 +733,7 @@ export function OfficialReceiptOffsetSection({
               </Typography>
               <Typography
                 sx={{
-                  fontFamily: "monospace",
+                  fontVariantNumeric: "tabular-nums",
                   fontWeight: 700,
                   minWidth: 100,
                   textAlign: "right",

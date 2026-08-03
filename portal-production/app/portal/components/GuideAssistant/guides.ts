@@ -272,22 +272,39 @@ export const GUIDES: Guide[] = [
   },
   {
     id: 'record-payment',
-    title: 'Record a Customer Payment',
+    title: 'Record a Customer Payment (Official Receipt)',
     description:
-      'How to record a customer payment / receipt against an invoice, or see which invoices are unpaid: Accounts Receivable under Accounting.',
+      'How to record a customer payment / receipt / official receipt (OR) when a customer has paid an invoice: create the receipt, allocate it against the invoice, and save.',
     route: '/portal/accounting/receivables',
     module: 'ACCOUNTING',
     steps: [
       {
         route: '/portal/accounting/receivables',
-        selector: '[data-tour="nav-ACCOUNTING-receivables"]',
-        title: 'Accounts Receivable',
-        body: "Customer payments are handled in Accounting → Accounts Receivable. I've brought you here — this shows your invoices and what's still outstanding.",
+        selector: '[data-tour="ar-official-receipt"]',
+        advanceOn: 'click',
+        title: 'Open an Official Receipt',
+        body: "Customer payments are recorded as Official Receipts. Click this button — it opens the receipt editor. I'll follow you in.",
       },
       {
-        route: '/portal/accounting/receivables',
-        title: 'Record the receipt',
-        body: 'Find the invoice that was paid, open it, and record the amount received with the payment date. Fully-paid invoices move to Paid; partial payments leave the balance outstanding.',
+        selector: '[data-tour="editor-customer"]',
+        patient: true,
+        title: 'Pick the customer who paid',
+        body: 'Type the customer code, or click the search icon to pick from the list. Their unpaid invoices then appear below in Offset Transactions. Set the receipt Date (and Cheque No. if any) on the rows above.',
+      },
+      {
+        selector: '[data-tour="or-amount"]',
+        title: 'Enter the amount received',
+        body: 'Key in exactly what the customer paid. The debit account is the bank the money went into; the credit account defaults to Accounts Receivable.',
+      },
+      {
+        selector: '[data-tour="or-offset-grid"]',
+        title: 'Allocate it against invoices',
+        body: 'Tick the invoice(s) this payment covers — ticking auto-fills the allocation, or type a per-invoice amount for partial payments. The Balance at the bottom right must reach 0.00 (fully allocated).',
+      },
+      {
+        selector: '[data-tour="editor-save"]',
+        title: 'Save the receipt',
+        body: 'Press Save — it posts the receipt and marks the allocated invoices as paid (partial allocations leave the rest outstanding). Save stays blocked until the balance is exactly 0.00.',
       },
     ],
   },

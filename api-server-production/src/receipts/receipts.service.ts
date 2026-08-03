@@ -149,7 +149,7 @@ export class ReceiptsService {
           chequeNo: null,
           remarks: '',
           customerId: null,
-          creditAccountCode: controls.debtorControl || null, // read-only in UI
+          creditAccountCode: controls.debtorControl || null, // default; selectable in UI
           debitAccountCode: null,
           currency: setting?.baseCurrency || 'SGD',
           rate: 1,
@@ -346,6 +346,7 @@ export class ReceiptsService {
             customerId: customer.id,
             customerName: customer.name,
             debitAccountCode: dto.debitAccountCode,
+            creditAccountCode: (dto as any).creditAccountCode || undefined,
             currency: (dto.currency || 'SGD').toUpperCase(),
             rate: Number(dto.rate) || 1,
             receiptAmount,
@@ -371,6 +372,7 @@ export class ReceiptsService {
       entryDate: new Date(dto.date),
       customerName: customer.name,
       bankAccountCode: dto.debitAccountCode,
+      creditAccountCode: (dto as any).creditAccountCode || null,
       currency: dto.currency || 'SGD',
       rate: dto.rate || 1,
       amount: receiptAmount,

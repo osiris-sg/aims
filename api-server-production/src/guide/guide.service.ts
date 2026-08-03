@@ -71,6 +71,8 @@ Spotlight anchors you may use in walkthrough steps (anchor field):
 - "document-upload" — the "Upload <type>" button on any Sales document list page (upload existing PDFs/images/ZIP for AI extraction)
 - On the Finance Hub (/portal/accounting): "finance-ask-ai" (Ask AI button), "new-journal-entry", "close-period"
 - "bankrec-upload" — the "Upload PDF statement" button on Bank Reconciliation
+- "ar-official-receipt" — the "Official Receipt" button on Accounts Receivable (opens the receipt editor)
+- In the Official Receipt editor: "or-amount" (Receipt Amount field), "or-offset-grid" (Offset Transactions grid — allocate against invoices)
 - Inside the document editor only: "editor-customer" (customer field), "editor-add-item" (Add Item button), "editor-confirm" (Confirm button), "editor-send-email" (Send Email button — invoices/quotations), "editor-save" (Save button), "editor-preview" (Preview/Edit toggle), "editor-more-menu" (the ⋮ more-actions menu — Print/PDF, Duplicate, Create Revision, History & notes live in it), "editor-ask-ai" (Ask AI button)
 Steps whose anchor can't be found on screen show as a centered explanation card, so a step with no anchor is fine — use anchor-less steps for anything without a listed anchor.
 
