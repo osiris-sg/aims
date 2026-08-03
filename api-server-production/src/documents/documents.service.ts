@@ -1519,6 +1519,23 @@ export class DocumentsService {
       // Sync DocumentItem junction table for efficient item queries
       await this.syncDocumentItems(updatedDocument.id, configAsPlainObject || existingDocument.config, organizationId);
 
+      // Draft-DO commitment (delivery-first #5): a DO that was linked to
+      // delivery-run items while still draft/unconfirmed carries NO commerce
+      // (no stamp, no deduction, no status mirror). Confirming it is the
+      // commitment point — flush the deferred link effects now. Runs AFTER
+      // syncDocumentItems so freshly-edited rows exist to bind/stamp against.
+      // Best-effort: a commit failure must not fail the save (all sub-ops are
+      // idempotent — a re-confirm or re-link can retry).
+      if (
+        ['DELIVERY_ORDER', 'DO'].includes(existingDocument.type) &&
+        dto.status === 'confirmed' &&
+        isUnconfirmedDoc(existingDocument.status)
+      ) {
+        await this.commitLinkedDeliveryItems(updatedDocument.id, organizationId).catch((err) =>
+          console.warn(`commitLinkedDeliveryItems on confirm failed for ${updatedDocument.id}: ${err?.message}`),
+        );
+      }
+
       return updatedDocument;
     } catch (error) {
       throw new HttpException(`Update failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -3692,6 +3709,118 @@ export class DocumentsService {
       if (!row) continue; // not on this DO, or already deducted — no-op
       const ok = await this.deductDocumentItemStock(row, documentId, document.name, organizationId);
       if (ok) deducted++;
+    }
+    return deducted;
+  }
+
+  /**
+   * Commit the commerce side of per-item delivery links for ONE DO: bind
+   * delivered units into unbound asset-level slots, stamp the run items'
+   * delivery states onto the DO's rows (advance-only), run the DO's OWN
+   * exactly-once stock deduction for already-delivered units, and mirror
+   * Document.status from the post-stamp fold. Every sub-op is idempotent
+   * (race-safe slot claim, advance-only stamp, deductedAt claim, no-downgrade
+   * mirror), so re-firing is safe.
+   *
+   * Called from deliveries.link for a confirmed-or-beyond DO (immediate
+   * commitment, `itemIds` = the linked selection) and from updateDocument's
+   * confirm hook for a DO that was linked while draft/unconfirmed (deferred
+   * commitment, no `itemIds` = every DeliveryItem pointing at this DO).
+   */
+  async commitLinkedDeliveryItems(
+    documentId: string,
+    organizationId: string,
+    itemIds?: string[],
+  ): Promise<number> {
+    const document = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true, name: true, status: true },
+    });
+    if (!document) {
+      throw new HttpException('Delivery Order not found', HttpStatus.NOT_FOUND);
+    }
+    const items = await this.prisma.deliveryItem.findMany({
+      where: { documentId, ...(itemIds?.length ? { id: { in: itemIds } } : {}) },
+    });
+    if (!items.length) return 0;
+
+    const RANK: Record<DeliveryStatus, number> = {
+      [DeliveryStatus.not_delivered]: 0,
+      [DeliveryStatus.delivering]: 1,
+      [DeliveryStatus.not_installed]: 2,
+      [DeliveryStatus.completed]: 3,
+    };
+
+    // Bind each unit into an unbound asset-level slot FIRST (shared auto-bind
+    // helper). Without this, asset-level rows would get status stamped below
+    // but be invisible to the unit-keyed deduction matcher. Units already
+    // bound (incl. create-DO's born-bound rows) skip via the pre-guard.
+    const invIds = items.map((i) => i.inventoryId).filter((v): v is string => !!v);
+    const units = invIds.length
+      ? await this.prisma.inventory.findMany({ where: { id: { in: invIds } }, select: { id: true, sku: true } })
+      : [];
+    const skuById = new Map(units.map((u) => [u.id, u.sku]));
+    for (const item of items) {
+      if (!item.inventoryId) continue;
+      await this.bindUnitToUnboundDoSlot(documentId, organizationId, {
+        id: item.inventoryId,
+        assetId: item.assetId,
+        sku: skuById.get(item.inventoryId) ?? null,
+      }).catch((err) =>
+        console.warn(`commitLinkedDeliveryItems: auto-bind failed for unit ${item.inventoryId}: ${err?.message}`),
+      );
+    }
+
+    // Stamp item states across (unit-level match, incl. asset-level DO rows —
+    // same matching family as advanceDeliveryItem). Only ever advances a DO
+    // row; a more-advanced DO row is left alone.
+    for (const item of items) {
+      if (!item.inventoryId) continue;
+      const itemMatch: any[] = [
+        { inventoryId: item.inventoryId },
+        { itemId: item.inventoryId },
+        { itemId: item.assetId, itemType: ItemType.ASSET },
+      ];
+      const rows = await this.prisma.documentItem.findMany({ where: { documentId, OR: itemMatch } });
+      const docRow = rows
+        .filter((r) => RANK[r.deliveryStatus] < RANK[item.deliveryStatus])
+        .sort((a, b) => RANK[a.deliveryStatus] - RANK[b.deliveryStatus])[0];
+      if (!docRow) continue;
+      await this.prisma.documentItem.update({
+        where: { id: docRow.id },
+        data: {
+          deliveryStatus: item.deliveryStatus,
+          deliveringAt: item.deliveringAt ?? docRow.deliveringAt,
+          deliveredAt: item.deliveredAt ?? docRow.deliveredAt,
+          completedAt: item.completedAt ?? docRow.completedAt,
+          installSkipped: item.installSkipped || docRow.installSkipped,
+        },
+      });
+    }
+
+    // The DO's own deduction for already-delivered units (ack'd or beyond).
+    // Exactly-once via the DocumentItem deductedAt claim; a unit soft-held as
+    // reserved flips to rental/sold through the widened predicate.
+    const deliveredUnitIds = items
+      .filter((i) => i.inventoryId && RANK[i.deliveryStatus] >= RANK[DeliveryStatus.not_installed])
+      .map((i) => i.inventoryId as string);
+    const deducted = await this.deductLinkedDeliveryUnits(documentId, organizationId, deliveredUnitIds);
+
+    // Mirror Document.status from the (post-stamp) item fold. No downgrade:
+    // delivered_installed is terminal. Completion gate NOT fired (by design).
+    if (document.status !== 'delivered_installed') {
+      const docItems = await this.prisma.documentItem.findMany({
+        where: { documentId },
+        select: { deliveryStatus: true, isService: true },
+      });
+      const deliverable = docItems.filter((i) => !i.isService);
+      if (deliverable.length > 0) {
+        if (deliverable.every((i) => i.deliveryStatus === DeliveryStatus.completed)) {
+          await this.prisma.document.update({ where: { id: documentId }, data: { status: 'delivered_installed' } });
+        } else if (deliverable.some((i) => RANK[i.deliveryStatus] >= RANK[DeliveryStatus.not_installed])) {
+          await this.prisma.document.update({ where: { id: documentId }, data: { status: 'delivered_not_installed' } });
+        }
+      }
     }
     return deducted;
   }

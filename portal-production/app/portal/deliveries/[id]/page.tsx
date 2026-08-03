@@ -327,8 +327,9 @@ export default function DeliveryDetailPage() {
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
             Tick the items below, then link them to a DO (or create one from them).
-            Items can go to different DOs — repeat for the rest. Linking binds the
-            delivered units to the DO, stamps its item statuses and deducts stock.
+            Items can go to different DOs — repeat for the rest. &ldquo;Create DO&rdquo;
+            makes a <b>draft</b> for review; stock is deducted only when the DO is
+            <b> confirmed</b> (linking to an already-confirmed DO deducts immediately).
             It does <b>not</b> create an invoice — invoicing stays a separate, manual step.
           </Typography>
           <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">

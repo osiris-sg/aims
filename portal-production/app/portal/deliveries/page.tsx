@@ -109,9 +109,9 @@ export default function DeliveriesQueuePage() {
         </Typography>
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Standalone delivery runs recorded in the field. Link each run to a Delivery
-        Order — linking stamps the DO&apos;s items and deducts stock (it does not
-        create an invoice).
+        Standalone delivery runs recorded in the field. Link each run&apos;s items to
+        Delivery Orders — created DOs start as drafts and deduct stock when confirmed
+        (it does not create an invoice).
       </Typography>
 
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
