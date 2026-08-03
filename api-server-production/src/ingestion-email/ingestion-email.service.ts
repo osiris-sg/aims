@@ -439,6 +439,41 @@ export class IngestionEmailService {
     );
     if (!created?.id) return null;
 
+    // Invoice-number dedupe (bills get this via their unique constraint;
+    // invoices don't). If an OLDER invoice with the same number exists —
+    // e.g. a re-sent PDF of an invoice already generated/imported — keep the
+    // original (it may be synced/paid in Xero), absorb the PDF onto it if it
+    // has none, and drop the fresh duplicate.
+    const freshRow = await this.prisma.document.findUnique({
+      where: { id: created.id },
+      select: { name: true, createdAt: true },
+    });
+    if (freshRow?.name) {
+      const original = await this.prisma.document.findFirst({
+        where: {
+          organizationId,
+          type: 'INVOICE',
+          name: freshRow.name,
+          id: { not: created.id },
+          createdAt: { lt: freshRow.createdAt },
+        },
+        select: { id: true, config: true },
+      });
+      if (original) {
+        const oc: any = original.config || {};
+        if (!oc.sourceFileUrl && fileUrl) {
+          await this.prisma.document.update({
+            where: { id: original.id },
+            data: { config: { ...oc, sourceFileUrl: fileUrl, source: { ...(oc.source || {}), extractedFrom: 'email', fileUrl } } as unknown as Prisma.InputJsonValue },
+          });
+        }
+        await this.prisma.documentItem.deleteMany({ where: { documentId: created.id } });
+        await this.prisma.document.delete({ where: { id: created.id } });
+        this.logger.log(`invoice ${freshRow.name} already exists — duplicate dropped, original kept`);
+        return original.id;
+      }
+    }
+
     // JP-pass recharge invoices (BIPL-JPSG-…): disbursement recharges — force
     // NO GST and point every item at the accountant's 443 "JP Pass Application
     // (External Customers)". Other invoices keep their extracted values.
@@ -794,7 +829,14 @@ export class IngestionEmailService {
     const config = (doc?.config && typeof doc.config === 'object' ? doc.config : {}) as Record<string, any>;
     const items: any[] = Array.isArray(config.items) ? config.items : [];
 
-    const description = bills
+    // The invoice may be a pre-existing row (duplicate re-send dedupe returns
+    // the original) that already carries a bill listing — don't double-append.
+    // If some of this email's bills are new to the listing, append only those.
+    const existingText = items.map((it) => it.description || '').join('\n');
+    const fresh = bills.filter((b) => b.billNumber && !existingText.includes(b.billNumber));
+    if (fresh.length === 0) return;
+
+    const description = fresh
       .map((b, i) => `${i + 1}. ${b.billNumber || '(no bill number)'}${b.total != null ? ` — ${b.total.toFixed(2)}` : ''}`)
       .join('\n');
 
