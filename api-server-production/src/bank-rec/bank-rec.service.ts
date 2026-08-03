@@ -397,7 +397,7 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
         accountId: imp.bankAccountId,
         journalEntry: { organizationId, status: 'POSTED', entryDate: { gte: fromDate, lte: toDate } },
       },
-      include: { journalEntry: { select: { entryDate: true, reference: true } } },
+      include: { journalEntry: { select: { id: true, entryDate: true, reference: true } } },
     });
 
     // Exclude JE lines already claimed anywhere (single FK or match rows).
