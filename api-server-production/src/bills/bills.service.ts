@@ -235,6 +235,10 @@ export class BillsService {
     // Default true = user saves post immediately (guru 2026-07-24).
     dto: {
       supplierId: string;
+      // Fallback when supplierId is absent (batch-close auto-save): resolve by
+      // name, creating a placeholder supplier if none exists — same behaviour
+      // as createFromUpload.
+      supplierName?: string;
       billNumber: string;
       billDate: string;
       dueDate?: string;
@@ -251,6 +255,9 @@ export class BillsService {
     },
     opts?: { postOnSave?: boolean },
   ) {
+    if (!dto.supplierId && dto.supplierName) {
+      dto.supplierId = (await this.resolveSupplierByName(organizationId, dto.supplierName)) as string;
+    }
     if (!dto.supplierId) throw new BadRequestException('supplierId required');
     if (!dto.billNumber?.trim()) throw new BadRequestException('billNumber required');
     if (!dto.lines || dto.lines.length === 0) throw new BadRequestException('At least one line required');
@@ -1076,6 +1083,62 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     return payment;
   }
 
+  // All bill payments for the org in a period (AP workspace / P/V listing).
+  // Enriched with payee, bank account and the P/V journal's reference +
+  // confirmed state so the Payment Voucher Listing renders without N+1 calls.
+  async paymentsListing(organizationId: string, opts?: { from?: string; to?: string }) {
+    const rows = await this.prisma.billPayment.findMany({
+      where: {
+        organizationId,
+        ...(opts?.from || opts?.to
+          ? {
+              paymentDate: {
+                ...(opts?.from ? { gte: new Date(opts.from) } : {}),
+                ...(opts?.to ? { lte: new Date(`${opts.to}T23:59:59.999Z`) } : {}),
+              },
+            }
+          : {}),
+      },
+      include: { supplier: { select: { name: true } } },
+      orderBy: { paymentDate: 'asc' },
+    });
+    const billIds = [...new Set(rows.map((r) => r.billId))];
+    const billDocs = billIds.length
+      ? await this.prisma.document.findMany({ where: { id: { in: billIds } }, select: { id: true, name: true } })
+      : [];
+    const billNameById = new Map(billDocs.map((b) => [b.id, b.name]));
+    const bankIds = [...new Set(rows.map((r) => r.bankAccountId).filter(Boolean))];
+    const jeIds = [...new Set(rows.map((r) => r.journalEntryId).filter(Boolean))] as string[];
+    const banks = bankIds.length
+      ? await this.prisma.chartOfAccount.findMany({ where: { id: { in: bankIds } }, select: { id: true, code: true, name: true } })
+      : [];
+    const jes = jeIds.length
+      ? await this.prisma.journalEntry.findMany({
+          where: { id: { in: jeIds } },
+          select: {
+            id: true, journalNumber: true, reference: true, status: true, isUnconfirmed: true, currency: true,
+            lines: { select: { debit: true, credit: true, foreignAmount: true, exchangeRate: true } },
+          },
+        })
+      : [];
+    const bankById = new Map(banks.map((b) => [b.id, b]));
+    const jeById = new Map(jes.map((j) => [j.id, j]));
+    return rows.map((r) => {
+      const je = r.journalEntryId ? jeById.get(r.journalEntryId) : null;
+      // Foreign leg lives on the bank (credit) line when the payment was FX.
+      const bankLine = je?.lines?.find((l) => l.credit > 0 && l.foreignAmount != null);
+      return {
+        ...r,
+        billNumber: billNameById.get(r.billId) || null,
+        supplierName: r.supplier?.name || null,
+        bankAccount: bankById.get(r.bankAccountId) || null,
+        journal: je
+          ? { journalNumber: je.journalNumber, reference: je.reference, status: je.status, isUnconfirmed: (je as any).isUnconfirmed ?? false, currency: je.currency, foreignAmount: bankLine?.foreignAmount ?? null }
+          : null,
+      };
+    });
+  }
+
   async listPayments(organizationId: string, billId: string) {
     return this.prisma.billPayment.findMany({
       where: { organizationId, billId },
@@ -1105,21 +1168,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
 
     let supplierId = extracted.supplierIdGuess?.id as string | undefined;
     if (!supplierId) {
-      const name = (extracted.supplierName || '').trim();
-      if (name) {
-        const existing = await this.prisma.supplier.findFirst({
-          where: { organizationId, name: { equals: name, mode: 'insensitive' } },
-          select: { id: true },
-        });
-        supplierId = existing?.id;
-        if (!supplierId) {
-          const created = await this.prisma.supplier.create({
-            data: { organizationId, name },
-            select: { id: true },
-          });
-          supplierId = created.id;
-        }
-      }
+      supplierId = await this.resolveSupplierByName(organizationId, extracted.supplierName);
     }
     if (!supplierId) throw new BadRequestException(`No supplier found on ${body.filename || 'the file'} — create the bill manually`);
 
@@ -1137,6 +1186,23 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       await this.addAttachments(organizationId, bill.id, body.attachments, userId || 'system').catch(() => undefined);
     }
     return this.findOne(organizationId, bill.id);
+  }
+
+  // Case-insensitive supplier lookup by name; creates a placeholder supplier
+  // when none matches (upload intake paths — the accountant fixes it up later).
+  private async resolveSupplierByName(organizationId: string, rawName?: string | null): Promise<string | undefined> {
+    const name = (rawName || '').trim();
+    if (!name) return undefined;
+    const existing = await this.prisma.supplier.findFirst({
+      where: { organizationId, name: { equals: name, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    if (existing) return existing.id;
+    const created = await this.prisma.supplier.create({
+      data: { organizationId, name },
+      select: { id: true },
+    });
+    return created.id;
   }
 
   async addAttachments(

@@ -78,6 +78,9 @@ type BatchItem = {
   form?: FormSnapshot;
   error?: string;
   billId?: string;
+  // Extracted vendor name — lets the close-time auto-save resolve/create a
+  // placeholder supplier when no supplierId was matched.
+  supplierNameGuess?: string;
 };
 
 type FormSnapshot = {
@@ -164,6 +167,8 @@ export default function BillEditorDialog({
   const batchLoopRunning = useRef(false);
   const batchAbortRef = useRef(false);
   const loadedIdxRef = useRef(-1); // which batch item the visible form belongs to
+  // True while close-time auto-save of unreviewed batch items is running.
+  const [flushing, setFlushing] = useState(false);
 
   const isReadOnly = !!editing && editing.status !== "DRAFT" && editing.status !== "PENDING_APPROVAL";
 
@@ -271,15 +276,20 @@ export default function BillEditorDialog({
   // Extraction + S3 upload for one file, in parallel — the analysed file is
   // kept as the bill's supporting document (not discarded). Never throws for
   // the upload; extraction errors propagate to the caller.
-  const extractRaw = async (file: File) => {
-    const base64 = await new Promise<string>((resolve, reject) => {
+  const fileToDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result as string);
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
-    const mediaType = file.type as any;
-    const [extracted, uploaded] = await Promise.all([
+
+  const extractRaw = async (file: File) => {
+    const base64 = await fileToDataUrl(file);
+    const mediaType = (file.type || "application/pdf") as any;
+    // Settled independently: a failed extraction must not throw away a
+    // successful S3 upload (the source file still attaches to the bill).
+    const [ex, up] = await Promise.allSettled([
       request<any>("/bills/extract", { method: "POST", body: JSON.stringify({ base64, mediaType }) }),
       (async () => {
         try {
@@ -291,17 +301,27 @@ export default function BillEditorDialog({
         }
       })(),
     ]);
-    return { extracted, uploaded };
+    const extracted = ex.status === "fulfilled" ? ex.value : null;
+    const uploaded = up.status === "fulfilled" ? up.value : null;
+    const extractError =
+      ex.status === "rejected"
+        ? (ex.reason?.message as string) || "Extraction request failed"
+        : extracted
+        ? undefined
+        : "Claude couldn't read the file";
+    return { extracted, uploaded, extractError };
   };
 
   const handleFile = async (file: File) => {
     setExtracting(true);
     try {
-      const { extracted, uploaded } = await extractRaw(file);
+      const { extracted, uploaded, extractError } = await extractRaw(file);
       // Attach the source file regardless of whether extraction succeeded.
       if (uploaded) setAttachments((prev) => [...prev, uploaded]);
       if (!extracted) {
-        toast.warn(uploaded ? "File attached, but couldn't extract — fill in manually" : "Couldn't extract — fill in manually");
+        toast.warn(
+          `${extractError || "Couldn't extract"} — ${uploaded ? "file attached, fill in manually" : "fill in manually"}`,
+        );
         return;
       }
       // Pre-fill form.
@@ -362,7 +382,9 @@ export default function BillEditorDialog({
   // Map one file's extraction into a full form snapshot (batch items always
   // start from a blank form, so a full snapshot — not a selective merge — is
   // correct here).
-  const extractToSnapshot = async (file: File): Promise<{ form: FormSnapshot; ok: boolean; error?: string }> => {
+  const extractToSnapshot = async (
+    file: File,
+  ): Promise<{ form: FormSnapshot; ok: boolean; supplierName?: string; error?: string }> => {
     let extracted: any = null;
     let uploaded: Attachment | null = null;
     let error: string | undefined;
@@ -370,6 +392,7 @@ export default function BillEditorDialog({
       const res = await extractRaw(file);
       extracted = res.extracted;
       uploaded = res.uploaded as any;
+      error = res.extractError;
     } catch (e: any) {
       error = e?.message || "Extraction failed";
     }
@@ -398,7 +421,12 @@ export default function BillEditorDialog({
       inboundChannel: "UPLOAD",
       attachments: uploaded ? [uploaded] : [],
     };
-    return { form, ok: !!extracted, error: extracted ? undefined : error || "Couldn't extract — fill in manually" };
+    return {
+      form,
+      ok: !!extracted,
+      supplierName: (extracted?.supplierName as string) || undefined,
+      error: extracted ? undefined : error || "Couldn't extract — fill in manually",
+    };
   };
 
   // Sequential background loop — one extraction at a time, skipping anything
@@ -417,6 +445,7 @@ export default function BillEditorDialog({
         const res = await extractToSnapshot(it.file);
         if (batchAbortRef.current || !batchRef.current) return;
         it.form = res.form;
+        it.supplierNameGuess = res.supplierName;
         it.status = res.ok ? "ready" : "error";
         it.error = res.error;
         syncBatch();
@@ -509,6 +538,116 @@ export default function BillEditorDialog({
     }
   }, [open]);
 
+  // Leaving the review halfway must not lose work (guru 2026-07-27): closing
+  // with unsaved batch items auto-saves each as an UNCONFIRMED bill so they
+  // land in the bills list / Posting Queue for later review.
+  //   - extracted items (ready/error with data): saved from their snapshot,
+  //     preserving any edits; unmatched suppliers resolve by extracted name
+  //     (placeholder created server-side via supplierName).
+  //   - not-yet-extracted items: one-shot server pipeline /bills/extract-create.
+  //   - items with no supplier at all: skipped, named in a toast.
+  const requestClose = () => {
+    if (saving || extracting || flushing) return;
+    const unsaved = batchRef.current?.filter((i) => i.status !== "saved") ?? [];
+    if (unsaved.length === 0) {
+      onClose();
+      return;
+    }
+    void flushBatchAndClose();
+  };
+
+  const flushBatchAndClose = async () => {
+    const items = batchRef.current;
+    if (!items) return;
+    batchAbortRef.current = true; // halt the background extraction loop
+    setFlushing(true);
+    // Persist edits on the item currently in the form.
+    if (loadedIdxRef.current >= 0) {
+      const cur = items[loadedIdxRef.current];
+      if (cur && cur.status !== "saved" && cur.status !== "pending" && cur.status !== "extracting") {
+        cur.form = captureForm();
+      }
+    }
+    let savedCount = 0;
+    const skipped: string[] = [];
+    for (const it of items) {
+      if (it.status === "saved") continue;
+      try {
+        if ((it.status === "ready" || it.status === "error") && it.form && (it.form.supplierId || it.supplierNameGuess)) {
+          const fm = it.form;
+          const rate = taxRates.find((t) => t.code === fm.taxCode)?.rate ?? 9;
+          const body: any = {
+            supplierId: fm.supplierId || undefined,
+            supplierName: fm.supplierId ? undefined : it.supplierNameGuess,
+            billNumber:
+              fm.billNumber.trim() ||
+              `UPLOAD-${new Date().toISOString().slice(0, 10)}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+            billDate: fm.billDate,
+            dueDate: fm.dueDate || undefined,
+            reference: fm.reference.trim() || undefined,
+            description: fm.description || undefined,
+            taxAmount: fm.amountsAre === "NO_TAX" ? 0 : parseFloat(fm.taxAmount) || 0,
+            amountsAre: fm.amountsAre,
+            taxCode: fm.taxCode,
+            gstPercent: fm.amountsAre === "NO_TAX" ? 0 : rate,
+            lines: fm.lines
+              .filter((l) => l.description || parseFloat(l.amount))
+              .map((l) => ({
+                description: l.description || undefined,
+                quantity: parseFloat(l.quantity) || 0,
+                unitPrice: parseFloat(l.unitPrice) || 0,
+                amount: parseFloat(l.amount) || 0,
+                accountId: l.accountId || undefined,
+              })),
+            inboundChannel: "UPLOAD",
+          };
+          if (!body.lines.length) body.lines = [{ description: it.file.name, amount: 0 }];
+          const created: any = await request("/bills", { method: "POST", body: JSON.stringify(body) });
+          if (created?.id && fm.attachments.length) {
+            await request(`/bills/${created.id}/attachments`, {
+              method: "POST",
+              body: JSON.stringify({ files: fm.attachments }),
+            }).catch(() => undefined);
+          }
+          it.status = "saved";
+          it.billId = created?.id;
+          savedCount++;
+        } else if (it.status === "pending" || it.status === "extracting") {
+          const base64 = await fileToDataUrl(it.file);
+          const token = await getToken();
+          const uploaded = token
+            ? await uploadFile({ file: it.file, folder: "bills/attachments", token }).catch(() => null)
+            : null;
+          const created: any = await request("/bills/extract-create", {
+            method: "POST",
+            body: JSON.stringify({
+              base64,
+              mediaType: it.file.type || "application/pdf",
+              filename: it.file.name,
+              attachments: uploaded ? [uploaded] : [],
+            }),
+          });
+          it.status = "saved";
+          it.billId = created?.id;
+          savedCount++;
+        } else {
+          skipped.push(it.file.name);
+        }
+      } catch {
+        skipped.push(it.file.name);
+      }
+      syncBatch();
+    }
+    setFlushing(false);
+    if (savedCount) {
+      toast.success(
+        `${savedCount} remaining bill${savedCount === 1 ? "" : "s"} saved as unconfirmed — finish reviewing in the Posting Queue`,
+      );
+    }
+    if (skipped.length) toast.warn(`Couldn't save: ${skipped.join(", ")} — upload again or create manually`);
+    onSaved(); // close + refresh the list
+  };
+
   const currentItem = batch?.[batchIdx] ?? null;
   const currentExtracting = !!currentItem && (currentItem.status === "pending" || currentItem.status === "extracting");
   const batchBusyCount = batch ? batch.filter((b) => b.status === "pending" || b.status === "extracting").length : 0;
@@ -516,7 +655,7 @@ export default function BillEditorDialog({
 
   const submit = async () => {
     if (!supplierId) return toast.error("Supplier is required");
-    if (!billNumber.trim()) return toast.error("Bill number is required");
+    if (!billNumber.trim()) return toast.error("Invoice number is required");
     if (lines.length === 0 || lines.every((l) => !l.amount)) return toast.error("Add at least one line");
     setSaving(true);
     try {
@@ -544,11 +683,11 @@ export default function BillEditorDialog({
       if (editing) {
         await request(`/bills/${editing.id}`, { method: "PATCH", body: JSON.stringify(body) });
         billId = editing.id;
-        toast.success("Bill updated");
+        toast.success("Supplier invoice updated");
       } else {
         const created: any = await request("/bills", { method: "POST", body: JSON.stringify(body) });
         billId = created?.id;
-        toast.success("Bill saved — posted as unconfirmed");
+        toast.success("Supplier invoice saved — posted as unconfirmed");
       }
       // Persist attachments after we have the bill id. Sends the full list
       // so the backend can dedupe; harmless if no new files were added.
@@ -582,7 +721,7 @@ export default function BillEditorDialog({
         syncBatch();
         if (nextIdx >= 0) gotoBatch(nextIdx);
         else {
-          toast.success(`All ${items.length} bills saved`);
+          toast.success(`All ${items.length} supplier invoices saved`);
           onSaved();
         }
       } else {
@@ -637,19 +776,19 @@ export default function BillEditorDialog({
   };
 
   return (
-    <Dialog open={open} onClose={() => !saving && !extracting && onClose()} fullWidth maxWidth="lg">
+    <Dialog open={open} onClose={requestClose} fullWidth maxWidth="lg">
       <DialogTitle>
         <Stack direction="row" alignItems="center" justifyContent="space-between">
           <Stack direction="row" gap={1.5} alignItems="center">
             <Typography variant="h6" sx={{ fontWeight: 700 }}>
-              {editing ? `Bill — ${editing.billNumber}` : batch ? `New Bills — ${batchIdx + 1} of ${batch.length}` : "New Bill"}
+              {editing ? `Supplier Invoice — ${editing.billNumber}` : batch ? `New Supplier Invoices — ${batchIdx + 1} of ${batch.length}` : "New Supplier Invoice"}
             </Typography>
             {batch && (
               <>
-                <IconButton size="small" onClick={() => gotoBatch(batchIdx - 1)} disabled={batchIdx === 0 || saving}>
+                <IconButton size="small" onClick={() => gotoBatch(batchIdx - 1)} disabled={batchIdx === 0 || saving || flushing}>
                   <ChevronLeftIcon fontSize="small" />
                 </IconButton>
-                <IconButton size="small" onClick={() => gotoBatch(batchIdx + 1)} disabled={batchIdx >= batch.length - 1 || saving}>
+                <IconButton size="small" onClick={() => gotoBatch(batchIdx + 1)} disabled={batchIdx >= batch.length - 1 || saving || flushing}>
                   <ChevronRightIcon fontSize="small" />
                 </IconButton>
                 <Chip size="small" variant="outlined" label={currentItem?.file.name} sx={{ maxWidth: 240 }} />
@@ -674,7 +813,7 @@ export default function BillEditorDialog({
               />
             )}
           </Stack>
-          <IconButton onClick={onClose} size="small" disabled={saving || extracting}>
+          <IconButton onClick={requestClose} size="small" disabled={saving || extracting || flushing}>
             <CloseIcon fontSize="small" />
           </IconButton>
         </Stack>
@@ -683,7 +822,7 @@ export default function BillEditorDialog({
       <DialogContent dividers sx={{ position: "relative" }}>
         {/* While the currently-viewed batch item is still extracting, veil the
             form — its snapshot loads in the moment extraction lands. */}
-        {currentExtracting && (
+        {(currentExtracting || flushing) && (
           <Box
             sx={{
               position: "absolute",
@@ -699,7 +838,9 @@ export default function BillEditorDialog({
           >
             <CircularProgress size={28} />
             <Typography variant="body2" sx={{ color: "text.secondary" }}>
-              Extracting {currentItem?.file.name}…
+              {flushing
+                ? `Saving ${batch?.filter((b) => b.status !== "saved").length ?? 0} remaining bill(s) as unconfirmed…`
+                : `Extracting ${currentItem?.file.name}…`}
             </Typography>
           </Box>
         )}
@@ -734,7 +875,7 @@ export default function BillEditorDialog({
               ) : (
                 <>
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    Drop PDFs or images of supplier bills — Claude will extract them for you.
+                    Drop PDFs or images of supplier invoices — Claude will extract them for you.
                   </Typography>
                   <Typography variant="caption" sx={{ color: "text.secondary" }}>
                     Works on most invoices. Select multiple files or a ZIP to review them one by one.
@@ -760,9 +901,18 @@ export default function BillEditorDialog({
               disabled={extracting || saving}
               onClick={() => fileInputRef.current?.click()}
             >
-              {extracting ? "Extracting..." : batch ? "Add files" : "Upload bills"}
+              {extracting ? "Extracting..." : batch ? "Add files" : "Upload invoices"}
             </Button>
           </Paper>
+        )}
+
+        {currentItem?.status === "error" && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {currentItem.file.name}: {currentItem.error || "couldn't extract"}.{" "}
+            {currentItem.form?.attachments?.length
+              ? "The source file is attached below — fill in the details manually and save."
+              : "The source file couldn't be attached either — re-add it under Source Documents, then fill in manually."}
+          </Alert>
         )}
 
         {/* Header fields */}
@@ -784,7 +934,7 @@ export default function BillEditorDialog({
           />
           <TextField
             size="small"
-            label="Bill #"
+            label="Invoice #"
             required
             value={billNumber}
             onChange={(e) => setBillNumber(e.target.value)}
@@ -793,7 +943,7 @@ export default function BillEditorDialog({
           <TextField
             size="small"
             type="date"
-            label="Bill date"
+            label="Invoice date"
             InputLabelProps={{ shrink: true }}
             value={billDate}
             onChange={(e) => setBillDate(e.target.value)}
@@ -969,17 +1119,17 @@ export default function BillEditorDialog({
           </Button>
           <Box sx={{ flex: 1 }} />
           <Typography variant="body2" sx={{ color: "text.secondary" }}>Subtotal</Typography>
-          <Typography sx={{ fontFamily: "monospace", fontWeight: 600, minWidth: 100, textAlign: "right" }}>
+          <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, minWidth: 100, textAlign: "right" }}>
             {fmt(subtotal)}
           </Typography>
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
             {amountsAre === "INCLUSIVE" ? "incl. Tax" : "+ Tax"}
           </Typography>
-          <Typography sx={{ fontFamily: "monospace", fontWeight: 600, minWidth: 80, textAlign: "right" }}>
+          <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, minWidth: 80, textAlign: "right" }}>
             {fmt(tax)}
           </Typography>
           <Typography variant="body2" sx={{ fontWeight: 700 }}>= Total</Typography>
-          <Typography sx={{ fontFamily: "monospace", fontWeight: 700, minWidth: 110, textAlign: "right" }}>
+          <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, minWidth: 110, textAlign: "right" }}>
             {fmt(totalAmount)}
           </Typography>
         </Stack>
@@ -1047,7 +1197,7 @@ export default function BillEditorDialog({
             {syncingXero ? "Syncing..." : "Sync to Xero"}
           </Button>
         )}
-        <Button onClick={onClose} disabled={saving || extracting}>
+        <Button onClick={requestClose} disabled={saving || extracting || flushing}>
           Cancel
         </Button>
         {!isReadOnly && (
@@ -1055,7 +1205,7 @@ export default function BillEditorDialog({
             variant="outlined"
             startIcon={<AutoAwesomeIcon />}
             onClick={openReview}
-            disabled={saving || extracting || currentExtracting}
+            disabled={saving || extracting || flushing || currentExtracting}
           >
             Review
           </Button>
@@ -1064,10 +1214,10 @@ export default function BillEditorDialog({
           <Button
             variant="contained"
             onClick={submit}
-            disabled={saving || extracting || currentExtracting || currentItem?.status === "saved"}
+            disabled={saving || extracting || flushing || currentExtracting || currentItem?.status === "saved"}
             startIcon={saving ? <CircularProgress size={14} color="inherit" /> : undefined}
           >
-            {editing ? "Save changes" : currentItem?.status === "saved" ? "Saved" : batch ? `Save bill ${batchIdx + 1} of ${batch.length}` : "Save"}
+            {editing ? "Save changes" : currentItem?.status === "saved" ? "Saved" : batch ? `Save invoice ${batchIdx + 1} of ${batch.length}` : "Save"}
           </Button>
         )}
       </DialogActions>

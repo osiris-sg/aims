@@ -162,15 +162,15 @@ export default function RecordBillPaymentDialog({ open, onClose, onSuccess, bill
           <Box sx={{ p: 1.5, bgcolor: "action.hover", borderRadius: 1 }}>
             <Stack direction="row" justifyContent="space-between">
               <Typography variant="body2" color="text.secondary">Bill total</Typography>
-              <Typography variant="body2" sx={{ fontFamily: "monospace" }}>${bill.totalAmount.toFixed(2)}</Typography>
+              <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>${bill.totalAmount.toFixed(2)}</Typography>
             </Stack>
             <Stack direction="row" justifyContent="space-between">
               <Typography variant="body2" color="text.secondary">Already paid</Typography>
-              <Typography variant="body2" sx={{ fontFamily: "monospace" }}>${(bill.amountPaid || 0).toFixed(2)}</Typography>
+              <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>${(bill.amountPaid || 0).toFixed(2)}</Typography>
             </Stack>
             <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.5, pt: 0.5, borderTop: "1px solid", borderColor: "divider" }}>
               <Typography variant="body2" sx={{ fontWeight: 600 }}>Outstanding</Typography>
-              <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: "monospace" }}>${outstanding.toFixed(2)}</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>${outstanding.toFixed(2)}</Typography>
             </Stack>
           </Box>
 

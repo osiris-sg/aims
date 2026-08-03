@@ -57,6 +57,18 @@ export class BillsController {
     return this.service.apAging(requireOrgId(req), asOfDate ? new Date(asOfDate) : undefined);
   }
 
+  // Org-wide bill payments for a period — feeds the AP workspace "Payments
+  // (month)" card and the Payment Voucher Listing report.
+  @Get('payments-listing')
+  @Permissions('bills:read')
+  paymentsListing(
+    @Req() req: RequestWithOrganization,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.paymentsListing(requireOrgId(req), { from, to });
+  }
+
   @Get(':id')
   @Permissions('bills:read')
   findOne(@Req() req: RequestWithOrganization, @Param('id') id: string) {
