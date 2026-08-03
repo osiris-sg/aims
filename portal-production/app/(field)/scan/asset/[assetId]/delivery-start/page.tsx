@@ -102,6 +102,12 @@ export default function StartDeliveryPage() {
       setError("Standalone delivery needs a specific scanned unit.");
       return;
     }
+    // Standalone runs REQUIRE a condition photo per unit — the outbound state
+    // must be evidenced before the unit leaves (backend enforces this too).
+    if (standalone && photos.length === 0) {
+      setError("A condition photo of the unit is required before starting delivery.");
+      return;
+    }
     setSubmitting(true);
     try {
       const token = await getToken();
@@ -212,7 +218,7 @@ export default function StartDeliveryPage() {
 
       <Box sx={{ width: "100%", maxWidth: 360 }}>
         <PhotoCaptureField
-          label="Condition photos (optional)"
+          label={standalone ? "Condition photos (required)" : "Condition photos (optional)"}
           photos={photos}
           onChange={setPhotos}
           upload={uploadDoStart}

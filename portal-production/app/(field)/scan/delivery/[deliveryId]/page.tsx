@@ -28,6 +28,8 @@ import KeyboardIcon from "@mui/icons-material/Keyboard";
 import HandymanIcon from "@mui/icons-material/Handyman";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { request } from "@/helpers/request";
+import { uploadImage } from "@/helpers/imageUploader";
+import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
 import { useNfcScan } from "../../../hooks/useNfcScan";
 
 /**
@@ -35,15 +37,17 @@ import { useNfcScan } from "../../../hooks/useNfcScan";
  *
  * Every item is independently actionable through its own lifecycle:
  *   not_delivered → [Start delivery] → delivering → [Acknowledge]
- *   → not_installed → [Complete installation] → completed
+ *   → not_installed → [Complete installation | Install not needed] → completed
  * (The Start button is Fix B — items added before the DO_START-on-add fix, or
  * whose auto-start failed, are unsticked with one tap.)
  *
  * Units are added IN the basket: inline NFC scan (useNfcScan — native or Web
- * NFC) or a manual-serial dialog (field-resolve, assetId optional). Both call
- * POST /deliveries/:id/items then fire the unit's DO_START (Fix A) so it lands
- * already 'delivering'. The old route-out via /scan remains as a fallback for
- * browsers without Web NFC.
+ * NFC) or a manual-serial dialog (field-resolve, assetId optional). Every
+ * add/start goes through a MANDATORY condition-photo step first (same
+ * evidence rule as the run's first unit on the delivery-start page): resolve
+ * unit → photo dialog → POST /deliveries/:id/items → DO_START with the photo
+ * keys. The old route-out via /scan remains as a fallback for browsers
+ * without Web NFC.
  */
 
 type ItemStatus = "not_delivered" | "delivering" | "not_installed" | "completed";
@@ -113,6 +117,12 @@ export default function DeliveryBasketPage() {
   const [serial, setSerial] = useState("");
   const [resolving, setResolving] = useState(false);
   const [candidates, setCandidates] = useState<ResolveMatch[] | null>(null);
+  // Mandatory condition-photo step: a resolved unit parks here until the
+  // rider captures ≥1 photo. mode 'add' = new unit (add + start); mode
+  // 'start' = existing not_delivered item (Fix B start only).
+  const [pending, setPending] = useState<{ mode: "add" | "start"; assetId: string; inventoryId: string; sku?: string } | null>(null);
+  const [pendingPhotos, setPendingPhotos] = useState<CapturedPhoto[]>([]);
+  const [photoUploading, setPhotoUploading] = useState(false);
   // Guards double-handling the same NFC read (uid persists until next startScan)
   const handledUidRef = useRef<string | null>(null);
 
@@ -137,48 +147,92 @@ export default function DeliveryBasketPage() {
     void load();
   }, [load]);
 
-  // Fire a unit's DO_START (Fix A/B — advances not_delivered → delivering).
+  // Clerk-auth'd upload closure for the photo dialog (folder: do-start —
+  // same bucket location as the run's first unit on the delivery-start page).
+  const uploadDoStart = useCallback(
+    async (blob: Blob): Promise<string | null> => {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      return uploadImage({ blob, folderName: "do-start", token });
+    },
+    [getToken],
+  );
+
+  // Fire a unit's DO_START with its condition photos (advances
+  // not_delivered → delivering). Photos are REQUIRED — the backend rejects a
+  // standalone DO_START without them.
   const startUnit = useCallback(
-    async (assetId: string, inventoryId: string, token: string) => {
-      await request(
+    async (assetId: string, inventoryId: string, token: string, photoKeys: string[]) => {
+      const res = await request(
         { path: "/maintenance-reports", method: "POST" },
-        { assetId, inventoryId, kind: "DO_START", deliveryId, description: "Delivery started (added to run)" },
+        {
+          assetId,
+          inventoryId,
+          kind: "DO_START",
+          deliveryId,
+          description: "Delivery started (added to run)",
+          photos: photoKeys,
+        },
         token,
       );
+      if (res.success === false) throw new Error(res.message ?? "Failed to start delivery for this unit");
     },
     [deliveryId],
   );
 
-  // Add a resolved unit to the run (+ auto-start it). Shared by NFC + manual.
-  const addUnit = useCallback(
-    async (assetId: string, inventoryId: string, sku?: string) => {
-      setBusy(true);
-      setActionMsg(null);
-      try {
-        const token = await getToken();
-        if (!token) throw new Error("Not signed in");
+  // A resolved unit parks in the mandatory photo step (NFC + manual + Fix B
+  // all funnel here). The item is only added/started AFTER the photo confirm.
+  const requestAdd = useCallback((assetId: string, inventoryId: string, sku?: string) => {
+    setPendingPhotos([]);
+    setPending({ mode: "add", assetId, inventoryId, sku });
+  }, []);
+
+  const requestStart = useCallback((it: RunItem) => {
+    if (!it.inventoryId) return;
+    setPendingPhotos([]);
+    setPending({ mode: "start", assetId: it.assetId, inventoryId: it.inventoryId, sku: it.inventory?.sku });
+  }, []);
+
+  // Photo confirmed → add (mode 'add') then DO_START with the photo keys.
+  const confirmPending = useCallback(async () => {
+    if (!pending) return;
+    if (pendingPhotos.length === 0) {
+      setActionMsg("A condition photo of the unit is required before starting delivery.");
+      return;
+    }
+    setBusy(true);
+    setActionMsg(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      if (pending.mode === "add") {
         const res = await request(
           { path: `/deliveries/${deliveryId}/items`, method: "POST" },
-          { assetId, inventoryId },
+          { assetId: pending.assetId, inventoryId: pending.inventoryId },
           token,
         );
         if (res.success === false) throw new Error(res.message ?? "Could not add unit");
-        // Fix A: auto-start — the unit is on the truck. Best-effort; a failure
-        // leaves the item startable via its own Start button (Fix B).
-        await startUnit(assetId, inventoryId, token).catch(() => undefined);
-        setActionMsg(sku ? `${sku} added ✓` : "Unit added ✓");
-        await load();
-      } catch (e: any) {
-        setActionMsg(e?.message ?? "Unit not available — already out for delivery");
-      } finally {
-        setBusy(false);
       }
-    },
-    [deliveryId, getToken, load, startUnit],
-  );
+      await startUnit(pending.assetId, pending.inventoryId, token, pendingPhotos.map((p) => p.key));
+      setActionMsg(pending.sku ? `${pending.sku} added ✓` : "Unit added ✓");
+      setPending(null);
+      setPendingPhotos([]);
+      await load();
+    } catch (e: any) {
+      setActionMsg(e?.message ?? "Unit not available — already out for delivery");
+      // 'add' failures: nothing was created, close the photo step. A failed
+      // DO_START after a successful add leaves the item with its own Start
+      // button (which re-runs the photo step).
+      setPending(null);
+      setPendingPhotos([]);
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }, [pending, pendingPhotos, deliveryId, getToken, load, startUnit]);
 
-  // Fix B: per-item Start button for stuck/not-yet-started items.
-  const startItem = useCallback(
+  // #3 fallback: rider decides installation isn't needed from the basket.
+  const skipInstall = useCallback(
     async (it: RunItem) => {
       if (!it.inventoryId) return;
       setBusy(true);
@@ -186,15 +240,20 @@ export default function DeliveryBasketPage() {
       try {
         const token = await getToken();
         if (!token) throw new Error("Not signed in");
-        await startUnit(it.assetId, it.inventoryId, token);
+        const res = await request(
+          { path: `/deliveries/${deliveryId}/items/skip-install`, method: "POST" },
+          { inventoryId: it.inventoryId },
+          token,
+        );
+        if (res.success === false) throw new Error(res.message ?? "Could not skip installation");
         await load();
       } catch (e: any) {
-        setActionMsg(e?.message ?? "Failed to start delivery for this unit");
+        setActionMsg(e?.message ?? "Could not skip installation");
       } finally {
         setBusy(false);
       }
     },
-    [getToken, load, startUnit],
+    [deliveryId, getToken, load],
   );
 
   // Inline NFC: observe scanned uid → resolve to a unit → add. The hook resets
@@ -221,8 +280,8 @@ export default function DeliveryBasketPage() {
           setActionMsg("Tag isn't bound to a unit — bind it from the scan page first.");
           return;
         }
-        setBusy(false); // addUnit manages its own busy state
-        await addUnit(assetId, inventoryId, payload?.inventory?.sku);
+        // Park the unit in the mandatory photo step (adds + starts on confirm).
+        requestAdd(assetId, inventoryId, payload?.inventory?.sku);
         return;
       } catch (e: any) {
         const status = e?.response?.status ?? e?.status;
@@ -231,7 +290,7 @@ export default function DeliveryBasketPage() {
         setBusy(false);
       }
     })();
-  }, [nfc.uid, addUnit, getToken]);
+  }, [nfc.uid, requestAdd, getToken]);
 
   // Manual serial resolve (assetId optional — org-wide serial match).
   const resolveSerial = async () => {
@@ -254,7 +313,7 @@ export default function DeliveryBasketPage() {
       } else if (matches.length === 1) {
         setManualOpen(false);
         setSerial("");
-        await addUnit(matches[0].assetId, matches[0].inventoryId, matches[0].sku);
+        requestAdd(matches[0].assetId, matches[0].inventoryId, matches[0].sku);
       } else {
         setCandidates(matches); // pick list inside the dialog
       }
@@ -353,7 +412,7 @@ export default function DeliveryBasketPage() {
                         size="small"
                         variant="contained"
                         startIcon={<PlayArrowIcon />}
-                        onClick={() => startItem(it)}
+                        onClick={() => requestStart(it)}
                         disabled={busy}
                         sx={{ minHeight: 40 }}
                       >
@@ -372,15 +431,28 @@ export default function DeliveryBasketPage() {
                       </Button>
                     )}
                     {it.deliveryStatus === "not_installed" && (
-                      <Button
-                        size="small"
-                        variant="contained"
-                        startIcon={<HandymanIcon />}
-                        onClick={() => router.push(installHref(it))}
-                        sx={{ minHeight: 40 }}
-                      >
-                        Complete installation
-                      </Button>
+                      <>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          startIcon={<HandymanIcon />}
+                          onClick={() => router.push(installHref(it))}
+                          sx={{ minHeight: 40 }}
+                        >
+                          Complete installation
+                        </Button>
+                        {it.inventoryId && (
+                          <Button
+                            size="small"
+                            variant="text"
+                            onClick={() => skipInstall(it)}
+                            disabled={busy}
+                            sx={{ minHeight: 40, color: "text.secondary" }}
+                          >
+                            Install not needed
+                          </Button>
+                        )}
+                      </>
                     )}
                   </Stack>
                 )}
@@ -451,10 +523,10 @@ export default function DeliveryBasketPage() {
               {candidates.map((m) => (
                 <ListItemButton
                   key={m.inventoryId}
-                  onClick={async () => {
+                  onClick={() => {
                     setManualOpen(false);
                     setSerial("");
-                    await addUnit(m.assetId, m.inventoryId, m.sku);
+                    requestAdd(m.assetId, m.inventoryId, m.sku);
                   }}
                 >
                   <ListItemText primary={m.sku} secondary={m.assetName ?? m.skuKey ?? undefined} />
@@ -467,6 +539,35 @@ export default function DeliveryBasketPage() {
           <Button onClick={() => setManualOpen(false)} disabled={resolving}>Cancel</Button>
           <Button variant="contained" onClick={resolveSerial} disabled={resolving || !serial.trim()}>
             {resolving ? <CircularProgress size={18} /> : "Find unit"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Mandatory condition-photo step — every unit evidences its outbound
+          state before it starts delivering (same rule as the run's first unit). */}
+      <Dialog open={!!pending} onClose={() => !busy && setPending(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Condition photo{pending?.sku ? ` — ${pending.sku}` : ""}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Take at least one photo of the unit&apos;s condition before it goes out.
+          </Typography>
+          <PhotoCaptureField
+            label="Condition photos (required)"
+            photos={pendingPhotos}
+            onChange={setPendingPhotos}
+            upload={uploadDoStart}
+            onError={(m) => setActionMsg(m || null)}
+            onUploadingChange={setPhotoUploading}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPending(null)} disabled={busy}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={confirmPending}
+            disabled={busy || photoUploading || pendingPhotos.length === 0}
+          >
+            {busy ? <CircularProgress size={18} /> : pending?.mode === "start" ? "Start delivery" : "Add & start delivery"}
           </Button>
         </DialogActions>
       </Dialog>

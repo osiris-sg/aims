@@ -36,6 +36,13 @@ export class MaintenanceReportsService {
     const effectiveKind = dto.kind ?? 'SERVICE';
     const isRevampedServiceSubmission = effectiveKind === 'SERVICE' && !!dto.serviceData;
 
+    // Standalone-run start (delivery-first) REQUIRES a condition photo per
+    // unit — outbound state must be evidenced before the unit leaves. The
+    // DO-first arm (documentId) keeps photos optional, unchanged.
+    if (effectiveKind === 'DO_START' && dto.deliveryId && !dto.documentId && !(dto.photos?.length)) {
+      throw new BadRequestException('A condition photo is required to start delivery for this unit');
+    }
+
     const baseData: Prisma.MaintenanceServiceReportUncheckedCreateInput = {
       organizationId,
       assetId: dto.assetId,
