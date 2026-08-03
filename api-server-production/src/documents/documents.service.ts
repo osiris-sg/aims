@@ -3573,7 +3573,7 @@ export class DocumentsService {
     // == unit (un-backfilled INVENTORY rows), OR an ASSET row for the parent.
     const unit = await this.prisma.inventory.findUnique({
       where: { id: inventoryId },
-      select: { assetId: true },
+      select: { assetId: true, sku: true },
     });
     const itemMatch: any[] = [{ inventoryId }, { itemId: inventoryId }];
     if (unit?.assetId) itemMatch.push({ itemId: unit.assetId, itemType: ItemType.ASSET });
@@ -3581,9 +3581,17 @@ export class DocumentsService {
     const rows = await this.prisma.documentItem.findMany({
       where: { documentId, OR: itemMatch },
     });
-    const target = rows
+    const eligible = rows
       .filter((r) => r.deliveryStatus === predecessor[action])
-      .sort((a, b) => (a.lineNumber ?? 0) - (b.lineNumber ?? 0))[0];
+      .sort((a, b) => (a.lineNumber ?? 0) - (b.lineNumber ?? 0));
+    // Prefer the scanned unit's OWN row when it's eligible — an already-bound
+    // unit must advance its own slot, never a sibling's anonymous copy.
+    let target =
+      eligible.find(
+        (r) =>
+          r.inventoryId === inventoryId ||
+          (r.itemId === inventoryId && r.itemType === ItemType.INVENTORY),
+      ) ?? eligible[0];
 
     if (!target) {
       // Nothing eligible — already advanced past this step, or the scanned unit
@@ -3592,6 +3600,34 @@ export class DocumentsService {
         `advanceDeliveryItem: no eligible row for doc ${documentId}, unit ${inventoryId}, action ${action}`,
       );
       return null;
+    }
+
+    // Multi-slot asset-level fix: a specific unit STARTING against an
+    // anonymous asset-level slot CLAIMS that slot first (same shared helper as
+    // tag-time auto-bind and delivery-link — dual write, first-unbound-first,
+    // race-safe claim, already-bound pre-guard). The advance below then runs
+    // on the bound row, so each physical unit owns its own slot and the
+    // per-unit stage/deduction machinery works. Unit-level rows never enter
+    // this branch (condition requires an ASSET-typed unbound target), and
+    // asset-only scans (no scanned unit) keep today's anonymous advance.
+    if (action === 'start' && target.itemType === ItemType.ASSET && !target.inventoryId && inventoryId) {
+      const boundId = await this.bindUnitToUnboundDoSlot(documentId, organizationId, {
+        id: inventoryId,
+        assetId: unit?.assetId ?? target.itemId,
+        sku: unit?.sku ?? null,
+      });
+      if (boundId) {
+        const claimed = await this.prisma.documentItem.findUnique({ where: { id: boundId } });
+        if (claimed) target = claimed;
+      } else {
+        // No slot claimable (unit already bound elsewhere, config mismatch, or
+        // race lost with no slots left). Do NOT advance an anonymous slot on a
+        // specific unit's behalf — no-op, same posture as !target.
+        console.warn(
+          `advanceDeliveryItem: start for unit ${inventoryId} on doc ${documentId} could not claim a slot — no-op`,
+        );
+        return null;
+      }
     }
 
     const now = new Date();
