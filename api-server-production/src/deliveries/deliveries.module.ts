@@ -1,14 +1,15 @@
 import { Module } from '@nestjs/common';
 import { PrismaService } from 'src/common/prisma.service';
 import { DocumentsModule } from '../documents/documents.module';
+import { ProjectsModule } from '../projects/projects.module';
 import { DeliveriesController } from './deliveries.controller';
 import { DeliveriesService } from './deliveries.service';
 
 @Module({
-  // DocumentsModule exports DocumentsService — used for the link-time
-  // deduction wrapper (deductLinkedDeliveryUnits) and createBasicDocument
-  // (create-DO-from-delivery).
-  imports: [DocumentsModule],
+  // DocumentsModule exports DocumentsService — link/commit + createBasicDocument
+  // (create-DO-from-delivery). ProjectsModule exports ProjectsService — the
+  // in-flow assign step delegates to fieldDeploy (no duplicated assign logic).
+  imports: [DocumentsModule, ProjectsModule],
   controllers: [DeliveriesController],
   providers: [DeliveriesService, PrismaService],
   // Exported so MaintenanceReportsService can bridge standalone-run MSRs

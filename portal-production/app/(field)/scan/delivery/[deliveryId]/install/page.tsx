@@ -69,7 +69,9 @@ export default function StandaloneInstallPage() {
       const reportId = res.data?.id ?? res.id;
       if (!reportId) throw new Error("No report id returned");
       const invQuery = inventoryId ? `&inventoryId=${encodeURIComponent(inventoryId)}` : "";
-      router.push(`/scan/asset/${assetId}/sign?reportId=${reportId}&kind=install${invQuery}`);
+      router.push(
+        `/scan/asset/${assetId}/sign?reportId=${reportId}&kind=install&deliveryId=${encodeURIComponent(deliveryId)}${invQuery}`,
+      );
     } catch (e: any) {
       setError(e?.message ?? "Failed to save acknowledgement");
     } finally {

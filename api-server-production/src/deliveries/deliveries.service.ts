@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DeliveryStatus, InventoryStatus, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
+import { isUnconfirmedDoc } from 'src/common/doc-status';
 import { DocumentsService } from '../documents/documents.service';
+import { ProjectsService } from '../projects/projects.service';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { AddDeliveryItemDto } from './dto/add-delivery-item.dto';
 
@@ -21,6 +23,7 @@ export class DeliveriesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly documentsService: DocumentsService,
+    private readonly projectsService: ProjectsService,
   ) {}
 
   // ── reservation ──────────────────────────────────────────────────────────
@@ -194,6 +197,9 @@ export class DeliveriesService {
       where: { id, organizationId },
       include: {
         items: { include: { document: { select: { id: true, name: true, type: true, status: true } } } },
+        // Current drop target — prefills the in-flow assignment picker.
+        project: { select: { id: true, name: true } },
+        customer: { select: { id: true, name: true } },
       },
     });
     if (!delivery) throw new NotFoundException('Delivery not found');
@@ -409,14 +415,20 @@ export class DeliveriesService {
   }
 
   /**
-   * Attach run ITEMS to an existing DO (per-item linking — one run's items may
-   * fulfil different DOs). For the selection: writes DeliveryItem.documentId,
-   * stamps item states onto the DO's DocumentItems (never regressing a
-   * more-advanced row), mirrors Document.status by fold, and runs the DO's OWN
-   * exactly-once deduction for already-delivered units (reserved units flip
-   * via the widened predicate). Does NOT create/modify MSRs and does NOT fire
-   * the completion gate / auto-invoice (backburnered by design).
-   * Delivery.documentId (legacy run-level link) is frozen — never written.
+   * Attach run ITEMS to a DO (per-item linking — one run's items may fulfil
+   * different DOs). Two-layer model (delivery-first #5):
+   *
+   *   PLACEMENT (always): write DeliveryItem.documentId for the selection.
+   *   COMMITMENT (bind + stamp + deduct + status mirror, all idempotent —
+   *   documents.commitLinkedDeliveryItems): runs immediately ONLY when the
+   *   target DO is already confirmed-or-beyond. Linking to a draft/unconfirmed
+   *   DO places the items and defers commitment to the DO's confirm hook —
+   *   stock is NEVER deducted against an uncommitted draft; the units stay
+   *   reserved until confirm-time deduction flips them.
+   *
+   * Does NOT create/modify MSRs and does NOT fire the completion gate /
+   * auto-invoice (backburnered by design). Delivery.documentId (legacy
+   * run-level link) is frozen — never written.
    */
   async link(deliveryId: string, documentId: string, organizationId: string, itemIds?: string[]) {
     const delivery = await this.prisma.delivery.findFirst({
@@ -432,93 +444,30 @@ export class DeliveriesService {
     });
     if (!document) throw new NotFoundException('Delivery Order not found in this organization');
 
-    // Per-item link write. The documentId:null guard keeps a concurrent link
-    // of the same item exactly-once (loser writes nothing).
+    // Per-item link write (placement). The documentId:null guard keeps a
+    // concurrent link of the same item exactly-once (loser writes nothing).
     await this.prisma.deliveryItem.updateMany({
       where: { id: { in: selection.map((i) => i.id) }, documentId: null },
       data: { documentId },
     });
 
-    // Bind each delivered unit into an unbound asset-level slot on this DO
-    // FIRST (shared auto-bind helper — same semantics as tag-time binding).
-    // Without this, asset-level rows would get status stamped below but be
-    // invisible to the unit-keyed deduction matcher — the Layer-2 gap. Bound
-    // rows become ordinary unit rows, so stamping + deduction just work.
-    const unitSkus = await this.prisma.inventory.findMany({
-      where: { id: { in: selection.map((i) => i.inventoryId).filter((v): v is string => !!v) } },
-      select: { id: true, sku: true },
-    });
-    const skuById = new Map(unitSkus.map((u) => [u.id, u.sku]));
-    for (const item of selection) {
-      if (!item.inventoryId) continue;
-      await this.documentsService
-        .bindUnitToUnboundDoSlot(documentId, organizationId, {
-          id: item.inventoryId,
-          assetId: item.assetId,
-          sku: skuById.get(item.inventoryId) ?? null,
-        })
-        .catch((err) => this.logger.warn(`link: auto-bind failed for unit ${item.inventoryId}: ${err?.message}`));
+    const deferred = isUnconfirmedDoc(document.status);
+    let deducted = 0;
+    if (deferred) {
+      this.logger.log(
+        `Delivery #${delivery.deliveryNumber}: ${selection.length} item(s) placed on ${document.status} DO ` +
+          `${document.name ?? documentId} — commitment deferred to confirm`,
+      );
+    } else {
+      deducted = await this.documentsService.commitLinkedDeliveryItems(
+        documentId,
+        organizationId,
+        selection.map((i) => i.id),
+      );
+      this.logger.log(
+        `Delivery #${delivery.deliveryNumber}: ${selection.length} item(s) linked to DO ${document.name ?? documentId} (deducted ${deducted} unit(s))`,
+      );
     }
-
-    // Stamp item states across (unit-level match, incl. asset-level DO rows —
-    // same matching family as documents.advanceDeliveryItem). Only ever
-    // advances a DO row; a more-advanced DO row is left alone.
-    for (const item of selection) {
-      if (!item.inventoryId) continue;
-      const itemMatch: Prisma.DocumentItemWhereInput[] = [
-        { inventoryId: item.inventoryId },
-        { itemId: item.inventoryId },
-        { itemId: item.assetId, itemType: 'ASSET' },
-      ];
-      const rows = await this.prisma.documentItem.findMany({ where: { documentId, OR: itemMatch } });
-      const docRow = rows
-        .filter((r) => RANK[r.deliveryStatus] < RANK[item.deliveryStatus])
-        .sort((a, b) => RANK[a.deliveryStatus] - RANK[b.deliveryStatus])[0];
-      if (!docRow) continue;
-      await this.prisma.documentItem.update({
-        where: { id: docRow.id },
-        data: {
-          deliveryStatus: item.deliveryStatus,
-          deliveringAt: item.deliveringAt ?? docRow.deliveringAt,
-          deliveredAt: item.deliveredAt ?? docRow.deliveredAt,
-          completedAt: item.completedAt ?? docRow.completedAt,
-          installSkipped: item.installSkipped || docRow.installSkipped,
-        },
-      });
-    }
-
-    // The DO's own deduction for units the SELECTION already delivered (ack'd
-    // or beyond). Exactly-once via the DocumentItem deductedAt claim; the
-    // unit's reserved status flips to rental/sold through the widened predicate.
-    const deliveredUnitIds = selection
-      .filter((i) => i.inventoryId && RANK[i.deliveryStatus] >= RANK[DeliveryStatus.not_installed])
-      .map((i) => i.inventoryId as string);
-    const deducted = await this.documentsService.deductLinkedDeliveryUnits(
-      documentId,
-      organizationId,
-      deliveredUnitIds,
-    );
-
-    // Mirror Document.status from the DO's (post-stamp) item fold. No
-    // downgrade: delivered_installed is terminal. Completion gate NOT fired.
-    if (document.status !== 'delivered_installed') {
-      const docItems = await this.prisma.documentItem.findMany({
-        where: { documentId },
-        select: { deliveryStatus: true, isService: true },
-      });
-      const deliverable = docItems.filter((i) => !i.isService);
-      if (deliverable.length > 0) {
-        if (deliverable.every((i) => i.deliveryStatus === DeliveryStatus.completed)) {
-          await this.prisma.document.update({ where: { id: documentId }, data: { status: 'delivered_installed' } });
-        } else if (deliverable.some((i) => RANK[i.deliveryStatus] >= RANK[DeliveryStatus.not_installed])) {
-          await this.prisma.document.update({ where: { id: documentId }, data: { status: 'delivered_not_installed' } });
-        }
-      }
-    }
-
-    this.logger.log(
-      `Delivery #${delivery.deliveryNumber}: ${selection.length} item(s) linked to DO ${document.name ?? documentId} (deducted ${deducted} unit(s))`,
-    );
     return this.findById(deliveryId, organizationId);
   }
 
@@ -616,6 +565,74 @@ export class DeliveriesService {
     // can be null on a multi-DO run — return the created DO id explicitly so
     // the office UI can route into the editor.
     return { ...linked, createdDocumentId: doc.id };
+  }
+
+  // ── field: in-flow assignment / skip-install ─────────────────────────────
+
+  /**
+   * Assign an acknowledged unit to a project from INSIDE the delivery flow
+   * (delivery-first #4). Delegates to projects.fieldDeploy — the SAME service
+   * path as the walk-around Assign page — so Assignment + ProjectDeployment +
+   * the unit's rental/sold status flip stay single-sourced. autoBind is
+   * explicitly false (and the helper's own pre-status-instock gate would stop
+   * it anyway — the unit is `reserved` here): on a delivery-first run, DO slot
+   * binding belongs to the link/commit step, and on a DO-first run the slot
+   * was already claimed at DO_START. No double-bind by construction.
+   * Also stamps the run's projectId/customerId (the "current drop target"
+   * defaults the next item's picker + the create-DO prefill).
+   */
+  async assignItem(
+    deliveryId: string,
+    dto: { projectId: string; inventoryId: string; type?: 'RENTAL' | 'SALE' },
+    organizationId: string,
+  ) {
+    const delivery = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      include: { items: true },
+    });
+    if (!delivery) throw new NotFoundException('Delivery not found');
+    if (delivery.status === 'cancelled') throw new BadRequestException('Cannot assign on a cancelled delivery');
+    const item = delivery.items.find((i) => i.inventoryId === dto.inventoryId);
+    if (!item) throw new NotFoundException('Unit is not on this delivery');
+    if (!item.deliveredAt) {
+      throw new BadRequestException('Assign after the unit is acknowledged (delivered)');
+    }
+
+    const project = await this.prisma.project.findFirst({
+      where: { id: dto.projectId, organizationId },
+      select: { id: true, customerId: true },
+    });
+    if (!project) throw new NotFoundException('Project not found in this organization');
+
+    const result = await this.projectsService.fieldDeploy(dto.projectId, organizationId, {
+      inventoryId: dto.inventoryId,
+      assetId: item.assetId,
+      type: dto.type,
+      autoBind: false,
+    });
+
+    await this.prisma.delivery.update({
+      where: { id: deliveryId },
+      data: { projectId: project.id, customerId: project.customerId ?? null },
+    });
+    return { ...result, projectId: project.id, customerId: project.customerId ?? null };
+  }
+
+  /**
+   * Rider says installation isn't needed (delivery-first #3): the item goes
+   * straight to completed with installSkipped=true and NO signature — the run
+   * fold (recomputeRunStatus) already counts completed regardless of the
+   * flag, so a fully-skipped run completes normally. Run-scoped twin of the
+   * DO-first POST /maintenance-reports/do-skip-install/:doId.
+   */
+  async skipInstall(deliveryId: string, inventoryId: string, organizationId: string) {
+    const updated = await this.advanceDeliveryItem(deliveryId, inventoryId, 'skip', organizationId);
+    if (!updated) {
+      throw new BadRequestException(
+        'Nothing to skip — the unit is not awaiting installation on this delivery',
+      );
+    }
+    return updated;
   }
 
   /**

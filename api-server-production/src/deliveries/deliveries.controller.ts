@@ -8,6 +8,7 @@ import { DeliveriesService } from './deliveries.service';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { AddDeliveryItemDto } from './dto/add-delivery-item.dto';
 import { CreateDoFromDeliveryDto, LinkDeliveryDto } from './dto/link-delivery.dto';
+import { AssignDeliveryItemDto, SkipInstallDto } from './dto/assign-delivery.dto';
 
 interface ClerkRequest extends Request {
   user?: { id?: string };
@@ -87,6 +88,26 @@ export class DeliveriesController {
     @UserOrganization() org: { id: string },
   ) {
     return this.service.createDoFromDelivery(id, org.id, dto.documentTemplateId, dto.itemIds);
+  }
+
+  @Post(':id/assign')
+  @Permissions('maintenance-reports:create')
+  assign(
+    @Param('id') id: string,
+    @Body() dto: AssignDeliveryItemDto,
+    @UserOrganization() org: { id: string },
+  ) {
+    return this.service.assignItem(id, dto, org.id);
+  }
+
+  @Post(':id/items/skip-install')
+  @Permissions('maintenance-reports:create')
+  skipInstall(
+    @Param('id') id: string,
+    @Body() dto: SkipInstallDto,
+    @UserOrganization() org: { id: string },
+  ) {
+    return this.service.skipInstall(id, dto.inventoryId, org.id);
   }
 
   @Post(':id/cancel')

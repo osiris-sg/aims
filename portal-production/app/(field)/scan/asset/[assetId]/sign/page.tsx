@@ -24,6 +24,10 @@ export default function SignPage() {
   // Threaded through the whole flow (chooser → ack → sign → done) so the
   // done page's "Back to this asset" link can restore the full scan context.
   const inventoryId = search?.get("inventoryId") ?? null;
+  // Standalone-run context (delivery-first): when set, the post-sign routing
+  // stays inside the run — a signed ack continues to the after-ack step
+  // (project picker + install prompt); a signed install returns to the basket.
+  const deliveryId = search?.get("deliveryId") ?? null;
   const sigRef = useRef<SignaturePadHandle>(null);
   const [signedByName, setSignedByName] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -86,6 +90,17 @@ export default function SignPage() {
         console.log("[sign] no flowKind match — service-report flow, no tracking change");
       }
 
+      if (deliveryId && flowKind === "do") {
+        // Standalone ack signed → in-flow continuation: assign + install prompt.
+        const q = `assetId=${encodeURIComponent(assetId)}${inventoryId ? `&inventoryId=${encodeURIComponent(inventoryId)}` : ""}`;
+        router.replace(`/scan/delivery/${deliveryId}/after-ack?${q}`);
+        return;
+      }
+      if (deliveryId && flowKind === "install") {
+        // Standalone install signed → back to the run's basket.
+        router.replace(`/scan/delivery/${deliveryId}`);
+        return;
+      }
       const invQuery = inventoryId ? `?inventoryId=${encodeURIComponent(inventoryId)}` : "";
       router.replace(`/scan/asset/${assetId}/done${invQuery}`);
     } catch (e: any) {

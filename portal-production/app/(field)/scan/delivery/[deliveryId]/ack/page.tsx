@@ -56,10 +56,13 @@ export default function StandaloneDeliveryAckPage() {
       );
       const reportId = res.data?.id ?? res.id;
       if (!reportId) throw new Error("No report id returned");
-      // Shared sign page (unchanged, reportId-based). kind=do stops the
-      // background GPS tracking on signature, exactly like the DO flow.
+      // Shared sign page (reportId-based). kind=do stops the background GPS
+      // tracking on signature; deliveryId keeps the post-sign routing inside
+      // the run (after-ack step: project picker + install prompt).
       const invQuery = inventoryId ? `&inventoryId=${encodeURIComponent(inventoryId)}` : "";
-      router.push(`/scan/asset/${assetId}/sign?reportId=${reportId}&kind=do${invQuery}`);
+      router.push(
+        `/scan/asset/${assetId}/sign?reportId=${reportId}&kind=do&deliveryId=${encodeURIComponent(deliveryId)}${invQuery}`,
+      );
     } catch (e: any) {
       setError(e?.message ?? "Failed to save acknowledgement");
     } finally {
