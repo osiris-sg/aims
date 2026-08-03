@@ -74,14 +74,36 @@ export class BankRecController {
     return this.service.deleteImport(requireOrgId(req), id);
   }
 
+  @Get('lines/:lineId/candidates')
+  @Permissions('bankrec:read')
+  matchCandidates(
+    @Req() req: RequestWithOrganization,
+    @Param('lineId') lineId: string,
+    @Query('search') search?: string,
+  ) {
+    return this.service.matchCandidates(requireOrgId(req), lineId, search);
+  }
+
+  @Get('lines/:lineId/detail')
+  @Permissions('bankrec:read')
+  lineDetail(@Req() req: RequestWithOrganization, @Param('lineId') lineId: string) {
+    return this.service.lineDetail(requireOrgId(req), lineId);
+  }
+
   @Post('lines/:lineId/match')
   @Permissions('bankrec:create')
   match(
     @Req() req: RequestWithOrganization,
     @Param('lineId') lineId: string,
-    @Body() body: { journalLineId: string },
+    @Body() body: { journalLineId?: string; journalLineIds?: string[] },
   ) {
-    return this.service.manualMatch(requireOrgId(req), lineId, body.journalLineId, req.auth?.userId);
+    return this.service.manualMatch(requireOrgId(req), lineId, body.journalLineIds ?? body.journalLineId ?? [], req.auth?.userId);
+  }
+
+  @Post('lines/:lineId/confirm')
+  @Permissions('bankrec:create')
+  confirm(@Req() req: RequestWithOrganization, @Param('lineId') lineId: string) {
+    return this.service.confirmMatch(requireOrgId(req), lineId, req.auth?.userId);
   }
 
   @Post('lines/:lineId/unmatch')

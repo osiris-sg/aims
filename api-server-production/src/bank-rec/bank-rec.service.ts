@@ -167,6 +167,10 @@ export class BankRecService {
   }
 
   // ---------- Import: PDF via Claude vision ----------
+  // Kick off a PDF import: creates the import row PROCESSING and returns
+  // immediately — extraction + auto-match continue server-side, so the user
+  // can leave or refresh the page (guru 2026-08-03). The row flips to READY
+  // or FAILED (with error) when done; the UI polls.
   async importPdf(
     organizationId: string,
     userId: string | undefined,
@@ -180,6 +184,31 @@ export class BankRecService {
     });
     if (!acct) throw new NotFoundException('Bank account not found');
 
+    const imp = await this.prisma.bankStatementImport.create({
+      data: {
+        organizationId,
+        bankAccountId: args.bankAccountId,
+        source: 'PDF',
+        filename: args.filename,
+        status: 'PROCESSING',
+        createdBy: userId,
+      },
+    });
+    void this.runPdfExtraction(imp.id, organizationId, args).catch(async (e) => {
+      this.logger.error(`[importPdf] background extraction failed for ${imp.id}: ${e?.message || e}`);
+      await this.prisma.bankStatementImport
+        .update({ where: { id: imp.id }, data: { status: 'FAILED', error: e?.message || 'Extraction failed' } })
+        .catch(() => undefined);
+    });
+    return imp;
+  }
+
+  private async runPdfExtraction(
+    importId: string,
+    organizationId: string,
+    args: { bankAccountId: string; base64: string; mediaType?: 'application/pdf' | 'image/jpeg' | 'image/png'; filename?: string },
+  ) {
+    const apiKey = process.env.ANTHROPIC_API_KEY!;
     const commaIdx = args.base64.indexOf(',');
     const headerMatch = args.base64.match(/^data:([a-zA-Z/+]+);base64,/);
     const data = commaIdx >= 0 && headerMatch ? args.base64.slice(commaIdx + 1) : args.base64;
@@ -189,7 +218,8 @@ export class BankRecService {
     const system = `You are extracting transactions from a bank statement. Output ONLY a JSON object with:
   - "endingBalance": number or null
   - "lines": [{ "date": "YYYY-MM-DD", "description": string, "amount": signed number (credit=positive, debit=negative), "reference": string|null, "runningBalance": number|null }]
-Skip header/footer and balance-brought-forward rows. Use null when unsure. No prose.`;
+Skip header/footer and balance-brought-forward rows. Use null when unsure. No prose.
+Output STRICT JSON only — never emit the token undefined, no trailing commas, no code fences. Keep each description SHORT (max ~12 words).`;
 
     const content: any[] = [];
     if (detectedMedia === 'application/pdf') {
@@ -199,22 +229,56 @@ Skip header/footer and balance-brought-forward rows. Use null when unsure. No pr
     }
     content.push({ type: 'text', text: 'Extract transactions per the system schema.' });
 
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 8000,
-      system,
-      messages: [{ role: 'user', content }],
-    });
+    // 8k tokens truncated real month-statements mid-array (guru hit this on
+    // an SCB May-2026 statement, 2026-08-03) — give the model headroom. The
+    // SDK requires streaming at this max_tokens; finalMessage() collects it.
+    const response = await client.messages
+      .stream({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 32000,
+        system,
+        messages: [{ role: 'user', content }],
+      })
+      .finalMessage();
     const text = response.content.find((b) => b.type === 'text');
     const raw = text && 'text' in text ? (text as any).text.trim() : '';
-    const match = raw.match(/\{[\s\S]*\}/);
+    const match = raw.match(/\{[\s\S]*\}?/);
     if (!match) throw new BadRequestException("Couldn't parse statement — extraction returned no JSON");
+
+    // Same LLM-JSON sanitize as the other extraction paths: bare undefined
+    // values → null, trailing commas stripped.
+    const sanitized = match[0]
+      .replace(/:\s*undefined\s*([,}\]])/g, ': null$1')
+      .replace(/,\s*([}\]])/g, '$1');
+
+    // If the output STILL hit max_tokens the array is cut mid-object —
+    // salvage every complete line instead of failing the whole import.
+    const salvageTruncated = (str: string): any | null => {
+      let idx = str.lastIndexOf('}');
+      for (let tries = 0; idx > 0 && tries < 500; tries++, idx = str.lastIndexOf('}', idx - 1)) {
+        const base = str.slice(0, idx + 1);
+        for (const tail of [']}', '}', '']) {
+          try {
+            const p = JSON.parse(base + tail);
+            if (p && Array.isArray(p.lines)) return p;
+          } catch {
+            /* keep walking back */
+          }
+        }
+      }
+      return null;
+    };
 
     let parsed: { endingBalance?: number; lines: any[] };
     try {
-      parsed = JSON.parse(match[0]);
+      parsed = JSON.parse(sanitized);
     } catch {
-      throw new BadRequestException('Extraction returned malformed JSON');
+      const salvaged = salvageTruncated(sanitized);
+      if (!salvaged) throw new BadRequestException('Extraction returned malformed JSON');
+      if (response.stop_reason === 'max_tokens') {
+        this.logger.warn(`[importPdf] output hit max_tokens — salvaged ${salvaged.lines?.length ?? 0} complete lines from a truncated statement`);
+      }
+      parsed = salvaged;
     }
     const lines: ParsedLine[] = (parsed.lines || [])
       .filter((l) => l && l.date && typeof l.amount === 'number')
@@ -231,16 +295,14 @@ Skip header/footer and balance-brought-forward rows. Use null when unsure. No pr
     const periodStart = new Date(lines.reduce((min, l) => (l.date < min ? l.date : min), lines[0].date));
     const periodEnd = new Date(lines.reduce((max, l) => (l.date > max ? l.date : max), lines[0].date));
 
-    const imp = await this.prisma.bankStatementImport.create({
+    await this.prisma.bankStatementImport.update({
+      where: { id: importId },
       data: {
-        organizationId,
-        bankAccountId: args.bankAccountId,
-        source: 'PDF',
-        filename: args.filename,
         periodStart,
         periodEnd,
         endingBalance: parsed.endingBalance ?? lines[lines.length - 1]?.runningBalance ?? null,
-        createdBy: userId,
+        status: 'READY',
+        error: null,
         lines: {
           create: lines.map((p) => ({
             organizationId,
@@ -253,10 +315,8 @@ Skip header/footer and balance-brought-forward rows. Use null when unsure. No pr
           })),
         },
       },
-      include: { lines: true },
     });
-    await this.autoMatch(organizationId, imp.id);
-    return imp;
+    await this.autoMatch(organizationId, importId);
   }
 
   // Get an import with its lines and (for matched lines) the JE line they're matched to.
@@ -267,8 +327,19 @@ Skip header/footer and balance-brought-forward rows. Use null when unsure. No pr
     });
     if (!imp) throw new NotFoundException('Import not found');
 
-    // Enrich with matched JE info per line.
-    const matchedIds = imp.lines.map((l) => l.matchedJournalLineId).filter(Boolean) as string[];
+    // Enrich with matched JE info per line (single FK + batch match rows).
+    const matchRows = await this.prisma.bankStatementMatch.findMany({
+      where: { lineId: { in: imp.lines.map((l) => l.id) } },
+      select: { lineId: true, journalLineId: true },
+    });
+    const matchesByLine = new Map<string, string[]>();
+    for (const m of matchRows) matchesByLine.set(m.lineId, [...(matchesByLine.get(m.lineId) || []), m.journalLineId]);
+    const matchedIds = [
+      ...new Set([
+        ...(imp.lines.map((l) => l.matchedJournalLineId).filter(Boolean) as string[]),
+        ...matchRows.map((m) => m.journalLineId),
+      ]),
+    ];
     const matched =
       matchedIds.length > 0
         ? await this.prisma.journalEntryLine.findMany({
@@ -280,10 +351,15 @@ Skip header/footer and balance-brought-forward rows. Use null when unsure. No pr
 
     return {
       ...imp,
-      lines: imp.lines.map((l) => ({
-        ...l,
-        matchedJournalLine: l.matchedJournalLineId ? matchedById.get(l.matchedJournalLineId) ?? null : null,
-      })),
+      lines: imp.lines.map((l) => {
+        const multi = (matchesByLine.get(l.id) || []).map((id) => matchedById.get(id)).filter(Boolean);
+        return {
+          ...l,
+          matchedJournalLine: l.matchedJournalLineId ? matchedById.get(l.matchedJournalLineId) ?? null : multi[0] ?? null,
+          // Batch matches: all journal lines this statement line settles.
+          matchedJournalLines: multi.length ? multi : l.matchedJournalLineId ? [matchedById.get(l.matchedJournalLineId)].filter(Boolean) : [],
+        };
+      }),
     };
   }
 
@@ -292,6 +368,19 @@ Skip header/footer and balance-brought-forward rows. Use null when unsure. No pr
   // amount matches (signed) and date is within ±3 days. Single candidate →
   // MATCHED. Multiple → first one wins (UI shows the alternatives via
   // suggested-matches endpoint). Zero → stays PENDING.
+  // Every journal line already claimed by any statement line (legacy single
+  // FK + the match table).
+  private async takenJournalLineIds(organizationId: string): Promise<Set<string>> {
+    const [legacy, rows] = await Promise.all([
+      this.prisma.bankStatementLine.findMany({
+        where: { organizationId, matchedJournalLineId: { not: null } },
+        select: { matchedJournalLineId: true },
+      }),
+      this.prisma.bankStatementMatch.findMany({ where: { organizationId }, select: { journalLineId: true } }),
+    ]);
+    return new Set([...legacy.map((r) => r.matchedJournalLineId!), ...rows.map((r) => r.journalLineId)]);
+  }
+
   async autoMatch(organizationId: string, importId: string) {
     const imp = await this.prisma.bankStatementImport.findFirst({
       where: { id: importId, organizationId },
@@ -311,14 +400,12 @@ Skip header/footer and balance-brought-forward rows. Use null when unsure. No pr
       include: { journalEntry: { select: { entryDate: true, reference: true } } },
     });
 
-    // Exclude JE lines already matched by a different statement line in this org.
-    const alreadyMatched = await this.prisma.bankStatementLine.findMany({
-      where: { organizationId, matchedJournalLineId: { not: null } },
-      select: { matchedJournalLineId: true },
-    });
-    const taken = new Set(alreadyMatched.map((r) => r.matchedJournalLineId!));
+    // Exclude JE lines already claimed anywhere (single FK or match rows).
+    const taken = await this.takenJournalLineIds(organizationId);
 
     let matchedCount = 0;
+    let batchMatched = 0;
+    const stillPending: typeof imp.lines = [];
     for (const line of imp.lines) {
       // Bank credit (+) = Dr Cash → journal entry's bank line has positive debit.
       // Bank debit  (-) = Cr Cash → journal entry's bank line has positive credit.
@@ -333,7 +420,10 @@ Skip header/footer and balance-brought-forward rows. Use null when unsure. No pr
         return diffMs <= 3 * DAY_MS;
       });
 
-      if (candidates.length === 0) continue;
+      if (candidates.length === 0) {
+        stillPending.push(line);
+        continue;
+      }
       // Exact single match → confirm. Multiple → still pick the closest by
       // date (deterministic) but flag in description so user can override.
       const winner = candidates.sort(
@@ -348,40 +438,142 @@ Skip header/footer and balance-brought-forward rows. Use null when unsure. No pr
           status: 'MATCHED',
           matchedJournalLineId: winner.id,
           matchedAt: new Date(),
+          matches: { create: { organizationId, journalLineId: winner.id } },
         },
       });
       taken.add(winner.id);
       matchedCount += 1;
     }
 
-    return { importId, matchedCount, totalPending: imp.lines.length };
+    // ---- Phase 2: BATCH payments (guru 2026-08-03) — one statement line
+    // settling SEVERAL journal lines (e.g. a customer paying 4 invoices in
+    // one transfer). Subset-sum over open same-side JE lines near the date.
+    const findCombo = (cands: Array<{ id: string; amt: number }>, target: number): string[] | null => {
+      const sorted = [...cands].sort((a, b) => b.amt - a.amt).slice(0, 40);
+      const n = sorted.length;
+      const suffix: number[] = new Array(n + 1).fill(0);
+      for (let i = n - 1; i >= 0; i--) suffix[i] = suffix[i + 1] + sorted[i].amt;
+      const pick: string[] = [];
+      const dfs = (i: number, remaining: number, len: number): boolean => {
+        if (Math.abs(remaining) < 0.005) return len >= 2;
+        if (i >= n || len >= 8 || remaining < -0.005) return false;
+        if (suffix[i] < remaining - 0.005) return false; // can't reach target
+        pick.push(sorted[i].id);
+        if (dfs(i + 1, ROUND(remaining - sorted[i].amt), len + 1)) return true;
+        pick.pop();
+        return dfs(i + 1, remaining, len);
+      };
+      return dfs(0, ROUND(target), 0) ? [...pick] : null;
+    };
+
+    // Counterparty guard (guru 2026-08-03 — amount-only subset sums produced
+    // nonsense batches like insurance premiums "settled" by transport bills):
+    // a batch must be journals of ONE contact whose name appears in the bank
+    // narrative. Journals with no known contact are never auto-batched.
+    const entryIdsForContacts = [...new Set(jeLines.map((j) => j.journalEntry.id))];
+    const [bpRows, payRows] = await Promise.all([
+      this.prisma.billPayment.findMany({
+        where: { journalEntryId: { in: entryIdsForContacts } },
+        include: { supplier: { select: { name: true } } },
+      }),
+      this.prisma.payment.findMany({
+        where: { journalEntryId: { in: entryIdsForContacts } } as any,
+        include: { customer: { select: { name: true } } } as any,
+      }),
+    ]);
+    const contactByEntry = new Map<string, string>();
+    for (const b of bpRows) if (b.journalEntryId && b.supplier?.name) contactByEntry.set(b.journalEntryId, b.supplier.name);
+    for (const pr of payRows as any[]) if (pr.journalEntryId && pr.customer?.name) contactByEntry.set(pr.journalEntryId, pr.customer.name);
+    const normTokens = (x: string) =>
+      x.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length >= 4 && !['received', 'from', 'fast', 'clearing', 'swift'].includes(w));
+    const contactInDesc = (contact: string, desc: string) => {
+      const d = desc.toLowerCase();
+      return normTokens(contact).some((tok) => d.includes(tok));
+    };
+
+    for (const line of stillPending) {
+      const target = Math.abs(line.amount);
+      const contactGroups = new Map<string, Array<{ id: string; amt: number }>>();
+      for (const j of jeLines) {
+        if (taken.has(j.id)) continue;
+        const amt = line.amount > 0 ? j.debit : j.credit;
+        if (!(amt > 0)) continue;
+        if (amt - target > 0.005) continue;
+        const diffMs = Math.abs(j.journalEntry.entryDate.getTime() - line.date.getTime());
+        if (diffMs > 14 * DAY_MS) continue;
+        const contact = contactByEntry.get(j.journalEntry.id);
+        if (!contact) continue; // unknown counterparty → never auto-batch
+        if (!contactInDesc(contact, line.description || '')) continue; // must appear in the narrative
+        contactGroups.set(contact, [...(contactGroups.get(contact) || []), { id: j.id, amt: ROUND(amt) }]);
+      }
+      let combo: string[] | null = null;
+      for (const [, cands] of contactGroups) {
+        if (cands.length < 2) continue;
+        combo = findCombo(cands, target);
+        if (combo) break;
+      }
+      if (!combo) continue;
+      await this.prisma.bankStatementLine.update({
+        where: { id: line.id },
+        data: {
+          // Batch finds are SUGGESTIONS (guru 2026-08-03): they reserve the
+          // journals but need a human Confirm before counting as matched.
+          status: 'SUGGESTED',
+          matchedJournalLineId: null, // multi — the match rows are authoritative
+          matchedAt: new Date(),
+          matches: { create: combo.map((journalLineId) => ({ organizationId, journalLineId })) },
+        },
+      });
+      combo.forEach((id) => taken.add(id));
+      batchMatched += 1;
+    }
+
+    return { importId, matchedCount: matchedCount + batchMatched, batchMatched, totalPending: imp.lines.length };
   }
 
   // Manual match: user picked a JE line for a statement line.
-  async manualMatch(organizationId: string, lineId: string, journalLineId: string, userId?: string) {
+  // One OR MANY journal lines (batch payments) per statement line.
+  async manualMatch(organizationId: string, lineId: string, journalLineIds: string | string[], userId?: string) {
+    const ids = (Array.isArray(journalLineIds) ? journalLineIds : [journalLineIds]).filter(Boolean);
+    if (!ids.length) throw new BadRequestException('Pick at least one journal line');
     const line = await this.prisma.bankStatementLine.findFirst({ where: { id: lineId, organizationId } });
     if (!line) throw new NotFoundException('Statement line not found');
     if (line.status !== 'PENDING') throw new BadRequestException(`Line is ${line.status} — unmatch first`);
 
-    const jeLine = await this.prisma.journalEntryLine.findFirst({
-      where: { id: journalLineId, accountId: line.bankAccountId },
+    const jeLines = await this.prisma.journalEntryLine.findMany({
+      where: { id: { in: ids }, accountId: line.bankAccountId },
     });
-    if (!jeLine) throw new BadRequestException('JE line not on this bank account');
+    if (jeLines.length !== ids.length) throw new BadRequestException('Some journal lines are not on this bank account');
+    const taken = await this.takenJournalLineIds(organizationId);
+    if (ids.some((id) => taken.has(id))) throw new BadRequestException('One of the journal lines is already matched to another statement line');
 
     return this.prisma.bankStatementLine.update({
       where: { id: lineId },
       data: {
         status: 'MATCHED',
-        matchedJournalLineId: journalLineId,
+        matchedJournalLineId: ids.length === 1 ? ids[0] : null,
         matchedAt: new Date(),
         matchedBy: userId,
+        matches: { create: ids.map((journalLineId) => ({ organizationId, journalLineId, createdBy: userId })) },
       },
+    });
+  }
+
+  // Human confirmation of an AI-suggested batch match.
+  async confirmMatch(organizationId: string, lineId: string, userId?: string) {
+    const line = await this.prisma.bankStatementLine.findFirst({ where: { id: lineId, organizationId } });
+    if (!line) throw new NotFoundException();
+    if (line.status !== 'SUGGESTED') throw new BadRequestException(`Line is ${line.status} — only SUGGESTED lines need confirming`);
+    return this.prisma.bankStatementLine.update({
+      where: { id: lineId },
+      data: { status: 'MATCHED', matchedBy: userId, matchedAt: new Date() },
     });
   }
 
   async unmatch(organizationId: string, lineId: string) {
     const line = await this.prisma.bankStatementLine.findFirst({ where: { id: lineId, organizationId } });
     if (!line) throw new NotFoundException();
+    await this.prisma.bankStatementMatch.deleteMany({ where: { lineId, organizationId } });
     return this.prisma.bankStatementLine.update({
       where: { id: lineId },
       data: { status: 'PENDING', matchedJournalLineId: null, matchedAt: null, matchedBy: null },
@@ -531,7 +723,7 @@ Skip header/footer and balance-brought-forward rows. Use null when unsure. No pr
   async reconciliation(organizationId: string, importId: string) {
     const imp = await this.getImport(organizationId, importId);
     const matchedTotal = imp.lines
-      .filter((l) => l.status === 'MATCHED' || l.status === 'POSTED_NEW')
+      .filter((l) => l.status === 'MATCHED' || l.status === 'POSTED_NEW' || l.status === 'SUGGESTED')
       .reduce((s, l) => s + l.amount, 0);
     const pendingTotal = imp.lines.filter((l) => l.status === 'PENDING').reduce((s, l) => s + l.amount, 0);
 
@@ -556,6 +748,7 @@ Skip header/footer and balance-brought-forward rows. Use null when unsure. No pr
       bankEndingBalance: imp.endingBalance ?? null,
       glBalance,
       matchedCount: imp.lines.filter((l) => l.status === 'MATCHED').length,
+      suggestedCount: imp.lines.filter((l) => l.status === 'SUGGESTED').length,
       postedNewCount: imp.lines.filter((l) => l.status === 'POSTED_NEW').length,
       pendingCount: imp.lines.filter((l) => l.status === 'PENDING').length,
       ignoredCount: imp.lines.filter((l) => l.status === 'IGNORED').length,
@@ -570,6 +763,254 @@ Skip header/footer and balance-brought-forward rows. Use null when unsure. No pr
           ? ROUND(imp.endingBalance - glBalance - pendingTotal)
           : null,
     };
+  }
+
+  // "Reconciled transaction details" (guru 2026-08-03, Xero concept): what a
+  // matched statement line reconciled to, in business terms — the journal
+  // (with its double-entry lines) plus the source document / bill payment and
+  // contact behind it, so the user can verify the AI match at a glance.
+  async lineDetail(organizationId: string, lineId: string) {
+    const line = await this.prisma.bankStatementLine.findFirst({ where: { id: lineId, organizationId } });
+    if (!line) throw new NotFoundException('Statement line not found');
+
+    // All matched journal lines (batch payments have several).
+    const matchRows = await this.prisma.bankStatementMatch.findMany({ where: { lineId, organizationId }, select: { journalLineId: true } });
+    const matchedLineIds = matchRows.length
+      ? matchRows.map((m) => m.journalLineId)
+      : line.matchedJournalLineId
+      ? [line.matchedJournalLineId]
+      : [];
+    let entryIds: string[] = [];
+    if (matchedLineIds.length) {
+      const jls = await this.prisma.journalEntryLine.findMany({
+        where: { id: { in: matchedLineIds } },
+        select: { journalEntryId: true },
+      });
+      entryIds = [...new Set(jls.map((j) => j.journalEntryId))];
+    } else if (line.postedJournalEntryId) {
+      entryIds = [line.postedJournalEntryId];
+    }
+    if (!entryIds.length) return { line, entry: null, entries: [], document: null, billPayment: null };
+    const entryId = entryIds[0];
+    const matchedLineIdSet = new Set(matchedLineIds);
+
+    // Build the enriched view for EACH journal the line settles (batch
+    // payments have several — the dialog lists them all).
+    const buildEntry = async (id: string) => {
+      const entry = await this.prisma.journalEntry.findFirst({
+        where: { id, organizationId },
+        include: {
+          lines: {
+            include: { account: { select: { code: true, name: true } } },
+            orderBy: { lineNumber: 'asc' },
+          },
+        },
+      });
+      if (!entry) return null;
+
+      let document: any = null;
+      if (entry.sourceDocumentId) {
+        const doc = await this.prisma.document.findFirst({
+          where: { id: entry.sourceDocumentId, organizationId },
+          select: { id: true, name: true, type: true, documentTemplateId: true, config: true },
+        });
+        if (doc) {
+          const c: any = doc.config || {};
+          let contactName: string | null = c.customerName || c.supplierName || c.customer?.name || null;
+          if (!contactName && c.customerId) {
+            contactName = (await this.prisma.customer.findFirst({ where: { id: c.customerId }, select: { name: true } }))?.name ?? null;
+          }
+          if (!contactName && c.supplierId) {
+            contactName = (await this.prisma.supplier.findFirst({ where: { id: c.supplierId }, select: { name: true } }))?.name ?? null;
+          }
+          document = {
+            id: doc.id,
+            name: doc.name,
+            type: doc.type,
+            templateId: doc.documentTemplateId,
+            contactName,
+            total: c.grossTotal ?? c.totalAmount ?? c.receiptAmount ?? null,
+          };
+        }
+      }
+
+      // Supplier payments: the BillPayment row (P/V) links by journalEntryId.
+      const bp = await this.prisma.billPayment.findFirst({
+        where: { journalEntryId: entry.id },
+        include: { supplier: { select: { name: true } } },
+      });
+      const billDoc = bp
+        ? await this.prisma.document.findFirst({ where: { id: bp.billId }, select: { name: true } })
+        : null;
+      // Customer receipts: the Payment row links by journalEntryId (Xero
+      // backfill 2026-08-03) — gives the customer + settled invoice.
+      const custPay = !bp
+        ? await this.prisma.payment.findFirst({
+            where: { journalEntryId: entry.id } as any,
+            include: { customer: { select: { name: true } }, document: { select: { name: true } } } as any,
+          })
+        : null;
+
+      return {
+        entry: {
+          id: entry.id,
+          journalNumber: entry.journalNumber,
+          entryDate: entry.entryDate,
+          type: entry.type,
+          reference: entry.reference,
+          description: entry.description,
+          status: entry.status,
+          isUnconfirmed: (entry as any).isUnconfirmed ?? false,
+          lines: entry.lines.map((l) => ({
+            accountCode: l.account?.code,
+            accountName: l.account?.name,
+            description: l.description,
+            debit: l.debit,
+            credit: l.credit,
+            isMatchedLine: matchedLineIdSet.has(l.id),
+          })),
+        },
+        document,
+        billPayment: bp
+          ? { id: bp.id, billNumber: billDoc?.name || null, supplierName: bp.supplier?.name || null, amount: bp.amount, paymentDate: bp.paymentDate, reference: bp.reference }
+          : null,
+        customerPayment: custPay
+          ? {
+              id: (custPay as any).id,
+              invoiceNumber: (custPay as any).document?.name || null,
+              customerName: (custPay as any).customer?.name || null,
+              amount: (custPay as any).amount,
+              paymentDate: (custPay as any).paymentDate,
+              reference: (custPay as any).reference,
+            }
+          : null,
+      };
+    };
+
+    const entries = (await Promise.all(entryIds.map((id) => buildEntry(id)))).filter(Boolean) as any[];
+    const first = entries[0] || { entry: null, document: null, billPayment: null };
+    return {
+      line,
+      // Back-compat single fields + the full list for batch matches.
+      entry: first.entry,
+      document: first.document,
+      billPayment: first.billPayment,
+      entries,
+    };
+  }
+
+  // Candidates for MANUAL matching (guru 2026-08-03): every unmatched journal
+  // line on the bank account near the statement date, enriched with the
+  // business identity behind it — OR / P/V reference, source document and
+  // contact — so the accountant has ref + amount + customer to find the match.
+  async matchCandidates(organizationId: string, lineId: string, search?: string) {
+    const line = await this.prisma.bankStatementLine.findFirst({ where: { id: lineId, organizationId } });
+    if (!line) throw new NotFoundException('Statement line not found');
+
+    const windowDays = search ? 3650 : 90; // searching widens to "everything"
+    const fromDate = new Date(line.date.getTime() - windowDays * DAY_MS);
+    const toDate = new Date(line.date.getTime() + windowDays * DAY_MS);
+
+    const taken = await this.takenJournalLineIds(organizationId);
+    // Which statement line claimed each journal line — taken candidates stay
+    // VISIBLE (flagged), because hiding them made correct candidates vanish
+    // when a wrong match claimed them first (guru 2026-08-03, Allink case).
+    const takenByLine = new Map<string, string>();
+    const claimRows = await this.prisma.bankStatementMatch.findMany({
+      where: { organizationId },
+      select: { journalLineId: true, line: { select: { description: true, date: true, amount: true } } },
+    });
+    for (const c of claimRows) {
+      takenByLine.set(c.journalLineId, `${c.line.date.toISOString().slice(0, 10)} · ${(c.line.description || '').slice(0, 40)} · ${c.line.amount}`);
+    }
+    const legacyClaims = await this.prisma.bankStatementLine.findMany({
+      where: { organizationId, matchedJournalLineId: { not: null } },
+      select: { matchedJournalLineId: true, description: true, date: true, amount: true },
+    });
+    for (const c of legacyClaims) {
+      if (!takenByLine.has(c.matchedJournalLineId!)) {
+        takenByLine.set(c.matchedJournalLineId!, `${c.date.toISOString().slice(0, 10)} · ${(c.description || '').slice(0, 40)} · ${c.amount}`);
+      }
+    }
+
+    const jls = await this.prisma.journalEntryLine.findMany({
+      where: {
+        accountId: line.bankAccountId,
+        journalEntry: { organizationId, status: 'POSTED', entryDate: { gte: fromDate, lte: toDate } },
+      },
+      include: {
+        journalEntry: {
+          select: { id: true, journalNumber: true, entryDate: true, reference: true, description: true, type: true, sourceDocumentId: true },
+        },
+      },
+    });
+    const open = jls; // taken ones included, flagged below
+
+    // Batch-enrich: source documents + bill payments behind the journals.
+    const docIds = [...new Set(open.map((j) => j.journalEntry.sourceDocumentId).filter(Boolean))] as string[];
+    const docs = docIds.length
+      ? await this.prisma.document.findMany({ where: { id: { in: docIds } }, select: { id: true, name: true, type: true, config: true } })
+      : [];
+    const docById = new Map(docs.map((d) => [d.id, d]));
+    const entryIds = [...new Set(open.map((j) => j.journalEntry.id))];
+    const bps = entryIds.length
+      ? await this.prisma.billPayment.findMany({
+          where: { journalEntryId: { in: entryIds } },
+          include: { supplier: { select: { name: true } } },
+        })
+      : [];
+    const bpByEntry = new Map(bps.map((b) => [b.journalEntryId as string, b]));
+    const custPays = entryIds.length
+      ? await this.prisma.payment.findMany({
+          where: { journalEntryId: { in: entryIds } } as any,
+          include: { customer: { select: { name: true } }, document: { select: { name: true } } } as any,
+        })
+      : [];
+    const cpByEntry = new Map((custPays as any[]).map((p) => [p.journalEntryId as string, p]));
+
+    const wantDebit = line.amount > 0; // bank money-in matches JE debit on the bank account
+    const term = (search || '').trim().toLowerCase();
+
+    const shaped = open
+      .map((j) => {
+        const je = j.journalEntry;
+        const doc: any = je.sourceDocumentId ? docById.get(je.sourceDocumentId) : null;
+        const cfg: any = doc?.config || {};
+        const bp = bpByEntry.get(je.id);
+        const cp: any = cpByEntry.get(je.id);
+        const contactName =
+          cfg.customerName || cfg.supplierName || cfg.customer?.name || bp?.supplier?.name || cp?.customer?.name || null;
+        const amount = j.debit > 0 ? j.debit : j.credit;
+        return {
+          takenBy: taken.has(j.id) ? takenByLine.get(j.id) || 'another statement line' : null,
+          journalLineId: j.id,
+          journalNumber: je.journalNumber,
+          entryDate: je.entryDate,
+          reference: je.reference,
+          description: j.description || je.description,
+          debit: j.debit,
+          credit: j.credit,
+          sideMatches: wantDebit ? j.debit > 0 : j.credit > 0,
+          amountMatches: Math.abs(amount - Math.abs(line.amount)) < 0.005,
+          docType: doc?.type || (bp ? 'SUPPLIER_PAYMENT' : cp ? 'CUSTOMER_RECEIPT' : null),
+          docName: doc?.name || cp?.document?.name || null,
+          contactName,
+          dateDiffDays: Math.round(Math.abs(je.entryDate.getTime() - line.date.getTime()) / DAY_MS),
+        };
+      })
+      .filter((c) => {
+        if (!term) return true;
+        return [c.reference, c.description, c.journalNumber, c.docName, c.contactName, String(c.debit || ''), String(c.credit || '')]
+          .some((v) => String(v ?? '').toLowerCase().includes(term));
+      })
+      // Rank: right side + exact amount first, then amount match, then date proximity.
+      .sort((a, b) => {
+        const score = (x: typeof a) => (x.takenBy ? 4 : 0) + (x.sideMatches && x.amountMatches ? 0 : x.amountMatches ? 1 : x.sideMatches ? 2 : 3);
+        return score(a) - score(b) || a.dateDiffDays - b.dateDiffDays;
+      })
+      .slice(0, 120);
+
+    return { line, candidates: shaped };
   }
 
   async deleteImport(organizationId: string, importId: string) {

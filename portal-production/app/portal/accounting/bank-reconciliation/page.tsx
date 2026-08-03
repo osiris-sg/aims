@@ -6,6 +6,7 @@ import {
   Autocomplete,
   Box,
   Button,
+  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
@@ -32,6 +33,7 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import LinkOffIcon from "@mui/icons-material/LinkOff";
+import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import CloseIcon from "@mui/icons-material/Close";
@@ -59,6 +61,9 @@ type ImportRow = {
   periodStart?: string | null;
   periodEnd?: string | null;
   endingBalance?: number | null;
+  // PDF extraction runs in the background: PROCESSING → READY | FAILED.
+  status?: string;
+  error?: string | null;
   _count?: { lines: number };
   createdAt: string;
 };
@@ -69,7 +74,7 @@ type StatementLine = {
   reference?: string | null;
   amount: number;
   runningBalance?: number | null;
-  status: "PENDING" | "MATCHED" | "POSTED_NEW" | "IGNORED";
+  status: "PENDING" | "MATCHED" | "POSTED_NEW" | "IGNORED" | "SUGGESTED";
   matchedJournalLineId?: string | null;
   suggestedAccountId?: string | null;
   suggestionConfidence?: number | null;
@@ -111,6 +116,16 @@ export default function BankReconciliationPage() {
   const [uploading, setUploading] = useState(false);
   const [csvDialogOpen, setCsvDialogOpen] = useState(false);
   const [postDialogLine, setPostDialogLine] = useState<StatementLine | null>(null);
+  // "Reconciled transaction details" — what a matched line reconciled to.
+  const [detail, setDetail] = useState<any | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  // Manual match picker — rich candidates (ref / contact / amount).
+  const [matchLine, setMatchLine] = useState<StatementLine | null>(null);
+  const [candidates, setCandidates] = useState<any[] | null>(null);
+  const [candSearch, setCandSearch] = useState("");
+  const [candLoading, setCandLoading] = useState(false);
+  // Batch payments: one statement line can settle several journal lines.
+  const [candSelected, setCandSelected] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // PageTable-driven state for the statement-line table
@@ -153,6 +168,32 @@ export default function BankReconciliationPage() {
   useEffect(() => {
     loadImports();
   }, [loadImports]);
+
+  // Background PDF extraction: poll the imports list while any is PROCESSING,
+  // and pull in the fresh lines when the active one flips READY / FAILED.
+  const processingIds = imports.filter((i) => i.status === "PROCESSING").map((i) => i.id).join(",");
+  useEffect(() => {
+    if (!processingIds) return;
+    const t = setInterval(async () => {
+      if (!bankAccountId) return;
+      try {
+        const list: ImportRow[] = (await request(`/bank-rec/imports?bankAccountId=${bankAccountId}`)) || [];
+        setImports(list);
+        for (const id of processingIds.split(",")) {
+          const now = list.find((x) => x.id === id);
+          if (now && now.status !== "PROCESSING") {
+            if (now.status === "FAILED") toast.error(`Statement extraction failed: ${now.error || "unknown error"}`);
+            else toast.success(`Statement ready — ${now._count?.lines ?? 0} lines extracted + auto-matched`);
+            if (activeImportId === id) loadActive();
+          }
+        }
+      } catch {
+        /* transient poll failure — keep polling */
+      }
+    }, 5000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [processingIds, bankAccountId]);
 
   // Load active import detail + reconciliation
   const loadActive = useCallback(async () => {
@@ -200,7 +241,7 @@ export default function BankReconciliationPage() {
           filename: file.name,
         }),
       });
-      toast.success("Statement imported + auto-matched");
+      toast.success("Extracting in the background — safe to leave or refresh; the import appears below when ready");
       setActiveImportId(imp.id);
       loadImports();
     } catch (e: any) {
@@ -246,6 +287,68 @@ export default function BankReconciliationPage() {
       toast.error(e?.message || "Failed");
     }
   };
+  const openDetail = async (line: StatementLine) => {
+    setDetailLoading(true);
+    setDetail({ line }); // open immediately with a spinner
+    try {
+      const d = await request(`/bank-rec/lines/${line.id}/detail`);
+      setDetail(d);
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to load match details");
+      setDetail(null);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const loadCandidates = useCallback(
+    async (line: StatementLine, term: string) => {
+      setCandLoading(true);
+      try {
+        const r = await request(`/bank-rec/lines/${line.id}/candidates${term ? `?search=${encodeURIComponent(term)}` : ""}`);
+        setCandidates(r?.candidates || []);
+      } catch (e: any) {
+        toast.error(e?.message || "Failed to load candidates");
+        setCandidates([]);
+      } finally {
+        setCandLoading(false);
+      }
+    },
+    [request],
+  );
+
+  const openMatchPicker = (line: StatementLine) => {
+    setMatchLine(line);
+    setCandidates(null);
+    setCandSearch("");
+    setCandSelected(new Set());
+    void loadCandidates(line, "");
+  };
+
+  const commitMatch = async (journalLineIds: string[]) => {
+    if (!matchLine || journalLineIds.length === 0) return;
+    try {
+      await request(`/bank-rec/lines/${matchLine.id}/match`, {
+        method: "POST",
+        body: JSON.stringify({ journalLineIds }),
+      });
+      toast.success(journalLineIds.length > 1 ? `Matched to ${journalLineIds.length} journals (batch)` : "Matched");
+      setMatchLine(null);
+      loadActive();
+    } catch (e: any) {
+      toast.error(e?.message || "Match failed");
+    }
+  };
+
+  const toggleCandidate = (id: string) => {
+    setCandSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const unmatchLine = async (line: StatementLine) => {
     try {
       await request(`/bank-rec/lines/${line.id}/unmatch`, { method: "POST" });
@@ -257,7 +360,7 @@ export default function BankReconciliationPage() {
 
   const visibleLines = activeImport?.lines || [];
   const counts = useMemo(() => {
-    const c = { all: visibleLines.length, PENDING: 0, MATCHED: 0, POSTED_NEW: 0, IGNORED: 0 };
+    const c = { all: visibleLines.length, PENDING: 0, MATCHED: 0, POSTED_NEW: 0, IGNORED: 0, SUGGESTED: 0 };
     for (const l of visibleLines) (c as any)[l.status] = ((c as any)[l.status] ?? 0) + 1;
     return c;
   }, [visibleLines]);
@@ -312,7 +415,7 @@ export default function BankReconciliationPage() {
         const dir = row.original.amount > 0 ? "in" : "out";
         const amtColor = dir === "in" ? "success.main" : "error.main";
         return (
-          <Box sx={{ textAlign: "right", fontFamily: "monospace", fontWeight: 600, color: amtColor }}>
+          <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 600, color: amtColor }}>
             {dir === "in" ? "+" : "−"} {fmt(Math.abs(row.original.amount))}
           </Box>
         );
@@ -325,10 +428,12 @@ export default function BankReconciliationPage() {
         <Chip
           size="small"
           variant="outlined"
-          label={row.original.status.replace("_", " ")}
+          label={row.original.status === "SUGGESTED" ? "SUGGESTED (AI)" : row.original.status.replace("_", " ")}
           color={
             row.original.status === "MATCHED"
               ? "success"
+              : row.original.status === "SUGGESTED"
+              ? "info"
               : row.original.status === "POSTED_NEW"
               ? "info"
               : row.original.status === "IGNORED"
@@ -344,17 +449,37 @@ export default function BankReconciliationPage() {
       header: "Match / Suggestion",
       cell: ({ row }: any) => {
         const line: StatementLine = row.original;
+        // Paid-vs-bank drift in days — the accountant's first sanity check.
+        const drift = (jeDate: string | Date) => {
+          const d = Math.round((new Date(jeDate).getTime() - new Date(line.date).getTime()) / 86400000);
+          return d === 0 ? "same day" : d > 0 ? `+${d}d` : `${d}d`;
+        };
+        const multi: any[] = (line as any).matchedJournalLines || [];
         return (
           <Box sx={{ fontSize: "0.8125rem" }}>
-            {line.matchedJournalLine && (
+            {multi.length > 1 ? (
               <Box sx={{ color: "text.secondary" }}>
-                <Box component="span" sx={{ fontFamily: "monospace", fontWeight: 600 }}>
+                <Box component="span" sx={{ fontWeight: 700 }}>
+                  {multi.length} journals (batch)
+                </Box>
+                {" · paid "}
+                {(() => {
+                  const ds = multi.map((m: any) => new Date(m.journalEntry.entryDate).getTime());
+                  const lo = new Date(Math.min(...ds)).toLocaleDateString("en-GB");
+                  const hi = new Date(Math.max(...ds)).toLocaleDateString("en-GB");
+                  return lo === hi ? `${lo} (${drift(new Date(Math.min(...ds)))})` : `${lo} – ${hi}`;
+                })()}
+              </Box>
+            ) : line.matchedJournalLine ? (
+              <Box sx={{ color: "text.secondary" }}>
+                <Box component="span" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
                   {line.matchedJournalLine.journalEntry.journalNumber}
                 </Box>
-                {" · "}
-                {new Date(line.matchedJournalLine.journalEntry.entryDate).toLocaleDateString()}
+                {" · paid "}
+                {new Date(line.matchedJournalLine.journalEntry.entryDate).toLocaleDateString("en-GB")}
+                {` (${drift(line.matchedJournalLine.journalEntry.entryDate)})`}
               </Box>
-            )}
+            ) : null}
             {line.status === "PENDING" && line.suggestionReason && (
               <Tooltip title={line.suggestionReason}>
                 <Chip
@@ -376,10 +501,50 @@ export default function BankReconciliationPage() {
       cell: ({ row }: any) => {
         const line: StatementLine = row.original;
         const isMatched = line.status === "MATCHED" || line.status === "POSTED_NEW";
+        const isSuggested = line.status === "SUGGESTED";
         return (
           <Stack direction="row" gap={0.25} justifyContent="flex-end">
+            {isSuggested && (
+              <>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="success"
+                  sx={{ mr: 0.5, textTransform: "none", fontSize: "0.7rem", py: 0.25 }}
+                  onClick={async () => {
+                    try {
+                      await request(`/bank-rec/lines/${line.id}/confirm`, { method: "POST" });
+                      toast.success("Match confirmed");
+                      loadActive();
+                    } catch (e: any) {
+                      toast.error(e?.message || "Confirm failed");
+                    }
+                  }}
+                >
+                  Confirm
+                </Button>
+                <Tooltip title="Reconciliation details — verify before confirming">
+                  <IconButton size="small" onClick={() => openDetail(line)}>
+                    <VisibilityOutlinedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Reject suggestion (back to pending)">
+                  <IconButton size="small" onClick={() => unmatchLine(line)}>
+                    <LinkOffIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </>
+            )}
             {line.status === "PENDING" && (
               <>
+                <Button
+                  size="small"
+                  variant="contained"
+                  onClick={() => openMatchPicker(line)}
+                  sx={{ mr: 0.5, textTransform: "none", fontSize: "0.7rem", py: 0.25 }}
+                >
+                  Match
+                </Button>
                 <Button
                   size="small"
                   variant="outlined"
@@ -396,11 +561,18 @@ export default function BankReconciliationPage() {
               </>
             )}
             {isMatched && (
-              <Tooltip title="Unmatch">
-                <IconButton size="small" onClick={() => unmatchLine(line)}>
-                  <LinkOffIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              <>
+                <Tooltip title="Reconciliation details — what this matched to">
+                  <IconButton size="small" onClick={() => openDetail(line)}>
+                    <VisibilityOutlinedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Unmatch">
+                  <IconButton size="small" onClick={() => unmatchLine(line)}>
+                    <LinkOffIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </>
             )}
           </Stack>
         );
@@ -491,12 +663,22 @@ export default function BankReconciliationPage() {
             {imports.map((i) => (
               <Chip
                 key={i.id}
-                label={`${i.source} · ${i.periodStart ? new Date(i.periodStart).toLocaleDateString() : "—"} → ${
-                  i.periodEnd ? new Date(i.periodEnd).toLocaleDateString() : "—"
-                } · ${i._count?.lines ?? "?"} lines`}
-                onClick={() => setActiveImportId(i.id)}
+                icon={i.status === "PROCESSING" ? <CircularProgress size={12} sx={{ ml: 0.5 }} /> : undefined}
+                label={
+                  i.status === "PROCESSING"
+                    ? `${i.source} · ${i.filename || "statement"} — extracting…`
+                    : i.status === "FAILED"
+                    ? `${i.source} · ${i.filename || "statement"} — FAILED`
+                    : `${i.source} · ${i.periodStart ? new Date(i.periodStart).toLocaleDateString() : "—"} → ${
+                        i.periodEnd ? new Date(i.periodEnd).toLocaleDateString() : "—"
+                      } · ${i._count?.lines ?? "?"} lines`
+                }
+                onClick={() => {
+                  if (i.status === "FAILED") toast.error(i.error || "Extraction failed — delete this import and re-upload");
+                  setActiveImportId(i.id);
+                }}
                 variant={i.id === activeImportId ? "filled" : "outlined"}
-                color={i.id === activeImportId ? "primary" : "default"}
+                color={i.status === "FAILED" ? "error" : i.id === activeImportId ? "primary" : "default"}
                 sx={{ cursor: "pointer" }}
               />
             ))}
@@ -541,6 +723,7 @@ export default function BankReconciliationPage() {
           <Chip size="small" variant="outlined" label={`All ${counts.all}`} />
           <Chip size="small" variant="outlined" color="warning" label={`Pending ${counts.PENDING}`} />
           <Chip size="small" variant="outlined" color="success" label={`Matched ${counts.MATCHED}`} />
+          <Chip size="small" variant="outlined" color="info" label={`Suggested ${(counts as any).SUGGESTED}`} />
           <Chip size="small" variant="outlined" color="info" label={`Posted-new ${counts.POSTED_NEW}`} />
           <Chip size="small" variant="outlined" label={`Ignored ${counts.IGNORED}`} />
         </Stack>
@@ -589,6 +772,382 @@ export default function BankReconciliationPage() {
           loadActive();
         }}
       />
+
+      {/* Manual match picker (guru 2026-08-03): candidates shown with the
+          info an accountant matches by — reference (REC/P/V), contact,
+          document, amount, date — ranked exact-amount-first. */}
+      <Dialog open={!!matchLine} onClose={() => setMatchLine(null)} fullWidth maxWidth="lg">
+        <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <Box>
+            Find match
+            {matchLine && (
+              <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                {new Date(matchLine.date).toLocaleDateString("en-GB")} · {matchLine.description?.slice(0, 80)} ·{" "}
+                <Box component="span" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                  {matchLine.amount > 0 ? "+" : "−"} {fmt(Math.abs(matchLine.amount))}
+                </Box>
+              </Typography>
+            )}
+          </Box>
+          <IconButton size="small" onClick={() => setMatchLine(null)}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          <TextField
+            size="small"
+            fullWidth
+            placeholder="Search by reference, contact, document number or amount… (searches all dates)"
+            value={candSearch}
+            onChange={(e) => setCandSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && matchLine) void loadCandidates(matchLine, candSearch);
+            }}
+            sx={{ mb: 1.5 }}
+            InputProps={{
+              endAdornment: (
+                <Button size="small" onClick={() => matchLine && loadCandidates(matchLine, candSearch)}>
+                  Search
+                </Button>
+              ),
+            }}
+          />
+          {candLoading || candidates === null ? (
+            <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
+              <CircularProgress size={22} />
+            </Box>
+          ) : candidates.length === 0 ? (
+            <Typography variant="body2" sx={{ color: "text.secondary", p: 2 }}>
+              No open journal lines on this bank account{candSearch ? " match the search" : " near this date"}.
+              The OR / payment may not be recorded in AIMS yet.
+            </Typography>
+          ) : (
+            <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: "55vh", borderRadius: 1.5 }}>
+              <Table size="small" stickyHeader sx={(t) => ({
+                "& tbody td": { py: 0.5, borderBottom: `1px solid ${t.palette.mode === "dark" ? "rgba(255,255,255,0.32)" : "rgba(0,0,0,0.32)"}` },
+              })}>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ width: 40 }} />
+                    <TableCell sx={{ fontWeight: 700, fontSize: "0.7rem", color: "text.secondary" }}>DATE</TableCell>
+                    <TableCell sx={{ fontWeight: 700, fontSize: "0.7rem", color: "text.secondary" }}>REFERENCE</TableCell>
+                    <TableCell sx={{ fontWeight: 700, fontSize: "0.7rem", color: "text.secondary" }}>CONTACT / DESCRIPTION</TableCell>
+                    <TableCell sx={{ fontWeight: 700, fontSize: "0.7rem", color: "text.secondary" }}>DOCUMENT</TableCell>
+                    <TableCell sx={{ fontWeight: 700, fontSize: "0.7rem", color: "text.secondary", textAlign: "right" }}>DEBIT</TableCell>
+                    <TableCell sx={{ fontWeight: 700, fontSize: "0.7rem", color: "text.secondary", textAlign: "right" }}>CREDIT</TableCell>
+                    <TableCell />
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {candidates.map((c) => (
+                    <TableRow
+                      key={c.journalLineId}
+                      hover={!c.takenBy}
+                      sx={(t) => ({
+                        cursor: c.takenBy ? "default" : "pointer",
+                        opacity: c.takenBy ? 0.45 : 1,
+                        bgcolor: candSelected.has(c.journalLineId)
+                          ? alpha(t.palette.primary.main, 0.1)
+                          : c.amountMatches && c.sideMatches && !c.takenBy
+                          ? alpha(t.palette.success.main, 0.08)
+                          : undefined,
+                      })}
+                      onClick={() => !c.takenBy && toggleCandidate(c.journalLineId)}
+                    >
+                      <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+                        <Checkbox size="small" disabled={!!c.takenBy} checked={candSelected.has(c.journalLineId)} onChange={() => toggleCandidate(c.journalLineId)} />
+                      </TableCell>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>
+                        {new Date(c.entryDate).toLocaleDateString("en-GB")}
+                        <Box component="span" sx={{ color: "text.secondary", ml: 0.5, fontSize: "0.75rem" }}>
+                          {c.dateDiffDays === 0 ? "(same day)" : `(±${c.dateDiffDays}d)`}
+                        </Box>
+                      </TableCell>
+                      <TableCell sx={{ fontFamily: "monospace", fontWeight: 600, whiteSpace: "nowrap" }}>
+                        {c.reference || c.journalNumber}
+                      </TableCell>
+                      <TableCell>
+                        <Box sx={{ fontWeight: c.contactName ? 600 : 400 }}>{c.contactName || c.description || "—"}</Box>
+                        {c.contactName && c.description && (
+                          <Box sx={{ fontSize: "0.75rem", color: "text.secondary" }}>{String(c.description).slice(0, 60)}</Box>
+                        )}
+                      </TableCell>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>
+                        {c.docType ? `${String(c.docType).replace(/_/g, " ")}${c.docName ? ` ${c.docName}` : ""}` : "—"}
+                      </TableCell>
+                      <TableCell sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{c.debit ? fmt(c.debit) : ""}</TableCell>
+                      <TableCell sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{c.credit ? fmt(c.credit) : ""}</TableCell>
+                      <TableCell sx={{ textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
+                        {c.takenBy ? (
+                          <Tooltip title={`Already matched to: ${c.takenBy}. Unmatch that line first to use this journal.`}>
+                            <Chip size="small" color="warning" variant="outlined" label="taken" sx={{ fontSize: "0.65rem" }} />
+                          </Tooltip>
+                        ) : (
+                          <Button
+                            size="small"
+                            variant={c.amountMatches ? "contained" : "outlined"}
+                            sx={{ textTransform: "none", py: 0, fontSize: "0.7rem" }}
+                            onClick={() => commitMatch([c.journalLineId])}
+                          >
+                            Match
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+          <Stack direction="row" alignItems="center" gap={2} sx={{ mt: 1.5 }}>
+            <Typography variant="caption" sx={{ color: "text.secondary", flex: 1 }}>
+              Green rows = exact amount on the right side. Tick several rows for a BATCH payment (one bank line settling
+              multiple journals). Default window ±90 days; searching scans everything.
+            </Typography>
+            {matchLine && candSelected.size > 0 && (() => {
+              const sel = (candidates || []).filter((c) => candSelected.has(c.journalLineId));
+              const total = Math.round(sel.reduce((sum, c) => sum + (c.debit || c.credit || 0), 0) * 100) / 100;
+              const target = Math.round(Math.abs(matchLine.amount) * 100) / 100;
+              const exact = Math.abs(total - target) < 0.005;
+              return (
+                <>
+                  <Chip
+                    size="small"
+                    color={exact ? "success" : "warning"}
+                    label={`${candSelected.size} selected · ${fmt(total)} / ${fmt(target)}${exact ? " ✓" : ` (off by ${fmt(Math.abs(total - target))})`}`}
+                  />
+                  <Button variant="contained" onClick={() => commitMatch(Array.from(candSelected))}>
+                    Match {candSelected.size} selected
+                  </Button>
+                </>
+              );
+            })()}
+          </Stack>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reconciled transaction details (guru 2026-08-03, Xero concept): the
+          statement line beside exactly what it reconciled to — document,
+          contact and the journal's double entry — with Remove & Redo. */}
+      <Dialog open={!!detail} onClose={() => setDetail(null)} fullWidth maxWidth="md">
+        <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          Reconciliation details
+          <IconButton size="small" onClick={() => setDetail(null)}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {detailLoading || !detail ? (
+            <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
+              <CircularProgress size={22} />
+            </Box>
+          ) : (
+            <Stack gap={2}>
+              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 2 }}>
+                {/* Statement line */}
+                <Paper variant="outlined" sx={(t) => ({ p: 2, borderRadius: 2, bgcolor: alpha(t.palette.success.main, 0.06) })}>
+                  <Typography variant="overline" sx={{ fontWeight: 700, color: "text.secondary" }}>
+                    This statement line
+                  </Typography>
+                  <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: "1.25rem" }}>
+                    {detail.line?.amount > 0 ? "+" : "−"} {fmt(Math.abs(detail.line?.amount || 0))}
+                  </Typography>
+                  <Typography variant="body2" sx={{ mt: 0.5 }}>
+                    {detail.line?.date ? new Date(detail.line.date).toLocaleDateString("en-GB") : "—"}
+                    {detail.line?.reference ? ` · ${detail.line.reference}` : ""}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: "text.secondary", mt: 1, wordBreak: "break-word" }}>
+                    {detail.line?.description}
+                  </Typography>
+                </Paper>
+
+                {/* Reconciled with */}
+                <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                  <Typography variant="overline" sx={{ fontWeight: 700, color: "text.secondary" }}>
+                    Reconciled with
+                  </Typography>
+                  {!detail.entry ? (
+                    <Typography variant="body2" sx={{ color: "text.secondary", mt: 1 }}>
+                      No journal found for this match.
+                    </Typography>
+                  ) : (
+                    <>
+                      {detail.document && (
+                        <Typography sx={{ fontWeight: 700 }}>
+                          {String(detail.document.type || "").replace(/_/g, " ")} {detail.document.name}
+                        </Typography>
+                      )}
+                      {detail.billPayment && (
+                        <Typography sx={{ fontWeight: 700 }}>
+                          Supplier payment{detail.billPayment.billNumber ? ` — ${detail.billPayment.billNumber}` : ""}
+                        </Typography>
+                      )}
+                      {detail.customerPayment && (
+                        <Typography sx={{ fontWeight: 700 }}>
+                          Customer receipt{detail.customerPayment.invoiceNumber ? ` — ${detail.customerPayment.invoiceNumber}` : ""}
+                        </Typography>
+                      )}
+                      <Typography variant="body2" sx={{ mt: 0.5 }}>
+                        {detail.document?.contactName || detail.billPayment?.supplierName || detail.customerPayment?.customerName || detail.entry.description || "—"}
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: "text.secondary", mt: 0.5 }}>
+                        {detail.entry.journalNumber} · paid {new Date(detail.entry.entryDate).toLocaleDateString("en-GB")}
+                        {(() => {
+                          const d = Math.round((new Date(detail.entry.entryDate).getTime() - new Date(detail.line.date).getTime()) / 86400000);
+                          return ` (${d === 0 ? "same day as bank" : `${Math.abs(d)}d ${d < 0 ? "before" : "after"} bank date`})`;
+                        })()}
+                        {detail.entry.reference ? ` · ${detail.entry.reference}` : ""}
+                        {detail.entry.isUnconfirmed ? " · UNCONFIRMED" : ""}
+                      </Typography>
+                    </>
+                  )}
+                </Paper>
+              </Box>
+
+              {/* Counterparty sanity check: matched contact should appear in
+                  the bank narrative — a mismatch is the #1 wrong-match tell. */}
+              {(() => {
+                const ens: any[] = detail.entries?.length ? detail.entries : detail.entry ? [detail] : [];
+                const contacts = [...new Set(ens.map((en: any) => en.document?.contactName || en.billPayment?.supplierName || en.customerPayment?.customerName).filter(Boolean))] as string[];
+                if (!contacts.length) return null;
+                const desc = String(detail.line?.description || "").toLowerCase();
+                const stop = ["received", "from", "fast", "clearing", "swift", "outward", "credit"];
+                const misses = contacts.filter(
+                  (ct) => !ct.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((w: string) => w.length >= 4 && !stop.includes(w)).some((tok: string) => desc.includes(tok)),
+                );
+                if (!misses.length) return null;
+                return (
+                  <Alert severity="warning">
+                    Counterparty mismatch — the bank narrative doesn&apos;t mention {misses.join(", ")}. Verify this match before trusting it.
+                  </Alert>
+                );
+              })()}
+
+              {/* Batch matches: name every journal settled + its share of the
+                  bank line, totalling to the statement amount. */}
+              {Array.isArray(detail.entries) && detail.entries.length > 1 && (() => {
+                const matchedAmt = (en: any) =>
+                  (en.entry?.lines || []).reduce((s: number, l: any) => (l.isMatchedLine ? s + (l.debit || l.credit || 0) : s), 0);
+                const total = detail.entries.reduce((s: number, en: any) => s + matchedAmt(en), 0);
+                return (
+                  <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                    <Typography variant="overline" sx={{ fontWeight: 700, color: "text.secondary" }}>
+                      Batch payment — settles {detail.entries.length} journals
+                    </Typography>
+                    {detail.entries.map((en: any, i: number) => (
+                      <Box key={i} sx={{ display: "flex", justifyContent: "space-between", gap: 2, mt: 0.5 }}>
+                        <Typography variant="body2">
+                          {en.document ? `${String(en.document.type || "").replace(/_/g, " ")} ${en.document.name}` : en.billPayment ? `Supplier payment${en.billPayment.billNumber ? ` — ${en.billPayment.billNumber}` : ""}` : en.customerPayment ? `Customer receipt${en.customerPayment.invoiceNumber ? ` — ${en.customerPayment.invoiceNumber}` : ""}` : en.entry?.journalNumber}
+                          {" · "}
+                          {en.document?.contactName || en.billPayment?.supplierName || en.customerPayment?.customerName || en.entry?.description || ""}
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: "text.secondary", whiteSpace: "nowrap", mx: 1 }}>
+                          {en.entry?.entryDate
+                            ? (() => {
+                                const d = Math.round((new Date(en.entry.entryDate).getTime() - new Date(detail.line.date).getTime()) / 86400000);
+                                return `paid ${new Date(en.entry.entryDate).toLocaleDateString("en-GB")} (${d === 0 ? "0d" : `${d > 0 ? "+" : ""}${d}d`})`;
+                              })()
+                            : ""}
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, whiteSpace: "nowrap" }}>
+                          {fmt(matchedAmt(en))}
+                        </Typography>
+                      </Box>
+                    ))}
+                    <Box sx={{ display: "flex", justifyContent: "space-between", mt: 1, pt: 1, borderTop: 1, borderColor: "divider" }}>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>Total</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmt(total)}</Typography>
+                    </Box>
+                  </Paper>
+                );
+              })()}
+
+              {/* The double entry of EVERY settled journal — a wrong AI match
+                  is visible instantly. */}
+              {(detail.entries?.length ? detail.entries : detail.entry ? [detail] : []).map((en: any, gi: number) => (
+                en.entry && (
+                  <Paper key={gi} variant="outlined" sx={{ borderRadius: 2 }}>
+                    {(detail.entries?.length ?? 0) > 1 && (
+                      <Box sx={{ px: 2, pt: 1 }}>
+                        <Typography variant="caption" sx={{ fontWeight: 700, color: "text.secondary" }}>
+                          {en.entry.journalNumber}
+                          {en.entry.reference ? ` · ${en.entry.reference}` : ""}
+                        </Typography>
+                      </Box>
+                    )}
+                    <Box sx={{ display: "grid", gridTemplateColumns: "1fr 120px 120px", px: 2, py: 0.75, borderBottom: 1, borderColor: "divider" }}>
+                      <Typography variant="caption" sx={{ fontWeight: 700, color: "text.secondary" }}>ACCOUNT</Typography>
+                      <Typography variant="caption" sx={{ fontWeight: 700, color: "text.secondary", textAlign: "right" }}>DEBIT</Typography>
+                      <Typography variant="caption" sx={{ fontWeight: 700, color: "text.secondary", textAlign: "right" }}>CREDIT</Typography>
+                    </Box>
+                    {en.entry.lines.map((l: any, i: number) => (
+                      <Box
+                        key={i}
+                        sx={(t) => ({
+                          display: "grid",
+                          gridTemplateColumns: "1fr 120px 120px",
+                          px: 2,
+                          py: 0.5,
+                          bgcolor: l.isMatchedLine ? alpha(t.palette.primary.main, 0.07) : undefined,
+                        })}
+                      >
+                        <Typography variant="body2">
+                          {l.accountCode} {l.accountName}
+                          {l.isMatchedLine ? "  ← matched" : ""}
+                        </Typography>
+                        <Typography variant="body2" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{l.debit ? fmt(l.debit) : ""}</Typography>
+                        <Typography variant="body2" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{l.credit ? fmt(l.credit) : ""}</Typography>
+                      </Box>
+                    ))}
+                  </Paper>
+                )
+              ))}
+
+              <Stack direction="row" justifyContent="flex-end" gap={1}>
+                {detail.document?.type === "OFFICIAL_RECEIPT" && (
+                  <Button variant="outlined" onClick={() => window.open(`/portal/accounting/receipts/${detail.document.id}`, "_blank")}>
+                    Open receipt
+                  </Button>
+                )}
+                {detail.document && detail.document.type !== "OFFICIAL_RECEIPT" && detail.document.type !== "BILL" && detail.document.templateId && (
+                  <Button variant="outlined" onClick={() => window.open(`/portal/documents/${detail.document.type}/${detail.document.templateId}/${detail.document.id}`, "_blank")}>
+                    Open document
+                  </Button>
+                )}
+                {detail.line?.status === "SUGGESTED" && (
+                  <Button
+                    color="success"
+                    variant="contained"
+                    onClick={async () => {
+                      try {
+                        await request(`/bank-rec/lines/${detail.line.id}/confirm`, { method: "POST" });
+                        toast.success("Match confirmed");
+                        setDetail(null);
+                        loadActive();
+                      } catch (e: any) {
+                        toast.error(e?.message || "Confirm failed");
+                      }
+                    }}
+                  >
+                    Confirm match
+                  </Button>
+                )}
+                <Button
+                  color="warning"
+                  variant="contained"
+                  onClick={async () => {
+                    const line = detail.line;
+                    setDetail(null);
+                    if (line) await unmatchLine(line);
+                  }}
+                >
+                  {detail.line?.status === "SUGGESTED" ? "Reject" : "Remove & Redo"}
+                </Button>
+              </Stack>
+            </Stack>
+          )}
+        </DialogContent>
+      </Dialog>
     </Box>
   );
 }
@@ -618,7 +1177,7 @@ function Stat({
       >
         {label}
       </Typography>
-      <Typography sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.125rem", mt: 0.25 }}>{value}</Typography>
+      <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: "1.125rem", mt: 0.25 }}>{value}</Typography>
     </Paper>
   );
 }
@@ -740,7 +1299,7 @@ function CsvImportDialog({
             value={csv}
             onChange={(e) => setCsv(e.target.value)}
             disabled={busy}
-            inputProps={{ style: { fontFamily: "monospace", fontSize: "0.75rem" } }}
+            inputProps={{ style: { fontVariantNumeric: "tabular-nums", fontSize: "0.75rem" } }}
           />
           {preview.length > 0 && (
             <Box>
@@ -760,7 +1319,7 @@ function CsvImportDialog({
                     {preview.map((row, r) => (
                       <TableRow key={r}>
                         {row.split(delimiter).map((cell, c) => (
-                          <TableCell key={c} sx={{ fontSize: "0.7rem", fontFamily: "monospace" }}>
+                          <TableCell key={c} sx={{ fontSize: "0.7rem", fontVariantNumeric: "tabular-nums" }}>
                             {cell.trim()}
                           </TableCell>
                         ))}
