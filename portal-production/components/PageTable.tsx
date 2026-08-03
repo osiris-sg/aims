@@ -22,7 +22,7 @@ interface Props {
   columns: ColumnDef<any>[];
   data: any[];
   tableName: string;
-  subTitle: string;
+  subTitle?: string;
   buttonName?: string;
   buttonDisabled?: boolean;
   loading: boolean;

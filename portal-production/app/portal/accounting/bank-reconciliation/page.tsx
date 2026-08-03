@@ -1008,7 +1008,7 @@ export default function BankReconciliationPage() {
                   the bank narrative — a mismatch is the #1 wrong-match tell. */}
               {(() => {
                 const ens: any[] = detail.entries?.length ? detail.entries : detail.entry ? [detail] : [];
-                const contacts = [...new Set(ens.map((en: any) => en.document?.contactName || en.billPayment?.supplierName || en.customerPayment?.customerName).filter(Boolean))] as string[];
+                const contacts = Array.from(new Set(ens.map((en: any) => en.document?.contactName || en.billPayment?.supplierName || en.customerPayment?.customerName).filter(Boolean))) as string[];
                 if (!contacts.length) return null;
                 const desc = String(detail.line?.description || "").toLowerCase();
                 const stop = ["received", "from", "fast", "clearing", "swift", "outward", "credit"];
