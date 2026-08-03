@@ -13,91 +13,93 @@ datasource db {
 }
 
 model Organization {
-  id                    String                     @id @default(uuid())
-  name                  String                     @unique
-  createdAt             DateTime                   @default(now())
-  updatedAt             DateTime                   @updatedAt
-  address               String?
-  phoneNumber           String?
-  registrationNumber    String?
-  logo                  String?
-  defaultStamp          String?
-  customDocumentTypes   Json?
-  taxRate               Float?                     @default(9)
+  id                       String                     @id @default(uuid())
+  name                     String                     @unique
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+  address                  String?
+  phoneNumber              String?
+  registrationNumber       String?
+  logo                     String?
+  defaultStamp             String?
+  customDocumentTypes      Json?
+  taxRate                  Float?                     @default(9)
   // Org-wide defaults for the per-document tax toggles. The document editor
   // seeds new docs from these (documentInfo.taxApplicable / .absorbTax) so a
   // user who normally invoices with GST on top doesn't have to flip the
   // switch on every new draft. Per-doc overrides still win when set.
-  taxApplicable         Boolean                    @default(true)
-  absorbTax             Boolean                    @default(false)
+  taxApplicable            Boolean                    @default(true)
+  absorbTax                Boolean                    @default(false)
   // ISO currency code (e.g. SGD, USD, MYR) used as the default for new
   // documents (documentInfo.currency). Per-doc overrides still win.
-  defaultCurrency       String                     @default("SGD")
+  defaultCurrency          String                     @default("SGD")
   // Round-down step for QF quote totals. Project quotes round the
   // Discounted Price (pre-GST) down to this step and roll the absorbed
   // amount into the Discount line. Route Order quotes round the Nett
   // Total (post-GST) down to this step and surface the crumb as a final
   // "Round-down" line. 0 = no rounding.
-  quoteRoundingStep     Int                        @default(10)
+  quoteRoundingStep        Int                        @default(10)
   // Per-doc-type defaults for T&Cs / Notes / Footer message. Keyed by the
   // doc's `type` value (e.g. "QO1", "PO", "INVOICE"). Each entry is:
   // { tnc?: string, notes?: string, footerMessage?: string }. Seeded onto
   // documentInfo on new docs (per-doc overrides still win). Edited from
   // Company Profile → Doc Defaults tab.
-  docTypeDefaults       Json?
-  bankDetails           Json? // { accountName, accountNumber, bankName, swiftCode, branchCode, bankCode, currencyCode }
-  stockDeductionTrigger String?                    @default("DO") // Legacy field - no longer used. Stock deduction logic: DO always deducts, Invoice deducts only if not extracted from DO
+  docTypeDefaults          Json?
+  bankDetails              Json? // { accountName, accountNumber, bankName, swiftCode, branchCode, bankCode, currencyCode }
+  stockDeductionTrigger    String?                    @default("DO") // Legacy field - no longer used. Stock deduction logic: DO always deducts, Invoice deducts only if not extracted from DO
   // Org-wide reward Points ledger. Float so partial-point adjustments stay
   // representable; decremented when a Route Order PO is confirmed by the
   // user's chosen "Less Points" amount on that PO. Inline-editable so the
   // user can seed it once Daikin tells them their starting balance.
-  pointsBalance         Float?                     @default(0)
-  assets                Asset[]
-  categories            Category[]
-  customers             Customer[]
-  suppliers             Supplier[]
-  documents             Document[]
-  documentTemplates     DocumentTemplate[]
-  inventories           Inventory[]
-  projects              Project[]
-  roles                 Role[]
-  userOrganizations     UserOrganization[]
-  userRoles             UserRole[]
-  xeroConnection        XeroConnection?
-  modules               OrganizationModule[]
-  customFields          CustomField[]
-  uiConfig              OrganizationUIConfig?
-  priceHistories        PriceHistory[]
-  payments              Payment[]
-  transactions          Transaction[]
-  customerBalances      CustomerBalance[]
-  orders                Order[]
-  quantityAdjustments   QuantityAdjustment[]
-  importInvoices        ImportInvoice[]
-  chartOfAccounts       ChartOfAccount[]
-  accountingSetting     AccountingSetting?
-  journalEntries        JournalEntry[]
-  recurringJournals     RecurringJournalTemplate[]
-  costCenters           CostCenter[]
-  taxRates              TaxRate[]
-  fixedAssets           FixedAsset[]
-  budgets               Budget[]
-  bills                 Bill[]
-  billPayments          BillPayment[]
-  bankImports           BankStatementImport[]
-  xeroAccountMappings   XeroAccountMapping[]
-  xeroSyncRuns          XeroSyncRun[]
-  serviceReports        MaintenanceServiceReport[]
-  deliveries            Delivery[]
-  emailIngestConfig     EmailIngestConfig?
-  emailIngestLogs       EmailIngestLog[]
-  passTrackerEntries    PassTrackerEntry[]
-  whatsAppConnection    WhatsAppConnection?
-  whatsAppMessages      WhatsAppMessage[]
-  whatsAppQnA           WhatsAppQnA[]
-  whatsAppAgentConfig   WhatsAppAgentConfig?
-  whatsAppSuggestions   WhatsAppSuggestion[]
-  apiKeys               ApiKey[]
+  pointsBalance            Float?                     @default(0)
+  assets                   Asset[]
+  categories               Category[]
+  customers                Customer[]
+  suppliers                Supplier[]
+  documents                Document[]
+  documentTemplates        DocumentTemplate[]
+  inventories              Inventory[]
+  projects                 Project[]
+  roles                    Role[]
+  userOrganizations        UserOrganization[]
+  userRoles                UserRole[]
+  xeroConnection           XeroConnection?
+  modules                  OrganizationModule[]
+  customFields             CustomField[]
+  uiConfig                 OrganizationUIConfig?
+  priceHistories           PriceHistory[]
+  payments                 Payment[]
+  transactions             Transaction[]
+  customerBalances         CustomerBalance[]
+  orders                   Order[]
+  quantityAdjustments      QuantityAdjustment[]
+  importInvoices           ImportInvoice[]
+  chartOfAccounts          ChartOfAccount[]
+  accountingSetting        AccountingSetting?
+  journalEntries           JournalEntry[]
+  recurringJournals        RecurringJournalTemplate[]
+  costCenters              CostCenter[]
+  taxRates                 TaxRate[]
+  fixedAssets              FixedAsset[]
+  budgets                  Budget[]
+  bills                    Bill[]
+  billPayments             BillPayment[]
+  bankImports              BankStatementImport[]
+  xeroAccountMappings      XeroAccountMapping[]
+  xeroSyncRuns             XeroSyncRun[]
+  serviceReports           MaintenanceServiceReport[]
+  deliveries               Delivery[]
+  emailIngestConfig        EmailIngestConfig?
+  emailIngestLogs          EmailIngestLog[]
+  passTrackerEntries       PassTrackerEntry[]
+  whatsAppConnection       WhatsAppConnection?
+  whatsAppMessages         WhatsAppMessage[]
+  whatsAppQnA              WhatsAppQnA[]
+  whatsAppAgentConfig      WhatsAppAgentConfig?
+  whatsAppSuggestions      WhatsAppSuggestion[]
+  apiKeys                  ApiKey[]
+  WhatsAppScheduledMessage WhatsAppScheduledMessage[]
+  WhatsAppContact          WhatsAppContact[]
 }
 
 model Asset {
@@ -1048,6 +1050,11 @@ model Payment {
   // Same shape as Bill.attachments / BillPayment.attachments — the
   // customer payment proof (deposit slip, bank transfer screenshot).
   attachments    Json?
+  // Xero-imported receive-payments (bank-rec visibility backfill 2026-08-03):
+  // PaymentID for idempotency + the imported GL journal this payment IS, so
+  // bank rec can walk journal → payment → customer/invoice.
+  xeroId         String?  @unique
+  journalEntryId String?
   createdBy      String // user ID who recorded payment
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -1617,7 +1624,11 @@ model BillPayment {
   // filter via JournalService.isCashOrBankAccount.
   bankAccountId  String
   // JE auto-posted on create — null only briefly between insert and post.
+  // Xero-imported payments keep this null (their journal already arrived via
+  // the Xero GL import — posting again would double-count).
   journalEntryId String?
+  // Xero PaymentID when this row was pulled from Xero (sync idempotency key).
+  xeroId         String?  @unique
   // Payment proof — cheque scan, bank TT advice, paynow screenshot.
   attachments    Json?
   createdAt      DateTime @default(now())
@@ -1654,6 +1665,11 @@ model BankStatementImport {
   // Stored on the import too so we know what we used.
   columnMapping  Json?
   notes          String?
+  // PDF extraction runs in the background (guru 2026-08-03): the import row
+  // is created PROCESSING immediately so the user can leave/refresh, then
+  // flips to READY (lines created + auto-matched) or FAILED (see error).
+  status         String    @default("READY") // PROCESSING | READY | FAILED
+  error          String?
 
   createdAt DateTime @default(now())
   createdBy String?
@@ -1692,11 +1708,30 @@ model BankStatementLine {
 
   createdAt DateTime @default(now())
 
+  // One statement line can settle MANY journal lines (batch payments — guru
+  // 2026-08-03). matchedJournalLineId stays for the single-match fast path;
+  // the match rows are authoritative.
+  matches BankStatementMatch[]
+
   import BankStatementImport @relation(fields: [importId], references: [id], onDelete: Cascade)
 
   @@index([importId])
   @@index([organizationId, bankAccountId, status])
   @@index([organizationId, date])
+}
+
+model BankStatementMatch {
+  id             String   @id @default(uuid())
+  organizationId String
+  lineId         String
+  journalLineId  String   @unique // a JE line is claimable once
+  createdAt      DateTime @default(now())
+  createdBy      String?
+
+  line BankStatementLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([lineId])
 }
 
 // ============================================================
@@ -2189,9 +2224,9 @@ model ApiKey {
 
 enum DeliveryRunStatus {
   in_progress // rider started; not all items acknowledged yet
-  delivered   // every item acknowledged (not_installed or better)
-  completed   // every item completed / install-skipped
-  cancelled   // abandoned — reserved units restored to instock
+  delivered // every item acknowledged (not_installed or better)
+  completed // every item completed / install-skipped
+  cancelled // abandoned — reserved units restored to instock
 }
 
 model Delivery {
@@ -2229,16 +2264,16 @@ model Delivery {
 }
 
 model DeliveryItem {
-  id          String   @id @default(uuid()) @db.Uuid
-  deliveryId  String   @db.Uuid
-  delivery    Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  id             String         @id @default(uuid()) @db.Uuid
+  deliveryId     String         @db.Uuid
+  delivery       Delivery       @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
   // Phase 1: every line maps to a known catalog asset; tracked units also
   // carry the specific inventory unit. Plain UUIDs (no FK) — mirrors how
   // DocumentItem references stock without hard coupling.
-  assetId     String   @db.Uuid
-  inventoryId String?  @db.Uuid
-  description String?
-  quantity    Int      @default(1)
+  assetId        String         @db.Uuid
+  inventoryId    String?        @db.Uuid
+  description    String?
+  quantity       Int            @default(1)
   // Same per-item lifecycle as DocumentItem.deliveryStatus (shared enum):
   // not_delivered → delivering → not_installed → completed.
   deliveryStatus DeliveryStatus @default(not_delivered)
@@ -2251,4 +2286,57 @@ model DeliveryItem {
 
   @@unique([deliveryId, inventoryId]) // a unit can't be scanned twice into one run
   @@index([inventoryId])
+}
+
+model WhatsAppScheduledMessage {
+  id             String   @id @default(uuid())
+  organizationId String
+  // E.164 digits of the recipient.
+  to             String
+  body           String
+  scheduledAt    DateTime // next occurrence for recurring rows
+  // PENDING | SENDING | SENT | FAILED | CANCELLED
+  status         String   @default("PENDING")
+  sentMessageId  String?
+  error          String?
+  createdBy      String?
+
+  // Recurrence: NONE | DAILY | WEEKLY | MONTHLY | CUSTOM_DAYS.
+  // CUSTOM_DAYS uses recurEvery (n days between sends). recurUntil caps the
+  // series; recurCount tracks how many have gone out.
+  recurrence String    @default("NONE")
+  recurEvery Int? // for CUSTOM_DAYS
+  recurUntil DateTime?
+  recurCount Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduledAt])
+  @@index([organizationId, scheduledAt])
+}
+
+// WhatsApp contact book — auto-captured per org. profileName = the sender's
+// WhatsApp push name (from inbound webhook value.contacts); appContactName =
+// the name saved in the phone's address book (coexistence smb_app_state_sync).
+model WhatsAppContact {
+  id             String    @id @default(uuid())
+  organizationId String
+  waId           String // digits-only number
+  profileName    String?
+  appContactName String?
+  lastMessageAt  DateTime?
+  // Per-number AI override: APPROVED = may auto-reply, BLOCKED = never
+  // auto-reply (still drafts a suggestion for manual review), null = follow
+  // the org's global agent policy.
+  agentAutoReply String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, waId])
 }

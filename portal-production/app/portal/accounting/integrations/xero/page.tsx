@@ -357,7 +357,7 @@ export default function XeroIntegrationPage() {
                       hover
                       sx={{ bgcolor: isUnmapped ? (t) => alpha(t.palette.warning.main, 0.04) : undefined }}
                     >
-                      <TableCell sx={{ fontFamily: "monospace", fontWeight: 600 }}>
+                      <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
                         {m.xeroAccountCode || "—"}
                       </TableCell>
                       <TableCell>{m.xeroAccountName}</TableCell>
@@ -459,7 +459,7 @@ export default function XeroIntegrationPage() {
                           sx={{ fontSize: "0.65rem", height: 18 }}
                         />
                       </TableCell>
-                      <TableCell sx={{ fontFamily: "monospace", fontSize: "0.7rem", color: "text.secondary" }}>
+                      <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontSize: "0.7rem", color: "text.secondary" }}>
                         {r.counts
                           ? Object.entries(r.counts)
                               .map(([k, v]) => `${k}=${v}`)

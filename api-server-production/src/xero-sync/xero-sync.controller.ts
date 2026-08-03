@@ -40,9 +40,9 @@ export class XeroSyncController {
   @ApiOperation({ summary: 'Pull selected scopes from Xero (defaults to accounts + contacts)' })
   run(
     @Req() req: RequestWithOrganization,
-    @Body() body: { scope?: { accounts?: boolean; contacts?: boolean } },
+    @Body() body: { scope?: { accounts?: boolean; contacts?: boolean; payments?: boolean } },
   ) {
-    return this.service.run(requireOrgId(req), body.scope ?? { accounts: true, contacts: true }, req.auth?.userId);
+    return this.service.run(requireOrgId(req), body.scope ?? { accounts: true, contacts: true, payments: true }, req.auth?.userId);
   }
 
   // -------- Account mappings --------

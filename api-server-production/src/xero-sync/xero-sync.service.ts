@@ -19,6 +19,7 @@ import { PrismaService } from '../common/prisma.service';
 type ScopeFlags = {
   accounts?: boolean;
   contacts?: boolean;
+  payments?: boolean;
 };
 
 @Injectable()
@@ -140,6 +141,15 @@ export class XeroSyncService {
           counts.contactsTotal = r.total;
         } catch (e: any) {
           errors.push({ scope: 'contacts', error: e?.message || String(e) });
+        }
+      }
+      if (scope.payments !== false) {
+        try {
+          const r = await this.pullBillPayments(organizationId, client, conn.tenantId);
+          counts.billPaymentsCreated = r.created;
+          counts.billPaymentsTotal = r.total;
+        } catch (e: any) {
+          errors.push({ scope: 'payments', error: e?.message || String(e) });
         }
       }
 
@@ -388,6 +398,123 @@ export class XeroSyncService {
   }
 
   // Create an AIMS account from an unmapped Xero account and link them.
+  // ---------- Bill payments (guru 2026-08-01) ----------
+  // Xero ACCPAY payments → AIMS BillPayment rows, so the Payment Voucher
+  // Listing / AP workspace reflect Xero-side payments. Idempotent on
+  // BillPayment.xeroId. journalEntryId stays NULL: the payment's journal
+  // already arrives via the Xero GL import — posting our own would
+  // double-count the GL.
+  async pullBillPayments(organizationId: string, client: XeroClient, tenantId: string) {
+    // Map Xero invoice ids → AIMS bill docs (AP) AND AIMS invoices (AR — those
+    // become customer Payment rows so bank rec can name the customer).
+    const bills = await this.prisma.document.findMany({
+      where: { organizationId, type: 'BILL' },
+      select: { id: true, name: true, config: true },
+    });
+    const billByXeroId = new Map<string, { id: string; name: string; supplierId?: string }>();
+    for (const b of bills) {
+      const c: any = b.config || {};
+      if (c.xeroBillId) billByXeroId.set(c.xeroBillId, { id: b.id, name: b.name || '', supplierId: c.supplierId });
+    }
+    const invoices = await this.prisma.document.findMany({
+      where: { organizationId, type: { in: ['INVOICE', 'CREDIT_NOTE'] } },
+      select: { id: true, config: true },
+    });
+    const invByXeroId = new Map<string, { id: string; customerId?: string }>();
+    for (const d of invoices) {
+      const c: any = d.config || {};
+      if (c.xeroInvoiceId) invByXeroId.set(c.xeroInvoiceId, { id: d.id, customerId: c.customerId });
+    }
+    const validCust = new Set(
+      (await this.prisma.customer.findMany({ where: { organizationId }, select: { id: true } })).map((c) => c.id),
+    );
+    const existingAr = new Set(
+      (
+        await this.prisma.payment.findMany({ where: { organizationId, xeroId: { not: null } } as any, select: { xeroId: true } as any })
+      ).map((p: any) => p.xeroId as string),
+    );
+    const accounts = await this.prisma.chartOfAccount.findMany({
+      where: { organizationId },
+      select: { id: true, xeroId: true, code: true },
+    });
+    const acctByXeroId = new Map(accounts.filter((a) => a.xeroId).map((a) => [a.xeroId as string, a.id]));
+    const acctByCode = new Map(accounts.map((a) => [a.code, a.id]));
+    const existing = new Set(
+      (
+        await this.prisma.billPayment.findMany({
+          where: { organizationId, xeroId: { not: null } },
+          select: { xeroId: true },
+        })
+      ).map((p) => p.xeroId as string),
+    );
+
+    let created = 0;
+    let total = 0;
+    let page = 1;
+    for (;;) {
+      const resp = await client.accountingApi.getPayments(tenantId, undefined, undefined, undefined, page);
+      const pays: any[] = resp.body?.payments || [];
+      total += pays.length;
+      for (const p of pays) {
+        const paymentId = p.paymentID as string | undefined;
+        if (!paymentId || existing.has(paymentId)) continue;
+        if (String(p.status || '').toUpperCase() === 'DELETED') continue;
+        const invId = p.invoice?.invoiceID as string | undefined;
+        const bill = invId ? billByXeroId.get(invId) : undefined;
+        if (!bill) {
+          // AR side: receive-payment against an AIMS invoice → Payment row.
+          const inv = invId ? invByXeroId.get(invId) : undefined;
+          if (inv && inv.customerId && validCust.has(inv.customerId) && !existingAr.has(paymentId)) {
+            await this.prisma.payment.create({
+              data: {
+                organizationId,
+                customerId: inv.customerId,
+                documentId: inv.id,
+                amount: Number(p.amount) || 0,
+                paymentDate: p.date ? new Date(p.date) : new Date(),
+                paymentMethod: 'transfer',
+                reference: p.reference || null,
+                notes: 'Imported from Xero',
+                xeroId: paymentId,
+                createdBy: 'xero-sync',
+              } as any,
+            });
+            existingAr.add(paymentId);
+            created++;
+          }
+          continue;
+        }
+        if (!bill.supplierId) continue;
+        const bankId =
+          (p.account?.accountID && acctByXeroId.get(p.account.accountID)) ||
+          (p.account?.code && acctByCode.get(p.account.code)) ||
+          undefined;
+        await this.prisma.billPayment.create({
+          data: {
+            organizationId,
+            billId: bill.id,
+            supplierId: bill.supplierId,
+            amount: Number(p.amount) || 0,
+            paymentDate: p.date ? new Date(p.date) : new Date(),
+            paymentMethod: 'transfer',
+            reference: p.reference || null,
+            bankAccountId: bankId || '',
+            journalEntryId: null,
+            xeroId: paymentId,
+            notes: 'Imported from Xero',
+            createdBy: 'xero-sync',
+          },
+        });
+        existing.add(paymentId);
+        created++;
+      }
+      if (pays.length < 100) break;
+      page++;
+    }
+    this.logger.log(`[pullBillPayments] org=${organizationId} scanned=${total} created=${created}`);
+    return { created, total };
+  }
+
   // Handy when Xero has accounts AIMS doesn't have yet.
   async createAimsFromXero(organizationId: string, xeroAccountId: string) {
     const mapping = await this.prisma.xeroAccountMapping.findUnique({

@@ -65,7 +65,22 @@ function sourceToType(src: string): string {
 // for exactly this; journals are immutable so the cache can't go stale, though
 // journals of later-voided docs disappear from Xero — acceptable within a
 // single sync session; delete the cache file to force a clean pull).
-const CACHE_FILE = `/tmp/xero-journals-cache-${ORG}.ndjson`;
+//
+// Two hard-won lessons (2026-07-29):
+//  * NOT in /tmp — macOS purges it, and a later incremental run then seeds a
+//    tiny cache whose max JournalNumber silently truncates the next FULL
+//    reload to a few hundred journals. Cache lives in a persistent dir now,
+//    overridable via XERO_JOURNAL_CACHE_DIR (Render's disk is per-run anyway).
+//  * Full (non --resume) reloads sanity-check the cache against the DB: a
+//    cache holding far fewer journals than the DB already has is a truncated
+//    seed, not a cache — discard it and pull from zero.
+//  * Related reading gotcha (analysis, not sync): /Journals keeps edit
+//    reversal chains (post → reversal → repost) for edited approved docs —
+//    always NET per SourceID before calling anything a duplicate.
+import * as os from 'os';
+const CACHE_DIR = process.env.XERO_JOURNAL_CACHE_DIR || `${os.homedir()}/.aims-xero-cache`;
+try { (require('fs') as typeof import('fs')).mkdirSync(CACHE_DIR, { recursive: true }); } catch {}
+const CACHE_FILE = `${CACHE_DIR}/xero-journals-cache-${ORG}.ndjson`;
 
 async function main() {
   const fs = require('fs') as typeof import('fs');
@@ -84,6 +99,18 @@ async function main() {
       } catch { /* torn last line from a killed run — re-pulled below */ }
     }
     console.log(`  cache: loaded ${journals.length} journals from ${CACHE_FILE}`);
+  }
+  if (!RESUME && journals.length) {
+    // FULL-reload sanity guard: a cache far smaller than what the DB already
+    // holds is a truncated seed (e.g. rebuilt by an incremental run after the
+    // old cache was lost) — trusting its max JournalNumber would wipe ~25k
+    // journals and reload only the tail. Discard and pull from zero.
+    const dbCount = await prisma.journalEntry.count({ where: { organizationId: ORG, postedBy: 'xero-import' } });
+    if (journals.length < dbCount * 0.8) {
+      console.log(`  cache SUSPECT (${journals.length} cached vs ${dbCount} in DB) — discarding cache, full pull from #0`);
+      journals.length = 0;
+      try { fs.unlinkSync(CACHE_FILE); } catch {}
+    }
   }
   let offset = journals.length ? Math.max(...journals.map((j) => j.JournalNumber || 0)) : 0;
   if (RESUME) {
