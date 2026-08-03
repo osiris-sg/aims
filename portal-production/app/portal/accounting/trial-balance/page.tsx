@@ -170,7 +170,7 @@ export default function TrialBalancePage() {
             {!loading &&
               visible.map((r) => (
                 <TableRow key={r.accountId} hover>
-                  <TableCell sx={{ fontFamily: "monospace", fontWeight: 600 }}>{r.code}</TableCell>
+                  <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{r.code}</TableCell>
                   <TableCell>{r.name}</TableCell>
                   <TableCell>
                     <Chip
@@ -179,13 +179,13 @@ export default function TrialBalancePage() {
                       label={r.category === "PNL" ? "P&L" : "Balance Sheet"}
                     />
                   </TableCell>
-                  <TableCell align="right" sx={{ fontFamily: "monospace" }}>
+                  <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
                     {fmt(r.debit)}
                   </TableCell>
-                  <TableCell align="right" sx={{ fontFamily: "monospace" }}>
+                  <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
                     {fmt(r.credit)}
                   </TableCell>
-                  <TableCell align="right" sx={{ fontFamily: "monospace", fontWeight: 600 }}>
+                  <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
                     {fmt(r.balance)}
                   </TableCell>
                 </TableRow>
@@ -195,10 +195,10 @@ export default function TrialBalancePage() {
                 <TableCell colSpan={3} align="right" sx={{ fontWeight: 700 }}>
                   Totals
                 </TableCell>
-                <TableCell align="right" sx={{ fontWeight: 700, fontFamily: "monospace" }}>
+                <TableCell align="right" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
                   {fmt(data.totalDebit)}
                 </TableCell>
-                <TableCell align="right" sx={{ fontWeight: 700, fontFamily: "monospace" }}>
+                <TableCell align="right" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
                   {fmt(data.totalCredit)}
                 </TableCell>
                 <TableCell />

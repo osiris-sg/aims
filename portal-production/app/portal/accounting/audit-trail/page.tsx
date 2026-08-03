@@ -184,7 +184,7 @@ export default function AuditTrailPage() {
     {
       accessorKey: "journalNumber",
       header: "Entry #",
-      cell: ({ row }: any) => <Box sx={{ fontFamily: "monospace" }}>{row.original.journalNumber}</Box>,
+      cell: ({ row }: any) => <Box sx={{ fontVariantNumeric: "tabular-nums" }}>{row.original.journalNumber}</Box>,
     },
     {
       accessorKey: "entryDate",
@@ -206,14 +206,14 @@ export default function AuditTrailPage() {
       accessorKey: "totalDebit",
       header: "Debit",
       cell: ({ row }: any) => (
-        <Box sx={{ textAlign: "right", fontFamily: "monospace" }}>{fmt(row.original.totalDebit)}</Box>
+        <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(row.original.totalDebit)}</Box>
       ),
     },
     {
       accessorKey: "totalCredit",
       header: "Credit",
       cell: ({ row }: any) => (
-        <Box sx={{ textAlign: "right", fontFamily: "monospace" }}>{fmt(row.original.totalCredit)}</Box>
+        <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(row.original.totalCredit)}</Box>
       ),
     },
     {
@@ -357,7 +357,7 @@ function EntryDialog({ entry, onClose }: { entry: JournalEntry | null; onClose: 
           <DialogTitle>
             <Stack direction="row" alignItems="center" justifyContent="space-between">
               <Stack direction="row" alignItems="center" gap={1}>
-                <Typography component="span" sx={{ fontFamily: "monospace", fontWeight: 700 }}>
+                <Typography component="span" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
                   {entry.journalNumber}
                 </Typography>
                 <Chip size="small" label={entry.status} color={statusColor(entry.status)} />
@@ -390,16 +390,16 @@ function EntryDialog({ entry, onClose }: { entry: JournalEntry | null; onClose: 
                     <TableRow key={l.id}>
                       <TableCell>{l.lineNumber}</TableCell>
                       <TableCell>
-                        <Typography component="span" sx={{ fontFamily: "monospace", fontWeight: 600 }}>
+                        <Typography component="span" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
                           {l.account.code}
                         </Typography>{" "}
                         <Typography component="span">{l.account.name}</Typography>
                       </TableCell>
                       <TableCell>{l.description}</TableCell>
-                      <TableCell align="right" sx={{ fontFamily: "monospace" }}>
+                      <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
                         {l.debit ? fmt(l.debit) : ""}
                       </TableCell>
-                      <TableCell align="right" sx={{ fontFamily: "monospace" }}>
+                      <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
                         {l.credit ? fmt(l.credit) : ""}
                       </TableCell>
                     </TableRow>
@@ -408,10 +408,10 @@ function EntryDialog({ entry, onClose }: { entry: JournalEntry | null; onClose: 
                     <TableCell colSpan={3} align="right" sx={{ fontWeight: 700 }}>
                       Totals
                     </TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 700, fontFamily: "monospace" }}>
+                    <TableCell align="right" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
                       {fmt(entry.totalDebit)}
                     </TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 700, fontFamily: "monospace" }}>
+                    <TableCell align="right" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
                       {fmt(entry.totalCredit)}
                     </TableCell>
                   </TableRow>

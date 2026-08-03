@@ -493,7 +493,7 @@ function ReportRow({
     >
       <Box sx={{ pl: indent ? 1.5 : 0 }}>{left}</Box>
       {values.map((v, i) => (
-        <Box key={i} sx={{ textAlign: "right", fontFamily: "monospace", fontWeight: bold ? 700 : 400 }}>
+        <Box key={i} sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: bold ? 700 : 400 }}>
           {v}
         </Box>
       ))}
@@ -530,7 +530,7 @@ function ReportSubtotalRow({
     >
       <Box>{label}</Box>
       {values.map((v, i) => (
-        <Box key={i} sx={{ textAlign: "right", fontFamily: "monospace" }}>
+        <Box key={i} sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
           {v}
         </Box>
       ))}
@@ -672,7 +672,7 @@ function BsRow({
       }}
     >
       <Box sx={{ pl: indentLevel * 1.5 }}>{left}</Box>
-      <Box sx={{ textAlign: "right", fontFamily: "monospace" }}>{right}</Box>
+      <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{right}</Box>
     </Box>
   );
 }

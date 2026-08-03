@@ -61,14 +61,14 @@ export default function SalesByCustomerPage() {
       accessorKey: "totalSales",
       header: "Total Sales",
       cell: ({ row }: any) => (
-        <Box sx={{ textAlign: "right", fontFamily: "monospace" }}>${fmt(row.original.totalSales)}</Box>
+        <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>${fmt(row.original.totalSales)}</Box>
       ),
     },
     {
       accessorKey: "totalPaid",
       header: "Paid",
       cell: ({ row }: any) => (
-        <Box sx={{ textAlign: "right", fontFamily: "monospace" }}>${fmt(row.original.totalPaid)}</Box>
+        <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>${fmt(row.original.totalPaid)}</Box>
       ),
     },
     {
@@ -77,7 +77,7 @@ export default function SalesByCustomerPage() {
       cell: ({ row }: any) => {
         const v = row.original.outstanding;
         return (
-          <Box sx={{ textAlign: "right", fontFamily: "monospace", fontWeight: v > 0 ? 600 : 400, color: v > 0 ? "warning.main" : "text.primary" }}>
+          <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: v > 0 ? 600 : 400, color: v > 0 ? "warning.main" : "text.primary" }}>
             ${fmt(v)}
           </Box>
         );
@@ -109,13 +109,13 @@ export default function SalesByCustomerPage() {
           <Paper variant="outlined" sx={{ p: 2 }}>
             <Stack direction="row" gap={4}>
               <Box><Typography variant="caption" color="text.secondary">Invoices</Typography>
-                <Typography sx={{ fontFamily: "monospace", fontWeight: 600 }}>{data.totals.invoiceCount}</Typography></Box>
+                <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{data.totals.invoiceCount}</Typography></Box>
               <Box><Typography variant="caption" color="text.secondary">Total Sales</Typography>
-                <Typography sx={{ fontFamily: "monospace", fontWeight: 600 }}>${fmt(data.totals.totalSales)}</Typography></Box>
+                <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>${fmt(data.totals.totalSales)}</Typography></Box>
               <Box><Typography variant="caption" color="text.secondary">Paid</Typography>
-                <Typography sx={{ fontFamily: "monospace", fontWeight: 600 }}>${fmt(data.totals.totalPaid)}</Typography></Box>
+                <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>${fmt(data.totals.totalPaid)}</Typography></Box>
               <Box><Typography variant="caption" color="text.secondary">Outstanding</Typography>
-                <Typography sx={{ fontFamily: "monospace", fontWeight: 700, color: "warning.main" }}>${fmt(data.totals.outstanding)}</Typography></Box>
+                <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, color: "warning.main" }}>${fmt(data.totals.outstanding)}</Typography></Box>
             </Stack>
           </Paper>
 

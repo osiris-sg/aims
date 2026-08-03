@@ -273,7 +273,7 @@ export default function DocumentNumberFormatsManager() {
                       </Typography>
                     </TableCell>
                     <TableCell><Chip size="small" label={f.label} /></TableCell>
-                    <TableCell sx={{ fontFamily: "monospace", fontSize: 12, color: "primary.main" }}>{formatPattern(f.pattern, f.nextSerial, now, DOC_CODE[f.documentType])}</TableCell>
+                    <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontSize: 12, color: "primary.main" }}>{formatPattern(f.pattern, f.nextSerial, now, DOC_CODE[f.documentType])}</TableCell>
                     <TableCell><Typography variant="caption">{RESETS.find((r) => r.value === f.resetPolicy)?.label}</Typography></TableCell>
                     <TableCell align="center">{f.isActive ? <Chip size="small" color="success" label="On" /> : <Chip size="small" label="Off" />}</TableCell>
                     <TableCell align="right">
@@ -380,7 +380,7 @@ export default function DocumentNumberFormatsManager() {
 
             <Box sx={{ p: 1.5, borderRadius: 1, bgcolor: (t) => alpha(t.palette.primary.main, 0.06) }}>
               <Typography variant="caption" sx={{ color: "text.secondary" }}>This becomes</Typography>
-              <Typography sx={{ fontFamily: "monospace", fontWeight: 700 }}>{preview || "—"}</Typography>
+              <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{preview || "—"}</Typography>
             </Box>
 
             <Stack direction="row" gap={2} alignItems="center">

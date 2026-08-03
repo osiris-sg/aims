@@ -112,7 +112,7 @@ export default function FixedAssetsPage() {
       accessorKey: "code",
       header: "Code",
       cell: ({ row }: any) => (
-        <Box sx={{ fontFamily: "monospace", fontWeight: 600 }}>{row.original.code}</Box>
+        <Box sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{row.original.code}</Box>
       ),
     },
     {
@@ -141,7 +141,7 @@ export default function FixedAssetsPage() {
       accessorKey: "cost",
       header: "Cost",
       cell: ({ row }: any) => (
-        <Box sx={{ textAlign: "right", fontFamily: "monospace" }}>{fmt(row.original.cost)}</Box>
+        <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(row.original.cost)}</Box>
       ),
     },
     {
@@ -150,7 +150,7 @@ export default function FixedAssetsPage() {
       cell: ({ row }: any) => {
         const accumulated = (row.original.entries || []).reduce((s: number, e: any) => s + e.amount, 0);
         return (
-          <Box sx={{ textAlign: "right", fontFamily: "monospace", color: "text.secondary" }}>
+          <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums", color: "text.secondary" }}>
             {accumulated > 0 ? `( ${fmt(accumulated)} )` : "—"}
           </Box>
         );
@@ -163,7 +163,7 @@ export default function FixedAssetsPage() {
         const f: FA = row.original;
         const accumulated = (f.entries || []).reduce((s, e) => s + e.amount, 0);
         return (
-          <Box sx={{ textAlign: "right", fontFamily: "monospace", fontWeight: 600 }}>
+          <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
             {fmt(f.cost - accumulated)}
           </Box>
         );
@@ -208,13 +208,13 @@ export default function FixedAssetsPage() {
           <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", fontWeight: 700, fontSize: "0.65rem" }}>
             Active assets
           </Typography>
-          <Typography sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.25rem" }}>{summary.count}</Typography>
+          <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: "1.25rem" }}>{summary.count}</Typography>
         </Paper>
         <Paper variant="outlined" sx={{ p: 1.5, minWidth: 200, borderLeft: 3, borderLeftColor: "primary.main" }}>
           <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", fontWeight: 700, fontSize: "0.65rem" }}>
             Total cost basis
           </Typography>
-          <Typography sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.25rem" }}>{fmt(summary.totalCost)}</Typography>
+          <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: "1.25rem" }}>{fmt(summary.totalCost)}</Typography>
         </Paper>
         <Box sx={{ flex: 1 }} />
         <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={load} sx={{ alignSelf: "flex-start" }}>

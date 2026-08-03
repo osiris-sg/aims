@@ -120,7 +120,7 @@ export function useNumberFormatPicker() {
               label={
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
                   <Typography variant="body1">{f.label}</Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontFamily: "monospace" }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums" }}>
                     {f.preview || formatPattern(f.pattern, f.nextSerial, now, DOC_CODE[f.documentType])}
                   </Typography>
                 </Box>

@@ -249,10 +249,10 @@ export default function PostingPreviewDialog({
                             </Box>
                           </Tooltip>
                         </TableCell>
-                        <TableCell align="right" sx={{ fontFamily: "monospace" }}>
+                        <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
                           {l.debit > 0 ? fmt(l.debit) : ""}
                         </TableCell>
-                        <TableCell align="right" sx={{ fontFamily: "monospace" }}>
+                        <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
                           {l.credit > 0 ? fmt(l.credit) : ""}
                         </TableCell>
                       </TableRow>
@@ -276,11 +276,11 @@ export default function PostingPreviewDialog({
                 )}
               </Box>
               <Typography variant="body2" sx={{ color: "text.secondary" }}>Total Dr</Typography>
-              <Typography sx={{ fontFamily: "monospace", fontWeight: 700, minWidth: 100, textAlign: "right" }}>
+              <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, minWidth: 100, textAlign: "right" }}>
                 {fmt(preview.totalDebit)}
               </Typography>
               <Typography variant="body2" sx={{ color: "text.secondary" }}>Total Cr</Typography>
-              <Typography sx={{ fontFamily: "monospace", fontWeight: 700, minWidth: 100, textAlign: "right" }}>
+              <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, minWidth: 100, textAlign: "right" }}>
                 {fmt(preview.totalCredit)}
               </Typography>
             </Stack>

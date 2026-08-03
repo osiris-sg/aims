@@ -187,7 +187,7 @@ export default function DebtorStatementDialog({
   };
 
   const headSx = { fontWeight: 700, fontSize: "0.72rem", color: "text.secondary", whiteSpace: "nowrap" as const, bgcolor: "surfaceTones.low" };
-  const mono = { fontFamily: "monospace", textAlign: "right" as const, whiteSpace: "nowrap" as const };
+  const mono = { fontVariantNumeric: "tabular-nums", textAlign: "right" as const, whiteSpace: "nowrap" as const };
   const fieldLabelSx = { fontSize: "0.75rem", fontWeight: 700, color: "text.secondary", whiteSpace: "nowrap" as const };
 
   return (
@@ -249,11 +249,11 @@ export default function DebtorStatementDialog({
             </Stack>
             <Stack direction="row" gap={1.5} alignItems="center" justifyContent="flex-end" sx={{ mt: 0.5 }}>
               <Typography sx={fieldLabelSx}>Accounts Code</Typography>
-              <Typography sx={{ fontFamily: "monospace", fontWeight: 700 }}>{customer?.customerCode || "—"}</Typography>
+              <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{customer?.customerCode || "—"}</Typography>
             </Stack>
             <Stack direction="row" gap={1.5} alignItems="center" justifyContent="flex-end" sx={{ mt: 1 }}>
               <Typography sx={{ ...fieldLabelSx, color: "text.primary" }}>BALANCE B/F</Typography>
-              <Typography sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.05rem" }}>{fmt(opening)}</Typography>
+              <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: "1.05rem" }}>{fmt(opening)}</Typography>
             </Stack>
           </Box>
         </Box>
@@ -287,7 +287,7 @@ export default function DebtorStatementDialog({
                   ) : (
                     rows.map((r, i) => (
                       <TableRow key={i} hover>
-                        <TableCell sx={{ fontFamily: "monospace", whiteSpace: "nowrap" }}>{r.reference}</TableCell>
+                        <TableCell sx={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{r.reference}</TableCell>
                         <TableCell sx={{ whiteSpace: "nowrap" }}>{dmy(r.date)}</TableCell>
                         <TableCell>{r.description || r.transactionType}</TableCell>
                         <TableCell sx={mono}>{r.debit ? fmt(r.debit) : ""}</TableCell>
@@ -346,7 +346,7 @@ export default function DebtorStatementDialog({
                   <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: "text.secondary", whiteSpace: "nowrap" }}>
                     {b.label}
                   </Typography>
-                  <Typography sx={{ fontFamily: "monospace", fontWeight: 700, textAlign: "right", color: b.amount > 0 ? "error.main" : "text.secondary" }}>
+                  <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, textAlign: "right", color: b.amount > 0 ? "error.main" : "text.secondary" }}>
                     {fmt(b.amount)}
                   </Typography>
                 </Paper>
@@ -382,7 +382,7 @@ export default function DebtorStatementDialog({
             <TableBody>
               {(monthDetail?.docs || []).map((d) => (
                 <TableRow key={d.id} hover>
-                  <TableCell sx={{ fontFamily: "monospace", whiteSpace: "nowrap" }}>{d.number}</TableCell>
+                  <TableCell sx={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{d.number}</TableCell>
                   <TableCell sx={{ whiteSpace: "nowrap" }}>{dmy(d.date)}</TableCell>
                   <TableCell>{d.reference || "INVOICE"}</TableCell>
                   <TableCell sx={mono}>{fmt(d.total)}</TableCell>
@@ -392,7 +392,7 @@ export default function DebtorStatementDialog({
             </TableBody>
           </Table>
           <Box sx={{ p: 1.5, px: 2, display: "flex", justifyContent: "flex-end", borderTop: "1px solid", borderColor: "divider" }}>
-            <Typography sx={{ fontFamily: "monospace", fontWeight: 700 }}>
+            <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
               {fmt(R((monthDetail?.docs || []).reduce((s, d) => s + (Number(d.total) || 0), 0)))}
             </Typography>
           </Box>

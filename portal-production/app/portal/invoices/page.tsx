@@ -215,7 +215,7 @@ export default function InvoicesPage() {
       accessorKey: "name",
       header: "Document SKU",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      cell: ({ row }: any) => <Box sx={{ fontFamily: "monospace", fontWeight: 600 }}>{row.original.name}</Box>,
+      cell: ({ row }: any) => <Box sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{row.original.name}</Box>,
     },
     {
       accessorKey: "associated_customer",
@@ -284,7 +284,7 @@ export default function InvoicesPage() {
         const fmt = (n: number) =>
           n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         return (
-          <Box sx={{ textAlign: "right", fontFamily: "monospace" }}>
+          <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
             <Box sx={{ fontWeight: 600 }}>{fmt(outstanding)}</Box>
             {paid > 0 && (
               <Box sx={{ fontSize: "0.7rem", color: "text.secondary" }}>
@@ -907,7 +907,7 @@ export default function InvoicesPage() {
               >
                 <Box sx={{ textAlign: "left" }}>
                   <Typography variant="body2" sx={{ fontWeight: 700 }}>{f.label}</Typography>
-                  <Typography variant="caption" sx={{ color: "text.secondary", fontFamily: "monospace" }}>{f.preview || f.pattern}</Typography>
+                  <Typography variant="caption" sx={{ color: "text.secondary", fontVariantNumeric: "tabular-nums" }}>{f.preview || f.pattern}</Typography>
                 </Box>
               </Button>
             ))}

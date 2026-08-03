@@ -36,6 +36,20 @@ function InfoRow({ label, value, minWidth = "100px", fontSize = "0.8125rem" }: {
   );
 }
 
+// The contentEditable editor stores innerHTML, so a typed "&" is saved as
+// "&amp;" (and "<" as "&lt;", etc.). Tag-less descriptions fall through to the
+// plain-text branch below — decode the entities there or the user sees the
+// literal "&amp;" on the document.
+function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
 // Renders rich text content (notes, T&Cs, descriptions). Detects HTML and
 // renders via dangerouslySetInnerHTML; plain text uses whiteSpace: pre-wrap.
 function RichContent({ text, sx = {} }: { text: string; sx?: any }) {
@@ -59,7 +73,7 @@ function RichContent({ text, sx = {} }: { text: string; sx?: any }) {
   }
   return (
     <Typography sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word", ...sx }}>
-      {text}
+      {decodeHtmlEntities(text || "")}
     </Typography>
   );
 }
@@ -87,7 +101,7 @@ function DescriptionText({ text, sx = {} }: { text: string; sx?: any }) {
   }
   return (
     <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-wrap", wordBreak: "break-word", ...sx }}>
-      {text}
+      {decodeHtmlEntities(text || "")}
     </Typography>
   );
 }
@@ -332,10 +346,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           <Box component="tbody">
             {allocs.map((a: any, i: number) => (
               <Box component="tr" key={i}>
-                <Box component="td" sx={{ fontFamily: "monospace" }}>{a.reference}</Box>
+                <Box component="td" sx={{ fontVariantNumeric: "tabular-nums" }}>{a.reference}</Box>
                 <Box component="td">{a.date ? new Date(a.date).toLocaleDateString("en-GB") : ""}</Box>
                 <Box component="td">{a.description || "INVOICE"}</Box>
-                <Box component="td" sx={{ textAlign: "right", fontFamily: "monospace" }}>
+                <Box component="td" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                   {(Number(a.amount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Box>
               </Box>
@@ -347,7 +361,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           <Box sx={{ minWidth: 240, borderTop: "1px solid #000", pt: 0.5 }}>
             <Box sx={{ display: "flex", justifyContent: "space-between" }}>
               <Typography sx={{ fontSize: "0.875rem", fontWeight: 700 }}>Total Received</Typography>
-              <Typography sx={{ fontSize: "0.875rem", fontWeight: 700, fontFamily: "monospace" }}>
+              <Typography sx={{ fontSize: "0.875rem", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
                 {(r.currency || "SGD")}{" "}
                 {(Number(r.receiptAmount) || receiptTotal).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </Typography>
@@ -1043,7 +1057,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 {items.map((item: any, index: number) => (
                   <TableRow key={index} sx={{ verticalAlign: "top" }}>
                     <TableCell>{index + 1}.</TableCell>
-                    <TableCell>{item.description || ""}</TableCell>
+                    <TableCell>{decodeHtmlEntities(item.description || "")}</TableCell>
                     <TableCell sx={{ textAlign: "right" }}>{num(item.qtyTonnes ?? item.quantity, 3)}</TableCell>
                     <TableCell sx={{ textAlign: "right" }}>{num(item.rate ?? item.unitPrice, 2)}</TableCell>
                     <TableCell sx={{ textAlign: "right" }}>{num(item.amount, 2)}</TableCell>

@@ -276,7 +276,7 @@ export default function ApiKeysTab({ organizationId }: { organizationId: string 
               borderRadius: 1,
               border: "1px solid var(--field-border)",
               backgroundColor: "background.default",
-              fontFamily: "monospace",
+              fontVariantNumeric: "tabular-nums",
               fontSize: "0.85rem",
               wordBreak: "break-all",
               display: "flex",

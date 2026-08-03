@@ -138,7 +138,7 @@ export default function ARAgingPage() {
               >
                 {b.label}
               </Typography>
-              <Typography sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.125rem", mt: 0.25 }}>
+              <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: "1.125rem", mt: 0.25 }}>
                 {fmt(totals[b.key])}
               </Typography>
             </Paper>
@@ -234,7 +234,7 @@ export default function ARAgingPage() {
                         )}
                       </Stack>
                     </TableCell>
-                    <TableCell align="right" sx={{ fontFamily: "monospace", fontWeight: 600 }}>
+                    <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
                       {fmt(c.currentBalance)}
                     </TableCell>
                     {BUCKETS.map((b) => (
@@ -242,7 +242,7 @@ export default function ARAgingPage() {
                         key={b.key}
                         align="right"
                         sx={{
-                          fontFamily: "monospace",
+                          fontVariantNumeric: "tabular-nums",
                           color: c.aging[b.key] > 0 && b.severity === "error" ? "error.main" : "inherit",
                           fontWeight: c.aging[b.key] > 0 && (b.severity === "warning" || b.severity === "error") ? 600 : 400,
                         }}
@@ -267,11 +267,11 @@ export default function ARAgingPage() {
             {!loading && totals && (
               <TableRow sx={{ "& td": { borderTop: 2, borderTopColor: "divider", fontWeight: 700, bgcolor: (t) => alpha(t.palette.text.primary, 0.02) } }}>
                 <TableCell sx={{ fontWeight: 700 }}>TOTALS</TableCell>
-                <TableCell align="right" sx={{ fontFamily: "monospace", fontWeight: 700 }}>
+                <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
                   {fmt(data?.totalOutstanding ?? 0)}
                 </TableCell>
                 {BUCKETS.map((b) => (
-                  <TableCell key={b.key} align="right" sx={{ fontFamily: "monospace", fontWeight: 700 }}>
+                  <TableCell key={b.key} align="right" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
                     {fmt(totals[b.key])}
                   </TableCell>
                 ))}

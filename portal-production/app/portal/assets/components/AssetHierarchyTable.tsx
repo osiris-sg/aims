@@ -80,7 +80,7 @@ const AssetRow: React.FC<AssetRowProps> = ({ asset, level, onView, onEdit, onDel
 
         {/* SKU Key */}
         <TableCell>
-          <Typography variant="body2" fontFamily="monospace">
+          <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>
             {asset.skuKey}
           </Typography>
         </TableCell>

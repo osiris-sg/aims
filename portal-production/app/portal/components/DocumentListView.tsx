@@ -247,7 +247,7 @@ export default function DocumentListView({
       accessorKey: "name",
       header: `${documentLabel} #`,
       cell: ({ row }: any) =>
-        row.original.name ? <Box sx={{ fontFamily: "monospace", fontWeight: 600 }}>{row.original.name}</Box> : "—",
+        row.original.name ? <Box sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{row.original.name}</Box> : "—",
     },
     {
       accessorKey: "associated_customer",

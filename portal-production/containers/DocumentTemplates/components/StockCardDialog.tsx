@@ -82,6 +82,9 @@ interface StockCardDialogProps {
   showPoints?: boolean;
   // When true, add a "Capacity" column (from asset.capacityKw, shown as "x kW").
   showCapacity?: boolean;
+  // Lock the Rental/Sales tabs to one mode (e.g. a "… Rental …" quotation
+  // template only offers rental items). The other tab is hidden entirely.
+  revenueModeLock?: "sales" | "rental";
 }
 
 export default function StockCardDialog({
@@ -93,6 +96,7 @@ export default function StockCardDialog({
   showDealerPrice = false,
   showPoints = false,
   showCapacity = false,
+  revenueModeLock,
 }: StockCardDialogProps) {
   const getPoints = (it: InventoryItem) => {
     const p = it.points ?? it.asset?.points;
@@ -130,8 +134,20 @@ export default function StockCardDialog({
   const hasSales = useMemo(() => inventoryItems.some((i) => accSales(i)), [inventoryItems]);
   const hasRental = useMemo(() => inventoryItems.some((i) => accRental(i)), [inventoryItems]);
   const showRevenueTabs = hasSales || hasRental;
+  // The lock only applies when at least one product is mapped to that mode —
+  // otherwise it would hide every tab and strand the picker.
+  const effectiveLock =
+    revenueModeLock === "rental" && hasRental ? "rental"
+    : revenueModeLock === "sales" && hasSales ? "sales"
+    : undefined;
   const [revenueMode, setRevenueMode] = useState<"sales" | "rental">("sales");
-  useEffect(() => { if (showRevenueTabs) setRevenueMode(hasSales ? "sales" : "rental"); }, [showRevenueTabs, hasSales]);
+  useEffect(() => {
+    if (!showRevenueTabs) return;
+    // Template lock wins (e.g. a Rental quotation template → rental only);
+    // otherwise default to Sales when it exists.
+    if (effectiveLock) setRevenueMode(effectiveLock);
+    else setRevenueMode(hasSales ? "sales" : "rental");
+  }, [showRevenueTabs, hasSales, effectiveLock]);
   const getRentalPrice = (it: InventoryItem) => {
     const cps = it.customPrices ?? it.asset?.customPrices;
     if (Array.isArray(cps)) {
@@ -299,7 +315,8 @@ export default function StockCardDialog({
             }}
           />
 
-          {/* Rental / Sales tabs — a product credits its sales or rental account. */}
+          {/* Rental / Sales tabs — a product credits its sales or rental account.
+              When the template locks the mode, only that tab shows. */}
           {showRevenueTabs && (
             <ToggleButtonGroup
               exclusive
@@ -308,8 +325,8 @@ export default function StockCardDialog({
               onChange={(_, v) => v && setRevenueMode(v)}
               sx={{ mb: 1.5 }}
             >
-              {hasSales && <ToggleButton value="sales" sx={{ px: 2 }}>Sales</ToggleButton>}
-              {hasRental && <ToggleButton value="rental" sx={{ px: 2 }}>Rental</ToggleButton>}
+              {hasSales && effectiveLock !== "rental" && <ToggleButton value="sales" sx={{ px: 2 }}>Sales</ToggleButton>}
+              {hasRental && effectiveLock !== "sales" && <ToggleButton value="rental" sx={{ px: 2 }}>Rental</ToggleButton>}
             </ToggleButtonGroup>
           )}
 

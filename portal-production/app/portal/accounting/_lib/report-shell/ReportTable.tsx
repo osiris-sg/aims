@@ -105,7 +105,20 @@ export default function ReportTable({
       content = c ?? "";
     }
     return (
-      <Typography variant="body2" sx={{ fontWeight: bold ? 700 : 400, textAlign: align, fontVariantNumeric: "tabular-nums" }}>
+      <Typography
+        variant="body2"
+        sx={{
+          fontWeight: bold ? 700 : 400,
+          textAlign: align,
+          fontVariantNumeric: "tabular-nums",
+          // Xero-style report typography (guru 2026-07-31): 13px body text in
+          // the standard text color, and NEVER wrap — every cell stays on one
+          // line (the card scrolls horizontally if a report is too wide).
+          fontSize: "0.8125rem",
+          color: "text.primary",
+          whiteSpace: "nowrap",
+        }}
+      >
         {content}
       </Typography>
     );
@@ -122,9 +135,16 @@ export default function ReportTable({
                 sx={{
                   position: "sticky", top: 0, zIndex: 1,
                   bgcolor: "background.paper",
-                  borderBottom: (t) => `1px solid ${t.palette.text.primary}`,
+                  // Xero header style: sentence case, regular weight, muted
+                  // color, thin divider underline — not the theme's uppercase
+                  // letter-spaced default.
+                  borderBottom: (t) => `1px solid ${alpha(t.palette.text.primary, 0.28)}`,
                   color: "text.secondary",
                   fontSize: "0.75rem",
+                  fontWeight: 400,
+                  textTransform: "none",
+                  letterSpacing: 0,
+                  whiteSpace: "nowrap",
                   width: col.width,
                   textAlign: col.align || "left",
                   py: 0.75,
@@ -150,7 +170,9 @@ export default function ReportTable({
               return (
                 <TableRow key={r.key}>
                   <TableCell colSpan={columns.length} sx={{ borderBottom: "none", pt: 1.5, pb: 0.25 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 700 }}>{String(r.cells[0] ?? "")}</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 700, fontSize: "0.8125rem", color: "text.primary", whiteSpace: "nowrap" }}>
+                      {String(r.cells[0] ?? "")}
+                    </Typography>
                   </TableCell>
                 </TableRow>
               );
@@ -168,7 +190,9 @@ export default function ReportTable({
                 }}
               >
                 {r.cells.map((c, i) => (
-                  <TableCell key={i} sx={{ py, borderBottom: (t) => `1px solid ${t.palette.divider}`, ...(r.kind === "percent" ? { borderBottom: "none" } : {}) }}>
+                  // Row separators darker than the theme divider (guru
+                  // 2026-08-01: easier on the eyes to track each row).
+                  <TableCell key={i} sx={{ py, borderBottom: (t) => `1px solid ${alpha(t.palette.text.primary, 0.28)}`, ...(r.kind === "percent" ? { borderBottom: "none" } : {}) }}>
                     {renderCell(c, columns[i], bold)}
                   </TableCell>
                 ))}

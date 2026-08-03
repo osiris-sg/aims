@@ -26,6 +26,7 @@ import CashFlowPage from "../cash-flow/page";
 import BudgetVsActualPage from "../budget-vs-actual/page";
 import InvoicesPage from "../../invoices/page";
 import ARWorkspace from "./ARWorkspace";
+import APWorkspace from "./APWorkspace";
 import BillsPage from "../bills/page";
 import BankReconciliationPage from "../bank-reconciliation/page";
 import StatementOfAccountPage from "../../reports/statement-of-account/page";
@@ -35,7 +36,7 @@ import RecurringInvoicesView from "../recurring-invoices/RecurringInvoicesView";
 import {
   AgedReceivablesSummary, AgedReceivablesDetail, AgedPayablesSummary, AgedPayablesDetail,
   ReceivableInvoices, ReceivableInvoiceDetail, PayableInvoices, PayableInvoiceDetail,
-  ContactTransactionsSummary, IncomeExpensesByContact, DebtorStatement, AuditTrail, ReceiptListing, SummaryAgeing, DetailedAgeing, DebtorListing, HistoricalListing, JvListing,
+  ContactTransactionsSummary, IncomeExpensesByContact, DebtorStatement, AuditTrail, ReceiptListing, SummaryAgeing, DetailedAgeing, DebtorListing, HistoricalListing, JvListing, PvListing,
   GeneralLedgerDetail, GeneralLedgerSummary,
   AccountTransactions, ExpenseListing, TrialBalanceReport, JournalReport, BankSummary,
   ProfitLoss, BalanceSheet, ForeignBankListing, GSTReturn,
@@ -70,6 +71,9 @@ export const REPORTS: ReportEntry[] = [
   // AR landing = customer-balance workspace (legacy AR screen, modern UI —
   // guru 2026-07-14); the invoice list stays reachable as "ar-invoices".
   { key: "ar", label: "Accounts Receivable", description: "Customer balances with drill-down transaction history", category: "Receivables", Component: ARWorkspace },
+  // AP landing = supplier-balance workspace (legacy AP screen, modern UI —
+  // guru 2026-07-31), twin of the AR workspace.
+  { key: "ap", label: "Accounts Payable", description: "Supplier balances with drill-down transaction history", category: "Payables", Component: APWorkspace },
   { key: "ar-invoices", label: "Invoice List", description: "All invoices with payment status, tabs and quick payment recording", category: "Receivables", Component: InvoicesPage },
   { key: "ar-aging", label: "Aged Receivables Summary", description: "Outstanding invoices per customer, bucketed by age", category: "Receivables", Component: AgedReceivablesSummary },
   { key: "ar-aging-detail", label: "Aged Receivables Detail", description: "Every outstanding invoice, aged and grouped by customer", category: "Receivables", Component: AgedReceivablesDetail },
@@ -78,6 +82,7 @@ export const REPORTS: ReportEntry[] = [
   { key: "soa", label: "Customer Statement", description: "Per-customer statement of account", category: "Receivables", Component: StatementOfAccountPage },
   { key: "debtor-statement", label: "Debtor Statement", description: "Legacy statement-of-account — open items, running balance and monthly ageing", category: "Receivables", Component: DebtorStatement },
   { key: "receipt-listing", label: "Receipts Listing", description: "Official receipts for a period, grouped by deposit-to bank account", category: "Receivables", Component: ReceiptListing },
+  { key: "pv-listing", label: "Payment Voucher Listing", description: "Bill payments for a period, grouped by paid-from bank account", category: "Payables", Component: PvListing },
   { key: "summary-ageing", label: "Summary Ageing Analysis", description: "Outstanding per customer bucketed by calendar month, with customer contact info", category: "Receivables", Component: SummaryAgeing },
   { key: "detailed-ageing", label: "Detailed Ageing Analysis", description: "Every outstanding document per customer, aged by calendar month with running balance", category: "Receivables", Component: DetailedAgeing },
   { key: "debtor-listing", label: "Debtor Listing", description: "Every debtor's balance as at a cut-off date — local and foreign amounts, DR/CR", category: "Receivables", Component: DebtorListing },
@@ -281,7 +286,7 @@ function ReportsInner({
   const rawTab = searchParams.get("tab");
   // Legacy-UX-only reports: hidden from the directory (and unresolvable via
   // ?tab=) for orgs without the enableLegacyAccountingUx flag.
-  const LEGACY_ONLY_REPORT_KEYS = ["debtor-statement", "audit-trail", "receipt-listing", "summary-ageing", "detailed-ageing", "debtor-listing", "historical-listing", "jv-listing"];
+  const LEGACY_ONLY_REPORT_KEYS = ["debtor-statement", "audit-trail", "receipt-listing", "summary-ageing", "detailed-ageing", "debtor-listing", "historical-listing", "jv-listing", "pv-listing"];
   const visibleReports = useMemo(
     () => (isLegacyAccountingUxEnabled ? REPORTS : REPORTS.filter((r) => !LEGACY_ONLY_REPORT_KEYS.includes(r.key))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -297,8 +302,8 @@ function ReportsInner({
   // customer balances), not the report directory. Reports stay reachable via
   // the workspace's View Reports dialog; ?tab= deep-links still win.
   const legacyLanding =
-    !rawTab && isLegacyAccountingUxEnabled && categories.length === 1 && categories[0] === "Receivables"
-      ? REPORTS.find((r) => r.key === "ar") || null
+    !rawTab && isLegacyAccountingUxEnabled && categories.length === 1 && (categories[0] === "Receivables" || categories[0] === "Payables")
+      ? REPORTS.find((r) => r.key === (categories[0] === "Payables" ? "ap" : "ar")) || null
       : null;
 
   const [search, setSearch] = useState("");

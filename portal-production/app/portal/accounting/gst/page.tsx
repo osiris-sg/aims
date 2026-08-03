@@ -345,7 +345,7 @@ export default function GstPage() {
                 const isOutput = r.category.startsWith("OUTPUT");
                 return (
                   <TableRow key={r.journalEntryId} hover>
-                    <TableCell sx={{ fontFamily: "monospace" }}>{r.journalNumber}</TableCell>
+                    <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{r.journalNumber}</TableCell>
                     <TableCell>{new Date(r.date).toLocaleDateString()}</TableCell>
                     <TableCell>
                       <Chip
@@ -358,13 +358,13 @@ export default function GstPage() {
                     <TableCell sx={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {r.remarks}
                     </TableCell>
-                    <TableCell align="right" sx={{ fontFamily: "monospace" }}>
+                    <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
                       {fmt(r.preTaxAmount)}
                     </TableCell>
-                    <TableCell align="right" sx={{ fontFamily: "monospace" }}>
+                    <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
                       {r.taxRate ? r.taxRate.toFixed(2) : "—"}
                     </TableCell>
-                    <TableCell align="right" sx={{ fontFamily: "monospace", fontWeight: 600 }}>
+                    <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
                       {fmt(r.taxAmount)}
                     </TableCell>
                     <TableCell>
@@ -380,11 +380,11 @@ export default function GstPage() {
                 <TableCell colSpan={4} align="right" sx={{ fontWeight: 700 }}>
                   TOTAL
                 </TableCell>
-                <TableCell align="right" sx={{ fontFamily: "monospace", fontWeight: 700 }}>
+                <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
                   {fmt(totals.preTax)}
                 </TableCell>
                 <TableCell />
-                <TableCell align="right" sx={{ fontFamily: "monospace", fontWeight: 700 }}>
+                <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
                   {fmt(totals.tax)}
                 </TableCell>
                 <TableCell />
@@ -461,7 +461,7 @@ function KpiCard({
 
       <Typography
         sx={{
-          fontFamily: "monospace",
+          fontVariantNumeric: "tabular-nums",
           fontWeight: 700,
           fontSize: emphasize ? "1.75rem" : "1.5rem",
           lineHeight: 1.1,
@@ -508,7 +508,7 @@ function FormRow({
       </Typography>
       <Typography
         sx={{
-          fontFamily: mono ? "monospace" : undefined,
+          fontVariantNumeric: mono ? "tabular-nums" : undefined,
           fontWeight: bold ? 700 : 500,
           textAlign: mono ? "right" : "left",
           color: highlight ? "warning.main" : "text.primary",

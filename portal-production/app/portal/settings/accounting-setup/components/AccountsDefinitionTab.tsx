@@ -281,7 +281,7 @@ export default function AccountsDefinitionTab({
               )}
               {visibleAccounts.map((a) => (
                 <TableRow key={a.id} hover sx={{ opacity: a.isActive ? 1 : 0.5 }}>
-                  <TableCell sx={{ fontFamily: "monospace", fontWeight: 600 }}>{a.code}</TableCell>
+                  <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{a.code}</TableCell>
                   <TableCell>{a.name}</TableCell>
                   <TableCell>{ACCOUNT_TYPES.find((t) => t.value === a.accountType)?.label || a.accountType}</TableCell>
                   <TableCell>{a.category === "PNL" ? "P&L" : "Balance Sheet"}</TableCell>

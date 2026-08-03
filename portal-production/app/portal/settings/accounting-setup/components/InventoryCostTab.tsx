@@ -260,12 +260,12 @@ export default function InventoryCostTab() {
                       bgcolor: isDirty ? (t) => alpha(t.palette.warning.main, 0.06) : undefined,
                     }}
                   >
-                    <TableCell sx={{ fontFamily: "monospace", fontWeight: 600 }}>{r.code}</TableCell>
+                    <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{r.code}</TableCell>
                     <TableCell>{r.name}</TableCell>
                     <TableCell align="center">
                       <Chip size="small" variant="outlined" label={r.isTracked ? "Tracked" : "Qty"} sx={{ fontSize: "0.65rem", height: 18 }} />
                     </TableCell>
-                    <TableCell align="right" sx={{ fontFamily: "monospace" }}>
+                    <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
                       {r.quantity}
                     </TableCell>
                     <TableCell align="right">
@@ -277,7 +277,7 @@ export default function InventoryCostTab() {
                         inputProps={{
                           step: "0.01",
                           min: 0,
-                          style: { textAlign: "right", fontFamily: "monospace", padding: "4px 8px" },
+                          style: { textAlign: "right", fontVariantNumeric: "tabular-nums", padding: "4px 8px" },
                         }}
                         sx={{ width: 130 }}
                       />
@@ -285,7 +285,7 @@ export default function InventoryCostTab() {
                     <TableCell
                       align="right"
                       sx={{
-                        fontFamily: "monospace",
+                        fontVariantNumeric: "tabular-nums",
                         fontWeight: 600,
                         color: r.missingCost && !isDirty ? "warning.main" : "inherit",
                       }}
@@ -340,7 +340,7 @@ function Stat({
         {icon}
         {label}
       </Typography>
-      <Typography sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.125rem", mt: 0.25 }}>
+      <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: "1.125rem", mt: 0.25 }}>
         {value}
       </Typography>
     </Paper>

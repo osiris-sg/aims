@@ -305,7 +305,7 @@ export default function AccountingHubPage() {
             variant="outlined"
             startIcon={<OpenInNewIcon />}
             component={Link}
-            href="/portal/accounting/bills"
+            href="/portal/accounting/payables/purchase-journal"
           >
             Bills (AP)
           </Button>
@@ -447,7 +447,7 @@ function KpiTile({
       <Stack direction="row" alignItems="baseline" gap={1}>
         <Typography
           sx={{
-            fontFamily: "monospace",
+            fontVariantNumeric: "tabular-nums",
             fontWeight: 700,
             fontSize: compact ? "1.25rem" : "1.625rem",
             lineHeight: 1.1,
@@ -569,14 +569,14 @@ function ActionQueueCard({
                           );
                         }}
                       >
-                        <Typography variant="caption" sx={{ fontFamily: "monospace", fontSize: "0.7rem" }}>
+                        <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums", fontSize: "0.7rem" }}>
                           {sub.journalNumber}
                         </Typography>
                         <Typography variant="caption" sx={{ flex: 1, fontSize: "0.75rem" }}>
                           {sub.label}
                         </Typography>
                         {sub.amount !== undefined && (
-                          <Typography variant="caption" sx={{ fontFamily: "monospace", fontSize: "0.7rem" }}>
+                          <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums", fontSize: "0.7rem" }}>
                             ${sub.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </Typography>
                         )}

@@ -523,7 +523,7 @@ export default function DebtorStatementReport() {
                         {b.label}
                       </Typography>
                       <Typography
-                        sx={{ fontFamily: "monospace", fontWeight: 700, textAlign: "right", color: b.amount > 0 ? "error.main" : "text.secondary" }}
+                        sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, textAlign: "right", color: b.amount > 0 ? "error.main" : "text.secondary" }}
                       >
                         {fmt(b.amount)}
                       </Typography>

@@ -62,7 +62,7 @@ export default function useInventoryTableHeader() {
     columnHelper.accessor("sku", {
       header: "SKU",
       cell: (info) => (
-        <Typography variant="body2" sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}>
+        <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", fontSize: "0.8rem" }}>
           {info.getValue()}
         </Typography>
       ),

@@ -98,7 +98,7 @@ export default function IntegrationsPage() {
                   There was an error connecting to Xero. Please try again.
                 </Typography>
                 {errorDetails && (
-                  <Typography variant="caption" sx={{ display: "block", mt: 1, fontFamily: "monospace" }}>
+                  <Typography variant="caption" sx={{ display: "block", mt: 1, fontVariantNumeric: "tabular-nums" }}>
                     Error details: {decodeURIComponent(errorDetails)}
                   </Typography>
                 )}
@@ -115,7 +115,7 @@ export default function IntegrationsPage() {
                   OAuth flow completed with debug information.
                 </Typography>
                 {debugMessage && (
-                  <Typography variant="caption" sx={{ display: "block", mt: 1, fontFamily: "monospace" }}>
+                  <Typography variant="caption" sx={{ display: "block", mt: 1, fontVariantNumeric: "tabular-nums" }}>
                     Debug: {decodeURIComponent(debugMessage)}
                   </Typography>
                 )}

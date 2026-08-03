@@ -262,7 +262,7 @@ function AttachmentView({ att }: { att: Attachment }) {
         <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", fontSize: "0.65rem", fontWeight: 600 }}>
           {att.label}
         </Typography>
-        <Typography sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.25rem", lineHeight: 1.1, mt: 0.25 }}>
+        <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: "1.25rem", lineHeight: 1.1, mt: 0.25 }}>
           {att.value}
         </Typography>
         {att.sub && (
@@ -296,7 +296,7 @@ function AttachmentView({ att }: { att: Attachment }) {
             {att.rows.map((row, i) => (
               <TableRow key={i}>
                 {row.map((cell, j) => (
-                  <TableCell key={j} sx={{ fontSize: "0.8125rem", fontFamily: typeof cell === "number" ? "monospace" : undefined }}>
+                  <TableCell key={j} sx={{ fontSize: "0.8125rem", fontVariantNumeric: typeof cell === "number" ? "tabular-nums" : undefined }}>
                     {typeof cell === "number"
                       ? cell.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                       : cell}

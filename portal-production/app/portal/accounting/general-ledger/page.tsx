@@ -346,8 +346,8 @@ export default function GeneralLedgerPage() {
         {!loading && rowCount > 0 && (
           <Box sx={{ display: "flex", borderTop: 2, borderColor: "text.primary", px: 2, py: 1, bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
             <Typography sx={{ flex: 1, fontWeight: 800 }}>TOTAL</Typography>
-            <Typography sx={{ width: 150, textAlign: "right", fontFamily: "monospace", fontWeight: 800 }}>{fmtKpi(totalDebit)}</Typography>
-            <Typography sx={{ width: 150, textAlign: "right", fontFamily: "monospace", fontWeight: 800 }}>{fmtKpi(totalCredit)}</Typography>
+            <Typography sx={{ width: 150, textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 800 }}>{fmtKpi(totalDebit)}</Typography>
+            <Typography sx={{ width: 150, textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 800 }}>{fmtKpi(totalCredit)}</Typography>
           </Box>
         )}
       </Paper>
@@ -367,20 +367,20 @@ function GroupRows({ group, onAccount }: { group: { label: string; rows: MergedR
         <TableRow key={r.accountId} hover>
           <TableCell>
             <Box component="span" onClick={() => onAccount(r)}
-              sx={{ fontFamily: "monospace", fontWeight: 600, color: "primary.main", textDecoration: "underline", textUnderlineOffset: 3, cursor: "pointer" }}>
+              sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, color: "primary.main", textDecoration: "underline", textUnderlineOffset: 3, cursor: "pointer" }}>
               {r.code}
             </Box>
           </TableCell>
           <TableCell>{r.name}</TableCell>
-          <TableCell align="right" sx={{ fontFamily: "monospace" }}>{fmt(r.debit)}</TableCell>
-          <TableCell align="right" sx={{ fontFamily: "monospace" }}>{fmt(r.credit)}</TableCell>
+          <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{fmt(r.debit)}</TableCell>
+          <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{fmt(r.credit)}</TableCell>
         </TableRow>
       ))}
       <TableRow>
         <TableCell />
         <TableCell sx={{ fontWeight: 600, color: "text.secondary", fontStyle: "italic" }}>{group.label} subtotal</TableCell>
-        <TableCell align="right" sx={{ fontFamily: "monospace", fontWeight: 700, borderTop: 1, borderColor: "divider" }}>{fmtKpi(group.subDebit)}</TableCell>
-        <TableCell align="right" sx={{ fontFamily: "monospace", fontWeight: 700, borderTop: 1, borderColor: "divider" }}>{fmtKpi(group.subCredit)}</TableCell>
+        <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, borderTop: 1, borderColor: "divider" }}>{fmtKpi(group.subDebit)}</TableCell>
+        <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, borderTop: 1, borderColor: "divider" }}>{fmtKpi(group.subCredit)}</TableCell>
       </TableRow>
     </>
   );
@@ -396,14 +396,14 @@ function KpiCard({ title, icon, accent, total, totalLabel, rows }: {
         <Box sx={{ width: 32, height: 32, borderRadius: 1.5, display: "flex", alignItems: "center", justifyContent: "center", bgcolor: (t) => alpha(t.palette[accent].main, 0.1), color: (t) => t.palette[accent].main, "& svg": { fontSize: "1.125rem" } }}>{icon}</Box>
       </Stack>
       <Stack direction="row" alignItems="baseline" gap={1} sx={{ mb: 1.5 }}>
-        <Typography sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.5rem", lineHeight: 1.1 }}>{fmtKpi(total)}</Typography>
+        <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: "1.5rem", lineHeight: 1.1 }}>{fmtKpi(total)}</Typography>
         {totalLabel && <Typography variant="caption" sx={{ color: "text.secondary", fontSize: "0.7rem" }}>{totalLabel}</Typography>}
       </Stack>
       <Stack gap={0.5} sx={{ pt: 1, borderTop: 1, borderColor: "divider" }}>
         {rows.map((r) => (
           <Stack key={r.label} direction="row" justifyContent="space-between" alignItems="baseline">
             <Typography variant="caption" sx={{ color: "text.secondary", fontSize: "0.75rem" }}>{r.label}</Typography>
-            <Typography variant="caption" sx={{ fontFamily: "monospace", fontWeight: 500, fontSize: "0.75rem" }}>{fmtKpi(r.value)}</Typography>
+            <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 500, fontSize: "0.75rem" }}>{fmtKpi(r.value)}</Typography>
           </Stack>
         ))}
       </Stack>
@@ -438,7 +438,7 @@ function DrilldownDialog({ account, onClose, from, to }: { account: Account | nu
           <DialogTitle>
             <Stack direction="row" alignItems="center" justifyContent="space-between">
               <Stack direction="row" alignItems="baseline" gap={1.5}>
-                <Typography component="span" sx={{ fontFamily: "monospace", fontWeight: 700 }}>{account.code}</Typography>
+                <Typography component="span" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{account.code}</Typography>
                 <Typography component="span">{account.name}</Typography>
                 <Typography component="span" variant="caption" sx={{ color: "text.secondary" }}>
                   {account.normalBalance} · {account.category === "PNL" ? "P&L" : "Balance Sheet"}
@@ -472,7 +472,7 @@ function DrilldownDialog({ account, onClose, from, to }: { account: Account | nu
                     <TableBody>
                       <TableRow>
                         <TableCell colSpan={7} sx={{ fontStyle: "italic", color: "text.secondary" }}>Opening balance</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 600, fontFamily: "monospace" }}>{fmtKpi(data.openingBalance)}</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{fmtKpi(data.openingBalance)}</TableCell>
                       </TableRow>
                       {data.rows.length === 0 && (
                         <TableRow><TableCell colSpan={8} align="center" sx={{ py: 4, color: "text.secondary" }}>No activity in this period.</TableCell></TableRow>
@@ -480,13 +480,13 @@ function DrilldownDialog({ account, onClose, from, to }: { account: Account | nu
                       {data.rows.map((r) => (
                         <TableRow key={`${r.journalEntryId}-${r.journalNumber}-${r.entryDate}`} hover>
                           <TableCell>{new Date(r.entryDate).toLocaleDateString()}</TableCell>
-                          <TableCell sx={{ fontFamily: "monospace" }}>{r.journalNumber}</TableCell>
+                          <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{r.journalNumber}</TableCell>
                           <TableCell>{r.type}</TableCell>
                           <TableCell>{r.reference}</TableCell>
                           <TableCell sx={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.description}</TableCell>
-                          <TableCell align="right" sx={{ fontFamily: "monospace" }}>{fmt(r.debit)}</TableCell>
-                          <TableCell align="right" sx={{ fontFamily: "monospace" }}>{fmt(r.credit)}</TableCell>
-                          <TableCell align="right" sx={{ fontFamily: "monospace", fontWeight: 600 }}>{fmtKpi(r.balance)}</TableCell>
+                          <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{fmt(r.debit)}</TableCell>
+                          <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{fmt(r.credit)}</TableCell>
+                          <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{fmtKpi(r.balance)}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

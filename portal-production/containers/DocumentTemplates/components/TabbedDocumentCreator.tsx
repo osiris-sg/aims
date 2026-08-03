@@ -497,6 +497,9 @@ export default function TabbedDocumentCreator({
 
   // Dynamic form field configuration
   const [templateFieldConfig, setTemplateFieldConfig] = useState<TemplateFieldConfig | null>(null);
+  // Active template's display name — drives the Stock Card rental/sales lock
+  // (guru 2026-08-03: a "… Rental …" template must only offer rental items).
+  const [activeTemplateName, setActiveTemplateName] = useState<string>("");
   const [isLoadingFieldConfig, setIsLoadingFieldConfig] = useState(true);
 
   const { getToken } = useAuth();
@@ -866,6 +869,49 @@ export default function TabbedDocumentCreator({
 
     loadTemplateFields();
   }, [documentType, templateId, existingData?.documentTemplateId, existingData?.templateId, propFieldDefinitions, getToken, mergeDoDetailsIntoGeneral]);
+
+  // Fetch the active template's name (for the Stock Card rental/sales lock).
+  useEffect(() => {
+    const effectiveTemplateId = templateId || existingData?.documentTemplateId || existingData?.templateId;
+    if (!effectiveTemplateId) {
+      setActiveTemplateName("");
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+        if (typeof window !== "undefined") {
+          const activeOrgId = window.sessionStorage.getItem("aims-admin-active-org");
+          if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
+        }
+        const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/documentTemplates/${effectiveTemplateId}`, { headers });
+        const json = await res.json();
+        const tpl = json?.data ?? json;
+        if (!cancelled) setActiveTemplateName(tpl?.name || "");
+      } catch {
+        if (!cancelled) setActiveTemplateName("");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [templateId, existingData?.documentTemplateId, existingData?.templateId, getToken]);
+
+  // A template whose name says "Rental" locks the Stock Card to rental items
+  // only; a "Sales …" template locks it to sales. Ambiguous/plain names don't
+  // lock (both tabs show, as before).
+  const stockCardRevenueLock = useMemo<"sales" | "rental" | undefined>(() => {
+    const n = (activeTemplateName || "").toLowerCase();
+    if (!n) return undefined;
+    const rental = n.includes("rental");
+    const sales = /\bsales?\b/.test(n);
+    if (rental && !sales) return "rental";
+    if (sales && !rental) return "sales";
+    return undefined;
+  }, [activeTemplateName]);
 
   // Items management - normalize field names from old inventoryId to new inventoryItemId
   const [items, setItemsState] = useState(() => {
@@ -6390,6 +6436,7 @@ export default function TabbedDocumentCreator({
             : "selling"
         }
         showCapacity
+        revenueModeLock={stockCardRevenueLock}
       />
 
       {/* Delivery Route dialog — triggered by the Show Route button at the

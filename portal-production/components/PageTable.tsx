@@ -118,7 +118,18 @@ export default function PageTable(props: Props) {
             </Box>
           </Grid2>
           <Grid2 size={{ xs: 12, md: 8 }}>
-            <Box sx={{ display: "flex", justifyContent: "flex-end", gap: "var(--half-gap)" }}>
+            <Box
+              sx={{
+                display: "flex",
+                justifyContent: "flex-end",
+                alignItems: "center",
+                gap: "var(--half-gap)",
+                // Buttons keep their one-line labels; the search field is the
+                // only flexible child (capped below) — without this the 100%-
+                // wide search squeezed every button into a 3-line box.
+                "& .MuiButton-root": { whiteSpace: "nowrap", flexShrink: 0 },
+              }}
+            >
               {buttonName && (
                 // data-tour: stable anchor for AIMS Guide walkthroughs
                 <Button data-tour="page-create-button" variant="contained" color="primary" startIcon={<AddCircleOutlineIcon />} onClick={onAddClick} disabled={buttonDisabled}>
@@ -145,7 +156,7 @@ export default function PageTable(props: Props) {
                 </Button>
               )}
               {/* data-tour wrapper: anchor for AIMS Guide walkthroughs */}
-              <Box data-tour="page-search" sx={{ width: "100%" }}>
+              <Box data-tour="page-search" sx={{ width: 320, minWidth: 200, flexShrink: 1 }}>
                 <FormInputBox fullWidth startIcon={<SearchIcon />} control={control} name="search" placeHolder="Search" />
               </Box>
               <IconButton>

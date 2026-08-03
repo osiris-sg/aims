@@ -137,7 +137,7 @@ export default function RevenueItemPickerDialog({
                       {it.code && <Typography variant="caption" sx={{ color: "text.secondary" }}>{it.code}</Typography>}
                     </TableCell>
                     <TableCell><Chip size="small" variant="outlined" label={it.type === "PRODUCT" ? "Item" : "Service"} color={it.type === "PRODUCT" ? "primary" : "default"} /></TableCell>
-                    <TableCell align="right" sx={{ fontFamily: "monospace" }}>{it.unitPrice != null ? it.unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</TableCell>
+                    <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{it.unitPrice != null ? it.unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</TableCell>
                     <TableCell><Typography variant="body2"><b>{it.accountCode}</b>{it.accountName ? ` — ${it.accountName}` : ""}</Typography></TableCell>
                   </TableRow>
                 ))}

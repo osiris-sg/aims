@@ -265,7 +265,7 @@ export default function InventoryPage() {
               variant={uid ? "filled" : "outlined"}
             />
             {uid && (
-              <Typography variant="caption" sx={{ color: "text.secondary", fontFamily: "monospace" }}>
+              <Typography variant="caption" sx={{ color: "text.secondary", fontVariantNumeric: "tabular-nums" }}>
                 {uid}
               </Typography>
             )}

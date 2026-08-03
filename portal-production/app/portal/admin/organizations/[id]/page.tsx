@@ -1584,7 +1584,7 @@ export default function OrganizationDetailPage() {
                     <Typography variant="caption" color="text.secondary">
                       Organization ID
                     </Typography>
-                    <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                    <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>
                       {organization.id}
                     </Typography>
                   </Box>

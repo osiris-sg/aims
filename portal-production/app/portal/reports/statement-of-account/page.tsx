@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   Box,
   Paper,
@@ -116,6 +117,32 @@ export default function StatementOfAccountPage() {
       setError(e.message || 'Failed to generate statement');
     }
   };
+
+  // Deep-link prefill: the AR workspace's debtor dialog links here with
+  // ?customer=<id>&from=&to= — prefill the filters and auto-generate the
+  // statement so the user lands on a ready report (guru 2026-07-31).
+  const searchParams = useSearchParams();
+  const prefilled = useRef(false);
+  const [autoRun, setAutoRun] = useState(false);
+  useEffect(() => {
+    if (prefilled.current) return;
+    prefilled.current = true;
+    const c = searchParams?.get('customer');
+    if (!c) return;
+    setSelectedCustomer(c);
+    const f = searchParams.get('from');
+    const t = searchParams.get('to');
+    if (f) setStartDate(f);
+    if (t) setEndDate(t);
+    setAutoRun(true);
+  }, [searchParams]);
+  useEffect(() => {
+    if (autoRun && selectedCustomer) {
+      setAutoRun(false);
+      generateStatement();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRun, selectedCustomer]);
 
   const downloadCSV = async () => {
     if (!selectedCustomer) return;

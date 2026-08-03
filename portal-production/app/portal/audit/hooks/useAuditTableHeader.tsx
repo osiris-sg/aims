@@ -79,7 +79,7 @@ export default function useAuditTableHeader() {
         header: "Resource ID",
         accessorKey: "resourceId",
         cell: ({ row }: { row: { original: AuditLog } }) => (
-          <Typography variant="body2" sx={{ fontSize: "0.85rem", fontFamily: "monospace" }}>
+          <Typography variant="body2" sx={{ fontSize: "0.85rem", fontVariantNumeric: "tabular-nums" }}>
             {row.original.resourceId ? row.original.resourceId.substring(0, 8) + "..." : "-"}
           </Typography>
         ),
@@ -110,7 +110,7 @@ export default function useAuditTableHeader() {
         header: "IP Address",
         accessorKey: "ipAddress",
         cell: ({ row }: { row: { original: AuditLog } }) => (
-          <Typography variant="body2" sx={{ fontSize: "0.85rem", fontFamily: "monospace" }}>
+          <Typography variant="body2" sx={{ fontSize: "0.85rem", fontVariantNumeric: "tabular-nums" }}>
             {row.original.ipAddress || "-"}
           </Typography>
         ),

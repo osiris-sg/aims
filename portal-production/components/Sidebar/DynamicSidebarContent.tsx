@@ -104,7 +104,15 @@ export default function DynamicSidebarContent() {
   const remappedListRoute =
     (isEditorPath && fromPath) ||
     (isDocumentListViewEnabled ? getListRouteFromPathname(rawPathname) : null);
-  const pathname = remappedListRoute || rawPathname;
+  // Accounting sub-pages that belong to a tab: highlight the owning tab
+  // instead of falling through to Dashboard (guru 2026-08-01 — the Purchase
+  // Journal lives under Accounts Payable, receipts under Receivable).
+  const ACCOUNTING_TAB_REMAP: Array<[string, string]> = [
+    ["/portal/accounting/bills", "/portal/accounting/payables"],
+    ["/portal/accounting/receipts", "/portal/accounting/receivables"],
+  ];
+  const tabRemap = ACCOUNTING_TAB_REMAP.find(([p]) => rawPathname === p || rawPathname.startsWith(p + "/"))?.[1] || null;
+  const pathname = tabRemap || remappedListRoute || rawPathname;
 
 
   // Handle submenu toggles
@@ -227,6 +235,10 @@ export default function DynamicSidebarContent() {
     // via a deep URL (e.g. a document-editor page remapped to its list view).
     const hasActiveSubmenu = hasSubMenus && module.config.subMenus.some((sm: any) => {
       const r = resolveSubmenuRoute(module, sm);
+      // A submenu that points at the module's bare route (e.g. Accounting →
+      // Dashboard = /portal/accounting) must match EXACTLY, otherwise it
+      // co-highlights on every sub-page under the module.
+      if (r === module.config?.route) return pathname === r;
       return pathname === r || pathname.startsWith(r + "/");
     });
     const isOpen = (openMenus[module.moduleCode] ?? false) || hasActiveSubmenu;
@@ -338,7 +350,10 @@ export default function DynamicSidebarContent() {
                   ? submenu.charAt(0).toUpperCase() + submenu.slice(1).replace(/-/g, ' ')
                   : submenu.label;
                 const submenuRoute = resolveSubmenuRoute(module, submenu);
-                const isSubmenuActive = pathname === submenuRoute || pathname.startsWith(submenuRoute + '/');
+                const isSubmenuActive =
+                  submenuRoute === module.config?.route
+                    ? pathname === submenuRoute
+                    : pathname === submenuRoute || pathname.startsWith(submenuRoute + '/');
 
                 return (
                   <ListItemButton

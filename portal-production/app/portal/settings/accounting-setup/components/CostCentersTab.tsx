@@ -158,7 +158,7 @@ export default function CostCentersTab() {
                   <TableCell>
                     <Switch size="small" checked={cc.isActive} onChange={() => toggle(cc)} />
                   </TableCell>
-                  <TableCell sx={{ fontFamily: "monospace", fontWeight: 600 }}>{cc.code}</TableCell>
+                  <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{cc.code}</TableCell>
                   <TableCell>{cc.name}</TableCell>
                   <TableCell sx={{ color: "text.secondary" }}>{cc.description || "—"}</TableCell>
                   <TableCell>
@@ -260,7 +260,7 @@ function CostCenterEditor({
             value={code}
             onChange={(e) => setCode(e.target.value)}
             disabled={saving || !!editing}
-            inputProps={{ style: { textTransform: "uppercase", fontFamily: "monospace" } }}
+            inputProps={{ style: { textTransform: "uppercase", fontVariantNumeric: "tabular-nums" } }}
             helperText="Short ALL-CAPS code, e.g. OPS, SALES, R&D"
           />
           <TextField

@@ -89,7 +89,7 @@ export default function SupplierStatementPage() {
     {
       accessorKey: "reference",
       header: "Reference",
-      cell: ({ row }: any) => <Box sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}>{row.original.reference}</Box>,
+      cell: ({ row }: any) => <Box sx={{ fontVariantNumeric: "tabular-nums", fontSize: "0.8rem" }}>{row.original.reference}</Box>,
     },
     {
       accessorKey: "description",
@@ -100,7 +100,7 @@ export default function SupplierStatementPage() {
       accessorKey: "debit",
       header: "Bill",
       cell: ({ row }: any) => (
-        <Box sx={{ textAlign: "right", fontFamily: "monospace" }}>
+        <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
           {row.original.debit ? fmt(row.original.debit) : "—"}
         </Box>
       ),
@@ -109,7 +109,7 @@ export default function SupplierStatementPage() {
       accessorKey: "credit",
       header: "Payment",
       cell: ({ row }: any) => (
-        <Box sx={{ textAlign: "right", fontFamily: "monospace" }}>
+        <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
           {row.original.credit ? fmt(row.original.credit) : "—"}
         </Box>
       ),
@@ -118,7 +118,7 @@ export default function SupplierStatementPage() {
       accessorKey: "balance",
       header: "Balance",
       cell: ({ row }: any) => (
-        <Box sx={{ textAlign: "right", fontFamily: "monospace", fontWeight: 600 }}>{fmt(row.original.balance)}</Box>
+        <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{fmt(row.original.balance)}</Box>
       ),
     },
   ], []);
@@ -172,13 +172,13 @@ export default function SupplierStatementPage() {
               </Box>
               <Stack direction="row" gap={3}>
                 <Box><Typography variant="caption" color="text.secondary">Opening</Typography>
-                  <Typography sx={{ fontFamily: "monospace", fontWeight: 600 }}>{fmt(data.summary.openingBalance)}</Typography></Box>
+                  <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{fmt(data.summary.openingBalance)}</Typography></Box>
                 <Box><Typography variant="caption" color="text.secondary">Bills</Typography>
-                  <Typography sx={{ fontFamily: "monospace", fontWeight: 600 }}>{fmt(data.summary.totalDebit)}</Typography></Box>
+                  <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{fmt(data.summary.totalDebit)}</Typography></Box>
                 <Box><Typography variant="caption" color="text.secondary">Payments</Typography>
-                  <Typography sx={{ fontFamily: "monospace", fontWeight: 600 }}>{fmt(data.summary.totalCredit)}</Typography></Box>
+                  <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{fmt(data.summary.totalCredit)}</Typography></Box>
                 <Box><Typography variant="caption" color="text.secondary">Closing</Typography>
-                  <Typography sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.1rem" }}>{fmt(data.summary.closingBalance)}</Typography></Box>
+                  <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: "1.1rem" }}>{fmt(data.summary.closingBalance)}</Typography></Box>
               </Stack>
             </Stack>
           </Paper>
@@ -190,7 +190,7 @@ export default function SupplierStatementPage() {
                 {(["current","days30","days60","days90","days120Plus"] as const).map((k) => (
                   <Box key={k}>
                     <Typography variant="caption" color="text.secondary">{({ current: "0-30 days", days30: "31-60", days60: "61-90", days90: "91-120", days120Plus: "120+" })[k]}</Typography>
-                    <Typography sx={{ fontFamily: "monospace", fontWeight: 600 }}>{fmt(data.aging[k] || 0)}</Typography>
+                    <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{fmt(data.aging[k] || 0)}</Typography>
                   </Box>
                 ))}
               </Stack>

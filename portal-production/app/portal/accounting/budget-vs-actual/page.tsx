@@ -143,7 +143,7 @@ export default function BudgetVsActualPage() {
               <Typography key={r.accountId} variant="body2">
                 <strong>{r.code} {r.name}</strong>:{" "}
                 {r.totalVariance > 0 ? "exceeded" : "under"} budget by{" "}
-                <Box component="span" sx={{ fontFamily: "monospace", fontWeight: 600 }}>
+                <Box component="span" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
                   {fmt(Math.abs(r.totalVariance))}
                 </Box>
                 {r.totalVariancePct !== null && (
@@ -193,7 +193,7 @@ export default function BudgetVsActualPage() {
               rows.map((r) => (
                 <TableRow key={r.accountId} hover>
                   <TableCell sx={{ position: "sticky", left: 0, bgcolor: "background.paper", zIndex: 1 }}>
-                    <Typography component="span" sx={{ fontFamily: "monospace", fontWeight: 600, mr: 1 }}>{r.code}</Typography>
+                    <Typography component="span" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, mr: 1 }}>{r.code}</Typography>
                     <Typography component="span" variant="body2">{r.name}</Typography>
                   </TableCell>
                   {viewMode === "MONTHLY" &&
@@ -202,7 +202,7 @@ export default function BudgetVsActualPage() {
                         key={m.month}
                         align="right"
                         sx={{
-                          fontFamily: "monospace",
+                          fontVariantNumeric: "tabular-nums",
                           fontSize: "0.75rem",
                           color: m.variance > 0 ? "warning.main" : m.variance < 0 ? "success.main" : "text.secondary",
                         }}
@@ -210,12 +210,12 @@ export default function BudgetVsActualPage() {
                         {m.actual === 0 && m.budget === 0 ? "—" : `${m.actual.toFixed(0)}`}
                       </TableCell>
                     ))}
-                  <TableCell align="right" sx={{ fontFamily: "monospace" }}>{fmt(r.totalBudget)}</TableCell>
-                  <TableCell align="right" sx={{ fontFamily: "monospace", fontWeight: 600 }}>{fmt(r.totalActual)}</TableCell>
+                  <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{fmt(r.totalBudget)}</TableCell>
+                  <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{fmt(r.totalActual)}</TableCell>
                   <TableCell
                     align="right"
                     sx={{
-                      fontFamily: "monospace",
+                      fontVariantNumeric: "tabular-nums",
                       fontWeight: 600,
                       color: r.totalVariance === 0 ? "inherit" : r.totalVariance > 0 ? "warning.main" : "success.main",
                     }}
@@ -224,7 +224,7 @@ export default function BudgetVsActualPage() {
                       ? `${r.totalVariance > 0 ? "+" : ""}${r.totalVariance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                       : "—"}
                   </TableCell>
-                  <TableCell align="right" sx={{ fontFamily: "monospace", fontSize: "0.8125rem", color: "text.secondary" }}>
+                  <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums", fontSize: "0.8125rem", color: "text.secondary" }}>
                     {r.totalVariancePct !== null
                       ? `${r.totalVariancePct > 0 ? "+" : ""}${r.totalVariancePct.toFixed(0)}%`
                       : "—"}
@@ -252,7 +252,7 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
       <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", fontWeight: 700, fontSize: "0.65rem" }}>
         {label}
       </Typography>
-      <Typography sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.125rem", mt: 0.25 }}>{value}</Typography>
+      <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: "1.125rem", mt: 0.25 }}>{value}</Typography>
     </Paper>
   );
 }

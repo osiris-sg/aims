@@ -156,7 +156,7 @@ export default function RecurringPage() {
       accessorKey: "nextRunDate",
       header: "Next run",
       cell: ({ row }: any) => (
-        <Box sx={{ fontFamily: "monospace", fontSize: "0.8125rem" }}>
+        <Box sx={{ fontVariantNumeric: "tabular-nums", fontSize: "0.8125rem" }}>
           {new Date(row.original.nextRunDate).toLocaleDateString()}
         </Box>
       ),
@@ -165,7 +165,7 @@ export default function RecurringPage() {
       accessorKey: "lastRunAt",
       header: "Last run",
       cell: ({ row }: any) => (
-        <Box sx={{ fontFamily: "monospace", fontSize: "0.8125rem", color: "text.secondary" }}>
+        <Box sx={{ fontVariantNumeric: "tabular-nums", fontSize: "0.8125rem", color: "text.secondary" }}>
           {row.original.lastRunAt ? new Date(row.original.lastRunAt).toLocaleDateString() : "—"}
         </Box>
       ),

@@ -159,7 +159,7 @@ export default function ManualOffsetDialog({
   };
 
   const headSx = { fontWeight: 700, fontSize: "0.72rem", color: "text.secondary", whiteSpace: "nowrap" as const, bgcolor: "surfaceTones.low" };
-  const mono = { fontFamily: "monospace", textAlign: "right" as const, whiteSpace: "nowrap" as const };
+  const mono = { fontVariantNumeric: "tabular-nums", textAlign: "right" as const, whiteSpace: "nowrap" as const };
 
   const renderGrid = (
     title: string,
@@ -202,7 +202,7 @@ export default function ManualOffsetDialog({
                     <TableCell padding="checkbox">
                       <Checkbox size="small" checked={ticked} onChange={(_, c) => toggle(side, setSide, it, c)} />
                     </TableCell>
-                    <TableCell sx={{ fontFamily: "monospace", whiteSpace: "nowrap" }}>{it.reference}</TableCell>
+                    <TableCell sx={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{it.reference}</TableCell>
                     <TableCell sx={{ whiteSpace: "nowrap" }}>{dmy(it.date)}</TableCell>
                     <TableCell>
                       {it.remarks}

@@ -276,9 +276,9 @@ function ServicesSection({ revenueAccounts, authedFetch }: { revenueAccounts: an
             <TableBody>
               {filtered.map((it) => (
                 <TableRow key={it.id}>
-                  <TableCell><Typography variant="body2" sx={{ fontFamily: "monospace" }}>{it.code || "—"}</Typography></TableCell>
+                  <TableCell><Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>{it.code || "—"}</Typography></TableCell>
                   <TableCell><Typography variant="body2" sx={{ fontWeight: 600 }}>{it.name}</Typography></TableCell>
-                  <TableCell align="right" sx={{ fontFamily: "monospace" }}>{it.unitPrice != null ? it.unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</TableCell>
+                  <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{it.unitPrice != null ? it.unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</TableCell>
                   <TableCell><Typography variant="body2"><b>{it.accountCode}</b> {it.accountName ? `— ${it.accountName}` : ""}</Typography></TableCell>
                   <TableCell align="right">
                     <Tooltip title="Edit"><IconButton size="small" onClick={() => openEdit(it)}><EditIcon fontSize="small" /></IconButton></Tooltip>

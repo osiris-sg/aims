@@ -79,7 +79,7 @@ export default function useOrganizationTableHeader() {
     columnHelper.accessor("id", {
       header: "Organization ID",
       cell: (info) => (
-        <Typography variant="body2" sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}>
+        <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", fontSize: "0.8rem" }}>
           {info.getValue()}
         </Typography>
       ),

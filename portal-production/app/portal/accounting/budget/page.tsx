@@ -241,7 +241,7 @@ export default function BudgetPage() {
               visible.map((r) => (
                 <TableRow key={r.id} hover>
                   <TableCell sx={{ position: "sticky", left: 0, bgcolor: "background.paper", zIndex: 1 }}>
-                    <Typography component="span" sx={{ fontFamily: "monospace", fontWeight: 600, mr: 1 }}>{r.code}</Typography>
+                    <Typography component="span" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, mr: 1 }}>{r.code}</Typography>
                     <Typography component="span" variant="body2">{r.name}</Typography>
                   </TableCell>
                   {MONTHS.map((_, i) => {
@@ -263,7 +263,7 @@ export default function BudgetPage() {
                           inputProps={{
                             step: "0.01",
                             min: 0,
-                            style: { textAlign: "right", fontFamily: "monospace", padding: "4px 6px", fontSize: "0.8125rem" },
+                            style: { textAlign: "right", fontVariantNumeric: "tabular-nums", padding: "4px 6px", fontSize: "0.8125rem" },
                           }}
                           sx={{ width: 80 }}
                         />
@@ -272,7 +272,7 @@ export default function BudgetPage() {
                   })}
                   <TableCell
                     align="right"
-                    sx={{ fontFamily: "monospace", fontWeight: 700, bgcolor: (t) => alpha(t.palette.text.primary, 0.02) }}
+                    sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, bgcolor: (t) => alpha(t.palette.text.primary, 0.02) }}
                   >
                     {fmt(totalsPerRow.get(r.id) ?? 0)}
                   </TableCell>

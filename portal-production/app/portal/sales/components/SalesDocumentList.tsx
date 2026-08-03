@@ -206,7 +206,7 @@ export default function SalesDocumentList({
     {
       accessorKey: "name",
       header: "Document Name",
-      cell: ({ row }: any) => <Box sx={{ fontFamily: "monospace", fontWeight: 600 }}>{row.original.name}</Box>,
+      cell: ({ row }: any) => <Box sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{row.original.name}</Box>,
     },
     // "Associated Item" dropped from all document lists (2026-07-13, guru) —
     // it was N/A on nearly every row; re-add here if it earns its keep.

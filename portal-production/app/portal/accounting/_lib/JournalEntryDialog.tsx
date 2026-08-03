@@ -293,7 +293,7 @@ export default function JournalEntryDialog({
                         )}
                         renderOption={(props, option) => (
                           <Box component="li" {...props}>
-                            <Typography component="span" sx={{ fontFamily: "monospace", fontWeight: 600, mr: 1 }}>
+                            <Typography component="span" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, mr: 1 }}>
                               {option.code}
                             </Typography>
                             <Typography component="span">{option.name}</Typography>
@@ -321,7 +321,7 @@ export default function JournalEntryDialog({
                       <TextField
                         size="small"
                         type="number"
-                        inputProps={{ step: "0.01", min: 0, style: { textAlign: "right", fontFamily: "monospace" } }}
+                        inputProps={{ step: "0.01", min: 0, style: { textAlign: "right", fontVariantNumeric: "tabular-nums" } }}
                         value={line.debit}
                         onChange={(e) => onDebitChange(line.uid, e.target.value)}
                         disabled={!!saving}
@@ -332,7 +332,7 @@ export default function JournalEntryDialog({
                       <TextField
                         size="small"
                         type="number"
-                        inputProps={{ step: "0.01", min: 0, style: { textAlign: "right", fontFamily: "monospace" } }}
+                        inputProps={{ step: "0.01", min: 0, style: { textAlign: "right", fontVariantNumeric: "tabular-nums" } }}
                         value={line.credit}
                         onChange={(e) => onCreditChange(line.uid, e.target.value)}
                         disabled={!!saving}
@@ -368,10 +368,10 @@ export default function JournalEntryDialog({
             <Typography variant="body2" sx={{ color: "text.secondary" }}>
               Totals:
             </Typography>
-            <Typography sx={{ fontFamily: "monospace", fontWeight: 700, minWidth: 100, textAlign: "right" }}>
+            <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, minWidth: 100, textAlign: "right" }}>
               {fmt(totals.debit)}
             </Typography>
-            <Typography sx={{ fontFamily: "monospace", fontWeight: 700, minWidth: 100, textAlign: "right" }}>
+            <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, minWidth: 100, textAlign: "right" }}>
               {fmt(totals.credit)}
             </Typography>
             <Chip

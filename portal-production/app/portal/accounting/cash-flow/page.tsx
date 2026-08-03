@@ -274,7 +274,7 @@ function Row({
       }}
     >
       <Box sx={{ pl: indent ? 1.5 : 0 }}>{label}</Box>
-      <Box sx={{ textAlign: "right", fontFamily: "monospace", fontWeight: bold ? 700 : 400 }}>
+      <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: bold ? 700 : 400 }}>
         {fmt(value)}
       </Box>
     </Box>
@@ -295,7 +295,7 @@ function Subtotal({ label, value }: { label: string; value: number }) {
       }}
     >
       <Box>{label}</Box>
-      <Box sx={{ textAlign: "right", fontFamily: "monospace" }}>{fmt(value)}</Box>
+      <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(value)}</Box>
     </Box>
   );
 }
