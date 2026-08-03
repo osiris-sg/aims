@@ -25,13 +25,15 @@ import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import { request } from "@/helpers/request";
 
 /**
- * Office Deliveries queue (phase-1 layer 4). Standalone physical-delivery
- * runs the riders performed WITHOUT a DO — surfaced here so the office can
- * link each run to a Delivery Order (or create one from it). Defaults to the
- * unlinked queue; toggle to see every run.
+ * Office Deliveries queue (phase-1 layer 4; per-item linking 2026-08).
+ * Standalone physical-delivery runs surfaced so the office can link each
+ * run's ITEMS to Delivery Orders (or create DOs from them). "Unlinked" is
+ * per-item: a run stays in the queue while ANY item has no DO — partially
+ * linked runs show "k of n linked". Defaults to the unlinked queue; toggle
+ * to see every run.
  *
  * Read path: GET /deliveries?unlinked=true&page=&limit= (Layer-2 backend).
- * Row click → /portal/deliveries/[id] (proof + link actions).
+ * Row click → /portal/deliveries/[id] (proof + per-item link actions).
  */
 
 type RunStatus = "in_progress" | "delivered" | "completed" | "cancelled";
@@ -44,8 +46,12 @@ interface DeliveryRow {
   siteAddress: string | null;
   startedAt: string;
   completedAt: string | null;
-  items: Array<{ id: string; deliveryStatus: string }>;
-  document: { id: string; name: string | null } | null;
+  items: Array<{
+    id: string;
+    deliveryStatus: string;
+    documentId: string | null;
+    document: { id: string; name: string | null } | null;
+  }>;
   project: { id: string; name: string } | null;
   customer: { id: string; name: string } | null;
 }
@@ -185,11 +191,27 @@ export default function DeliveriesQueuePage() {
                     <TableCell>{fmtDateTime(r.startedAt)}</TableCell>
                     <TableCell>{fmtDateTime(r.completedAt)}</TableCell>
                     <TableCell>
-                      {r.document ? (
-                        <Chip size="small" variant="outlined" color="success" label={r.document.name ?? "linked"} />
-                      ) : (
-                        <Typography variant="body2" color="text.secondary">—</Typography>
-                      )}
+                      {(() => {
+                        const items = r.items ?? [];
+                        const linked = items.filter((i) => i.documentId);
+                        if (linked.length === 0) {
+                          return <Typography variant="body2" color="text.secondary">—</Typography>;
+                        }
+                        if (linked.length < items.length) {
+                          return (
+                            <Chip size="small" variant="outlined" color="warning" label={`${linked.length} of ${items.length} linked`} />
+                          );
+                        }
+                        const distinct = Array.from(new Map(linked.filter((i) => i.document).map((i) => [i.document!.id, i.document!])).values());
+                        return (
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            color="success"
+                            label={distinct.length === 1 ? distinct[0].name ?? "linked" : `${distinct.length} DOs`}
+                          />
+                        );
+                      })()}
                     </TableCell>
                   </TableRow>
                 );

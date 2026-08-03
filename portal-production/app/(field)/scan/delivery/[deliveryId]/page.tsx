@@ -56,6 +56,8 @@ interface RunItem {
   quantity: number;
   deliveryStatus: ItemStatus;
   installSkipped: boolean;
+  documentId: string | null;
+  document: { id: string; name: string | null } | null;
   inventory: { id: string; sku: string; serialNumber: string | null; status: string } | null;
   asset: { id: string; name: string; skuKey: string } | null;
 }
@@ -67,6 +69,7 @@ interface Run {
   riderName: string | null;
   siteAddress: string | null;
   startedAt: string;
+  // Derived by the backend: the single distinct DO across linked items, else null.
   document: { id: string; name: string | null } | null;
   items: RunItem[];
 }
@@ -294,7 +297,16 @@ export default function DeliveryBasketPage() {
           <Typography variant="h6" fontWeight={700}>Delivery #{run.deliveryNumber}</Typography>
           <Typography variant="body2" color="text.secondary">
             {RUN_STATUS_LABEL[run.status]}
-            {run.document ? ` · DO ${run.document.name ?? ""}` : " · no DO yet"}
+            {(() => {
+              // Per-item linking: items may span DOs. Single DO → its name;
+              // several → a count; none → the old "no DO yet".
+              const distinct = Array.from(
+                new Map(run.items.filter((i) => i.document).map((i) => [i.document!.id, i.document!])).values(),
+              );
+              if (distinct.length === 0) return " · no DO yet";
+              if (distinct.length === 1) return ` · DO ${distinct[0].name ?? ""}`;
+              return ` · ${distinct.length} DOs`;
+            })()}
           </Typography>
         </Box>
       </Stack>

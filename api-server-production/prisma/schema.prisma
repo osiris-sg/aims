@@ -424,7 +424,8 @@ model Document {
   msrInvoices        MaintenanceServiceReport[] @relation("MsrInvoice") // Service reports that produced THIS invoice
   orderSources       Order[]                    @relation("OrderSourceQuotation") // Orders auto-created when this quotation was confirmed
   deliveryShareLinks DeliveryShareLink[] // Guest (no-login) delivery links scoped to THIS delivery order
-  deliveries         Delivery[] // Standalone physical-delivery runs later linked to THIS delivery order
+  deliveries         Delivery[] // Standalone physical-delivery runs later linked to THIS delivery order (legacy run-level link — frozen)
+  deliveryItems      DeliveryItem[] // Per-item DO links: run items fulfilled by THIS delivery order
 
   // Self-relation for revisions: base document -> many revisions
   baseDocument Document?  @relation("DocumentRevisions", fields: [baseDocumentId], references: [id])
@@ -2242,9 +2243,10 @@ model Delivery {
   customerId     String?           @db.Uuid
   siteAddress    String? // free-text drop site when no project is linked yet
   notes          String?
-  // THE LINK — the DO this run fulfils. Nullable (delivery-first runs have
-  // none until the office links/creates one) and non-unique (a DO can accrue
-  // several physical runs). SetNull: deleting a DO never destroys the run.
+  // LEGACY run-level link — FROZEN (per-item linking, 2026-08): new code
+  // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
+  // for zero-downtime deploys (Render db-pushes on deploy while old code may
+  // still serve) and dropped in a later cleanup.
   documentId     String?           @db.Uuid
   startedAt      DateTime          @default(now())
   completedAt    DateTime?
@@ -2281,11 +2283,19 @@ model DeliveryItem {
   deliveredAt    DateTime?
   completedAt    DateTime?
   installSkipped Boolean        @default(false)
+  // THE LINK (per-item, 2026-08) — the DO this ITEM fulfils. One run's items
+  // may fulfil different DOs. SetNull: deleting a (draft) DO un-links the
+  // items and they fall back into the office queue. No documentItemId — the
+  // row-level binding already exists physically via DocumentItem.inventoryId;
+  // (documentId, inventoryId) recovers it, same join stamping/deduction use.
+  documentId     String?        @db.Uuid
+  document       Document?      @relation(fields: [documentId], references: [id], onDelete: SetNull)
   // Deliberately NO deductedAt — stock deduction is the DO's job, performed
   // at link time through the existing DocumentItem claim.
 
   @@unique([deliveryId, inventoryId]) // a unit can't be scanned twice into one run
   @@index([inventoryId])
+  @@index([documentId])
 }
 
 model WhatsAppScheduledMessage {

@@ -39,8 +39,10 @@ import { useOrganization } from "@hooks/useOrganization";
 
 /**
  * Delivery run detail (office). Items + the field PROOF (photos, signature,
- * GPS from the run's MSR rows) and, for unlinked runs, the two actions:
- * Link to an existing DO, or Create a DO pre-filled from this run.
+ * GPS from the run's MSR rows) and, while any item is unlinked, the two
+ * actions: Link SELECTED items to an existing DO, or Create a DO from the
+ * SELECTED items. Per-item linking (2026-08): one run's items may fulfil
+ * different DOs — select a subset, link it, repeat for the rest.
  *
  * Linking stamps the DO's item states and deducts stock. It does NOT create
  * an invoice — the UI copy is explicit about that (backburnered by design).
@@ -62,12 +64,15 @@ interface RunDetail {
   completedAt: string | null;
   projectId: string | null;
   customerId: string | null;
+  // Derived by the backend: the single distinct DO across linked items, else null.
   document: { id: string; name: string | null; type: string; status: string } | null;
   items: Array<{
     id: string;
     quantity: number;
     description: string | null;
     deliveryStatus: string;
+    documentId: string | null;
+    document: { id: string; name: string | null; type: string; status: string } | null;
     inventory: { id: string; sku: string; serialNumber: string | null; status: string } | null;
     asset: { id: string; name: string; skuKey: string } | null;
   }>;
@@ -136,6 +141,9 @@ export default function DeliveryDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [acting, setActing] = useState(false);
+  // Per-item link selection — pre-checked with every unlinked item so the
+  // default one-click flow still links the whole run.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   // Link-picker dialog state
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -149,7 +157,10 @@ export default function DeliveryDetailPage() {
       if (!token) throw new Error("Not signed in");
       const res = await request({ path: `/deliveries/${deliveryId}`, method: "GET" }, {}, token);
       if (res.success === false) throw new Error(res.message ?? "Delivery not found");
-      setRun(res.data ?? res);
+      const data: RunDetail = res.data ?? res;
+      setRun(data);
+      // Re-seed the selection with whatever is still unlinked after a refresh.
+      setSelected(new Set(data.items.filter((i) => !i.documentId).map((i) => i.id)));
     } catch (e: any) {
       setError(e?.message ?? "Failed to load delivery");
     } finally {
@@ -198,10 +209,14 @@ export default function DeliveryDetailPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path: `/deliveries/${deliveryId}/link`, method: "POST" }, { documentId }, token);
+      const res = await request(
+        { path: `/deliveries/${deliveryId}/link`, method: "POST" },
+        { documentId, itemIds: Array.from(selected) },
+        token,
+      );
       if (res.success === false) throw new Error(res.message ?? "Link failed");
       setPickerOpen(false);
-      await load(); // refresh — shows the now-linked DO + stamped items
+      await load(); // refresh — shows the now-linked items + reseeds selection
     } catch (e: any) {
       setActionError(e?.message ?? "Link failed");
       setPickerOpen(false);
@@ -216,10 +231,14 @@ export default function DeliveryDetailPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path: `/deliveries/${deliveryId}/create-do`, method: "POST" }, {}, token);
+      const res = await request(
+        { path: `/deliveries/${deliveryId}/create-do`, method: "POST" },
+        { itemIds: Array.from(selected) },
+        token,
+      );
       if (res.success === false) throw new Error(res.message ?? "Create DO failed");
       const linked = res.data ?? res;
-      const doId = linked?.document?.id ?? linked?.documentId;
+      const doId = linked?.createdDocumentId ?? linked?.document?.id;
       if (doId) {
         // Route the office user into the created DO so pricing can be added.
         // The editor route needs the template id — resolve it via GET
@@ -258,7 +277,18 @@ export default function DeliveryDetailPage() {
   }
 
   const chip = STATUS_CHIP[run.status] ?? { label: run.status, color: "default" as const };
-  const unlinked = !run.document && run.status !== "cancelled";
+  // Per-item link state. distinctDocs powers the header when the run spans DOs.
+  const unlinkedItems = run.items.filter((i) => !i.documentId);
+  const linkedCount = run.items.length - unlinkedItems.length;
+  const distinctDocs = Array.from(new Map(run.items.filter((i) => i.document).map((i) => [i.document!.id, i.document!])).values());
+  const hasUnlinked = unlinkedItems.length > 0 && run.status !== "cancelled";
+  const toggleItem = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   return (
     <Box sx={{ p: 3, maxWidth: 1100 }}>
@@ -270,10 +300,14 @@ export default function DeliveryDetailPage() {
         <LocalShippingIcon color="primary" />
         <Typography variant="h5" fontWeight={700}>Delivery #{run.deliveryNumber}</Typography>
         <Chip size="small" label={chip.label} color={chip.color} />
-        {run.document ? (
-          <Chip size="small" variant="outlined" color="success" label={`Linked: ${run.document.name ?? run.document.id}`} />
-        ) : (
+        {linkedCount === 0 ? (
           <Chip size="small" variant="outlined" label="No DO yet" />
+        ) : unlinkedItems.length > 0 ? (
+          <Chip size="small" variant="outlined" color="warning" label={`${linkedCount} of ${run.items.length} linked`} />
+        ) : distinctDocs.length === 1 ? (
+          <Chip size="small" variant="outlined" color="success" label={`Linked: ${distinctDocs[0].name ?? distinctDocs[0].id}`} />
+        ) : (
+          <Chip size="small" variant="outlined" color="success" label={`Linked: ${distinctDocs.length} DOs`} />
         )}
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -284,24 +318,29 @@ export default function DeliveryDetailPage() {
 
       {actionError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setActionError(null)}>{actionError}</Alert>}
 
-      {/* Actions — unlinked runs only */}
-      {unlinked && (
+      {/* Actions — shown while ANY item is unlinked. Selection-scoped: link
+          the checked subset, repeat for the rest (items may span DOs). */}
+      {hasUnlinked && (
         <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
           <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
-            Link this delivery to a Delivery Order
+            Link items to a Delivery Order
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            Linking binds the delivered units to the DO, stamps its item statuses and
-            deducts stock. It does <b>not</b> create an invoice — invoicing stays a
-            separate, manual step.
+            Tick the items below, then link them to a DO (or create one from them).
+            Items can go to different DOs — repeat for the rest. Linking binds the
+            delivered units to the DO, stamps its item statuses and deducts stock.
+            It does <b>not</b> create an invoice — invoicing stays a separate, manual step.
           </Typography>
-          <Stack direction="row" spacing={1.5}>
-            <Button variant="contained" startIcon={<LinkIcon />} onClick={openPicker} disabled={acting}>
-              Link to existing DO
+          <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+            <Button variant="contained" startIcon={<LinkIcon />} onClick={openPicker} disabled={acting || selected.size === 0}>
+              Link selected to existing DO
             </Button>
-            <Button variant="outlined" startIcon={<NoteAddIcon />} onClick={doCreateDo} disabled={acting}>
-              {acting ? "Working…" : "Create DO from delivery"}
+            <Button variant="outlined" startIcon={<NoteAddIcon />} onClick={doCreateDo} disabled={acting || selected.size === 0}>
+              {acting ? "Working…" : "Create DO from selected"}
             </Button>
+            <Typography variant="caption" color="text.secondary">
+              {selected.size} of {unlinkedItems.length} unlinked item{unlinkedItems.length === 1 ? "" : "s"} selected
+            </Typography>
           </Stack>
         </Paper>
       )}
@@ -314,11 +353,24 @@ export default function DeliveryDetailPage() {
         <Table size="small">
           <TableHead>
             <TableRow>
+              {hasUnlinked && (
+                <TableCell padding="checkbox">
+                  <Checkbox
+                    size="small"
+                    checked={selected.size === unlinkedItems.length && unlinkedItems.length > 0}
+                    indeterminate={selected.size > 0 && selected.size < unlinkedItems.length}
+                    onChange={(e) =>
+                      setSelected(e.target.checked ? new Set(unlinkedItems.map((i) => i.id)) : new Set())
+                    }
+                  />
+                </TableCell>
+              )}
               <TableCell>Unit</TableCell>
               <TableCell>Asset</TableCell>
               <TableCell>Description</TableCell>
               <TableCell align="center">Qty</TableCell>
               <TableCell>Status</TableCell>
+              <TableCell>Linked DO</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -326,11 +378,25 @@ export default function DeliveryDetailPage() {
               const ic = ITEM_CHIP[it.deliveryStatus] ?? { label: it.deliveryStatus, color: "default" as const };
               return (
                 <TableRow key={it.id}>
+                  {hasUnlinked && (
+                    <TableCell padding="checkbox">
+                      {!it.documentId && (
+                        <Checkbox size="small" checked={selected.has(it.id)} onChange={() => toggleItem(it.id)} />
+                      )}
+                    </TableCell>
+                  )}
                   <TableCell sx={{ fontFamily: "monospace" }}>{it.inventory?.sku ?? "—"}</TableCell>
                   <TableCell>{it.asset?.name ?? "—"}</TableCell>
                   <TableCell>{it.description ?? "—"}</TableCell>
                   <TableCell align="center">{it.quantity}</TableCell>
                   <TableCell><Chip size="small" label={ic.label} color={ic.color} /></TableCell>
+                  <TableCell>
+                    {it.document ? (
+                      <Chip size="small" variant="outlined" color="success" label={it.document.name ?? it.document.id} />
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">—</Typography>
+                    )}
+                  </TableCell>
                 </TableRow>
               );
             })}
@@ -408,7 +474,9 @@ export default function DeliveryDetailPage() {
 
       {/* Link picker */}
       <Dialog open={pickerOpen} onClose={() => !acting && setPickerOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Link Delivery #{run.deliveryNumber} to a Delivery Order</DialogTitle>
+        <DialogTitle>
+          Link {selected.size} item{selected.size === 1 ? "" : "s"} of Delivery #{run.deliveryNumber} to a Delivery Order
+        </DialogTitle>
         <DialogContent dividers>
           {docsError && <Alert severity="error" sx={{ mb: 1 }}>{docsError}</Alert>}
           {run.projectId && (

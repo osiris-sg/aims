@@ -76,7 +76,7 @@ export class DeliveriesController {
     @Body() dto: LinkDeliveryDto,
     @UserOrganization() org: { id: string },
   ) {
-    return this.service.link(id, dto.documentId, org.id);
+    return this.service.link(id, dto.documentId, org.id, dto.itemIds);
   }
 
   @Post(':id/create-do')
@@ -86,7 +86,7 @@ export class DeliveriesController {
     @Body() dto: CreateDoFromDeliveryDto,
     @UserOrganization() org: { id: string },
   ) {
-    return this.service.createDoFromDelivery(id, org.id, dto.documentTemplateId);
+    return this.service.createDoFromDelivery(id, org.id, dto.documentTemplateId, dto.itemIds);
   }
 
   @Post(':id/cancel')

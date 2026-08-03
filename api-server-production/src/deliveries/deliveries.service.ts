@@ -186,9 +186,15 @@ export class DeliveriesService {
   // ── reads ────────────────────────────────────────────────────────────────
 
   async findById(id: string, organizationId: string) {
+    // Per-item linking: each item carries its own DO. Delivery.documentId is
+    // frozen legacy — never read; the run-level `document` in the response is
+    // DERIVED (single distinct DO across linked items, else null) for
+    // backward-compatible consumers (basket header, detail chip).
     const delivery = await this.prisma.delivery.findFirst({
       where: { id, organizationId },
-      include: { items: true, document: { select: { id: true, name: true, type: true, status: true } } },
+      include: {
+        items: { include: { document: { select: { id: true, name: true, type: true, status: true } } } },
+      },
     });
     if (!delivery) throw new NotFoundException('Delivery not found');
 
@@ -226,8 +232,13 @@ export class DeliveriesService {
     ]);
     const unitById = new Map(units.map((u) => [u.id, u]));
     const assetById = new Map(assets.map((a) => [a.id, a]));
+    // Derived run-level document: exactly one distinct DO across linked items.
+    const distinctDocs = [...new Map(
+      delivery.items.filter((i) => i.document).map((i) => [i.document!.id, i.document!]),
+    ).values()];
     return {
       ...delivery,
+      document: distinctDocs.length === 1 ? distinctDocs[0] : null,
       items: delivery.items.map((i) => ({
         ...i,
         inventory: i.inventoryId ? unitById.get(i.inventoryId) ?? null : null,
@@ -243,10 +254,17 @@ export class DeliveriesService {
   ) {
     const page = Math.max(1, opts.page ?? 1);
     const limit = Math.min(100, Math.max(1, opts.limit ?? 20));
+    // "Unlinked" is per-item now: a run stays in the queue while ANY item has
+    // no DO. Cancelled runs drop out of the queue view (their items will never
+    // be linked) unless the caller asked for them by status explicitly.
     const where: Prisma.DeliveryWhereInput = {
       organizationId,
-      ...(opts.unlinked ? { documentId: null } : {}),
-      ...(opts.status ? { status: opts.status as any } : {}),
+      ...(opts.unlinked ? { items: { some: { documentId: null } } } : {}),
+      ...(opts.status
+        ? { status: opts.status as any }
+        : opts.unlinked
+          ? { status: { not: 'cancelled' as any } }
+          : {}),
     };
     const [docs, total] = await Promise.all([
       this.prisma.delivery.findMany({
@@ -255,8 +273,14 @@ export class DeliveriesService {
         skip: (page - 1) * limit,
         take: limit,
         include: {
-          items: { select: { id: true, deliveryStatus: true } },
-          document: { select: { id: true, name: true } },
+          items: {
+            select: {
+              id: true,
+              deliveryStatus: true,
+              documentId: true,
+              document: { select: { id: true, name: true } },
+            },
+          },
           project: { select: { id: true, name: true } },
           customer: { select: { id: true, name: true } },
         },
@@ -355,30 +379,65 @@ export class DeliveriesService {
   // ── office: link / create-DO / cancel ────────────────────────────────────
 
   /**
-   * Attach a run to an existing DO. Stamps the run's item states onto the
-   * DO's DocumentItems (never regressing a more-advanced row), mirrors
-   * Document.status by fold, and runs the DO's OWN exactly-once deduction for
-   * already-delivered units (reserved units flip via the widened predicate).
-   * Does NOT create/modify MSRs and does NOT fire the completion gate /
-   * auto-invoice (backburnered by design).
+   * Resolve which items a link/create-DO call operates on. Explicit itemIds
+   * must all belong to the run and be unlinked (per-item "already linked"
+   * guard — replaces the old run-level documentId guard). Omitted itemIds =
+   * every currently-unlinked item (backward-compatible whole-run call).
    */
-  async link(deliveryId: string, documentId: string, organizationId: string) {
+  private resolveLinkSelection<T extends { id: string; documentId: string | null }>(
+    items: T[],
+    itemIds?: string[],
+  ): T[] {
+    if (itemIds?.length) {
+      const byId = new Map(items.map((i) => [i.id, i]));
+      const ids = [...new Set(itemIds)];
+      const missing = ids.filter((id) => !byId.has(id));
+      if (missing.length) {
+        throw new NotFoundException(`Item(s) not on this delivery: ${missing.join(', ')}`);
+      }
+      const alreadyLinked = ids.filter((id) => byId.get(id)!.documentId);
+      if (alreadyLinked.length) {
+        throw new BadRequestException('One or more selected items are already linked to a Delivery Order');
+      }
+      return ids.map((id) => byId.get(id)!);
+    }
+    const unlinked = items.filter((i) => !i.documentId);
+    if (!unlinked.length) {
+      throw new BadRequestException('Every item on this delivery is already linked to a Delivery Order');
+    }
+    return unlinked;
+  }
+
+  /**
+   * Attach run ITEMS to an existing DO (per-item linking — one run's items may
+   * fulfil different DOs). For the selection: writes DeliveryItem.documentId,
+   * stamps item states onto the DO's DocumentItems (never regressing a
+   * more-advanced row), mirrors Document.status by fold, and runs the DO's OWN
+   * exactly-once deduction for already-delivered units (reserved units flip
+   * via the widened predicate). Does NOT create/modify MSRs and does NOT fire
+   * the completion gate / auto-invoice (backburnered by design).
+   * Delivery.documentId (legacy run-level link) is frozen — never written.
+   */
+  async link(deliveryId: string, documentId: string, organizationId: string, itemIds?: string[]) {
     const delivery = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },
       include: { items: true },
     });
     if (!delivery) throw new NotFoundException('Delivery not found');
     if (delivery.status === 'cancelled') throw new BadRequestException('Cannot link a cancelled delivery');
-    if (delivery.documentId) {
-      throw new BadRequestException(`Delivery already linked to document ${delivery.documentId}`);
-    }
+    const selection = this.resolveLinkSelection(delivery.items, itemIds);
     const document = await this.prisma.document.findFirst({
       where: { id: documentId, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } },
       select: { id: true, name: true, status: true },
     });
     if (!document) throw new NotFoundException('Delivery Order not found in this organization');
 
-    await this.prisma.delivery.update({ where: { id: deliveryId }, data: { documentId } });
+    // Per-item link write. The documentId:null guard keeps a concurrent link
+    // of the same item exactly-once (loser writes nothing).
+    await this.prisma.deliveryItem.updateMany({
+      where: { id: { in: selection.map((i) => i.id) }, documentId: null },
+      data: { documentId },
+    });
 
     // Bind each delivered unit into an unbound asset-level slot on this DO
     // FIRST (shared auto-bind helper — same semantics as tag-time binding).
@@ -386,11 +445,11 @@ export class DeliveriesService {
     // invisible to the unit-keyed deduction matcher — the Layer-2 gap. Bound
     // rows become ordinary unit rows, so stamping + deduction just work.
     const unitSkus = await this.prisma.inventory.findMany({
-      where: { id: { in: delivery.items.map((i) => i.inventoryId).filter((v): v is string => !!v) } },
+      where: { id: { in: selection.map((i) => i.inventoryId).filter((v): v is string => !!v) } },
       select: { id: true, sku: true },
     });
     const skuById = new Map(unitSkus.map((u) => [u.id, u.sku]));
-    for (const item of delivery.items) {
+    for (const item of selection) {
       if (!item.inventoryId) continue;
       await this.documentsService
         .bindUnitToUnboundDoSlot(documentId, organizationId, {
@@ -404,7 +463,7 @@ export class DeliveriesService {
     // Stamp item states across (unit-level match, incl. asset-level DO rows —
     // same matching family as documents.advanceDeliveryItem). Only ever
     // advances a DO row; a more-advanced DO row is left alone.
-    for (const item of delivery.items) {
+    for (const item of selection) {
       if (!item.inventoryId) continue;
       const itemMatch: Prisma.DocumentItemWhereInput[] = [
         { inventoryId: item.inventoryId },
@@ -428,10 +487,10 @@ export class DeliveriesService {
       });
     }
 
-    // The DO's own deduction for units the run already delivered (ack'd or
-    // beyond). Exactly-once via the DocumentItem deductedAt claim; the unit's
-    // reserved status flips to rental/sold through the widened predicate.
-    const deliveredUnitIds = delivery.items
+    // The DO's own deduction for units the SELECTION already delivered (ack'd
+    // or beyond). Exactly-once via the DocumentItem deductedAt claim; the
+    // unit's reserved status flips to rental/sold through the widened predicate.
+    const deliveredUnitIds = selection
       .filter((i) => i.inventoryId && RANK[i.deliveryStatus] >= RANK[DeliveryStatus.not_installed])
       .map((i) => i.inventoryId as string);
     const deducted = await this.documentsService.deductLinkedDeliveryUnits(
@@ -458,20 +517,23 @@ export class DeliveriesService {
     }
 
     this.logger.log(
-      `Delivery #${delivery.deliveryNumber} linked to DO ${document.name ?? documentId} (deducted ${deducted} unit(s))`,
+      `Delivery #${delivery.deliveryNumber}: ${selection.length} item(s) linked to DO ${document.name ?? documentId} (deducted ${deducted} unit(s))`,
     );
     return this.findById(deliveryId, organizationId);
   }
 
   /**
-   * Create a DO pre-filled from the run (items, customer, project, site),
-   * then auto-link. Template resolution mirrors the headless upload path:
-   * per-org selection (isPrimary first) → org isActive → isDefault/org any.
+   * Create a DO pre-filled from the SELECTED items (or all unlinked items),
+   * then auto-link that selection. Template resolution mirrors the headless
+   * upload path: per-org selection (isPrimary first) → org isActive →
+   * isDefault/org any. Repeatable: remaining unlinked items can go to another
+   * DO in a later call (per-item linking).
    */
   async createDoFromDelivery(
     deliveryId: string,
     organizationId: string,
     documentTemplateId?: string,
+    itemIds?: string[],
   ) {
     const delivery = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },
@@ -479,9 +541,7 @@ export class DeliveriesService {
     });
     if (!delivery) throw new NotFoundException('Delivery not found');
     if (delivery.status === 'cancelled') throw new BadRequestException('Cannot create a DO for a cancelled delivery');
-    if (delivery.documentId) {
-      throw new BadRequestException(`Delivery already linked to document ${delivery.documentId}`);
-    }
+    const selection = this.resolveLinkSelection(delivery.items, itemIds);
 
     let templateId = documentTemplateId;
     if (!templateId) {
@@ -518,14 +578,14 @@ export class DeliveriesService {
     }
 
     // Enrich lines with unit SKUs for readable descriptions.
-    const invIds = delivery.items.map((i) => i.inventoryId).filter((v): v is string => !!v);
+    const invIds = selection.map((i) => i.inventoryId).filter((v): v is string => !!v);
     const units = invIds.length
       ? await this.prisma.inventory.findMany({ where: { id: { in: invIds } }, select: { id: true, sku: true } })
       : [];
     const skuById = new Map(units.map((u) => [u.id, u.sku]));
 
     const config: Record<string, any> = {
-      items: delivery.items.map((i) => ({
+      items: selection.map((i) => ({
         description: i.description ?? (i.inventoryId ? skuById.get(i.inventoryId) : '') ?? '',
         quantity: i.quantity,
         unitPrice: 0,
@@ -551,7 +611,11 @@ export class DeliveriesService {
       delivery.projectId ?? undefined,
     );
 
-    return this.link(deliveryId, doc.id, organizationId);
+    const linked = await this.link(deliveryId, doc.id, organizationId, selection.map((i) => i.id));
+    // The run-level `document` in the response is derived (single-distinct) and
+    // can be null on a multi-DO run — return the created DO id explicitly so
+    // the office UI can route into the editor.
+    return { ...linked, createdDocumentId: doc.id };
   }
 
   /**
@@ -573,6 +637,15 @@ export class DeliveriesService {
     if (deliveredItem) {
       throw new BadRequestException(
         'Cannot cancel: at least one item is already delivered. Link the delivery to a DO instead.',
+      );
+    }
+    // Guard 2 (the gap the per-item spec closed): a linked item's unit is
+    // bound into a DO slot — releasing its reservation here would strand the
+    // binding. Unlink (delete the DO / its line) before cancelling.
+    const linkedItem = delivery.items.find((i) => i.documentId !== null);
+    if (linkedItem) {
+      throw new BadRequestException(
+        'Cannot cancel: at least one item is already linked to a Delivery Order.',
       );
     }
 
