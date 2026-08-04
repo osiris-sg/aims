@@ -430,7 +430,17 @@ export class DeliveriesService {
 
   async list(
     organizationId: string,
-    opts: { unlinked?: boolean; status?: string; page?: number; limit?: number } = {},
+    opts: {
+      unlinked?: boolean;
+      status?: string;
+      page?: number;
+      limit?: number;
+      // Rider "resume unfinished" view: mine → scope to this rider's own runs;
+      // unfinished → status in {in_progress, delivered} (exclude terminal).
+      mine?: boolean;
+      riderUserId?: string;
+      unfinished?: boolean;
+    } = {},
   ) {
     const page = Math.max(1, opts.page ?? 1);
     const limit = Math.min(100, Math.max(1, opts.limit ?? 20));
@@ -439,12 +449,15 @@ export class DeliveriesService {
     // be linked) unless the caller asked for them by status explicitly.
     const where: Prisma.DeliveryWhereInput = {
       organizationId,
+      ...(opts.mine && opts.riderUserId ? { riderUserId: opts.riderUserId } : {}),
       ...(opts.unlinked ? { items: { some: { documentId: null } } } : {}),
       ...(opts.status
         ? { status: opts.status as any }
-        : opts.unlinked
-          ? { status: { not: 'cancelled' as any } }
-          : {}),
+        : opts.unfinished
+          ? { status: { in: ['in_progress', 'delivered'] as any } }
+          : opts.unlinked
+            ? { status: { not: 'cancelled' as any } }
+            : {}),
     };
     const [docs, total] = await Promise.all([
       this.prisma.delivery.findMany({
@@ -457,6 +470,7 @@ export class DeliveriesService {
             select: {
               id: true,
               deliveryStatus: true,
+              inventoryId: true,
               documentId: true,
               document: { select: { id: true, name: true } },
             },
@@ -467,7 +481,28 @@ export class DeliveriesService {
       }),
       this.prisma.delivery.count({ where }),
     ]);
-    return { docs, total, page, limit };
+    // Enrich items with unit sku/serial (DeliveryItem.inventoryId is a scalar
+    // column, no relation — one batch lookup, same pattern as findById). Powers
+    // the resume list's "LION375-001 +2" row label and SKU/serial search.
+    const invIds = [
+      ...new Set(docs.flatMap((d) => d.items.map((i) => i.inventoryId).filter((v): v is string => !!v))),
+    ];
+    const units = invIds.length
+      ? await this.prisma.inventory.findMany({
+          where: { id: { in: invIds } },
+          select: { id: true, sku: true, serialNumber: true },
+        })
+      : [];
+    const unitById = new Map(units.map((u) => [u.id, u]));
+    const enriched = docs.map((d) => ({
+      ...d,
+      items: d.items.map((i) => ({
+        ...i,
+        sku: i.inventoryId ? (unitById.get(i.inventoryId)?.sku ?? null) : null,
+        serialNumber: i.inventoryId ? (unitById.get(i.inventoryId)?.serialNumber ?? null) : null,
+      })),
+    }));
+    return { docs: enriched, total, page, limit };
   }
 
   // ── state machine (mirrors documents.advanceDeliveryItem, minus commerce) ─

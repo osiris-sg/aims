@@ -6,6 +6,7 @@ import { useAuth } from "@clerk/nextjs";
 import { Box, Button, Typography, Alert, CircularProgress } from "@mui/material";
 import NfcIcon from "@mui/icons-material/Nfc";
 import KeyboardIcon from "@mui/icons-material/Keyboard";
+import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import { request } from "@/helpers/request";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useNfcScan } from "../hooks/useNfcScan";
@@ -29,6 +30,31 @@ export default function ScanLandingPage() {
   const nfc = useNfcScan();
   const [scanError, setScanError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Count of the rider's own unfinished runs — drives the "Deliveries in
+  // progress (N)" badge below the primary scan action. 0 → nothing rendered.
+  const [unfinishedCount, setUnfinishedCount] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request(
+          { path: `/deliveries?mine=true&unfinished=true&limit=100`, method: "GET" },
+          {},
+          token,
+        );
+        if (!cancelled && res.success !== false) {
+          setUnfinishedCount(((res.data ?? res).docs ?? []).length);
+        }
+      } catch {
+        // best-effort — the badge just stays hidden on failure
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken]);
 
   const resolveTag = useCallback(
     async (uid: string) => {
@@ -147,6 +173,20 @@ export default function ScanLandingPage() {
       >
         Enter serial manually
       </Button>
+
+      {/* Resume unfinished deliveries — rendered ONLY when the rider has runs
+          in progress, so the scan landing stays clean when there's nothing. */}
+      {unfinishedCount > 0 && (
+        <Button
+          variant="text"
+          size="large"
+          onClick={() => router.push("/scan/deliveries")}
+          startIcon={<LocalShippingIcon />}
+          sx={{ minWidth: 260, py: 1.25, minHeight: 48, color: "text.secondary" }}
+        >
+          Deliveries in progress ({unfinishedCount})
+        </Button>
+      )}
 
       {scanError && (
         <Alert severity="error" sx={{ width: "100%", maxWidth: 360 }}>{scanError}</Alert>

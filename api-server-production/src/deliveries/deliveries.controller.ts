@@ -51,14 +51,22 @@ export class DeliveriesController {
   @Permissions('maintenance-reports:read')
   list(
     @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
     @Query('unlinked') unlinked?: string,
     @Query('status') status?: string,
+    @Query('mine') mine?: string,
+    @Query('unfinished') unfinished?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
+    const isMine = mine === 'true' || mine === '1';
     return this.service.list(org.id, {
       unlinked: unlinked === 'true' || unlinked === '1',
       status,
+      // Rider resume view — scope to the caller's own runs.
+      mine: isMine,
+      riderUserId: isMine ? req.user?.id : undefined,
+      unfinished: unfinished === 'true' || unfinished === '1',
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
     });
