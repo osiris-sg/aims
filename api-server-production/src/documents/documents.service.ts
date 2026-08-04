@@ -2126,6 +2126,28 @@ export class DocumentsService {
     return { items: out, summary: { matched, suggested, unmatched } };
   }
 
+  // Legacy document-type aliases → the canonical DocumentTemplate.type their
+  // template lookup should use. Verified against prod data (2026-08-04):
+  // DO-typed templates are all retired/inactive (live ones are
+  // DELIVERY_ORDER); QO*/QT/TI*/CN/DN/RDO exist as no template type at all.
+  // ⚠️ PO / PR / SAI / SAO are deliberately NOT aliases: those ARE the
+  // canonical template types in this system (5 active templates each, and the
+  // portal list pages send them), while the long forms (PURCHASE_ORDER,
+  // PURCHASE_RETURN, STOCK_ADJUSTMENT_*) are a separate template family —
+  // mapping them would repoint working uploads.
+  private static readonly TEMPLATE_TYPE_ALIASES: Record<string, string> = {
+    DO: 'DELIVERY_ORDER',
+    RDO: 'RETURN_DELIVERY_ORDER',
+    QO: 'QUOTATION',
+    QO1: 'QUOTATION',
+    QT: 'QUOTATION',
+    TI: 'INVOICE',
+    TI2: 'INVOICE',
+    SO: 'SALES_ORDER',
+    CN: 'CREDIT_NOTE',
+    DN: 'DEBIT_NOTE',
+  };
+
   async createFromExtraction(
     organizationId: string,
     type: string,
@@ -2141,6 +2163,16 @@ export class DocumentsService {
     // The active/default flags reflect the variant the user normally picks via
     // InvoiceVariantDrawer; without this ordering findFirst can return a legacy
     // variant with a thinner fieldConfig and the upload draft would look sparse.
+    //
+    // TEMPLATE LOOKUP ONLY: callers send legacy type aliases (/submit sends
+    // "DO"; the portal sends "DELIVERY_ORDER") and templates/selections are
+    // stored under the canonical string — an unmapped alias found no
+    // selections, fell through every layer and landed on a RETIRED inactive
+    // legacy template. `templateType` is used for the lookups below and
+    // NOWHERE else — the document's saved type stays exactly what the caller
+    // sent (preview branches key on it).
+    const templateType =
+      DocumentsService.TEMPLATE_TYPE_ALIASES[String(type).toUpperCase()] ?? type;
     let templateId = documentTemplateId;
     if (!templateId) {
       // Multiple templates can be active per org+type; resolve exactly ONE for
@@ -2148,7 +2180,7 @@ export class DocumentsService {
       // among the selected, else the newest selected. Falls back to the cross-org
       // default (Standard) then the org's own active/default/newest template.
       const selections = await this.prisma.organizationActiveTemplate.findMany({
-        where: { organizationId, type },
+        where: { organizationId, type: templateType },
       });
       if (selections.length > 0) {
         const primary = selections.find((s) => s.isPrimary);
@@ -2166,17 +2198,33 @@ export class DocumentsService {
         // Org's own active template first; seeded cross-org standard only when
         // the org has nothing of its own (keeps this headless path consistent
         // with the create picker's fallback).
-        const tmpl =
+        let tmpl =
           (await this.prisma.documentTemplate.findFirst({
-            where: { type, organizationId, isActive: true },
+            where: { type: templateType, organizationId, isActive: true },
             select: { id: true },
             orderBy: [{ createdAt: 'desc' }],
           })) ??
           (await this.prisma.documentTemplate.findFirst({
-            where: { OR: [{ type, isDefault: true }, { type, organizationId }] },
+            where: { OR: [{ type: templateType, isDefault: true }, { type: templateType, organizationId }] },
             select: { id: true },
             orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
           }));
+        // Strict-superset safety net: if the canonical type resolves NOTHING,
+        // retry with the raw alias before 404ing — an org living entirely on
+        // legacy-typed templates keeps resolving exactly as before.
+        if (!tmpl && templateType !== type) {
+          tmpl =
+            (await this.prisma.documentTemplate.findFirst({
+              where: { type, organizationId, isActive: true },
+              select: { id: true },
+              orderBy: [{ createdAt: 'desc' }],
+            })) ??
+            (await this.prisma.documentTemplate.findFirst({
+              where: { OR: [{ type, isDefault: true }, { type, organizationId }] },
+              select: { id: true },
+              orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+            }));
+        }
         if (!tmpl) {
           throw new HttpException(`No document template found for type ${type}`, HttpStatus.NOT_FOUND);
         }
