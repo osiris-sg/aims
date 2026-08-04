@@ -1,6 +1,7 @@
 import { Controller, Post, Body, Delete, Put, Get, Param, Req, UseGuards } from '@nestjs/common';
 import { CustomersService } from './customers.service';
 import { CreateCustomerDto, CustomerContactDto } from './dto/create-customer.dto';
+import { CreateCustomerByNameDto } from './dto/create-customer-by-name.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { GetCustomerDto } from './dto/get-customer.dto';
 import { DeleteCustomerDto } from './dto/delete-customer.dto';
@@ -62,6 +63,26 @@ export class CustomersController {
       throw new Error('User is not assigned to any organization');
     }
     return await this.customersService.createCustomers(createCustomerDto, organizationId);
+  }
+
+  // Narrow field-flow twin of the full create (mirrors projects:create-by-name):
+  // name only, same service path — customerCode generation and defaults included.
+  // Separate permission so rider roles can mint a customer inline without
+  // holding the full customers:create surface.
+  @Post('create-by-name')
+  @Permissions('customers:create-by-name')
+  async createCustomerByName(
+    @Body() body: CreateCustomerByNameDto,
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.customersService.createCustomers(
+      { name: body.name.trim() } as CreateCustomerDto,
+      organizationId,
+    );
   }
 
   @Put('update')

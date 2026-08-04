@@ -81,6 +81,12 @@ export default function AfterAckPage() {
   const [createProjectName, setCreateProjectName] = useState("");
   const [creatingProject, setCreatingProject] = useState(false);
 
+  // Inline "+ Create Customer" — same minimal flow, one step earlier in the
+  // cascade: a brand-new site has no customer to hang the project off yet.
+  const [createCustomerOpen, setCreateCustomerOpen] = useState(false);
+  const [createCustomerName, setCreateCustomerName] = useState("");
+  const [creatingCustomer, setCreatingCustomer] = useState(false);
+
   // Missing unit context (deep link / refresh) → back to the basket.
   useEffect(() => {
     if (!assetId || !inventoryId) router.replace(`/scan/delivery/${deliveryId}`);
@@ -182,6 +188,47 @@ export default function AfterAckPage() {
       cancelled = true;
     };
   }, [selectedCustomer, getToken]);
+
+  const openCreateCustomer = () => {
+    // Seed the dialog with whatever the rider already typed into the picker —
+    // they only reach "no match" after typing the site's name.
+    setCreateCustomerName(customerInput.trim());
+    setCreateCustomerOpen(true);
+  };
+
+  const handleCreateCustomer = async () => {
+    const trimmed = createCustomerName.trim();
+    if (!trimmed) return;
+    setCreatingCustomer(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      // Narrow field-flow endpoint (customers:create-by-name — the permission
+      // rider roles hold; the full /customers/create is office-gated). Same
+      // service underneath; the server generates the customerCode.
+      const res = await request({ path: "/customers/create-by-name", method: "POST" }, { name: trimmed }, token);
+      const created = res?.data;
+      if (res?.success && created?.id) {
+        const option: CustomerOption = {
+          id: created.id,
+          name: created.name ?? trimmed,
+          customerCode: created.customerCode ?? null,
+        };
+        setCustomerOptions((prev) => [option, ...prev]);
+        setSelectedCustomer(option);
+        // Controlled inputValue — keep the field showing the new pick.
+        setCustomerInput(option.customerCode ? `${option.name} (${option.customerCode})` : option.name);
+        setCreateCustomerOpen(false);
+        setCreateCustomerName("");
+      } else {
+        setError(res?.message ?? "Failed to create customer");
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to create customer");
+    } finally {
+      setCreatingCustomer(false);
+    }
+  };
 
   const handleCreateProject = async () => {
     const trimmed = createProjectName.trim();
@@ -317,7 +364,22 @@ export default function AfterAckPage() {
         isOptionEqualToValue={(o, v) => o.id === v.id}
         renderInput={(params) => <TextField {...params} label="Customer" />}
         filterOptions={(x) => x}
+        noOptionsText={
+          <Button size="small" startIcon={<AddIcon />} onClick={openCreateCustomer}>
+            Create customer
+          </Button>
+        }
       />
+      {!selectedCustomer && (
+        <Button
+          size="small"
+          startIcon={<AddIcon />}
+          onClick={openCreateCustomer}
+          sx={{ alignSelf: "flex-start", textTransform: "none", mt: -1.5 }}
+        >
+          New customer
+        </Button>
+      )}
 
       <Autocomplete
         options={projectOptions}
@@ -378,6 +440,28 @@ export default function AfterAckPage() {
           Skip for now
         </Button>
       </Stack>
+
+      {/* Inline create-customer dialog */}
+      <Dialog open={createCustomerOpen} onClose={() => !creatingCustomer && setCreateCustomerOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>New customer</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            label="Customer name"
+            value={createCustomerName}
+            onChange={(e) => setCreateCustomerName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleCreateCustomer()}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateCustomerOpen(false)} disabled={creatingCustomer}>Cancel</Button>
+          <Button variant="contained" onClick={handleCreateCustomer} disabled={creatingCustomer || !createCustomerName.trim()}>
+            {creatingCustomer ? <CircularProgress size={18} /> : "Create"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Inline create-project dialog */}
       <Dialog open={createProjectOpen} onClose={() => !creatingProject && setCreateProjectOpen(false)} fullWidth maxWidth="xs">

@@ -418,6 +418,28 @@ async function main() {
     },
   });
 
+  // Narrow field-flow twin (mirrors projects:create-by-name): riders create a
+  // customer by name inline without the full customers:create surface.
+  const createCustomerByNamePermission = await prisma.permission.upsert({
+    where: { name: 'customers:create-by-name' },
+    update: {},
+    create: {
+      name: 'customers:create-by-name',
+      description: 'Can create customers by name only (field flows)',
+      resource: 'customers',
+      action: 'create-by-name',
+    },
+  });
+  // field-tech roles are org-managed (not seeded) — connect the permission to
+  // any that exist so re-seeding keeps live rider roles working. connect is
+  // idempotent on the implicit m2m.
+  for (const fieldTech of await prisma.role.findMany({ where: { name: 'field-tech' }, select: { id: true } })) {
+    await prisma.role.update({
+      where: { id: fieldTech.id },
+      data: { permissions: { connect: { id: createCustomerByNamePermission.id } } },
+    });
+  }
+
   const updateCustomerPermission = await prisma.permission.upsert({
     where: { name: 'customers:update' },
     update: {},
