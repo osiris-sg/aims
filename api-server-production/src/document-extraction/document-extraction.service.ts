@@ -195,7 +195,7 @@ export class DocumentExtractionService {
       },
       "items": [
         {
-          "description": "item description",
+          "description": "item description transcribed VERBATIM — copy the text exactly as printed, preserving the document's line breaks as \\n and keeping internal spacing/indentation exactly as shown; never collapse, reflow or summarise it",
           "quantity": numeric quantity,
           "unitPrice": numeric unit price,
           "unit": "unit of measurement (pcs, kg, etc.)",

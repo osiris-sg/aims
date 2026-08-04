@@ -1,14 +1,15 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
-import { Box, Button, CircularProgress, IconButton, Stack, Typography } from "@mui/material";
+import { Box, Button, CircularProgress, Dialog, IconButton, Stack, Typography } from "@mui/material";
 import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
 import PhotoLibraryIcon from "@mui/icons-material/PhotoLibrary";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import DescriptionIcon from "@mui/icons-material/Description";
+import CloseIcon from "@mui/icons-material/Close";
 
 type DocType =
   | "DO"
@@ -52,6 +53,41 @@ const TYPE_GROUPS: { group: string; types: { value: DocType; label: string }[] }
 ];
 const TYPES = TYPE_GROUPS.flatMap((g) => g.types);
 
+// Compression lifted from components/delivery/PhotoCaptureField (same
+// rationale): phone-camera JPEGs run 4–8 MB; resize to 1280px @ q0.7 —
+// typically ~200–400 KB — so the submit-time upload is fast on mobile data.
+// canvas.toBlob (not toDataURL+fetch) so the Blob keeps a real MIME type.
+const compressImageToBlob = (
+  dataUrl: string,
+  maxWidth = 1280,
+  quality = 0.7,
+): Promise<Blob> =>
+  new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      let w = img.width;
+      let h = img.height;
+      if (w > maxWidth) {
+        h = (h * maxWidth) / w;
+        w = maxWidth;
+      }
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext("2d")?.drawImage(img, 0, 0, w, h);
+      canvas.toBlob((blob) => resolve(blob ?? new Blob([], { type: "image/jpeg" })), "image/jpeg", quality);
+    };
+    img.src = dataUrl;
+  });
+
+const fileToDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
 // Same mapping DocumentUploadDialog uses: AIMS doc type → extraction enum.
 function toExtractionType(aimsType: string): string {
   const t = (aimsType || "").toUpperCase();
@@ -77,6 +113,19 @@ export default function SubmitPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
+  // Photo preview: object URL for the captured image (null for PDFs), revoked
+  // on replace/unmount by the effect's cleanup. Tap opens the full-screen viewer.
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  useEffect(() => {
+    if (!file || file.type === "application/pdf") {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
 
   const resetInputs = () => {
     if (cameraRef.current) cameraRef.current.value = "";
@@ -98,9 +147,10 @@ export default function SubmitPage() {
     resetInputs();
   };
 
-  const pickFile = (f: File | null) => {
+  const pickFile = async (f: File | null) => {
     if (!f) return;
-    const ok = /\/(jpe?g|png|gif|webp|bmp|pdf)$/i.test(f.type) || f.type === "application/pdf";
+    const isPdf = f.type === "application/pdf";
+    const ok = /\/(jpe?g|png|gif|webp|bmp|pdf)$/i.test(f.type) || isPdf;
     if (!ok) {
       setErrorMsg("Please use a photo (JPG/PNG) or a PDF.");
       return;
@@ -108,6 +158,19 @@ export default function SubmitPage() {
     if (f.size > 10 * 1024 * 1024) {
       setErrorMsg("That file is over 10 MB — try a smaller photo.");
       return;
+    }
+    // Compress camera/gallery images before they sit in state, so the
+    // submit-time upload is a few hundred KB, not several MB. Best-effort —
+    // any failure keeps the original file. PDFs pass through untouched.
+    if (!isPdf) {
+      try {
+        const blob = await compressImageToBlob(await fileToDataUrl(f));
+        if (blob.size > 0) {
+          f = new File([blob], f.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+        }
+      } catch {
+        // keep original
+      }
     }
     setErrorMsg(null);
     setFile(f);
@@ -269,7 +332,20 @@ export default function SubmitPage() {
 
   // ── Capture ─────────────────────────────────────────────────────────────
   return (
-    <Box sx={{ minHeight: "100vh", display: "flex", flexDirection: "column", p: 3, gap: 2 }}>
+    <Box
+      sx={{
+        // 100dvh tracks the VISIBLE mobile viewport (URL bar expanded or not);
+        // plain 100vh overflows it by the bar height and hid the Submit button
+        // below the fold. vh stays as the fallback for pre-dvh browsers.
+        minHeight: "100vh",
+        "@supports (min-height: 100dvh)": { minHeight: "100dvh" },
+        display: "flex",
+        flexDirection: "column",
+        p: 3,
+        pb: 0, // the sticky footer bar carries its own bottom padding
+        gap: 2,
+      }}
+    >
       <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
         <IconButton onClick={backToChooser} aria-label="Back" size="small">
           <ArrowBackIcon />
@@ -286,7 +362,7 @@ export default function SubmitPage() {
         accept="image/*"
         capture="environment"
         style={{ display: "none" }}
-        onChange={(e) => pickFile(e.target.files?.[0] || null)}
+        onChange={(e) => void pickFile(e.target.files?.[0] || null)}
       />
       {/* Fallback: gallery / files, PDFs allowed. */}
       <input
@@ -294,7 +370,7 @@ export default function SubmitPage() {
         type="file"
         accept="image/*,application/pdf,.pdf"
         style={{ display: "none" }}
-        onChange={(e) => pickFile(e.target.files?.[0] || null)}
+        onChange={(e) => void pickFile(e.target.files?.[0] || null)}
       />
 
       <Stack spacing={2} sx={{ mt: 1 }}>
@@ -320,7 +396,36 @@ export default function SubmitPage() {
         </Button>
       </Stack>
 
-      {file && (
+      {/* Image: tappable thumbnail preview. PDFs keep the icon card. */}
+      {file && previewUrl && (
+        <Box
+          onClick={() => setViewerOpen(true)}
+          sx={{
+            mt: 1,
+            border: "1px solid",
+            borderColor: "divider",
+            borderRadius: 1,
+            overflow: "hidden",
+            cursor: "pointer",
+          }}
+        >
+          <Box
+            component="img"
+            src={previewUrl}
+            alt="Captured document"
+            sx={{ display: "block", width: "100%", maxHeight: 260, objectFit: "contain", bgcolor: "grey.100" }}
+          />
+          <Box sx={{ px: 1.5, py: 1, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <Typography variant="caption" color="text.secondary" noWrap sx={{ mr: 1 }}>
+              {file.name} · {(file.size / 1024).toFixed(0)} KB
+            </Typography>
+            <Typography variant="caption" color="primary" sx={{ flexShrink: 0 }}>
+              Tap to view
+            </Typography>
+          </Box>
+        </Box>
+      )}
+      {file && !previewUrl && (
         <Box
           sx={{
             mt: 1,
@@ -351,19 +456,51 @@ export default function SubmitPage() {
         </Typography>
       )}
 
-      <Box sx={{ flexGrow: 1 }} />
-
-      <Button
-        variant="contained"
-        color="primary"
-        size="large"
-        fullWidth
-        disabled={!file}
-        onClick={submit}
-        sx={{ py: 1.75, fontSize: "1.1rem" }}
+      {/* Sticky submit bar: always visible regardless of content height or the
+          mobile URL bar; safe-area padding clears iOS home indicators. */}
+      <Box
+        sx={{
+          position: "sticky",
+          bottom: 0,
+          mt: "auto",
+          mx: -3,
+          px: 3,
+          pt: 1.5,
+          pb: "calc(env(safe-area-inset-bottom, 0px) + 12px)",
+          bgcolor: "background.default",
+          borderTop: "1px solid",
+          borderColor: "divider",
+        }}
       >
-        Submit
-      </Button>
+        <Button
+          variant="contained"
+          color="primary"
+          size="large"
+          fullWidth
+          disabled={!file}
+          onClick={submit}
+          sx={{ py: 1.75, fontSize: "1.1rem" }}
+        >
+          Submit
+        </Button>
+      </Box>
+
+      {/* Full-screen photo viewer */}
+      <Dialog open={viewerOpen} onClose={() => setViewerOpen(false)} fullScreen>
+        <Box sx={{ display: "flex", alignItems: "center", p: 1, gap: 1 }}>
+          <IconButton onClick={() => setViewerOpen(false)} aria-label="Close preview">
+            <CloseIcon />
+          </IconButton>
+          <Typography variant="body2" noWrap>
+            {file?.name}
+          </Typography>
+        </Box>
+        {previewUrl && (
+          <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", bgcolor: "common.black", overflow: "auto" }}>
+            <Box component="img" src={previewUrl} alt="Captured document" sx={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+          </Box>
+        )}
+      </Dialog>
     </Box>
   );
 }

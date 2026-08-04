@@ -1057,7 +1057,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 {items.map((item: any, index: number) => (
                   <TableRow key={index} sx={{ verticalAlign: "top" }}>
                     <TableCell>{index + 1}.</TableCell>
-                    <TableCell>{decodeHtmlEntities(item.description || "")}</TableCell>
+                    {/* pre-wrap: extracted descriptions carry real \n / spacing —
+                        a bare cell would collapse them (HTML whitespace). */}
+                    <TableCell sx={{ whiteSpace: "pre-wrap" }}>{decodeHtmlEntities(item.description || "")}</TableCell>
                     <TableCell sx={{ textAlign: "right" }}>{num(item.qtyTonnes ?? item.quantity, 3)}</TableCell>
                     <TableCell sx={{ textAlign: "right" }}>{num(item.rate ?? item.unitPrice, 2)}</TableCell>
                     <TableCell sx={{ textAlign: "right" }}>{num(item.amount, 2)}</TableCell>
