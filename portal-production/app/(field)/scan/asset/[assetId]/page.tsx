@@ -9,7 +9,6 @@ import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import HandymanIcon from "@mui/icons-material/Handyman";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DescriptionIcon from "@mui/icons-material/Description";
-import AssignmentTurnedInIcon from "@mui/icons-material/AssignmentTurnedIn";
 import { request } from "@/helpers/request";
 
 type DeliveryItemStatus = "not_delivered" | "delivering" | "not_installed" | "completed";
@@ -314,26 +313,8 @@ export default function AssetActionChooser() {
         What are you doing?
       </Typography>
 
-      {/* Assign to Project — FIRST and compact: the primary walk-around action
-          while the fleet is re-assigned post-wipe. Only offered when the scan
-          resolved a specific unit (field-deploy needs an inventoryId). */}
-      {inventory && (
-        <Card variant="outlined" sx={{ borderColor: "primary.main" }}>
-          <CardActionArea onClick={() => router.push(`/scan/asset/${assetId}/assign${invQuery}`)}>
-            <CardContent sx={{ display: "flex", gap: 2, alignItems: "center", py: 1.5, "&:last-child": { pb: 1.5 } }}>
-              <AssignmentTurnedInIcon color="primary" sx={{ fontSize: 32 }} />
-              <Box sx={{ minWidth: 0 }}>
-                <Typography variant="subtitle1" fontWeight={700}>Assign to Project</Typography>
-                <Typography variant="body2" color="text.secondary" noWrap>
-                  {data.activeAssignment
-                    ? `Currently on: ${data.activeAssignment.project.name}`
-                    : "Set this unit's project"}
-                </Typography>
-              </Box>
-            </CardContent>
-          </CardActionArea>
-        </Card>
-      )}
+      {/* "Assign to Project" removed (2026-08): project assignment now happens
+          only inside the delivery flow, at the after-ack step. */}
 
       {/* Reservation failure from the standalone "Add to Delivery" card. */}
       {addErr && <Alert severity="warning">{addErr}</Alert>}
