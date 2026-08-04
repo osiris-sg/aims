@@ -193,7 +193,10 @@ export class PublicDeliveryService {
       throw new BadRequestException('Invalid action');
     }
     const link = await this.resolveToken(token);
-    await this.documentsService.advanceDeliveryItem(
+    // dualAdvance (U1+items): DocumentItem commerce first (unchanged), then
+    // the open-run DeliveryItem mirror so a guest-advanced DO-first delivery
+    // still folds its run correctly. Mirror is a no-op when no run item exists.
+    await this.documentsService.dualAdvance(
       link.document.id,
       identifier,
       action,

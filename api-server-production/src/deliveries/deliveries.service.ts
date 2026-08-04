@@ -76,6 +76,180 @@ export class DeliveriesService {
     }
   }
 
+  /**
+   * Non-blocking reserve for the DO-first arm (U1+items): claim
+   * instock → reserved if possible, otherwise log and carry on — the daily
+   * rider flow is NEVER blocked by run bookkeeping. The ack-time deduction
+   * predicate already covers reserved, so a claimed unit deducts identically.
+   */
+  private async reserveUnitNonBlocking(inventoryId: string, deliveryNumber: number): Promise<void> {
+    try {
+      const claim = await this.prisma.inventory.updateMany({
+        where: { id: inventoryId, status: InventoryStatus.instock },
+        data: { status: InventoryStatus.reserved },
+      });
+      if (claim.count > 0) {
+        await this.prisma.timelineItem.create({
+          data: {
+            message: `Unit reserved for Delivery #${deliveryNumber} (DO-first delivery started)`,
+            inventoryId,
+            pdfUrl: null,
+          },
+        });
+      } else {
+        this.logger.warn(`reserveUnitNonBlocking: unit ${inventoryId} not instock — proceeding unreserved`);
+      }
+    } catch (err: any) {
+      this.logger.warn(`reserveUnitNonBlocking failed for ${inventoryId}: ${err?.message}`);
+    }
+  }
+
+  /**
+   * U1+items: every DO-first delivery gets a Delivery run with BORN-LINKED
+   * items (DeliveryItem.documentId = the DO from birth). Find-or-create keyed
+   * THROUGH THE ITEMS ({org, rider, in_progress, items.some(documentId)}) —
+   * Delivery.documentId stays frozen. Run + first item are created in ONE
+   * transaction: an item-less shell can never exist (it would sit in_progress
+   * forever — the fold ignores empty runs). Returns the run id, or null when
+   * the unit is already held by another open run (we never steal units across
+   * runs; the DO_START still advances the DocumentItem ledger as today).
+   * Callers treat every failure as best-effort (documentId-only MSR fallback).
+   */
+  async ensureOpenRunForDo(
+    documentId: string,
+    organizationId: string,
+    riderUserId: string,
+    riderName: string | null,
+    unit: { assetId: string; inventoryId: string },
+  ): Promise<string | null> {
+    const existing = await this.prisma.delivery.findFirst({
+      where: {
+        organizationId,
+        riderUserId,
+        status: 'in_progress',
+        items: { some: { documentId } },
+      },
+      select: { id: true, deliveryNumber: true },
+    });
+
+    // Unit already on ANY open run? Repeat scan of this DO's own run is
+    // idempotent (return it); held elsewhere → skip run bookkeeping entirely.
+    const held = await this.prisma.deliveryItem.findFirst({
+      where: {
+        inventoryId: unit.inventoryId,
+        delivery: { organizationId, status: { in: ['in_progress', 'delivered'] } },
+      },
+      select: { id: true, deliveryId: true },
+    });
+    if (held) {
+      if (existing && held.deliveryId === existing.id) return existing.id;
+      this.logger.warn(
+        `ensureOpenRunForDo: unit ${unit.inventoryId} already on open run ${held.deliveryId} — skipping`,
+      );
+      return null;
+    }
+
+    const asset = await this.prisma.asset.findFirst({
+      where: { id: unit.assetId, organizationId },
+      select: { name: true },
+    });
+
+    if (existing) {
+      try {
+        await this.prisma.deliveryItem.create({
+          data: {
+            deliveryId: existing.id,
+            assetId: unit.assetId,
+            inventoryId: unit.inventoryId,
+            description: asset?.name,
+            quantity: 1,
+            documentId, // born-linked
+          },
+        });
+      } catch (err) {
+        // P2002 (deliveryId,inventoryId): raced with a duplicate scan — fine.
+        if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002')) throw err;
+      }
+      await this.reserveUnitNonBlocking(unit.inventoryId, existing.deliveryNumber);
+      return existing.id;
+    }
+
+    // Fresh run: populate from the DO; run + born-linked first item in ONE tx.
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } },
+      select: { id: true, projectId: true, config: true },
+    });
+    if (!doc) return null;
+    const config: any = doc.config ?? {};
+    const customerId: string | undefined = config.customerId ?? config.customer?.id ?? undefined;
+    const siteAddress: string | undefined = config.deliveryTo ?? undefined;
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const latest = await this.prisma.delivery.findFirst({
+        where: { organizationId },
+        orderBy: { deliveryNumber: 'desc' },
+        select: { deliveryNumber: true },
+      });
+      const deliveryNumber = (latest?.deliveryNumber ?? 0) + 1;
+      try {
+        const created = await this.prisma.delivery.create({
+          data: {
+            organizationId,
+            deliveryNumber,
+            riderUserId,
+            riderName: riderName ?? undefined,
+            projectId: doc.projectId ?? undefined,
+            customerId,
+            siteAddress,
+            items: {
+              create: [
+                {
+                  assetId: unit.assetId,
+                  inventoryId: unit.inventoryId,
+                  description: asset?.name,
+                  quantity: 1,
+                  documentId, // born-linked
+                },
+              ],
+            },
+          },
+          select: { id: true, deliveryNumber: true },
+        });
+        await this.reserveUnitNonBlocking(unit.inventoryId, created.deliveryNumber);
+        return created.id;
+      } catch (err) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002' && attempt === 0) {
+          // deliveryNumber race — or a concurrent DO_START created the run.
+          const raced = await this.prisma.delivery.findFirst({
+            where: { organizationId, riderUserId, status: 'in_progress', items: { some: { documentId } } },
+            select: { id: true, deliveryNumber: true },
+          });
+          if (raced) {
+            try {
+              await this.prisma.deliveryItem.create({
+                data: {
+                  deliveryId: raced.id,
+                  assetId: unit.assetId,
+                  inventoryId: unit.inventoryId,
+                  description: asset?.name,
+                  quantity: 1,
+                  documentId,
+                },
+              });
+            } catch (err2) {
+              if (!(err2 instanceof Prisma.PrismaClientKnownRequestError && err2.code === 'P2002')) throw err2;
+            }
+            await this.reserveUnitNonBlocking(unit.inventoryId, raced.deliveryNumber);
+            return raced.id;
+          }
+          continue;
+        }
+        throw err;
+      }
+    }
+    return null;
+  }
+
   // ── create / basket ──────────────────────────────────────────────────────
 
   async create(dto: CreateDeliveryDto, organizationId: string, riderUserId: string) {

@@ -3678,6 +3678,102 @@ export class DocumentsService {
   }
 
   /**
+   * U1+items DUAL-ADVANCE BRIDGE. A DO-first delivery event advances the
+   * DocumentItem ledger FIRST (advanceDeliveryItem — deduction, completion
+   * gate, DO status: commerce, unchanged and authoritative), then mirrors the
+   * physical state onto the unit's born-linked DeliveryItem so the run fold
+   * stays correct. The mirror is independently try/caught — a mirror failure
+   * NEVER touches commerce; catch-up semantics make the next event converge.
+   * Call sites (all four, per spec): applyDeliveryItemTransition,
+   * skipDeliveryInstall, bulkCompleteDeliveryOrder, guest advance.
+   */
+  async dualAdvance(
+    documentId: string,
+    inventoryId: string,
+    action: 'start' | 'ack' | 'install' | 'skip',
+    organizationId: string,
+  ) {
+    const result = await this.advanceDeliveryItem(documentId, inventoryId, action, organizationId);
+    try {
+      await this.mirrorRunItemAdvance(documentId, inventoryId, action);
+    } catch (err: any) {
+      console.warn(`dualAdvance: run mirror failed for unit ${inventoryId} on doc ${documentId}: ${err?.message}`);
+    }
+    return result;
+  }
+
+  /**
+   * Mirror a DO-side advance onto the matching open-run DeliveryItem with
+   * CATCH-UP semantics: deliveryStatus = max(current, action target) by rank,
+   * null timestamps back-filled — so a previously missed mirror self-heals at
+   * the next event. Matches items linked to THIS DO on an open run (covers
+   * born-linked U1 items AND office-linked standalone items, healing the
+   * post-link advance gap). No matching item → silent no-op, which also makes
+   * the mirror safe when enableUnifiedRuns is off. Ends with the same
+   * monotonic run-status fold as deliveries.recomputeRunStatus (duplicated
+   * here prisma-only to avoid a documents→deliveries circular dependency).
+   */
+  private async mirrorRunItemAdvance(
+    documentId: string,
+    inventoryId: string,
+    action: 'start' | 'ack' | 'install' | 'skip',
+  ): Promise<void> {
+    const RANK: Record<DeliveryStatus, number> = {
+      [DeliveryStatus.not_delivered]: 0,
+      [DeliveryStatus.delivering]: 1,
+      [DeliveryStatus.not_installed]: 2,
+      [DeliveryStatus.completed]: 3,
+    };
+    const TARGET: Record<typeof action, DeliveryStatus> = {
+      start: DeliveryStatus.delivering,
+      ack: DeliveryStatus.not_installed,
+      install: DeliveryStatus.completed,
+      skip: DeliveryStatus.completed,
+    };
+    const target = TARGET[action];
+    const item = await this.prisma.deliveryItem.findFirst({
+      where: {
+        documentId,
+        inventoryId,
+        delivery: { status: { in: ['in_progress', 'delivered'] } },
+      },
+      select: { id: true, deliveryId: true, deliveryStatus: true, deliveringAt: true, deliveredAt: true, completedAt: true, installSkipped: true },
+    });
+    if (!item) return;
+    if (RANK[item.deliveryStatus] < RANK[target]) {
+      const now = new Date();
+      await this.prisma.deliveryItem.update({
+        where: { id: item.id },
+        data: {
+          deliveryStatus: target,
+          // Catch-up: back-fill every timestamp the target rank implies.
+          ...(RANK[target] >= 1 && !item.deliveringAt ? { deliveringAt: now } : {}),
+          ...(RANK[target] >= 2 && !item.deliveredAt ? { deliveredAt: now } : {}),
+          ...(RANK[target] >= 3 && !item.completedAt ? { completedAt: now } : {}),
+          ...(action === 'skip' ? { installSkipped: true } : {}),
+        },
+      });
+    }
+    // Fold (monotonic, mirrors deliveries.recomputeRunStatus).
+    const run = await this.prisma.delivery.findUnique({
+      where: { id: item.deliveryId },
+      select: { id: true, status: true, completedAt: true, items: { select: { deliveryStatus: true } } },
+    });
+    if (!run || run.status === 'cancelled' || run.items.length === 0) return;
+    const ranks = run.items.map((i) => RANK[i.deliveryStatus]);
+    const fold =
+      ranks.every((r) => r >= 3) ? ('completed' as const)
+      : ranks.every((r) => r >= 2) ? ('delivered' as const)
+      : ('in_progress' as const);
+    if (fold !== run.status) {
+      await this.prisma.delivery.update({
+        where: { id: run.id },
+        data: { status: fold, ...(fold === 'completed' && !run.completedAt ? { completedAt: new Date() } : {}) },
+      });
+    }
+  }
+
+  /**
    * Link-time deduction for a standalone Delivery being attached to this DO
    * (deliveries.service.link). Runs the DO's OWN exactly-once deduction
    * (deductedAt claim) for each already-delivered unit — the same private
@@ -4147,6 +4243,15 @@ export class DocumentsService {
           where: { id: item.id },
           data: { deliveryStatus: DeliveryStatus.completed, completedAt: new Date() },
         });
+      }
+      // Dual-advance bridge (U1+items): mirror the completion onto the unit's
+      // open-run DeliveryItem so the run fold completes too. Unit rows only;
+      // best-effort — a mirror failure never affects the bulk completion.
+      const unitId = item.itemType === ItemType.INVENTORY ? item.inventoryId ?? item.itemId : item.inventoryId;
+      if (unitId) {
+        await this.mirrorRunItemAdvance(documentId, unitId, 'install').catch((err) =>
+          console.warn(`bulk-complete: run mirror failed for unit ${unitId}: ${err?.message}`),
+        );
       }
     }
 

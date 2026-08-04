@@ -26,6 +26,15 @@ export class MaintenanceReportsService {
     private readonly deliveriesService: DeliveriesService,
   ) {}
 
+  /** U1+items org gate — features.enableUnifiedRuns on OrganizationUIConfig (default OFF). */
+  private async unifiedRunsEnabled(organizationId: string): Promise<boolean> {
+    const uiConfig = await this.prisma.organizationUIConfig.findUnique({
+      where: { organizationId },
+      select: { features: true },
+    });
+    return ((uiConfig?.features as any) || {}).enableUnifiedRuns === true;
+  }
+
   async create(dto: CreateMaintenanceReportDto, organizationId: string, technicianUserId: string) {
     const asset = await this.prisma.asset.findFirst({
       where: { id: dto.assetId, organizationId },
@@ -38,9 +47,48 @@ export class MaintenanceReportsService {
 
     // Standalone-run start (delivery-first) REQUIRES a condition photo per
     // unit — outbound state must be evidenced before the unit leaves. The
-    // DO-first arm (documentId) keeps photos optional, unchanged.
+    // DO-first arm (documentId) keeps photos optional, unchanged. NOTE: this
+    // validates the DTO — it runs BEFORE the U1 deliveryId stamping below, so
+    // a server-stamped DO-first MSR never trips the standalone photo rule.
     if (effectiveKind === 'DO_START' && dto.deliveryId && !dto.documentId && !(dto.photos?.length)) {
       throw new BadRequestException('A condition photo is required to start delivery for this unit');
+    }
+
+    // U1+items (flag-gated): every DO-first delivery gets a Delivery run with
+    // born-linked items. Server-side stamping — the DO-first field pages keep
+    // posting documentId only. Best-effort throughout: any failure falls back
+    // to today's documentId-only MSR; run bookkeeping never blocks the field.
+    let effectiveDeliveryId = dto.deliveryId;
+    if (!effectiveDeliveryId && dto.documentId && dto.inventoryId) {
+      try {
+        if (await this.unifiedRunsEnabled(organizationId)) {
+          if (effectiveKind === 'DO_START') {
+            effectiveDeliveryId =
+              (await this.deliveriesService.ensureOpenRunForDo(
+                dto.documentId,
+                organizationId,
+                technicianUserId,
+                dto.technicianName ?? null,
+                { assetId: dto.assetId, inventoryId: dto.inventoryId },
+              )) ?? undefined;
+          } else if (effectiveKind === 'DO_ACK' || effectiveKind === 'DO_INSTALL') {
+            // Resolve the run through the unit's open born-linked item so the
+            // proof (signature, photos, GPS) groups under the run too.
+            const runItem = await this.prisma.deliveryItem.findFirst({
+              where: {
+                inventoryId: dto.inventoryId,
+                documentId: dto.documentId,
+                delivery: { organizationId, status: { in: ['in_progress', 'delivered'] } },
+              },
+              select: { deliveryId: true },
+            });
+            effectiveDeliveryId = runItem?.deliveryId ?? undefined;
+          }
+        }
+      } catch (err: any) {
+        this.logger.warn(`U1 run stamping failed for ${effectiveKind} (doc ${dto.documentId}): ${err?.message}`);
+        effectiveDeliveryId = dto.deliveryId; // fall back to today's shape
+      }
     }
 
     const baseData: Prisma.MaintenanceServiceReportUncheckedCreateInput = {
@@ -57,9 +105,10 @@ export class MaintenanceReportsService {
       ...(dto.kind ? { kind: dto.kind } : {}),
       // FK to the Document being delivered (DO_START / DO_ACK). Null for SERVICE.
       ...(dto.documentId ? { documentId: dto.documentId } : {}),
-      // FK to the standalone Delivery run (delivery-first flow). Null for
-      // SERVICE and for DO-first rows.
-      ...(dto.deliveryId ? { deliveryId: dto.deliveryId } : {}),
+      // FK to the Delivery run: client-sent (delivery-first flow) or
+      // server-stamped (U1+items DO-first, flag-gated above). Null for
+      // SERVICE and for DO-first rows when the flag is off.
+      ...(effectiveDeliveryId ? { deliveryId: effectiveDeliveryId } : {}),
       // Geolocation captured at submission. Submission proceeds even if these
       // are absent (browser denial / no signal); just write null.
       ...(typeof dto.latitude === 'number' ? { latitude: dto.latitude } : {}),
@@ -415,23 +464,26 @@ export class MaintenanceReportsService {
       return;
     }
     if (!report.documentId || !report.inventoryId) return;
+    // DO-first arm — dualAdvance (U1+items): DocumentItem commerce first,
+    // unchanged and authoritative, then the run-item mirror (catch-up, no-op
+    // when no open-run item exists, e.g. flag off).
     try {
       if (report.kind === 'DO_START') {
-        await this.documentsService.advanceDeliveryItem(
+        await this.documentsService.dualAdvance(
           report.documentId,
           report.inventoryId,
           'start',
           organizationId,
         );
       } else if (report.kind === 'DO_ACK' && report.status === 'completed') {
-        await this.documentsService.advanceDeliveryItem(
+        await this.documentsService.dualAdvance(
           report.documentId,
           report.inventoryId,
           'ack',
           organizationId,
         );
       } else if (report.kind === 'DO_INSTALL' && report.status === 'completed') {
-        await this.documentsService.advanceDeliveryItem(
+        await this.documentsService.dualAdvance(
           report.documentId,
           report.inventoryId,
           'install',
@@ -453,7 +505,8 @@ export class MaintenanceReportsService {
    * same per-item state machine as the scan transitions.
    */
   async skipDeliveryInstall(documentId: string, inventoryId: string, organizationId: string) {
-    return this.documentsService.advanceDeliveryItem(
+    // dualAdvance (U1+items): commerce first, then the run-item mirror.
+    return this.documentsService.dualAdvance(
       documentId,
       inventoryId,
       'skip',
@@ -1049,8 +1102,17 @@ export class MaintenanceReportsService {
       });
       const run = runItem?.delivery ?? null;
       // Open run wins over an OLDER DO; a NEWER DO keeps today's behavior.
-      const runWins =
+      // 🔴 U1+items amendment: a run item whose documentId is NON-NULL must
+      // NEVER trigger the standalone card. Born-linked (DO-first) and
+      // office-linked items belong to the DO's flow — the DO-first card and
+      // MSR shape (documentId) keep authority; routing them through the
+      // standalone arm would silently skip deduction/DO-status/completion
+      // gate. Flag-gated so flag-off behavior stays bit-identical.
+      let runWins =
         !!run && (!resolvedDeliveryOrder || run.startedAt > resolvedDeliveryOrder.createdAt);
+      if (runWins && runItem?.documentId && (await this.unifiedRunsEnabled(organizationId))) {
+        runWins = false;
+      }
       if (runWins && runItem) {
         standaloneDelivery = {
           id: run!.id,
