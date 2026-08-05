@@ -563,6 +563,12 @@ export default function BindTagPage() {
     );
   }
 
+  // User-fixable conditions blocking "Create & Bind". Product is the only one
+  // (serial + Assign-to-Project are optional); `creating` is a transient
+  // in-flight state, not a validation error, so it's excluded here.
+  const bindBlockers: string[] = [];
+  if (!selectedAsset) bindBlockers.push("Product");
+
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
       <Typography variant="h6" fontWeight={700}>New tag</Typography>
@@ -665,6 +671,12 @@ export default function BindTagPage() {
 
           <Autocomplete<AssetOption, false, false, false>
             options={assetOptions}
+            // Server (/assets/search) is authoritative — it already matches on
+            // name+skuKey. Disable MUI's client-side re-filter, which otherwise
+            // matches the input against getOptionLabel and can SILENTLY hide a
+            // valid server result (e.g. a just-renamed asset). Mirrors the
+            // customer picker below.
+            filterOptions={(x) => x}
             value={selectedAsset}
             inputValue={searchInput}
             onChange={(_, picked) => {
@@ -860,12 +872,31 @@ export default function BindTagPage() {
 
           <Divider sx={{ my: 1 }} />
 
+          {/* Blocking-condition summary — names the field(s) stopping the
+              disabled button so a greyed CTA is never a silent dead-end. The
+              only submit blocker on this form is an unpicked Product (serial +
+              assignment are optional); rendered as a list so it stays correct
+              if more required fields are ever added. */}
+          {!creating && bindBlockers.length > 0 && (
+            <Alert severity="warning" icon={false} sx={{ py: 0.75 }}>
+              To continue, complete: <strong>{bindBlockers.join(", ")}</strong>
+            </Alert>
+          )}
+
           <Button
             variant="contained"
             color="primary"
             fullWidth
             disabled={creating || !selectedAsset}
-            onClick={() => createAndBind()}
+            onClick={() => {
+              // Belt-and-braces: if somehow reachable while blocked, surface
+              // the field error too (mirrors the summary).
+              if (!selectedAsset) {
+                setProductError(true);
+                return;
+              }
+              createAndBind();
+            }}
             sx={FIELD_BUTTON_SX}
           >
             {creating ? "Creating..." : "Create & Bind"}

@@ -501,6 +501,11 @@ export default function SubmitPage() {
           borderColor: "divider",
         }}
       >
+        {!file && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", textAlign: "center", mb: 1 }}>
+            Take or choose a photo to enable Submit.
+          </Typography>
+        )}
         <Button
           variant="contained"
           color="primary"
