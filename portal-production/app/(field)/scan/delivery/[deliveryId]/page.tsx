@@ -76,6 +76,9 @@ interface Run {
   // Derived by the backend: the single distinct DO across linked items, else null.
   document: { id: string; name: string | null } | null;
   items: RunItem[];
+  // MSR proof rows (findById returns them) — used to resume the reordered
+  // ack flow: a draft DO_ACK for a delivering unit routes to after-ack.
+  reports?: Array<{ id: string; kind: string; status: string; inventoryId: string | null }>;
 }
 
 interface ResolveMatch {
@@ -343,8 +346,17 @@ export default function DeliveryBasketPage() {
 
   const ackHref = (it: RunItem) =>
     `/scan/delivery/${run.id}/ack?assetId=${encodeURIComponent(it.assetId)}${it.inventoryId ? `&inventoryId=${encodeURIComponent(it.inventoryId)}` : ""}`;
+  const afterAckHref = (it: RunItem) =>
+    `/scan/delivery/${run.id}/after-ack?assetId=${encodeURIComponent(it.assetId)}${it.inventoryId ? `&inventoryId=${encodeURIComponent(it.inventoryId)}` : ""}`;
   const installHref = (it: RunItem) =>
     `/scan/delivery/${run.id}/install?assetId=${encodeURIComponent(it.assetId)}${it.inventoryId ? `&inventoryId=${encodeURIComponent(it.inventoryId)}` : ""}`;
+  // Reordered flow resume: a delivering unit with an UNSIGNED DO_ACK is
+  // mid-flow (ack captured, signature pending) → Continue into after-ack.
+  const hasDraftAck = (it: RunItem) =>
+    !!it.inventoryId &&
+    (run.reports ?? []).some(
+      (r) => r.kind === "DO_ACK" && r.status !== "completed" && r.inventoryId === it.inventoryId,
+    );
 
   const canAdd = run.status === "in_progress";
 
@@ -424,10 +436,10 @@ export default function DeliveryBasketPage() {
                         size="small"
                         variant="contained"
                         startIcon={<LocalShippingIcon />}
-                        onClick={() => router.push(ackHref(it))}
+                        onClick={() => router.push(hasDraftAck(it) ? afterAckHref(it) : ackHref(it))}
                         sx={{ minHeight: 40 }}
                       >
-                        Acknowledge
+                        {hasDraftAck(it) ? "Continue" : "Acknowledge"}
                       </Button>
                     )}
                     {it.deliveryStatus === "not_installed" && (

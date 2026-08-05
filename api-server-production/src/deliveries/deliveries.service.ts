@@ -803,8 +803,20 @@ export class DeliveriesService {
     if (delivery.status === 'cancelled') throw new BadRequestException('Cannot assign on a cancelled delivery');
     const item = delivery.items.find((i) => i.inventoryId === dto.inventoryId);
     if (!item) throw new NotFoundException('Unit is not on this delivery');
-    if (!item.deliveredAt) {
-      throw new BadRequestException('Assign after the unit is acknowledged (delivered)');
+    // Reordered flow: the signature (which advances the item to not_installed
+    // via sign()) now comes LAST, so at assign time the item is still
+    // `delivering` with a draft DO_ACK. Guard = physical hand-off happened
+    // (item ≥ delivering) AND the ack paperwork exists (DO_ACK MSR, any
+    // status) — signed acks from the old flow pass both naturally.
+    if (RANK[item.deliveryStatus] < RANK[DeliveryStatus.delivering]) {
+      throw new BadRequestException('Assign after the unit is out for delivery');
+    }
+    const ackMsr = await this.prisma.maintenanceServiceReport.findFirst({
+      where: { deliveryId, inventoryId: dto.inventoryId, kind: 'DO_ACK' as any },
+      select: { id: true },
+    });
+    if (!ackMsr) {
+      throw new BadRequestException('Assign after the delivery is acknowledged');
     }
 
     const project = await this.prisma.project.findFirst({
