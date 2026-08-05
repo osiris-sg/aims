@@ -4376,6 +4376,16 @@ export class DocumentsService {
       // Any journals born while this document was unconfirmed flip now.
       await this.journalService.markConfirmedForDocument(organizationId, documentId).catch(() => undefined);
 
+      // Draft-DO commitment (delivery-first #5) — this endpoint is the
+      // editor's ACTUAL "Confirm Delivery Order" button and updates status
+      // directly, so the updateDocument confirm hook never sees it. Without
+      // this call a delivery-created draft DO would confirm with no stamp, no
+      // deduction and no status mirror (silent stock loss — E2E finding 1).
+      // Idempotent + best-effort, same contract as the updateDocument hook.
+      await this.commitLinkedDeliveryItems(documentId, organizationId).catch((err) =>
+        console.warn(`commitLinkedDeliveryItems on confirm-do failed for ${documentId}: ${err?.message}`),
+      );
+
       console.log('✅ DO CONFIRM: Document confirmed successfully');
 
       void this.logDocumentEvent({
