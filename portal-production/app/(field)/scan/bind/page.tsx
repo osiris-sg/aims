@@ -145,6 +145,12 @@ export default function BindTagPage() {
   const [createProjectName, setCreateProjectName] = useState("");
   const [creatingProject, setCreatingProject] = useState(false);
 
+  // Inline "+ Create Customer" — mirrors the after-ack picker: name only,
+  // posting to the narrow customers:create-by-name endpoint rider roles hold.
+  const [createCustomerOpen, setCreateCustomerOpen] = useState(false);
+  const [createCustomerName, setCreateCustomerName] = useState("");
+  const [creatingCustomer, setCreatingCustomer] = useState(false);
+
   // Set when the backend returns ALREADY_TAGGED: the matched unit already has a
   // different tag, so we ask the tech before overwriting (rebind orphans the
   // old tag). Confirming re-submits the bind with confirmRebind: true.
@@ -297,6 +303,48 @@ export default function BindTagPage() {
       cancelled = true;
     };
   }, [selectedCustomer, getToken]);
+
+  // "+ Create Customer" — mirrors the after-ack picker: seed the dialog with
+  // whatever the tech already typed (they only reach "no match" after typing
+  // the site's name), post to the narrow field endpoint, auto-select the row.
+  const openCreateCustomer = () => {
+    setCreateCustomerName(customerInput.trim());
+    setCreateCustomerOpen(true);
+  };
+
+  const handleCreateCustomer = async () => {
+    const trimmed = createCustomerName.trim();
+    if (!trimmed) return;
+    setCreatingCustomer(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      // Narrow field-flow endpoint (customers:create-by-name — the permission
+      // rider roles hold; the full /customers/create is office-gated). Same
+      // service underneath; the server generates the customerCode.
+      const res = await request({ path: "/customers/create-by-name", method: "POST" }, { name: trimmed }, token);
+      const created = res?.data;
+      if (res?.success && created?.id) {
+        const option: CustomerOption = {
+          id: created.id,
+          name: created.name ?? trimmed,
+          customerCode: created.customerCode ?? null,
+        };
+        setCustomerOptions((prev) => [option, ...prev]);
+        setSelectedCustomer(option);
+        setCreateCustomerOpen(false);
+        setCreateCustomerName("");
+        toast.success("Customer created");
+      } else {
+        toast.error(res?.message ?? "Failed to create customer");
+      }
+    } catch (e: any) {
+      console.error("create customer failed:", e);
+      toast.error(e?.message ?? "Failed to create customer");
+    } finally {
+      setCreatingCustomer(false);
+    }
+  };
 
   // "+ Create Project" — minimal create linked to the selected customer,
   // mirroring the quotation editor's inline flow. Auto-selects the new row.
@@ -710,6 +758,11 @@ export default function BindTagPage() {
             // client-side filter so partial matches from the backend aren't
             // re-filtered away against the formatted label.
             filterOptions={(x) => x}
+            noOptionsText={
+              <Button size="small" startIcon={<AddIcon />} onClick={openCreateCustomer}>
+                Create customer
+              </Button>
+            }
             renderOption={(props, option) => (
               <li {...props} key={option.id}>
                 <Box>
@@ -737,6 +790,16 @@ export default function BindTagPage() {
               />
             )}
           />
+          {!selectedCustomer && (
+            <Button
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={openCreateCustomer}
+              sx={{ alignSelf: "flex-start", textTransform: "none", mt: -1.5 }}
+            >
+              New customer
+            </Button>
+          )}
 
           {selectedCustomer && (
             <Stack direction="row" spacing={1} alignItems="flex-start">
@@ -824,6 +887,51 @@ export default function BindTagPage() {
       {error && <Alert severity="error">{error}</Alert>}
 
       <Button sx={{ mt: 2 }} onClick={() => router.replace("/scan")}>Cancel</Button>
+
+      {/* Create Customer dialog — mirrors the after-ack picker's inline flow:
+          name only, the server generates the customerCode. */}
+      <Dialog
+        open={createCustomerOpen}
+        onClose={() => (creatingCustomer ? null : setCreateCustomerOpen(false))}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>Create Customer</DialogTitle>
+        <DialogContent>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+            Name only — the office can fill in contact details later.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            label="Customer Name"
+            value={createCustomerName}
+            onChange={(e) => setCreateCustomerName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !creatingCustomer) {
+                e.preventDefault();
+                handleCreateCustomer();
+              }
+            }}
+            disabled={creatingCustomer}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateCustomerOpen(false)} disabled={creatingCustomer}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleCreateCustomer}
+            disabled={creatingCustomer || !createCustomerName.trim()}
+            startIcon={creatingCustomer ? <CircularProgress size={14} color="inherit" /> : <AddIcon />}
+          >
+            Create
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Create Project dialog — same minimal inline flow as the quotation
           editor's "+ Create new project": name only, linked to the selected
