@@ -21,7 +21,8 @@ type DocType =
   | "PO"
   | "PR"
   | "SAI"
-  | "SAO";
+  | "SAO"
+  | "BILL";
 type Phase = "idle" | "extracting" | "saving" | "done";
 
 // Type strings match the portal's per-type list pages (createDocumentType in
@@ -48,6 +49,14 @@ const TYPE_GROUPS: { group: string; types: { value: DocType; label: string }[] }
       { value: "PR", label: "Purchase Return" },
       { value: "SAI", label: "Stock Adjustment In" },
       { value: "SAO", label: "Stock Adjustment Out" },
+    ],
+  },
+  {
+    group: "Purchases",
+    types: [
+      // BILL takes the dedicated bills pipeline (one-call extract-create),
+      // not the two-step documents flow — see the branch in submit().
+      { value: "BILL", label: "Bill (supplier invoice)" },
     ],
   },
 ];
@@ -182,6 +191,26 @@ export default function SubmitPage() {
       const token = await getToken();
       if (!token) {
         setErrorMsg("You're signed out. Please sign in again.");
+        return;
+      }
+
+      // BILL: dedicated one-call pipeline — POST /bills/extract-create does
+      // extraction AND creates the unconfirmed bill in one step. postOnSave:
+      // false = machine-intake semantics: NO journal entry until the office
+      // reviews it (an OCR misread must never touch the books). The office
+      // finds it in Bills → Unconfirmed / the Posting Queue.
+      if (docType === "BILL") {
+        setPhase("extracting");
+        const dataUrl = await fileToDataUrl(file);
+        const res = await request(
+          { path: "/bills/extract-create", method: "POST" },
+          { base64: dataUrl, mediaType: file.type, filename: file.name, postOnSave: false },
+          token
+        );
+        if (!res?.success || !res?.data?.id) {
+          throw new Error(res?.message || "Failed to save the bill");
+        }
+        setPhase("done");
         return;
       }
 

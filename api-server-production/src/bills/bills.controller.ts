@@ -131,10 +131,14 @@ export class BillsController {
 
   @Post('extract-create')
   @Permissions('bills:create')
-  @ApiOperation({ summary: 'Extract a PDF/image AND create the bill in one call — powers the shared multi-file upload dialog' })
+  @ApiOperation({ summary: 'Extract a PDF/image AND create the bill in one call — powers the shared multi-file upload dialog and the normal-user /submit photo flow' })
   extractCreate(
     @Req() req: RequestWithOrganization,
-    @Body() body: { base64: string; mediaType?: string; filename?: string; attachments?: Array<{ fileKey: string; fileName: string; mimeType?: string; label?: string }> },
+    // postOnSave: false → machine-intake semantics (unconfirmed DRAFT, NO
+    // journal until reviewed) — the /submit photo flow sends false so an OCR
+    // misread never touches the books. Omitted/true keeps the office upload
+    // dialog's user-driven post-on-save behavior.
+    @Body() body: { base64: string; mediaType?: string; filename?: string; postOnSave?: boolean; attachments?: Array<{ fileKey: string; fileName: string; mimeType?: string; label?: string }> },
   ) {
     return this.service.createFromUpload(requireOrgId(req), req.auth?.userId, body);
   }

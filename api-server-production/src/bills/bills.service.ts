@@ -1160,6 +1160,9 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       base64: string;
       mediaType?: string;
       filename?: string;
+      // false → machine intake (no JE until reviewed); default true preserves
+      // the office upload dialog's save-posts-unconfirmed-journal behavior.
+      postOnSave?: boolean;
       attachments?: Array<{ fileKey: string; fileName: string; mimeType?: string; label?: string }>;
     },
   ) {
@@ -1172,16 +1175,21 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     }
     if (!supplierId) throw new BadRequestException(`No supplier found on ${body.filename || 'the file'} — create the bill manually`);
 
-    const bill = await this.create(organizationId, userId, {
-      supplierId,
-      billNumber: extracted.billNumber || `UPLOAD-${new Date().toISOString().slice(0, 10)}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
-      billDate: extracted.billDate || new Date().toISOString(),
-      dueDate: extracted.dueDate || undefined,
-      lines: extracted.lines?.length ? extracted.lines : [{ description: body.filename || 'Uploaded bill', amount: extracted.totalAmount || 0 }],
-      taxAmount: extracted.taxAmount,
-      inboundChannel: 'UPLOAD',
-      inboundMeta: { ...extracted.meta, filename: body.filename },
-    });
+    const bill = await this.create(
+      organizationId,
+      userId,
+      {
+        supplierId,
+        billNumber: extracted.billNumber || `UPLOAD-${new Date().toISOString().slice(0, 10)}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+        billDate: extracted.billDate || new Date().toISOString(),
+        dueDate: extracted.dueDate || undefined,
+        lines: extracted.lines?.length ? extracted.lines : [{ description: body.filename || 'Uploaded bill', amount: extracted.totalAmount || 0 }],
+        taxAmount: extracted.taxAmount,
+        inboundChannel: 'UPLOAD',
+        inboundMeta: { ...extracted.meta, filename: body.filename },
+      },
+      { postOnSave: body.postOnSave !== false },
+    );
     if (body.attachments?.length) {
       await this.addAttachments(organizationId, bill.id, body.attachments, userId || 'system').catch(() => undefined);
     }

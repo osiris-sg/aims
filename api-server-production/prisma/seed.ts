@@ -1451,6 +1451,20 @@ async function main() {
   // Normal User role: the hands-off document-submit flow ONLY. Can AI-extract a
   // document (camera → Claude) and create a DRAFT from it — nothing else. The
   // frontend gates /submit and bounces this role out of /portal and /scan by
+  // Supplier-bill photo submission (/submit BILL branch): the create-class
+  // bills surface only — extract-create etc. NO read/update/approve, so a
+  // normal user can submit a bill photo but never see or act on bills after.
+  const createBillPermission = await prisma.permission.upsert({
+    where: { name: 'bills:create' },
+    update: {},
+    create: {
+      name: 'bills:create',
+      description: 'Can create bills (incl. extract-create photo intake)',
+      resource: 'bills',
+      action: 'create',
+    },
+  });
+
   // the exact (case-insensitive) name "normal_user". readRoles/read perms let
   // the client role-gate resolve /users/me/roles.
   await prisma.role.upsert({
@@ -1465,6 +1479,7 @@ async function main() {
         set: [
           { id: extractDocumentPermission.id },
           { id: createBasicDocumentPermission.id },
+          { id: createBillPermission.id },
           { id: readRolesPermission.id },
           { id: readRolePermission.id },
           { id: readPermissionPermission.id },
@@ -1479,6 +1494,7 @@ async function main() {
         connect: [
           { id: extractDocumentPermission.id },
           { id: createBasicDocumentPermission.id },
+          { id: createBillPermission.id },
           { id: readRolesPermission.id },
           { id: readRolePermission.id },
           { id: readPermissionPermission.id },
