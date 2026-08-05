@@ -4,6 +4,7 @@ import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { GetCustomerDto } from './dto/get-customer.dto';
 import { DeleteCustomerDto } from './dto/delete-customer.dto';
 import { PrismaService } from 'src/common/prisma.service';
+import { Prisma } from '@prisma/client';
 import { CreateSiteOfficeDto } from './dto/create-site-office.dto';
 import { UpdateSiteOfficeDto } from './dto/update-site-office-dto';
 import { createClerkClient } from '@clerk/backend';
@@ -127,36 +128,49 @@ export class CustomersService {
     try {
       console.log('Creating customer with data:', createCustomerDto, 'and organizationId:', organizationId);
 
-      // Generate customer code: C + first letter of name + 3-digit sequential number
-      const customerCode = await this.generateCustomerCode(createCustomerDto.name, organizationId);
-
       const { contacts, ...customerData } = createCustomerDto;
       const cleanContacts = (contacts || []).filter(
         (c) => c.name && c.name.trim() !== '',
       );
 
-      const newCustomer = await this.prisma.customer.create({
-        data: {
-          ...customerData,
-          customerCode,
-          organizationId, // Automatically assign to user's organization
-          ...(cleanContacts.length > 0
-            ? {
-                contacts: {
-                  create: cleanContacts.map((c) => ({
-                    name: c.name,
-                    phone: c.phone ?? null,
-                    email: c.email ?? null,
-                    designation: c.designation ?? null,
-                    isPrimary: !!c.isPrimary,
-                  })),
-                },
-              }
-            : {}),
-        },
-        include: { contacts: true },
-      });
-      return newCustomer;
+      // Code generation is max-based; the retry covers the remaining race
+      // (two concurrent creates computing the same max — the loser recomputes,
+      // which now includes the winner's row, and takes the next number).
+      for (let attempt = 0; ; attempt++) {
+        // Generate customer code: C + first letter of name + 3-digit number
+        const customerCode = await this.generateCustomerCode(createCustomerDto.name, organizationId);
+        try {
+          const newCustomer = await this.prisma.customer.create({
+            data: {
+              ...customerData,
+              customerCode,
+              organizationId, // Automatically assign to user's organization
+              ...(cleanContacts.length > 0
+                ? {
+                    contacts: {
+                      create: cleanContacts.map((c) => ({
+                        name: c.name,
+                        phone: c.phone ?? null,
+                        email: c.email ?? null,
+                        designation: c.designation ?? null,
+                        isPrimary: !!c.isPrimary,
+                      })),
+                    },
+                  }
+                : {}),
+            },
+            include: { contacts: true },
+          });
+          return newCustomer;
+        } catch (err) {
+          const isCodeCollision =
+            err instanceof Prisma.PrismaClientKnownRequestError &&
+            err.code === 'P2002' &&
+            String((err.meta?.target as string[] | string | undefined) ?? '').includes('customerCode');
+          if (isCodeCollision && attempt < 2) continue; // recompute and retry
+          throw err;
+        }
+      }
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
@@ -171,20 +185,21 @@ export class CustomersService {
     const firstLetter = customerName?.trim().charAt(0).toUpperCase() || 'X';
     const prefix = `C${firstLetter}`;
 
-    // Count existing customers with the same prefix in this organization
-    const existingCount = await this.prisma.customer.count({
-      where: {
-        organizationId,
-        customerCode: {
-          startsWith: prefix,
-        },
-      },
+    // Next number = MAX(existing numeric suffix) + 1 — NOT count+1, which
+    // collides forever once a letter group has a deletion gap (e.g. CZ001-005
+    // + CZ007 → count 6 → regenerates the existing CZ007 → P2002 500; the I,
+    // S and Z groups were all broken this way — E2E finding 2). Non-numeric
+    // suffixes (legacy oddities like 'ZZTEST-CUST') are ignored.
+    const existing = await this.prisma.customer.findMany({
+      where: { organizationId, customerCode: { startsWith: prefix } },
+      select: { customerCode: true },
     });
-
-    // Generate the sequential number (3 digits, padded with zeros)
-    const sequentialNumber = String(existingCount + 1).padStart(3, '0');
-
-    return `${prefix}${sequentialNumber}`;
+    let max = 0;
+    for (const c of existing) {
+      const m = c.customerCode?.match(new RegExp(`^${prefix}(\\d+)$`));
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return `${prefix}${String(max + 1).padStart(3, '0')}`;
   }
 
   async updateCustomers(updateCustomerDto: UpdateCustomerDto, organizationId: string) {
