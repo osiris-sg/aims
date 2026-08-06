@@ -64,6 +64,9 @@ interface RunDetail {
   completedAt: string | null;
   projectId: string | null;
   customerId: string | null;
+  // findById includes both (null until assigned).
+  project: { id: string; name: string } | null;
+  customer: { id: string; name: string } | null;
   // Derived by the backend: the single distinct DO across linked items, else null.
   document: { id: string; name: string | null; type: string; status: string } | null;
   items: Array<{
@@ -313,6 +316,10 @@ export default function DeliveryDetailPage() {
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Rider: {run.riderName ?? "—"} · Started {fmtDateTime(run.startedAt)}
         {run.completedAt ? ` · Completed ${fmtDateTime(run.completedAt)}` : ""}
+        {/* Project/customer omit-when-absent, same pattern as Site: — a
+            pre-assign run just shows a shorter line, no empty labels. */}
+        {run.project ? ` · Project: ${run.project.name}` : ""}
+        {run.customer ? ` · Customer: ${run.customer.name}` : ""}
         {run.siteAddress ? ` · Site: ${run.siteAddress}` : ""}
       </Typography>
 
