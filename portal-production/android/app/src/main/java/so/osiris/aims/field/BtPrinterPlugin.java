@@ -67,7 +67,7 @@ public class BtPrinterPlugin extends Plugin {
     @PermissionCallback
     private void listBondedAfterPermission(PluginCall call) {
         if (needsRuntimePermission()) {
-            call.reject("Bluetooth permission denied");
+            call.reject("Bluetooth permission was not granted (listBonded) — allow it in Settings > Apps > AIMS Field > Permissions");
             return;
         }
         doListBonded(call);
@@ -90,7 +90,7 @@ public class BtPrinterPlugin extends Plugin {
             ret.put("devices", devices);
             call.resolve(ret);
         } catch (SecurityException e) {
-            call.reject("Bluetooth permission denied");
+            call.reject("Bluetooth permission error (listBonded): " + e.getMessage());
         } catch (Exception e) {
             call.reject("listBonded failed: " + e.getMessage());
         }
@@ -110,7 +110,7 @@ public class BtPrinterPlugin extends Plugin {
 
     @PermissionCallback
     private void connectAfterPermission(PluginCall call) {
-        if (needsRuntimePermission()) { call.reject("Bluetooth permission denied"); return; }
+        if (needsRuntimePermission()) { call.reject("Bluetooth permission was not granted (connect) — allow it in Settings > Apps > AIMS Field > Permissions"); return; }
         doConnect(call, call.getString("mac"));
     }
 
@@ -121,14 +121,20 @@ public class BtPrinterPlugin extends Plugin {
                 BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
                 if (adapter == null || !adapter.isEnabled()) { call.reject("Bluetooth is unavailable or off"); return; }
                 BluetoothDevice device = adapter.getRemoteDevice(mac);
-                adapter.cancelDiscovery(); // discovery kills RFCOMM connects
+                // Defensive only — an in-flight discovery scan slows/kills RFCOMM
+                // connects. We never start discovery ourselves, and cancelDiscovery()
+                // requires BLUETOOTH_SCAN (which this plugin neither declares nor
+                // requests), so a missing-permission SecurityException here must NOT
+                // abort the connect — the RFCOMM connect below needs only the already-
+                // granted BLUETOOTH_CONNECT.
+                try { adapter.cancelDiscovery(); } catch (SecurityException ignored) {}
                 BluetoothSocket s = device.createRfcommSocketToServiceRecord(SPP_UUID);
                 s.connect();
                 socket = s;
                 out = s.getOutputStream();
                 call.resolve();
             } catch (SecurityException e) {
-                call.reject("Bluetooth permission denied");
+                call.reject("Bluetooth permission error (connect): " + e.getMessage());
             } catch (Exception e) {
                 closeQuietly();
                 call.reject("Could not connect to the printer: " + e.getMessage());
