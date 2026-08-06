@@ -74,17 +74,26 @@ export default function AfterAckPage() {
   const assetId = search?.get("assetId") ?? "";
   const inventoryId = search?.get("inventoryId") ?? null;
 
-  const [step, setStep] = useState<"assign" | "install" | "sign" | "done">("assign");
+  const [step, setStep] = useState<"assign" | "install" | "sign" | "review" | "done">("assign");
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   // Client-carried flow state: {ackMsrId, installChoice, installPhotos,
-  // signature (in the pad)} — everything else is server-committed as it happens.
+  // signature (captured data-URL), recipientName} — everything else is
+  // server-committed as it happens; the review step writes nothing.
   const [ackMsrId, setAckMsrId] = useState<string | null>(search?.get("ackMsrId") ?? null);
   const [resolving, setResolving] = useState(true);
   const [installChoice, setInstallChoice] = useState<"yes" | "no" | null>(null);
   const [installPhotos, setInstallPhotos] = useState<CapturedPhoto[]>([]);
   const [photosUploading, setPhotosUploading] = useState(false);
   const [signedByName, setSignedByName] = useState("");
+  // Captured at "Next" (the pad can't rehydrate strokes) — going back from
+  // review re-renders this image so the rider never has to re-sign.
+  const [signature, setSignature] = useState<string | null>(null);
+  // Review-summary context: the unit's label (from the run detail) and the
+  // assignment shown on review (set by doAssign, or from scan-context when
+  // resuming with an assignment already in place).
+  const [unitLabel, setUnitLabel] = useState<string | null>(null);
+  const [assignedSummary, setAssignedSummary] = useState<{ customer: string | null; project: string } | null>(null);
   const sigRef = useRef<SignaturePadHandle>(null);
 
   const uploadDoInstall = async (blob: Blob): Promise<string | null> => {
@@ -138,6 +147,9 @@ export default function AfterAckPage() {
           setSelectedCustomer({ id: run.customer.id, name: run.customer.name, customerCode: null });
           prefillProjectRef.current = run.projectId ?? null;
         }
+        // Unit label for the review summary (sku + asset name from the run).
+        const it = (run?.items ?? []).find((i: any) => i.inventoryId === inventoryId);
+        if (it) setUnitLabel([it.inventory?.sku, it.asset?.name].filter(Boolean).join(" — ") || it.description || null);
         // Resolve the ack MSR (query param wins; else the unit's DO_ACK from
         // the run's reports — draft preferred, signed accepted for old-flow
         // stragglers). None at all → the unit isn't acked: back to ack.
@@ -166,7 +178,12 @@ export default function AfterAckPage() {
               {},
               token,
             );
-            if (!cancelled && (ctx.data ?? ctx)?.activeAssignment) setStep("install");
+            const active = (ctx.data ?? ctx)?.activeAssignment;
+            if (!cancelled && active) {
+              setStep("install");
+              // Feed the review summary on resume (no doAssign this session).
+              setAssignedSummary({ customer: null, project: active.project?.name ?? "(assigned)" });
+            }
           } catch {
             // Non-fatal — start at assign.
           }
@@ -339,6 +356,7 @@ export default function AfterAckPage() {
         token,
       );
       if (res?.success === false) throw new Error(res?.message ?? "Assignment failed");
+      setAssignedSummary({ customer: selectedCustomer?.name ?? null, project: selectedProject.name });
       setStep("install");
     } catch (e: any) {
       setError(e?.message ?? "Failed to assign to project");
@@ -354,10 +372,27 @@ export default function AfterAckPage() {
   //      YES → inline-signed DO_INSTALL create carrying the install photos
   //      (the create path applies the 'install' transition itself).
   //   3. Run folds; background GPS tracking stops. Printing = future hook.
+  // "Next" on the sign step: capture the pad into state (the pad can't
+  // rehydrate strokes, so the data-URL is the survivor across review⇄sign).
+  const goToReview = () => {
+    setError(null);
+    const padHasStrokes = !!sigRef.current && !sigRef.current.isEmpty();
+    if (padHasStrokes) {
+      setSignature(sigRef.current!.toDataUrl());
+    } else if (!signature) {
+      setError("Customer signature is required");
+      return;
+    }
+    setStep("review");
+  };
+
+  // COMMIT (from the review step) — reads the CAPTURED signature; the pad is
+  // unmounted by now. Handler chain unchanged from the pre-review flow.
   const doConfirm = async () => {
     if (!ackMsrId || !inventoryId) return;
-    if (!sigRef.current || sigRef.current.isEmpty()) {
+    if (!signature) {
       setError("Customer signature is required");
+      setStep("sign");
       return;
     }
     setWorking(true);
@@ -365,7 +400,6 @@ export default function AfterAckPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const signature = sigRef.current.toDataUrl();
       const name = signedByName.trim() || undefined;
 
       const signRes = await request(
@@ -457,6 +491,7 @@ export default function AfterAckPage() {
         <Typography variant="h6" fontWeight={700}>Customer signature</Typography>
         <Typography variant="body2" color="text.secondary">
           One signature confirms the delivery{installChoice === "yes" ? " and the installation" : ""}.
+          You&apos;ll review everything before it&apos;s committed.
         </Typography>
 
         <TextField
@@ -466,18 +501,87 @@ export default function AfterAckPage() {
           onChange={(e) => setSignedByName(e.target.value)}
         />
 
-        <SignaturePadField ref={sigRef} />
+        {signature ? (
+          // Returning from review: the pad can't rehydrate strokes, so the
+          // captured signature is re-rendered — no re-signing required.
+          <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1, p: 1, bgcolor: "#fff" }}>
+            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+              Captured signature
+            </Typography>
+            <Box component="img" src={signature} alt="Captured signature" sx={{ maxWidth: "100%", maxHeight: 140 }} />
+          </Box>
+        ) : (
+          <SignaturePadField ref={sigRef} />
+        )}
 
         {error && <Alert severity="error">{error}</Alert>}
 
         <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
-          <Button variant="outlined" onClick={() => sigRef.current?.clear()} fullWidth disabled={working} sx={FIELD_BUTTON_SX}>
-            Clear
+          <Button
+            variant="outlined"
+            onClick={() => {
+              setSignature(null); // re-sign: drop the capture, show a fresh pad
+              sigRef.current?.clear();
+            }}
+            fullWidth
+            disabled={working}
+            sx={FIELD_BUTTON_SX}
+          >
+            {signature ? "Re-sign" : "Clear"}
           </Button>
-          <Button variant="contained" onClick={doConfirm} disabled={working} fullWidth sx={FIELD_BUTTON_SX}>
-            {working ? <CircularProgress size={20} color="inherit" /> : "Confirm and Print DO"}
+          <Button variant="contained" onClick={goToReview} disabled={working} fullWidth sx={FIELD_BUTTON_SX}>
+            Next
           </Button>
         </Stack>
+      </Box>
+    );
+  }
+
+  if (step === "review") {
+    const Row = ({ label, value }: { label: string; value: React.ReactNode }) => (
+      <Stack direction="row" justifyContent="space-between" spacing={2} sx={{ py: 0.75, borderBottom: "1px solid", borderColor: "divider" }}>
+        <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>{label}</Typography>
+        <Typography variant="body2" fontWeight={600} sx={{ textAlign: "right" }}>{value}</Typography>
+      </Stack>
+    );
+    return (
+      <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          {/* Back preserves the captured signature — no re-signing. */}
+          <Button startIcon={<ArrowBackIcon />} size="small" onClick={() => setStep("sign")} disabled={working} sx={{ color: "text.secondary" }}>
+            Back
+          </Button>
+        </Stack>
+        <Typography variant="h6" fontWeight={700}>Review &amp; confirm</Typography>
+        <Typography variant="body2" color="text.secondary">
+          Nothing is committed until you confirm below.
+        </Typography>
+
+        <Box>
+          <Row label="Unit" value={unitLabel ?? "—"} />
+          <Row label="Customer" value={assignedSummary?.customer ?? selectedCustomer?.name ?? "—"} />
+          <Row label="Project" value={assignedSummary?.project ?? "Not assigned (skipped)"} />
+          <Row
+            label="Installation"
+            value={installChoice === "yes" ? `Needed — ${installPhotos.length} photo${installPhotos.length === 1 ? "" : "s"}` : "Not needed (will be skipped)"}
+          />
+          <Row label="Signed by" value={signedByName.trim() || "—"} />
+        </Box>
+
+        {signature && (
+          <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1, p: 1, bgcolor: "#fff" }}>
+            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+              Customer signature
+            </Typography>
+            <Box component="img" src={signature} alt="Customer signature" sx={{ maxWidth: "100%", maxHeight: 140 }} />
+          </Box>
+        )}
+
+        {error && <Alert severity="error">{error}</Alert>}
+
+        <Button variant="contained" onClick={doConfirm} disabled={working} fullWidth sx={{ ...FIELD_BUTTON_SX, mt: 1 }}>
+          {working ? <CircularProgress size={20} color="inherit" /> : "Confirm and Print DO"}
+        </Button>
       </Box>
     );
   }
