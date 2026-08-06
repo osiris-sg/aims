@@ -45,6 +45,14 @@ public class BtPrinterPlugin extends Plugin {
     private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
     private static final int CHUNK_SIZE = 512;
     private static final int CHUNK_DELAY_MS = 25;
+    // After the final chunk, hold before returning so the printer drains the
+    // tail over-air. Without this, a following disconnect()/socket.close()
+    // discards undrained RFCOMM bytes and the receipt is cut off mid-tail.
+    private static final int DRAIN_DELAY_MS = 400;
+    // Let the freshly-opened RFCOMM link settle before the first bytes — the
+    // first print after connecting otherwise races link setup and the printer
+    // emits a garbled leading block.
+    private static final int CONNECT_SETTLE_MS = 300;
 
     private BluetoothSocket socket;
     private OutputStream out;
@@ -132,6 +140,8 @@ public class BtPrinterPlugin extends Plugin {
                 s.connect();
                 socket = s;
                 out = s.getOutputStream();
+                // Settle before the caller's first write() — see CONNECT_SETTLE_MS.
+                Thread.sleep(CONNECT_SETTLE_MS);
                 call.resolve();
             } catch (SecurityException e) {
                 call.reject("Bluetooth permission error (connect): " + e.getMessage());
@@ -152,13 +162,21 @@ public class BtPrinterPlugin extends Plugin {
                 if (out == null) { call.reject("Not connected — call connect(mac) first"); return; }
                 byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
                 // Chunked writes: SPP printer buffers are tiny; a single large
-                // write drops bytes mid-receipt on most cheap 58mm units.
+                // write drops bytes mid-receipt on most cheap 58mm units. The
+                // loop covers the whole array — the last iteration's len is the
+                // final partial chunk (min(CHUNK_SIZE, remaining)), so no tail
+                // bytes are dropped here.
                 for (int off = 0; off < bytes.length; off += CHUNK_SIZE) {
                     int len = Math.min(CHUNK_SIZE, bytes.length - off);
                     out.write(bytes, off, len);
                     out.flush();
                     Thread.sleep(CHUNK_DELAY_MS);
                 }
+                // Drain the tail before resolving — the caller calls disconnect()
+                // right after this resolves, and socket.close() would otherwise
+                // cut any bytes still in flight (recipient name + trailing feed).
+                out.flush();
+                Thread.sleep(DRAIN_DELAY_MS);
                 call.resolve();
             } catch (Exception e) {
                 call.reject("Write failed: " + e.getMessage());
