@@ -57,7 +57,15 @@
       "Bash(mkdir -p aspire)",
       "Bash(unzip -o -q \"/Users/guru/Downloads/rCHGZOZsTN4Tr9opnBZwEbDFkaSp0Qv65GuAi7oK.zip\" -d aspire)",
       "WebFetch(domain:chatgpt.com)",
-      "Bash(python3 classify.py)"
+      "Bash(python3 classify.py)",
+      "Bash(grep -oE \"\\\\$\\\\{[^}]+\\\\}\")",
+      "Read(//Users/guru/wa-group-prototype/**)",
+      "Bash(node -e \"console.log\\('puppeteer chromium present:', require\\('fs'\\).existsSync\\('./node_modules/puppeteer-core'\\) || require\\('fs'\\).existsSync\\('./node_modules/puppeteer'\\)\\)\")",
+      "Bash(node bot.js)",
+      "Bash(mkdir -p /Users/guru/Documents/GitHub/aims/whatsapp-group-bridge)",
+      "Bash(cp -n /Users/guru/wa-group-prototype/package.json ./package.json)",
+      "Bash(cp -rn /Users/guru/wa-group-prototype/node_modules ./node_modules)",
+      "Bash(python3 *)"
     ]
   }
 }

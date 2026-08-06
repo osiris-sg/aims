@@ -39,64 +39,49 @@ async function xero(method: string, path: string, body?: any) {
   throw new Error('gave up');
 }
 const R = (n: number) => Math.round(n * 100) / 100;
-const normName = (n: string) => (n || '').split(' \u00b7 ')[0].trim();
+const normName = (n: string) => (n || '').split(' · ')[0].trim();
 async function main() {
   TK = await tokens();
-  const asof = new Date().getTime();
-  // Xero side: all ACCPAY with AmountDue>0 (summaryOnly pages)
-  const xeroByNum = new Map<string, { due: number; id: string; status: string }>();
+  const xeroByNum = new Map<string, number>();
   for (let page = 1; ; page++) {
     const res = await xero('GET', `/Invoices?where=${encodeURIComponent('Type=="ACCPAY"')}&page=${page}&summaryOnly=true`);
     const invs: any[] = res.Invoices || [];
     if (!invs.length) break;
     for (const inv of invs) {
       if (['VOIDED', 'DELETED', 'DRAFT', 'SUBMITTED'].includes(inv.Status)) continue;
-      if (inv.DateString && new Date(inv.DateString).getTime() > asof) continue;
       const due = Number(inv.AmountDue) || 0;
       if (due <= 0.005) continue;
-      xeroByNum.set(normName(inv.InvoiceNumber), { due, id: inv.InvoiceID, status: inv.Status });
+      xeroByNum.set(normName(inv.InvoiceNumber), R((xeroByNum.get(normName(inv.InvoiceNumber)) || 0) + due));
     }
     await sleep(1100);
   }
-  const xTotal = R([...xeroByNum.values()].reduce((s, v) => s + v.due, 0));
-  console.log(`Xero open ACCPAY: ${xeroByNum.size} bills, $${xTotal}`);
-
-  // AIMS side: mirror reconcile logic per bill
-  const bills = await prisma.document.findMany({ where: { organizationId: ORG, type: 'BILL' }, select: { id: true, name: true, config: true } });
-  const aimsOpen: Array<{ name: string; out: number; src: string }> = [];
-  for (const b of bills) {
-    const c: any = b.config || {};
+  const xT = R([...xeroByNum.values()].reduce((s, v) => s + v, 0));
+  // AIMS side: ONE set-based query mirroring the reconciler logic
+  const rows: any[] = await prisma.$queryRaw`
+    SELECT name, config FROM "Document" WHERE "organizationId"=${ORG} AND type='BILL'`;
+  const aims = new Map<string, number>();
+  for (const r of rows) {
+    const c: any = r.config || {};
     const bdate = c.billDate || c.date;
-    if (bdate && new Date(bdate).getTime() > asof) continue;
+    if (bdate && new Date(bdate).getTime() > Date.now()) continue;
     let st = (c.billStatus || '').toUpperCase();
     if (!st) {
       const xs = c.xeroStatus;
-      if (/^paid$/i.test(xs || '')) st = 'PAID';
-      else if (/voided|deleted/i.test(xs || '')) st = 'VOID';
-      else if (/draft/i.test(xs || '')) st = 'DRAFT';
-      else st = 'POSTED';
+      st = /^paid$/i.test(xs || '') ? 'PAID' : /voided|deleted/i.test(xs || '') ? 'VOID' : /draft|submitted/i.test(xs || '') ? 'DRAFT' : 'POSTED';
     }
     if (!['POSTED', 'PAID'].includes(st)) continue;
-    const totalAmount = Number(c.totalAmount ?? c.xeroGross ?? 0);
-    const amountPaid = c.amountPaid !== undefined ? Number(c.amountPaid) : c.xeroBalance !== undefined ? R(totalAmount - Number(c.xeroBalance)) : Number(c.xeroAmountPaid ?? 0);
-    const out = R(totalAmount - amountPaid);
+    const total = Number(c.totalAmount ?? c.xeroGross ?? 0);
+    const paid = c.amountPaid !== undefined ? Number(c.amountPaid) : c.xeroBalance !== undefined ? R(total - Number(c.xeroBalance)) : Number(c.xeroAmountPaid ?? 0);
+    const out = R(total - paid);
     if (out <= 0.005) continue;
-    aimsOpen.push({ name: b.name, out, src: c.billStatus ? `billStatus=${c.billStatus}` : `xeroStatus=${c.xeroStatus}` });
+    aims.set(normName(r.name), R((aims.get(normName(r.name)) || 0) + out));
   }
-  const aTotal = R(aimsOpen.reduce((s, v) => s + v.out, 0));
-  console.log(`AIMS open bills: ${aimsOpen.length}, $${aTotal}  (Δ Xero−AIMS = ${R(xTotal - aTotal)})`);
-
-  // discrepancies
-  const aimsByName = new Map(aimsOpen.map(a => [a.name, a]));
-  const aimsOnly = aimsOpen.filter(a => !xeroByNum.has(a.name)).sort((x, y) => y.out - x.out);
-  const xeroOnly = [...xeroByNum.entries()].filter(([n]) => !aimsByName.has(n)).sort((x, y) => y[1].due - x[1].due);
-  const both = aimsOpen.filter(a => xeroByNum.has(a.name) && Math.abs(xeroByNum.get(a.name)!.due - a.out) > 0.01);
-  console.log(`\nAIMS-open but NOT open in Xero (${aimsOnly.length}, $${R(aimsOnly.reduce((s, a) => s + a.out, 0))}):`);
-  aimsOnly.slice(0, 20).forEach(a => console.log(`  ${a.name.padEnd(30)} $${String(a.out).padStart(12)} ${a.src}`));
-  console.log(`\nXero-open but NOT open in AIMS (${xeroOnly.length}, $${R(xeroOnly.reduce((s, [, v]) => s + v.due, 0))}):`);
-  xeroOnly.slice(0, 12).forEach(([n, v]) => console.log(`  ${n.padEnd(30)} $${String(v.due).padStart(12)} ${v.status}`));
-  console.log(`\namount mismatches (${both.length}):`);
-  both.slice(0, 12).forEach(a => console.log(`  ${a.name.padEnd(30)} aims=$${a.out} xero=$${xeroByNum.get(a.name)!.due}`));
+  const aT = R([...aims.values()].reduce((s, v) => s + v, 0));
+  console.log(`Xero open AP $${xT} (${xeroByNum.size}) · AIMS open AP $${aT} (${aims.size}) · Δ ${R(xT - aT)}`);
+  const xOnly = [...xeroByNum.entries()].filter(([n]) => !aims.has(n));
+  const aOnly = [...aims.entries()].filter(([n]) => !xeroByNum.has(n));
+  console.log(`Xero-only: ${xOnly.map(([n, v]) => `${n}($${v})`).join(', ') || 'none'}`);
+  console.log(`AIMS-only: ${aOnly.map(([n, v]) => `${n}($${v})`).join(', ') || 'none'}`);
   await prisma.$disconnect();
 }
-main().catch(e => { console.error('FATAL', e.message); process.exit(1); });
+main().catch(e => { console.error('FATAL', e.message.slice(0, 300)); process.exit(1); });
