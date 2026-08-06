@@ -601,6 +601,69 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Dry-run with the same context assembly as the live path (no send). */
+  /**
+   * Reply engine for the external group bridge (unofficial whatsapp-web.js
+   * worker — groups aren't on the Cloud API). The bridge detects the trigger
+   * and posts the group message here; we log it, load the group's recent
+   * thread as context, draft an on-brand reply with the SAME trained agent,
+   * log the outbound, and hand the text back for the bridge to send in-group.
+   * `from` is the sender's number (used for per-customer context when known).
+   */
+  async groupAgentReply(organizationId: string, groupId: string, from: string, body: string) {
+    if (!groupId?.trim()) throw new BadRequestException('groupId is required');
+    if (!body?.trim()) throw new BadRequestException('body is required');
+    const config = await this.agent.getConfig(organizationId);
+    if (!config.enabled) return { reply: null, reason: 'agent disabled' };
+
+    // Log the inbound group message (counterparty = the group id).
+    await this.prisma.whatsAppMessage
+      .create({
+        data: {
+          organizationId,
+          direction: 'INBOUND',
+          counterparty: groupId,
+          waMessageId: `grp-in-${groupId}-${body.length}-${from}`.slice(0, 180),
+          body,
+          status: 'group',
+          payload: { groupId, from, via: 'group-bridge' },
+        },
+      })
+      .catch(() => null); // dupe key on a redelivered message — ignore
+
+    const history = (
+      await this.prisma.whatsAppMessage.findMany({
+        where: { organizationId, counterparty: groupId },
+        orderBy: { createdAt: 'desc' },
+        take: 40,
+        select: { direction: true, body: true },
+      })
+    ).reverse();
+
+    const customerContext = from
+      ? await this.agent.buildCustomerContext(organizationId, from).catch(() => null)
+      : null;
+
+    const verdict = await this.agent.draftReply(organizationId, body, history, customerContext);
+    if (!verdict.reply) return { reply: null, reason: 'no draft' };
+
+    // Log the outbound optimistically (the bridge sends it right after).
+    await this.prisma.whatsAppMessage
+      .create({
+        data: {
+          organizationId,
+          direction: 'OUTBOUND',
+          counterparty: groupId,
+          waMessageId: `grp-out-${groupId}-${Date.now()}`.slice(0, 180),
+          body: verdict.reply,
+          status: 'group',
+          payload: { groupId, via: 'group-bridge' },
+        },
+      })
+      .catch(() => null);
+
+    return { reply: verdict.reply, confidence: verdict.confidence };
+  }
+
   async dryRun(organizationId: string, message: string, counterparty?: string) {
     if (!message?.trim()) throw new BadRequestException('message is required');
     let history: Array<{ direction: string; body: string | null }> = [];

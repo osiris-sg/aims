@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -10,6 +11,7 @@ import {
   Query,
   Req,
   Res,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -213,6 +215,23 @@ export class WhatsAppController {
   @ApiOperation({ summary: 'Dismiss a pending suggestion without sending' })
   dismissSuggestion(@Req() req: RequestWithOrganization, @Param('id') id: string) {
     return this.agent.dismissSuggestion(requireOrgId(req), id);
+  }
+
+  // ── Group bridge (external whatsapp-web.js worker — token-gated, not Clerk) ─
+  // Groups aren't on the Cloud API, so an unofficial linked-device worker reads
+  // the group and calls this to get an on-brand reply from the trained agent.
+  @Public()
+  @Post('group-agent')
+  @ApiOperation({ summary: 'Group bridge: draft an agent reply for a group message (X-Group-Bridge-Token gated)' })
+  async groupAgent(
+    @Req() req: RequestWithOrganization,
+    @Body() body: { organizationId: string; groupId: string; from?: string; body: string },
+  ) {
+    const expected = this.configService.get<string>('WHATSAPP.GROUP_BRIDGE_TOKEN');
+    const got = (req.headers['x-group-bridge-token'] as string) || '';
+    if (!expected || got !== expected) throw new UnauthorizedException('Invalid group bridge token');
+    if (!body?.organizationId) throw new BadRequestException('organizationId is required');
+    return this.service.groupAgentReply(body.organizationId, body.groupId, body.from || '', body.body);
   }
 
   // ── Meta webhook (public — Meta's servers call this, not our users) ────────
