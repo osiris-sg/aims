@@ -47,11 +47,20 @@ public class BtPrinterPlugin extends Plugin {
     // After the final chunk, hold before returning so the printer drains the
     // tail over-air. Without this, a following disconnect()/socket.close()
     // discards undrained RFCOMM bytes and the receipt is cut off mid-tail.
-    private static final int DRAIN_DELAY_MS = 400;
+    private static final int DRAIN_DELAY_MS = 600;
     // Let the freshly-opened RFCOMM link settle before the first bytes — the
     // first print after connecting otherwise races link setup and the printer
     // emits a garbled leading block.
     private static final int CONNECT_SETTLE_MS = 300;
+    // Pause after the on-connect buffer-clear so it takes effect before the job.
+    private static final int BUFFER_CLEAR_SETTLE_MS = 150;
+    // Sent on connect to discard anything left in the printer from a prior job
+    // BEFORE the new receipt starts — otherwise a previous job's unprinted tail
+    // (raster payload) is flushed at the head of THIS job and prints as ASCII.
+    //   DLE ENQ 2 (0x10 0x05 0x02) — real-time "clear receive + print buffers".
+    //   ESC @      (0x1B 0x40)      — reset formatting to a known state.
+    // Harmless on printers that ignore DLE ENQ (control bytes, not printed).
+    private static final byte[] CLEAR_ON_CONNECT = { 0x10, 0x05, 0x02, 0x1B, 0x40 };
 
     private BluetoothSocket socket;
     private OutputStream out;
@@ -141,6 +150,11 @@ public class BtPrinterPlugin extends Plugin {
                 out = s.getOutputStream();
                 // Settle before the caller's first write() — see CONNECT_SETTLE_MS.
                 Thread.sleep(CONNECT_SETTLE_MS);
+                // Discard any leftover buffer from a prior job before it can be
+                // flushed at the head of the next receipt — see CLEAR_ON_CONNECT.
+                out.write(CLEAR_ON_CONNECT);
+                out.flush();
+                Thread.sleep(BUFFER_CLEAR_SETTLE_MS);
                 call.resolve();
             } catch (SecurityException e) {
                 call.reject("Bluetooth permission error (connect): " + e.getMessage());
