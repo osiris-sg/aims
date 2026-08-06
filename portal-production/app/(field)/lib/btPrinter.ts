@@ -75,10 +75,21 @@ const feed = (n: number): number[] => [ESC, 0x64, n];
 
 const RULE = "-".repeat(32); // 32 chars/line at normal size on 58mm
 
+// Cap the rasterised height (dots). A signature crop is normally wider than
+// tall, so width fills to maxWidth; this only kicks in for an unusually tall
+// crop so we never emit a runaway image block.
+const RASTER_MAX_HEIGHT = 360;
+const INK_THRESHOLD = 128; // luminance below this counts as ink
+
 /**
  * Rasterise an image data-URL to a 1-bit GS v 0 block, ≤maxWidth dots wide.
  * Generic — any future receipt imagery (logos, QR fallbacks) can reuse it.
  * Threshold only (no dithering): signatures are already bilevel.
+ *
+ * A signature-pad export is a large, mostly-empty canvas with the strokes in a
+ * small region; scaling the WHOLE canvas to maxWidth shrinks the actual ink to
+ * a few mm. So we first find the ink bounding box, crop to it (+ a little
+ * padding), then scale THAT to fill the width — the strokes end up legible.
  */
 export async function rasterizeDataUrl(dataUrl: string, maxWidth = 384): Promise<number[]> {
   const img = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -87,18 +98,60 @@ export async function rasterizeDataUrl(dataUrl: string, maxWidth = 384): Promise
     i.onerror = () => reject(new Error("Could not load image for printing"));
     i.src = dataUrl;
   });
-  const scale = Math.min(1, maxWidth / img.width);
-  const w = Math.max(1, Math.round(img.width * scale));
-  const h = Math.max(1, Math.round(img.height * scale));
+
+  // 1) Draw at natural size (white bg — signature PNGs are transparent).
+  const srcW = Math.max(1, img.width);
+  const srcH = Math.max(1, img.height);
+  const src = document.createElement("canvas");
+  src.width = srcW;
+  src.height = srcH;
+  const sctx = src.getContext("2d");
+  if (!sctx) throw new Error("Canvas unavailable");
+  sctx.fillStyle = "#fff";
+  sctx.fillRect(0, 0, srcW, srcH);
+  sctx.drawImage(img, 0, 0, srcW, srcH);
+  const srcData = sctx.getImageData(0, 0, srcW, srcH).data;
+
+  // 2) Ink bounding box (dark pixels). If nothing is dark, keep the full frame.
+  let minX = srcW, minY = srcH, maxX = -1, maxY = -1;
+  for (let y = 0; y < srcH; y++) {
+    for (let x = 0; x < srcW; x++) {
+      const i = (y * srcW + x) * 4;
+      const lum = 0.299 * srcData[i] + 0.587 * srcData[i + 1] + 0.114 * srcData[i + 2];
+      if (lum < INK_THRESHOLD) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < minX) {
+    minX = 0; minY = 0; maxX = srcW - 1; maxY = srcH - 1;
+  }
+  const pad = 6;
+  minX = Math.max(0, minX - pad);
+  minY = Math.max(0, minY - pad);
+  maxX = Math.min(srcW - 1, maxX + pad);
+  maxY = Math.min(srcH - 1, maxY + pad);
+  const cropW = maxX - minX + 1;
+  const cropH = maxY - minY + 1;
+
+  // 3) Scale the crop to fill the width (upscaling allowed so small signatures
+  //    grow), but never taller than RASTER_MAX_HEIGHT.
+  const scale = Math.min(maxWidth / cropW, RASTER_MAX_HEIGHT / cropH);
+  const w = Math.max(1, Math.round(cropW * scale));
+  const h = Math.max(1, Math.round(cropH * scale));
+
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas unavailable");
-  // White background — signature PNGs are transparent.
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, w, h);
-  ctx.drawImage(img, 0, 0, w, h);
+  // 9-arg drawImage: crop (minX,minY,cropW,cropH) from src → fill (0,0,w,h).
+  ctx.drawImage(src, minX, minY, cropW, cropH, 0, 0, w, h);
   const { data } = ctx.getImageData(0, 0, w, h);
 
   const bytesPerRow = Math.ceil(w / 8);
@@ -112,7 +165,7 @@ export async function rasterizeDataUrl(dataUrl: string, maxWidth = 384): Promise
         const i = (y * w + x) * 4;
         // Luminance threshold — dark pixel ⇒ print (bit set).
         const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-        if (lum < 128) byte |= 0x80 >> bit;
+        if (lum < INK_THRESHOLD) byte |= 0x80 >> bit;
       }
       bitmap.push(byte);
     }
