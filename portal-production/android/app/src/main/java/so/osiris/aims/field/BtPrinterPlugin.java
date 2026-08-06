@@ -44,7 +44,6 @@ public class BtPrinterPlugin extends Plugin {
 
     private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
     private static final int CHUNK_SIZE = 512;
-    private static final int CHUNK_DELAY_MS = 25;
     // After the final chunk, hold before returning so the printer drains the
     // tail over-air. Without this, a following disconnect()/socket.close()
     // discards undrained RFCOMM bytes and the receipt is cut off mid-tail.
@@ -161,16 +160,19 @@ public class BtPrinterPlugin extends Plugin {
             try {
                 if (out == null) { call.reject("Not connected — call connect(mac) first"); return; }
                 byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
-                // Chunked writes: SPP printer buffers are tiny; a single large
-                // write drops bytes mid-receipt on most cheap 58mm units. The
-                // loop covers the whole array — the last iteration's len is the
-                // final partial chunk (min(CHUNK_SIZE, remaining)), so no tail
-                // bytes are dropped here.
+                // Chunk the write() syscall (SPP buffers are small) but with NO
+                // inter-chunk delay: a temporal gap INSIDE a raster command
+                // (GS v 0) makes cheap 58mm firmware time out waiting for image
+                // data and revert to text mode — printing the raster bytes as
+                // ASCII. Back-to-back writes form one continuous wire stream
+                // (RFCOMM doesn't preserve write-call boundaries as gaps), so
+                // every ESC/POS command arrives intact. RFCOMM credit-based
+                // flow control provides the backpressure the old sleep faked.
+                // The loop covers the whole array — the last iteration's len is
+                // the final partial chunk (min(CHUNK_SIZE, remaining)).
                 for (int off = 0; off < bytes.length; off += CHUNK_SIZE) {
                     int len = Math.min(CHUNK_SIZE, bytes.length - off);
                     out.write(bytes, off, len);
-                    out.flush();
-                    Thread.sleep(CHUNK_DELAY_MS);
                 }
                 // Drain the tail before resolving — the caller calls disconnect()
                 // right after this resolves, and socket.close() would otherwise
