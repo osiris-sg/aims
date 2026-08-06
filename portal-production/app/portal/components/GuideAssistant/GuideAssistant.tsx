@@ -23,7 +23,6 @@ import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useConfiguration } from "../../context/ConfigurationContext";
-import { useOrganizationFeatures } from "../../hooks/useOrganizationFeatures";
 import { useUserPermissions } from "../../hooks/useUserPermissions";
 import { LEGACY_MODULES, getGuide, guideCatalog, type Guide } from "./guides";
 import TourOverlay from "./TourOverlay";
@@ -31,7 +30,9 @@ import TourOverlay from "./TourOverlay";
 // "AIMS Guide" — floating assistant bubble on the bottom-right of every portal
 // page. Ask it "how do I create a delivery order?" and it answers, navigates
 // you to the right screen, and runs a spotlight walkthrough (TourOverlay).
-// Gated per-org by the enableGuideAssistant feature flag.
+// GLOBAL / always-on for every org (guru, 2026-08-03 — no feature flag, same
+// model as the document editor's Ask AI). Access is still scoped: it only
+// knows the screens this user's org + role allow.
 
 type CustomGuidePayload = {
   title: string;
@@ -70,7 +71,6 @@ const SUGGESTIONS = [
 ];
 
 export default function GuideAssistant() {
-  const { isGuideAssistantEnabled } = useOrganizationFeatures();
   const { getToken } = useAuth();
   const { modules } = useConfiguration();
   const { isModuleAllowed, userRoles } = useUserPermissions();
@@ -214,8 +214,6 @@ export default function GuideAssistant() {
     },
     [loading, turns, getToken, pathname, modules, runAction, isModuleAllowed, isAdminUser],
   );
-
-  if (!isGuideAssistantEnabled) return null;
 
   return (
     <>

@@ -73,9 +73,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // credit notes). Keys are managed in the admin org "API Keys" tab; a key only
   // exists if an admin minted one, so this flag is the product-level switch.
   enableExternalApi: false,
-  // "AIMS Guide" chat assistant (bottom-right bubble): answers "how do I…"
-  // questions by navigating to the right screen and running guided tours.
-  enableGuideAssistant: false,
+  // NOTE: the "AIMS Guide" assistant (bottom-right bubble) is deliberately
+  // NOT flagged — it's global for every org (guru, 2026-08-03).
 };
 
 interface OrganizationUIConfig {
@@ -145,6 +144,5 @@ export function useOrganizationFeatures() {
     isQuotationProjectLinkEnabled: features.enableQuotationProjectLink ?? false,
     isXeroDocSyncEnabled: features.enableXeroDocSync ?? false,
     isLegacyAccountingUxEnabled: features.enableLegacyAccountingUx ?? false,
-    isGuideAssistantEnabled: features.enableGuideAssistant ?? false,
   };
 }

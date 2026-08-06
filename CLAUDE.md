@@ -13,8 +13,8 @@ This is a monorepo containing an Asset and Inventory Management System (AIMS) wi
 
 ## AIMS Guide assistant — keep its knowledge in sync (EVERY feature you ship)
 
-The in-app help bubble ("AIMS Guide", bottom-right of the portal, flag
-`enableGuideAssistant`) answers "how do I…" questions, navigates users, and
+The in-app help bubble ("AIMS Guide", bottom-right of the portal — GLOBAL for
+every org, deliberately not feature-flagged) answers "how do I…" questions, navigates users, and
 plays spotlight walkthroughs. Its ONLY knowledge of the app is
 `api-server-production/src/guide/app-knowledge.ts` — it does NOT read the code.
 

@@ -107,8 +107,7 @@ export default function Layout(props: Props) {
                 {!isDocumentPage && <OrgSwitcher />}
                 {children}
               </Box>
-              {/* AIMS Guide bubble (bottom-right) — self-hides unless the
-                  org's enableGuideAssistant feature flag is on. */}
+              {/* AIMS Guide bubble (bottom-right) — global for every org. */}
               <GuideAssistant />
               <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick rtl={false} pauseOnFocusLoss draggable pauseOnHover theme={mode} />
             </Box>
