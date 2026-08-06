@@ -214,13 +214,21 @@ export async function buildDeliveryReceipt(d: DeliveryReceiptData): Promise<Uint
   parts.push(...line(`Installation: ${d.installNeeded ? "completed" : "not required"}`));
   parts.push(...line(RULE));
   parts.push(...align(1), ...line("Received in good order by:"));
+  // Breathing room around the signature so the image doesn't sit tight against
+  // the label above or the recipient name below.
+  parts.push(...line(""));
   if (d.signatureDataUrl) {
     parts.push(...(await rasterizeDataUrl(d.signatureDataUrl, 320)));
+    parts.push(...line("")); // LF closing the raster row + a gap below it
   }
   parts.push(...line(d.recipientName?.trim() || "(unnamed)"));
   // Feed past the tear bar — the print head sits ~1cm above the tear edge, so
   // ~4 lines left content straddling the bar. 8 clears it for a clean tear.
   parts.push(...feed(8));
+  // Leave the printer in a known state after every job — a trailing ESC @
+  // resets any lingering mode so nothing carries into the next job. (Discarding
+  // a prior job's leftover buffer is done on connect, in the plugin.)
+  parts.push(...init());
   return Uint8Array.from(parts);
 }
 
