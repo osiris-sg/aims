@@ -1246,6 +1246,12 @@ model AccountingSetting {
   id             String @id @default(uuid())
   organizationId String @unique
 
+  // "Click to pay" public page (guru 2026-08-06): bank-transfer details +
+  // PayNow QR (S3 key) shown to customers. Shape:
+  // { bank: { accountName, accountNumber, bankName, branchCode, bankCode,
+  //   currencyCode }, paynowQrKey }
+  paymentDetails Json?
+
   // ---------- Operation Settings ----------
   baseCurrency          String  @default("SGD")
   // Next-number counters per document type (e.g. { "invoice": 119, "quotation": 22, ... })

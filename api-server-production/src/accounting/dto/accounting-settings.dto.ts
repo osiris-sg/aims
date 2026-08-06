@@ -17,6 +17,11 @@ export class UpdateAccountingSettingsDto {
   @IsObject()
   numberPrefixes?: Record<string, string>;
 
+  @ApiPropertyOptional({ description: 'Click-to-pay page: bank transfer details + PayNow QR S3 key' })
+  @IsOptional()
+  @IsObject()
+  paymentDetails?: Record<string, any>;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()

@@ -3,7 +3,9 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 // /guest(.*) is the no-login guest delivery surface — Clerk protect() is skipped
 // so a driver with only a share-link token can reach it. The page itself sends
 // no auth; the backend authorises solely via the URL token (Phase 6).
-const isPublicRoute = createRouteMatcher(["/sign-in(.*)", "/guest(.*)"]);
+// /pay(.*) is the public "Click to pay" invoice page — reached from emailed
+// links; the backend authorises solely via the unguessable pay token.
+const isPublicRoute = createRouteMatcher(["/sign-in(.*)", "/guest(.*)", "/pay(.*)"]);
 
 export default clerkMiddleware(async (auth, request) => {
   if (!isPublicRoute(request)) {

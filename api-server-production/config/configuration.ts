@@ -28,5 +28,8 @@ export default () => ({
     APP_SECRET: process.env.META_APP_SECRET,
     WEBHOOK_VERIFY_TOKEN: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN,
     API_VERSION: process.env.WHATSAPP_API_VERSION || 'v23.0',
+    // Shared secret the external group bridge (whatsapp-web.js worker) sends to
+    // authenticate to POST /whatsapp/group-agent.
+    GROUP_BRIDGE_TOKEN: process.env.WHATSAPP_GROUP_BRIDGE_TOKEN,
   },
 });

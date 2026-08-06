@@ -1,4 +1,5 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { PrismaService } from 'src/common/prisma.service';
 import { isUnconfirmedDoc } from '../common/doc-status';
@@ -3384,47 +3385,19 @@ export class DocumentsService {
           : moment().add(30, 'days').format('DD MMM YYYY');
 
       // 5. Generate or get PDF URL
-      let pdfUrl: string | undefined;
-      try {
-        // Try to get existing PDF from S3
-        const s3Key = `documents/${organizationId}/${document.type}/${documentId}.pdf`;
-        try {
-          pdfUrl = await this.s3Service.getSignedUrl(s3Key, 3600); // 1 hour expiry
-        } catch (error) {
-          // PDF doesn't exist, generate it
-          console.log('PDF not found in S3, generating new one...');
+      const pdfUrl: string | undefined = await this.getOrGeneratePdfUrl(documentId, organizationId, {
+        document,
+        customer,
+        documentInfo,
+        items,
+        config,
+        isQuotation,
+        dueDate,
+      });
 
-          // Generate HTML
-          const html = this.pdfGeneratorService.generateInvoiceHtml({
-            organization: document.organization,
-            customer,
-            documentInfo,
-            items,
-            config,
-            // Type-aware: quotations title as "Quotation" and omit the due-date
-            // row; invoices keep "Tax Invoice" + the real due date.
-            isQuotation,
-            dueDate,
-          });
-
-          // Generate PDF
-          const pdfBuffer = await this.pdfGeneratorService.generatePdfFromHtml(html);
-
-          // Upload to S3
-          const { key } = await this.s3Service.uploadPdf(
-            organizationId,
-            document.type,
-            documentId,
-            pdfBuffer,
-          );
-
-          // Get signed URL
-          pdfUrl = await this.s3Service.getSignedUrl(key, 3600);
-        }
-      } catch (error) {
-        console.error('Failed to get/generate PDF:', error);
-        // Continue without PDF attachment
-      }
+      // Public "Click to pay" page: mint the unguessable token once and reuse.
+      const payToken = await this.ensurePayToken(documentId, organizationId);
+      const paymentUrl = payToken ? `${process.env.PORTAL_BASE_URL || 'https://www.ai-ms.io'}/pay/${payToken}` : undefined;
 
       // 6. Send email via email service
       const emailResult = await this.emailService.sendInvoiceEmail({
@@ -3433,6 +3406,7 @@ export class DocumentsService {
         bcc: emailDto.bcc,
         subject: emailDto.subject,
         message: emailDto.message,
+        paymentLink: paymentUrl,
         invoiceNumber,
         invoiceAmount: totalAmount,
         dueDate,
@@ -3442,7 +3416,6 @@ export class DocumentsService {
         customerName: customer?.name || config?.customerName || 'Customer',
         organizationName: document.organization.name,
         pdfUrl,
-        paymentLink: undefined, // TODO: Generate payment link when public payment page is implemented
       });
 
       if (!emailResult.success) {
@@ -4817,6 +4790,67 @@ export class DocumentsService {
    * AccountingSetting. Re-syncing updates the same Xero document (the Xero id
    * is stamped into config on first sync).
    */
+  // ---------- "Click to pay" public page helpers (guru 2026-08-06) ----------
+
+  // Reusable: signed URL for the document PDF, generating + uploading it if
+  // absent. `prefetched` lets sendInvoiceEmail pass what it already loaded;
+  // the public-pay endpoint calls with nothing and we fetch here.
+  async getOrGeneratePdfUrl(
+    documentId: string,
+    organizationId: string,
+    prefetched?: { document: any; customer: any; documentInfo: any; items: any[]; config: any; isQuotation: boolean; dueDate?: string },
+  ): Promise<string | undefined> {
+    try {
+      const docType =
+        prefetched?.document?.type ??
+        (await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { type: true } }))?.type;
+      const s3Key = `documents/${organizationId}/${docType}/${documentId}.pdf`;
+      try {
+        return await this.s3Service.getSignedUrl(s3Key, 3600);
+      } catch {
+        let p = prefetched;
+        if (!p) {
+          const document = await this.prisma.document.findFirst({
+            where: { id: documentId, organizationId },
+            include: { organization: true },
+          });
+          if (!document) return undefined;
+          const config: any = document.config || {};
+          const documentInfo = config.documentInfo || { documentNumber: document.name };
+          const items: any[] = Array.isArray(config.items) ? config.items : [];
+          const dueDate = config.dueDate ? moment(config.dueDate).format('DD MMM YYYY') : undefined;
+          p = { document, customer: config.customer || { name: config.customerName }, documentInfo, items, config, isQuotation: false, dueDate };
+        }
+        const html = this.pdfGeneratorService.generateInvoiceHtml({
+          organization: p.document.organization,
+          customer: p.customer,
+          documentInfo: p.documentInfo,
+          items: p.items,
+          config: p.config,
+          isQuotation: p.isQuotation,
+          dueDate: p.dueDate,
+        });
+        const pdfBuffer = await this.pdfGeneratorService.generatePdfFromHtml(html);
+        const { key } = await this.s3Service.uploadPdf(organizationId, p.document.type, documentId, pdfBuffer);
+        return await this.s3Service.getSignedUrl(key, 3600);
+      }
+    } catch (error) {
+      console.error('Failed to get/generate PDF:', error);
+      return undefined;
+    }
+  }
+
+  // Mint (once) the unguessable public-pay token stored on the document.
+  async ensurePayToken(documentId: string, organizationId: string): Promise<string | null> {
+    const doc = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { config: true } });
+    if (!doc) return null;
+    const c: any = doc.config || {};
+    if (c.payToken) return c.payToken;
+    const token = randomUUID();
+    await this.prisma.document.update({ where: { id: documentId }, data: { config: { ...c, payToken: token } as any } });
+    return token;
+  }
+
   async syncToXero(documentId: string, organizationId: string, actor?: DocumentActor) {
     const doc = await this.prisma.document.findFirst({
       where: { id: documentId, organizationId },
