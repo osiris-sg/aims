@@ -79,7 +79,12 @@ const RULE = "-".repeat(32); // 32 chars/line at normal size on 58mm
 // tall, so width fills to maxWidth; this only kicks in for an unusually tall
 // crop so we never emit a runaway image block.
 const RASTER_MAX_HEIGHT = 360;
-const INK_THRESHOLD = 128; // luminance below this counts as ink
+const INK_THRESHOLD = 128; // luminance below this prints as a set (dark) bit
+// Lenient threshold used ONLY to find the ink bounding box. Faint anti-aliased
+// edge pixels of a stroke sit between INK_THRESHOLD and near-white; detecting
+// the extent at 128 clips them (a stroke's tail gets cut, most visibly at the
+// right edge after the fill-to-width scale), so the bbox uses a higher bar.
+const BBOX_INK_THRESHOLD = 200;
 
 /**
  * Rasterise an image data-URL to a 1-bit GS v 0 block, ≤maxWidth dots wide.
@@ -118,7 +123,7 @@ export async function rasterizeDataUrl(dataUrl: string, maxWidth = 384): Promise
     for (let x = 0; x < srcW; x++) {
       const i = (y * srcW + x) * 4;
       const lum = 0.299 * srcData[i] + 0.587 * srcData[i + 1] + 0.114 * srcData[i + 2];
-      if (lum < INK_THRESHOLD) {
+      if (lum < BBOX_INK_THRESHOLD) {
         if (x < minX) minX = x;
         if (x > maxX) maxX = x;
         if (y < minY) minY = y;
@@ -129,7 +134,7 @@ export async function rasterizeDataUrl(dataUrl: string, maxWidth = 384): Promise
   if (maxX < minX) {
     minX = 0; minY = 0; maxX = srcW - 1; maxY = srcH - 1;
   }
-  const pad = 6;
+  const pad = 16;
   minX = Math.max(0, minX - pad);
   minY = Math.max(0, minY - pad);
   maxX = Math.min(srcW - 1, maxX + pad);
