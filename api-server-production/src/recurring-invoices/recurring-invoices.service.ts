@@ -135,6 +135,10 @@ export class RecurringInvoicesService {
   // (posts to GL) → email (best-effort). Returns the created document.
   async generateOne(organizationId: string, template: any, runDate: Date, userId?: string) {
     const config = resolveConfig(template.config || {}, runDate);
+    // Email overrides (guru 2026-08-06) live on the schedule, not the invoice —
+    // pull them out (token-resolved) before the document config is stored.
+    const emailPrefs: any = config.email || null;
+    delete config.email;
     config.customerId = template.customerId;
     if (template.numberFormatId) config.numberFormatId = template.numberFormatId;
 
@@ -185,9 +189,31 @@ export class RecurringInvoicesService {
       // the GL — then email (best-effort, never blocks generation/posting).
       await this.documents.confirmInvoice(doc.id, { fromInvoiceNo: '', toInvoiceNo: '' }, organizationId);
       try {
-        const customer = await this.prisma.customer.findFirst({ where: { id: template.customerId, organizationId }, select: { email: true } });
-        if (customer?.email) {
-          await this.documents.sendInvoiceEmail(doc.id, { to: [customer.email] } as any, organizationId);
+        const customer = await this.prisma.customer.findFirst({ where: { id: template.customerId, organizationId }, select: { name: true, email: true } });
+        // Recipients: schedule overrides win; else the customer's saved email.
+        const to: string[] = emailPrefs?.to?.length ? emailPrefs.to : customer?.email ? [customer.email] : [];
+        if (to.length) {
+          // Subject/body: overrides (tokens already resolved) or a composed
+          // default — previously these were sent UNDEFINED.
+          const org = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } });
+          const total = Number(config.nettTotal) || 0;
+          const curr = (config.currency || 'SGD').toUpperCase();
+          const subject = emailPrefs?.subject || `Invoice ${doc.name} from ${org?.name || ''}`.trim();
+          const message =
+            emailPrefs?.message ||
+            `Hi ${customer?.name || 'there'},
+
+Please find attached the invoice ${doc.name} amounting to ${curr} ${total.toFixed(2)}.
+
+If you have any questions, please don't hesitate to contact us.
+
+Best regards,
+${org?.name || ''}`;
+          await this.documents.sendInvoiceEmail(
+            doc.id,
+            { to, cc: emailPrefs?.cc?.length ? emailPrefs.cc : undefined, bcc: emailPrefs?.bcc?.length ? emailPrefs.bcc : undefined, subject, message } as any,
+            organizationId,
+          );
         } else {
           this.logger.warn(`[recurring] no email for customer ${template.customerId}; generated ${doc.id} but did not send`);
         }

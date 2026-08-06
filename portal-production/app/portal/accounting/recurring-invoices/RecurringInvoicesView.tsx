@@ -15,9 +15,22 @@ import { useSearchParams } from "next/navigation";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import { useGetCustomers } from "@/app/portal/hooks/api";
+import { useOrganization } from "@hooks/useOrganization";
+import SendInvoiceEmailDialog from "@/app/portal/invoices/components/SendInvoiceEmailDialog";
 
 const FREQS = ["DAILY", "WEEKLY", "MONTHLY", "QUARTERLY", "YEARLY"] as const;
 const TOKENS = ["{MONTH}", "{MONTH YEAR}", "{PERIOD}", "{YEAR}", "{DATE}", "{NEXT MONTH}", "{PREV MONTH}"];
+// Token-insert buttons (same interaction as the number-format block builder in
+// Accounting Setup — tap to drop a block in, no typing).
+const TOKEN_BUTTONS: { token: string; label: string }[] = [
+  { token: "{MONTH}", label: "Month" },
+  { token: "{MONTH YEAR}", label: "Month Year" },
+  { token: "{PERIOD}", label: "Period" },
+  { token: "{YEAR}", label: "Year" },
+  { token: "{DATE}", label: "Date" },
+  { token: "{NEXT MONTH}", label: "Next Month" },
+  { token: "{PREV MONTH}", label: "Prev Month" },
+];
 
 // Client mirror of the backend token resolver — for the live preview.
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -38,6 +51,49 @@ function resolveText(str: string, d: Date): string {
 // seed invoice's period wording for tokens so the next run re-dates itself.
 // e.g. seed dated July 2026 → "July 2026"→{MONTH YEAR}, "Jul 2026"→{PERIOD},
 // "July"→{MONTH}, "08/07/2026"→{DATE}. Anything missed is user-editable.
+const unwrapAsset = (r: any) => (r && typeof r === "object" && r.data !== undefined ? r.data : r);
+
+// datetime-local <input> value ⟷ ISO instant (guru 2026-08-06: runs carry a
+// TIME, not just a date — "I want to test one now").
+const toLocalInput = (iso?: string | null) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+const nowLocalInput = () => toLocalInput(new Date().toISOString());
+
+// Infer which numbering variant produced a document number: turn the format's
+// pattern ("BI{YYYY}{MM}{####}") into an anchored regex and test. Longest
+// pattern wins so specific variants beat generic ones.
+function matchNumberFormat(docNumber: string, fmts: Array<{ id: string; pattern?: string }>): string {
+  if (!docNumber) return "";
+  const toRegex = (pattern: string) => {
+    const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    let out = "^";
+    const re = /\{(YYYY|YY|MM|DD|DOC|#+)\}/g;
+    let last = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(pattern))) {
+      out += esc(pattern.slice(last, m.index));
+      const tok = m[1];
+      out += tok === "YYYY" ? "\\d{4}" : tok === "YY" || tok === "MM" || tok === "DD" ? "\\d{2}" : tok === "DOC" ? "[A-Za-z/]{1,6}" : `\\d{${tok.length}}`;
+      last = m.index + m[0].length;
+    }
+    out += esc(pattern.slice(last)) + "$";
+    return new RegExp(out);
+  };
+  const sorted = [...fmts].filter((fm) => fm.pattern).sort((a, b) => (b.pattern!.length || 0) - (a.pattern!.length || 0));
+  for (const fm of sorted) {
+    try {
+      if (toRegex(fm.pattern!).test(docNumber)) return fm.id;
+    } catch {
+      /* bad pattern — skip */
+    }
+  }
+  return "";
+}
+
 function tokenizeText(str: string, d: Date): string {
   if (!str) return str;
   const month = MONTHS[d.getMonth()], mon = month.slice(0, 3), y = String(d.getFullYear());
@@ -47,12 +103,6 @@ function tokenizeText(str: string, d: Date): string {
     .replace(new RegExp(`${mon}\\s+${y}`, "gi"), "{PERIOD}")
     .replace(new RegExp(date.replace(/\//g, "\\/"), "g"), "{DATE}")
     .replace(new RegExp(`\\b${month}\\b`, "gi"), "{MONTH}");
-}
-
-function addMonths(d: Date, n: number): Date {
-  const next = new Date(d);
-  next.setMonth(next.getMonth() + n);
-  return next;
 }
 
 type Row = { description: string; quantity: number; unitPrice: number; accountCode?: string };
@@ -65,7 +115,7 @@ type Template = {
 
 // Draft-first by default: autoSend=false means each run creates a DRAFT invoice
 // for review (fill meter readings etc.), not a confirmed+emailed one.
-const blank = { name: "", customerId: "", documentTemplateId: "", numberFormatId: "", frequency: "MONTHLY", nextRunDate: "", endDate: "", autoSend: false, isActive: true, notes: "", items: [{ description: "", quantity: 1, unitPrice: 0, accountCode: "" }] as Row[], projectId: "", projectDeploymentId: "", sourceDocumentId: "", projectName: "" };
+const blank = { name: "", customerId: "", documentTemplateId: "", numberFormatId: "", frequency: "MONTHLY", nextRunDate: "", endDate: "", autoSend: false, isActive: true, notes: "", emailOverrides: null as any, items: [{ description: "", quantity: 1, unitPrice: 0, accountCode: "" }] as Row[], projectId: "", projectDeploymentId: "", sourceDocumentId: "", projectName: "" };
 
 export default function RecurringInvoicesView() {
   const { request } = useAccountingApi();
@@ -74,6 +124,7 @@ export default function RecurringInvoicesView() {
   const [items, setItems] = useState<Template[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);
   const [formats, setFormats] = useState<any[]>([]);
+  const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Template | null>(null);
@@ -81,20 +132,45 @@ export default function RecurringInvoicesView() {
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const prefilledFromRef = useRef<string | null>(null);
+  const { organization } = useOrganization();
+  // Which text field receives inserted tokens: an item row or the notes box.
+  const tokenTargetRef = useRef<{ kind: "item"; index: number } | { kind: "notes" }>({ kind: "item", index: 0 });
+  const [emailPreviewOpen, setEmailPreviewOpen] = useState(false);
+
+  const insertToken = (token: string) => {
+    const t = tokenTargetRef.current;
+    if (t.kind === "notes") {
+      setForm((f: any) => ({ ...f, notes: `${f.notes || ""}${f.notes && !f.notes.endsWith(" ") ? " " : ""}${token}` }));
+    } else {
+      setForm((f: any) => ({
+        ...f,
+        items: f.items.map((r: Row, x: number) =>
+          x === t.index ? { ...r, description: `${r.description || ""}${r.description && !r.description.endsWith(" ") ? " " : ""}${token}` } : r,
+        ),
+      }));
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       await request("/recurring-invoices/run-due", { method: "POST" }).catch(() => {}); // generate any due
-      const [list, tpls, fmts] = await Promise.all([
+      const [list, tpls, fmts, accs] = await Promise.all([
         request<Template[]>("/recurring-invoices"),
-        request<any>("/documentTemplates", { method: "POST", body: JSON.stringify({ page: 1, limit: 100, search: "", filters: { type: "INVOICE" } }) }).catch(() => null),
+        // Org-scoped: only templates ACTIVATED for this org (shared pool
+        // otherwise leaks every org's variants — guru 2026-08-06).
+        request<any>("/documentTemplates/active/INVOICE").catch(() => null),
         request<any[]>("/document-numbering?documentType=INVOICE").catch(() => []),
+        // Chart of accounts for the line Account dropdown (same source +
+        // filter as the bill editor — guru 2026-08-06).
+        request<any[]>("/accounting/accounts").catch(() => []),
       ]);
       setItems(list || []);
-      const docs = (tpls?.docs ?? tpls ?? []).filter((t: any) => t.type === "INVOICE");
+      const raw = tpls?.data ?? tpls ?? [];
+      const docs = (Array.isArray(raw) ? raw : raw?.docs ?? []).filter((t: any) => t.type === "INVOICE");
       setTemplates(docs);
       setFormats((fmts || []).filter((f: any) => f.isActive));
+      setAccounts(((accs as any[]) || []).filter((a: any) => a.isActive).sort((a: any, b: any) => String(a.code).localeCompare(String(b.code))));
     } catch (e: any) {
       toast.error(e?.message || "Failed to load recurring invoices");
     } finally {
@@ -117,23 +193,53 @@ export default function RecurringInvoicesView() {
         if (!doc?.id) { toast.error("Could not load the source invoice"); return; }
         const cfg: any = doc.config || {};
         const seedDate = cfg.date ? new Date(cfg.date) : new Date(doc.createdAt || Date.now());
-        const rows: Row[] = (Array.isArray(cfg.items) ? cfg.items : [])
-          .filter((it: any) => (it?.description || "").trim())
-          .map((it: any) => ({
-            description: tokenizeText(String(it.description || ""), seedDate),
-            quantity: Number(it.quantity) || 1,
-            unitPrice: Number(it.unitPrice ?? it.price) || 0,
-            accountCode: it.accountCode || "",
-          }));
+        const seedItems = (Array.isArray(cfg.items) ? cfg.items : []).filter((it: any) => (it?.description || "").trim());
+        // Account prefill (guru 2026-08-05): the line's own accountCode wins;
+        // otherwise pull the linked item's attached revenue account
+        // (rentalAccountCode first — recurring is overwhelmingly rentals —
+        // then salesAccountCode).
+        const itemAccounts = new Map<string, string>();
+        await Promise.all(
+          Array.from(new Set(seedItems.map((it: any) => it.inventoryItemId).filter(Boolean))).map(async (assetId: any) => {
+            try {
+              const a: any = unwrapAsset(await request<any>(`/assets/${assetId}`));
+              const code = a?.rentalAccountCode || a?.salesAccountCode || "";
+              if (code) itemAccounts.set(assetId, code);
+            } catch {
+              /* item lookup is best-effort */
+            }
+          }),
+        );
+        const rows: Row[] = seedItems.map((it: any) => ({
+          description: tokenizeText(String(it.description || ""), seedDate),
+          quantity: Number(it.quantity) || 1,
+          unitPrice: Number(it.unitPrice ?? it.price) || 0,
+          accountCode: it.accountCode || (it.inventoryItemId && itemAccounts.get(it.inventoryItemId)) || "",
+        }));
+        // Number format carries over (guru 2026-08-06): explicit id on the
+        // seed when present, else inferred by matching the invoice number
+        // against each active variant's pattern.
+        let numberFormatId = cfg.numberFormatId || "";
+        if (!numberFormatId) {
+          try {
+            const fmts: any[] = (await request<any[]>(`/document-numbering?documentType=INVOICE`)) || [];
+            numberFormatId = matchNumberFormat(String(doc.name || ""), fmts.filter((fm: any) => fm.isActive));
+          } catch {
+            /* inference is best-effort */
+          }
+        }
         setEditing(null);
         setForm({
           ...blank,
           name: `Recurring — ${doc.name || "invoice"}`,
           customerId: cfg.customerId || cfg.customer?.id || "",
           documentTemplateId: doc.documentTemplateId || "",
-          numberFormatId: cfg.numberFormatId || "",
+          numberFormatId,
           frequency: "MONTHLY",
-          nextRunDate: addMonths(seedDate, 1).toISOString().slice(0, 10),
+          // First run = TODAY (guru 2026-08-05): "confirm & make recurring"
+          // means the schedule takes over sending from now — the first run
+          // fires immediately on activate, then advances one period per run.
+          nextRunDate: nowLocalInput(),
           autoSend: false,
           notes: tokenizeText(String(cfg.notes || ""), seedDate),
           items: rows.length ? rows : blank.items,
@@ -155,13 +261,13 @@ export default function RecurringInvoicesView() {
   const custName = (id: string) => customers?.find((c: any) => c.id === id)?.name || "—";
   const previewDate = useMemo(() => (form.nextRunDate ? new Date(form.nextRunDate) : new Date()), [form.nextRunDate]);
 
-  const openNew = () => { setEditing(null); setForm({ ...blank, nextRunDate: new Date().toISOString().slice(0, 10) }); setOpen(true); };
+  const openNew = () => { setEditing(null); setForm({ ...blank, nextRunDate: nowLocalInput() }); setOpen(true); };
   const openEdit = (t: Template) => {
     setEditing(t);
     setForm({
       name: t.name, customerId: t.customerId, documentTemplateId: t.documentTemplateId, numberFormatId: t.numberFormatId || "",
-      frequency: t.frequency, nextRunDate: t.nextRunDate?.slice(0, 10) || "", endDate: t.endDate?.slice(0, 10) || "",
-      autoSend: t.autoSend, isActive: t.isActive, notes: t.config?.notes || "",
+      frequency: t.frequency, nextRunDate: toLocalInput(t.nextRunDate), endDate: t.endDate?.slice(0, 10) || "",
+      autoSend: t.autoSend, isActive: t.isActive, notes: t.config?.notes || "", emailOverrides: t.config?.email || null,
       items: Array.isArray(t.config?.items) && t.config.items.length ? t.config.items.map((i: any) => ({ description: i.description || "", quantity: i.quantity ?? 1, unitPrice: i.unitPrice ?? 0, accountCode: i.accountCode || "" })) : blank.items,
       projectId: t.projectId || "", projectDeploymentId: t.projectDeploymentId || "", sourceDocumentId: t.sourceDocumentId || "", projectName: "",
     });
@@ -172,7 +278,9 @@ export default function RecurringInvoicesView() {
   const addRow = () => setForm((f: any) => ({ ...f, items: [...f.items, { description: "", quantity: 1, unitPrice: 0, accountCode: "" }] }));
   const delRow = (i: number) => setForm((f: any) => ({ ...f, items: f.items.filter((_: Row, x: number) => x !== i) }));
 
-  const save = async () => {
+  // asDraft: save with isActive=false — editable later, never runs until
+  // activated from the list (guru 2026-08-05).
+  const save = async (asDraft = false) => {
     if (!form.name.trim()) return toast.warn("Name is required");
     if (!form.customerId) return toast.warn("Pick a customer");
     if (!form.documentTemplateId) return toast.warn("Pick an invoice template");
@@ -181,6 +289,9 @@ export default function RecurringInvoicesView() {
     try {
       const config = {
         notes: form.notes,
+        // Saved email settings (recipients/subject/body) for auto-send runs —
+        // tokens in subject/body resolve per run.
+        ...(form.emailOverrides ? { email: form.emailOverrides } : {}),
         items: form.items.filter((r: Row) => r.description.trim()).map((r: Row) => ({
           itemCode: "", description: r.description, quantity: Number(r.quantity) || 1, unitPrice: Number(r.unitPrice) || 0,
           amount: (Number(r.quantity) || 1) * (Number(r.unitPrice) || 0), ...(r.accountCode ? { accountCode: r.accountCode } : {}),
@@ -188,15 +299,15 @@ export default function RecurringInvoicesView() {
       };
       const payload = {
         name: form.name.trim(), customerId: form.customerId, documentTemplateId: form.documentTemplateId,
-        numberFormatId: form.numberFormatId || null, frequency: form.frequency, nextRunDate: form.nextRunDate,
-        endDate: form.endDate || null, autoSend: form.autoSend, isActive: form.isActive, config,
+        numberFormatId: form.numberFormatId || null, frequency: form.frequency, nextRunDate: new Date(form.nextRunDate).toISOString(),
+        endDate: form.endDate || null, autoSend: form.autoSend, isActive: asDraft ? false : form.isActive, config,
         projectId: form.projectId || null,
         projectDeploymentId: form.projectDeploymentId || null,
         sourceDocumentId: form.sourceDocumentId || null,
       };
       if (editing) await request(`/recurring-invoices/${editing.id}`, { method: "PATCH", body: JSON.stringify(payload) });
       else await request("/recurring-invoices", { method: "POST", body: JSON.stringify(payload) });
-      toast.success(editing ? "Updated" : "Recurring invoice created");
+      toast.success(asDraft ? "Saved as draft — it won't run until you switch it Active in the list" : editing ? "Updated" : "Recurring invoice created");
       setOpen(false); load();
     } catch (e: any) { toast.error(e?.message || "Save failed"); } finally { setSaving(false); }
   };
@@ -255,6 +366,7 @@ export default function RecurringInvoicesView() {
                   <TableCell>
                     <Stack direction="row" alignItems="center" gap={0.75}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>{t.name}</Typography>
+                      {!t.isActive && !t.lastRunAt && <Chip size="small" color="warning" variant="outlined" label="DRAFT" />}
                       {t.projectDeploymentId && (
                         <Tooltip title="Linked to a project deployment — generated invoices appear on its deployment card">
                           <Chip size="small" icon={<LinkIcon sx={{ fontSize: 14 }} />} label="Deployment" variant="outlined" />
@@ -264,7 +376,7 @@ export default function RecurringInvoicesView() {
                   </TableCell>
                   <TableCell>{custName(t.customerId)}</TableCell>
                   <TableCell><Chip size="small" label={t.frequency.toLowerCase()} /></TableCell>
-                  <TableCell>{t.nextRunDate?.slice(0, 10)}</TableCell>
+                  <TableCell>{toLocalInput(t.nextRunDate).replace("T", " ")}</TableCell>
                   <TableCell align="center">{t.autoSend ? <Chip size="small" color="info" label="Auto (email)" /> : <Chip size="small" label="Draft" />}</TableCell>
                   <TableCell align="center"><Switch size="small" checked={t.isActive} onChange={() => toggle(t)} /></TableCell>
                   <TableCell align="right">
@@ -321,30 +433,56 @@ export default function RecurringInvoicesView() {
               <TextField select label="Every" size="small" sx={{ minWidth: 140 }} value={form.frequency} onChange={(e) => setForm((f: any) => ({ ...f, frequency: e.target.value }))}>
                 {FREQS.map((fr) => (<MenuItem key={fr} value={fr}>{fr.toLowerCase()}</MenuItem>))}
               </TextField>
-              <TextField label="First run" size="small" type="date" InputLabelProps={{ shrink: true }} value={form.nextRunDate} onChange={(e) => setForm((f: any) => ({ ...f, nextRunDate: e.target.value }))} />
+              <TextField label="First run" size="small" type="datetime-local" InputLabelProps={{ shrink: true }} value={form.nextRunDate} onChange={(e) => setForm((f: any) => ({ ...f, nextRunDate: e.target.value }))} sx={{ minWidth: 210 }} />
               <TextField label="End date (optional)" size="small" type="date" InputLabelProps={{ shrink: true }} value={form.endDate} onChange={(e) => setForm((f: any) => ({ ...f, endDate: e.target.value }))} />
               <Tooltip title={form.autoSend ? "Each run confirms (posts to the GL) and emails the customer automatically" : "Each run creates a draft invoice for review — fill in meter readings etc., then confirm manually"}>
                 <Stack direction="row" alignItems="center"><Switch checked={form.autoSend} onChange={(_, v) => setForm((f: any) => ({ ...f, autoSend: v }))} /><Typography variant="body2">{form.autoSend ? "Fully automatic (confirm + email)" : "Draft for review"}</Typography></Stack>
               </Tooltip>
+              {form.autoSend && (
+                <Button size="small" variant="outlined" onClick={() => {
+                  if (!form.customerId) { toast.warn("Pick a customer first"); return; }
+                  setEmailPreviewOpen(true);
+                }}>
+                  Preview email
+                </Button>
+              )}
             </Stack>
 
             {/* Line items */}
             <Box>
               <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>Line items</Typography>
-              <Typography variant="caption" color="text.secondary">Use tokens in the description — they resolve to the run date: {TOKENS.join("  ")}</Typography>
+              <Typography variant="caption" color="text.secondary">Click a line description (or Notes), then tap a button to drop in a date token — it resolves to each run&apos;s date.</Typography>
+              <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mt: 1 }}>
+                {TOKEN_BUTTONS.map((tb) => (
+                  <Button key={tb.token} size="small" variant="outlined" startIcon={<AddIcon />} onMouseDown={(e) => e.preventDefault()} onClick={() => insertToken(tb.token)}>
+                    {tb.label}
+                  </Button>
+                ))}
+              </Stack>
               <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, mt: 1 }}>
                 <Table size="small">
                   <TableHead><TableRow>
                     <TableCell>Description</TableCell><TableCell align="right" sx={{ width: 80 }}>Qty</TableCell>
-                    <TableCell align="right" sx={{ width: 110 }}>Unit price</TableCell><TableCell sx={{ width: 110 }}>Account</TableCell><TableCell />
+                    <TableCell align="right" sx={{ width: 110 }}>Unit price</TableCell><TableCell sx={{ width: 200 }}>Account</TableCell><TableCell />
                   </TableRow></TableHead>
                   <TableBody>
                     {form.items.map((r: Row, i: number) => (
                       <TableRow key={i}>
-                        <TableCell><TextField fullWidth size="small" multiline maxRows={6} value={r.description} placeholder="Services for {MONTH YEAR}" onChange={(e) => setRow(i, { description: e.target.value })} /></TableCell>
+                        <TableCell><TextField fullWidth size="small" multiline maxRows={6} value={r.description} placeholder="Services for {MONTH YEAR}" onFocus={() => { tokenTargetRef.current = { kind: "item", index: i }; }} onChange={(e) => setRow(i, { description: e.target.value })} /></TableCell>
                         <TableCell><TextField size="small" type="number" value={r.quantity} onChange={(e) => setRow(i, { quantity: Number(e.target.value) })} /></TableCell>
                         <TableCell><TextField size="small" type="number" value={r.unitPrice} onChange={(e) => setRow(i, { unitPrice: Number(e.target.value) })} /></TableCell>
-                        <TableCell><TextField size="small" value={r.accountCode || ""} placeholder="e.g. 200" onChange={(e) => setRow(i, { accountCode: e.target.value })} /></TableCell>
+                        <TableCell>
+                          <Autocomplete
+                            size="small"
+                            options={accounts}
+                            value={accounts.find((a: any) => a.code === r.accountCode) || null}
+                            onChange={(_, v: any) => setRow(i, { accountCode: v?.code || "" })}
+                            getOptionLabel={(o: any) => `${o.code} — ${o.name}`}
+                            renderOption={(props, o: any) => (<li {...props} key={o.id}>{o.code} — {o.name}</li>)}
+                            renderInput={(params) => <TextField {...params} placeholder="Auto" />}
+                            sx={{ minWidth: 180 }}
+                          />
+                        </TableCell>
                         <TableCell><IconButton size="small" onClick={() => delRow(i)}><DeleteOutlineIcon fontSize="small" /></IconButton></TableCell>
                       </TableRow>
                     ))}
@@ -354,7 +492,7 @@ export default function RecurringInvoicesView() {
               <Button size="small" startIcon={<AddIcon />} onClick={addRow} sx={{ mt: 1 }}>Add line</Button>
             </Box>
 
-            <TextField label="Notes (optional, tokens allowed)" size="small" fullWidth multiline minRows={2} value={form.notes} onChange={(e) => setForm((f: any) => ({ ...f, notes: e.target.value }))} />
+            <TextField label="Notes (optional, tokens allowed)" size="small" fullWidth multiline minRows={2} value={form.notes} onFocus={() => { tokenTargetRef.current = { kind: "notes" }; }} onChange={(e) => setForm((f: any) => ({ ...f, notes: e.target.value }))} />
 
             {/* Live preview */}
             <Box sx={{ p: 1.5, borderRadius: 1, bgcolor: (t) => alpha(t.palette.info.main, 0.06) }}>
@@ -368,9 +506,57 @@ export default function RecurringInvoicesView() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)} disabled={saving}>Cancel</Button>
-          <Button variant="contained" onClick={save} disabled={saving} startIcon={saving ? <CircularProgress size={14} color="inherit" /> : undefined}>{editing ? "Save" : "Create"}</Button>
+          <Button variant="outlined" onClick={() => save(true)} disabled={saving}>Save as draft</Button>
+          <Button variant="contained" onClick={() => save(false)} disabled={saving} startIcon={saving ? <CircularProgress size={14} color="inherit" /> : undefined}>{editing ? "Save" : "Create & activate"}</Button>
         </DialogActions>
       </Dialog>
+
+      {/* Email preview — the exact dialog used when sending an invoice email
+          (CleanDocumentPreview / editor), in preview-only mode with this
+          schedule's next run resolved in. */}
+      {emailPreviewOpen && (
+        <SendInvoiceEmailDialog
+          open={emailPreviewOpen}
+          onClose={() => setEmailPreviewOpen(false)}
+          onSent={() => setEmailPreviewOpen(false)}
+          previewOnly
+          templateId={form.documentTemplateId || undefined}
+          initialOverrides={form.emailOverrides}
+          onSaveOverrides={(o) => {
+            setForm((f: any) => ({ ...f, emailOverrides: o }));
+            toast.success("Email settings stored — they take effect when you save this schedule");
+          }}
+          organizationName={organization?.name}
+          invoice={{
+            id: "",
+            // The ACTUAL number the next run will mint (backend attaches
+            // `preview` per numbering variant); default scheme → placeholder.
+            name: formats.find((fm: any) => fm.id === form.numberFormatId)?.preview || "(auto number)",
+            type: "INVOICE",
+            status: "unconfirmed",
+            organizationId: organization?.id || "",
+            config: {
+              items: form.items
+                .filter((r: Row) => r.description.trim())
+                .map((r: Row) => ({
+                  description: resolveText(r.description, previewDate),
+                  quantity: Number(r.quantity) || 1,
+                  unitPrice: Number(r.unitPrice) || 0,
+                  amount: (Number(r.quantity) || 1) * (Number(r.unitPrice) || 0),
+                })),
+              notes: resolveText(form.notes || "", previewDate),
+              date: form.nextRunDate,
+              customerId: form.customerId,
+              company: { name: organization?.name },
+            },
+          }}
+          customer={{
+            id: form.customerId,
+            name: custName(form.customerId),
+            email: (customers || []).find((c: any) => c.id === form.customerId)?.email,
+          }}
+        />
+      )}
     </Box>
   );
 }
