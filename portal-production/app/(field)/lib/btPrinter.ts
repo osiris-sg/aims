@@ -144,14 +144,14 @@ export async function buildDeliveryReceipt(d: DeliveryReceiptData): Promise<Uint
   const parts: number[] = [];
   parts.push(...init());
   parts.push(...align(1), ...size(true), ...bold(true), ...line("DELIVERY ORDER"), ...bold(false), ...size(false));
-  parts.push(...line("AIMS Field"), ...line(RULE));
+  parts.push(...line(RULE));
   parts.push(...align(0));
+  parts.push(...line("Sender: Biofuel Industries Pte. Ltd."));
   parts.push(...bold(true), ...line(`Delivery #${d.deliveryNumber}`), ...bold(false));
   parts.push(...line(`Unit: ${d.unitLabel}`));
   if (d.customer) parts.push(...line(`Customer: ${d.customer}`));
   if (d.project) parts.push(...line(`Project: ${d.project}`));
   if (d.siteAddress) parts.push(...line(`Site: ${d.siteAddress}`));
-  if (d.gps) parts.push(...line(`GPS: ${d.gps.latitude.toFixed(5)}, ${d.gps.longitude.toFixed(5)}`));
   parts.push(...line(`Date: ${d.dateLabel}`));
   parts.push(...line(`Installation: ${d.installNeeded ? "completed" : "not required"}`));
   parts.push(...line(RULE));
@@ -160,7 +160,9 @@ export async function buildDeliveryReceipt(d: DeliveryReceiptData): Promise<Uint
     parts.push(...(await rasterizeDataUrl(d.signatureDataUrl, 320)));
   }
   parts.push(...line(d.recipientName?.trim() || "(unnamed)"));
-  parts.push(...feed(4));
+  // Feed past the tear bar — the print head sits ~1cm above the tear edge, so
+  // ~4 lines left content straddling the bar. 8 clears it for a clean tear.
+  parts.push(...feed(8));
   return Uint8Array.from(parts);
 }
 
