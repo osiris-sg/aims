@@ -165,6 +165,31 @@ export class ProjectsController {
     return this.projectsService.attachDocumentToDeployment(deploymentId, body.documentId, organizationId);
   }
 
+  // Office-side "convert to sale" — the commercial decision moved off the rider
+  // (RENTAL/SALE toggle removed 2026-08). Per-deployment core; the DO wrapper
+  // fans out to every deployment on a delivery.
+  @Post('deployments/:deploymentId/convert-to-sale')
+  @Permissions('projects:update')
+  async convertDeploymentToSale(
+    @Param('deploymentId') deploymentId: string,
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.projectsService.convertDeploymentToSale(deploymentId, organizationId);
+  }
+
+  @Post('documents/:documentId/convert-to-sale')
+  @Permissions('projects:update')
+  async convertDocumentToSale(
+    @Param('documentId') documentId: string,
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.projectsService.convertDocumentToSale(documentId, organizationId);
+  }
+
   @Delete(':id')
   @Permissions('projects:delete')
   async deleteProject(@Param('id') id: string, @Req() req: RequestWithOrganization) {

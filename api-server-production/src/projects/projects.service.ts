@@ -959,6 +959,136 @@ export class ProjectsService {
     return { ...updated, deactivatedRecurringTemplates: linkedTemplates };
   }
 
+  /**
+   * Office-side "convert a RENTAL deployment to a SALE" — the commercial
+   * decision that used to be the rider's RENTAL/SALE toggle (removed 2026-08).
+   * ONE-WAY: `sold` is terminal (no sale→rental back-conversion). Guarded to
+   * RENTAL + ACTIVE so it can't double-fire or touch service/off-hired rows.
+   *
+   * Transaction:
+   *   (a) ProjectDeployment.type = SALE — the canonical source of truth the
+   *       stock-deduction path and public-api projection read.
+   *   (b) Re-flip the unit(s) instock/reserved/RENTAL → sold. Deliberately
+   *       allows `rental` — UNLIKE the deduction claim (instock/reserved only),
+   *       because this is an office commercial correction of an already-
+   *       delivered rental. `sold` is terminal ⇒ idempotent re-runs.
+   *   (c) Pause recurring rental templates chained to the deployment (same as
+   *       off-hire) — a sale shouldn't keep accruing monthly rent.
+   */
+  async convertDeploymentToSale(deploymentId: string, organizationId: string) {
+    const deployment = await this.prisma.projectDeployment.findFirst({
+      where: { id: deploymentId, organizationId },
+      select: { id: true, type: true, status: true },
+    });
+    if (!deployment) throw new HttpException('Deployment not found', HttpStatus.NOT_FOUND);
+    if (deployment.type !== DeploymentType.RENTAL) {
+      throw new HttpException('Only a RENTAL deployment can be converted to a sale', HttpStatus.BAD_REQUEST);
+    }
+    if (deployment.status !== DeploymentStatus.ACTIVE) {
+      throw new HttpException('Only an ACTIVE deployment can be converted to a sale', HttpStatus.BAD_REQUEST);
+    }
+
+    // Unit(s) on this deployment via their active assignment(s). Field-assign
+    // makes one deployment per unit, but handle N defensively.
+    const assignments = await this.prisma.assignment.findMany({
+      where: { projectDeploymentId: deploymentId, endDate: null, inventoryId: { not: null } },
+      select: { inventoryId: true },
+    });
+    const inventoryIds = assignments.map((a) => a.inventoryId!).filter(Boolean);
+
+    const linkedTemplates = await this.prisma.recurringInvoiceTemplate.findMany({
+      where: { organizationId, projectDeploymentId: deploymentId, isActive: true },
+      select: { id: true, name: true },
+    });
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.projectDeployment.update({
+        where: { id: deploymentId },
+        data: { type: DeploymentType.SALE },
+      });
+      let unitsFlipped = 0;
+      if (inventoryIds.length) {
+        const flip = await tx.inventory.updateMany({
+          where: {
+            id: { in: inventoryIds },
+            organizationId,
+            status: {
+              in: [InventoryStatus.instock, InventoryStatus.reserved, InventoryStatus.rental],
+            },
+          },
+          data: { status: InventoryStatus.sold },
+        });
+        unitsFlipped = flip.count;
+      }
+      if (linkedTemplates.length) {
+        await tx.recurringInvoiceTemplate.updateMany({
+          where: { id: { in: linkedTemplates.map((t) => t.id) } },
+          data: { isActive: false },
+        });
+      }
+      return { updated, unitsFlipped };
+    });
+
+    return {
+      ...result.updated,
+      unitsFlipped: result.unitsFlipped,
+      inventoryIds,
+      deactivatedRecurringTemplates: linkedTemplates,
+    };
+  }
+
+  /**
+   * DO-level wrapper: mark a whole delivery as a sale in one go. Resolves the
+   * DO's serialized units → their active deployments → convertDeploymentToSale
+   * for each. Best-effort per deployment (an already-SALE / non-ACTIVE one is
+   * recorded as skipped, not fatal). Links the DO to the deployment for
+   * reporting coherence ONLY when exactly one deployment resolved —
+   * Document.projectDeploymentId is singular, so linking a multi-unit DO to a
+   * single deployment would misrepresent it.
+   */
+  async convertDocumentToSale(documentId: string, organizationId: string) {
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true, projectDeploymentId: true },
+    });
+    if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+
+    const items = await this.prisma.documentItem.findMany({
+      where: { documentId, inventoryId: { not: null } },
+      select: { inventoryId: true },
+    });
+    const inventoryIds = Array.from(new Set(items.map((i) => i.inventoryId!).filter(Boolean)));
+
+    const assignments = inventoryIds.length
+      ? await this.prisma.assignment.findMany({
+          where: { inventoryId: { in: inventoryIds }, endDate: null, projectDeploymentId: { not: null } },
+          select: { projectDeploymentId: true },
+        })
+      : [];
+    const deploymentIds = Array.from(
+      new Set(assignments.map((a) => a.projectDeploymentId!).filter(Boolean)),
+    );
+
+    const converted: any[] = [];
+    for (const depId of deploymentIds) {
+      try {
+        converted.push(await this.convertDeploymentToSale(depId, organizationId));
+      } catch (e: any) {
+        converted.push({ id: depId, skipped: e?.message ?? 'skipped' });
+      }
+    }
+
+    // Link the DO to the deployment for reporting coherence — single-deployment
+    // case only, and only if not already linked.
+    let linkedDeploymentId: string | null = null;
+    if (deploymentIds.length === 1 && !doc.projectDeploymentId) {
+      await this.attachDocumentToDeployment(deploymentIds[0], documentId, organizationId);
+      linkedDeploymentId = deploymentIds[0];
+    }
+
+    return { documentId, deploymentIds, converted, linkedDeploymentId };
+  }
+
   async addAssignmentsToProject(projectId: string, assignments: any[], organizationId: string) {
     console.log('Adding assignments to project:', projectId, assignments);
     try {

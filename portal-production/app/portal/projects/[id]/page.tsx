@@ -485,6 +485,43 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
     }
   };
 
+  // Office-side "convert to sale" — the commercial decision moved off the rider
+  // (RENTAL/SALE toggle removed 2026-08). One-way: the unit is marked SOLD and
+  // recurring rental billing stops. Guarded in the card to RENTAL + ACTIVE.
+  const convertToSale = async (deploymentId: string) => {
+    if (!organizationId) return;
+    const dep = (project?.deployments ?? []).find((d) => d.id === deploymentId);
+    const label = dep?.description || dep?.name || "this deployment";
+    if (
+      !confirm(
+        `Convert "${label}" to a SALE?\n\nThe unit will be marked SOLD and any recurring rental billing will stop. This cannot be undone.`,
+      )
+    )
+      return;
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res: any = await request(
+        { path: `/projects/deployments/${deploymentId}/convert-to-sale`, method: "POST" },
+        {},
+        token,
+      );
+      toast.success("Converted to sale — unit marked sold");
+      const paused = res?.deactivatedRecurringTemplates;
+      if (Array.isArray(paused) && paused.length > 0) {
+        toast.info(
+          `Paused ${paused.length} recurring invoice${paused.length > 1 ? "s" : ""}: ${paused
+            .map((t: any) => t.name)
+            .join(", ")}`,
+        );
+      }
+      fetchProject();
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to convert to sale");
+    }
+  };
+
   if (loading) {
     return (
       <MainCard>
@@ -618,6 +655,7 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
                   expanded={isDeploymentExpanded(d.id)}
                   onToggle={() => setExpanded((s) => ({ ...s, [d.id]: !s[d.id] }))}
                   onOffHire={() => offHire(d.id)}
+                  onConvertToSale={() => convertToSale(d.id)}
                   onAttachDoc={() => setAttachOpenFor(d.id)}
                   onPreview={(id) => setPreviewDocId(id)}
                 />
@@ -1142,6 +1180,7 @@ function DeploymentCard({
   expanded,
   onToggle,
   onOffHire,
+  onConvertToSale,
   onAttachDoc,
   onPreview,
 }: {
@@ -1149,6 +1188,7 @@ function DeploymentCard({
   expanded: boolean;
   onToggle: () => void;
   onOffHire?: () => void;
+  onConvertToSale?: () => void;
   onAttachDoc?: () => void;
   onPreview?: (documentId: string) => void;
 }) {
@@ -1247,6 +1287,14 @@ function DeploymentCard({
                 {expanded ? "Hide" : "View"} details
               </Button>
             </Tooltip>
+            {/* Convert-to-sale: only a live rental can become a sale. One-way. */}
+            {onConvertToSale && deployment.type === "RENTAL" && deployment.status === "ACTIVE" && (
+              <Tooltip title="Convert this rental to a sale — marks the unit sold and stops rental billing (cannot be undone)">
+                <Button size="small" variant="outlined" color="secondary" onClick={onConvertToSale}>
+                  Convert to sale
+                </Button>
+              </Tooltip>
+            )}
             {onOffHire && (
               <Tooltip title="Off-hire">
                 <IconButton size="small" sx={{ color: "text.secondary", "&:hover": { color: "warning.main" } }} onClick={onOffHire}>
