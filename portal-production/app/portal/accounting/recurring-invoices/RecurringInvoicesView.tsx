@@ -10,12 +10,14 @@ import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import CloudSyncIcon from "@mui/icons-material/CloudSync";
 import LinkIcon from "@mui/icons-material/Link";
 import { useSearchParams } from "next/navigation";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import { useGetCustomers } from "@/app/portal/hooks/api";
 import { useOrganization } from "@hooks/useOrganization";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import SendInvoiceEmailDialog from "@/app/portal/invoices/components/SendInvoiceEmailDialog";
 
 const FREQS = ["DAILY", "WEEKLY", "MONTHLY", "QUARTERLY", "YEARLY"] as const;
@@ -108,7 +110,7 @@ function tokenizeText(str: string, d: Date): string {
 type Row = { description: string; quantity: number; unitPrice: number; accountCode?: string };
 type Template = {
   id: string; name: string; customerId: string; frequency: string; nextRunDate: string;
-  endDate?: string | null; autoSend: boolean; isActive: boolean; lastRunAt?: string | null;
+  endDate?: string | null; autoSend: boolean; isActive: boolean; lastRunAt?: string | null; lastRunDocumentId?: string | null;
   documentTemplateId: string; numberFormatId?: string | null; config: any;
   projectId?: string | null; projectDeploymentId?: string | null; sourceDocumentId?: string | null;
 };
@@ -133,6 +135,8 @@ export default function RecurringInvoicesView() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const prefilledFromRef = useRef<string | null>(null);
   const { organization } = useOrganization();
+  const { isXeroDocSyncEnabled } = useOrganizationFeatures();
+  const [syncingId, setSyncingId] = useState<string | null>(null);
   // Which text field receives inserted tokens: an item row or the notes box.
   const tokenTargetRef = useRef<{ kind: "item"; index: number } | { kind: "notes" }>({ kind: "item", index: 0 });
   const [emailPreviewOpen, setEmailPreviewOpen] = useState(false);
@@ -321,6 +325,25 @@ export default function RecurringInvoicesView() {
     try { await request(`/recurring-invoices/${t.id}`, { method: "PATCH", body: JSON.stringify({ isActive: !t.isActive }) }); load(); }
     catch (e: any) { toast.error(e?.message || "Failed"); }
   };
+  // Push the schedule's LATEST generated invoice to Xero — same endpoint,
+  // flag and toasts as the bill editor's Sync to Xero (guru 2026-08-07).
+  const syncToXero = async (t: Template) => {
+    if (!t.lastRunDocumentId) return toast.warn("No generated invoice yet — run the schedule first");
+    setSyncingId(t.id);
+    try {
+      const res: any = await request(`/documents/${t.lastRunDocumentId}/sync-to-xero`, { method: "POST" });
+      if (res?.success ?? true) {
+        toast.success(`${res?.action === "updated" ? "Updated in Xero" : "Created in Xero"}: ${res?.xeroInvoiceNumber || "(auto number)"} — ${res?.xeroStatus || "DRAFT"}`);
+      } else {
+        throw new Error(res?.message || "Xero sync failed");
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to sync to Xero");
+    } finally {
+      setSyncingId(null);
+    }
+  };
+
   const generateNow = async (t: Template) => {
     const what = t.autoSend ? "creates, posts to the GL and emails an invoice" : "creates a DRAFT invoice for review";
     if (!confirm(`Generate "${t.name}" now (${what})?`)) return;
@@ -381,6 +404,15 @@ export default function RecurringInvoicesView() {
                   <TableCell align="center"><Switch size="small" checked={t.isActive} onChange={() => toggle(t)} /></TableCell>
                   <TableCell align="right">
                     <Tooltip title="Generate now"><span><IconButton size="small" disabled={busyId === t.id} onClick={() => generateNow(t)}>{busyId === t.id ? <CircularProgress size={16} /> : <PlayArrowIcon fontSize="small" />}</IconButton></span></Tooltip>
+                    {isXeroDocSyncEnabled && (
+                      <Tooltip title={t.lastRunDocumentId ? "Sync the latest generated invoice to Xero (DRAFT)" : "No generated invoice yet — run the schedule first"}>
+                        <span>
+                          <IconButton size="small" disabled={syncingId === t.id || !t.lastRunDocumentId} onClick={() => syncToXero(t)}>
+                            {syncingId === t.id ? <CircularProgress size={16} /> : <CloudSyncIcon fontSize="small" />}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    )}
                     <Tooltip title="Edit"><IconButton size="small" onClick={() => openEdit(t)}><EditIcon fontSize="small" /></IconButton></Tooltip>
                     <Tooltip title="Delete"><IconButton size="small" onClick={() => remove(t)}><DeleteOutlineIcon fontSize="small" /></IconButton></Tooltip>
                   </TableCell>
