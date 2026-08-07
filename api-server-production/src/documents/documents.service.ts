@@ -534,11 +534,13 @@ export class DocumentsService {
           revisions: true,
           // Field-tech delivery reports linked to this document. CleanDocumentPreview
           // renders these into a "Proof of Delivery" section at the bottom of the
-          // DO print/preview. Restricted to DO_START / DO_ACK so unrelated service
-          // reports never leak into print output, even if some future flow sets
-          // documentId on a kind=SERVICE row.
+          // DO print/preview + pulls the ack/install customer signatures. Restricted
+          // to the DO_* proof kinds so unrelated service reports never leak into
+          // print output, even if some future flow sets documentId on a kind=SERVICE
+          // row. DO_INSTALL included so installation photos + the installation
+          // signature render (the preview already handles them).
           maintenanceReports: {
-            where: { kind: { in: ['DO_START', 'DO_ACK'] } },
+            where: { kind: { in: ['DO_START', 'DO_ACK', 'DO_INSTALL'] } },
             orderBy: { createdAt: 'asc' },
             select: {
               id: true,

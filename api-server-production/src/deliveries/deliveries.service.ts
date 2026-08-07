@@ -660,6 +660,32 @@ export class DeliveriesService {
       data: { documentId },
     });
 
+    // Stamp the run's proof MSRs for the linked units onto the DO, so a DO
+    // created from a standalone delivery surfaces the SAME photo set as a
+    // native DO. The DO photo view (documents.getById → maintenanceReports)
+    // joins on MSR.documentId; standalone MSRs carry deliveryId with
+    // documentId=null, so without this they never appear. Scoped to the linked
+    // units' DO_* proof reports; documentId:null guard = exactly-once (a
+    // re-link, or an already-DO-first MSR, is untouched). NOTE: a bare
+    // documentId update does NOT re-run applyDeliveryItemTransition (that fires
+    // only on MSR create/sign), so the delivery state machine / deduction are
+    // unaffected — this is a reporting-link only.
+    const linkedInventoryIds = selection
+      .map((i) => i.inventoryId)
+      .filter((v): v is string => !!v);
+    if (linkedInventoryIds.length) {
+      await this.prisma.maintenanceServiceReport.updateMany({
+        where: {
+          deliveryId,
+          organizationId,
+          inventoryId: { in: linkedInventoryIds },
+          kind: { in: ['DO_START', 'DO_ACK', 'DO_INSTALL'] as any },
+          documentId: null,
+        },
+        data: { documentId },
+      });
+    }
+
     const deferred = isUnconfirmedDoc(document.status);
     let deducted = 0;
     if (deferred) {
