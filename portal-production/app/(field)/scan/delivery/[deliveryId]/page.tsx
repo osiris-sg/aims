@@ -358,7 +358,17 @@ export default function DeliveryBasketPage() {
       (r) => r.kind === "DO_ACK" && r.status !== "completed" && r.inventoryId === it.inventoryId,
     );
 
-  const canAdd = run.status === "in_progress";
+  // Adding is open only while the run is in progress AND nothing has been
+  // handed over yet. "Handed over" = acknowledged, i.e. deliveryStatus
+  // not_installed (delivered, awaiting install) or completed. We deliberately
+  // do NOT count `delivering`: units auto-fire DO_START on add, so every added
+  // unit is immediately delivering — gating on that would block multi-unit
+  // baskets after the first scan. Once one unit reaches the customer, the run
+  // is closed to additions.
+  const anyAcknowledged = run.items.some(
+    (it) => it.deliveryStatus === "not_installed" || it.deliveryStatus === "completed",
+  );
+  const canAdd = run.status === "in_progress" && !anyAcknowledged;
 
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5 }}>

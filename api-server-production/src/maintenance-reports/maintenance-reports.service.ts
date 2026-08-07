@@ -1132,7 +1132,24 @@ export class MaintenanceReportsService {
         canStartStandaloneDelivery = true;
         if (technicianUserId) {
           riderOpenDelivery = await this.prisma.delivery.findFirst({
-            where: { organizationId, riderUserId: technicianUserId, status: 'in_progress' },
+            where: {
+              organizationId,
+              riderUserId: technicianUserId,
+              status: 'in_progress',
+              // Lock (mirrors the basket gate): once any unit on the run has
+              // been acknowledged (delivered — not_installed or beyond), the run
+              // is closed to new units. Excluding such runs here hides the
+              // scanner's "Add to Delivery #N" card so the lock can't be
+              // bypassed via the scan screen; the rider falls through to a fresh
+              // "Start Delivery" instead.
+              items: {
+                none: {
+                  deliveryStatus: {
+                    in: [DeliveryStatus.not_installed, DeliveryStatus.completed],
+                  },
+                },
+              },
+            },
             orderBy: { startedAt: 'desc' },
             select: { id: true, deliveryNumber: true },
           });
