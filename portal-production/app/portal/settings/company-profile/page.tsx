@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, Divider, FormControlLabel, MenuItem, Select, Switch, TextField, Typography, Grid2, IconButton, Chip, Tabs, Tab } from "@mui/material";
 import { Controller } from "react-hook-form";
 import { useAuth } from "@clerk/nextjs";
@@ -40,6 +40,7 @@ import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { uploadImage } from "@/helpers/imageUploader";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
+import { uploadFile } from "@/helpers/fileUploader";
 import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
 
 export default function OrganizationSettingsPage() {
@@ -79,10 +80,16 @@ export default function OrganizationSettingsPage() {
   const customDocumentTypes = useWatch({ control, name: "customDocumentTypes" }) || {};
 
   const [activeTab, setActiveTab] = useState<"general" | "bank" | "branding" | "documents" | "docDefaults">("general");
+  // PayNow QR (public Click-to-pay page) — stored inside bankDetails JSON.
+  const [paynowQrKey, setPaynowQrKey] = useState<string>("");
+  const [qrUploading, setQrUploading] = useState(false);
+  const qrFileRef = useRef<HTMLInputElement | null>(null);
 
   // When organization data becomes available, re-populate the form
   useEffect(() => {
     reset(defaultValues);
+    setPaynowQrKey((organization as any)?.bankDetails?.paynowQrKey || "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaultValues, reset]);
 
   // Available document types that can be customized
@@ -148,6 +155,8 @@ export default function OrganizationSettingsPage() {
         branchCode: data.bankBranchCode || "",
         bankCode: data.bankCode || "",
         currencyCode: data.bankCurrencyCode || "SGD",
+        // PayNow QR for the public Click-to-pay page.
+        paynowQrKey: paynowQrKey || "",
       },
     };
 
@@ -298,6 +307,55 @@ export default function OrganizationSettingsPage() {
                 </Box>
                 <Box sx={{ flex: 1 }}>
                   <FormInputBox control={control} name="bankCurrencyCode" label="Currency Code" placeHolder="Enter currency" />
+                </Box>
+              </Box>
+
+              {/* PayNow QR — shown on the public Click-to-pay page linked from
+                  invoice emails (guru 2026-08-06; moved here from Accounting
+                  Setup so all payment info lives in one place). */}
+              <Box sx={{ mt: 1 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>PayNow QR</Typography>
+                <Typography variant="body2" sx={{ color: "text.secondary", mb: 1 }}>
+                  Customers scan this on the Click-to-pay page from invoice emails. Save after uploading.
+                </Typography>
+                <input
+                  hidden
+                  ref={qrFileRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!f) return;
+                    setQrUploading(true);
+                    try {
+                      const token = await getToken();
+                      if (!token) throw new Error("Not authenticated");
+                      const up: any = await uploadFile({ file: f, folder: "payment-details", token });
+                      setPaynowQrKey(up?.fileKey || up?.key || "");
+                      toast.success("QR uploaded — remember to Save");
+                    } catch (err: any) {
+                      toast.error(err?.message || "Upload failed");
+                    } finally {
+                      setQrUploading(false);
+                    }
+                  }}
+                />
+                <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                  <Button variant="outlined" disabled={qrUploading} onClick={() => qrFileRef.current?.click()}>
+                    {qrUploading ? "Uploading…" : paynowQrKey ? "Replace QR image" : "Upload QR image"}
+                  </Button>
+                  {paynowQrKey && (
+                    <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={`${process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/"}${paynowQrKey}`}
+                        alt="PayNow QR"
+                        style={{ maxHeight: 110, borderRadius: 8 }}
+                      />
+                      <Button size="small" color="error" onClick={() => setPaynowQrKey("")}>Remove</Button>
+                    </>
+                  )}
                 </Box>
               </Box>
             </Box>

@@ -110,7 +110,7 @@ export class DocumentsService {
   private logDocumentEvent(opts: {
     documentId: string;
     organizationId: string;
-    action: 'CREATED' | 'EDITED' | 'APPROVED' | 'STATUS_CHANGED' | 'NOTE' | 'SENT' | 'DELETED';
+    action: 'CREATED' | 'EDITED' | 'APPROVED' | 'STATUS_CHANGED' | 'NOTE' | 'SENT' | 'EMAIL_FAILED' | 'DELETED';
     detail: string;
     documentName?: string;
     actor?: DocumentActor;
@@ -3331,9 +3331,14 @@ export class DocumentsService {
         );
       }
 
-      // 3. Validate status is 'confirmed' — invoices only. Quotations can be
-      // emailed at any status (no confirm step is required to send a quote).
-      if (!isQuotation && document.status !== 'confirmed') {
+      // 3. Validate the invoice is past confirmation — invoices only.
+      // Status model v2 (guru 2026-07-24): confirm moves invoices to
+      // 'pending_payment' ("Awaiting Payment"), then 'paid' — the old
+      // 'confirmed' value only lingers on pre-migration docs. This guard
+      // still checking ONLY 'confirmed' silently broke every invoice email
+      // (found 2026-08-06).
+      const sendableStatuses = ['confirmed', 'pending_payment', 'paid'];
+      if (!isQuotation && !sendableStatuses.includes(document.status)) {
         throw new HttpException(
           'Only confirmed invoices can be sent. Please confirm the invoice first.',
           HttpStatus.BAD_REQUEST,
@@ -3342,7 +3347,16 @@ export class DocumentsService {
 
       // 4. Extract invoice details from config
       const config: any = document.config;
-      const customer = config?.customer;
+      let customer = config?.customer;
+      // Recurring/machine-generated invoices carry only customerId — resolve
+      // the master record instead of rejecting (found 2026-08-06: every
+      // recurring auto-send died here with "Invoice must have a customer").
+      if (!customer && config?.customerId) {
+        customer = await this.prisma.customer.findFirst({
+          where: { id: config.customerId, organizationId },
+          select: { id: true, name: true, email: true, address: true, phone: true },
+        });
+      }
       const documentInfo = config?.documentInfo;
       const items = config?.items || [];
 
@@ -3365,14 +3379,17 @@ export class DocumentsService {
         );
       }
 
-      // Calculate total amount
-      const totalAmount = items.reduce((sum: number, item: any) => {
+      // Total shown in the email: the invoice's own GROSS total (incl. GST)
+      // when present — the items sum is net, which made the info box (400)
+      // disagree with the body text (436) (guru 2026-08-06).
+      const summedAmount = items.reduce((sum: number, item: any) => {
         const amount =
           parseFloat(item.amount) ||
           parseFloat(item.quantity) * parseFloat(item.unitPrice) ||
           0;
         return sum + amount;
       }, 0);
+      const totalAmount = Number(config?.nettTotal ?? config?.grossTotal) || summedAmount;
 
       // Get invoice number and due date
       const invoiceNumber = document.name || documentInfo?.documentNumber || `${isQuotation ? 'QO' : 'INV'}-${documentId.substring(0, 8)}`;
@@ -3461,6 +3478,16 @@ export class DocumentsService {
       };
     } catch (error) {
       console.error('Error sending invoice email:', error);
+      // Durable trace (guru 2026-08-06): email failures were only visible in
+      // the server console — recurring auto-sends swallowed them entirely.
+      // Now every failure lands in the document history.
+      void this.logDocumentEvent({
+        documentId,
+        organizationId,
+        action: 'EMAIL_FAILED',
+        detail: `Email failed: ${error?.message || error}`,
+        actor,
+      });
       throw new HttpException(
         error.message || 'Failed to send invoice email',
         error.status || HttpStatus.INTERNAL_SERVER_ERROR,
@@ -4806,7 +4833,13 @@ export class DocumentsService {
         (await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { type: true } }))?.type;
       const s3Key = `documents/${organizationId}/${docType}/${documentId}.pdf`;
       try {
-        return await this.s3Service.getSignedUrl(s3Key, 3600);
+        // getSignedUrl signs whether or not the object EXISTS — a missing PDF
+        // came back as a valid-looking URL to an S3 NoSuchKey error (guru
+        // 2026-08-06, pay page). HEAD-check before trusting it.
+        const candidate = await this.s3Service.getSignedUrl(s3Key, 3600);
+        const head = await fetch(candidate, { method: 'HEAD' });
+        if (!head.ok) throw new Error('PDF missing');
+        return candidate;
       } catch {
         let p = prefetched;
         if (!p) {

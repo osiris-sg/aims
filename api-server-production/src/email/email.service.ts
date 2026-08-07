@@ -124,8 +124,6 @@ export class EmailService {
           </div>
 
           <div class="content">
-            <p>Hi ${customerName},</p>
-
             <div class="message">${message}</div>
 
             <div class="invoice-details">
@@ -138,14 +136,8 @@ export class EmailService {
               <div style="text-align: center;">
                 <a href="${paymentLink}" class="button">Click to Pay</a>
               </div>
-              <p style="font-size: 14px; color: #666;">You can also use the link below to see your invoice and its payment details.</p>
+              <p style="font-size: 14px; color: #666;">The button above shows your invoice and its payment details.</p>
             ` : ''}
-
-            <p style="margin-top: 20px;">Please find the ${isQuotation ? 'quotation' : 'invoice'} attached as a PDF.</p>
-
-            <p style="margin-top: 20px;">If you have any questions, please don't hesitate to contact us.</p>
-
-            <p style="margin-top: 20px;">Best regards,<br>${params.organizationName}</p>
           </div>
 
           <div class="footer">

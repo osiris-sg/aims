@@ -22,14 +22,19 @@ export class PublicPayService {
     const c: any = doc.config || {};
 
     const [org, setting] = await Promise.all([
-      this.prisma.organization.findUnique({ where: { id: doc.organizationId }, select: { name: true, logo: true } }),
+      this.prisma.organization.findUnique({ where: { id: doc.organizationId }, select: { name: true, logo: true, bankDetails: true } }),
       this.prisma.accountingSetting.findUnique({ where: { organizationId: doc.organizationId }, select: { paymentDetails: true } }),
     ]);
     const pd: any = setting?.paymentDetails || {};
+    // Company Profile → Bank Details (Organization.bankDetails) is the store
+    // orgs already fill — it wins; the Accounting Setup tab is the fallback.
+    const orgBank: any = (org as any)?.bankDetails || null;
+    const bank = orgBank && (orgBank.accountNumber || orgBank.accountName) ? orgBank : pd.bank || null;
     let paynowQrUrl: string | null = null;
-    if (pd.paynowQrKey) {
+    const qrKey = orgBank?.paynowQrKey || pd.paynowQrKey;
+    if (qrKey) {
       try {
-        paynowQrUrl = await this.s3.getSignedUrl(pd.paynowQrKey, 3600);
+        paynowQrUrl = await this.s3.getSignedUrl(qrKey, 3600);
       } catch {
         paynowQrUrl = null;
       }
@@ -47,7 +52,7 @@ export class PublicPayService {
       dueDate: c.dueDate || null,
       status: paid ? 'PAID' : due && due.getTime() < Date.now() ? 'OVERDUE' : 'DUE',
       organization: { name: org?.name || '', logo: org?.logo || null },
-      bank: pd.bank || null,
+      bank,
       paynowQrUrl,
       pdfUrl: pdfUrl || null,
     };

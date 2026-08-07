@@ -129,6 +129,12 @@ export default function InvoicesPage() {
   type PaymentSummaryRow = { totalPaid: number; paymentCount: number; lastPaymentDate: string | null };
   const [paymentSummary, setPaymentSummary] = useState<Record<string, PaymentSummaryRow>>({});
   const [arTab, setArTab] = useState<"all" | "draft" | "awaiting" | "overdue" | "paid">("all");
+
+  // Any narrowing change restarts at page 1 — otherwise the pager can be
+  // stranded past the last page of the new (smaller) result set.
+  useEffect(() => {
+    setPage(1);
+  }, [search, filters, arTab, limit]);
   const [payDialogOpen, setPayDialogOpen] = useState(false);
   const [payDialogInvoice, setPayDialogInvoice] = useState<any>(null);
   // When a document type has >1 numbering variant, ask which to use before creating.
@@ -824,7 +830,10 @@ export default function InvoicesPage() {
 
       <PageTable
         columns={columns}
-        data={visibleDocs}
+        // PageTable renders `data` as-is — hand it only the CURRENT page's
+        // slice, or every filtered row renders at once and the pager does
+        // nothing (guru 2026-08-07).
+        data={visibleDocs.slice((page - 1) * limit, page * limit)}
         tableName="Invoice List"
         subTitle="Invoice Detail Information"
         buttonName="Create Invoice"

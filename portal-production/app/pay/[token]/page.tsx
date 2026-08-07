@@ -27,7 +27,7 @@ type Payload = {
   organization: { name: string; logo: string | null };
   bank: {
     accountName?: string; accountNumber?: string; bankName?: string;
-    branchCode?: string; bankCode?: string; currencyCode?: string;
+    swiftCode?: string; branchCode?: string; bankCode?: string; currencyCode?: string;
   } | null;
   paynowQrUrl: string | null;
   pdfUrl: string | null;
@@ -172,6 +172,7 @@ export default function PublicPayPage() {
                   {detail("Account Name", data.bank.accountName)}
                   {detail("Account number", data.bank.accountNumber)}
                   {detail("Name", data.bank.bankName)}
+                  {detail("SWIFT/BIC", data.bank.swiftCode)}
                   {detail("Branch code", data.bank.branchCode)}
                   {detail("Bank", data.bank.bankCode)}
                   {detail("Currency code", data.bank.currencyCode)}

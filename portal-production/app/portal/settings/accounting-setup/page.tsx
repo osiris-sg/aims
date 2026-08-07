@@ -12,7 +12,6 @@ import {
 } from "@mui/material";
 import SettingsIcon from "@mui/icons-material/SettingsSuggest";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
-import PaymentsIcon from "@mui/icons-material/Payments";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import Inventory2Icon from "@mui/icons-material/Inventory2";
 import BusinessIcon from "@mui/icons-material/Business";
@@ -20,7 +19,6 @@ import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
 import DefaultSettingsTab from "./components/DefaultSettingsTab";
 import FinancialSettingsTab from "./components/FinancialSettingsTab";
-import PaymentDetailsTab from "./components/PaymentDetailsTab";
 import AccountsDefinitionTab from "./components/AccountsDefinitionTab";
 import InventoryCostTab from "./components/InventoryCostTab";
 import CostCentersTab from "./components/CostCentersTab";
@@ -158,7 +156,6 @@ export default function AccountingSetupPage() {
           <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)}>
             <Tab icon={<SettingsIcon />} iconPosition="start" label="Default Settings" />
             <Tab icon={<AccountBalanceIcon />} iconPosition="start" label="Financial Settings" />
-            <Tab icon={<PaymentsIcon />} iconPosition="start" label="Payment Details" />
             <Tab icon={<PercentIcon />} iconPosition="start" label="Tax Rates" />
             <Tab icon={<AccountTreeIcon />} iconPosition="start" label="Accounts Definition" />
             <Tab icon={<Inventory2Icon />} iconPosition="start" label="Inventory Cost" />
@@ -176,14 +173,10 @@ export default function AccountingSetupPage() {
         </TabPanel>
 
         <TabPanel value={tabValue} index={2}>
-          <PaymentDetailsTab settings={settings} loading={loading} onSave={saveSettings} />
-        </TabPanel>
-
-        <TabPanel value={tabValue} index={3}>
           <TaxRatesTab />
         </TabPanel>
 
-        <TabPanel value={tabValue} index={4}>
+        <TabPanel value={tabValue} index={3}>
           <AccountsDefinitionTab
             settings={settings}
             accounts={accounts}
@@ -196,15 +189,15 @@ export default function AccountingSetupPage() {
           />
         </TabPanel>
 
-        <TabPanel value={tabValue} index={5}>
+        <TabPanel value={tabValue} index={4}>
           <InventoryCostTab />
         </TabPanel>
 
-        <TabPanel value={tabValue} index={6}>
+        <TabPanel value={tabValue} index={5}>
           <CostCentersTab />
         </TabPanel>
 
-        <TabPanel value={tabValue} index={7}>
+        <TabPanel value={tabValue} index={6}>
           <RevenueItemsTab accounts={accounts} authedFetch={authedFetch} />
         </TabPanel>
       </Paper>
