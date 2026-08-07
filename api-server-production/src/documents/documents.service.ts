@@ -103,6 +103,45 @@ export class DocumentsService {
     }
   }
 
+  /**
+   * Populate each line's Product Code (itemCode) from the extracted MODEL by an
+   * exact NORMALIZED match against Asset.skuKey (strip non-alphanumerics, lower-
+   * case — so "AF 100" ↔ "AF100"). Precedence vs codeExtractedLines (which runs
+   * first): an exact model↔skuKey match OVERRIDES itemCode (a model matching a
+   * catalog product code is the specific, intended Product Code); accountCode/GL
+   * set by codeExtractedLines is untouched. No skuKey match → put the raw model
+   * text in itemCode ONLY if nothing has coded the line yet (so a RevenueItem
+   * code is never clobbered, and the column shows the model instead of "—").
+   * Best-effort: any failure returns the items unchanged.
+   */
+  private async codeItemsByAssetSkuKey(organizationId: string, items: any[]): Promise<any[]> {
+    if (!Array.isArray(items) || items.length === 0) return items;
+    if (!items.some((it) => it?._model)) return items; // nothing to match
+    try {
+      const norm = (t: string) => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+      const assets = await this.prisma.asset.findMany({
+        where: { organizationId },
+        select: { skuKey: true },
+      });
+      const skuByNorm = new Map<string, string>();
+      for (const a of assets) {
+        const k = norm(a.skuKey);
+        if (k) skuByNorm.set(k, a.skuKey); // canonical catalog spelling
+      }
+      return items.map((it) => {
+        const model = String(it?._model || '').trim();
+        if (!model) return it;
+        const hit = skuByNorm.get(norm(model));
+        if (hit) return { ...it, itemCode: hit, codedFrom: 'asset-skuKey' }; // exact match wins
+        if (!it.itemCode) return { ...it, itemCode: model }; // fallback: raw model, don't clobber
+        return it;
+      });
+    } catch (e: any) {
+      console.warn('codeItemsByAssetSkuKey skipped:', e?.message || e);
+      return items;
+    }
+  }
+
   // ── Document history (Xero-style "History and notes") ────────────────────
   // Events are AuditLog rows keyed by resource='document' + resourceId (the
   // admin audit page sees them too). details = { detail, changes? }.
@@ -2303,10 +2342,22 @@ export class DocumentsService {
           amount: typeof it?.amount === 'number' ? it.amount : parseFloat(it?.amount) || 0,
           uom: it?.unit || undefined,
           tax: typeof it?.tax === 'number' ? it.tax : parseFloat(it?.tax) || undefined,
+          // Transient: the extracted model/part code, consumed by the
+          // Asset.skuKey matcher below and then stripped (not persisted).
+          _model: it?.model || it?.code || '',
         }),
       );
       // Stamp product/service codes + GL accounts (guru 2026-07-26).
       configItems = await this.codeExtractedLines(organizationId, configItems, type);
+      // Product Code from the extracted MODEL → Asset.skuKey (normalized exact).
+      // Runs AFTER codeExtractedLines: an exact model↔skuKey match WINS the
+      // Product Code (itemCode) even over a RevenueItem match — a model matching
+      // a catalog product code is the specific, intended code; codeExtractedLines'
+      // GL accountCode is left intact. No skuKey match → fall back to the raw
+      // model text only when nothing else coded the line (never "—").
+      configItems = await this.codeItemsByAssetSkuKey(organizationId, configItems);
+      // Drop the transient model field so it never lands in persisted config.
+      configItems = configItems.map(({ _model, ...rest }: any) => rest);
     }
 
     // Map extracted → AIMS document config shape.

@@ -50,6 +50,9 @@ export interface ExtractedDocumentData {
   // Items/Line Items
   items: Array<{
     description?: string;
+    // Product / model code printed on the line, kept SEPARATE from description
+    // (e.g. "FIREFLY4200"). Feeds the Product Code column + Asset.skuKey match.
+    model?: string;
     quantity?: number;
     unitPrice?: number;
     tax?: number;
@@ -196,6 +199,7 @@ export class DocumentExtractionService {
       "items": [
         {
           "description": "item description transcribed VERBATIM — copy the text exactly as printed, preserving the document's line breaks as \\n and keeping internal spacing/indentation exactly as shown; never collapse, reflow or summarise it",
+          "model": "the product model / part code if one is clearly identifiable on the line (e.g. FIREFLY4200, AF100); empty string if none",
           "quantity": numeric quantity,
           "unitPrice": numeric unit price,
           "unit": "unit of measurement (pcs, kg, etc.)",
@@ -278,6 +282,7 @@ export class DocumentExtractionService {
 
     return items.map(item => ({
       description: item.description || undefined,
+      model: item.model || undefined,
       quantity: this.parseNumber(item.quantity),
       unitPrice: this.parseNumber(item.unitPrice),
       tax: this.parseNumber(item.tax),
