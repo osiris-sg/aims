@@ -1897,7 +1897,12 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           // Customer "received" signature: delivery ack first, install ack fallback.
           const receivedSig = doAck?.signature ? doAck : doInstall?.signature ? doInstall : null;
           const dmy = (d: any) => (d ? new Date(d).toLocaleDateString("en-GB") : "");
-          const infoRow = (label: string, value: React.ReactNode, opts?: { boldValue?: boolean }) => (
+          const infoRow = (label: string, value: React.ReactNode, opts?: { boldValue?: boolean }) => {
+            // Hide the whole row (label + colon) when a string value is blank —
+            // mirrors the shared InfoRow so blank header fields don't render as
+            // bare labels. JSX values (e.g. the Customer block) always render.
+            if (typeof value === "string" && !value.trim()) return null;
+            return (
             <Box sx={{ display: "flex", mb: 0.25 }}>
               <Typography sx={{ fontSize: "0.875rem", fontWeight: 700, width: 92, flexShrink: 0 }}>{label}</Typography>
               <Typography sx={{ fontSize: "0.875rem", mr: 1 }}>:</Typography>
@@ -1911,7 +1916,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 )}
               </Box>
             </Box>
-          );
+            );
+          };
           return (
             <>
               {/* Letterhead: logo left, company details centered */}
@@ -1957,7 +1963,12 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                       fixed column, values left-aligned after it; the ref's
                       "dated …" wraps onto its own line under the value. */}
                   {(() => {
-                    const rightRow = (label: React.ReactNode, value: React.ReactNode) => (
+                    const rightRow = (label: React.ReactNode, value: React.ReactNode) => {
+                      // Same rule as infoRow: a blank string value hides the row
+                      // (so "Your PO No.:" etc. don't print as bare labels). JSX
+                      // values (DO No., Our Ref block) render as passed.
+                      if (typeof value === "string" && !value.trim()) return null;
+                      return (
                       <Box sx={{ display: "flex", mb: 0.75 }}>
                         <Typography sx={{ fontSize: "0.875rem", width: 118, textAlign: "right", flexShrink: 0 }}>
                           {label}
@@ -1970,7 +1981,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                           )}
                         </Box>
                       </Box>
-                    );
+                      );
+                    };
                     return (
                       <>
                         {rightRow(<b>GST REG. NO.:</b>, data.company?.gstRegNo || organization?.registrationNumber || "200303416N")}
@@ -1981,20 +1993,24 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                             {data.documentInfo?.documentNumber || data.name || ""}
                           </Typography>,
                         )}
-                        {rightRow(
-                          "Our Ref. No :",
-                          <>
-                            <Typography sx={{ fontSize: "0.875rem" }}>
-                              {data.documentInfo?.referenceNo || data.referenceNo || ""}
-                            </Typography>
-                            {(data.documentInfo?.referenceNo || data.referenceNo) &&
-                              data.documentInfo?.referenceQuotationDate && (
+                        {/* Our Ref. carries JSX (ref no + optional "dated …"),
+                            so guard at the call site — the string rule can't see
+                            inside it. Hidden entirely when there's no ref no. */}
+                        {(data.documentInfo?.referenceNo || data.referenceNo)
+                          ? rightRow(
+                              "Our Ref. No :",
+                              <>
                                 <Typography sx={{ fontSize: "0.875rem" }}>
-                                  dated {dmy(data.documentInfo.referenceQuotationDate)}
+                                  {data.documentInfo?.referenceNo || data.referenceNo}
                                 </Typography>
-                              )}
-                          </>,
-                        )}
+                                {data.documentInfo?.referenceQuotationDate && (
+                                  <Typography sx={{ fontSize: "0.875rem" }}>
+                                    dated {dmy(data.documentInfo.referenceQuotationDate)}
+                                  </Typography>
+                                )}
+                              </>,
+                            )
+                          : null}
                         {rightRow("Your PO No.:", data.documentInfo?.poNo || data.poNo || "")}
                       </>
                     );
