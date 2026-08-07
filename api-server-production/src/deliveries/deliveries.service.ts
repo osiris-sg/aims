@@ -776,6 +776,24 @@ export class DeliveriesService {
       : [];
     const unitById = new Map(units.map((u) => [u.id, u]));
 
+    // Attention / Mobile from the customer's PRIMARY contact (isPrimary=true).
+    // Only when a contact is explicitly flagged primary — never guess among
+    // several. Mobile prefers the contact's own phone, else the customer
+    // mainline. Name-without-phone sets Attention only (the DO header hides the
+    // blank Mobile row independently). Shape matches what the Biofuel DO header
+    // reads: config.attention.{name, phoneNumber}.
+    let attention: { name: string; phoneNumber?: string } | undefined;
+    if (delivery.customerId) {
+      const primary = await this.prisma.customerContact.findFirst({
+        where: { customerId: delivery.customerId, isPrimary: true },
+        select: { name: true, phone: true },
+      });
+      if (primary?.name) {
+        const phone = primary.phone || delivery.customer?.phone || undefined;
+        attention = { name: primary.name, ...(phone ? { phoneNumber: phone } : {}) };
+      }
+    }
+
     const config: Record<string, any> = {
       items: selection.map((i) => {
         const u = i.inventoryId ? unitById.get(i.inventoryId) : null;
@@ -789,10 +807,12 @@ export class DeliveriesService {
           ...(i.inventoryId
             ? {
                 inventoryItemId: i.inventoryId,
-                // Real manufacturer serial (was: the internal unit SKU — a bug).
-                // Omit entirely when the unit has no serial on file so the
-                // preview drops that S/No. row rather than printing a blank.
-                ...(u?.serialNumber ? { serialNumbers: [u.serialNumber] } : {}),
+                // S/No. = Inventory.sku. This fleet is identifier-as-SKU: the
+                // tech-entered nameplate identifier (e.g. MG20250057, AIS2026032)
+                // is stored in `sku`; `serialNumber` is null for ~92% of units.
+                // So `sku` is the real-world serial the office writes on the DO.
+                // Omit when the unit somehow has no sku (preview drops the row).
+                ...(u?.sku ? { serialNumbers: [u.sku] } : {}),
                 // Model + per-asset group key — display-only, consumed by the
                 // preview's grouping (createDoFromDelivery is the only writer).
                 ...(u?.asset?.skuKey ? { skuKey: u.asset.skuKey } : {}),
@@ -802,6 +822,7 @@ export class DeliveriesService {
         };
       }),
       ...(delivery.siteAddress ? { deliveryTo: delivery.siteAddress } : {}),
+      ...(attention ? { attention } : {}),
       ...(delivery.customer
         ? {
             customerId: delivery.customer.id,
