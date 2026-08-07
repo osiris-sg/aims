@@ -1,0 +1,43 @@
+---
+title: "Gotchas"
+description: "The traps that bite — read before touching unfamiliar areas"
+---
+
+## Build & deploy
+
+- **Backend `npm run build` runs `prisma db push`** against the current `DATABASE_URL`. Compile-only check: `npx nest build`.
+- Three separate Neon DBs (dev/staging/prod) — schema pushed to the wrong env 500s the app.
+- `main` moves by fast-forward only; Render + Vercel auto-deploy on push. Build both apps before pushing a release.
+
+## Backend
+
+- A module not registered in `app.module.ts` has **no routes** (`src/transactions/` is the live example).
+- `@Permissions` is read at **handler level only** — class-level decorators are silently ignored.
+- New backend modules need `resource:action` grants for superadmin + Admin roles in **every org**, or users 403.
+- New `Organization` columns must be added to `ClerkAuthGuard`'s two hand-rolled selects, or non-admin users get org objects missing them (admins unaffected — hard to spot).
+- Org scoping is service-layer convention — no RLS, no Prisma middleware. Always filter by `organizationId`.
+- The recurring-invoice cron has no distributed lock — single API instance only.
+- The auth role cache is process-local (30 s TTL); call `ClerkAuthGuard.invalidateUser()` after role mutations.
+- `BillPayment.billId` → `Document` has no FK constraint.
+
+## Frontend
+
+- **Two diverged `routes.ts` files** — `@/routes` resolves to `portal-production/routes.ts` (root), not `app/portal/routes.ts`. Update the root one.
+- Every fetch helper must inject `X-Active-Org-Id` from `sessionStorage["aims-admin-active-org"]`, or admin "Viewing as org" silently breaks for that call.
+- New list pages must use `PageTable`, new data code must use React Query (no new Redux), and every UI change must work in dark mode.
+- `app/portal_redux/**` is a dead legacy mirror; `containers/Documents` has an unregistered Redux slice; `/portal/analytics` is a catalog entry with no page.
+- `Role.allowedModules` is fail-open (empty = all modules) — when adding a module code, append it to orgs' restrictive role lists or the module vanishes for those users.
+
+## Data & domain
+
+- All document types live in the unified `Document` table — never create a per-type table.
+- `config.inventoryItemId` on document items is actually an **Asset** id; inventory is tracked by serial (`Inventory.sku`).
+- Deployment linkage is set only server-side (attach endpoint or confirm-invoice DO-inheritance); recurring invoicing anchors on deployments.
+- Assigning a user to an org needs BOTH `UserOrganization` and `UserRole` rows.
+- **Known issue**: opening a Xero-imported/ingested document in the editor autosaves a lossy round-trip that wipes items/customer. AIMS-born documents are safe; the agreed fix (deferred) is a read-only editor for `xeroImported` docs.
+
+## Xero
+
+- Xero silently ignores edits to paid bills.
+- New Xero apps get granular scopes only — no `accounting.journals.read`.
+- For dual-system data changes: complete the AIMS pass first, stop, and only touch Xero after explicit approval.

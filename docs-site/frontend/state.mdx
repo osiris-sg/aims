@@ -1,0 +1,40 @@
+---
+title: "State Management"
+description: "React Query is the present; Redux/saga is the legacy core"
+---
+
+## The rule
+
+**New code uses TanStack React Query (or plain hooks) — never new Redux.** Redux Toolkit + redux-saga survives only in the legacy containers; by file count in `app/`, React Query outnumbers Redux usage roughly 10:1.
+
+## React Query (modern path)
+
+- `app/portal/hooks/api/` — barrel of typed hooks (`useCustomers`, `useAssets`, `useInventory`, `useDocuments`, `usePayments`, `useStatements`, `useSuppliers`, `useCategories`). All key off `organization?.id` with `enabled: !!organizationId`.
+- QueryClient defaults (in `app/providers.tsx`): `staleTime: 60s`, `refetchOnWindowFocus: false`.
+- `useOrganizationFeatures` — React Query over `GET /configuration/ui` (5-min staleTime).
+- Accounting uses neither pattern: `app/portal/accounting/_lib/api.ts` (`useAccountingApi`) with local `useState`/`useEffect`, as do several contexts and admin pages.
+
+## Redux + saga (legacy)
+
+`store.ts` registers reducers: `notifications`, `assets`, `inventories`, `customers`, `documentTemplates`; `root-saga/` forks the matching sagas. Full slice+saga containers: `containers/Assets`, `Inventory`, `Customers`, `DocumentsTemplateView`, and `Documents` (whose slice is **not registered** in the store). `containers/Notifications` is the global toast/error sink — `helpers/request.ts` dispatches into it on every failed request.
+
+The saga pattern: pull `token` off the payload → `yield call(request, API.X, data, token)` → `put(success|failure)`.
+
+## The request helper
+
+`helpers/request.ts` is the single fetch path for most of the app:
+
+- Injects `Authorization: Bearer <Clerk token>` and **`X-Active-Org-Id`** from `sessionStorage["aims-admin-active-org"]` on every request — any new fetch helper must do the same or admin "Viewing as org" silently returns home-org data.
+- 30 s default timeout (120 s for FormData uploads), AbortController, `withCredentials`.
+- Failures dispatch a global notification and return `{success: false, message, ...}`.
+
+## Contexts
+
+| Context | Purpose |
+|---|---|
+| `OrganizationContext` | Active vs real org, admin org switching (see [Multi-tenancy](/frontend/multi-tenancy)) |
+| `ConfigurationContext` | `GET /configuration/complete` → modules, uiConfig, custom fields, terminology; hardcoded fallback so the sidebar is never blank |
+| `ThemeModeContext` | light/dark, persisted to `localStorage["aims:theme-mode"]` |
+| `NotificationContext(s)` | Toasts |
+| `SidebarContext` | Collapse state |
+| `BackgroundLocationContext` | Field app geolocation |

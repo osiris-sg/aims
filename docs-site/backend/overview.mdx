@@ -1,0 +1,38 @@
+---
+title: "Backend Overview"
+description: "Bootstrap, global wiring, and the module registry"
+---
+
+Root: `api-server-production/`. NestJS 10 on Express, entry `src/main.ts`, port `PORT || 4040`.
+
+## Global wiring
+
+| Concern | Detail |
+|---|---|
+| Body parsing | `json({ limit: '15mb' })` with a `verify` hook that stashes `req.rawBody` — required for WhatsApp webhook HMAC verification. The 15 MB limit exists for base64 nameplate-photo extraction. |
+| CORS | Allow-list plus wildcards for `vercel.app`, `onrender.com`, `osiris.so`, `ai-ms.io`, localhost, and `capacitor://localhost` (Android WebView) |
+| Validation | Global `ValidationPipe({ transform: true, enableImplicitConversion: true })` |
+| Response envelope | `CustomResponseInterceptor` wraps every response as `{ success: true, data, message }`. Handlers that must return raw bytes/strings (e.g. the WhatsApp webhook challenge) use `@Res()` to bypass it |
+| Errors | Global `CustomExceptionFilter` |
+| Auth | Global `APP_GUARD` → `ClerkAuthGuard` (see [Auth](/backend/auth)) |
+| Swagger | Mounted at `/api` with bearer auth + `X-Api-Key` scheme |
+| Scheduling | `ScheduleModule.forRoot()` — one real `@Cron` exists (recurring invoices, every 2 minutes) |
+
+## Module registry
+
+All feature modules are registered in `src/app.module.ts` — a module not listed there has **no routes at runtime**. Current registration order:
+
+Assets, Categories, Auth, Inventories, Customers, Suppliers, DocumentTemplates, Uploads, Documents, TimelineItems, Roles, Permissions, Users, Projects, Organizations, Admin, Dashboard, DocumentExtraction, Configuration, PriceHistory, Orders, Payments, RevenueItems, DocumentNumbering, RecurringInvoices, Statements, Email, Import, Accounting, Journal, MaintenanceReports, Deliveries, Ask, DocumentAssistant, Guide, Anomalies, Close, Recurring, CostCenters, FixedAssets, Budgets, Bills, Receipts, PostingPreview, BankRec, XeroSync, PublicDelivery, PublicApi, Ingestion, PublicPay, IngestionEmail, PostingQueue, ApiV1, WhatsApp.
+
+Not in the registry but present in `src/`:
+
+- `common/` — `CommonModule` (Xero push service/controller, Audit, Prisma, S3, PDF generator, water-sg) — reaches the router by being imported by other modules.
+- `account-memory/` — provider-only (learned GL coding), consumed by posting-preview.
+- `transactions/` — **fully built but not registered; its routes do not exist at runtime.**
+
+## Module pages
+
+- [Core: documents, master data, org/admin](/backend/modules-core)
+- [Accounting & GL](/backend/modules-accounting)
+- [AI modules](/backend/modules-ai)
+- [External surface: ingestion, public APIs, WhatsApp](/backend/modules-external)

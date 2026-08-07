@@ -1,0 +1,32 @@
+---
+title: "AIMS Guide Assistant"
+description: "Keeping the in-app guide's knowledge in sync — required for every shipped feature"
+---
+
+The "AIMS Guide" bubble (bottom-right of the portal, global for every org, deliberately **not** feature-flagged) answers "how do I…" questions, navigates users, and plays spotlight walkthroughs.
+
+<Warning>
+Its ONLY knowledge of the app is `api-server-production/src/guide/app-knowledge.ts` — it does **not** read the code. Ship a user-facing feature without updating that file and the Guide won't know the feature exists.
+</Warning>
+
+## When you ship or change a user-facing feature
+
+1. **Update `app-knowledge.ts`**: which screen, which button, what it does, and any flags/roles that gate it. Remove the line if the feature is retired.
+2. **If it deserves a walkthrough**:
+   - Stamp a `data-tour="…"` attribute on the key control.
+   - Document the anchor token in `guide.service.ts` (`KNOWLEDGE_FOOTER`).
+   - Add a prebuilt guide in `portal-production/app/portal/components/GuideAssistant/guides.ts`.
+
+## Anchor vocabulary
+
+`nav-<MODULECODE>` / `nav-<MODULE>-<submenu>` (sidebar), `page-create-button`, `page-filter-button`, `page-search` (PageTable), `editor-*` (document editor), plus feature-specific anchors (`bills-upload`, `bankrec-upload`, `ar-official-receipt`, …) — all listed in `KNOWLEDGE_FOOTER`.
+
+## Invariants
+
+- `LEGACY_MODULES` (retired screens: DOCUMENTS, INVOICES, PAYMENTS, ASSETS, USER_MANAGEMENT, AUDIT, ANALYTICS, INTEGRATIONS) is duplicated in `guides.ts` **and** `guide.service.ts` — keep them in sync.
+- The assistant only sees screens the current user's org + role allow (same filter pipeline as the sidebar).
+- Guide descriptions must distinguish create-from-scratch vs upload-existing-file flows.
+
+## How it works
+
+The portal streams from `POST /guide/stream` (SSE; `claude-opus-5`, low effort, 3 tool iterations). Responses can carry actions: `navigate` (router push), `start_guide` (play a prebuilt tour), or `custom_guide` (a model-composed tour played through `TourOverlay`, which spotlights `data-tour` selectors and falls back to a centered card when one isn't found).

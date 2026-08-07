@@ -1,0 +1,46 @@
+---
+title: "AI Modules"
+description: "The assistants, extraction, embeddings, and learned coding"
+---
+
+The backend uses both `@anthropic-ai/sdk` (chat/agentic features) and `openai` (embeddings only). Embedding similarity is plain cosine in Node over `Float[]` columns — **no pgvector**.
+
+## Usage map
+
+| Where | Model | Purpose |
+|---|---|---|
+| `src/guide/` | Anthropic `claude-opus-5` (low effort, 1024 tokens, 3 iterations) | AIMS Guide: in-app navigation + walkthrough composer |
+| `src/ask/` | Anthropic `claude-sonnet-4-6` (6 iterations) | Finance Hub accounting Q&A over the org's own numbers |
+| `src/document-assistant/` | Anthropic `claude-sonnet-4-6` (6 iterations) | Editor "Ask AI": field proposals, past-document search |
+| `src/document-assistant/embeddings.service.ts` | OpenAI `text-embedding-3-small` (1536d) | Document semantic memory (`DocumentEmbedding`) |
+| `src/whatsapp/whatsapp-agent.service.ts` | OpenAI embeddings + Anthropic `claude-haiku-4-5` | Per-org WhatsApp customer-service agent |
+| `src/document-extraction/` | Anthropic | PDF/image → structured document JSON |
+| `src/posting-preview/`, `src/posting-queue/`, `src/account-memory/` | Anthropic + embeddings | GL account suggestion + learned coding memory |
+| `src/xero-sync/` | Anthropic | Auto-map Xero accounts → AIMS accounts |
+| `src/bank-rec/`, `src/bills/` | Anthropic | PDF statement / bill extraction |
+
+## Guide (`/guide/stream`)
+
+The in-app "AIMS Guide" bubble — SSE only, available to **every authenticated user** (no `@Permissions`, deliberately not feature-flagged). Its entire knowledge of the app is the static survey in `src/guide/app-knowledge.ts` (kept behind a prompt-cache breakpoint) plus `KNOWLEDGE_FOOTER`, which documents the `data-tour` anchor vocabulary. Emits actions the portal executes: `navigate`, `start_guide` (prebuilt tours), and `custom_guide` (model-composed walkthroughs played through the TourOverlay).
+
+A server-side `LEGACY_MODULES` blocklist mirrors the portal's copy (defense in depth), and the context is filtered to modules the user's org + role allow.
+
+<Warning>
+Every user-facing feature change must update `app-knowledge.ts` — the Guide does not read code. See [Guide Assistant](/guides/guide-assistant).
+</Warning>
+
+## Ask (`/ask`, `/ask/stream`)
+
+Conversational accounting agent with journal/COA report methods exposed as tools. Returns an answer plus typed attachments (`kpi` / `table` / `link`) the portal renders as cards. Supports base64 PDF/image attachments. Permission: `journal:read`.
+
+## DocumentAssistant (`/document-assistant/chat`, `/chat/stream`)
+
+The editor's "Ask AI" drawer. **Never mutates** — it returns a `ProposalPatch` (document info, customer, items, notes, T&C) the UI renders as an Apply card. Tools include `search_past_documents` backed by the embeddings service, with cited sources. Permission: `documents:read`.
+
+### EmbeddingsService
+
+OpenAI `text-embedding-3-small`, 1536 dims, stored on `DocumentEmbedding.embedding`. Freshness is a lazy sync: at most 40 documents per call, throttled to once per minute per org. Exported for reuse (account-memory, backfill scripts).
+
+## WhatsAppAgentService
+
+Per-org customer-service agent: QnA retrieval via embeddings (`TOP_K = 6`; ≤30 QnA pairs are inlined into the cached system prompt in stable order to avoid per-message embedding calls), replies via `claude-haiku-4-5`. Returns `AgentVerdict { reply, canAutoSend, confidence, reason }` — the caller auto-sends or queues a `WhatsAppSuggestion` for human approval.

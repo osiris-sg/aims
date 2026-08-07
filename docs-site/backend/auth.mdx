@@ -1,0 +1,62 @@
+---
+title: "Authentication & Authorization"
+description: "ClerkAuthGuard, RBAC, org switching, and the non-Clerk surfaces"
+---
+
+## ClerkAuthGuard — the global guard
+
+Registered as `APP_GUARD` (`src/auth/clerk-auth.guard.ts`). Per-request flow:
+
+1. **`@Public()` check** — early allow.
+2. **Token verification** (`ClerkStrategy`, `passport-custom`): `verifyToken()` verifies signature + expiry **locally, no network call**. Identity (name/email) is read from claims embedded in the session token (configured in Clerk Dashboard → Sessions → Customize session token); falls back to a Clerk API call only when absent.
+3. **Role/org load** — two parallel Prisma queries (roles with permissions; org membership), served from a **process-local Map cache** (`AUTH_CACHE_TTL_MS`, default 30 s; the two Neon round-trips measured 65–604 ms). `ClerkAuthGuard.invalidateUser()` propagates role/org mutations instantly. Only roles/org are cached — the token is re-verified every request.
+4. **`isOsirisAdmin`** = has a role named `osirisadmin`.
+5. **`X-Active-Org-Id` header** (admin org switcher) — honoured **only for osirisadmins**: looks up the target org and swaps `request.userOrganization` so all downstream queries read that org. `X-Use-Real-Org` opts out (used by the portal's org-context bootstrap). Non-admins: silently ignored.
+6. Non-admins with no active membership → 403.
+7. **Permission check**: `@Permissions('resource:action')` metadata is read **handler-level only** — class-level `@Permissions` is silently ignored. No metadata → authenticated is enough.
+8. **osirisadmin bypasses all permission checks.**
+9. Otherwise, some single role must satisfy ALL required permissions; `*` wildcards supported on both resource and action axes.
+
+Debug logging behind `AUTH_DEBUG=true`.
+
+## RBAC model
+
+- `Permission` rows are global (`resource` + `action`, unique name); `Role` is per-org with an M:N to permissions plus `allowedModules[]` (sidebar filtering); `UserRole` binds Clerk userId + role + org.
+- ~130 permission strings across ~30 resources are referenced in code. Seeded by `prisma/seed.ts`.
+- New org creation auto-builds a superadmin role with all permissions.
+- **Assigning a user to an org needs BOTH rows**: `UserOrganization` (membership — checked by the guard) AND `UserRole` (permissions). Dev and prod share one Clerk instance, so user ids match across envs.
+- `admin@osiris.sg` is the global osirisadmin (assigned via `scripts/assign-osirisadmin.ts`, never per-org grants).
+
+<Warning>
+When adding a new backend module, grant its `resource:action` permissions to superadmin + Admin roles in **every org**, or users hit 403s. When adding a new `Organization` column, add it to ClerkAuthGuard's two hand-rolled selects, or non-admin users receive org objects missing it.
+</Warning>
+
+## Non-Clerk auth surfaces
+
+| Surface | Mechanism |
+|---|---|
+| `/v1/*` | DB-backed per-org `ApiKey` (SHA-256 hash lookup, scopes) — injects `req.userOrganization` in Clerk-compatible shape |
+| `/public-api/*` | Env shared secret `WATER_SG_INBOUND_API_KEY`, constant-time compare, fail-closed |
+| `/ingestion/*` | `X-Ingest-Token` vs `INGEST_API_TOKEN` |
+| `/ingestion-email/email` | `X-Webhook-Secret` vs `EMAIL_INGEST_SECRET` |
+| `/bills-inbound/email` | `BILLS_INBOUND_SECRET` |
+| `/whatsapp/webhook` | Meta HMAC-SHA256 over `req.rawBody` |
+| `/whatsapp/group-agent` | `X-Group-Bridge-Token` |
+| `/public/delivery/*` | URL-embedded `DeliveryShareLink.token` |
+| `/public-pay/:token` | URL-embedded `Document.config.payToken` (min 16 chars) |
+| `/xero/connect`, `/xero/callback` | `@Public()` OAuth redirects (org id rides in `state`) |
+
+## Decorators
+
+| Decorator | Purpose |
+|---|---|
+| `@Public()` | Skip the global guard |
+| `@Permissions(...)` | Handler-level permission requirements |
+| `@UserOrganization()` | Param decorator → `request.userOrganization` |
+| `@RequireScope(scope)` | `/v1` API-key scopes |
+| `@WithCustomFields()` | Class-level custom-field enrichment (AssetsController) |
+
+## Known caveats
+
+- The auth cache is process-local — with multiple instances, role changes propagate per-instance within the TTL unless `invalidateUser` runs on each.
+- After an org switch, the permission filter still compares against the **membership** org — harmless today only because switching is osirisadmin-only and they bypass permission checks.

@@ -1,0 +1,58 @@
+---
+title: "Database"
+description: "The Prisma schema, model map, and multi-tenancy pattern"
+---
+
+`prisma/schema.prisma` — ~2,360 lines, ~73 models. Postgres with `previewFeatures = ["driverAdapters", "postgresqlExtensions"]` and `extensions = [pg_trgm]` only (deliberately, so `db push` never drops anything). GIN trigram indexes on `Document.name`, `Customer.name`, `Project.name` power fast ILIKE-contains search.
+
+## Model map by domain
+
+### Org / auth / config
+
+| Model | Purpose |
+|---|---|
+| `Organization` | Tenant root: branding, tax defaults, `defaultCurrency`, `docTypeDefaults` JSON, `bankDetails`, `pointsBalance`, `quoteRoundingStep` |
+| `UserOrganization` | Clerk userId ↔ org membership (+ `salesmanCode`) |
+| `Role` / `Permission` / `UserRole` | Per-org roles with `allowedModules[]`; `Permission` is the one deliberately **global** table (shared `resource:action` vocabulary) |
+| `OrganizationModule` | Per-org module enablement + config |
+| `OrganizationUIConfig` | Per-org UI config — its `features` JSON is the **feature-flag store** |
+| `CustomField` / `CustomFieldValue` | Per-org per-entity custom fields |
+| `AuditLog` | Action log (also backs per-document history with `resource='document'`) |
+| `ApiKey` | External `/v1` keys (SHA-256 hash, prefix, scopes, autoPost) |
+
+### Assets / inventory / projects
+
+`Asset` (product master; `price`/`costPrice`/`customPrices`, `salesAccountCode`/`rentalAccountCode` for GL self-coding, soft-delete) · `Category` · `Inventory` (serialized unit + status) · `QuantityAdjustment` · `Project` · `ProjectDeployment` (groups one rental/sale event — recurring invoices anchor here) · `Assignment` · `SiteOffice` · `PriceHistory`.
+
+### Contacts
+
+`Customer` · `CustomerContact` · `ContactDetail` · `Supplier` · `CustomerBalance`.
+
+### Documents
+
+`Document` (JSON `config` holds all form data; revisions; edit-lock fields; unique `(name, organizationId, documentTemplateId)`) · `DocumentItem` (junction for stock-movement queries) · `DocumentTemplate` · `OrganizationActiveTemplate` · `DocumentNumberFormat` · `TimelineItem` · `DeliveryShareLink` · `DocumentEmbedding` (1536-dim `Float[]`) · `Order` · `Delivery`/`DeliveryItem` · `MaintenanceServiceReport` · `DeliveryLocationPing` (~1 ping/10 s, cascade-deleted) · `RevenueItem`.
+
+### Accounting / GL
+
+`ChartOfAccount` · `AccountingSetting` (one per org: control accounts, payment details, FX, period lock, GST) · `TaxRate` · `JournalEntry`/`JournalEntryLine` · `CostCenter` · `FixedAsset`/`DepreciationEntry` · `Budget` · `Bill`/`BillPayment` · `BankStatementImport`/`Line`/`Match` · `Payment` · `Transaction` · `RecurringJournalTemplate` · `RecurringInvoiceTemplate` · `AccountMemory` · `ImportInvoice` · `PassTrackerEntry` (JPSG pass tracker).
+
+### Integrations
+
+`XeroConnection` (per-org tokens + tenantId) · `XeroAccountMapping` (tracks AI-suggested vs manually-confirmed so auto-map never overwrites manual) · `XeroSyncRun` · `EmailIngestConfig`/`EmailIngestLog` · `WhatsAppConnection`/`Message`/`Contact`/`QnA`/`AgentConfig`/`Suggestion`/`ScheduledMessage`.
+
+## Multi-tenancy pattern
+
+- Every tenant-scoped model carries `organizationId`, usually with composite indexes like `@@index([organizationId, type])`.
+- Uniqueness is always **composite with org**: `@@unique([name, organizationId])`, `@@unique([projectNumber, organizationId])`, etc.
+- One-per-org config models use `organizationId` as the unique key: `AccountingSetting`, `OrganizationUIConfig`, `XeroConnection`, `EmailIngestConfig`, `WhatsAppConnection`, `WhatsAppAgentConfig`.
+
+<Warning>
+Enforcement is at the **service layer, not the database**: controllers extract `req.userOrganization.id` and pass it into every service method's Prisma `where`. There is no Prisma middleware or RLS — a service that forgets the filter leaks cross-org data.
+</Warning>
+
+Legacy quirks: `Asset.organizationId` and `Project.organizationId` are nullable (old rows). `BillPayment.billId` references a `Document` row without an FK.
+
+## Schema-change rules
+
+1. Edit `schema.prisma`, run `npm run db:push` (dev) — see [Database Changes](/guides/database-changes) for the full checklist including staging/prod and the ClerkAuthGuard select gotcha.
+2. The `prisma/migrations/` directory is **abandoned** (newest migration is from July 2025) — the workflow is push, not migrate.

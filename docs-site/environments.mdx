@@ -1,0 +1,48 @@
+---
+title: "Environments & Deployment"
+description: "Branches, databases, and where everything deploys"
+---
+
+## Branch topology
+
+| Branch | Role | Auto-deploys |
+|---|---|---|
+| `main` | Production | Backend → Render (`aims`), portal → Vercel `www.ai-ms.io` |
+| `elroy/dev` | Staging / work branch | Vercel previews at `aims-mocha.vercel.app`; backend staging on Render (`aims-staging`) |
+| `master` | **Stale pre-2026 branch — never target it** | — |
+
+The old `yx/dev` was renamed to `main` on 2026-07-08.
+
+## Databases — three Neon branches
+
+| Env | Env file | Notes |
+|---|---|---|
+| Dev | `.env` | Local development |
+| Staging | `.env.staging` | Consumed via `dotenv -e .env.staging --`; refresh with `npm run db:refresh-staging` (recreates the Neon staging branch) |
+| Prod | `.env.production` | Neon main branch |
+
+Schema must be pushed to each env explicitly (`db:push`, `db:push:staging`, `db:push:prod`). The workflow is **push, not migrate** — `prisma/migrations/` is abandoned. The schema keeps `extensions = [pg_trgm]` only, deliberately, so `db push` never drops anything; the build's auto-push aborts on destructive changes (no `--accept-data-loss`).
+
+<Note>
+The Prisma **runtime** connects over the Neon serverless WebSocket driver (port 443); the Prisma **CLI** and scripts use plain 5432. Cloudflare WARP must stay off for CLI work — see `docs/neon-connection-fix.md`.
+</Note>
+
+## Render environment sync
+
+`npm run render-env:staging` / `render-env:prod` diff-and-upsert local env files against the Render API (`scripts/update-render-env.ts`). Merge semantics keep Render-only keys unless `--prune`; supports `--dry-run` and `--deploy`. Auth via `RENDER_API_KEY` (or gitignored `.env.render`). It prints key names only, never values.
+
+## Env key groups
+
+Across all three backend env files: `PORT`, Clerk keys, `DATABASE_URL` (+ legacy `JPSG_DATABASE`), AWS (`AWS_REGION`, `RESOURCE_BUCKET`, credentials), Xero (client id/secret/redirect/scopes), `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, Resend, `INGEST_API_TOKEN`, Meta/WhatsApp, water-sg, and email-ingest secrets.
+
+Read directly from `process.env` (not `config/configuration.ts`): `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `INGEST_API_TOKEN`, `EMAIL_INGEST_SECRET`, `BILLS_INBOUND_SECRET`, `PORTAL_BASE_URL`, `AUTH_CACHE_TTL_MS`, `AUTH_DEBUG`.
+
+## Release checklist
+
+When pushing a batch of work:
+
+1. Fetch and absorb remote changes first.
+2. Read every diff being shipped.
+3. Build both apps before pushing: `npx nest build` in the backend (**never** `npm run build` there — it db-pushes) and `npm run build` in the portal.
+4. `main` moves by fast-forward only; never force-push.
+5. Render and Vercel both auto-deploy on push.

@@ -1,0 +1,74 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "AIMS Documentation",
+  "colors": {
+    "primary": "#0d9488",
+    "light": "#6ffbbe",
+    "dark": "#041627"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Overview",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": ["index", "getting-started", "architecture", "environments"]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/adding-a-feature",
+              "guides/database-changes",
+              "guides/document-templates",
+              "guides/guide-assistant",
+              "guides/gotchas"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Backend",
+        "groups": [
+          {
+            "group": "API Server",
+            "pages": [
+              "backend/overview",
+              "backend/modules-core",
+              "backend/modules-accounting",
+              "backend/modules-ai",
+              "backend/modules-external",
+              "backend/database",
+              "backend/auth",
+              "backend/integrations",
+              "backend/operations"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Frontend",
+        "groups": [
+          {
+            "group": "Portal",
+            "pages": [
+              "frontend/overview",
+              "frontend/navigation",
+              "frontend/state",
+              "frontend/components",
+              "frontend/multi-tenancy",
+              "frontend/theming"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "website": "https://www.ai-ms.io"
+    }
+  }
+}

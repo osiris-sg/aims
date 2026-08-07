@@ -1,0 +1,38 @@
+---
+title: "Document Templates"
+description: "The cross-org shared template library and how resolution works"
+---
+
+Document templates are a **cross-org shared pool**, not org-private.
+
+## The model
+
+- `DocumentTemplate` rows have an owner `organizationId`, but the admin "Manage Templates" dialog (`app/portal/admin/organizations/[id]/page.tsx`) lists **every org's** templates of a type, so an admin can activate any of them for the current org.
+- `OrganizationActiveTemplate(organizationId, type, templateId)` — unique on **all three columns** — records the activations. **Multiple templates can be active per org+type**; an `isPrimary` flag marks the one used for headless creation (at most one primary per org+type, enforced in the service, not the DB).
+- Endpoints: `/documentTemplates/variants/:id/activate | deactivate | rename | primary`.
+- **Propagation: editing a shared template changes it for every org that activated it** ("edit once → all orgs update"). It is NOT a clone model.
+
+## Resolution chain
+
+`getDocumentTemplateByType`, the AI-upload path (`documents.service.ts createFromExtraction`), and their mirrors walk:
+
+1. Primary selection (`isPrimary`)
+2. `isDefault` among selected
+3. Newest selected
+4. Org's own legacy `isActive` (pre-selection orgs keep working without migration)
+5. Cross-org seeded `isDefault`
+6. Any
+
+## Safety properties
+
+- `GET /documentTemplates/variants/:type` is cross-org, but only admin pages call it — there is no user-facing variant switcher, so other orgs' templates never leak to regular users (user-facing pickers use `/active/:type` and `/type/:type`).
+- Seeded defaults live in `api-server-production/src/organizations/default-templates.ts` and are applied on org creation.
+
+## Rendering caveat
+
+`CleanDocumentPreview` differentiates designs **only** by `tableColumnOrder` / `columnLabels` / `internalColumns` read from inside its `data` prop — not `styleConfig`, `formFields`, or fonts. Two templates that differ only in those other fields render identically.
+
+## Related systems
+
+- **Field definitions**: `api-server-production/src/documentTemplates/templateFieldDefinitions.ts` drives the editor's dynamic tabs/fields.
+- **Numbering**: per-org `DocumentNumberFormat` variants with token patterns; the portal's `useNumberFormatPicker` runs before the template picker on create.

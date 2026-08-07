@@ -4,12 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Structure
 
-This is a monorepo containing an Asset and Inventory Management System (AIMS) with two main applications:
+This is a monorepo containing an Asset and Inventory Management System (AIMS) — an asset/inventory/document platform that has grown a full double-entry accounting subsystem. It has **four deployables**:
+
+- **api-server-production/**: NestJS backend API server with PostgreSQL/Prisma (Neon)
+- **portal-production/**: Next.js frontend portal (also ships a Capacitor Android field app)
+- **email-ingest-worker/**: Cloudflare Email Worker — routes `docs+{orgId}@…` mail to the AIMS ingestion webhook
+- **whatsapp-group-bridge/**: Node `whatsapp-web.js` bridge for group messages
 
 **Branch topology:** `main` = production (auto-deploys: backend → Render, portal → Vercel `www.ai-ms.io`). `elroy/dev` = staging/work branch (Vercel previews served at `aims-mocha.vercel.app`). The old `yx/dev` was renamed to `main` 2026-07-08; `master` is a stale pre-2026 branch — never target it.
 
-- **api-server-production/**: NestJS backend API server with PostgreSQL/Prisma
-- **portal-production/**: Next.js frontend portal with Redux and Material-UI
+**Deeper docs:** `docs-site/` (Mintlify) is the full documentation set. Root-level specs (`ACCOUNTING_ARCHITECTURE.md`, `EXTERNAL_API_AND_INGESTION_HANDOVER.md`, `EMAIL_INGESTION_PLAN.md`, `POSTING_QUEUE_AND_JSON_INGESTION_SPEC.md`, `WATER_SG_INTEGRATION.md`) cover individual subsystems. `manual/` holds the end-user manual source.
 
 ## AIMS Guide assistant — keep its knowledge in sync (EVERY feature you ship)
 
@@ -40,110 +44,117 @@ Full context: memory note `guide-assistant.md`.
 # Development
 npm run start:dev          # Start dev server with watch mode
 npm run start:debug        # Start with debug mode
+npm run start:staging      # Dev server against .env.staging
 
-# Database
-npm run db:push            # Push schema changes to database
-npm run db:studio          # Open Prisma Studio
+# Database — 3 separate Neon DBs: dev (.env), staging (.env.staging), prod (.env.production)
+npm run db:push            # Push schema changes to DEV database
+npm run db:push:staging    # Push schema to STAGING
+npm run db:push:prod       # Push schema to PROD
+npm run db:studio          # Prisma Studio (also :staging / :prod variants)
 npm run seed               # Seed the database
 
 # Testing & Quality
-npm run test               # Run unit tests
-npm run test:e2e          # Run end-to-end tests
-npm run lint              # ESLint with auto-fix
-npm run format            # Prettier formatting
+npm run test               # Run unit tests (also test:watch, test:cov)
+npm run test:e2e           # Run end-to-end tests
+npm run lint               # ESLint with auto-fix
+npm run format             # Prettier formatting
 
 # Production
-npm run build             # Build for production
-npm run start:prod        # Start production server
+npm run build              # ⚠ NOT a plain compile: runs `nest build && npx prisma db push`
+                           #   — it MUTATES whatever DB DATABASE_URL points at.
+                           #   Use `npx nest build` for a compile-only check.
+npm run start:prod         # Start production server
 
-# Database Management Scripts
+# Admin / role scripts
 npm run assign-superadmin    # Assign superadmin role
-npm run assign-osirisadmin   # Assign osiris admin role
+npm run assign-osirisadmin   # Assign osiris admin role (global admin@osiris.sg)
 npm run debug-user-roles     # Debug user roles
-npm run setup-database       # Setup database
-npm run setup-user          # Setup user
+npm run setup-database / setup-user
 ```
+
+There are ~40 more one-off scripts in `package.json` (template seeders, nav
+migrations, data backfills, `render-env:*` sync). Destructive ones follow a
+`:dry` / `--dry-run` convention — **always run the dry variant first**.
 
 ### Frontend (portal-production/)
 ```bash
-# Development
-npm run dev               # Start Next.js dev server with Turbo
-
-# Production
-npm run build             # Build for production
+npm run dev               # Next.js dev server with Turbo
+npm run build             # Build for production (safe — no DB side effects)
 npm run start             # Start production server
-
-# Quality
 npm run lint              # Next.js linting
 ```
 
 ### Root Level
-The root package.json only contains Xero integration dependencies.
+The root package.json only contains Xero integration dependencies (`xero-node`).
 
 ## Architecture Overview
 
 ### Backend Architecture (NestJS)
-- **Modular Structure**: Each feature has its own module (assets, customers, documents, etc.)
-- **Authentication**: Clerk integration with custom guards and decorators
-- **Database**: PostgreSQL with Prisma ORM, multi-tenant with organization scoping
-- **Key Models**: Organization, Asset, Customer, Document, Inventory, Project, User roles/permissions
+- **Modular Structure**: ~65 feature modules under `src/`, each with controller/service/DTOs, registered in `app.module.ts`
+- **Authentication**: Clerk via global `ClerkAuthGuard` (APP_GUARD) with custom decorators; exceptions below
+- **Database**: PostgreSQL (Neon) with Prisma ORM — runtime connects through the **Neon serverless driver over WebSocket/443** (`PrismaService` + `@prisma/adapter-neon`); CLI/scripts use plain 5432. Multi-tenant: every model is scoped by `organizationId`
+- **Schema scale**: ~73 models — beyond the core (Organization, Asset, Customer, Document, Inventory, Project, roles) there is a full GL (`ChartOfAccount`, `JournalEntry/Line`, `Bill`, `BankStatement*`, `FixedAsset`, `Budget`, `CostCenter`, `TaxRate`, `Recurring*Template`), integrations (`WhatsApp*`, `ApiKey`, `XeroSyncRun`, `EmailIngest*`), and AI (`DocumentEmbedding`, `AccountMemory`)
+- **AI**: backend uses both `@anthropic-ai/sdk` (Guide assistant, document assistant, WhatsApp agent) and `openai` (embeddings)
 - **API Documentation**: Swagger UI available at `/api` endpoint
 
 ### Frontend Architecture (Next.js)
-- **App Router**: Uses Next.js 14 app directory structure
-- **State Management**: Redux Toolkit with Redux Saga for async operations
-- **UI Framework**: Material-UI v6 with custom theming
-- **Authentication**: Clerk integration for user authentication
-- **Organization Context**: Multi-tenant organization switching
-- **Document Generation**: Custom document templates with PDF generation
+- **App Router**: Next.js 14 app directory structure
+- **State Management**: new code uses **TanStack React Query + local hooks**; Redux Toolkit + Saga survives only in ~16 legacy `containers/` (don't add new Redux)
+- **UI Framework**: Material-UI v6 with custom theming; dark mode via `globals.css` vars — every UI change must work in both themes
+- **Authentication**: Clerk (`middleware.ts`)
+- **Organization Context**: multi-tenant org switching; admin "Viewing as org" sends `X-Active-Org-Id` from `sessionStorage("aims-admin-active-org")` — every new fetch helper must inject it
+- **Mobile / field app**: Capacitor Android shell (`capacitor.config.ts`, `android/`) with NFC scanning + background geolocation, served by the `app/(field)/` route group
 
 ### Key Domain Concepts
-- **Organizations**: Multi-tenant structure where all data is organization-scoped
+- **Organizations**: Multi-tenant structure where all data is organization-scoped; per-org feature flags + `MODULE_CATALOG` module toggles
 - **Assets**: Hierarchical asset management with parent-child relationships
-- **Documents**: Template-based document generation (invoices, quotations, delivery orders)
-- **Inventory**: Asset-based inventory tracking with QR codes
-- **Projects**: Project management with asset and customer associations
-- **Users & Permissions**: Role-based access control with organization-specific roles
+- **Documents**: ALL document types (INVOICE, BILL, QUOTATION, PO, CN/DN…) live in the unified `Document` table — never create a per-type table
+- **Accounting**: documents auto-post double-entry journals to the GL; Xero-style reports; posting queue for accountant review
+- **Inventory**: Asset-based inventory tracking with QR codes (tracked by serial, `Inventory.sku`)
+- **Projects**: Project → Deployment (RENTAL/SALE/SERVICE) → Assignments + Documents; recurring invoicing anchors on deployments
+- **Users & Permissions**: Role-based access control; org membership needs BOTH `UserOrganization` AND `UserRole` rows
 
 ## Key Directories
 
-### Backend Structure
-- `src/auth/`: Clerk authentication guards and strategies
-- `src/common/`: Shared services (Prisma, Xero integration)
-- `src/organizations/`: Multi-tenant organization management
-- `src/assets/`: Asset hierarchy and management
-- `src/documents/`: Document generation and templates
-- `src/users/`: User management and role assignments
-- `prisma/`: Database schema and migrations
+### Backend Structure (`api-server-production/src/`)
+- Core: `auth/` (Clerk guard/strategy/decorators), `common/` (Prisma, Xero, S3, PDF generator, audit, org-features), `organizations/`, `users/`, `assets/`, `inventory/`, `customers/`, `suppliers/`, `projects/`, `dashboard/`
+- Documents: `documents/`, `documentTemplates/` (separate module), `document-numbering/`, `document-extraction/`, `deliveries/`, `orders/`
+- Accounting: `accounting/`, `journal/`, `bills/`, `receipts/`, `payments/`, `bank-rec/`, `close/`, `budgets/`, `cost-centers/`, `fixed-assets/`, `statements/`, `posting-queue/`, `posting-preview/`, `recurring-invoices/`, `anomalies/`
+- AI: `guide/`, `ask/`, `document-assistant/`, `account-memory/`
+- External surface: `api-v1/` (API-key `/v1` API), `public-api/`, `public-delivery/`, `public-pay/`, `ingestion/` (JSON), `ingestion-email/`, `whatsapp/`, `xero-sync/`, `import/`
+- `prisma/`: schema + seed. **Migrations are abandoned** — the workflow is `db:push`, not `prisma migrate`
 
-### Frontend Structure
-- `app/portal/`: Main portal pages with nested routing
-- `containers/`: Feature containers with Redux slices and sagas
-- `components/`: Shared UI components
-- `form-components/`: Reusable form components
-- `helpers/`: Utility functions and API request helpers
+### Frontend Structure (`portal-production/`)
+- `app/portal/`: main portal — `accounting/` (26 pages), `sales/`, `masterfiles/`, `crm/` (incl. `whatsapp/`), `reports/`, `deliveries/`, `admin/`, `settings/`…
+- Public route groups: `app/(field)/` (NFC field-tech flow), `app/pay/[token]/`, `app/guest/delivery/[token]/`, `app/scan/[sku]/`, `app/(submit)/`
+- `containers/`: **legacy** Redux/saga features (incl. the 6.4k-line `DocumentTemplates` editor heart) — new code goes in a route folder under `app/portal/<area>/` with co-located `_components/`, `hooks/`
+- `components/`: shared UI — `PageTable.tsx` (mandatory for all list pages), `Sidebar/DynamicSidebarContent.tsx` (drives nav), ReportShell kit, `GuideAssistant/`
+- `form-components/`, `helpers/`
 
 ## Working with the Codebase
 
 ### Database Changes
 1. Modify `api-server-production/prisma/schema.prisma`
-2. Run `npm run db:push` to apply changes
+2. Run `npm run db:push` (dev) — staging/prod need the `:staging`/`:prod` variants and hit **separate Neon DBs**; pushing schema to the wrong env 500s the app
 3. Update DTOs and services accordingly
+4. New `Organization` columns must ALSO be added to `ClerkAuthGuard`'s two hand-rolled selects, or non-admin users silently miss them
 
 ### Adding New Features
-1. Backend: Create new module in `src/` with controller, service, and DTOs
-2. Frontend: Add container in `containers/` with Redux slice/saga if needed
-3. Add navigation route in `app/portal/routes.ts`
+1. Backend: new module in `src/` (controller/service/DTOs), register in `app.module.ts`, grant `resource:action` permissions to superadmin + Admin roles in every org (else 403s)
+2. Frontend: route folder under `app/portal/<area>/` using React Query (NOT a new Redux container)
+3. Routes: `import { ROUTES } from "@/routes"` resolves to **`portal-production/routes.ts`** (repo root of the portal), NOT `app/portal/routes.ts` — the two have diverged; update the root one (and the sidebar via `DynamicSidebarContent.tsx` / `MODULE_CATALOG`)
+4. New features go behind a per-org feature flag togglable in the admin panel; new modules also need appending to each org's restrictive `Role.allowedModules`
+5. Update the Guide assistant knowledge (section above)
 
 ### Authentication & Authorization
-- All API endpoints are protected by Clerk authentication
+- Clerk protects the portal API by default (global guard); **exceptions**: `@Public()` routes, `public-api/`/`public-delivery/`/`public-pay/` (own API-key guards), `api-v1/` (`api-v1-key.guard.ts`), ingestion webhook (`X-Ingest-Token`), WhatsApp webhook (HMAC `X-Hub-Signature-256`)
 - Use `@Permissions()` decorator for endpoint-level permissions
-- Organization context is automatically injected via guards
+- Organization context is automatically injected via guards; `admin@osiris.sg` is the global osirisadmin bypass
 
 ### Document Templates
 - Located in `containers/DocumentTemplates/components/`
 - Support dynamic field generation and customization
-- PDF generation with signature support
+- PDF generation with signature support (backend: Puppeteer via `pdf-generator.service.ts`)
 
 #### Cross-Org Shared Template Library
 Document templates are a **cross-org shared pool**, not org-private:
@@ -151,14 +162,17 @@ Document templates are a **cross-org shared pool**, not org-private:
   "Manage Templates" dialog (`app/portal/admin/organizations/[id]/page.tsx`)
   lists **every org's** templates of a type so an admin can activate any of them
   for the current org.
-- `OrganizationActiveTemplate(organizationId, type, templateId)` (unique on
-  `org,type`) records which shared template each org has activated. Activating a
-  template upserts this selection — it no longer flips the legacy `isActive`
-  boolean on the shared row.
-- Resolution (`getTemplateVariantsByType`, `getDocumentTemplateByType`, and the
-  AI-upload path in `documents.service.ts createFromExtraction`) reads the per-org
-  selection first, then **falls back to legacy `isActive`** for orgs with no
-  selection (so pre-existing orgs work without migration).
+- `OrganizationActiveTemplate(organizationId, type, templateId)` (unique on all
+  **three** columns) records the shared templates each org has activated —
+  **multiple templates can be active per org+type**, with an `isPrimary` flag
+  marking the one used for headless creation (at most one primary per org+type,
+  enforced in the service, not the DB). Endpoints:
+  `/variants/:id/activate|deactivate|rename|primary`.
+- Resolution (`getDocumentTemplateByType`, the AI-upload path
+  `documents.service.ts createFromExtraction`, and mirrors) walks a chain:
+  primary selection → `isDefault` among selected → newest selected → org's own
+  legacy `isActive` → cross-org seeded `isDefault` → any (so pre-existing orgs
+  work without migration).
 - **Propagation:** editing a shared template changes it for every org that
   activated it ("edit once → all orgs update"). It is NOT a clone model.
 - The `GET /documentTemplates/variants/:type` endpoint is cross-org; only admin

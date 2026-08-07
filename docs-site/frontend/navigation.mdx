@@ -1,0 +1,48 @@
+---
+title: "Navigation & Module Catalog"
+description: "How the sidebar is built and how modules reach orgs"
+---
+
+## Data-driven sidebar
+
+`components/Sidebar/DynamicSidebarContent.tsx` renders navigation from `useConfiguration().modules` — the per-org module list served by the backend. The source of truth for module definitions is `api-server-production/src/configuration/module-catalog.ts` (`MODULE_CATALOG`).
+
+Filter pipeline: `m.enabled` → `isModuleAllowed(code)` (Role.allowedModules) → `HIDDEN_MODULES` (Customers/Suppliers moved into Master Files) → per-module `HIDDEN_SUBMENUS` → `adminOnly` submenus stripped for non-admins → sort by `ORDER_OVERRIDE` then `sortOrder`.
+
+Extras: a hardcoded **Deliveries** entry outside the catalog; a secondary "Organization Settings" section (Company Profile, Accounting Setup, Master Files); `data-tour="nav-<MODULE>"` anchors for Guide tours; active-tab remapping for accounting routes; sidebar is hardcoded dark (`#041627`) in both themes with mint accent `#6FFBBE`.
+
+## MODULE_CATALOG
+
+| Code | Route | Default | Submenus |
+|---|---|---|---|
+| DASHBOARD | `/portal` | ✅ | — |
+| INVENTORY | `/portal/inventory` | ✅ | products, purchases, purchases-return, adjustment-in/out, reports, stock-card |
+| SALES | `/portal/sales` | ✅ | quotations, sales-orders, delivery-orders, invoices, debit-notes, credit-notes, stock-card |
+| CUSTOMERS | `/portal/customers` | ✅ | (hidden — lives in Master Files) |
+| PROJECTS | `/portal/projects` | ✅ | — |
+| ORDERS | `/portal/orders` | ✅ | — |
+| DOCUMENTS | `/portal/documents` | ✅ | templates, extraction |
+| INVOICES | `/portal/invoices` | ✅ | — (legacy) |
+| USER_MANAGEMENT | `/portal/user-management` | ✅ | users, roles |
+| AUDIT | `/portal/audit` | ✅ | — |
+| ACCOUNTING | `/portal/accounting` | ✅ | dashboard, ledger, receivables, payables, **posting-queue (adminOnly)**, reports, setup |
+| ASSETS | `/portal/assets` | ❌ | — |
+| ANALYTICS | `/portal/analytics` | ❌ | (no page exists) |
+| INTEGRATIONS | `/portal/integrations` | ❌ | — |
+| CRM | `/portal/crm` | ❌ | whatsapp, contacts, agent, suggestions, scheduled |
+| ADMIN | `/portal/admin` | ✅ | perm-gated (`admin:access`) |
+
+`mergeModulesWithCatalog()` overlays per-org `OrganizationModule` rows on the catalog, so **every module shows for every org in the admin panel** (toggle per org); missing rows appear as virtual catalog defaults.
+
+## Adding a new module — full checklist
+
+1. Add the entry to `MODULE_CATALOG` (backend).
+2. Grant its `resource:action` permissions to superadmin + Admin roles in every org.
+3. Append the module code to every org's pre-existing restrictive `Role.allowedModules` (Admin/Manager), or the module silently disappears from the sidebar for users holding those roles.
+4. Add the route constant to `portal-production/routes.ts` (the root file).
+5. Build the page under `app/portal/<area>/`.
+6. Update the Guide assistant knowledge (`app-knowledge.ts`).
+
+## Role.allowedModules semantics
+
+`useUserPermissions().isModuleAllowed(code)` is **fail-open**: no roles → allow all; all roles with empty `allowedModules` → allow all; otherwise the union across roles must include the code. Edited in the admin roles UI ("leave all unchecked to allow all modules"). Consumed identically by the sidebar and the Guide assistant.

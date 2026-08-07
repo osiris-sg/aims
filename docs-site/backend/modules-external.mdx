@@ -1,0 +1,53 @@
+---
+title: "External Surface"
+description: "Ingestion pipelines, public APIs, and WhatsApp"
+---
+
+These modules accept traffic that is **not** Clerk-authenticated — each has its own auth mechanism (see [Auth](/backend/auth) for the full table).
+
+## JSON ingestion (`/ingestion/invoices/ingest-batch`)
+
+`@Public()` endpoint gated by `X-Ingest-Token` (refuses everything if `INGEST_API_TOKEN` is unset). Accepts Biofuel weighbridge JSON batches (`prepaid_daily`, `postpaid_consolidated` — sample payloads committed alongside) and creates `Document(type='INVOICE')` rows with `config.glPosting.status='pending'` and **no** journal entry. Only the org flag `enableAutoPostIngest` auto-posts — and it does so through the posting-queue engine so AI per-line coding still applies.
+
+## Email ingestion — two webhooks, one domain
+
+| Address | Endpoint | Secret | Behavior |
+|---|---|---|---|
+| `docs+{orgId}@…` | `/ingestion-email/email` | `EMAIL_INGEST_SECRET` (`X-Webhook-Secret`) | Full AR/AP router: rule engine + AI classification, zip support |
+| `bills+{orgId}@…` | `/bills-inbound/email` | `BILLS_INBOUND_SECRET` | LLM-extracts the first PDF → draft bill |
+
+The `email-ingest-worker/` Cloudflare Email Worker receives the mail and forwards it to these endpoints.
+
+Key `ingestion-email` semantics:
+
+- **Response contract: 401 only for a bad secret; every business rejection returns HTTP 200 with `{ok:false, reason}`** so the provider never retries.
+- Rule engine (`EmailIngestConfig.rules`): AND-ed conditions on SUBJECT/SENDER/BODY with CONTAINS/EQUALS/STARTS_WITH/DOMAIN operators; first match wins; actions `IGNORE | FORCE_BILL | FORCE_INVOICE | AI_GUIDANCE`.
+- Idempotency via unique `(org, messageId)` on `EmailIngestLog`.
+- Limits: 10 MB/attachment, 25 MB/zip, 30 zip entries.
+- Admin config/logs per org under `/email-ingest/*` (osirisadmin: any org; others: own org only).
+
+## External `/v1` API (ApiV1)
+
+The partner-facing API, distinct from `public-api/`. Routes are `@Public()` then guarded by `ApiV1KeyGuard` + `@RequireScope(...)`.
+
+- **Keys**: `aims_` + 24 random bytes hex; only the SHA-256 hash is stored, plaintext shown once; prefix kept for identification; scopes default `['documents:create','documents:read']`; per-key `autoPost` flag; revoke = `revokedAt`; `lastUsedAt` touched at most once/minute.
+- **Endpoints**: `POST /v1/documents` (idempotent per `externalId`; types INVOICE/BILL/CREDIT_NOTE), `GET /v1/documents/:id`, `GET /v1/documents`.
+- **Key management**: `/admin/organizations/:orgId/api-keys` + the org admin page's API Keys tab.
+- The guard injects `req.userOrganization` in the same shape Clerk produces, so downstream services are auth-agnostic.
+
+## PublicApi (`/public-api`) — water-sg pull
+
+A *different* key scheme: single env shared secret (`WATER_SG_INBOUND_API_KEY`), constant-time SHA-256 compare, **fail-closed** when unset. Routes: `unit-by-sid/:sidId`, `sids-units`. Whitelisted DTOs only.
+
+## PublicPay (`/public-pay/:token`)
+
+No auth beyond the token (min 16 chars, looked up on `config->>'payToken'`). Returns invoice amount/dates/status, org branding, bank details, a presigned PayNow QR (1 h), and the PDF URL. Rendered by the portal's `app/pay/[token]` page.
+
+## WhatsApp (`/whatsapp`)
+
+Meta Cloud API integration; AIMS is a Tech Provider (Embedded Signup app "E-StatementNow").
+
+- **Authenticated routes**: status, onboard (code exchange → subscribe WABA → register phone), disconnect, send-template, send-text (24 h window), messages, contacts, per-contact agent permission, scheduled messages, agent config/QnA/dry-run/suggestions, history-sync. Permissions `whatsapp:read|send|manage`.
+- **Webhook** (`GET`/`POST /whatsapp/webhook`): hub.challenge handshake via `@Res()`; HMAC-SHA256 of `req.rawBody` against `X-Hub-Signature-256` (`timingSafeEqual`); **acks 200 immediately and processes async** because Meta retries aggressively.
+- **Group bridge** (`POST /whatsapp/group-agent`): gated by `X-Group-Bridge-Token`; fed by the external `whatsapp-group-bridge/` worker (linked-device `whatsapp-web.js`), since groups aren't available on the Cloud API.
+- Scheduler: a plain `setInterval(60_000)` in `onModuleInit` sends due scheduled messages.

@@ -1,0 +1,41 @@
+---
+title: "Multi-tenancy UX"
+description: "Org switching, feature flags, and per-org configuration"
+---
+
+## Org resolution & switching
+
+`app/portal/context/OrganizationContext.tsx`:
+
+- Context shape: `{ organization, realOrganization, isOsirisAdmin, activeOrgId, setActiveOrgId, isLoaded }` — `organization` is the **active/viewed** org (use for data), `realOrganization` is the actual membership (use for admin gating).
+- Bootstrap calls `GET /organizations/user` with `X-Use-Real-Org: 1` so the backend skips any active override; admins with a stored switch then resolve the target org from `GET /organizations`.
+- `setActiveOrgId(id)` writes `sessionStorage["aims-admin-active-org"]` and does a **full `window.location.reload()`** — deliberate, so every cache rebuilds org-scoped.
+
+### Admin "Viewing as org"
+
+- `components/OrgSwitcher.tsx` — org autocomplete (admins only, home org pinned).
+- `components/ViewingAsBanner.tsx` — "Viewing as X — data and writes are scoped to this org" + Reset to home.
+- Every request carries `X-Active-Org-Id` via `helpers/request.ts`; the backend honours it **only for osirisadmins**.
+
+<Warning>
+Any new fetch helper must inject `X-Active-Org-Id` from `sessionStorage["aims-admin-active-org"]`, or "Viewing as org" silently returns home-org data for that call.
+</Warning>
+
+## Feature flags
+
+`app/portal/hooks/useOrganizationFeatures.ts` — React Query over `GET /configuration/ui`. `FEATURE_FLAG_DEFAULTS` is the canonical flag list; the admin panel merges it with stored values so every org shows identical switches.
+
+Enabled by default: `enableProjects`, `enableAnalytics`, `enableDocumentAI`, `enableCustomFields`, `enableServiceItems`. Off by default (opt-in per org): `enableXeroIntegration`, `enableXeroDocSync`, `enableAssetTrackingMode`, `enableFieldScanApp`, `enableAssetPoints`, `enablePOAsProject`, `enableConfirmQuotation`, `enableCappitechOrders`, `enableDocumentListView`, `enableNettRoundDown`, `enableQuotationProjectLink`, `enableWaterSgSites`, `enableEmailIngestion`, `enableLegacyAccountingUx`, `enableAutoPostIngest`, `enableExternalApi`, and more.
+
+The hook returns convenience booleans (`isAssetTrackingModeEnabled` — the heaviest-used flag, `isServiceItemsEnabled`, `isDocumentListViewEnabled`, …).
+
+**Convention: every new feature ships behind a per-org flag** togglable in the admin panel (org page → UI Configuration tab). The AIMS Guide is the deliberate exception (global).
+
+## Per-org configuration
+
+`ConfigurationContext` (`GET /configuration/complete`) exposes modules, uiConfig, custom fields, and helpers (`isModuleEnabled`, `getCustomFieldsForEntity`, `getTerminology`, `getFeatureFlag`). `uiConfig` supports theme overrides, **terminology** renames, date/time/currency formats, branding, and navigation config. A hardcoded fallback of 10 default modules keeps the sidebar rendering even if the fetch fails.
+
+## Admin surfaces
+
+- Per-org: `admin/organizations/[id]` — tabs for Modules (CRUD + "Initialize Default Modules"), Custom Fields, Documents, UI Configuration (feature-flag switches), Settings, Email Ingestion, API Keys.
+- Cross-org: `admin/configuration` — Modules / Custom Fields / UI Configuration / Advanced.

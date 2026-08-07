@@ -1,0 +1,70 @@
+---
+title: "Core Modules"
+description: "Documents, master data, org/admin, and field ops"
+---
+
+## Documents & sales
+
+### Documents (`/documents`)
+
+The central engine (5,000+ line service). One polymorphic `Document` row with JSON `config` covers quotation, sales order, DO, invoice, credit/debit note, PO, purchase return, stock adjustment, bill, and official receipt.
+
+Key behaviors:
+
+- **Revisions** via `baseDocumentId` / `revisionNumber` self-relation.
+- **Concurrent-edit locking**: `editingByUserId`, `editingAt`, `version` — stale saves get a 409.
+- **PDF** via Puppeteer, stored in S3; **email** via Resend (invoices and quotations only).
+- **Pay links**: `ensurePayToken()` idempotently mints `config.payToken` and builds `${PORTAL_BASE_URL}/pay/{token}`, embedded as the "Click to Pay" button in invoice emails.
+- **Confirm side effects**: stock deduction on DO/invoice, GL auto-post, DO-inheritance of project deployment linkage.
+
+Notable endpoints: `POST /documents` (query), `/paginated`, `/stats`, `/from-extraction` (AI upload), `/generate-pdf`, `GET /:id`, `PATCH /:id`, `DELETE /delete/:id`.
+
+### DocumentTemplates (`/documentTemplates`)
+
+Cross-org shared template pool with per-org activation — full model in [Document Templates](/guides/document-templates). Field definitions live in `templateFieldDefinitions.ts`.
+
+### DocumentNumbering (`/document-numbering`)
+
+Per-doc-type numbering **variants** with token patterns (e.g. `BIPL-EW-{DOC}-{YYYYMMDD}-{####}`), reset policies (never/daily/monthly/yearly), and an independent serial per variant. `DOC_CODE` maps types to `{DOC}` tokens (INV, C/N, D/N, SIN, REC, P/V, J/V…).
+
+### DocumentExtraction (`/document-extraction`)
+
+Anthropic-powered PDF/image → structured document JSON (invoice, DO, quotation, PO, receipt). Feeds `POST /documents/from-extraction`.
+
+### Orders (`/orders`), Deliveries (`/deliveries`), PublicDelivery
+
+- **Orders**: container auto-created when a quotation is confirmed; supplier-doc upload + verification; Cappitech-specific UI is feature-flagged on the portal side.
+- **Deliveries**: standalone physical delivery *runs* (rider persona) with `DeliveryItem` rows; the office links a run to a DO or creates a DO from it.
+- **PublicDelivery**: an authenticated route mints a crypto-random guest token (`DeliveryShareLink`); `@Public()` `/public/delivery/*` routes then let a guest view, advance status, and upload photos with scope resolved entirely from the token.
+
+### TimelineItems, PriceHistory, RevenueItems
+
+- `timeline-items/` — per-unit movement/event history rows.
+- `price-history/` — per-asset price points captured from confirmed invoices, with report + export.
+- `revenue-items/` — Revenue Master File: named revenue lines mapped to GL accounts so invoice lines self-code.
+
+## Master data
+
+| Module | Route | Notes |
+|---|---|---|
+| Assets | `/assets` | Product/SKU master with hierarchy, NFC tag binding (`by-nfc-uid/:uid`), AI nameplate-label extraction (base64 photo), quantity adjustment. Custom fields via `@WithCustomFields()` |
+| Inventories | `/inventories` | Serialized units per asset, `InventoryStatus` (instock/rental/reserved/maintenance/sold), SKU generation, QR codes |
+| Categories | `/categories` | Asset categories |
+| Customers | `/customers` | Plus `site-offices/*`, salesmen, `create-by-name` |
+| Suppliers | `/suppliers` | AP counterpart |
+| Projects | `/projects` | Projects → `ProjectDeployment` (RENTAL/SALE/SERVICE, groups one rental/sale event so recurring invoices anchor on it) → Assignments |
+| Uploads | `/uploads/image` | Chunked S3 image upload |
+
+## Org, auth & admin
+
+- **Organizations** (`/organizations`) — CRUD; on create auto-builds a superadmin role with all permissions and seeds default templates + default features. Also a Daikin reward `points-balance` ledger.
+- **Users / Roles / Permissions** — RBAC CRUD; `GET /users/me/roles` requires no permission (the portal bootstraps from it).
+- **Admin** (`/admin`) — osirisadmin-only cross-org browsers (assets, inventories, customers, documents, templates, projects, orgs, users, roles) + audit log viewers.
+- **Configuration** (`/configuration`) — per-org modules, custom fields, UI config/feature flags; `GET /complete` is the portal's bootstrap payload. `module-catalog.ts` defines `MODULE_CATALOG`, the canonical app-wide module list; `mergeModulesWithCatalog` surfaces new modules to every org without backfill (new modules default off).
+- **Dashboard** (`/dashboard`) — overview, assets-overview, invoices-due, delivery-orders-pending, projects-ending.
+
+## Field ops
+
+**MaintenanceReports** (`/maintenance-reports`) — the NFC-scan PWA's backend: `scan-context/:uid` resolves a tag, DO views, service reports with customer signature + GPS sign-off, PDF rendering emailed via Resend. Sign-off can trigger water-sg site creation when `enableWaterSgSites` is on.
+
+**Import** (`/import`) — Xero invoice backfill staging (`ImportInvoice` rows reviewed in the portal, confirmed into real documents).

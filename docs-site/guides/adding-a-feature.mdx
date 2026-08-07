@@ -1,0 +1,37 @@
+---
+title: "Adding a Feature"
+description: "The end-to-end checklist for shipping a feature in AIMS"
+---
+
+## Backend
+
+1. Create a module in `api-server-production/src/<feature>/` with controller, service, and DTOs.
+2. **Register it in `app.module.ts`** — unregistered modules have no routes (see `src/transactions/` for the cautionary example).
+3. Add `@Permissions('resource:action')` on handlers (**handler-level only** — class-level is silently ignored by the guard).
+4. **Grant the new permissions to superadmin + Admin roles in every org** — otherwise users hit 403s. Existing grant scripts in `scripts/` show the pattern.
+5. Scope every query by `organizationId` (service-layer convention; nothing enforces it for you).
+
+## Frontend
+
+1. Build a route folder under `app/portal/<area>/` with co-located `_components/`, `_lib/`, `hooks/` — the pattern used by `crm/`, `sales/`, `accounting/`. Use **React Query or plain hooks, not Redux**.
+2. List pages must use `components/PageTable.tsx` with real server-side `pageCount`.
+3. Add the route constant to **`portal-production/routes.ts`** (the root file — `@/routes` resolves there, not to `app/portal/routes.ts`).
+4. If it's a new module: add it to `MODULE_CATALOG`, append its code to every org's restrictive `Role.allowedModules`, and let the sidebar pick it up (see [Navigation](/frontend/navigation)).
+5. Any fetch helper must inject `X-Active-Org-Id` from `sessionStorage["aims-admin-active-org"]`.
+6. Style for **both themes** — see [Theming](/frontend/theming).
+
+## Feature flag
+
+New features ship behind a per-org flag:
+
+1. Add the flag to `FEATURE_FLAG_DEFAULTS` in `useOrganizationFeatures.ts` (default `false` for opt-in).
+2. The admin org page's UI Configuration tab picks it up automatically.
+3. Branch on the convenience boolean in the UI; gate backend behavior on the org's `OrganizationUIConfig.features` where needed.
+
+## Keep the Guide in sync
+
+Every user-facing change must update the AIMS Guide's knowledge — see [Guide Assistant](/guides/guide-assistant).
+
+## Documentation
+
+Update this docs site (`docs-site/`) and, for agent-relevant invariants, `CLAUDE.md`.

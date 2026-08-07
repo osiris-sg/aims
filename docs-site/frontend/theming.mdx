@@ -1,0 +1,30 @@
+---
+title: "Theming & Dark Mode"
+description: "Design tokens, the two themes, and the rules every UI change must follow"
+---
+
+## The rule
+
+**Every UI change must work in both light and dark mode.** No raw light-only hex values — use the `globals.css` CSS variables or theme-mode-aware `sx` functions. In dark mode, `containedPrimary` buttons carry a gradient `backgroundImage` that tints any `sx` `bgcolor` — account for it.
+
+## Theme plumbing
+
+- `contexts/ThemeModeContext.tsx` — `mode: "light" | "dark"`, persisted at `localStorage["aims:theme-mode"]`, falls back to `prefers-color-scheme`. Sets `data-theme` on `<html>` and swaps `themes/lightTheme.tsx` ↔ `themes/darkTheme.tsx` into the MUI `ThemeProvider`. Toggle lives in the desktop sidebar.
+- **Light theme**: "PayLane / shadcn new-york" tokens — near-black `#171717` primary, white surfaces, `#f2f3f4` app background.
+- **Dark theme**: "Editorial Ledger" — `#A8C5F4` primary, gradient contained buttons.
+- Both augment the MUI palette with `tertiary`, `customYellow`, `customRed`, `customGray`, `surfaceTones`, `outlineVariant`, `primaryFixedDim`.
+- App typography is the system Helvetica stack; **Carlito** (`next/font/google`) is reserved for printed document templates (Calibri metric-compatible).
+- The sidebar/navbar are hardcoded dark (`#041627`, mint accent `#6FFBBE`) in both modes.
+
+## CSS variables (`app/globals.css`)
+
+Defined under `:root` and overridden under `[data-theme="dark"]`:
+
+| Group | Variables |
+|---|---|
+| Spacing/layout | `--double-gap`, `--default-gap`, `--half-gap`, `--quarter-gap`, `--half-padding`, `--default-padding`, `--large-padding`, `--default-border-radius`, `--page-max-width` (1600px), `--portal-content-padding` |
+| Surfaces | `--surface`, `--surface-container-{lowest,low,,high,highest}`, `--surface-dim` |
+| Borders | `--field-border`, `--field-border-hover`, `--table-grid` |
+| Brand/text | `--on-surface`, `--on-surface-variant`, `--primary-deep`, `--primary-container`, `--primary-fixed-dim`, `--tertiary-mint` (dark only), `--outline-variant` |
+
+Also: a dark-mode fix inverting `::-webkit-calendar-picker-indicator`, `.tabular-nums`/`.currency` utilities, and custom scrollbars. Tables and the editor grid use `var(--table-grid)` for borders.

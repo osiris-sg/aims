@@ -1,0 +1,63 @@
+---
+title: "Accounting Modules"
+description: "The double-entry GL, posting flows, and report suite"
+---
+
+The accounting subsystem is the largest part of the backend: ~17 modules, ~25 Prisma models, and a portal section with 26 pages. It has been verified to reconcile $0.00 against Xero for the same input data. Deep design docs: `ACCOUNTING_ARCHITECTURE.md` at repo root.
+
+## Core GL
+
+### Accounting (`/accounting/*`)
+
+Chart of accounts (`/accounting/accounts`, with AI categorization and `seed-defaults` from `default-chart-of-accounts.ts`), per-org settings (`/accounting/settings` — control accounts, payment details, FX rates, period lock, GST config), GST tax rates (`/accounting/tax-rates`), and inventory valuation (`closing-stock`, `cost-prices`).
+
+Account code ranges: `FAxxx` fixed assets, `CAxxx` current assets, `CLxxx` current liabilities, `MTxxx`/`LTxxx` liabilities, `PCxxx` share capital, `PDxxx` depreciation provision, `RPxxx` retained profit, and more.
+
+### Journal (`/journal`)
+
+The GL core: journal entry CRUD/post/void plus the whole report surface — trial balance, account activity, GL detail, general ledger by code, bank summary, foreign banks, P&L, balance sheet, cash flow, GST, and the Finance Hub payload (`reports/hub`).
+
+`JournalAutoPostService` posts balanced journal entries on document/payment events, resolving codes from `AccountingSetting.controlAccounts` → `ChartOfAccount.id`. It is best-effort: it silently skips when the org's chart of accounts isn't configured.
+
+## Posting review
+
+### PostingQueue (`/posting-queue`)
+
+The single "unconfirmed" review screen for accountants. Lists INVOICE / CREDIT_NOTE / DEBIT_NOTE / BILL / OFFICIAL_RECEIPT documents where `config.glPosting.status = 'pending'` or status is draft/unconfirmed, plus standalone unconfirmed journal vouchers. Per-document: `GET /:id/preview` (AI/learned Dr–Cr suggestion), `POST /:id/accounts` (accountant corrections), `POST /:id/reject`. `POST /post-batch` posts per-line journal entries honoring reviewed accounts — idempotent when a JE already exists, partial failures reported.
+
+### PostingPreview (`/posting-preview`) + AccountMemory
+
+Dry-run AI-suggested journal entry for a draft document; `POST /learn` records accountant corrections into `AccountMemory` — a learned `description → account` memory resolved exact → keyword → embedding cosine (threshold 0.82) before falling back to the AI.
+
+## AR / AP
+
+| Module | Route | Purpose |
+|---|---|---|
+| Bills | `/bills` | AP: aging, payments listing, posting preview, create-from-PO, AI extraction (`extract`, `extract-create`), approve/reject/void/pay. `/bills-inbound/email` is a public webhook (`bills+{orgId}@…`) that LLM-extracts the first PDF into a draft bill |
+| Receipts | `/receipts` | Official Receipts with an offset grid against open invoices |
+| Payments | `/payments` | Invoice payment records |
+| RecurringInvoices | `/recurring-invoices` | Deployment-linked recurring AR. Text tokens resolved per run date (`{MONTH}`, `{PERIOD}`, `{NEXT MONTH}`…). **The only `@Cron` in the codebase** — `*/2 * * * *` sweeps all orgs; single-instance only (no lock). Draft-first mode leaves invoices unconfirmed; fully-automatic mode confirms + emails |
+| Recurring | `/recurring-journals` | Recurring JE templates; drafts only, lazily run on Finance Hub load |
+
+<Note>
+`BillPayment.billId` points at a `Document` row with `type='BILL'` — there is **no FK constraint**; the id space is shared by convention.
+</Note>
+
+## Banking, close & controls
+
+- **BankRec** (`/bank-rec`) — bank reconciliation: CSV and AI-extracted PDF statement imports, line matching (match/unmatch/post-as-new/ignore/suggest).
+- **Close** (`/close`) — `GET /preflight` (pass/warn/fail checklist), `POST /run` (month-end lock, year-end retained-earnings rollover, depreciation posting), `POST /unlock`.
+- **Budgets** (`/budgets`) — per-account per-month figures, year grid, copy, budget-vs-actual report.
+- **FixedAssets** (`/fixed-assets`) — FA register + period depreciation posting.
+- **CostCenters** (`/cost-centers`) — hierarchical dimensional tags on JE lines, with AI suggestion.
+- **Anomalies** — provider-only deterministic detectors feeding the Finance Hub Action Queue.
+
+## Reporting
+
+**Statements** (`/statements`) — SOA (customer + supplier), aged summaries, sales-by-customer, purchases-by-supplier, invoice reports, contact transactions, income & expense by contact, GST report. `xero-reports.service.ts` produces Xero-parity report shapes; the portal renders them in the ReportShell kit ([Components](/frontend/components)).
+
+## Conventions
+
+- Reports ported from the legacy accounting software keep the legacy name, column headers, and row layout verbatim; Xero-style reports include the Grouping/Summarising control wherever Xero has one.
+- Multi-currency: customers/suppliers carry a currency + standing rates; all posting paths convert to base with `foreignAmount`/`exchangeRate`; realised FX on settlement posts to account 499. Unrealised revaluation is skipped by design.
+- Doc-type reference prefixes (INV, C/N, D/N, SIN, REC, P/V, J/V, AJI/AJO…) are stamped centrally in `journal.create` and flow into all report feeds.

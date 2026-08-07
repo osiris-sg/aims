@@ -1,0 +1,29 @@
+---
+title: "Database Changes"
+description: "How schema changes flow through dev, staging, and prod"
+---
+
+## The workflow is push, not migrate
+
+`prisma/migrations/` is abandoned. Schema changes go out with `prisma db push` — additive changes apply cleanly; destructive ones abort (no `--accept-data-loss` anywhere in the pipeline, by design).
+
+## Checklist
+
+1. Edit `api-server-production/prisma/schema.prisma`.
+2. `npm run db:push` — this hits the **dev** Neon DB (`.env`).
+3. Update DTOs and services.
+4. **If the change touches `Organization`**: add the new column to `ClerkAuthGuard`'s two hand-rolled selects (`clerk-auth.guard.ts`), or regular users get org objects missing it while admins look fine.
+5. Staging/prod: `npm run db:push:staging` / `npm run db:push:prod` when the change ships. The three Neon DBs are fully separate — the app 500s if code and schema drift apart in an environment.
+
+<Warning>
+`npm run build` in the backend also runs `prisma db push` against the current `DATABASE_URL`. Never use it as a compile check — use `npx nest build`.
+</Warning>
+
+## Connection modes
+
+- **Runtime** (API server): Neon serverless driver over WebSocket/443 (`@prisma/adapter-neon`).
+- **CLI/scripts** (`db:push`, `db:studio`, `ts-node` scripts): plain TCP 5432. Cloudflare WARP interferes with 5432 — keep it off (see `docs/neon-connection-fix.md`).
+
+## Data scripts
+
+One-off backfills and migrations live in `api-server-production/scripts/` and are wired as npm scripts. Destructive scripts ship a `:dry` twin — run it first. `npm run db:refresh-staging` recreates the Neon staging branch from prod.

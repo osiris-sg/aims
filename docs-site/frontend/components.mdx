@@ -1,0 +1,51 @@
+---
+title: "Key Components"
+description: "The editor, list shell, report kit, and assistants"
+---
+
+## TabbedDocumentCreator — the editor heart
+
+`containers/DocumentTemplates/components/TabbedDocumentCreator.tsx` (~7,200 lines) is the single editor for **every** document type (`QO1`, `DO`, `RDO`, `TI`, `TI2`, `MSR`, `INVOICE`, …).
+
+- **Template-driven tabs**: tab structure comes from the template's field config (`getTemplateFormFields`), not code.
+- **Editing rules**: editable only while status is `unconfirmed`; optimistic concurrency via a `version` token (`useDocumentLock`).
+- **Feature-flag branches**: service items, asset points, confirm-quotation, nett round-down, document list view, quotation-project link, Xero doc sync (only when opened from accounting).
+- **Dialog ecosystem**: ~30 dialogs/drawers (extraction converters QO→SO→DO→invoice, confirm dialogs per type, signature, stock card, revenue-item picker, posting preview, price history, send-email, record-payment, document history, AI assistant).
+- **~30 data hooks** in `containers/DocumentTemplates/hooks/` (customers, projects, DOs, site offices, salesmen, Xero accounts, per-variant creator handlers, print handler, yup schema generator).
+- Hosted by `app/portal/documents/[type]/[id]/[documentId]/page.tsx`, which prefetches ±5 documents (max 3 concurrent).
+
+## CleanDocumentPreview — the print renderer
+
+`CleanDocumentPreview.tsx` (~4,400 lines) renders the printable document: own scoped MUI theme, **Carlito** font (Calibri-metric-compatible), S3 asset resolution via `NEXT_PUBLIC_RESOURCE_URL`, rich-HTML content support, Proof-of-Delivery block from linked maintenance reports. Per-variant templates (`InvoiceTemplate`, `Quotation1Template`, `DeliveryOrderTemplate`, …) sit on `TemplatePaper` (A4 paper shell).
+
+Design differentiation reads **only** `tableColumnOrder` / `columnLabels` / `internalColumns` from the template's `data` — not `styleConfig`/fonts.
+
+## PageTable — the mandatory list shell
+
+`components/PageTable.tsx` wraps TanStack Table with search, filters (`filterConfig`), pagination, server-side sorting, sub-rows, and action buttons. **Every list page must use it** (never raw MUI Table); the page supplies filtered + sliced data with a real `pageCount`. Ships the Guide anchors `data-tour="page-create-button" | "page-filter-button" | "page-search"`.
+
+## ReportShell — the Xero-style report kit
+
+`app/portal/accounting/_lib/report-shell/ReportShell.tsx`: filter bar + explicit **Update** button → centered report card → sticky footer (compact toggle, Print, Export → CSV/Excel/PDF). ~23 report implementations live beside it (aged reports, listings, contact transactions, GL/ledger/financial statements, GST, audit trail) plus shared controls (`Grouping`, `AccountsSelect`, `DateRangeSelect`, `ReportTable` with live search).
+
+`AccountingReportsView.tsx` is the registry host: ~45 descriptors `{key, label, category, Component}` across Receivables / Payables / Ledger / Financial / Tax & Compliance / Assets & Other; the active report is selected by `?tab=<key>`; tiles support favorites.
+
+Conventions: any report ported to ReportShell must include the Grouping control when Xero's version has it; before building a new report, the style decision (ReportShell vs legacy verbatim port) is made per report.
+
+## GuideAssistant
+
+`app/portal/components/GuideAssistant/` — the bottom-right chat bubble, global for every org:
+
+- `GuideAssistant.tsx` streams from `/guide/stream` (SSE) and executes `navigate` / `start_guide` / `custom_guide` actions.
+- `guides.ts` — prebuilt tours (`TourStep` with `route`, `selector`, `advanceOn`), `guideCatalog(allowedModules)`, and the `LEGACY_MODULES` blocklist kept in sync with the backend copy.
+- `TourOverlay.tsx` — spotlight overlay, falls back to a centered card when a selector isn't found.
+- Mirrors sidebar access rules exactly, so it only sees screens the user can reach.
+
+## AI drawers
+
+- **DocumentAssistantDrawer** (editor) — SSE chat with tool-status narration, PDF/image attachments, and an applyable `ProposalPatch` with cited past-document sources.
+- **AccountingAssistantDrawer** + inline `AskBar` (Finance Hub) — same shape; renders typed KPI/table/link attachments from the Ask agent.
+
+## Other shared components
+
+`Table.tsx`, `FilterDrawer.tsx`, `MainCard`, `StatusChip`, `GLAccountSelect`, `PostingPreviewDialog`, `DeliveryRouteDialog`/`DeliveryRouteMap` (Leaflet), `PriceHistoryPopup`, `AttachmentUploader`, signature/photo capture fields, `DynamicForm`, and the `form-components/` family (FormInputBox, FormSelect, FormDateRangePicker, …).

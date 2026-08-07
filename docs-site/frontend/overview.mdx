@@ -1,0 +1,45 @@
+---
+title: "Portal Overview"
+description: "Stack, route groups, and page map"
+---
+
+Root: `portal-production/`. Next.js 14.2.15 (App Router, `--turbo` dev), React 18, MUI v6 + Emotion, TanStack React Query v5 + React Table v8, Redux Toolkit + redux-saga (legacy), Clerk 5.2.4, react-hook-form + yup/zod, Capacitor 8 (Android wrapper for the field app), Leaflet, jsPDF/xlsx.
+
+Path aliases: `@/*` → repo root of the portal, `@hooks/*` → `app/portal/hooks/*`.
+
+## Route groups
+
+| Group | Purpose |
+|---|---|
+| `app/portal/**` | The main authenticated portal |
+| `app/(field)/**` | NFC field-scan PWA (Capacitor Android): scan → asset flows (install, service, DO, sign, delivery-start), delivery runs, background geolocation |
+| `app/(submit)/submit` | Document-submit-only app for `normal_user` roles |
+| `app/guest/delivery/[token]` | Token-authenticated guest delivery view/sign (no Clerk) |
+| `app/pay/[token]` | Public "Click to Pay" invoice page |
+| `app/scan/[sku]` | Public QR scan landing |
+| `app/sign-in/**` | Clerk sign-in |
+| `app/portal_redux/**` | **Dead-ish legacy mirror** of assets/customers/documents/inventory — do not extend |
+
+Middleware (`middleware.ts`): `clerkMiddleware` with `/sign-in`, `/guest`, `/pay` public; everything else protected. Guest/pay surfaces are authorized solely by unguessable URL tokens at the backend.
+
+Role-based bouncing: `FieldOnlyGuard` (mounted in the portal layout) sends `field-tech`-only users to `/scan` and `normal_user`-only users to `/submit`; `useRoleGate` does the reciprocal checks in the field/submit layouts.
+
+## Portal page map
+
+- **Dashboard** — `app/portal/page.tsx` (overview cards: assets, invoices due, pending DOs, projects ending).
+- **Sales** — `sales/{quotations,sales-orders,delivery-orders,invoices,debit-notes,credit-notes}` (thin wrappers over the shared document list, driven by `sales/constants.ts`), `sales/stock-card`.
+- **Inventory** — `inventory/{products,purchases,purchases-return,adjustment-in,adjustment-out,reports,stock-card}`.
+- **Documents** — editor at `documents/[type]/[id]/[documentId]` (hosts `TabbedDocumentCreator` with a prefetch cache), plus list/create/templates and the AI `document-extraction` page.
+- **Accounting** — 26 pages: the Finance Hub (`accounting/page.tsx` — KPI tiles, action queue, JE dialog, close wizard, assistant), section shells (`ledger`, `receivables`, `payables`, `reports`) over `AccountingReportsView` (~45 report descriptors selected by `?tab=`), `posting-queue`, `bills`, `bank-reconciliation`, `recurring`, and standalone report routes.
+- **Master Files** — `masterfiles/` hub with route-tabs: Customers / Suppliers / Products / Inventory / Services.
+- **Projects** — list, create, and a tabbed detail page (Active on Site / Past Deployments / Sales & Services / Invoices / Quotations / Field Reports).
+- **CRM** — `crm/{whatsapp,contacts,agent,suggestions,scheduled}`.
+- **Orders / Deliveries** — `orders/` (Cappitech vs slim UI picked by `enableCappitechOrders`), `deliveries/`, `maintenance-reports/`.
+- **Settings** — `settings/company-profile`, `settings/accounting-setup` (8 tabs incl. tax rates, control accounts, cost centers, numbering formats), `settings/import-invoices`.
+- **Admin** (`admin/**`, osirisadmin-gated) — org management (`organizations/[id]` with Modules / Custom Fields / Documents / UI Configuration / Settings / Email Ingestion / API Keys tabs), cross-org browsers, document templates, users/roles, audit, configuration.
+
+Redirect stubs to know about: `/portal/invoices` → `/portal/sales/invoices`, `/portal/assets` → `/portal/inventory/products` (next.config), `inventory/bills` → accounting, `whatsapp` → CRM, `accounting/recurring-invoices` → `receivables?tab=recurring-invoices`.
+
+## The two routes.ts files
+
+There are **two divergent `ROUTES` constant maps**: `portal-production/routes.ts` (the superset — admin keys, suppliers, org settings) and `portal-production/app/portal/routes.ts`. Because `@/*` maps to the portal root, `import { ROUTES } from "@/routes"` resolves to the **root** file — update that one. Neither drives the sidebar; navigation is data-driven (see [Navigation](/frontend/navigation)).

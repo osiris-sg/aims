@@ -1,0 +1,49 @@
+---
+title: "Architecture"
+description: "How the monorepo fits together"
+---
+
+## High-level shape
+
+```
+aims/
+├── api-server-production/     # NestJS API — ~65 feature modules, Prisma, Neon Postgres
+├── portal-production/         # Next.js 14 portal + Capacitor Android field app
+├── email-ingest-worker/       # Cloudflare Email Worker (docs+{orgId}@… → ingestion webhook)
+├── whatsapp-group-bridge/     # whatsapp-web.js linked-device bridge for group chats
+├── docs-site/                 # this documentation (Mintlify)
+├── manual/                    # end-user manual source
+└── docs/                      # operational one-off notes
+```
+
+## Backend
+
+- **NestJS 10** with one module per feature (~65 under `src/`), all registered in `app.module.ts`.
+- **Global wiring** (`src/main.ts` + `app.module.ts`): 15 MB JSON body limit with `req.rawBody` capture (WhatsApp HMAC), CORS allow-list including `capacitor://localhost`, global `ValidationPipe`, `CustomExceptionFilter`, and `CustomResponseInterceptor` which wraps every response as `{ success, data, message }` (handlers needing raw output use `@Res()`).
+- **Auth**: Clerk JWT verified locally on every request via a global `ClerkAuthGuard`; RBAC from per-org roles; several non-Clerk surfaces (API keys, webhook secrets, URL tokens). See [Auth](/backend/auth).
+- **Database**: PostgreSQL on Neon, accessed at runtime through the **Neon serverless driver over WebSocket/443** (`@prisma/adapter-neon`) — see [Operations](/backend/operations). ~73 Prisma models, all organization-scoped. See [Database](/backend/database).
+- **AI**: `@anthropic-ai/sdk` (assistants, extraction, GL coding) + `openai` (embeddings, cosine similarity in Node — no pgvector).
+
+## Frontend
+
+- **Next.js 14 App Router**; the portal lives under `app/portal/`, with public route groups for field scanning (`app/(field)/`), guest deliveries, public pay pages, and a submit-only app.
+- **State**: new code uses **TanStack React Query + local hooks**; Redux Toolkit + Saga survives only in legacy `containers/`. See [State](/frontend/state).
+- **UI**: MUI v6, custom light/dark themes, CSS-variable design tokens in `globals.css`. See [Theming](/frontend/theming).
+- **Navigation is data-driven**: the sidebar renders from the per-org module list served by the backend's `MODULE_CATALOG`, not from a static route map. See [Navigation](/frontend/navigation).
+
+## The document engine
+
+Every document type — quotation, sales order, delivery order, invoice, credit/debit note, PO, purchase return, stock adjustment, bill, official receipt — is one row in the unified `Document` table with a JSON `config` holding all form data. **Never create a per-type table.** Templates are a cross-org shared pool with per-org activation ([details](/guides/document-templates)); numbering is per-org, per-type, token-pattern based.
+
+Confirming a document triggers side effects: stock deduction (DO/invoice), GL auto-posting, order creation (from quotations), and deployment linkage (projects).
+
+## The accounting layer
+
+Documents auto-post balanced journal entries via `JournalAutoPostService`, resolving account codes from each org's `AccountingSetting.controlAccounts`. Documents that arrive via ingestion or drafts sit in the **posting queue** (`config.glPosting.status = 'pending'`) until an accountant reviews AI-suggested per-line coding and batch-posts. Reports (trial balance, P&L, balance sheet, cash flow, GST, aged AR/AP, and the rest) are computed from `JournalEntry`/`JournalEntryLine` and verified against Xero for parity.
+
+## Request flow (portal → API)
+
+1. Portal calls go through `helpers/request.ts`, which injects the Clerk bearer token and `X-Active-Org-Id` (admin org-switcher) on every request.
+2. `ClerkAuthGuard` verifies the JWT locally, loads roles + membership (30 s process-local cache), honours `X-Active-Org-Id` for osirisadmins only, and attaches `request.userOrganization`.
+3. Controllers extract the org id and pass it to services, which scope every Prisma query by `organizationId`. Enforcement is service-layer convention — there is no RLS or Prisma middleware.
+4. `CustomResponseInterceptor` wraps the result; failures land in the portal's global notification sink.

@@ -1,0 +1,51 @@
+---
+title: "Integrations"
+description: "Xero, email, S3, PDF, WhatsApp, water-sg, and pay links"
+---
+
+## Xero — two distinct services
+
+### Push: `src/common/xero.service.ts` + `/xero` controller
+
+- `XeroClient` (`xero-node@13`); OAuth flow at `GET /xero/connect?organizationId=` → `GET /xero/callback` where **`state` carries the organizationId**; redirects back to `/portal/integrations`.
+- Tokens persisted per-org in `XeroConnection` (access, refresh, expiry, tenantId); this service refreshes on its own paths.
+- `upsertDocumentInvoice()` is the full-fidelity editor "Sync to Xero": ACCREC vs ACCPAY, real dates, per-line `accountCode`/`taxType`, Exclusive/Inclusive/NoTax line amounts, explicit per-line tax for rounding parity, in-place updates via `xeroId`, contact get-or-create.
+- Flags: `enableXeroIntegration`, `enableXeroDocSync`. Doc: `api-server-production/XERO_INTEGRATION.md`.
+
+### Pull: `src/xero-sync/` (`/xero-sync`)
+
+Explicitly PULL-only mirror. Phase A syncs the **chart of accounts** (upsert by Xero AccountID — new Xero accounts surface as unmapped `XeroAccountMapping` rows for approval, never auto-created) and **contacts** (split into Customer/Supplier by flags). Phase B (invoices/bills/payments/journals) is deliberately deferred to avoid double-counting.
+
+- Token handling differs from the push service: expired token → 401 "re-connect", no auto-refresh; no connection → 424.
+- Routes: `status`, `runs`, `POST run` (scoped), `account-mappings` list/patch/create-aims/auto-map (Anthropic-driven). Permissions `xerosync:read|create`.
+- `XeroAccountMapping.source` distinguishes AI-suggested from manually-confirmed so auto-map never clobbers manual work. Each "Sync Now" logs an `XeroSyncRun`.
+
+<Note>
+Xero operational gotchas (from production reconciliation work): Xero silently ignores edits to paid bills; new Xero apps get granular scopes only (no `accounting.journals.read`); dual-system data changes should complete the AIMS pass first and touch Xero only after explicit approval.
+</Note>
+
+## Email — Resend (`src/email/`)
+
+`RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `ADMIN_EMAIL` (default CC). Two flows: `sendInvoiceEmail` (HTML template, TO/CC/BCC, PDF attached, "Click to Pay" button when a payment link exists) and `sendServiceReportEmail`. Only invoices and quotations can be emailed from the editor. Warns rather than throws when the key is absent.
+
+## S3 (`src/common/services/s3.service.ts`)
+
+`@aws-sdk/client-s3`; region `ap-southeast-1`, bucket `RESOURCE_BUCKET` (default `aims-osiris`). Stores generated PDFs, uploaded images, ingest attachments, PayNow QR images, delivery photos. Presigned URLs default to 1 h.
+
+## PDF (`src/common/services/pdf-generator.service.ts`)
+
+Headless Puppeteer (`--no-sandbox`…), 1200×1600 viewport, A4 zero-margin print CSS. Setup notes: `api-server-production/docs/PDF_GENERATION_SETUP.md`.
+
+## Public payment links
+
+`DocumentsService.ensurePayToken()` idempotently writes `config.payToken` and builds `${PORTAL_BASE_URL || 'https://www.ai-ms.io'}/pay/{token}`. The link becomes the invoice email's "Click to Pay" button; `GET /public-pay/:token` serves the public page data (amount, status, org branding, bank details, presigned PayNow QR, PDF URL).
+
+## WhatsApp
+
+Meta Cloud API (Tech Provider / Embedded Signup) — full detail in [External Surface](/backend/modules-external). Env: `META_APP_ID`, `META_APP_SECRET`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN`, `WHATSAPP_API_VERSION` (default `v23.0`), `WHATSAPP_GROUP_BRIDGE_TOKEN`.
+
+## water-sg (SIDS/ECM/ESS) — bidirectional
+
+- **Outbound**: `WaterSgService`/`WaterSgLinkService` create sites on DO sign-off when `enableWaterSgSites` is enabled (`WATER_SG_API_URL`, `WATER_SG_ECM_API_URL`, `WATER_SG_ESS_API_URL`, `WATER_SG_API_KEY`).
+- **Inbound**: `/public-api/*` guarded by the separate `WATER_SG_INBOUND_API_KEY`.
+- Spec: `WATER_SG_INTEGRATION.md` at repo root.

@@ -1,0 +1,46 @@
+---
+title: "AIMS — Asset & Inventory Management System"
+description: "What AIMS is, what it ships, and where to find everything"
+---
+
+AIMS is a multi-tenant business platform built for Osiris Technology and its client organizations (Biofuel Industries, Cappitech, and others). It started as an asset/inventory/document system and has grown into a full ERP surface: sales documents, double-entry accounting with Xero parity, AI assistants, field-tech mobile flows, and external integrations.
+
+## The four deployables
+
+| Deployable | Stack | Deploys to |
+|---|---|---|
+| `api-server-production/` | NestJS 10, Prisma 6, PostgreSQL (Neon) | Render (`aims` prod, `aims-staging`) |
+| `portal-production/` | Next.js 14 App Router, MUI v6, Clerk | Vercel (`www.ai-ms.io`; previews at `aims-mocha.vercel.app`). Also ships a Capacitor Android field app |
+| `email-ingest-worker/` | Cloudflare Email Worker | Cloudflare — routes `docs+{orgId}@…` mail to the ingestion webhook |
+| `whatsapp-group-bridge/` | Node + `whatsapp-web.js` | Standalone worker — bridges WhatsApp *group* messages (groups aren't on Meta's Cloud API) |
+
+## Major capability areas
+
+<CardGroup cols={2}>
+  <Card title="Documents" icon="file-invoice" href="/backend/modules-core">
+    One polymorphic `Document` engine covers quotations, sales orders, DOs, invoices, credit/debit notes, POs, bills, and receipts — with templates, numbering variants, revisions, edit locks, and PDF generation.
+  </Card>
+  <Card title="Accounting" icon="calculator" href="/backend/modules-accounting">
+    Full double-entry GL: chart of accounts, auto-posting from documents, posting queue with AI-suggested coding, bank reconciliation, budgets, fixed assets, period close, and a Xero-parity report suite.
+  </Card>
+  <Card title="AI assistants" icon="sparkles" href="/backend/modules-ai">
+    The AIMS Guide (in-app navigator + walkthroughs), the document editor's Ask AI, the Finance Hub accounting agent, document extraction, learned GL coding, and a WhatsApp customer-service agent.
+  </Card>
+  <Card title="Integrations" icon="plug" href="/backend/integrations">
+    Xero (push + pull sync), Resend email, S3, Meta WhatsApp Cloud API, email ingestion, public pay links, water-sg, and an external `/v1` API with per-org keys.
+  </Card>
+  <Card title="Field operations" icon="mobile" href="/frontend/overview">
+    NFC-scan PWA for field techs (Capacitor Android): scan assets, sign off service reports with GPS + signature, run deliveries with live location pings.
+  </Card>
+  <Card title="Multi-tenancy" icon="building" href="/frontend/multi-tenancy">
+    Every row is organization-scoped. Per-org modules, feature flags, custom fields, terminology, document templates, and numbering formats.
+  </Card>
+</CardGroup>
+
+## Where things live
+
+- **This site** (`docs-site/`) — the maintained developer documentation.
+- **`CLAUDE.md`** — condensed working instructions for AI coding agents.
+- **Root spec files** — deep dives written during builds: `ACCOUNTING_ARCHITECTURE.md`, `EXTERNAL_API_AND_INGESTION_HANDOVER.md`, `EMAIL_INGESTION_PLAN.md`, `POSTING_QUEUE_AND_JSON_INGESTION_SPEC.md`, `WATER_SG_INTEGRATION.md`.
+- **`manual/`** — end-user manual source (88 files + `AIMS-User-Manual.docx`).
+- **`docs/`** — operational one-offs (NFC field guide, Neon connection fix, Cloudflare WARP setup).

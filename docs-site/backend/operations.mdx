@@ -1,0 +1,39 @@
+---
+title: "Operations"
+description: "Neon serverless driver, deployment, and operational caveats"
+---
+
+## Neon serverless adapter
+
+`src/common/prisma.service.ts` constructs `PrismaClient` with `new PrismaNeon({ connectionString })` (`@prisma/adapter-neon`, `driverAdapters` preview feature) and `neonConfig.webSocketConstructor = ws`.
+
+Why: the Neon serverless driver tunnels Postgres **over WebSocket on port 443** instead of raw TCP 5432 — 443 is open on virtually every network, which fixed slow connects that tripped Prisma's pool timeouts (especially behind VPNs). `createNeonAdapter()` strips `pool_timeout`/`connect_timeout` from the URL before handing it to the Neon pool (those params stay on the URL for the Prisma CLI, which still uses 5432).
+
+<Note>
+`PrismaService` is provided per-module rather than by one global module (a `ClerkAuthGuard` dependency artifact), so multiple client instances and Neon pools exist per process.
+</Note>
+
+## Deployment
+
+- **Render**: `aims` (prod) and `aims-staging`; service env synced via `npm run render-env:*`.
+- **Neon**: main + staging branches, plus a dev branch.
+- **Vercel**: portal at `ai-ms.io` / previews on `aims-mocha.vercel.app`.
+- `dist/` is committed to the repo.
+- Render and Vercel auto-deploy on push to their branches.
+
+## Operational caveats
+
+1. **`npm run build` runs `prisma db push`** — a schema change ships with every build against whatever `DATABASE_URL` is set; there is no migration review gate. Compile-only: `npx nest build`.
+2. **Recurring-invoice cron** (`*/2 * * * *`) sweeps all orgs with no distributed lock — single API instance only until a lock is added.
+3. **Auth cache is process-local** — role changes propagate per-instance within `AUTH_CACHE_TTL_MS` unless `ClerkAuthGuard.invalidateUser()` runs on each instance.
+4. **Class-level `@Permissions` is silently ignored** — the guard reads handler metadata only.
+5. **Org-switch permission filtering** compares against the membership org, safe only because switching is osirisadmin-only (they bypass permission checks).
+6. **`src/transactions/` is unregistered** — fully built, but its routes don't exist at runtime.
+7. **Feature-flagged rollout is the norm** — new features ship behind per-org flags togglable in the admin panel.
+
+## Test organizations
+
+- **Osiris Technology Pte. Ltd.** — main/demo org
+- **Biofuel Industries Pte Ltd** — client org (weighbridge ingestion, Xero parity work)
+- **osiris-platform** — platform org (seeded by `prisma/seed.ts`)
+- **Test Org** — Biofuel clone, fixed id `7e570e60-0000-4000-8000-7e570e600001` (dev+staging carry full data with the same ids; prod is config-only)
