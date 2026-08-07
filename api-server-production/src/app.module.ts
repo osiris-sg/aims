@@ -57,6 +57,7 @@ import { XeroSyncModule } from './xero-sync/xero-sync.module';
 import { DocumentAssistantModule } from './document-assistant/document-assistant.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { PublicPayModule } from './public-pay/public-pay.module';
+import { ScheduleModule } from '@nestjs/schedule';
 import { IngestionEmailModule } from './ingestion-email/ingestion-email.module';
 import { PostingQueueModule } from './posting-queue/posting-queue.module';
 import { ApiV1Module } from './api-v1/api-v1.module';
@@ -65,6 +66,7 @@ import { GuideModule } from './guide/guide.module';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       load: [configuration],
       isGlobal: true,

@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma.service';
 import { DocumentsService } from '../documents/documents.service';
 
@@ -140,6 +141,8 @@ export class RecurringInvoicesService {
     const emailPrefs: any = config.email || null;
     delete config.email;
     config.customerId = template.customerId;
+    // Invoice date = the run date (page/email showed "—" without it).
+    if (!config.date) config.date = runDate.toISOString().slice(0, 10);
     if (template.numberFormatId) config.numberFormatId = template.numberFormatId;
 
     // Trade in the customer's master-file currency (GL converts on posting).
@@ -229,6 +232,32 @@ ${org?.name || ''}`;
 
   // Lazy scheduler — called on Finance Hub load (like recurring journals). For
   // every active template whose nextRunDate has passed, generate + advance.
+  // Background scheduler (guru 2026-08-06: runs must fire AT their set time,
+  // not on next page load). Sweeps every 2 minutes for orgs with due active
+  // schedules and runs them. Single-instance deploys only — if the API ever
+  // scales out, this needs a lock.
+  @Cron('*/2 * * * *')
+  async runDueAllOrgs() {
+    try {
+      const due = await this.prisma.recurringInvoiceTemplate.findMany({
+        where: { isActive: true, nextRunDate: { lte: new Date() } },
+        select: { organizationId: true },
+        distinct: ['organizationId'],
+      });
+      for (const d of due) {
+        try {
+          const r: any = await this.runDue(d.organizationId);
+          const n = Array.isArray(r?.generated) ? r.generated.length : r?.generatedCount ?? '?';
+          this.logger.log(`[cron] runDue org=${d.organizationId} generated=${n}`);
+        } catch (e: any) {
+          this.logger.error(`[cron] runDue failed org=${d.organizationId}: ${e?.message || e}`);
+        }
+      }
+    } catch (e: any) {
+      this.logger.error(`[cron] sweep failed: ${e?.message || e}`);
+    }
+  }
+
   async runDue(organizationId: string) {
     const now = new Date();
     const due = await this.prisma.recurringInvoiceTemplate.findMany({
