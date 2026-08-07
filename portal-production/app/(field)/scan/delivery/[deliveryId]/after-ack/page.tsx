@@ -15,8 +15,6 @@ import {
   DialogTitle,
   Stack,
   TextField,
-  ToggleButton,
-  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
@@ -59,7 +57,8 @@ const FIELD_BUTTON_SX = { py: 1.5, fontSize: "1rem", minHeight: 48 } as const;
  * AFTER-ACK flow (reordered): the ack page creates a DRAFT DO_ACK (GPS +
  * photos) and routes here for the rest — signature comes LAST:
  *
- *   1. ASSIGN — customer → project (+ RENTAL/SALE), prefilled, skippable.
+ *   1. ASSIGN — customer → project, prefilled, skippable. (Rental-vs-sale is
+ *      an office/DO decision — no rider toggle; assign defaults to RENTAL.)
  *      Committed immediately via /deliveries/:id/assign (fieldDeploy path);
  *      back/re-edit = re-assign ('moved'), never undo.
  *   2. INSTALL PROMPT — needed? YES reveals install photos; NO defers a
@@ -127,7 +126,6 @@ export default function AfterAckPage() {
   const [projectOptions, setProjectOptions] = useState<ProjectOption[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(false);
-  const [deploymentType, setDeploymentType] = useState<"RENTAL" | "SALE">("RENTAL");
   const prevCustomerRef = useRef<string | null>(null);
   // Prefill from the run's current drop target — applied once on load.
   const prefillProjectRef = useRef<string | null>(null);
@@ -376,7 +374,7 @@ export default function AfterAckPage() {
       if (!token) throw new Error("Not signed in");
       const res = await request(
         { path: `/deliveries/${deliveryId}/assign`, method: "POST" },
-        { projectId: selectedProject.id, inventoryId, type: deploymentType },
+        { projectId: selectedProject.id, inventoryId },
         token,
       );
       if (res?.success === false) throw new Error(res?.message ?? "Assignment failed");
@@ -868,17 +866,10 @@ export default function AfterAckPage() {
         </Button>
       )}
 
-      <ToggleButtonGroup
-        value={deploymentType}
-        exclusive
-        onChange={(_, v) => v && setDeploymentType(v)}
-        fullWidth
-        size="small"
-      >
-        <ToggleButton value="RENTAL">Rental</ToggleButton>
-        <ToggleButton value="SALE">Sale</ToggleButton>
-      </ToggleButtonGroup>
-
+      {/* RENTAL/SALE toggle removed (2026-08): rental-vs-sale is a commercial
+          decision that belongs to the office/DO, not the rider. Assign defaults
+          the deployment + unit to RENTAL (fieldDeploy's default); the office
+          converts to a sale via a SALE ProjectDeployment on the DO. */}
       <Stack spacing={1.5} sx={{ mt: 1 }}>
         <Button
           variant="contained"

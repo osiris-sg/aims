@@ -792,7 +792,7 @@ export class DeliveriesService {
    */
   async assignItem(
     deliveryId: string,
-    dto: { projectId: string; inventoryId: string; type?: 'RENTAL' | 'SALE' },
+    dto: { projectId: string; inventoryId: string },
     organizationId: string,
   ) {
     const delivery = await this.prisma.delivery.findFirst({
@@ -825,10 +825,11 @@ export class DeliveriesService {
     });
     if (!project) throw new NotFoundException('Project not found in this organization');
 
+    // No `type` passed → fieldDeploy defaults to RENTAL. Rental-vs-sale is an
+    // office/DO decision, not the rider's (toggle removed 2026-08).
     const result = await this.projectsService.fieldDeploy(dto.projectId, organizationId, {
       inventoryId: dto.inventoryId,
       assetId: item.assetId,
-      type: dto.type,
       autoBind: false,
     });
 
