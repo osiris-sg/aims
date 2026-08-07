@@ -194,6 +194,58 @@ export default function CleanDocumentPreview(props: CleanDocumentPreviewProps) {
   );
 }
 
+/**
+ * Display-only grouping for DOs created from a standalone delivery. The backend
+ * keeps ONE config line PER UNIT (per-unit DocumentItems are load-bearing for
+ * stock deduction), so N units of the same asset arrive as N consecutive lines,
+ * each carrying a `deliveryGroup` (= assetId) marker, a `skuKey` (model) and its
+ * own `serialNumbers`. Here we collapse each consecutive same-`deliveryGroup`
+ * run into ONE display row in the office's format:
+ *
+ *   Rental of N units of {name}
+ *   Model: {skuKey}
+ *   S/No.: {serial}   (one per unit that has a serial)
+ *
+ * TIGHTLY SCOPED: only lines with a truthy `deliveryGroup` are touched — every
+ * other document (and every hand-made DO) passes through byte-identical, so this
+ * cannot alter non-delivery line displays. Year is intentionally never emitted
+ * (no data source exists). Merged qty/amount are summed so totals are preserved.
+ */
+function groupDeliveryLines(raw: any[]): any[] {
+  if (!Array.isArray(raw) || raw.length === 0) return raw;
+  const out: any[] = [];
+  let i = 0;
+  while (i < raw.length) {
+    const line = raw[i];
+    const key = line?.deliveryGroup;
+    if (!key) {
+      out.push(line);
+      i++;
+      continue;
+    }
+    // Gather the consecutive run sharing this deliveryGroup.
+    const run = [line];
+    let j = i + 1;
+    while (j < raw.length && raw[j]?.deliveryGroup === key) {
+      run.push(raw[j]);
+      j++;
+    }
+    const serials = run
+      .flatMap((r) => (Array.isArray(r.serialNumbers) ? r.serialNumbers : []))
+      .filter(Boolean);
+    const qty = run.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
+    const amount = run.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    const name = run[0].description || "";
+    const model = run[0].skuKey || "";
+    const lines = [`Rental of ${qty} unit${qty === 1 ? "" : "s"} of ${name}`];
+    if (model) lines.push(`Model: ${model}`);
+    for (const s of serials) lines.push(`S/No.: ${s}`);
+    out.push({ ...run[0], quantity: qty, amount, serialNumbers: serials, description: lines.join("\n") });
+    i = j;
+  }
+  return out;
+}
+
 function CleanDocumentPreviewInner({ documentType, data, organization, maintenanceReports }: CleanDocumentPreviewProps) {
   const getDocumentTitle = () => {
     const titles: Record<string, string> = {
@@ -230,8 +282,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
     return titles[documentType] || titles[documentType?.toUpperCase()] || "DOCUMENT";
   };
 
-  // Calculate totals
-  const items = data.items || [];
+  // Calculate totals. Delivery-created DOs arrive as one line per unit; group
+  // consecutive same-asset lines into the office's "Rental of N units / Model /
+  // S/No." block for display (non-delivery docs pass through unchanged).
+  const items = groupDeliveryLines(data.items || []);
   const subtotal = items.reduce((acc: number, item: any) => acc + (item.amount || 0), 0);
   const totalTax = items.reduce(
     (acc: number, item: any) => acc + (item.amount || 0) * ((item.tax || 0) / 100),

@@ -761,21 +761,46 @@ export class DeliveriesService {
       }
     }
 
-    // Enrich lines with unit SKUs for readable descriptions.
+    // Enrich lines with the unit's real serial + the asset's model (skuKey) so
+    // the DO preview can render the office's grouped format. ONE config line is
+    // kept per unit — per-unit DocumentItems are load-bearing for the DO's
+    // exactly-once stock deduction (deductDocumentItemStock matches by
+    // inventoryId), so lines must NOT be collapsed here; the preview groups
+    // consecutive same-asset lines for display via the `deliveryGroup` marker.
     const invIds = selection.map((i) => i.inventoryId).filter((v): v is string => !!v);
     const units = invIds.length
-      ? await this.prisma.inventory.findMany({ where: { id: { in: invIds } }, select: { id: true, sku: true } })
+      ? await this.prisma.inventory.findMany({
+          where: { id: { in: invIds } },
+          select: { id: true, sku: true, serialNumber: true, assetId: true, asset: { select: { skuKey: true, name: true } } },
+        })
       : [];
-    const skuById = new Map(units.map((u) => [u.id, u.sku]));
+    const unitById = new Map(units.map((u) => [u.id, u]));
 
     const config: Record<string, any> = {
-      items: selection.map((i) => ({
-        description: i.description ?? (i.inventoryId ? skuById.get(i.inventoryId) : '') ?? '',
-        quantity: i.quantity,
-        unitPrice: 0,
-        amount: 0,
-        ...(i.inventoryId ? { inventoryItemId: i.inventoryId, serialNumbers: [skuById.get(i.inventoryId)].filter(Boolean) } : {}),
-      })),
+      items: selection.map((i) => {
+        const u = i.inventoryId ? unitById.get(i.inventoryId) : null;
+        return {
+          // Per-line description is the product name; the preview builds the
+          // "Rental of N units of … / Model: … / S/No.: …" block from the group.
+          description: i.description ?? u?.asset?.name ?? u?.sku ?? '',
+          quantity: i.quantity,
+          unitPrice: 0,
+          amount: 0,
+          ...(i.inventoryId
+            ? {
+                inventoryItemId: i.inventoryId,
+                // Real manufacturer serial (was: the internal unit SKU — a bug).
+                // Omit entirely when the unit has no serial on file so the
+                // preview drops that S/No. row rather than printing a blank.
+                ...(u?.serialNumber ? { serialNumbers: [u.serialNumber] } : {}),
+                // Model + per-asset group key — display-only, consumed by the
+                // preview's grouping (createDoFromDelivery is the only writer).
+                ...(u?.asset?.skuKey ? { skuKey: u.asset.skuKey } : {}),
+                ...(u?.assetId ? { deliveryGroup: u.assetId } : {}),
+              }
+            : {}),
+        };
+      }),
       ...(delivery.siteAddress ? { deliveryTo: delivery.siteAddress } : {}),
       ...(delivery.customer
         ? {
