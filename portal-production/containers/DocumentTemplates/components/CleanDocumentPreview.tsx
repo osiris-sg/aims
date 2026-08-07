@@ -2090,7 +2090,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     <Typography sx={{ fontSize: "0.75rem", color: "#444" }}>{receivedSig.signedByName}</Typography>
                   )}
                   <Typography sx={{ fontSize: "0.8125rem", mt: 0.25 }}>
-                    Date: {receivedSig?.createdAt ? dmy(receivedSig.createdAt) : ""}
+                    {/* Date the customer signed (signedAt) — the actual
+                        hand-over time; fall back to the row's createdAt only if
+                        an older signed report has no signedAt. Blank when
+                        unsigned, preserving the wet-ink paper line. */}
+                    Date: {receivedSig ? dmy(receivedSig.signedAt ?? receivedSig.createdAt) : ""}
                   </Typography>
                 </Box>
               </Box>
