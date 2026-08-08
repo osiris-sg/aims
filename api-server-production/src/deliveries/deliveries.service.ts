@@ -930,6 +930,50 @@ export class DeliveriesService {
   }
 
   /**
+   * Append condition photos to a unit's EXISTING DO_START report — the rider
+   * captured more after starting the delivery. Never creates a second DO_START;
+   * pushes the new S3 keys onto the one report's photos array. Allowed while the
+   * run is open (not cancelled) and the item isn't completed, and only after the
+   * unit's delivery has actually started (a DO_START exists).
+   */
+  async addItemPhotos(
+    deliveryId: string,
+    dto: { inventoryId: string; photos: string[] },
+    organizationId: string,
+  ) {
+    const delivery = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      include: { items: true },
+    });
+    if (!delivery) throw new NotFoundException('Delivery not found');
+    if (delivery.status === 'cancelled') throw new BadRequestException('Cannot add photos to a cancelled delivery');
+    const item = delivery.items.find((i) => i.inventoryId === dto.inventoryId);
+    if (!item) throw new NotFoundException('Unit is not on this delivery');
+    if (item.deliveryStatus === DeliveryStatus.completed) {
+      throw new BadRequestException('Unit is already completed');
+    }
+    const keys = (dto.photos ?? []).map((k) => String(k).trim()).filter(Boolean);
+    if (!keys.length) throw new BadRequestException('No photos to add');
+
+    // The unit's DO_START (earliest, in case of legacy duplicates). Its photos
+    // are the outbound condition evidence we append to.
+    const start = await this.prisma.maintenanceServiceReport.findFirst({
+      where: { deliveryId, inventoryId: dto.inventoryId, kind: 'DO_START' as any },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    if (!start) {
+      throw new BadRequestException('Start the unit’s delivery before adding photos');
+    }
+    const updated = await this.prisma.maintenanceServiceReport.update({
+      where: { id: start.id },
+      data: { photos: { push: keys } },
+      select: { id: true, photos: true },
+    });
+    return { reportId: updated.id, added: keys.length, total: updated.photos.length };
+  }
+
+  /**
    * Cancel an in-progress run that hasn't delivered anything: restore every
    * reserved unit to instock and mark the run cancelled. Blocked once any
    * item has deliveredAt — a physically delivered unit can't be un-delivered

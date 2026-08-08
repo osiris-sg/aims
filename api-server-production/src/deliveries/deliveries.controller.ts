@@ -8,7 +8,7 @@ import { DeliveriesService } from './deliveries.service';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { AddDeliveryItemDto } from './dto/add-delivery-item.dto';
 import { CreateDoFromDeliveryDto, LinkDeliveryDto } from './dto/link-delivery.dto';
-import { AssignDeliveryItemDto, SkipInstallDto } from './dto/assign-delivery.dto';
+import { AddItemPhotosDto, AssignDeliveryItemDto, SkipInstallDto } from './dto/assign-delivery.dto';
 
 interface ClerkRequest extends Request {
   user?: { id?: string };
@@ -116,6 +116,16 @@ export class DeliveriesController {
     @UserOrganization() org: { id: string },
   ) {
     return this.service.skipInstall(id, dto.inventoryId, org.id);
+  }
+
+  @Post(':id/items/photos')
+  @Permissions('maintenance-reports:create')
+  addItemPhotos(
+    @Param('id') id: string,
+    @Body() dto: AddItemPhotosDto,
+    @UserOrganization() org: { id: string },
+  ) {
+    return this.service.addItemPhotos(id, { inventoryId: dto.inventoryId, photos: dto.photos }, org.id);
   }
 
   @Post(':id/cancel')

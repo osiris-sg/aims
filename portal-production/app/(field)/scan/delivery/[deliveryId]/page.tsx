@@ -27,6 +27,7 @@ import NfcIcon from "@mui/icons-material/Nfc";
 import KeyboardIcon from "@mui/icons-material/Keyboard";
 import HandymanIcon from "@mui/icons-material/Handyman";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import AddAPhotoIcon from "@mui/icons-material/AddAPhoto";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
@@ -123,7 +124,10 @@ export default function DeliveryBasketPage() {
   // Mandatory condition-photo step: a resolved unit parks here until the
   // rider captures ≥1 photo. mode 'add' = new unit (add + start); mode
   // 'start' = existing not_delivered item (Fix B start only).
-  const [pending, setPending] = useState<{ mode: "add" | "start"; assetId: string; inventoryId: string; sku?: string } | null>(null);
+  // mode 'add' = new unit (add + start); 'start' = existing not_delivered item
+  // (Fix B start only); 'photos' = append condition photos to an already-started
+  // unit's DO_START (no new report).
+  const [pending, setPending] = useState<{ mode: "add" | "start" | "photos"; assetId: string; inventoryId: string; sku?: string } | null>(null);
   const [pendingPhotos, setPendingPhotos] = useState<CapturedPhoto[]>([]);
   const [photoUploading, setPhotoUploading] = useState(false);
   // Guards double-handling the same NFC read (uid persists until next startScan)
@@ -196,11 +200,19 @@ export default function DeliveryBasketPage() {
     setPending({ mode: "start", assetId: it.assetId, inventoryId: it.inventoryId, sku: it.inventory?.sku });
   }, []);
 
-  // Photo confirmed → add (mode 'add') then DO_START with the photo keys.
+  // Append more condition photos to an already-started unit's DO_START.
+  const requestPhotos = useCallback((it: RunItem) => {
+    if (!it.inventoryId) return;
+    setPendingPhotos([]);
+    setPending({ mode: "photos", assetId: it.assetId, inventoryId: it.inventoryId, sku: it.inventory?.sku });
+  }, []);
+
+  // Photo confirmed → add (mode 'add') then DO_START; or (mode 'photos') append
+  // to the existing DO_START without creating a new report.
   const confirmPending = useCallback(async () => {
     if (!pending) return;
     if (pendingPhotos.length === 0) {
-      setActionMsg("A condition photo of the unit is required before starting delivery.");
+      setActionMsg("Take at least one photo of the unit.");
       return;
     }
     setBusy(true);
@@ -208,6 +220,19 @@ export default function DeliveryBasketPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
+      if (pending.mode === "photos") {
+        const res = await request(
+          { path: `/deliveries/${deliveryId}/items/photos`, method: "POST" },
+          { inventoryId: pending.inventoryId, photos: pendingPhotos.map((p) => p.key) },
+          token,
+        );
+        if (res.success === false) throw new Error(res.message ?? "Could not add photos");
+        setActionMsg(pending.sku ? `Photos added to ${pending.sku} ✓` : "Photos added ✓");
+        setPending(null);
+        setPendingPhotos([]);
+        await load();
+        return;
+      }
       if (pending.mode === "add") {
         const res = await request(
           { path: `/deliveries/${deliveryId}/items`, method: "POST" },
@@ -425,7 +450,7 @@ export default function DeliveryBasketPage() {
                   <Chip size="small" label={chip.label} color={chip.color} />
                 </Stack>
                 {it.deliveryStatus !== "completed" && (
-                  <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
+                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
                     {/* Fix B: not-yet-started items get their own Start action —
                         every item is independently actionable regardless of
                         scan order. */}
@@ -476,6 +501,22 @@ export default function DeliveryBasketPage() {
                         )}
                       </>
                     )}
+                    {/* Append more condition photos once the unit is out for
+                        delivery — pushes onto the existing DO_START, never a new
+                        report. Only for started (not_delivered has no DO_START yet). */}
+                    {(it.deliveryStatus === "delivering" || it.deliveryStatus === "not_installed") &&
+                      it.inventoryId && (
+                        <Button
+                          size="small"
+                          variant="text"
+                          startIcon={<AddAPhotoIcon />}
+                          onClick={() => requestPhotos(it)}
+                          disabled={busy}
+                          sx={{ minHeight: 40, color: "text.secondary" }}
+                        >
+                          Add photos
+                        </Button>
+                      )}
                   </Stack>
                 )}
               </CardContent>
@@ -565,16 +606,21 @@ export default function DeliveryBasketPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Mandatory condition-photo step — every unit evidences its outbound
-          state before it starts delivering (same rule as the run's first unit). */}
+      {/* Condition-photo step. mode 'add'/'start' evidence a unit before it goes
+          out; mode 'photos' appends more to an already-started unit's DO_START. */}
       <Dialog open={!!pending} onClose={() => !busy && setPending(null)} fullWidth maxWidth="xs">
-        <DialogTitle>Condition photo{pending?.sku ? ` — ${pending.sku}` : ""}</DialogTitle>
+        <DialogTitle>
+          {pending?.mode === "photos" ? "Add photos" : "Condition photo"}
+          {pending?.sku ? ` — ${pending.sku}` : ""}
+        </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            Take at least one photo of the unit&apos;s condition before it goes out.
+            {pending?.mode === "photos"
+              ? "Add more condition photos for this unit."
+              : "Take at least one photo of the unit's condition before it goes out."}
           </Typography>
           <PhotoCaptureField
-            label="Condition photos (required)"
+            label={pending?.mode === "photos" ? "Additional photos" : "Condition photos (required)"}
             photos={pendingPhotos}
             onChange={setPendingPhotos}
             upload={uploadDoStart}
@@ -589,7 +635,15 @@ export default function DeliveryBasketPage() {
             onClick={confirmPending}
             disabled={busy || photoUploading || pendingPhotos.length === 0}
           >
-            {busy ? <CircularProgress size={18} /> : pending?.mode === "start" ? "Start delivery" : "Add & start delivery"}
+            {busy ? (
+              <CircularProgress size={18} />
+            ) : pending?.mode === "photos" ? (
+              "Add photos"
+            ) : pending?.mode === "start" ? (
+              "Start delivery"
+            ) : (
+              "Add & start delivery"
+            )}
           </Button>
         </DialogActions>
       </Dialog>

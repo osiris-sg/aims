@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsUUID } from 'class-validator';
+import { IsArray, IsString, IsUUID } from 'class-validator';
 
 /**
  * Field action: assign an acknowledged unit to a project from INSIDE the
@@ -26,4 +26,19 @@ export class SkipInstallDto {
   @ApiProperty({ description: 'The unit whose installation is being skipped (UUID).' })
   @IsUUID()
   inventoryId!: string;
+}
+
+/**
+ * Field action: append more condition photos to a unit's EXISTING DO_START
+ * report after delivery has started (no second DO_START is created).
+ */
+export class AddItemPhotosDto {
+  @ApiProperty({ description: 'The unit whose DO_START photos are being appended (UUID).' })
+  @IsUUID()
+  inventoryId!: string;
+
+  @ApiProperty({ description: 'S3 keys of the newly captured condition photos to append.', type: [String] })
+  @IsArray()
+  @IsString({ each: true })
+  photos!: string[];
 }
