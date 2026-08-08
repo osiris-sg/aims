@@ -184,9 +184,17 @@ export async function rasterizeDataUrl(dataUrl: string, maxWidth = 384): Promise
   ];
 }
 
+export interface DeliveryReceiptItem {
+  // Unit-based line → "SKU — Asset name"; free-typed line → its description.
+  label: string;
+  quantity?: number;
+}
+
 export interface DeliveryReceiptData {
   deliveryNumber: number | string;
-  unitLabel: string; // model + serial ("SKU — Asset name")
+  // The whole run's items (RUN-LEVEL receipt) — unit-based AND free-typed. The
+  // signature/recipient below confirm receipt of the run as a whole.
+  items: DeliveryReceiptItem[];
   customer?: string | null;
   project?: string | null;
   siteAddress?: string | null;
@@ -206,7 +214,14 @@ export async function buildDeliveryReceipt(d: DeliveryReceiptData): Promise<Uint
   parts.push(...align(0));
   parts.push(...line("Sender: Biofuel Industries Pte. Ltd."));
   parts.push(...bold(true), ...line(`Delivery #${d.deliveryNumber}`), ...bold(false));
-  parts.push(...line(`Unit: ${d.unitLabel}`));
+  // Itemised: every item on the run, once — unit-based and free-typed alike.
+  // The printer wraps long labels at the 58mm width; a leading "- " keeps them
+  // readable across wraps.
+  parts.push(...line(`Items (${d.items.length}):`));
+  for (const it of d.items) {
+    const qty = it.quantity && it.quantity > 1 ? ` x${it.quantity}` : "";
+    parts.push(...line(`- ${it.label}${qty}`));
+  }
   if (d.customer) parts.push(...line(`Customer: ${d.customer}`));
   if (d.project) parts.push(...line(`Project: ${d.project}`));
   if (d.siteAddress) parts.push(...line(`Site: ${d.siteAddress}`));

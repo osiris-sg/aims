@@ -106,6 +106,9 @@ export default function AfterAckPage() {
   // assignment shown on review (set by doAssign, or from scan-context when
   // resuming with an assignment already in place).
   const [unitLabel, setUnitLabel] = useState<string | null>(null);
+  // The whole run's items for the RUN-LEVEL printed receipt (unit-based +
+  // free-typed). Built from the run fetch below — no extra request.
+  const [receiptItems, setReceiptItems] = useState<Array<{ label: string; quantity?: number }>>([]);
   const [assignedSummary, setAssignedSummary] = useState<{ customer: string | null; project: string } | null>(null);
   const sigRef = useRef<SignaturePadHandle>(null);
   // Receipt data retained from the mount fetch (no new requests) + printing UI.
@@ -169,6 +172,14 @@ export default function AfterAckPage() {
         // Unit label for the review summary (sku + asset name from the run).
         const it = (run?.items ?? []).find((i: any) => i.inventoryId === inventoryId);
         if (it) setUnitLabel([it.inventory?.sku, it.asset?.name].filter(Boolean).join(" — ") || it.description || null);
+        // Every run item for the run-level receipt: unit-based → "SKU — Asset",
+        // free-typed (no unit/asset) → its description.
+        setReceiptItems(
+          (run?.items ?? []).map((i: any) => ({
+            label: [i.inventory?.sku, i.asset?.name].filter(Boolean).join(" — ") || i.description || "Item",
+            quantity: i.quantity,
+          })),
+        );
         // Receipt data — already in this payload, just retained.
         setRunMeta({ deliveryNumber: run?.deliveryNumber ?? null, siteAddress: run?.siteAddress ?? null });
         // Resolve the ack MSR (query param wins; else the unit's DO_ACK from
@@ -492,7 +503,7 @@ export default function AfterAckPage() {
     try {
       const bytes = await buildDeliveryReceipt({
         deliveryNumber: runMeta.deliveryNumber ?? "—",
-        unitLabel: unitLabel ?? "Unit",
+        items: receiptItems.length ? receiptItems : [{ label: unitLabel ?? "Unit" }],
         customer: assignedSummary?.customer ?? selectedCustomer?.name ?? null,
         project: assignedSummary?.project ?? null,
         siteAddress: runMeta.siteAddress,
