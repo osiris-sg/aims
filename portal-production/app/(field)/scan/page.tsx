@@ -162,8 +162,8 @@ export default function ScanLandingPage() {
         </Alert>
       )}
 
-      {/* Manual serial entry — the NFC-less path for untaggable assets
-          (allowManualEntry). Primary CTA when the device has no NFC. */}
+      {/* Manual serial entry — the NFC-less path for untaggable units (any
+          tracked asset with units). Primary CTA when the device has no NFC. */}
       <Button
         variant={nfc.isSupported === false ? "contained" : "outlined"}
         size="large"

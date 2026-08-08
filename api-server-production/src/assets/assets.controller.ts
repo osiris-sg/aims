@@ -59,19 +59,14 @@ export class AssetsController {
     return this.assetsService.searchForFieldPicker(q, userOrganization.id);
   }
 
-  // Manual-entry asset list for the field scan home: assets whose units are
-  // reached by keyed-in serial instead of an NFC tap.
-  //   default        → only allowManualEntry=true assets (tapping required for
-  //                     everything else — NFC-capable devices).
-  //   ?all=true      → every tracked asset with ≥1 unit in the org, for devices
-  //                     with no NFC where manual entry is the ONLY path in.
-  // NOTE: `all` is a client-side device-capability signal, not an authorization
-  // boundary — the server can't reliably tell an iPhone from an Android, so this
-  // is a UX nudge, not a lock. See the /scan/manual page.
+  // Manual-entry asset list for the field scan home: every tracked asset with
+  // ≥1 serialized unit, reachable by keyed-in serial instead of an NFC tap.
+  // The list is the same on every device. `all` is retained but inert (both
+  // branches are identical now); Asset.allowManualEntry is no longer consulted.
   @Get('manual-entry')
   @Permissions('field-scan:access')
-  @ApiOperation({ summary: "Assets for the field serial-entry picker ({id,name,skuKey}). ?all=true widens to all tracked assets with units (no-NFC devices)." })
-  @ApiQuery({ name: 'all', type: 'boolean', required: false, description: 'When true, return all tracked assets with ≥1 unit instead of only allowManualEntry ones.' })
+  @ApiOperation({ summary: "Assets for the field serial-entry picker ({id,name,skuKey}) — every tracked asset with units." })
+  @ApiQuery({ name: 'all', type: 'boolean', required: false, description: 'Retained for back-compat; no longer changes the result (all tracked assets with units are returned).' })
   async getManualEntryAssets(@Query('all') all: string | undefined, @UserOrganization() userOrganization: any) {
     return this.assetsService.getManualEntryAssets(userOrganization.id, all === 'true');
   }

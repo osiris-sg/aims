@@ -69,10 +69,11 @@ const FIELD_BUTTON_SX = {
 
 /**
  * Manual serial entry — the NFC-less path to the scan action chooser, for
- * assets that can't carry a tag (allowManualEntry=true; e.g. submersible
- * pumps that live underwater). Pick the asset, key in the unit serial, and
- * land on the SAME /scan/asset/[assetId]?inventoryId= page a physical tag
- * scan reaches — every action there (delivery, assign) is tag-independent.
+ * units that can't carry a tag (e.g. submersible pumps that live underwater).
+ * The picker lists any tracked asset with units. Pick the asset, key in the
+ * unit serial, and land on the SAME /scan/asset/[assetId]?inventoryId= page a
+ * physical tag scan reaches — every action there (delivery, assign) is
+ * tag-independent.
  */
 export default function ManualEntryPage() {
   const router = useRouter();
@@ -101,10 +102,10 @@ export default function ManualEntryPage() {
   // Multi-match disambiguation (theoretically possible after normalization).
   const [candidates, setCandidates] = useState<ResolveMatch[] | null>(null);
 
-  // Load the picker's assets — but only after NFC detection resolves, so we
-  // request the right list once. NFC-capable → allowManualEntry assets only;
-  // no NFC → all=true widens to every tracked asset with units. Exactly one
-  // result → preselect so the tech goes straight to the serial field.
+  // Load the picker's assets after NFC detection resolves (one request). The
+  // list is the same on every device now — any tracked asset with units — so
+  // `all` no longer changes the result; it's kept only for the old query param.
+  // Exactly one result → preselect so the tech goes straight to the serial field.
   useEffect(() => {
     if (nfc.isSupported === undefined) return; // detection still in flight
     const all = nfc.isSupported === false;
