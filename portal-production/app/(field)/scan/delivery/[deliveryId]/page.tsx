@@ -290,6 +290,32 @@ export default function DeliveryBasketPage() {
     [deliveryId, getToken, load],
   );
 
+  // Mark a FREE-TYPED line delivered (no unit to scan). One tap → completed,
+  // keyed by DeliveryItem.id; the backend rejects any row carrying a unit.
+  const markDelivered = useCallback(
+    async (it: RunItem) => {
+      setBusy(true);
+      setActionMsg(null);
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const res = await request(
+          { path: `/deliveries/${deliveryId}/items/${it.id}/deliver`, method: "POST" },
+          {},
+          token,
+        );
+        if (res.success === false) throw new Error(res.message ?? "Could not mark delivered");
+        setActionMsg(`"${it.description || "Item"}" delivered ✓`);
+        await load();
+      } catch (e: any) {
+        setActionMsg(e?.message ?? "Could not mark delivered");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [deliveryId, getToken, load],
+  );
+
   // Inline NFC: observe scanned uid → resolve to a unit → add. The hook resets
   // uid on each startScan, and auto-stops after one read.
   useEffect(() => {
@@ -486,6 +512,22 @@ export default function DeliveryBasketPage() {
                 </Stack>
                 {it.deliveryStatus !== "completed" && (
                   <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
+                    {/* Free-typed line (no unit to scan): one tap → completed.
+                        Full delivery participant — the run won't complete until
+                        it's marked. Available whenever the run is live, unlike
+                        the unit Start/Ack buttons that gate on inventoryId. */}
+                    {!it.inventoryId && !it.assetId && it.deliveryStatus === "not_delivered" && run.status !== "cancelled" && (
+                      <Button
+                        size="small"
+                        variant="contained"
+                        startIcon={<LocalShippingIcon />}
+                        onClick={() => markDelivered(it)}
+                        disabled={busy}
+                        sx={{ minHeight: 40 }}
+                      >
+                        Mark delivered
+                      </Button>
+                    )}
                     {/* Fix B: not-yet-started items get their own Start action —
                         every item is independently actionable regardless of
                         scan order. */}

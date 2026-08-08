@@ -118,6 +118,18 @@ export class DeliveriesController {
     return this.service.skipInstall(id, dto.inventoryId, org.id);
   }
 
+  // Mark a FREE-TYPED item delivered (no unit to scan). Keyed by DeliveryItem.id;
+  // the service rejects any row that carries an assetId/inventoryId.
+  @Post(':id/items/:itemId/deliver')
+  @Permissions('maintenance-reports:create')
+  markFreeTypedDelivered(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @UserOrganization() org: { id: string },
+  ) {
+    return this.service.markFreeTypedDelivered(id, itemId, org.id);
+  }
+
   @Post(':id/items/photos')
   @Permissions('maintenance-reports:create')
   addItemPhotos(

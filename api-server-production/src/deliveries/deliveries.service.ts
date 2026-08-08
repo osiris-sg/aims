@@ -616,18 +616,17 @@ export class DeliveriesService {
         id: true,
         status: true,
         completedAt: true,
-        items: { select: { deliveryStatus: true, assetId: true, inventoryId: true } },
+        items: { select: { deliveryStatus: true } },
       },
     });
     if (!delivery || delivery.status === 'cancelled' || delivery.items.length === 0) return;
 
-    // Exclude FREE-TYPED items (assetId AND inventoryId both null) from the fold:
-    // they're description-only records with no unit to deliver, so a stuck
-    // `not_delivered` free-typed line must never keep a run out of `completed`.
-    const foldable = delivery.items.filter((i) => i.assetId !== null || i.inventoryId !== null);
-    if (foldable.length === 0) return; // only free-typed lines — nothing to fold on
-
-    const ranks = foldable.map((i) => RANK[i.deliveryStatus]);
+    // Fold over ALL items — unit-backed AND free-typed. Free-typed lines are
+    // full delivery participants now (marked delivered via markFreeTypedDelivered),
+    // so a run isn't `completed` until they are too. Monotonic in practice: a
+    // free-typed line is added only pre-ack (run still in_progress) and only ever
+    // advances, so this never downgrades a run.
+    const ranks = delivery.items.map((i) => RANK[i.deliveryStatus]);
     const target =
       ranks.every((r) => r >= RANK[DeliveryStatus.completed])
         ? ('completed' as const)
@@ -977,6 +976,52 @@ export class DeliveriesService {
       );
     }
     return updated;
+  }
+
+  /**
+   * Mark a FREE-TYPED item delivered. Free-typed lines (assetId AND inventoryId
+   * both null) have no unit to scan, so they can't ride the MSR-driven unit
+   * machine (advanceDeliveryItem, keyed by inventoryId). Instead the rider taps
+   * one "Mark delivered" button in the basket, keyed by DeliveryItem.id, which
+   * advances the line straight to `completed` — no delivering/not_installed
+   * hops, no install prompt, no MSR (MSR requires an assetId), no signature (the
+   * run's customer signature on a unit's DO_ACK already covers the hand-over).
+   * NO stock work: there's no unit to reserve/flip/deduct.
+   *
+   * deliveredAt is left NULL on purpose — completion here is a bookkeeping tick,
+   * not a unit hand-off, so it never trips cancel()'s "physically delivered"
+   * block. The item-null guard makes this endpoint unable to touch a unit row.
+   */
+  async markFreeTypedDelivered(deliveryId: string, itemId: string, organizationId: string) {
+    const delivery = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: { id: true, status: true },
+    });
+    if (!delivery) throw new NotFoundException('Delivery not found');
+    if (delivery.status === 'cancelled') {
+      throw new BadRequestException('Cannot mark items on a cancelled delivery');
+    }
+
+    const item = await this.prisma.deliveryItem.findFirst({
+      where: { id: itemId, deliveryId },
+      select: { id: true, assetId: true, inventoryId: true, deliveryStatus: true },
+    });
+    if (!item) throw new NotFoundException('Item is not on this delivery');
+    // Guard: ONLY genuinely free-typed lines. A unit row must go through the
+    // scan-driven ack flow so its stock/flip side-effects fire — never here.
+    if (item.assetId !== null || item.inventoryId !== null) {
+      throw new BadRequestException('This action is only for free-typed items — scan the unit to deliver it');
+    }
+    if (item.deliveryStatus === DeliveryStatus.completed) {
+      throw new BadRequestException('Item is already delivered');
+    }
+
+    await this.prisma.deliveryItem.update({
+      where: { id: item.id },
+      data: { deliveryStatus: DeliveryStatus.completed, completedAt: new Date() },
+    });
+    await this.recomputeRunStatus(deliveryId, organizationId);
+    return this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
   }
 
   /**
