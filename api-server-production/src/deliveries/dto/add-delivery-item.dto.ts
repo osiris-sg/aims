@@ -1,20 +1,28 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Min, ValidateIf } from 'class-validator';
 
-/** Basket add: reserve another unit and append it to an in-progress run. */
+/**
+ * Basket add: append an item to an in-progress run. Two shapes:
+ *   • catalog item — `assetId` (+ optional `inventoryId`); reserves the unit.
+ *   • FREE-TYPED item — no `assetId`/`inventoryId`, just `description` (+ qty);
+ *     a description-only record with no reservation, resolved office-side later.
+ * ValidateIf enforces: `description` is required when `assetId` is absent.
+ */
 export class AddDeliveryItemDto {
-  @ApiProperty({ description: 'Catalog asset of the item (UUID).' })
+  @ApiPropertyOptional({ description: 'Catalog asset of the item (UUID). Omit for a free-typed line.' })
+  @IsOptional()
   @IsUUID()
-  assetId!: string;
+  assetId?: string;
 
   @ApiPropertyOptional({ description: 'Specific tracked unit being delivered, when known.' })
   @IsOptional()
   @IsUUID()
   inventoryId?: string;
 
-  @ApiPropertyOptional({ description: 'Free-text line description.' })
-  @IsOptional()
+  @ApiPropertyOptional({ description: 'Free-text line description. REQUIRED for a free-typed line (no assetId).' })
+  @ValidateIf((o) => !o.assetId)
   @IsString()
+  @IsNotEmpty()
   description?: string;
 
   @ApiPropertyOptional({ description: 'Quantity for untracked items. Defaults to 1.' })

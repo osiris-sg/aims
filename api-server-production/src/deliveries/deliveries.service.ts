@@ -325,6 +325,23 @@ export class DeliveriesService {
     if (delivery.status !== 'in_progress') {
       throw new BadRequestException(`Cannot add items to a ${delivery.status} delivery`);
     }
+
+    // FREE-TYPED line: no assetId → a description-only record, no catalog lookup,
+    // no reservation, no unit. Resolved to a real asset/unit office-side later.
+    if (!dto.assetId) {
+      const description = dto.description?.trim();
+      if (!description) throw new BadRequestException('A description is required for a free-typed item');
+      return this.prisma.deliveryItem.create({
+        data: {
+          deliveryId,
+          assetId: null,
+          inventoryId: null,
+          description,
+          quantity: dto.quantity ?? 1,
+        },
+      });
+    }
+
     const asset = await this.prisma.asset.findFirst({
       where: { id: dto.assetId, organizationId },
       select: { id: true, name: true },
@@ -380,7 +397,8 @@ export class DeliveriesService {
 
     // Enrich items with unit/asset display fields (plain-UUID columns, no FK).
     const invIds = delivery.items.map((i) => i.inventoryId).filter((v): v is string => !!v);
-    const assetIds = [...new Set(delivery.items.map((i) => i.assetId))];
+    // filter(Boolean): free-typed items have assetId null — never query for them.
+    const assetIds = [...new Set(delivery.items.map((i) => i.assetId).filter((v): v is string => !!v))];
     const [units, assets, reports] = await Promise.all([
       invIds.length
         ? this.prisma.inventory.findMany({
@@ -594,11 +612,22 @@ export class DeliveriesService {
   async recomputeRunStatus(deliveryId: string, organizationId: string) {
     const delivery = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },
-      select: { id: true, status: true, completedAt: true, items: { select: { deliveryStatus: true } } },
+      select: {
+        id: true,
+        status: true,
+        completedAt: true,
+        items: { select: { deliveryStatus: true, assetId: true, inventoryId: true } },
+      },
     });
     if (!delivery || delivery.status === 'cancelled' || delivery.items.length === 0) return;
 
-    const ranks = delivery.items.map((i) => RANK[i.deliveryStatus]);
+    // Exclude FREE-TYPED items (assetId AND inventoryId both null) from the fold:
+    // they're description-only records with no unit to deliver, so a stuck
+    // `not_delivered` free-typed line must never keep a run out of `completed`.
+    const foldable = delivery.items.filter((i) => i.assetId !== null || i.inventoryId !== null);
+    if (foldable.length === 0) return; // only free-typed lines — nothing to fold on
+
+    const ranks = foldable.map((i) => RANK[i.deliveryStatus]);
     const target =
       ranks.every((r) => r >= RANK[DeliveryStatus.completed])
         ? ('completed' as const)

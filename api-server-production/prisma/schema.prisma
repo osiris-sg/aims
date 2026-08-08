@@ -2275,10 +2275,11 @@ model DeliveryItem {
   id             String         @id @default(uuid()) @db.Uuid
   deliveryId     String         @db.Uuid
   delivery       Delivery       @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
-  // Phase 1: every line maps to a known catalog asset; tracked units also
-  // carry the specific inventory unit. Plain UUIDs (no FK) — mirrors how
+  // A catalog-resolved line carries assetId (+ inventoryId for tracked units).
+  // A FREE-TYPED line has BOTH null — description-only, awaiting office
+  // resolution to a real asset/unit. Plain UUIDs (no FK) — mirrors how
   // DocumentItem references stock without hard coupling.
-  assetId        String         @db.Uuid
+  assetId        String?        @db.Uuid
   inventoryId    String?        @db.Uuid
   description    String?
   quantity       Int            @default(1)

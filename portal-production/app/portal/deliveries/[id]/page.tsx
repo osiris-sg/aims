@@ -394,7 +394,17 @@ export default function DeliveryDetailPage() {
                     </TableCell>
                   )}
                   <TableCell sx={{ fontFamily: "monospace" }}>{it.inventory?.sku ?? "—"}</TableCell>
-                  <TableCell>{it.asset?.name ?? "—"}</TableCell>
+                  <TableCell>
+                    {it.asset?.name ?? (
+                      // Free-typed line (no asset AND no unit) — awaiting resolution
+                      // to a real catalog asset/unit (Phase 2 adds the action).
+                      !it.inventory ? (
+                        <Chip size="small" color="warning" variant="outlined" label="Needs resolution" />
+                      ) : (
+                        "—"
+                      )
+                    )}
+                  </TableCell>
                   <TableCell>{it.description ?? "—"}</TableCell>
                   <TableCell align="center">{it.quantity}</TableCell>
                   <TableCell><Chip size="small" label={ic.label} color={ic.color} /></TableCell>

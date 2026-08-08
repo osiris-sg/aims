@@ -28,6 +28,7 @@ import KeyboardIcon from "@mui/icons-material/Keyboard";
 import HandymanIcon from "@mui/icons-material/Handyman";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import AddAPhotoIcon from "@mui/icons-material/AddAPhoto";
+import EditNoteIcon from "@mui/icons-material/EditNote";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
@@ -121,6 +122,11 @@ export default function DeliveryBasketPage() {
   const [serial, setSerial] = useState("");
   const [resolving, setResolving] = useState(false);
   const [candidates, setCandidates] = useState<ResolveMatch[] | null>(null);
+  // Free-typed line dialog: not in the catalog — a description-only record the
+  // office resolves to a real asset/unit later. No reservation, no unit.
+  const [freeOpen, setFreeOpen] = useState(false);
+  const [freeDesc, setFreeDesc] = useState("");
+  const [freeQty, setFreeQty] = useState("1");
   // Mandatory condition-photo step: a resolved unit parks here until the
   // rider captures ≥1 photo. mode 'add' = new unit (add + start); mode
   // 'start' = existing not_delivered item (Fix B start only).
@@ -352,6 +358,35 @@ export default function DeliveryBasketPage() {
     }
   };
 
+  // Add a FREE-TYPED line — no catalog asset, no unit. A description-only record
+  // the office resolves later. POST /items with { description, quantity } only.
+  const addFreeItem = async () => {
+    const description = freeDesc.trim();
+    if (!description) return;
+    const quantity = Math.max(1, parseInt(freeQty, 10) || 1);
+    setBusy(true);
+    setActionMsg(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request(
+        { path: `/deliveries/${deliveryId}/items`, method: "POST" },
+        { description, quantity },
+        token,
+      );
+      if (res.success === false) throw new Error(res.message ?? "Could not add item");
+      setActionMsg(`"${description}" added ✓`);
+      setFreeOpen(false);
+      setFreeDesc("");
+      setFreeQty("1");
+      await load();
+    } catch (e: any) {
+      setActionMsg(e?.message ?? "Could not add item");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
@@ -553,6 +588,21 @@ export default function DeliveryBasketPage() {
           >
             Enter serial to add unit
           </Button>
+          {/* Free-typed line — not in the catalog; office resolves it later. */}
+          <Button
+            variant="outlined"
+            size="large"
+            startIcon={<EditNoteIcon />}
+            onClick={() => {
+              setFreeOpen(true);
+              setFreeDesc("");
+              setFreeQty("1");
+            }}
+            disabled={busy}
+            sx={{ py: 1.5, minHeight: 48 }}
+          >
+            Free type item
+          </Button>
           {/* Fallback: full scanner page (devices without Web NFC in-browser). */}
           <Button variant="text" size="small" onClick={() => router.push("/scan")} sx={{ color: "text.secondary" }}>
             Use the scanner page instead
@@ -602,6 +652,42 @@ export default function DeliveryBasketPage() {
           <Button onClick={() => setManualOpen(false)} disabled={resolving}>Cancel</Button>
           <Button variant="contained" onClick={resolveSerial} disabled={resolving || !serial.trim()}>
             {resolving ? <CircularProgress size={18} /> : "Find unit"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Free-typed line dialog — a description-only record (no catalog asset),
+          resolved to a real asset/unit by the office later. */}
+      <Dialog open={freeOpen} onClose={() => !busy && setFreeOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Free type item</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            For an item not in the catalog. The office resolves it to a product later.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            multiline
+            minRows={2}
+            label="Description"
+            placeholder="e.g. 1 unit 60 es DG DCA-60ESI2"
+            value={freeDesc}
+            onChange={(e) => setFreeDesc(e.target.value)}
+          />
+          <TextField
+            fullWidth
+            type="number"
+            label="Quantity"
+            value={freeQty}
+            onChange={(e) => setFreeQty(e.target.value)}
+            inputProps={{ min: 1 }}
+            sx={{ mt: 1.5, maxWidth: 140 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setFreeOpen(false)} disabled={busy}>Cancel</Button>
+          <Button variant="contained" onClick={addFreeItem} disabled={busy || !freeDesc.trim()}>
+            {busy ? <CircularProgress size={18} /> : "Add item"}
           </Button>
         </DialogActions>
       </Dialog>
