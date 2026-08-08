@@ -1,4 +1,4 @@
-import { IsBoolean, IsLatitude, IsLongitude, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsBoolean, IsLatitude, IsLongitude, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
 
 /**
  * Field create-and-bind: the technician scans an unbound NFC tag, photographs
@@ -21,10 +21,13 @@ export class CreateInventoryAndBindDto {
   @IsOptional()
   serial?: string;
 
-  // Hardware UID of the NFC tag being bound (from useNfcScan).
+  // Hardware UID of the NFC tag being bound (from useNfcScan). OPTIONAL: the
+  // /scan/manual "create new unit" path mints a tagless unit — omit this and the
+  // create proceeds with nfcTagUid=null (identity lives in `sku`), skipping the
+  // tag-conflict/rebind branches.
   @IsString()
-  @IsNotEmpty()
-  nfcTagUid: string;
+  @IsOptional()
+  nfcTagUid?: string;
 
   // When the typed serial matches an existing unit that ALREADY has a different
   // tag, the bind returns a 409 { code: 'ALREADY_TAGGED' } instead of silently

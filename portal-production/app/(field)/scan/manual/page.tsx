@@ -10,6 +10,11 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
   Stack,
   TextField,
   Typography,
@@ -61,6 +66,17 @@ interface ResolveMatch {
   skuKey: string | null;
 }
 
+interface CustomerOption {
+  id: string;
+  name: string;
+  customerCode: string | null;
+}
+
+interface ProjectOption {
+  id: string;
+  name: string;
+}
+
 const FIELD_BUTTON_SX = {
   py: 1.5,
   fontSize: "1rem",
@@ -101,6 +117,25 @@ export default function ManualEntryPage() {
   const [showingAll, setShowingAll] = useState(false);
   // Multi-match disambiguation (theoretically possible after normalization).
   const [candidates, setCandidates] = useState<ResolveMatch[] | null>(null);
+
+  // ── Create-new branch (no exact match) ──────────────────────────────────────
+  // Revealed after a lookup finds nothing. `nearMatches` are the typo-guard
+  // "did you mean" candidates from the resolve response. createSerial is the
+  // editable, upper-cased serial that will be minted.
+  const [showCreate, setShowCreate] = useState(false);
+  const [nearMatches, setNearMatches] = useState<ResolveMatch[]>([]);
+  const [createSerial, setCreateSerial] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  // Optional customer → project assignment (mirrors /scan/bind). Both optional.
+  const [customerOptions, setCustomerOptions] = useState<CustomerOption[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerOption | null>(null);
+  const [customerInput, setCustomerInput] = useState("");
+  const [customerSearching, setCustomerSearching] = useState(false);
+  const [projectOptions, setProjectOptions] = useState<ProjectOption[]>([]);
+  const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const prevCustomerRef = useRef<string | null>(null);
 
   // Load the picker's assets after NFC detection resolves (one request). The
   // list is the same on every device now — any tracked asset with units — so
@@ -205,12 +240,83 @@ export default function ManualEntryPage() {
     router.push(`/scan/asset/${m.assetId}?inventoryId=${encodeURIComponent(m.inventoryId)}`);
   };
 
+  // Debounced customer search (300 ms) — same shape as /scan/bind. Only runs
+  // once the create-new branch is open. Empty query returns the first 20.
+  useEffect(() => {
+    if (!showCreate) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setCustomerSearching(true);
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request(
+          { path: "/customers", method: "POST" },
+          { page: 1, limit: 20, search: customerInput.trim() || undefined },
+          token,
+        );
+        if (cancelled) return;
+        const docs = res?.data?.docs;
+        setCustomerOptions(
+          Array.isArray(docs)
+            ? docs.map((c: any) => ({ id: c.id, name: c.name, customerCode: c.customerCode ?? null }))
+            : [],
+        );
+      } catch {
+        // Non-fatal — the whole section is optional.
+      } finally {
+        if (!cancelled) setCustomerSearching(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [customerInput, showCreate, getToken]);
+
+  // Load the selected customer's projects (backend filters by customerId).
+  // Changing the customer resets the project pick.
+  useEffect(() => {
+    const currentCustomerId = selectedCustomer?.id ?? null;
+    if (currentCustomerId !== prevCustomerRef.current) {
+      setSelectedProject(null);
+      setProjectOptions([]);
+      prevCustomerRef.current = currentCustomerId;
+    }
+    if (!selectedCustomer) return;
+    let cancelled = false;
+    (async () => {
+      setProjectsLoading(true);
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request(
+          { path: "/projects", method: "POST" },
+          { page: 1, limit: 50, filters: { customerId: selectedCustomer.id } },
+          token,
+        );
+        if (cancelled) return;
+        const docs = res?.data?.docs;
+        setProjectOptions(Array.isArray(docs) ? docs.map((p: any) => ({ id: p.id, name: p.name })) : []);
+      } catch {
+        // Non-fatal — optional section.
+      } finally {
+        if (!cancelled) setProjectsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCustomer, getToken]);
+
   const resolve = async () => {
     const q = serial.trim();
     if (!q) return;
     setResolving(true);
     setError(null);
     setCandidates(null);
+    setShowCreate(false);
+    setNearMatches([]);
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
@@ -221,18 +327,76 @@ export default function ManualEntryPage() {
         {},
         token,
       );
-      const matches: ResolveMatch[] = (res?.data ?? res)?.matches ?? [];
-      if (matches.length === 0) {
-        setError(`No unit found for "${q}" — check the serial and try again.`);
-      } else if (matches.length === 1) {
+      const payload = res?.data ?? res;
+      const matches: ResolveMatch[] = payload?.matches ?? [];
+      if (matches.length === 1) {
         goToUnit(matches[0]);
-      } else {
+      } else if (matches.length > 1) {
         setCandidates(matches);
+      } else {
+        // No exact match → open the create-new branch with the near-match typo
+        // guard. createSerial seeds from what was typed (upper-cased).
+        setNearMatches(Array.isArray(payload?.nearMatches) ? payload.nearMatches : []);
+        setCreateSerial(q.toUpperCase());
+        setShowCreate(true);
       }
     } catch (e: any) {
       setError(e?.message ?? "Lookup failed");
     } finally {
       setResolving(false);
+    }
+  };
+
+  // Mint a new tagless unit under the chosen asset. Server backstop: if the
+  // serial resolves to an existing unit, the endpoint returns it (exists=true)
+  // and we route there instead of creating a duplicate. On create, optionally
+  // deploy to the picked project (RENTAL), then land on the same chooser a
+  // lookup reaches.
+  const doCreate = async () => {
+    const s = createSerial.trim();
+    if (!s || !selectedAsset || creating) return;
+    setConfirmOpen(false);
+    setCreating(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request(
+        { path: "/inventories/create-and-bind", method: "POST" },
+        { assetId: selectedAsset.id, serial: s },
+        token,
+      );
+      const payload = res?.data ?? res;
+      if (res?.success === false) throw new Error(res?.message ?? "Could not create unit");
+      const inventoryId: string | undefined = payload?.inventory?.id;
+      const assetId: string | undefined = payload?.inventory?.assetId ?? selectedAsset.id;
+      if (!inventoryId) throw new Error("Create returned no unit");
+
+      if (payload?.exists || payload?.action === "matched") {
+        toast.info(`${payload?.inventory?.sku ?? s} already exists — opening it`);
+      } else {
+        toast.success(`Created ${payload?.inventory?.sku ?? s}`);
+        // Optional deploy to the picked project (best-effort; default RENTAL).
+        if (selectedProject) {
+          try {
+            const dep = await request(
+              { path: `/projects/${selectedProject.id}/field-deploy`, method: "POST" },
+              { inventoryId, assetId, type: "RENTAL" },
+              token,
+            );
+            if (dep?.success === false) throw new Error(dep?.message);
+            toast.info(`Assigned to ${selectedProject.name}`);
+          } catch (depErr: any) {
+            console.error("field deploy failed (create succeeded):", depErr);
+            toast.warning("Couldn't assign to project — do it later from the portal.");
+          }
+        }
+      }
+      router.push(`/scan/asset/${assetId}?inventoryId=${encodeURIComponent(inventoryId)}`);
+    } catch (e: any) {
+      setError(e?.message ?? "Could not create unit");
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -368,9 +532,115 @@ export default function ManualEntryPage() {
         {resolving ? "Looking up..." : "Find unit"}
       </Button>
 
+      {/* ── Create-new branch (revealed when a lookup found nothing) ────────── */}
+      {showCreate && (
+        <>
+          <Divider sx={{ my: 0.5 }} />
+
+          {/* Typo guard layer 1 — "did you mean" near-matches before creating. */}
+          {nearMatches.length > 0 && (
+            <Alert severity="warning">
+              No exact match — did you mean:
+              <Stack spacing={1} sx={{ mt: 1 }}>
+                {nearMatches.map((m) => (
+                  <Button
+                    key={m.inventoryId}
+                    size="small"
+                    variant="outlined"
+                    onClick={() => goToUnit(m)}
+                    sx={{ justifyContent: "flex-start", textTransform: "none" }}
+                  >
+                    {m.sku} — {m.assetName ?? m.skuKey ?? ""} ({m.status})
+                  </Button>
+                ))}
+              </Stack>
+            </Alert>
+          )}
+
+          <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 2 }}>
+            <Typography variant="subtitle2" fontWeight={700}>Create new unit</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, display: "block" }}>
+              No unit found for that serial — mint a new one under the chosen asset.
+            </Typography>
+            <Stack spacing={1.5}>
+              <TextField
+                label="New unit serial"
+                value={createSerial}
+                onChange={(e) => setCreateSerial(e.target.value.toUpperCase())}
+                inputProps={{ autoCapitalize: "characters", autoCorrect: "off", spellCheck: false }}
+                fullWidth
+              />
+              {!selectedAsset && (
+                <Alert severity="info">Pick the asset above before creating a unit.</Alert>
+              )}
+
+              {/* Optional customer → project assignment (mirrors /scan/bind; RENTAL). */}
+              <Autocomplete<CustomerOption, false, false, false>
+                options={customerOptions}
+                value={selectedCustomer}
+                onChange={(_, v) => setSelectedCustomer(v)}
+                onInputChange={(_, v) => setCustomerInput(v)}
+                getOptionLabel={(o) => o.name}
+                isOptionEqualToValue={(a, b) => a.id === b.id}
+                loading={customerSearching}
+                renderInput={(params) => (
+                  <TextField {...params} label="Customer (optional)" placeholder="Search customer" />
+                )}
+              />
+              <Autocomplete<ProjectOption, false, false, false>
+                options={projectOptions}
+                value={selectedProject}
+                onChange={(_, v) => setSelectedProject(v)}
+                getOptionLabel={(o) => o.name}
+                isOptionEqualToValue={(a, b) => a.id === b.id}
+                loading={projectsLoading}
+                disabled={!selectedCustomer}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Project (optional)"
+                    placeholder={selectedCustomer ? "Search project" : "Pick a customer first"}
+                  />
+                )}
+              />
+              <Button
+                variant="contained"
+                fullWidth
+                disabled={creating || !createSerial.trim() || !selectedAsset}
+                onClick={() => setConfirmOpen(true)}
+                sx={FIELD_BUTTON_SX}
+              >
+                {creating ? "Creating…" : "Create new unit"}
+              </Button>
+            </Stack>
+          </Box>
+        </>
+      )}
+
       <Button variant="text" sx={{ color: "text.secondary", alignSelf: "center" }} onClick={() => router.push("/scan")}>
         Back to scan
       </Button>
+
+      {/* Typo guard layer 2 — explicit confirm naming exactly what gets minted. */}
+      <Dialog open={confirmOpen} onClose={() => !creating && setConfirmOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Create new unit?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            This mints a NEW unit <b>{createSerial.trim()}</b> under{" "}
+            <b>{selectedAsset ? `${selectedAsset.name} (${selectedAsset.skuKey})` : ""}</b>
+            {selectedProject ? (
+              <> and assigns it to <b>{selectedProject.name}</b> (rental)</>
+            ) : null}
+            . Only do this if the unit genuinely doesn&apos;t exist yet.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmOpen(false)} disabled={creating}>Cancel</Button>
+          <Button variant="contained" onClick={() => void doCreate()} disabled={creating}>
+            {creating ? <CircularProgress size={18} /> : "Create unit"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

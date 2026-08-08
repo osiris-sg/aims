@@ -215,6 +215,7 @@ export class InventoriesService {
       select: {
         id: true,
         sku: true,
+        serialNumber: true,
         status: true,
         assetId: true,
         asset: { select: { name: true, skuKey: true } },
@@ -222,15 +223,42 @@ export class InventoriesService {
     });
     const hits = units.filter((u) => norm(u.sku) === wanted);
     const preferred = assetId ? hits.filter((u) => u.assetId === assetId) : hits;
-    const matches = (preferred.length ? preferred : hits).map((u) => ({
+    const shape = (u: (typeof units)[number]) => ({
       inventoryId: u.id,
       sku: u.sku,
       status: u.status,
       assetId: u.assetId,
       assetName: u.asset?.name ?? null,
       skuKey: u.asset?.skuKey ?? null,
-    }));
-    return { matches };
+    });
+    const matches = (preferred.length ? preferred : hits).map(shape);
+
+    // Near-match candidates for the create-new typo guard (only when there's no
+    // exact match). Catches a mistyped serial that would otherwise fall through
+    // to minting a duplicate: edit-distance ≤1, OR an OCR confusion (O/0, I/1,
+    // L/1, S/5). Asset-scoped when an assetId is given (the manual-entry create
+    // flow always has one), else org-wide. Capped at 3.
+    let nearMatches: ReturnType<typeof shape>[] = [];
+    if (!matches.length) {
+      const ocr = (s: string) => s.replace(/o/g, '0').replace(/[il]/g, '1').replace(/s/g, '5');
+      const within1 = (a: string, b: string): boolean => {
+        if (a === b) return true;
+        const la = a.length, lb = b.length;
+        if (Math.abs(la - lb) > 1) return false;
+        let i = 0;
+        while (i < la && i < lb && a[i] === b[i]) i++;
+        if (la === lb) return a.slice(i + 1) === b.slice(i + 1); // substitution
+        return la > lb ? a.slice(i + 1) === b.slice(i) : a.slice(i) === b.slice(i + 1); // ins/del
+      };
+      const isNear = (candNorm: string) =>
+        !!candNorm && candNorm !== wanted && (within1(wanted, candNorm) || ocr(wanted) === ocr(candNorm));
+      const pool = assetId ? units.filter((u) => u.assetId === assetId) : units;
+      nearMatches = pool
+        .filter((u) => isNear(norm(u.sku)) || (!!u.serialNumber && isNear(norm(u.serialNumber))))
+        .slice(0, 3)
+        .map(shape);
+    }
+    return { matches, nearMatches };
   }
 
   async getInventoryBySku(sku: string, organizationId: string) {
@@ -380,10 +408,11 @@ export class InventoriesService {
    * `asset.id`): { inventory, asset, action: 'created' | 'matched', idempotent? }.
    */
   async createAndBind(dto: CreateInventoryAndBindDto, organizationId: string, technicianUserId?: string) {
+    // Tagless mode: the /scan/manual "create new unit" path mints a unit with
+    // NO tag. The create path is otherwise identical; only the tag-conflict and
+    // idempotent/rebind branches are tag-specific and are skipped when tagless.
     const tag = dto.nfcTagUid?.trim();
-    if (!tag) {
-      throw new HttpException('NFC UID is required', HttpStatus.BAD_REQUEST);
-    }
+    const tagless = !tag;
 
     // Resolve the chosen Asset first (org-scoped + soft-delete filter) — needed
     // for both the serial match and the create path. category is copied onto
@@ -398,10 +427,12 @@ export class InventoriesService {
 
     // Who currently holds this tag? (nfcTagUid is globally @unique.) Used for
     // the conflict check — but exempted for the matched unit (idempotent path).
-    const tagOwner = await this.prisma.inventory.findUnique({
-      where: { nfcTagUid: tag },
-      include: { asset: { select: { skuKey: true } } },
-    });
+    const tagOwner = tagless
+      ? null
+      : await this.prisma.inventory.findUnique({
+          where: { nfcTagUid: tag },
+          include: { asset: { select: { skuKey: true } } },
+        });
     const tagConflictMessage = (owner: { sku: string; asset?: { skuKey?: string | null } | null }) =>
       `NFC tag is already bound to inventory ${owner.sku} (${owner.asset?.skuKey ?? 'unknown SKU'})`;
 
@@ -447,6 +478,13 @@ export class InventoriesService {
     // ---- EXISTING-UNIT BIND (exactly one serial match) ----
     if (matches.length === 1) {
       const unit = matches[0];
+
+      // Tagless CREATE-NEW server backstop (typo guard layer 3): a unit with
+      // this serial already exists, so NEVER mint a duplicate — return the match
+      // for the caller to route into instead.
+      if (tagless) {
+        return { inventory: unit, asset, action: 'matched' as const, exists: true };
+      }
 
       // (a) Idempotent: this unit already carries the requested tag.
       if (unit.nfcTagUid === tag) {
@@ -515,7 +553,7 @@ export class InventoriesService {
           category: asset.category?.name ?? 'Equipment',
           status: 'instock',
           organizationId,
-          nfcTagUid: tag,
+          ...(tag ? { nfcTagUid: tag } : {}),
           ...taggedLocation,
         },
         include: { asset: true },
