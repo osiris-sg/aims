@@ -33,9 +33,16 @@ export function hasDraftAck(reports: StepReport[], inventoryId: string | null): 
 }
 
 /**
- * The page a single item resumes into, or null when there's no deep-link:
+ * The page a single item resumes into, or null when there's no deep-link (the
+ * caller falls back to the basket):
  *   not_delivered → null (needs the basket's mandatory condition-photo dialog)
- *   delivering    → after-ack if a draft DO_ACK exists (mid-ack), else ack
+ *   delivering    → after-ack ONLY if a draft DO_ACK exists (mid-ack); else null
+ *                   → basket. Every basket unit auto-fires DO_START, so
+ *                   `delivering` alone can't mean "mid-acknowledgement" — only a
+ *                   draft DO_ACK proves the rider started acking. Without one
+ *                   they merely loaded the unit, so resume lands on the basket;
+ *                   the basket's per-item "Acknowledge" button is where they
+ *                   choose to START acking (that forward action still goes to ack).
  *   not_installed → install
  *   completed     → null (nothing left to do)
  */
@@ -47,7 +54,7 @@ export function itemStepHref(deliveryId: string, it: StepItem, reports: StepRepo
     case "delivering":
       return hasDraftAck(reports, it.inventoryId)
         ? `/scan/delivery/${deliveryId}/after-ack?${q}`
-        : `/scan/delivery/${deliveryId}/ack?${q}`;
+        : null;
     case "not_installed":
       return `/scan/delivery/${deliveryId}/install?${q}`;
     default:
