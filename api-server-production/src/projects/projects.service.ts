@@ -658,7 +658,17 @@ export class ProjectsService {
   async fieldDeploy(
     projectId: string,
     organizationId: string,
-    body: { inventoryId: string; assetId: string; type?: 'RENTAL' | 'SALE'; autoBind?: boolean },
+    body: {
+      inventoryId: string;
+      assetId: string;
+      type?: 'RENTAL' | 'SALE';
+      autoBind?: boolean;
+      // Assign-at-start (delivery flow): create the Assignment + ProjectDeployment
+      // but DO NOT flip the unit status — the unit is still reserved on the truck.
+      // The hand-off flip (reserved → rental/sold) happens at ack. Omitted/false
+      // for the office/walk-around caller, which flips immediately as before.
+      deferStatusFlip?: boolean;
+    },
   ) {
     const { inventoryId, assetId, type } = body ?? ({} as any);
     if (!inventoryId || !assetId) {
@@ -756,10 +766,14 @@ export class ProjectsService {
             },
           });
 
-          await tx.inventory.update({
-            where: { id: inventoryId },
-            data: { status: inventoryStatus },
-          });
+          // Status flip is skipped for the deferred (assign-at-start) path —
+          // the unit stays reserved until the ack-time hand-off flips it.
+          if (!body.deferStatusFlip) {
+            await tx.inventory.update({
+              where: { id: inventoryId },
+              data: { status: inventoryStatus },
+            });
+          }
 
           return { status: active.length ? ('moved' as const) : ('added' as const), deployment };
         });

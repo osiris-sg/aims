@@ -83,7 +83,11 @@ export default function AfterAckPage() {
   const assetId = search?.get("assetId") ?? "";
   const inventoryId = search?.get("inventoryId") ?? null;
 
-  const [step, setStep] = useState<"assign" | "install" | "sign" | "review" | "done">("assign");
+  // Assign moved to START-delivery (2026-08): after-ack now begins at the
+  // install prompt. The "assign" step below is retained only as dead code / a
+  // resume fallback and is never entered in the new flow (the start-time assign
+  // means an active assignment always exists by ack time).
+  const [step, setStep] = useState<"assign" | "install" | "sign" | "review" | "done">("install");
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   // Client-carried flow state: {ackMsrId, installChoice, installPhotos,

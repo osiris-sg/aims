@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { DeliveryStatus, InventoryStatus, Prisma } from '@prisma/client';
+import { DeliveryStatus, DeploymentStatus, DeploymentType, InventoryStatus, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
 import { isUnconfirmedDoc } from 'src/common/doc-status';
 import { DocumentsService } from '../documents/documents.service';
@@ -555,6 +555,32 @@ export class DeliveriesService {
             : { deliveryStatus: DeliveryStatus.completed, installSkipped: true, completedAt: now };
     await this.prisma.deliveryItem.update({ where: { id: target.id }, data });
 
+    // Hand-off flip (assign-at-start deferral): at ACK the unit has been handed
+    // over, so flip reserved → rental/sold per its active ProjectDeployment.type
+    // (default rental when unassigned — a delivered unit is a rental). Idempotent:
+    // only from instock/reserved, so it's a no-op if a DO deduction or a prior
+    // ack already moved it. Standalone arm only — DO-first uses dualAdvance, which
+    // owns the deduction flip.
+    if (action === 'ack') {
+      const activeAssignment = await this.prisma.assignment.findFirst({
+        where: { inventoryId, endDate: null, projectDeploymentId: { not: null } },
+        orderBy: { startDate: 'desc' },
+        select: { projectDeployment: { select: { type: true } } },
+      });
+      const flipTo =
+        activeAssignment?.projectDeployment?.type === DeploymentType.SALE
+          ? InventoryStatus.sold
+          : InventoryStatus.rental;
+      await this.prisma.inventory.updateMany({
+        where: {
+          id: inventoryId,
+          organizationId,
+          status: { in: [InventoryStatus.instock, InventoryStatus.reserved] },
+        },
+        data: { status: flipTo },
+      });
+    }
+
     await this.recomputeRunStatus(deliveryId, organizationId);
     return this.prisma.deliveryItem.findUnique({ where: { id: target.id } });
   }
@@ -875,20 +901,12 @@ export class DeliveriesService {
     if (delivery.status === 'cancelled') throw new BadRequestException('Cannot assign on a cancelled delivery');
     const item = delivery.items.find((i) => i.inventoryId === dto.inventoryId);
     if (!item) throw new NotFoundException('Unit is not on this delivery');
-    // Reordered flow: the signature (which advances the item to not_installed
-    // via sign()) now comes LAST, so at assign time the item is still
-    // `delivering` with a draft DO_ACK. Guard = physical hand-off happened
-    // (item ≥ delivering) AND the ack paperwork exists (DO_ACK MSR, any
-    // status) — signed acks from the old flow pass both naturally.
+    // Assign is now the LAST step of STARTING a delivery (moved off after-ack
+    // 2026-08): the unit is `delivering` (DO_START fired), not yet acknowledged.
+    // Guard = the delivery has started (item ≥ delivering). We deliberately no
+    // longer require a DO_ACK — that comes later, at hand-off.
     if (RANK[item.deliveryStatus] < RANK[DeliveryStatus.delivering]) {
-      throw new BadRequestException('Assign after the unit is out for delivery');
-    }
-    const ackMsr = await this.prisma.maintenanceServiceReport.findFirst({
-      where: { deliveryId, inventoryId: dto.inventoryId, kind: 'DO_ACK' as any },
-      select: { id: true },
-    });
-    if (!ackMsr) {
-      throw new BadRequestException('Assign after the delivery is acknowledged');
+      throw new BadRequestException('Start the unit’s delivery before assigning');
     }
 
     const project = await this.prisma.project.findFirst({
@@ -897,12 +915,15 @@ export class DeliveriesService {
     });
     if (!project) throw new NotFoundException('Project not found in this organization');
 
-    // No `type` passed → fieldDeploy defaults to RENTAL. Rental-vs-sale is an
-    // office/DO decision, not the rider's (toggle removed 2026-08).
+    // No `type` → fieldDeploy defaults to RENTAL (rental-vs-sale is an office/DO
+    // decision). deferStatusFlip: the unit is still on the truck (reserved) — the
+    // Assignment + ProjectDeployment are created now, but the status flip to
+    // rental/sold is deferred to the ack-time hand-off (advanceDeliveryItem).
     const result = await this.projectsService.fieldDeploy(dto.projectId, organizationId, {
       inventoryId: dto.inventoryId,
       assetId: item.assetId,
       autoBind: false,
+      deferStatusFlip: true,
     });
 
     await this.prisma.delivery.update({
@@ -1005,7 +1026,30 @@ export class DeliveriesService {
     }
 
     for (const item of delivery.items) {
-      if (item.inventoryId) await this.releaseUnit(item.inventoryId, delivery.deliveryNumber);
+      if (!item.inventoryId) continue;
+      // Assign-at-start edge: a started unit may carry a start-time Assignment +
+      // ProjectDeployment (deferred flip → still reserved, never rental). Cancel
+      // undoes them so the released unit carries no lingering project link.
+      // Nothing was delivered/linked (guarded above), so the unit's only active
+      // assignment is this run's start-time one.
+      const activeAssignments = await this.prisma.assignment.findMany({
+        where: { inventoryId: item.inventoryId, endDate: null },
+        select: { id: true, projectDeploymentId: true },
+      });
+      if (activeAssignments.length) {
+        await this.prisma.assignment.updateMany({
+          where: { id: { in: activeAssignments.map((a) => a.id) } },
+          data: { endDate: new Date() },
+        });
+        const depIds = activeAssignments.map((a) => a.projectDeploymentId).filter((v): v is string => !!v);
+        if (depIds.length) {
+          await this.prisma.projectDeployment.updateMany({
+            where: { id: { in: depIds }, status: DeploymentStatus.ACTIVE },
+            data: { status: DeploymentStatus.CANCELLED },
+          });
+        }
+      }
+      await this.releaseUnit(item.inventoryId, delivery.deliveryNumber);
     }
     return this.prisma.delivery.update({
       where: { id: deliveryId },
