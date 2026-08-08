@@ -278,20 +278,23 @@ export class AssetsService {
   }
 
   /**
-   * Assets exposed to field manual serial entry.
-   *   all=false (default) → only allowManualEntry=true assets. Tapping is
-   *     required for everything else; this is what NFC-capable devices see.
-   *   all=true → every tracked asset with ≥1 inventory unit in the org, for
-   *     no-NFC devices (e.g. iPhones) where manual entry is the only way in.
+   * Assets exposed to field manual serial entry: every tracked asset with ≥1
+   * serialized unit in the org — on ANY device. A picker entry is only useful
+   * when there are units behind it, and the whole delivery flow is already
+   * tag-independent, so "has units" is the correct predicate. Self-maintaining:
+   * a new asset appears as soon as it gets its first unit, no admin flip.
+   *
+   * The `all` param is now a no-op (both branches are identical) — kept only for
+   * back-compat with the existing ?all=true callers. NOTE: this NO LONGER reads
+   * Asset.allowManualEntry — that flag is now inert as a field-flow gate.
    */
-  async getManualEntryAssets(userOrganizationId: string, all = false) {
+  async getManualEntryAssets(userOrganizationId: string, _all = false) {
     return this.prisma.asset.findMany({
       where: {
         organizationId: userOrganizationId,
         deletedAt: null,
-        ...(all
-          ? { isTracked: true, inventories: { some: {} } }
-          : { allowManualEntry: true }),
+        isTracked: true,
+        inventories: { some: {} },
       },
       select: { id: true, name: true, skuKey: true },
       orderBy: { name: 'asc' },
