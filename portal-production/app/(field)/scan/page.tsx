@@ -7,6 +7,7 @@ import { Box, Button, Typography, Alert, CircularProgress } from "@mui/material"
 import NfcIcon from "@mui/icons-material/Nfc";
 import KeyboardIcon from "@mui/icons-material/Keyboard";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
+import PrintIcon from "@mui/icons-material/Print";
 import { request } from "@/helpers/request";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useNfcScan } from "../hooks/useNfcScan";
@@ -187,6 +188,18 @@ export default function ScanLandingPage() {
           Deliveries in progress ({unfinishedCount})
         </Button>
       )}
+
+      {/* Reprint a receipt for an already-completed run (last 7 days). Always
+          available — a rider may need a fresh copy any time after hand-off. */}
+      <Button
+        variant="text"
+        size="large"
+        onClick={() => router.push("/scan/deliveries/finished")}
+        startIcon={<PrintIcon />}
+        sx={{ minWidth: 260, py: 1.25, minHeight: 48, color: "text.secondary" }}
+      >
+        Reprint a delivery
+      </Button>
 
       {scanError && (
         <Alert severity="error" sx={{ width: "100%", maxWidth: 360 }}>{scanError}</Alert>
