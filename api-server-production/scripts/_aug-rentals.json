@@ -1,0 +1,90 @@
+[
+ {
+  "description": "Rental of 1 unit MBR-30 System for Treatment of Wastewater\n\nMBR 01 at Changi Coast Road\nModel: MBR 30-capacity\nMeter Reader S/No. M9B21070329503\nMeter Readings as at 31/07/2026 =  4,745m3\nLess previous month accumulative readings of 4,648m3\n\nLocation: 499A Changi Coast Road\n\nYour PO Ref: PO-05-08/HLS/22/CR103 dated 18/08/2022",
+  "reference": "BI202608002 (MBR-30)",
+  "invoice": "BI202608002",
+  "date": "2026-08-01",
+  "customer": "Hock Lian Seng Infrastructure ",
+  "total": 1057.3,
+  "status": "AUTHORISED",
+  "period": "",
+  "ordinal": ""
+ },
+ {
+  "description": "Rental of 1 unit of MBR-20 System for Treatment of Wastewater\n\nMBR 02 at Changi Coast Road\nModel: MBR 30-capacity\nMeter Reader S/No. M9B21070329503\nRental Period from 01/07/2026 to 31/07/2026\n\nProject: Aviation Park Station (CR103)\n\nOur DO No. BI202310-005 dated 07/10/2023\n\nOur Qtn Ref: BI/EL/2023-0414 (REV 2) dated 29/09/2023",
+  "reference": "BI202608003 (MBR-20)",
+  "invoice": "BI202608003",
+  "date": "2026-08-01",
+  "customer": "Hock Lian Seng Infrastructure ",
+  "total": 1853,
+  "status": "AUTHORISED",
+  "period": "01/07/2026 to 31/07/2026",
+  "ordinal": ""
+ },
+ {
+  "description": "Rental period from 01/08/2026 to 31/08/2026 (4th mth)\n\n1). Rental of 2 units MBR-50 System for Treatment of Wastewater\nModel: MBR-50 Capacity\n\nOur DO No. DO202604-024 dated 03/05/2026\n\nLocation: 770 Jurong Road\nProject:  J101 TOLQ Blk C & D\n\nAttention: Leow Kai\nMobile: 9015 7630",
+  "reference": "BI202608004 (4th mth J101 TOLQ 2xMBR50)",
+  "invoice": "BI202608004",
+  "date": "2026-08-01",
+  "customer": "China Railway 11 Bureau Group ",
+  "total": 10900,
+  "status": "AUTHORISED",
+  "period": "01/08/2026 to 31/08/2026",
+  "ordinal": "(4th mth)"
+ },
+ {
+  "description": "Rental period from 01/08/2026 to 31/08/2026 (3rd mth)\n\n1). Rental of 2 units MBR-20 System for Treatment of Wastewater\nModel: MBR-20 Capacity\n\nOur DO No. DO202605-003 dated 06/06/2026\n\nLocation: 770 Jurong Road\nProject:  J101 Site Office\n\nAttention: Leow Kai\nMobile: 9015 7630",
+  "reference": "BI202608005 (3rd mth J101 Site Office 2xMBR20)",
+  "invoice": "BI202608005",
+  "date": "2026-08-01",
+  "customer": "China Railway 11 Bureau Group ",
+  "total": 5232,
+  "status": "AUTHORISED",
+  "period": "01/08/2026 to 31/08/2026",
+  "ordinal": "(3rd mth)"
+ },
+ {
+  "description": "Rental period from 01/08/2026 to 31/08/2026 - 15th mth\n\n1). Rental of 1 unit AF-40 System\nModel: AF-40 \nCapacity: 40m3/hr \nS/No. AF40 0024\n\nOur Qtn Ref. BI/HY/2025-0315 dated 28/03/2025\n\nOur DO No. DO/HY2505-001 dated 30/04/2025\n\nProject: CR205 Marsh Site\n\nAttn: Mr Dhaman\nMobile: 9151 7661",
+  "reference": "BI202608006 (15th mth CR205 Marsh Site - DO/HY2505-001 1xAF40)",
+  "invoice": "BI202608006",
+  "date": "2026-08-01",
+  "customer": "China Communications Construct",
+  "total": 1417,
+  "status": "AUTHORISED",
+  "period": "01/08/2026 to 31/08/2026",
+  "ordinal": "15th mth"
+ },
+ {
+  "description": "Rental for the period from 01/08/2026 to 31/08/2026 - 13th mth\n(One unit MGS & one unit Generator)\n\n1a). Rental of one unit Micro-Grid System\nBrand: BIOFUEL\nModel: LION375\nCapacity: 220kWh\nS/No. MG20250079\n\n1b). Rental of one unit Baifa 125kVA Genset\nModel: BF-C142RS\nS/No. 2311036\n\nOur Qtn Ref. BI/EL/2025-0407 (REV 1) dated 10/04/2025\n\nYour Contract No.  CC/GEN/SC/25.2248  dated 28/04/2025\n\nOur DO No. DO/BT202508-001 dated 16/08/2025\n\nLocation: 51 Canberra Cres, Singapore 752106\nProject: Canberra Crescent Residences\n\nAttn: Mr Feng Tianru\nMobile: 9649 6903",
+  "reference": "BI202608007 (13th mth - Canberra DO/BT202508-001 1xLION375 MG20250079)",
+  "invoice": "BI202608007",
+  "date": "2026-08-01",
+  "customer": "China Construction (South Paci",
+  "total": 6540,
+  "status": "AUTHORISED",
+  "period": "01/08/2026 to 31/08/2026",
+  "ordinal": "13th mth"
+ },
+ {
+  "description": "Rental for the period from 01/08/2026 to 31/08/2026 - 9th mth\n(One unit MGS & one unit Generator)\n\n1). Rental of one unit Micro-Grid System\nBrand: BIOFUEL\nModel: LION375\nCapacity: 220kWh\nS/No. MG20250087\n\n2). Rental of one unit 60KVA Denyo Soundproof Diesel Generator with AMF Relay c/w Oil Tray & Key.\nModel: DCA-60ESI2\nS/No.: 30001078\nCode: G060179\n\n3). Rental of one set 10m 25mm 5 core cable\n\n4). Rental of Cables as follows:\na). 60 meters - 4CX120MM2 CU/X/SWA/P 1KV IEC60502-1 BK - NCC\nb). 60 meters - 1CX70MM2 CU/P 450/750V SS358 GN/YW\n\nOur Qtn Ref. BI/EL/2025-0407 (REV 1) dated 10/04/2025\n\nOur DO No. DO202512-006 dated 19/12/2025\n\nLocation: 51 Canberra Cres, Singapore 752106\nProject: Canberra Crescent Residences\n\nAttn: Mr Feng Tianru\nMobile: 9649 6903\n\nYour Contract No.  CC/GEN/SC/25.2248  dated 28/04/2025",
+  "reference": "BI202608008 (9th mth - Canberra DO202512-006 1xLION375 MG20250087)",
+  "invoice": "BI202608008",
+  "date": "2026-08-01",
+  "customer": "China Construction (South Paci",
+  "total": 6540,
+  "status": "AUTHORISED",
+  "period": "01/08/2026 to 31/08/2026",
+  "ordinal": "9th mth"
+ },
+ {
+  "description": "1). One month Deposit for Rental charges\n\n2). Rental period from 03/08/2026 to 31/08/2026 - 1st mth\n\nRental of one unit Micro-Grid System\nBrand: BIOFUEL\nModel: LION135\nYear: 2026\nS/No.: MG20260159\n\nPro-rate from 29/31 x S$5,800/mth\n\n3). Rental of one unit Diesel Generator\nModel: MGC310S\nS/No.: MG82186320\nCode: G31061\n\n4). Rental of 2 sets 10m 50mm 5 core cable\n\nOur DO No. DO202608-001 dated 03/08/2026\n\nLocation: Neo Tiew Harvest Link\n\nAttn: \nContact No.: 6974 4214",
+  "reference": "BI202608035 (1st mth + 1 mth Deposit Neo Tiew Harvest Link - DO202608-001 1xLION135 MG20260159)",
+  "invoice": "BI202608035",
+  "date": "2026-08-03",
+  "customer": "Sunpower Grand Holdings Pte Lt",
+  "total": 12236.13,
+  "status": "AUTHORISED",
+  "period": "03/08/2026 to 31/08/2026",
+  "ordinal": "1st mth"
+ }
+]

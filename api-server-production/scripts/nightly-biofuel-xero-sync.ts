@@ -26,7 +26,10 @@ import { spawnSync } from "child_process";
 import * as fs from "fs";
 
 const STAGES_DIR = __dirname;
-const CACHE_FILE_GLOB = "/tmp/xero-journals-cache-"; // per-org suffix added by sync script
+// Cache moved to a persistent dir (XERO_JOURNAL_CACHE_DIR override) after the
+// /tmp-purge truncation incident — clear THAT dir, not /tmp.
+const CACHE_DIR = process.env.XERO_JOURNAL_CACHE_DIR || `${process.env.HOME}/.aims-xero-cache`;
+const CACHE_FILE_PREFIX = "xero-journals-cache-";
 
 function run(label: string, script: string, args: string[] = []): boolean {
   console.log(`\n===== ${label} — ${new Date().toISOString()} =====`);
@@ -42,8 +45,9 @@ function run(label: string, script: string, args: string[] = []): boolean {
 
 function clearJournalCache() {
   // Force the GL script to pull fresh (full reload must not trust the cache).
-  for (const f of fs.readdirSync("/tmp")) {
-    if (`/tmp/${f}`.startsWith(CACHE_FILE_GLOB)) fs.unlinkSync(`/tmp/${f}`);
+  if (!fs.existsSync(CACHE_DIR)) return;
+  for (const f of fs.readdirSync(CACHE_DIR)) {
+    if (f.startsWith(CACHE_FILE_PREFIX)) fs.unlinkSync(`${CACHE_DIR}/${f}`);
   }
 }
 

@@ -1,0 +1,515 @@
+[
+ {
+  "from": "BI202607011",
+  "to": "BI202608059",
+  "customer": "Wai Fong Machinery Pte Ltd",
+  "total": 8589.2,
+  "flags": []
+ },
+ {
+  "from": "BI202607012",
+  "to": "BI202608060",
+  "customer": "Obayashi Singapore Pte Ltd",
+  "total": 11336,
+  "flags": []
+ },
+ {
+  "from": "BI202607013",
+  "to": "BI202608061",
+  "customer": "Wai Fong Construction Pte Ltd",
+  "total": 1526,
+  "flags": []
+ },
+ {
+  "from": "BI202607014",
+  "to": "BI202608062",
+  "customer": "Wai Fong Construction Pte Ltd",
+  "total": 2180,
+  "flags": []
+ },
+ {
+  "from": "BI202607015",
+  "to": "BI202608063",
+  "customer": "Wai Fong Construction Pte Ltd",
+  "total": 9810,
+  "flags": []
+ },
+ {
+  "from": "BI202607016",
+  "to": "BI202608064",
+  "customer": "Express Tunnelling Pte Ltd",
+  "total": 1090,
+  "flags": []
+ },
+ {
+  "from": "BI202607017",
+  "to": "BI202608065",
+  "customer": "QJEC-LBC Joint Venture",
+  "total": 381.5,
+  "flags": []
+ },
+ {
+  "from": "BI202607018",
+  "to": "BI202608066",
+  "customer": "QJEC-LBC Joint Venture",
+  "total": 6867,
+  "flags": []
+ },
+ {
+  "from": "BI202607019",
+  "to": "BI202608067",
+  "customer": "QJEC-LBC Joint Venture",
+  "total": 4905,
+  "flags": []
+ },
+ {
+  "from": "BI202607020",
+  "to": "BI202608068",
+  "customer": "QJEC-LBC Joint Venture",
+  "total": 4905,
+  "flags": []
+ },
+ {
+  "from": "BI202607021",
+  "to": "BI202608069",
+  "customer": "QJEC-LBC Joint Venture",
+  "total": 327,
+  "flags": []
+ },
+ {
+  "from": "BI202607022",
+  "to": "BI202608070",
+  "customer": "Capital Cranes Global Pte Ltd",
+  "total": 5515.4,
+  "flags": []
+ },
+ {
+  "from": "BI202607023",
+  "to": "BI202608071",
+  "customer": "Capital Cranes Global Pte Ltd",
+  "total": 4612.88,
+  "flags": []
+ },
+ {
+  "from": "BI202607024",
+  "to": "BI202608072",
+  "customer": "Capital Cranes Global Pte Ltd",
+  "total": 4612.88,
+  "flags": []
+ },
+ {
+  "from": "BI202607025",
+  "to": "BI202608073",
+  "customer": "Capital Cranes Global Pte Ltd",
+  "total": 5816.24,
+  "flags": []
+ },
+ {
+  "from": "BI202607026",
+  "to": "BI202608074",
+  "customer": "Capital Cranes Global Pte Ltd",
+  "total": 5816.24,
+  "flags": []
+ },
+ {
+  "from": "BI202607027",
+  "to": "BI202608075",
+  "customer": "Capital Cranes Global Pte Ltd",
+  "total": 4112.57,
+  "flags": []
+ },
+ {
+  "from": "BI202607028",
+  "to": "BI202608076",
+  "customer": "Capital Cranes Global Pte Ltd",
+  "total": 4612.88,
+  "flags": []
+ },
+ {
+  "from": "BI202607029",
+  "to": "BI202608077",
+  "customer": "Capital Cranes Global Pte Ltd",
+  "total": 5816.24,
+  "flags": [
+   "July was 1st month — verify start date / full-month rate"
+  ]
+ },
+ {
+  "from": "BI202607030",
+  "to": "BI202608078",
+  "customer": "China Construction Realty Co. ",
+  "total": 8720,
+  "flags": []
+ },
+ {
+  "from": "BI202607031",
+  "to": "BI202608079",
+  "customer": "China Construction Realty Co. ",
+  "total": 8720,
+  "flags": []
+ },
+ {
+  "from": "BI202607032",
+  "to": "BI202608080",
+  "customer": "China Construction Realty Co. ",
+  "total": 2441.6,
+  "flags": []
+ },
+ {
+  "from": "BI202607035",
+  "to": "BI202608081",
+  "customer": "China Construction (South Paci",
+  "total": 6540,
+  "flags": []
+ },
+ {
+  "from": "BI202607036",
+  "to": "BI202608082",
+  "customer": "China Construction (South Paci",
+  "total": 6540,
+  "flags": []
+ },
+ {
+  "from": "BI202607037",
+  "to": "BI202608083",
+  "customer": "China Construction (South Paci",
+  "total": 6540,
+  "flags": []
+ },
+ {
+  "from": "BI202607039",
+  "to": "BI202608084",
+  "customer": "Lian Beng Construction (1988) ",
+  "total": 1798.5,
+  "flags": []
+ },
+ {
+  "from": "BI202607040",
+  "to": "BI202608085",
+  "customer": "MegaBuilders & Development Pte",
+  "total": 468.7,
+  "flags": []
+ },
+ {
+  "from": "BI202607047",
+  "to": "BI202608086",
+  "customer": "Debenho (Pte) Ltd",
+  "total": 5014,
+  "flags": []
+ },
+ {
+  "from": "BI202607048",
+  "to": "BI202608087",
+  "customer": "Debenho (Pte) Ltd",
+  "total": 6104,
+  "flags": []
+ },
+ {
+  "from": "BI202607049",
+  "to": "BI202608088",
+  "customer": "Debenho (Pte) Ltd",
+  "total": 6104,
+  "flags": []
+ },
+ {
+  "from": "BI202607050",
+  "to": "BI202608089",
+  "customer": "Debenho (Pte) Ltd",
+  "total": 6104,
+  "flags": []
+ },
+ {
+  "from": "BI202607051",
+  "to": "BI202608090",
+  "customer": "Debenho (Pte) Ltd",
+  "total": 6104,
+  "flags": []
+ },
+ {
+  "from": "BI202607052",
+  "to": "BI202608091",
+  "customer": "Debenho (Pte) Ltd",
+  "total": 6104,
+  "flags": []
+ },
+ {
+  "from": "BI202607053",
+  "to": "BI202608092",
+  "customer": "Debenho (Pte) Ltd",
+  "total": 6104,
+  "flags": []
+ },
+ {
+  "from": "BI202607054",
+  "to": "BI202608093",
+  "customer": "Shuan Huat Tractor Services Pt",
+  "total": 1635,
+  "flags": []
+ },
+ {
+  "from": "BI202607055",
+  "to": "BI202608094",
+  "customer": "KTC Civil Engrg & Construction",
+  "total": 5777,
+  "flags": []
+ },
+ {
+  "from": "BI202607056",
+  "to": "BI202608095",
+  "customer": "KTC Civil Engrg & Construction",
+  "total": 5777,
+  "flags": []
+ },
+ {
+  "from": "BI202607057",
+  "to": "BI202608096",
+  "customer": "KTC Civil Engrg & Construction",
+  "total": 5777,
+  "flags": []
+ },
+ {
+  "from": "BI202607058",
+  "to": "BI202608097",
+  "customer": "KTC Civil Engrg & Construction",
+  "total": 5777,
+  "flags": []
+ },
+ {
+  "from": "BI202607059",
+  "to": "BI202608098",
+  "customer": "KTC Civil Engrg & Construction",
+  "total": 5777,
+  "flags": []
+ },
+ {
+  "from": "BI202607060",
+  "to": "BI202608099",
+  "customer": "KTC Civil Engrg & Construction",
+  "total": 5777,
+  "flags": []
+ },
+ {
+  "from": "BI202607061",
+  "to": "BI202608100",
+  "customer": "KTC Civil Engrg & Construction",
+  "total": 5777,
+  "flags": []
+ },
+ {
+  "from": "BI202607062",
+  "to": "BI202608101",
+  "customer": "KTC Civil Engrg & Construction",
+  "total": 5777,
+  "flags": []
+ },
+ {
+  "from": "BI202607063",
+  "to": "BI202608102",
+  "customer": "KTC Civil Engrg & Construction",
+  "total": 5777,
+  "flags": []
+ },
+ {
+  "from": "BI202607064",
+  "to": "BI202608103",
+  "customer": "KTC Civil Engrg & Construction",
+  "total": 7630,
+  "flags": []
+ },
+ {
+  "from": "BI202607065",
+  "to": "BI202608104",
+  "customer": "KTC Civil Engrg & Construction",
+  "total": 5450,
+  "flags": []
+ },
+ {
+  "from": "BI202607066",
+  "to": "BI202608105",
+  "customer": "KTC Civil Engrg & Construction",
+  "total": 2180,
+  "flags": []
+ },
+ {
+  "from": "BI202607067",
+  "to": "BI202608106",
+  "customer": "KTC Civil Engrg & Construction",
+  "total": 8720,
+  "flags": []
+ },
+ {
+  "from": "BI202607068",
+  "to": "BI202608107",
+  "customer": "KTC Civil Engrg & Construction",
+  "total": 13080,
+  "flags": []
+ },
+ {
+  "from": "BI202607069",
+  "customer": "KTC Civil Engrg & Construction",
+  "action": "SKIPPED",
+  "note": "July invoice itself is still DRAFT in Xero (KTC $54,718) — roll only once July is issued"
+ },
+ {
+  "from": "BI202607073",
+  "customer": "Nishio Rent All Singapore Pte ",
+  "action": "SKIPPED",
+  "note": "May-period trailing arrears (Nishio) — no monthly pattern to roll"
+ },
+ {
+  "from": "BI202607074",
+  "to": "BI202608108",
+  "customer": "Nishio Rent All Singapore Pte ",
+  "total": 763,
+  "flags": []
+ },
+ {
+  "from": "BI202607075",
+  "to": "BI202608109",
+  "customer": "Nishio Rent All Singapore Pte ",
+  "total": 1144.5,
+  "flags": []
+ },
+ {
+  "from": "BI202607076",
+  "to": "BI202608110",
+  "customer": "Nishio Rent All Singapore Pte ",
+  "total": 590.71,
+  "flags": [
+   "July was PRO-RATED — August amount likely needs updating to full month"
+  ]
+ },
+ {
+  "from": "BI202607086",
+  "to": "BI202608111",
+  "customer": "Koh Brothers Building & Civil ",
+  "total": 3815,
+  "flags": []
+ },
+ {
+  "from": "BI202607090",
+  "to": "BI202608112",
+  "customer": "LT Sambo (NSC106)",
+  "total": 1962,
+  "flags": []
+ },
+ {
+  "from": "BI202607091",
+  "to": "BI202608113",
+  "customer": "LT Sambo (NSC106)",
+  "total": 1744,
+  "flags": []
+ },
+ {
+  "from": "BI202607092",
+  "to": "BI202608114",
+  "customer": "SCB Building Construction Pte ",
+  "total": 3270,
+  "flags": []
+ },
+ {
+  "from": "BI202607093",
+  "to": "BI202608115",
+  "customer": "SCB Building Construction Pte ",
+  "total": 3270,
+  "flags": []
+ },
+ {
+  "from": "BI202607094",
+  "to": "BI202608116",
+  "customer": "SCB Building Construction Pte ",
+  "total": 3270,
+  "flags": []
+ },
+ {
+  "from": "BI202607095",
+  "to": "BI202608117",
+  "customer": "SCB Building Construction Pte ",
+  "total": 545,
+  "flags": []
+ },
+ {
+  "from": "BI202607096",
+  "to": "BI202608118",
+  "customer": "SCB Building Construction Pte ",
+  "total": 1090,
+  "flags": []
+ },
+ {
+  "from": "BI202607097",
+  "to": "BI202608119",
+  "customer": "Teambuild Engineering & Constr",
+  "total": 9374,
+  "flags": []
+ },
+ {
+  "from": "BI202607098",
+  "to": "BI202608120",
+  "customer": "Teambuild Engineering & Constr",
+  "total": 9374,
+  "flags": []
+ },
+ {
+  "from": "BI202607099",
+  "to": "BI202608121",
+  "customer": "Teambuild Engineering & Constr",
+  "total": 7194,
+  "flags": []
+ },
+ {
+  "from": "BI202607100",
+  "to": "BI202608122",
+  "customer": "Teambuild Engineering & Constr",
+  "total": 7194,
+  "flags": []
+ },
+ {
+  "from": "BI202607101",
+  "to": "BI202608123",
+  "customer": "Tenda Equipment & Services Pte",
+  "total": 1144.5,
+  "flags": []
+ },
+ {
+  "from": "BI202607102",
+  "to": "BI202608124",
+  "customer": "Tenda Equipment & Services Pte",
+  "total": 1907.5,
+  "flags": []
+ },
+ {
+  "from": "BI202607103",
+  "to": "BI202608125",
+  "customer": "Tenda Equipment & Services Pte",
+  "total": 763,
+  "flags": []
+ },
+ {
+  "from": "BI202607104",
+  "to": "BI202608126",
+  "customer": "VCE Pte Ltd",
+  "total": 1471.5,
+  "flags": []
+ },
+ {
+  "from": "BI202607108",
+  "to": "BI202608127",
+  "customer": "United Elite Construction Pte ",
+  "total": 2452.5,
+  "flags": []
+ },
+ {
+  "from": "BI202607109",
+  "to": "BI202608128",
+  "customer": "United Elite Construction Pte ",
+  "total": 1308,
+  "flags": []
+ },
+ {
+  "from": "BI202607110",
+  "to": "BI202608129",
+  "customer": "United Elite Construction Pte ",
+  "total": 1308,
+  "flags": []
+ }
+]
