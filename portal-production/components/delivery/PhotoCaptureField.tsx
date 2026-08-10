@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import {
+  Alert,
   Box,
   Button,
   CircularProgress,
@@ -12,7 +14,9 @@ import {
   Typography,
 } from "@mui/material";
 import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
+import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
 import DeleteIcon from "@mui/icons-material/Delete";
+import { hasNativeCamera, captureNativePhoto } from "@/app/(field)/lib/nativeCamera";
 
 export interface CapturedPhoto {
   key: string;
@@ -100,19 +104,38 @@ export default function PhotoCaptureField({
   disabled,
 }: Props) {
   const [uploading, setUploading] = useState(false);
+  // Native camera availability: null = still checking / web (use <input>),
+  // true = native shell with a camera sensor (prefer Take photo),
+  // false = native shell WITHOUT a camera (show the guard + gallery only).
+  const isNative = Capacitor.isNativePlatform();
+  const [nativeCam, setNativeCam] = useState<boolean | null>(null);
+  const [camMsg, setCamMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isNative) return;
+    let cancelled = false;
+    void hasNativeCamera().then((ok) => {
+      if (!cancelled) setNativeCam(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isNative]);
 
   const setUploadingFlag = (v: boolean) => {
     setUploading(v);
     onUploadingChange?.(v);
   };
 
-  const handleFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
+  // Compress + upload each file, appending to the set (preserves multi-photo:
+  // both a burst from the gallery picker and repeat "Take photo" taps append).
+  const ingestFiles = async (files: File[]) => {
+    if (files.length === 0) return;
     onError?.("");
     setUploadingFlag(true);
     try {
       const newPhotos: CapturedPhoto[] = [];
-      for (const file of Array.from(files)) {
+      for (const file of files) {
         const originalDataUrl = await fileToDataUrl(file);
         const compressedBlob = await compressImageToBlob(originalDataUrl);
         const key = await upload(compressedBlob);
@@ -125,6 +148,23 @@ export default function PhotoCaptureField({
       onError?.(e?.message ?? "Upload failed");
     } finally {
       setUploadingFlag(false);
+    }
+  };
+
+  const handleFiles = (files: FileList | null) => {
+    if (files) void ingestFiles(Array.from(files));
+  };
+
+  // Native "Take photo" — one shot per tap via the in-app camera, appended to
+  // the set. A real failure flips to the gallery-only guard.
+  const handleTakePhoto = async () => {
+    setCamMsg(null);
+    try {
+      const file = await captureNativePhoto();
+      if (file) await ingestFiles([file]);
+    } catch {
+      setNativeCam(false);
+      setCamMsg("Camera unavailable — choose an existing photo below.");
     }
   };
 
@@ -169,23 +209,66 @@ export default function PhotoCaptureField({
         </ImageList>
       )}
 
-      <Button
-        component="label"
-        variant="outlined"
-        startIcon={<AddPhotoAlternateIcon />}
-        disabled={uploading || disabled}
-        fullWidth
-      >
-        Add photos
-        <input
-          type="file"
-          accept="image/*"
-          multiple
-          capture="environment"
-          hidden
-          onChange={(e) => handleFiles(e.target.files)}
-        />
-      </Button>
+      {camMsg && (
+        <Alert severity="warning" sx={{ mb: 1 }} onClose={() => setCamMsg(null)}>
+          {camMsg}
+        </Alert>
+      )}
+
+      {!isNative ? (
+        // Web: unchanged — the browser's capture input (camera on mobile web,
+        // file chooser on desktop).
+        <Button
+          component="label"
+          variant="outlined"
+          startIcon={<AddPhotoAlternateIcon />}
+          disabled={uploading || disabled}
+          fullWidth
+        >
+          Add photos
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            capture="environment"
+            hidden
+            onChange={(e) => handleFiles(e.target.files)}
+          />
+        </Button>
+      ) : (
+        // Native shell: prefer the in-app camera (works with no external camera
+        // app). Always offer the gallery too; when there's no camera sensor,
+        // gallery is the only option and the guard message explains why.
+        <Stack spacing={1}>
+          {nativeCam !== false && (
+            <Button
+              variant="contained"
+              startIcon={<PhotoCameraIcon />}
+              onClick={() => void handleTakePhoto()}
+              disabled={uploading || disabled || nativeCam === null}
+              fullWidth
+            >
+              Take photo
+            </Button>
+          )}
+          <Button
+            component="label"
+            variant="outlined"
+            startIcon={<AddPhotoAlternateIcon />}
+            disabled={uploading || disabled}
+            fullWidth
+          >
+            Choose from gallery
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              onChange={(e) => handleFiles(e.target.files)}
+            />
+          </Button>
+        </Stack>
+      )}
     </Box>
   );
 }

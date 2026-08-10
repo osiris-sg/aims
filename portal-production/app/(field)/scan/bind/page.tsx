@@ -26,6 +26,7 @@ import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import { capturePosition } from "@/helpers/geolocation";
+import { hasNativeCamera, captureNativePhoto } from "../../lib/nativeCamera";
 
 interface AssetOption {
   id: string;
@@ -378,11 +379,9 @@ export default function BindTagPage() {
     }
   };
 
-  const onPickPhoto = () => fileInputRef.current?.click();
-
-  const onPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // Read one nameplate File → compressed dataURL preview. Shared by the
+  // web/gallery <input> and the native in-app camera.
+  const processPhotoFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = async () => {
       if (typeof reader.result !== "string") return;
@@ -390,6 +389,26 @@ export default function BindTagPage() {
       setPhotoDataUrl(compressed);
     };
     reader.readAsDataURL(file);
+  };
+
+  // "Scan Equipment Label" tap: in-app camera on native (works with no external
+  // camera app); fall back to the file input on web / no camera.
+  const onPickPhoto = async () => {
+    if (await hasNativeCamera()) {
+      try {
+        const file = await captureNativePhoto();
+        if (file) processPhotoFile(file);
+        return;
+      } catch {
+        toast.info("Camera unavailable — choose an existing photo instead.");
+      }
+    }
+    fileInputRef.current?.click();
+  };
+
+  const onPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processPhotoFile(file);
   };
 
   const analyze = async () => {
@@ -596,7 +615,7 @@ export default function BindTagPage() {
             color="primary"
             fullWidth
             startIcon={<CameraAltIcon />}
-            onClick={onPickPhoto}
+            onClick={() => void onPickPhoto()}
             sx={FIELD_BUTTON_SX}
           >
             {photoDataUrl ? "Retake photo" : "Scan Equipment Label"}

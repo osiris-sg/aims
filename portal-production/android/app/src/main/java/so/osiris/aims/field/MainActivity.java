@@ -10,6 +10,7 @@ public class MainActivity extends BridgeActivity {
         // Custom plugins register BEFORE super.onCreate so the bridge picks
         // them up on WebView init.
         registerPlugin(BtPrinterPlugin.class);
+        registerPlugin(DeviceCameraPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

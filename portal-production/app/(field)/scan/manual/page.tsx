@@ -24,6 +24,7 @@ import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
 import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
 import { useNfcScan } from "../../hooks/useNfcScan";
+import { hasNativeCamera, captureNativePhoto } from "../../lib/nativeCamera";
 
 // Phone-camera JPEGs run 4–8 MB; Claude's image input cap is 5 MB. Resize to
 // 1280px wide at JPEG quality 0.7 (~200–400 KB). Same settings as the bind page.
@@ -177,15 +178,36 @@ export default function ManualEntryPage() {
 
   // Camera → compress → extract. Kept separate from resolve(): reading the
   // plate only fills the form; the tech still taps "Find unit".
-  const onPlatePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (cameraRef.current) cameraRef.current.value = ""; // allow re-picking the same file
-    if (!file) return;
+  // Read one nameplate File → dataURL → AI plate extraction. Shared by the
+  // web/gallery <input> and the native in-app camera.
+  const processPlateFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = async () => {
       if (typeof reader.result === "string") await extractPlate(reader.result);
     };
     reader.readAsDataURL(file);
+  };
+
+  const onPlatePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (cameraRef.current) cameraRef.current.value = ""; // allow re-picking the same file
+    if (file) processPlateFile(file);
+  };
+
+  // "Scan nameplate" tap: use the in-app camera on native (works with no
+  // external camera app); fall back to the file input on web / no camera.
+  const onScanPlate = async () => {
+    setPlateFailed(false);
+    if (await hasNativeCamera()) {
+      try {
+        const file = await captureNativePhoto();
+        if (file) processPlateFile(file);
+        return;
+      } catch {
+        setPlateFailed(true); // camera unavailable — let them pick a photo instead
+      }
+    }
+    cameraRef.current?.click();
   };
 
   const extractPlate = async (rawDataUrl: string) => {
@@ -469,7 +491,7 @@ export default function ManualEntryPage() {
         fullWidth
         startIcon={extracting ? <CircularProgress size={18} /> : <PhotoCameraIcon />}
         disabled={extracting}
-        onClick={() => cameraRef.current?.click()}
+        onClick={() => void onScanPlate()}
         sx={FIELD_BUTTON_SX}
       >
         {extracting ? "Reading plate…" : "Scan nameplate"}
