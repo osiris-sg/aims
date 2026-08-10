@@ -64,8 +64,7 @@ export class RecurringInvoicesController {
   @Permissions('accounting:update')
   async generateNow(@Req() req: RequestWithOrganization, @Param('id') id: string) {
     const org = orgId(req);
-    const t = await this.service.findOne(org, id);
-    const doc = await this.service.generateOne(org, t, new Date(), req.userId);
+    const doc = await this.service.runOnce(org, id, req.userId);
     return { ok: true, documentId: doc.id };
   }
 }

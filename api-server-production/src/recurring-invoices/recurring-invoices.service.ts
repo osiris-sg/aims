@@ -22,7 +22,13 @@ function advanceDate(d: Date, freq: Frequency): Date {
 
 // Resolve {TOKEN}s in the invoice text against the run date, so the wording
 // changes each period ("Services for {MONTH YEAR}" → "Services for July 2026").
-export function resolveText(str: string, date: Date): string {
+const ordinal = (n: number) => {
+  const v = n % 100;
+  const suffix = v >= 11 && v <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th';
+  return `${n}${suffix}`;
+};
+
+export function resolveText(str: string, date: Date, runNo?: number): string {
   const y = date.getFullYear();
   const m = date.getMonth(); // 0-based
   const nextM = (m + 1) % 12, nextY = m === 11 ? y + 1 : y;
@@ -39,18 +45,29 @@ export function resolveText(str: string, date: Date): string {
     'NEXT MONTH YEAR': `${MONTHS[nextM]} ${nextY}`,
     'PREV MONTH': MONTHS[prevM],
     'PREV MONTH YEAR': `${MONTHS[prevM]} ${prevY}`,
+    // Rental-period ranges (guru 2026-08-07): first/last day of the month as
+    // dd/mm/yyyy — "Rental period from {PREV MONTH START} to {PREV MONTH END}"
+    // → "01/07/2026 to 31/07/2026" on an August run. Plus numeric months.
+    'MONTH NO': pad2(m + 1),
+    'PREV MONTH NO': pad2(prevM + 1),
+    'MONTH START': `01/${pad2(m + 1)}/${y}`,
+    'MONTH END': `${pad2(new Date(y, m + 1, 0).getDate())}/${pad2(m + 1)}/${y}`,
+    'PREV MONTH START': `01/${pad2(prevM + 1)}/${prevY}`,
+    'PREV MONTH END': `${pad2(new Date(prevY, prevM + 1, 0).getDate())}/${pad2(prevM + 1)}/${prevY}`,
+    // Rental month counter (guru 2026-08-07): {NTH} → "17th", {RUN NO} → "17".
+    ...(runNo != null ? { NTH: ordinal(runNo), 'RUN NO': String(runNo) } : {}),
   };
   return str.replace(/\{([A-Z ]+)\}/g, (whole, tok: string) => (tok in map ? map[tok] : whole));
 }
 
 // Walk the config, replacing tokens in every string value.
-function resolveConfig(config: any, date: Date): any {
+function resolveConfig(config: any, date: Date, runNo?: number): any {
   if (config == null) return config;
-  if (typeof config === 'string') return resolveText(config, date);
-  if (Array.isArray(config)) return config.map((v) => resolveConfig(v, date));
+  if (typeof config === 'string') return resolveText(config, date, runNo);
+  if (Array.isArray(config)) return config.map((v) => resolveConfig(v, date, runNo));
   if (typeof config === 'object') {
     const out: any = {};
-    for (const [k, v] of Object.entries(config)) out[k] = resolveConfig(v, date);
+    for (const [k, v] of Object.entries(config)) out[k] = resolveConfig(v, date, runNo);
     return out;
   }
   return config;
@@ -96,6 +113,7 @@ export class RecurringInvoicesService {
         projectId: dto.projectId ?? null,
         projectDeploymentId: dto.projectDeploymentId ?? null,
         sourceDocumentId: dto.sourceDocumentId ?? null,
+        nextRunNo: Number(dto.nextRunNo) || 1,
         createdBy: userId ?? null,
       },
     });
@@ -116,6 +134,7 @@ export class RecurringInvoicesService {
         endDate: dto.endDate !== undefined ? (dto.endDate ? new Date(dto.endDate) : null) : undefined,
         autoSend: dto.autoSend ?? undefined,
         isActive: dto.isActive ?? undefined,
+        nextRunNo: dto.nextRunNo !== undefined ? Number(dto.nextRunNo) || 1 : undefined,
         projectId: dto.projectId !== undefined ? dto.projectId : undefined,
         projectDeploymentId: dto.projectDeploymentId !== undefined ? dto.projectDeploymentId : undefined,
         sourceDocumentId: dto.sourceDocumentId !== undefined ? dto.sourceDocumentId : undefined,
@@ -134,8 +153,27 @@ export class RecurringInvoicesService {
   // user fills period-specific details (e.g. meter readings), then confirms
   // manually (which posts the GL). Fully automatic (autoSend=true): confirm
   // (posts to GL) → email (best-effort). Returns the created document.
+  // Manual "Generate now" = a REAL run: same generation + full bookkeeping
+  // (lastRun fields, schedule advance, {NTH} counter increment) so it can't
+  // double up with the scheduled sweep (guru 2026-08-07).
+  async runOnce(organizationId: string, id: string, userId?: string) {
+    const t = await this.findOne(organizationId, id);
+    const now = new Date();
+    const doc = await this.generateOne(organizationId, t, now, userId);
+    await this.prisma.recurringInvoiceTemplate.update({
+      where: { id: t.id },
+      data: {
+        lastRunAt: now,
+        lastRunDocumentId: doc.id,
+        nextRunDate: advanceDate(t.nextRunDate, t.frequency as Frequency),
+        nextRunNo: { increment: 1 },
+      },
+    });
+    return doc;
+  }
+
   async generateOne(organizationId: string, template: any, runDate: Date, userId?: string) {
-    const config = resolveConfig(template.config || {}, runDate);
+    const config = resolveConfig(template.config || {}, runDate, template.nextRunNo ?? 1);
     // Email overrides (guru 2026-08-06) live on the schedule, not the invoice —
     // pull them out (token-resolved) before the document config is stored.
     const emailPrefs: any = config.email || null;
@@ -276,7 +314,7 @@ ${org?.name || ''}`;
         // one document per period; email is best-effort either way).
         await this.prisma.recurringInvoiceTemplate.update({
           where: { id: t.id },
-          data: { lastRunAt: now, lastRunDocumentId: doc.id, nextRunDate: advanceDate(t.nextRunDate, t.frequency as Frequency) },
+          data: { lastRunAt: now, lastRunDocumentId: doc.id, nextRunDate: advanceDate(t.nextRunDate, t.frequency as Frequency), nextRunNo: { increment: 1 } },
         });
         results.push({ id: t.id, ok: true, documentId: doc.id });
       } catch (e: any) {

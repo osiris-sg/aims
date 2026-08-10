@@ -1852,6 +1852,10 @@ model RecurringInvoiceTemplate {
   isActive            Boolean   @default(true)
   lastRunAt           DateTime?
   lastRunDocumentId   String?
+  // Period counter for {NTH}/{RUN NO} tokens ("17th mth"): the number the
+  // NEXT run will use; +1 after each run. Editable so mid-stream takeovers
+  // can start at e.g. 18 (guru 2026-08-07).
+  nextRunNo           Int       @default(1)
   // Deployment linkage ("Confirm & make recurring" flow): generated invoices
   // inherit these so they chain onto the same rental deployment; off-hiring
   // the deployment deactivates the template.

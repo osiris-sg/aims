@@ -32,12 +32,21 @@ const TOKEN_BUTTONS: { token: string; label: string }[] = [
   { token: "{DATE}", label: "Date" },
   { token: "{NEXT MONTH}", label: "Next Month" },
   { token: "{PREV MONTH}", label: "Prev Month" },
+  { token: "{MONTH START}", label: "Month Start" },
+  { token: "{MONTH END}", label: "Month End" },
+  { token: "{PREV MONTH START}", label: "Prev Mth Start" },
+  { token: "{PREV MONTH END}", label: "Prev Mth End" },
+  { token: "{NTH}", label: "Nth (17th)" },
 ];
 
 // Client mirror of the backend token resolver — for the live preview.
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const p2 = (n: number) => String(n).padStart(2, "0");
-function resolveText(str: string, d: Date): string {
+const ordinal = (n: number) => {
+  const v = n % 100;
+  return `${n}${v >= 11 && v <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th"}`;
+};
+function resolveText(str: string, d: Date, runNo?: number): string {
   const y = d.getFullYear(), m = d.getMonth();
   const nM = (m + 1) % 12, nY = m === 11 ? y + 1 : y, pM = (m + 11) % 12, pY = m === 0 ? y - 1 : y;
   const map: Record<string, string> = {
@@ -45,6 +54,10 @@ function resolveText(str: string, d: Date): string {
     PERIOD: `${MONTHS[m].slice(0, 3)} ${y}`, YEAR: String(y), DAY: p2(d.getDate()),
     DATE: `${p2(d.getDate())}/${p2(m + 1)}/${y}`, "NEXT MONTH": MONTHS[nM], "NEXT MONTH YEAR": `${MONTHS[nM]} ${nY}`,
     "PREV MONTH": MONTHS[pM], "PREV MONTH YEAR": `${MONTHS[pM]} ${pY}`,
+    "MONTH NO": p2(m + 1), "PREV MONTH NO": p2(pM + 1),
+    "MONTH START": `01/${p2(m + 1)}/${y}`, "MONTH END": `${p2(new Date(y, m + 1, 0).getDate())}/${p2(m + 1)}/${y}`,
+    "PREV MONTH START": `01/${p2(pM + 1)}/${pY}`, "PREV MONTH END": `${p2(new Date(pY, pM + 1, 0).getDate())}/${p2(pM + 1)}/${pY}`,
+    ...(runNo != null ? { NTH: ordinal(runNo), "RUN NO": String(runNo) } : {}),
   };
   return (str || "").replace(/\{([A-Z ]+)\}/g, (w, t) => (t in map ? map[t] : w));
 }
@@ -110,14 +123,14 @@ function tokenizeText(str: string, d: Date): string {
 type Row = { description: string; quantity: number; unitPrice: number; accountCode?: string };
 type Template = {
   id: string; name: string; customerId: string; frequency: string; nextRunDate: string;
-  endDate?: string | null; autoSend: boolean; isActive: boolean; lastRunAt?: string | null; lastRunDocumentId?: string | null;
+  endDate?: string | null; autoSend: boolean; isActive: boolean; lastRunAt?: string | null; lastRunDocumentId?: string | null; nextRunNo?: number;
   documentTemplateId: string; numberFormatId?: string | null; config: any;
   projectId?: string | null; projectDeploymentId?: string | null; sourceDocumentId?: string | null;
 };
 
 // Draft-first by default: autoSend=false means each run creates a DRAFT invoice
 // for review (fill meter readings etc.), not a confirmed+emailed one.
-const blank = { name: "", customerId: "", documentTemplateId: "", numberFormatId: "", frequency: "MONTHLY", nextRunDate: "", endDate: "", autoSend: false, isActive: true, notes: "", emailOverrides: null as any, items: [{ description: "", quantity: 1, unitPrice: 0, accountCode: "" }] as Row[], projectId: "", projectDeploymentId: "", sourceDocumentId: "", projectName: "" };
+const blank = { name: "", customerId: "", documentTemplateId: "", numberFormatId: "", frequency: "MONTHLY", nextRunDate: "", endDate: "", autoSend: false, isActive: true, notes: "", reference: "", nextRunNo: 1, emailOverrides: null as any, items: [{ description: "", quantity: 1, unitPrice: 0, accountCode: "" }] as Row[], projectId: "", projectDeploymentId: "", sourceDocumentId: "", projectName: "" };
 
 export default function RecurringInvoicesView() {
   const { request } = useAccountingApi();
@@ -143,7 +156,9 @@ export default function RecurringInvoicesView() {
 
   const insertToken = (token: string) => {
     const t = tokenTargetRef.current;
-    if (t.kind === "notes") {
+    if ((t as any).kind === "reference") {
+      setForm((f: any) => ({ ...f, reference: `${f.reference || ""}${f.reference && !f.reference.endsWith(" ") ? " " : ""}${token}` }));
+    } else if (t.kind === "notes") {
       setForm((f: any) => ({ ...f, notes: `${f.notes || ""}${f.notes && !f.notes.endsWith(" ") ? " " : ""}${token}` }));
     } else {
       setForm((f: any) => ({
@@ -215,11 +230,15 @@ export default function RecurringInvoicesView() {
           }),
         );
         const rows: Row[] = seedItems.map((it: any) => ({
-          description: tokenizeText(String(it.description || ""), seedDate),
+          description: tokenizeText(String(it.description || ""), seedDate).replace(/(\d{1,3})(st|nd|rd|th)(\s+mth)/gi, "{NTH}$3"),
           quantity: Number(it.quantity) || 1,
           unitPrice: Number(it.unitPrice ?? it.price) || 0,
           accountCode: it.accountCode || (it.inventoryItemId && itemAccounts.get(it.inventoryItemId)) || "",
         }));
+        // Rental month counter: seed text like "17th mth" → {NTH} token, and
+        // the schedule continues from the NEXT number.
+        const nthMatch = JSON.stringify(cfg).match(/(\d{1,3})(?:st|nd|rd|th)\s+mth/i);
+        const seedRunNo = nthMatch ? parseInt(nthMatch[1], 10) : null;
         // Number format carries over (guru 2026-08-06): explicit id on the
         // seed when present, else inferred by matching the invoice number
         // against each active variant's pattern.
@@ -246,6 +265,8 @@ export default function RecurringInvoicesView() {
           nextRunDate: nowLocalInput(),
           autoSend: false,
           notes: tokenizeText(String(cfg.notes || ""), seedDate),
+          reference: tokenizeText(String(cfg.reference || cfg.referenceNo || ""), seedDate).replace(/(\d{1,3})(st|nd|rd|th)(\s+mth)/gi, "{NTH}$3"),
+          nextRunNo: seedRunNo != null ? seedRunNo + 1 : 1,
           items: rows.length ? rows : blank.items,
           projectId: doc.projectId || "",
           projectDeploymentId: doc.projectDeploymentId || "",
@@ -271,7 +292,7 @@ export default function RecurringInvoicesView() {
     setForm({
       name: t.name, customerId: t.customerId, documentTemplateId: t.documentTemplateId, numberFormatId: t.numberFormatId || "",
       frequency: t.frequency, nextRunDate: toLocalInput(t.nextRunDate), endDate: t.endDate?.slice(0, 10) || "",
-      autoSend: t.autoSend, isActive: t.isActive, notes: t.config?.notes || "", emailOverrides: t.config?.email || null,
+      autoSend: t.autoSend, isActive: t.isActive, notes: t.config?.notes || "", reference: t.config?.reference || "", nextRunNo: t.nextRunNo ?? 1, emailOverrides: t.config?.email || null,
       items: Array.isArray(t.config?.items) && t.config.items.length ? t.config.items.map((i: any) => ({ description: i.description || "", quantity: i.quantity ?? 1, unitPrice: i.unitPrice ?? 0, accountCode: i.accountCode || "" })) : blank.items,
       projectId: t.projectId || "", projectDeploymentId: t.projectDeploymentId || "", sourceDocumentId: t.sourceDocumentId || "", projectName: "",
     });
@@ -293,6 +314,9 @@ export default function RecurringInvoicesView() {
     try {
       const config = {
         notes: form.notes,
+        // Free-text Reference (tokens allowed) — lands on every generated
+        // invoice and shows in the list's Reference column.
+        ...(form.reference?.trim() ? { reference: form.reference.trim() } : {}),
         // Saved email settings (recipients/subject/body) for auto-send runs —
         // tokens in subject/body resolve per run.
         ...(form.emailOverrides ? { email: form.emailOverrides } : {}),
@@ -305,6 +329,7 @@ export default function RecurringInvoicesView() {
         name: form.name.trim(), customerId: form.customerId, documentTemplateId: form.documentTemplateId,
         numberFormatId: form.numberFormatId || null, frequency: form.frequency, nextRunDate: new Date(form.nextRunDate).toISOString(),
         endDate: form.endDate || null, autoSend: form.autoSend, isActive: asDraft ? false : form.isActive, config,
+        nextRunNo: Number(form.nextRunNo) || 1,
         projectId: form.projectId || null,
         projectDeploymentId: form.projectDeploymentId || null,
         sourceDocumentId: form.sourceDocumentId || null,
@@ -467,6 +492,9 @@ export default function RecurringInvoicesView() {
               </TextField>
               <TextField label="First run" size="small" type="datetime-local" InputLabelProps={{ shrink: true }} value={form.nextRunDate} onChange={(e) => setForm((f: any) => ({ ...f, nextRunDate: e.target.value }))} sx={{ minWidth: 210 }} />
               <TextField label="End date (optional)" size="small" type="date" InputLabelProps={{ shrink: true }} value={form.endDate} onChange={(e) => setForm((f: any) => ({ ...f, endDate: e.target.value }))} />
+              <Tooltip title={'Rental month counter for the {NTH} token — e.g. 17 renders "17th" on the next run, then 18th, 19th…'}>
+                <TextField label="Period no." size="small" type="number" sx={{ width: 100 }} inputProps={{ min: 1 }} value={form.nextRunNo} onChange={(e) => setForm((f: any) => ({ ...f, nextRunNo: Number(e.target.value) || 1 }))} />
+              </Tooltip>
               <Tooltip title={form.autoSend ? "Each run confirms (posts to the GL) and emails the customer automatically" : "Each run creates a draft invoice for review — fill in meter readings etc., then confirm manually"}>
                 <Stack direction="row" alignItems="center"><Switch checked={form.autoSend} onChange={(_, v) => setForm((f: any) => ({ ...f, autoSend: v }))} /><Typography variant="body2">{form.autoSend ? "Fully automatic (confirm + email)" : "Draft for review"}</Typography></Stack>
               </Tooltip>
@@ -524,15 +552,16 @@ export default function RecurringInvoicesView() {
               <Button size="small" startIcon={<AddIcon />} onClick={addRow} sx={{ mt: 1 }}>Add line</Button>
             </Box>
 
+            <TextField label="Reference (optional, tokens allowed)" size="small" fullWidth value={form.reference} placeholder="e.g. Rental {MONTH YEAR}" onFocus={() => { tokenTargetRef.current = { kind: "reference" } as any; }} onChange={(e) => setForm((f: any) => ({ ...f, reference: e.target.value }))} />
             <TextField label="Notes (optional, tokens allowed)" size="small" fullWidth multiline minRows={2} value={form.notes} onFocus={() => { tokenTargetRef.current = { kind: "notes" }; }} onChange={(e) => setForm((f: any) => ({ ...f, notes: e.target.value }))} />
 
             {/* Live preview */}
             <Box sx={{ p: 1.5, borderRadius: 1, bgcolor: (t) => alpha(t.palette.info.main, 0.06) }}>
               <Typography variant="caption" color="text.secondary">Preview for {previewDate.toLocaleDateString()}:</Typography>
               {form.items.filter((r: Row) => r.description.trim()).map((r: Row, i: number) => (
-                <Typography key={i} variant="body2" sx={{ fontWeight: 600, whiteSpace: "pre-line" }}>• {resolveText(r.description, previewDate)}</Typography>
+                <Typography key={i} variant="body2" sx={{ fontWeight: 600, whiteSpace: "pre-line" }}>• {resolveText(r.description, previewDate, Number(form.nextRunNo) || 1)}</Typography>
               ))}
-              {form.notes && <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{resolveText(form.notes, previewDate)}</Typography>}
+              {form.notes && <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{resolveText(form.notes, previewDate, Number(form.nextRunNo) || 1)}</Typography>}
             </Box>
           </Stack>
         </DialogContent>
@@ -571,12 +600,12 @@ export default function RecurringInvoicesView() {
               items: form.items
                 .filter((r: Row) => r.description.trim())
                 .map((r: Row) => ({
-                  description: resolveText(r.description, previewDate),
+                  description: resolveText(r.description, previewDate, Number(form.nextRunNo) || 1),
                   quantity: Number(r.quantity) || 1,
                   unitPrice: Number(r.unitPrice) || 0,
                   amount: (Number(r.quantity) || 1) * (Number(r.unitPrice) || 0),
                 })),
-              notes: resolveText(form.notes || "", previewDate),
+              notes: resolveText(form.notes || "", previewDate, Number(form.nextRunNo) || 1),
               date: form.nextRunDate,
               customerId: form.customerId,
               company: { name: organization?.name },
