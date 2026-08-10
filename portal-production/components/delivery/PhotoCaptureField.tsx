@@ -16,7 +16,7 @@ import {
 import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
 import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
 import DeleteIcon from "@mui/icons-material/Delete";
-import { hasNativeCamera, captureNativePhoto } from "@/app/(field)/lib/nativeCamera";
+import { hasNativeCamera, captureNativePhotos } from "@/app/(field)/lib/nativeCamera";
 
 export interface CapturedPhoto {
   key: string;
@@ -127,20 +127,25 @@ export default function PhotoCaptureField({
     onUploadingChange?.(v);
   };
 
-  // Compress + upload each file, appending to the set (preserves multi-photo:
-  // both a burst from the gallery picker and repeat "Take photo" taps append).
-  const ingestFiles = async (files: File[]) => {
+  // Upload each file, appending to the set (preserves multi-photo). `compress`
+  // runs the main-thread canvas resize — needed for gallery/web picks (any
+  // size), but SKIPPED for native camera shots, which the plugin already
+  // downsized (that redundant compression was the post-capture UI stall).
+  const ingestFiles = async (files: File[], compress = true) => {
     if (files.length === 0) return;
     onError?.("");
     setUploadingFlag(true);
     try {
       const newPhotos: CapturedPhoto[] = [];
       for (const file of files) {
-        const originalDataUrl = await fileToDataUrl(file);
-        const compressedBlob = await compressImageToBlob(originalDataUrl);
-        const key = await upload(compressedBlob);
+        let blob: Blob = file;
+        if (compress) {
+          const originalDataUrl = await fileToDataUrl(file);
+          blob = await compressImageToBlob(originalDataUrl);
+        }
+        const key = await upload(blob);
         if (key) {
-          newPhotos.push({ key, previewUrl: URL.createObjectURL(compressedBlob) });
+          newPhotos.push({ key, previewUrl: URL.createObjectURL(blob) });
         }
       }
       onChange([...photos, ...newPhotos]);
@@ -155,13 +160,15 @@ export default function PhotoCaptureField({
     if (files) void ingestFiles(Array.from(files));
   };
 
-  // Native "Take photo" — one shot per tap via the in-app camera, appended to
-  // the set. A real failure flips to the gallery-only guard.
+  // Native "Take photos" — the camera auto-reopens after each shot so the rider
+  // captures several in a row (backing out of the camera finishes). Every shot
+  // is plugin-downsized, so upload without re-compressing. A real failure before
+  // any capture flips to the gallery-only guard.
   const handleTakePhoto = async () => {
     setCamMsg(null);
     try {
-      const file = await captureNativePhoto();
-      if (file) await ingestFiles([file]);
+      const files = await captureNativePhotos();
+      if (files.length) await ingestFiles(files, false);
     } catch {
       setNativeCam(false);
       setCamMsg("Camera unavailable — choose an existing photo below.");
@@ -241,15 +248,21 @@ export default function PhotoCaptureField({
         // gallery is the only option and the guard message explains why.
         <Stack spacing={1}>
           {nativeCam !== false && (
-            <Button
-              variant="contained"
-              startIcon={<PhotoCameraIcon />}
-              onClick={() => void handleTakePhoto()}
-              disabled={uploading || disabled || nativeCam === null}
-              fullWidth
-            >
-              Take photo
-            </Button>
+            <>
+              <Button
+                variant="contained"
+                startIcon={<PhotoCameraIcon />}
+                onClick={() => void handleTakePhoto()}
+                disabled={uploading || disabled || nativeCam === null}
+                fullWidth
+              >
+                Take photos
+              </Button>
+              <Typography variant="caption" color="text.secondary" sx={{ textAlign: "center" }}>
+                The camera stays open — keep shooting, then press back on the
+                camera when you&apos;re done. Photos are kept.
+              </Typography>
+            </>
           )}
           <Button
             component="label"

@@ -32,24 +32,30 @@ export async function hasNativeCamera(): Promise<boolean> {
   }
 }
 
-/**
- * Open the in-app camera and return the shot as a File (fed into the same
- * compress→upload / extraction pipelines the <input> used). Returns null if the
- * user backed out (not an error). Throws on a real failure (permission denied,
- * no camera, sensor busy) so the caller can show the "camera unavailable" guard.
- */
-export async function captureNativePhoto(): Promise<File | null> {
-  // takePhoto needs the runtime CAMERA grant (declared in the manifest); request
-  // it on first use, matching how the WebView flow would have prompted.
+// takePhoto needs the runtime CAMERA grant (declared in the manifest); request
+// it once, matching how the WebView flow would have prompted.
+async function ensureCameraPermission(): Promise<void> {
   const perm = await Camera.checkPermissions();
   if (perm.camera !== "granted") {
     const req = await Camera.requestPermissions({ permissions: ["camera"] });
     if (req.camera !== "granted") throw new Error("Camera permission denied");
   }
+}
 
+// One capture. Returns null if the rider backed out of the camera (not an
+// error), else the shot as a File. Throws on a real failure so the caller can
+// show the guard. targetWidth/Height + quality make the PLUGIN resize the image
+// natively (off the WebView main thread) — the returned File is already small,
+// so callers skip the redundant main-thread canvas compression.
+async function takeOne(): Promise<File | null> {
   let result;
   try {
-    result = await Camera.takePhoto({ quality: 90 });
+    result = await Camera.takePhoto({
+      targetWidth: 1600,
+      targetHeight: 1600,
+      quality: 70,
+      correctOrientation: true,
+    });
   } catch (e: any) {
     const msg = String(e?.message ?? e ?? "");
     // Capacitor reports a user back-out as a "cancel" error — not a real failure.
@@ -64,4 +70,39 @@ export async function captureNativePhoto(): Promise<File | null> {
   const blob = await (await fetch(src)).blob();
   const type = blob.type || "image/jpeg";
   return new File([blob], `camera-${Date.now()}.jpg`, { type });
+}
+
+/**
+ * Single in-app capture (used where only one photo is wanted — nameplate scans).
+ * The returned File is already downsized by the plugin; do NOT re-compress it.
+ */
+export async function captureNativePhoto(): Promise<File | null> {
+  await ensureCameraPermission();
+  return takeOne();
+}
+
+/**
+ * Multi-shot capture: the camera auto-reopens after each confirmed shot so the
+ * rider can take several in a row; backing out of the camera ENDS the run (the
+ * "back = done" signal — takePhoto returns null on cancel). Returns every File
+ * captured. Each is already plugin-downsized (skip re-compression).
+ *
+ * Error handling: a real failure after ≥1 capture keeps what was taken and stops
+ * cleanly; a failure before any capture rethrows so the caller shows the guard.
+ */
+export async function captureNativePhotos(): Promise<File[]> {
+  await ensureCameraPermission();
+  const files: File[] = [];
+  for (;;) {
+    let file: File | null;
+    try {
+      file = await takeOne();
+    } catch (e) {
+      if (files.length > 0) break; // keep what we captured; stop on the error
+      throw e; // nothing captured yet → surface for the "camera unavailable" guard
+    }
+    if (!file) break; // rider backed out of the camera = done
+    files.push(file);
+  }
+  return files;
 }

@@ -379,14 +379,14 @@ export default function BindTagPage() {
     }
   };
 
-  // Read one nameplate File → compressed dataURL preview. Shared by the
-  // web/gallery <input> and the native in-app camera.
-  const processPhotoFile = (file: File) => {
+  // Read one nameplate File → dataURL preview. `alreadySized` is true for native
+  // camera shots (plugin-downsized) so we skip the redundant main-thread
+  // compress; false for gallery/web picks (any size).
+  const processPhotoFile = (file: File, alreadySized = false) => {
     const reader = new FileReader();
     reader.onload = async () => {
       if (typeof reader.result !== "string") return;
-      const compressed = await compressImage(reader.result);
-      setPhotoDataUrl(compressed);
+      setPhotoDataUrl(alreadySized ? reader.result : await compressImage(reader.result));
     };
     reader.readAsDataURL(file);
   };
@@ -397,7 +397,7 @@ export default function BindTagPage() {
     if (await hasNativeCamera()) {
       try {
         const file = await captureNativePhoto();
-        if (file) processPhotoFile(file);
+        if (file) processPhotoFile(file, true);
         return;
       } catch {
         toast.info("Camera unavailable — choose an existing photo instead.");
@@ -408,7 +408,7 @@ export default function BindTagPage() {
 
   const onPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) processPhotoFile(file);
+    if (file) processPhotoFile(file, false);
   };
 
   const analyze = async () => {

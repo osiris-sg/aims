@@ -178,12 +178,13 @@ export default function ManualEntryPage() {
 
   // Camera → compress → extract. Kept separate from resolve(): reading the
   // plate only fills the form; the tech still taps "Find unit".
-  // Read one nameplate File → dataURL → AI plate extraction. Shared by the
-  // web/gallery <input> and the native in-app camera.
-  const processPlateFile = (file: File) => {
+  // Read one nameplate File → dataURL → AI plate extraction. `alreadySized` is
+  // true for native camera shots (plugin-downsized) so extraction skips the
+  // redundant main-thread compress; false for gallery/web picks (any size).
+  const processPlateFile = (file: File, alreadySized = false) => {
     const reader = new FileReader();
     reader.onload = async () => {
-      if (typeof reader.result === "string") await extractPlate(reader.result);
+      if (typeof reader.result === "string") await extractPlate(reader.result, alreadySized);
     };
     reader.readAsDataURL(file);
   };
@@ -191,7 +192,7 @@ export default function ManualEntryPage() {
   const onPlatePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (cameraRef.current) cameraRef.current.value = ""; // allow re-picking the same file
-    if (file) processPlateFile(file);
+    if (file) processPlateFile(file, false);
   };
 
   // "Scan nameplate" tap: use the in-app camera on native (works with no
@@ -201,7 +202,7 @@ export default function ManualEntryPage() {
     if (await hasNativeCamera()) {
       try {
         const file = await captureNativePhoto();
-        if (file) processPlateFile(file);
+        if (file) processPlateFile(file, true);
         return;
       } catch {
         setPlateFailed(true); // camera unavailable — let them pick a photo instead
@@ -210,7 +211,7 @@ export default function ManualEntryPage() {
     cameraRef.current?.click();
   };
 
-  const extractPlate = async (rawDataUrl: string) => {
+  const extractPlate = async (rawDataUrl: string, alreadySized = false) => {
     setExtracting(true);
     setPlateFailed(false);
     setReadSummary(null);
@@ -218,10 +219,12 @@ export default function ManualEntryPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const compressed = await compressImage(rawDataUrl);
+      // Native camera shots are already plugin-downsized — skip the redundant
+      // main-thread compress; gallery/web picks still need it.
+      const image = alreadySized ? rawDataUrl : await compressImage(rawDataUrl);
       const res = await request(
         { path: "/assets/manual-entry/extract-label", method: "POST", timeout: 120000 },
-        { image: compressed },
+        { image },
         token,
       );
       const payload = res?.data ?? res;
