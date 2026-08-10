@@ -80,4 +80,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Camera for proof-photo capture. Without this declared, Android 11+
+         package visibility hides the camera app, so Capacitor's WebView
+         onShowFileChooser can't resolve ACTION_IMAGE_CAPTURE and silently
+         falls back to the photo picker (gallery only, no camera option).
+         Declaring CAMERA grants visibility AND makes Capacitor request the
+         runtime grant before capture. camera feature is NOT required so the
+         app still installs on camera-less contexts. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>
