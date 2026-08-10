@@ -23,11 +23,19 @@ const TOP_K = 6;
 // cache yet — the breakpoint is a no-op until their prompt grows past that.
 const CACHE_ALL_PAIRS_THRESHOLD = 30;
 
+// Strict template gate: the agent only replies when the incoming message is a
+// close semantic match to a trained example. Below this cosine similarity we
+// stay SILENT (no draft, no Claude call) — the business wants the agent to
+// answer only the questions it was trained on, nothing else. Tunable via env.
+const TEMPLATE_MATCH_THRESHOLD = Number(process.env.WHATSAPP_TEMPLATE_MATCH_THRESHOLD) || 0.5;
+
 export interface AgentVerdict {
   reply: string;
   canAutoSend: boolean;
   confidence: number; // 0..1
   reason: string;
+  onTemplate?: boolean; // false when the message didn't match any trained example
+  matchScore?: number; // top cosine similarity to a trained example
 }
 
 @Injectable()
@@ -169,6 +177,22 @@ export class WhatsAppAgentService {
     // order so the whole prefix is byte-identical across messages (cacheable).
     // Large sets: cosine-retrieve top-K into the user turn instead.
     const pairCount = await this.prisma.whatsAppQnA.count({ where: { organizationId } });
+
+    // STRICT TEMPLATE GATE: score the closest trained example first. If nothing
+    // is a close enough match, stay silent — don't draft, don't call Claude.
+    const scored = pairCount > 0 ? await this.similarQnA(organizationId, inboundBody) : [];
+    const bestScore = scored[0]?.score ?? 0;
+    if (bestScore < TEMPLATE_MATCH_THRESHOLD) {
+      return {
+        reply: '',
+        canAutoSend: false,
+        confidence: bestScore,
+        reason: `no trained example matched (best ${bestScore.toFixed(2)} < ${TEMPLATE_MATCH_THRESHOLD})`,
+        onTemplate: false,
+        matchScore: bestScore,
+      };
+    }
+
     let exampleBlock: string;
     let examplesInSystem = false;
     if (pairCount > 0 && pairCount <= CACHE_ALL_PAIRS_THRESHOLD) {
@@ -179,14 +203,10 @@ export class WhatsAppAgentService {
       });
       exampleBlock = all.map((e, i) => `Example ${i + 1}:\nCustomer: ${e.question}\nReply: ${e.answer}`).join('\n\n');
       examplesInSystem = true;
-    } else if (pairCount > 0) {
-      const examples = await this.similarQnA(organizationId, inboundBody);
-      exampleBlock = examples
+    } else {
+      exampleBlock = scored
         .map((e, i) => `Example ${i + 1} (similarity ${e.score.toFixed(2)}):\nCustomer: ${e.question}\nReply: ${e.answer}`)
         .join('\n\n');
-    } else {
-      exampleBlock = '(no training examples yet)';
-      examplesInSystem = true; // keep the placeholder in the stable prefix
     }
 
     const historyBlock = history.length
@@ -248,7 +268,7 @@ export class WhatsAppAgentService {
       }
       throw new BadRequestException('AI returned an unparseable response');
     }
-    return parsed;
+    return { ...parsed, onTemplate: true, matchScore: bestScore };
   }
 
   private parseVerdict(text: string): AgentVerdict | null {

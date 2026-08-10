@@ -339,6 +339,14 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       .catch(() => null);
 
     const verdict = await this.agent.draftReply(inbound.organizationId, inbound.body, history, customerContext);
+
+    // Strict template gate: if the message didn't match a trained example, the
+    // agent stays silent — no auto-send AND no review suggestion.
+    if (verdict.onTemplate === false || !verdict.reply?.trim()) {
+      this.logger.log(`Agent silent for ${inbound.counterparty} (${verdict.reason})`);
+      return;
+    }
+
     const autoSend = config.autoSendEnabled && verdict.canAutoSend && !numberBlocked;
 
     const suggestion = await this.prisma.whatsAppSuggestion.create({
