@@ -2673,19 +2673,24 @@ export class DocumentsService {
   }
   async getAllDocuments(organizationId: string) {
     try {
-      const documents = await this.prisma.document.findMany({
-        where: {
-          organizationId: organizationId,
-        },
-        orderBy: { createdAt: 'desc' },
-      });
+      // Fetch-all list. The heavy config keys (items text, logo/stamp images,
+      // email overrides) are striped IN THE DATABASE — loading full configs for
+      // every document OOM-killed the 512MB prod instance (2026-08-11) once a
+      // few list requests ran concurrently. List consumers only read small
+      // scalars (dueDate/customer/date/totals/reference); anything needing
+      // items opens the document individually.
+      const documents: any[] = await this.prisma.$queryRaw`
+        SELECT d.id, d.name, d.type, d."documentTemplateId", d.status,
+               d."createdAt", d."projectId",
+               d.config->'items'->0->>'sku' AS sku,
+               d.config->>'customerId' AS "customerId",
+               (d.config - 'items' - 'logo' - 'stamp' - 'signature' - 'signatures' - 'email') AS config
+        FROM "Document" d
+        WHERE d."organizationId" = ${organizationId}
+        ORDER BY d."createdAt" DESC`;
 
       // Fetch customer names if customerId exists in config
-      const customerIds = documents
-        .map((doc: any) => (doc.config as any)?.customerId)
-        .filter(Boolean);
-
-      const uniqueCustomerIds = [...new Set(customerIds)];
+      const uniqueCustomerIds = [...new Set(documents.map((doc) => doc.customerId).filter(Boolean))] as string[];
       const customers = uniqueCustomerIds.length > 0
         ? await this.prisma.customer.findMany({
             where: { id: { in: uniqueCustomerIds } },
@@ -2695,26 +2700,20 @@ export class DocumentsService {
 
       const customerMap = new Map(customers.map(c => [c.id, c.name]));
 
-      return documents.map((doc: any) => {
-        const config = doc.config as any;
-        const customerId = config?.customerId;
-        const customerName = customerId ? customerMap.get(customerId) : null;
-
-        return {
-          id: doc.id,
-          name: doc.name,
-          associated_item: config?.items?.[0]?.sku ?? 'N/A',
-          associated_customer: customerName ?? 'N/A',
-          documentType: doc.type,
-          templateId: doc.documentTemplateId,
-          status: doc.status,
-          createdAt: doc.createdAt,
-          // Project link — the extract-from-quotation flows carry it onto the
-          // new DO/invoice (it lives on the row, not in config).
-          projectId: doc.projectId ?? null,
-          config: doc.config, // Include config data for due dates and other fields
-        };
-      });
+      return documents.map((doc: any) => ({
+        id: doc.id,
+        name: doc.name,
+        associated_item: doc.sku ?? 'N/A',
+        associated_customer: (doc.customerId ? customerMap.get(doc.customerId) : null) ?? 'N/A',
+        documentType: doc.type,
+        templateId: doc.documentTemplateId,
+        status: doc.status,
+        createdAt: doc.createdAt,
+        // Project link — the extract-from-quotation flows carry it onto the
+        // new DO/invoice (it lives on the row, not in config).
+        projectId: doc.projectId ?? null,
+        config: doc.config, // slim config — due dates, totals, reference etc.
+      }));
     } catch (error) {
       throw new HttpException(`Fetch all documents failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
