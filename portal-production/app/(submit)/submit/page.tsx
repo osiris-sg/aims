@@ -3,7 +3,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
-import { Box, Button, CircularProgress, Dialog, IconButton, Stack, Typography } from "@mui/material";
+import { hasNativeCamera, captureNativePhoto } from "@/app/(field)/lib/nativeCamera";
+import { Alert, Box, Button, CircularProgress, Dialog, IconButton, Stack, Typography } from "@mui/material";
 import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
 import PhotoLibraryIcon from "@mui/icons-material/PhotoLibrary";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -126,6 +127,9 @@ export default function SubmitPage() {
   // on replace/unmount by the effect's cleanup. Tap opens the full-screen viewer.
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
+  // Sequence-gap notice from the backend (best-effort) — shown on the done
+  // screen so the user can upload the numbers in between. Never blocks.
+  const [sequenceWarning, setSequenceWarning] = useState<{ missing: string[]; type: string } | null>(null);
   useEffect(() => {
     if (!file || file.type === "application/pdf") {
       setPreviewUrl(null);
@@ -146,6 +150,7 @@ export default function SubmitPage() {
     setFile(null);
     setPhase("idle");
     setErrorMsg(null);
+    setSequenceWarning(null);
     resetInputs();
   };
 
@@ -156,7 +161,11 @@ export default function SubmitPage() {
     resetInputs();
   };
 
-  const pickFile = async (f: File | null) => {
+  // `alreadySized` = the native camera already downsized this (targetWidth/Height
+  // 1600, plugin-side, off the main thread) — skip the redundant main-thread
+  // canvas compression, which was the post-capture stall. Gallery/file picks
+  // (any size) still get compressed here.
+  const pickFile = async (f: File | null, alreadySized = false) => {
     if (!f) return;
     const isPdf = f.type === "application/pdf";
     const ok = /\/(jpe?g|png|gif|webp|bmp|pdf)$/i.test(f.type) || isPdf;
@@ -170,8 +179,8 @@ export default function SubmitPage() {
     }
     // Compress camera/gallery images before they sit in state, so the
     // submit-time upload is a few hundred KB, not several MB. Best-effort —
-    // any failure keeps the original file. PDFs pass through untouched.
-    if (!isPdf) {
+    // any failure keeps the original file. PDFs and pre-sized shots pass through.
+    if (!isPdf && !alreadySized) {
       try {
         const blob = await compressImageToBlob(await fileToDataUrl(f));
         if (blob.size > 0) {
@@ -183,6 +192,22 @@ export default function SubmitPage() {
     }
     setErrorMsg(null);
     setFile(f);
+  };
+
+  // "Take photo": in-app camera on native (fast, works with no external camera
+  // app), else the capture <input> on web / no-camera.
+  const onTakePhoto = async () => {
+    if (await hasNativeCamera()) {
+      try {
+        const f = await captureNativePhoto();
+        if (f) await pickFile(f, true);
+        return;
+      } catch {
+        setErrorMsg("Camera unavailable — choose a photo from your gallery instead.");
+        return;
+      }
+    }
+    cameraRef.current?.click();
   };
 
   const submit = async () => {
@@ -243,6 +268,10 @@ export default function SubmitPage() {
       if (!saveRes?.success || !saveRes?.data?.id) {
         throw new Error(saveRes?.message || "Failed to save");
       }
+      // Best-effort sequence-gap notice — shown on the done screen (additive;
+      // absent when there's no gap or it couldn't be determined).
+      const warn = saveRes?.data?.sequenceWarning;
+      if (warn?.missing?.length) setSequenceWarning(warn);
       setPhase("done");
     } catch (err: any) {
       console.error("Submit flow failed:", err);
@@ -276,6 +305,14 @@ export default function SubmitPage() {
         <Typography variant="body1" color="text.secondary">
           Your {currentLabel.toLowerCase()} was sent for review.
         </Typography>
+        {sequenceWarning && (
+          <Alert severity="warning" sx={{ maxWidth: 360, width: "100%", textAlign: "left" }}>
+            Heads up — {sequenceWarning.missing.join(", ")}{" "}
+            {sequenceWarning.missing.length === 1 ? "looks" : "look"} missing before this one. If you have{" "}
+            {sequenceWarning.missing.length === 1 ? "it" : "them"}, upload{" "}
+            {sequenceWarning.missing.length === 1 ? "it" : "them"} too.
+          </Alert>
+        )}
         <Button
           variant="contained"
           size="large"
@@ -408,7 +445,7 @@ export default function SubmitPage() {
           size="large"
           fullWidth
           startIcon={<PhotoCameraIcon />}
-          onClick={() => cameraRef.current?.click()}
+          onClick={() => void onTakePhoto()}
           sx={{ py: 2.5, fontSize: "1.15rem" }}
         >
           Take photo

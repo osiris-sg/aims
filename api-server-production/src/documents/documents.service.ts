@@ -2438,6 +2438,15 @@ export class DocumentsService {
       });
     }
 
+    // Best-effort sequence-gap warning (uploads only) — flags when the party's
+    // own printed number jumps ahead of the last one we have in the same series,
+    // so a /submit user can also upload the ones in between. Never blocks.
+    const sequenceWarning = await this.computeSequenceGapWarning(
+      organizationId,
+      type,
+      extracted?.document?.number,
+    );
+
     return {
       id: created.id,
       templateId,
@@ -2450,7 +2459,96 @@ export class DocumentsService {
         // "N linked, M suggested, K need a unit".
         ...(itemMatchSummary ? { items: itemMatchSummary } : {}),
       },
+      ...(sequenceWarning ? { sequenceWarning } : {}),
     };
+  }
+
+  /**
+   * Parse a printed document number into a comparable series key. The FINAL
+   * digit-run is the running number; everything before it is the prefix that
+   * defines the series. "BI2026167" → {prefix:"BI", value:2026167, width:7};
+   * "BIPL-JPSG-INV-20260630-0077" → {prefix:"BIPL-JPSG-INV-20260630-", value:77,
+   * width:4}; "009" → {prefix:"", value:9, width:3}. Returns null when there's
+   * no trailing digit run (unparseable → caller stays silent).
+   */
+  private parseSeriesNumber(raw: unknown): { prefix: string; value: number; width: number } | null {
+    if (typeof raw !== 'string') return null;
+    const m = raw.trim().match(/^(.*?)(\d+)\s*$/);
+    if (!m) return null;
+    const prefix = m[1];
+    const digits = m[2];
+    if (digits.length === 0 || digits.length > 12) return null; // guard Number() range
+    const value = Number(digits);
+    if (!Number.isSafeInteger(value)) return null;
+    return { prefix, value, width: digits.length };
+  }
+
+  /**
+   * Best-effort sequence-gap warning for AI uploads. Compares the EXTRACTED
+   * number (the party's OWN printed number, config.documentNumber) against the
+   * highest prior same-org, same-TYPE document in the SAME prefix series, and
+   * lists the numbers in between so a /submit user can upload those too.
+   *
+   * WARNING only — never blocks, never throws. Deliberately SILENT (no false
+   * alarm) when: the number doesn't parse, there's no same-prefix prior, the
+   * jump is implausibly large (>100), or the prior doc is stale (see recency).
+   *
+   * Scope: series the ORG CONTROLS. Supplier BILLs are excluded on purpose —
+   * you never receive every document a supplier issues, so a gap in their
+   * numbering is meaningless (BILLs also take a separate ingest pipeline).
+   */
+  private async computeSequenceGapWarning(
+    organizationId: string,
+    type: string,
+    extractedNumber: unknown,
+  ): Promise<{ missing: string[]; type: string } | undefined> {
+    try {
+      const parsed = this.parseSeriesNumber(extractedNumber);
+      if (!parsed) return undefined;
+      const { prefix, value, width } = parsed;
+
+      // Candidate priors: same org + type. Each doc's own number lives in
+      // config.documentNumber (fresh drafts) or name (edited/confirmed). Recent
+      // first — the relevant series head sits near the top.
+      const docs = await this.prisma.document.findMany({
+        where: { organizationId, type },
+        select: { name: true, config: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+      });
+
+      let best: { value: number; createdAt: Date } | null = null;
+      for (const d of docs) {
+        const raw = (d.config as any)?.documentNumber ?? d.name;
+        const p = this.parseSeriesNumber(raw);
+        if (!p || p.prefix !== prefix || p.value >= value) continue; // same series, strictly below
+        if (!best || p.value > best.value) best = { value: p.value, createdAt: d.createdAt };
+      }
+      if (!best) return undefined; // no same-prefix prior → silent
+
+      const gap = value - best.value;
+      if (gap <= 1) return undefined; // consecutive — no gap
+      if (gap > 100) return undefined; // implausible jump (year rollover, format change) → silent
+
+      // Recency guard: a months-old prior means the series was DORMANT, not that
+      // paperwork is missing. 60 days covers monthly / irregular billing cadence
+      // (an active monthly series' last doc is ~30 days old) while still
+      // suppressing long-dead series that just resumed.
+      const RECENCY_MS = 60 * 24 * 60 * 60 * 1000;
+      if (Date.now() - best.createdAt.getTime() > RECENCY_MS) return undefined;
+
+      // The missing numbers between best+1 and value-1, padded + prefixed. Cap
+      // the list so a moderate jump stays readable.
+      const missing: string[] = [];
+      for (let n = best.value + 1; n < value && missing.length < 10; n++) {
+        missing.push(`${prefix}${String(n).padStart(width, '0')}`);
+      }
+      const remaining = value - best.value - 1 - missing.length;
+      if (remaining > 0) missing.push(`+${remaining} more`);
+      return { missing, type };
+    } catch {
+      return undefined; // a warning must never break a submission
+    }
   }
 
   async duplicateDocument(documentId: string, organizationId: string, actor?: DocumentActor) {
