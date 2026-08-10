@@ -90,14 +90,30 @@ if (!ORG_ID || !BRIDGE_TOKEN) {
 
 let lastReplyAt = 0;
 
+// SESSION_DIR lets a hosted deploy point the session at a persistent disk so it
+// survives restarts/redeploys (Render worker mounts a disk here). Local default
+// keeps it in the folder. PUPPETEER_EXECUTABLE_PATH points at the OS Chromium
+// on hosts where puppeteer's bundled build isn't present (the Docker image).
+const SESSION_DIR = process.env.SESSION_DIR || './.wwebjs_auth';
 const client = new Client({
-  authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
-  puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] },
+  authStrategy: new LocalAuth({ dataPath: SESSION_DIR }),
+  puppeteer: {
+    headless: true,
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+  },
 });
 
 client.on('qr', async (qr) => {
-  await qrcode.toFile(__dirname + '/qr.png', qr, { width: 480, margin: 2 });
-  console.log('\n📱 QR saved to qr.png — scan it from the number that will run in groups.\n');
+  // On a headless host (Render) there's no screen — render the QR straight into
+  // the logs so it can be scanned from the log viewer. Also save a PNG locally.
+  const ascii = await qrcode.toString(qr, { type: 'terminal', small: true });
+  console.log('\n📱 Scan this QR from the number that will run in groups (Linked devices → Link a device):\n' + ascii);
+  try {
+    await qrcode.toFile(__dirname + '/qr.png', qr, { width: 480, margin: 2 });
+  } catch {
+    /* read-only fs on the host — logs QR is enough */
+  }
 });
 client.on('authenticated', () => console.log('🔐 authenticated'));
 let BOT_IDS = []; // phone + LID digit-forms used to recognise an @mention of us
