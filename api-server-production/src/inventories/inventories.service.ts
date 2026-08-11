@@ -475,6 +475,81 @@ export class InventoriesService {
         }
       : {};
 
+    // ---- TARGETED CHILD BIND (explicit existing unit) ----
+    // Child-tagging: tag a KNOWN placeholder directly (no serial gymnastics).
+    // Bypasses match/create entirely and applies the SAME pending→instock
+    // auto-flip the office update path has: a real serial completes the
+    // placeholder (de-PENDING the sku, status instock); tag-only leaves it
+    // pending but now tagged.
+    if (dto.targetInventoryId) {
+      if (tagless) {
+        throw new HttpException('A tag is required to bind a component.', HttpStatus.BAD_REQUEST);
+      }
+      const target = await this.prisma.inventory.findFirst({
+        where: { id: dto.targetInventoryId, assetId: asset.id, organizationId },
+        include: { asset: true },
+      });
+      if (!target) {
+        throw new HttpException('Target unit not found under this asset.', HttpStatus.NOT_FOUND);
+      }
+      // Idempotent: already carries this tag.
+      if (target.nfcTagUid === tag) {
+        return { inventory: target, asset, action: 'matched' as const, idempotent: true };
+      }
+      // Tag held by a different unit — never steal it.
+      if (tagOwner && tagOwner.id !== target.id) {
+        throw new HttpException(tagConflictMessage(tagOwner), HttpStatus.CONFLICT);
+      }
+      // Target already tagged — needs an explicit rebind confirm (same 409
+      // contract the serial-match path uses).
+      if (target.nfcTagUid && !dto.confirmRebind) {
+        throw new HttpException(
+          {
+            code: 'ALREADY_TAGGED',
+            message: `Unit ${target.sku} already has a tag. Rebinding will unbind the old tag.`,
+            unitSku: target.sku,
+            unitId: target.id,
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
+      // Placeholder completion: a real serial de-PENDINGs the sku and flips a
+      // pending unit to instock. serial-as-identity (fleet convention), stored
+      // uppercased into sku. Tag-only keeps the current sku/status untouched.
+      const realSerial = serial || undefined;
+      const completes = !!realSerial;
+      const data: Prisma.InventoryUpdateInput = {
+        nfcTagUid: tag,
+        ...taggedLocation,
+        ...(completes
+          ? {
+              sku: realSerial.toUpperCase(),
+              ...(target.status === 'pending' ? { status: 'instock' as InventoryStatus } : {}),
+            }
+          : {}),
+      };
+      try {
+        const inventory = await this.prisma.inventory.update({
+          where: { id: target.id },
+          data,
+          include: { asset: true },
+        });
+        await this.logBindProvenance(inventory.id, 'matched', dto, technicianUserId);
+        return { inventory, asset, action: 'matched' as const, child: true };
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          const t = String((error.meta as { target?: string[] | string } | undefined)?.target ?? '');
+          throw new HttpException(
+            t.includes('sku')
+              ? 'That serial already exists on another unit in this organization.'
+              : 'NFC tag is already bound to another inventory item.',
+            HttpStatus.CONFLICT,
+          );
+        }
+        throw error;
+      }
+    }
+
     // ---- EXISTING-UNIT BIND (exactly one serial match) ----
     if (matches.length === 1) {
       const unit = matches[0];
@@ -575,7 +650,17 @@ export class InventoriesService {
         [{ id: inventory.id, sku: inventory.sku, assetId: inventory.assetId }],
         organizationId,
       );
-      return { inventory, asset, action: 'created' as const };
+      // Surface the untagged children so the field can offer "tag them now"
+      // right after the parent bind (the post-bind prompt).
+      const untaggedChildren = await this.prisma.inventory
+        .findMany({
+          where: { parentInventoryId: inventory.id, organizationId, nfcTagUid: null },
+          select: { id: true, sku: true, assetId: true, status: true, asset: { select: { name: true } } },
+          orderBy: { sku: 'asc' },
+        })
+        .then((kids) => kids.map((k) => ({ id: k.id, sku: k.sku, assetId: k.assetId, assetName: k.asset?.name ?? k.sku, status: k.status })))
+        .catch(() => [] as Array<{ id: string; sku: string; assetId: string; assetName: string; status: string }>);
+      return { inventory, asset, action: 'created' as const, untaggedChildren };
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         const targetRaw = (error.meta as { target?: string[] | string } | undefined)?.target;

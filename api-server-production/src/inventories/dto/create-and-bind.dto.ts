@@ -15,6 +15,15 @@ export class CreateInventoryAndBindDto {
   @IsUUID()
   assetId: string;
 
+  // Direct-bind to a KNOWN existing unit (child-tagging: SIDS → TSS/SIMCARD
+  // placeholders). When set, the serial-matching / create-new logic is
+  // bypassed — we bind the tag to exactly this unit, and a supplied real
+  // serial completes the placeholder (pending→instock auto-flip, mirroring the
+  // office update path). Must belong to `assetId` and this org.
+  @IsUUID()
+  @IsOptional()
+  targetInventoryId?: string;
+
   // Manufacturer's serial number from the nameplate. Stored on Inventory.
   // serialNumber for audit/warranty; NOT used to generate the inventory.sku.
   @IsString()

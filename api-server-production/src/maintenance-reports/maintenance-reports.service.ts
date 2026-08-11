@@ -830,6 +830,26 @@ export class MaintenanceReportsService {
         })
       : null;
 
+    // Untagged child units (SIDS → TSS/SIMCARD): components spawned under this
+    // unit (parentInventoryId) that still need an NFC tag. Drives the scan
+    // chooser's "Components" card + the post-bind prompt. Enriched with the
+    // child asset's display name so the card can label each ("TSS", "Sim Card").
+    let untaggedChildren: Array<{ id: string; sku: string; assetId: string; assetName: string; status: string }> = [];
+    if (inventory) {
+      const kids = await this.prisma.inventory.findMany({
+        where: { parentInventoryId: inventory.id, organizationId, nfcTagUid: null },
+        select: { id: true, sku: true, assetId: true, status: true, asset: { select: { name: true } } },
+        orderBy: { sku: 'asc' },
+      });
+      untaggedChildren = kids.map((k) => ({
+        id: k.id,
+        sku: k.sku,
+        assetId: k.assetId,
+        assetName: k.asset?.name ?? k.sku,
+        status: k.status,
+      }));
+    }
+
     // The unit's active project link (endDate=null — same "active" definition
     // fieldDeploy enforces), so the walk-around Assign flow can show
     // "Currently on: X" and confirm before a soft-move. Org-scoped through the
@@ -1178,6 +1198,9 @@ export class MaintenanceReportsService {
       standaloneDelivery,
       canStartStandaloneDelivery,
       riderOpenDelivery,
+      // Untagged child components of the scanned unit (SIDS → TSS/SIMCARD).
+      // Empty for units with no children or none left to tag.
+      untaggedChildren,
     };
   }
 
