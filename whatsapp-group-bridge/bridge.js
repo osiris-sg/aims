@@ -106,9 +106,11 @@ const client = new Client({
 
 client.on('qr', async (qr) => {
   // On a headless host (Render) there's no screen — render the QR straight into
-  // the logs so it can be scanned from the log viewer. Also save a PNG locally.
+  // the logs so it can be scanned from the log viewer. Also emit the raw string
+  // (marker-prefixed) so it can be re-rendered into a clean PNG off the logs.
   const ascii = await qrcode.toString(qr, { type: 'terminal', small: true });
   console.log('\n📱 Scan this QR from the number that will run in groups (Linked devices → Link a device):\n' + ascii);
+  console.log('QR_RAW::' + qr);
   try {
     await qrcode.toFile(__dirname + '/qr.png', qr, { width: 480, margin: 2 });
   } catch {
