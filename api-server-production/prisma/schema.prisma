@@ -91,6 +91,7 @@ model Organization {
   deliveries               Delivery[]
   emailIngestConfig        EmailIngestConfig?
   emailIngestLogs          EmailIngestLog[]
+  submitJobs               SubmitJob[]
   passTrackerEntries       PassTrackerEntry[]
   whatsAppConnection       WhatsAppConnection?
   whatsAppMessages         WhatsAppMessage[]
@@ -2062,6 +2063,49 @@ model EmailIngestLog {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, messageId])
+  @@index([organizationId, createdAt])
+}
+
+// Async intake job for the normal-user /submit flow. A submission uploads N
+// files (one docType) → one SubmitJob per file (grouped by batchId), status
+// QUEUED. A cron worker claims QUEUED rows → extract → create draft →
+// DONE/FAILED. Decouples the (fast, client-awaited) upload from the (slow,
+// server-side) extraction+draft creation, so leaving mid-flow can no longer
+// orphan an S3 file with no draft and no error. Also the durable, VISIBLE
+// record of every submission (incl. failures) — the submitter sees their own on
+// /submit; the office sees the org's in the admin uploads log.
+model SubmitJob {
+  id              String   @id @default(uuid())
+  organizationId  String
+  // Clerk user id of the submitter (no FK — same posture as MSR.technicianUserId).
+  createdByUserId String
+  // Groups the files uploaded in one submission (one docType per batch).
+  batchId         String
+  // AIMS document type for the whole batch (INVOICE, DO, QUOTATION, PO, BILL…).
+  docType         String
+  // QUEUED → PROCESSING → DONE | FAILED.
+  status          String   @default("QUEUED")
+  s3Key           String
+  fileUrl         String?
+  mimeType        String?
+  fileName        String?
+  // Draft created on success (null until DONE; null forever on FAILED).
+  documentId      String?  @db.Uuid
+  // Failure reason (null unless FAILED).
+  reason          String?
+  // Sequence-gap warning moved off the sync response onto the job row
+  // (computeSequenceGapWarning result); surfaced in the submit history.
+  sequenceWarning Json?
+  attemptCount    Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Submitter's own history (caller-scoped, recent-first).
+  @@index([organizationId, createdByUserId, createdAt])
+  // Worker claim sweep + admin org-scoped log.
+  @@index([status])
   @@index([organizationId, createdAt])
 }
 

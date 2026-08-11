@@ -42,6 +42,15 @@ export class S3Service {
     return `https://${this.bucketName}.s3.${this.configService.get('AWS_REGION', 'ap-southeast-1')}.amazonaws.com/${key}`;
   }
 
+  // Fetch an object's bytes back into memory — used by the async /submit worker,
+  // which persists the file at intake then re-reads it here to run extraction.
+  async downloadFile(key: string): Promise<Buffer> {
+    const command = new GetObjectCommand({ Bucket: this.bucketName, Key: key });
+    const res = await this.s3Client.send(command);
+    const bytes = await res.Body!.transformToByteArray();
+    return Buffer.from(bytes);
+  }
+
   async getSignedUrl(key: string, expiresIn: number = 3600): Promise<string> {
     const command = new GetObjectCommand({
       Bucket: this.bucketName,
