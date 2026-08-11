@@ -9,6 +9,7 @@ import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import HandymanIcon from "@mui/icons-material/Handyman";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DescriptionIcon from "@mui/icons-material/Description";
+import MemoryIcon from "@mui/icons-material/Memory";
 import { request } from "@/helpers/request";
 
 type DeliveryItemStatus = "not_delivered" | "delivering" | "not_installed" | "completed";
@@ -64,6 +65,9 @@ interface ScanContext {
   } | null;
   canStartStandaloneDelivery?: boolean;
   riderOpenDelivery?: { id: string; deliveryNumber: number } | null;
+  // Untagged child components (SIDS → TSS/SIMCARD) of the scanned unit —
+  // drives the "Components" card. Empty/absent when none need tagging.
+  untaggedChildren?: Array<{ id: string; sku: string; assetId: string; assetName: string; status: string }>;
 }
 
 // Per-item status → chip label + colour for the delivery-items list.
@@ -333,6 +337,33 @@ export default function AssetActionChooser() {
           <CardActionArea disabled>{deliveryCardInner}</CardActionArea>
         )}
       </Card>
+
+      {/* Components card — untagged child units (SIDS → TSS/Sim Card). The
+          post-bind landing AND the catch-up path for already-backfilled
+          placeholders. Hidden when nothing needs tagging. */}
+      {(data.untaggedChildren?.length ?? 0) > 0 && (
+        <Card variant="outlined">
+          <CardActionArea
+            onClick={() =>
+              router.push(
+                `/scan/asset/${assetId}/components${inventory ? `?inventoryId=${inventory.id}` : ""}`,
+              )
+            }
+          >
+            <CardContent sx={{ display: "flex", gap: 2.5, alignItems: "center", py: 3, minHeight: 96 }}>
+              <MemoryIcon color="primary" sx={{ fontSize: 40 }} />
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography variant="h6" fontWeight={700}>
+                  Components to tag ({data.untaggedChildren!.length})
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {data.untaggedChildren!.map((c) => c.assetName).join(", ")}
+                </Typography>
+              </Box>
+            </CardContent>
+          </CardActionArea>
+        </Card>
+      )}
 
       {/* Per-item delivery list (Phase 5). Augments the single morphing card:
           one row per item on the resolved DO, each with a status chip + the

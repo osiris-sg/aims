@@ -562,9 +562,16 @@ export default function BindTagPage() {
       } else {
         toast.success(successMsg);
       }
-      // Jump straight to the action chooser — same destination as a scan of
-      // an already-bound tag, so the create-then-act flow has no dead end.
-      router.replace(`/scan/asset/${assetId}?inventoryId=${inventoryId}`);
+      // Post-bind prompt: if this unit spawned untagged child components
+      // (SIDS → TSS/Sim Card), route straight into the components mini-flow so
+      // the tech can tag them now. Otherwise the action chooser, as before.
+      // (The chooser also shows a Components card, so either path reaches it.)
+      const spawnedChildren = payload?.untaggedChildren?.length > 0;
+      if (spawnedChildren) {
+        router.replace(`/scan/asset/${assetId}/components?inventoryId=${inventoryId}`);
+      } else {
+        router.replace(`/scan/asset/${assetId}?inventoryId=${inventoryId}`);
+      }
     } catch (e: any) {
       // Stay on review screen so the tech can correct (e.g. duplicate tag).
       setError(e?.message ?? "Failed to create inventory item.");
