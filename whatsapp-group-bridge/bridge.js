@@ -18,7 +18,33 @@
 
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
+
+// Clear stale Chromium singleton locks left by an unclean shutdown (e.g. a
+// superseded Render deploy). Otherwise the next boot fails with "profile
+// appears to be in use by another Chromium process" and the browser won't launch.
+function clearChromiumLocks(dir) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const e of entries) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) clearChromiumLocks(p);
+    else if (/^Singleton(Lock|Cookie|Socket)$/.test(e.name)) {
+      try {
+        fs.rmSync(p, { force: true });
+        console.log('  cleared stale Chromium lock:', p);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
 
 const API_BASE = process.env.AIMS_API_BASE || 'http://localhost:4040';
 const ORG_ID = process.env.AIMS_ORG_ID; // which org's trained agent to use
@@ -95,6 +121,7 @@ let lastReplyAt = 0;
 // keeps it in the folder. PUPPETEER_EXECUTABLE_PATH points at the OS Chromium
 // on hosts where puppeteer's bundled build isn't present (the Docker image).
 const SESSION_DIR = process.env.SESSION_DIR || './.wwebjs_auth';
+clearChromiumLocks(SESSION_DIR); // remove stale locks before Chromium launches
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: SESSION_DIR }),
   puppeteer: {
