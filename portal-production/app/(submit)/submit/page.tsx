@@ -1,16 +1,28 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { hasNativeCamera, captureNativePhoto } from "@/app/(field)/lib/nativeCamera";
-import { Alert, Box, Button, CircularProgress, Dialog, IconButton, Stack, Typography } from "@mui/material";
+import {
+  Alert,
+  Box,
+  Button,
+  Chip,
+  CircularProgress,
+  Dialog,
+  IconButton,
+  LinearProgress,
+  Stack,
+  Typography,
+} from "@mui/material";
 import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
 import PhotoLibraryIcon from "@mui/icons-material/PhotoLibrary";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import DescriptionIcon from "@mui/icons-material/Description";
 import CloseIcon from "@mui/icons-material/Close";
+import DeleteIcon from "@mui/icons-material/Delete";
 
 type DocType =
   | "DO"
@@ -24,13 +36,10 @@ type DocType =
   | "SAI"
   | "SAO"
   | "BILL";
-type Phase = "idle" | "extracting" | "saving" | "done";
 
-// Type strings match the portal's per-type list pages (createDocumentType in
-// app/portal/sales|inventory/constants.ts) so template resolution behaves the
-// same as portal uploads. All 10 resolve to a Biofuel-owned template
-// (verified against createFromExtraction's resolver). DO is kept (not
-// DELIVERY_ORDER) — it's what this page has always sent and resolves fine.
+// idle = building the batch; uploading = intake in flight; done = queued + history.
+type Phase = "idle" | "uploading" | "done";
+
 const TYPE_GROUPS: { group: string; types: { value: DocType; label: string }[] }[] = [
   {
     group: "Sales",
@@ -54,24 +63,17 @@ const TYPE_GROUPS: { group: string; types: { value: DocType; label: string }[] }
   },
   {
     group: "Purchases",
-    types: [
-      // BILL takes the dedicated bills pipeline (one-call extract-create),
-      // not the two-step documents flow — see the branch in submit().
-      { value: "BILL", label: "Bill (supplier invoice)" },
-    ],
+    // BILL is routed to the dedicated bills pipeline by the async worker
+    // (server-side), so the client just uploads it like any other type.
+    types: [{ value: "BILL", label: "Bill (supplier invoice)" }],
   },
 ];
 const TYPES = TYPE_GROUPS.flatMap((g) => g.types);
 
-// Compression lifted from components/delivery/PhotoCaptureField (same
-// rationale): phone-camera JPEGs run 4–8 MB; resize to 1280px @ q0.7 —
-// typically ~200–400 KB — so the submit-time upload is fast on mobile data.
-// canvas.toBlob (not toDataURL+fetch) so the Blob keeps a real MIME type.
-const compressImageToBlob = (
-  dataUrl: string,
-  maxWidth = 1280,
-  quality = 0.7,
-): Promise<Blob> =>
+// Compress gallery/file images before upload (phone JPEGs are 4–8 MB; resize to
+// 1280px @ q0.7 ≈ 200–400 KB) so the intake upload is fast on mobile data.
+// Native camera shots arrive pre-sized (1600/q70) and skip this.
+const compressImageToBlob = (dataUrl: string, maxWidth = 1280, quality = 0.7): Promise<Blob> =>
   new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
@@ -98,74 +100,112 @@ const fileToDataUrl = (file: File): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
-// Same mapping DocumentUploadDialog uses: AIMS doc type → extraction enum.
-function toExtractionType(aimsType: string): string {
-  const t = (aimsType || "").toUpperCase();
-  if (["INVOICE", "TI", "TI2"].includes(t)) return "invoice";
-  if (["DO", "DELIVERY_ORDER", "RDO"].includes(t)) return "delivery_order";
-  if (["QUOTATION", "QO", "QO1", "QT"].includes(t)) return "quotation";
-  if (["PO", "PURCHASE_ORDER"].includes(t)) return "purchase_order";
-  return "invoice";
+interface BatchItem {
+  id: string;
+  file: File;
+  previewUrl: string | null; // object URL for images; null for PDFs
 }
 
+interface SubmitJob {
+  id: string;
+  batchId: string;
+  docType: string;
+  status: "QUEUED" | "PROCESSING" | "DONE" | "FAILED";
+  fileName: string | null;
+  reason: string | null;
+  sequenceWarning: { missing: string[]; type: string } | null;
+  documentId: string | null;
+  createdAt: string;
+}
+
+const STATUS_CHIP: Record<SubmitJob["status"], { label: string; color: "default" | "info" | "warning" | "success" | "error" }> = {
+  QUEUED: { label: "Queued", color: "default" },
+  PROCESSING: { label: "Processing", color: "info" },
+  DONE: { label: "Done", color: "success" },
+  FAILED: { label: "Failed", color: "error" },
+};
+
+const apiBase = process.env.NEXT_PUBLIC_BACKEND_API_URL || "http://localhost:4040";
+
+// Upload ONE file to the async intake with real progress (fetch can't report
+// upload progress — XHR can). All files in a submission share `batchId`.
+const uploadOne = (
+  file: File,
+  docType: string,
+  batchId: string,
+  token: string,
+  onProgress: (pct: number) => void,
+): Promise<void> =>
+  new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const fd = new FormData();
+    fd.append("files", file, file.name);
+    fd.append("docType", docType);
+    fd.append("batchId", batchId);
+    xhr.open("POST", `${apiBase}/submit/jobs`);
+    xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload failed (${xhr.status})`));
+    xhr.onerror = () => reject(new Error("Upload failed"));
+    xhr.send(fd);
+  });
+
 /**
- * The entire "normal user" app: pick a type → photograph it → AI-extract
- * (existing Claude pipeline) → saved as a DRAFT → "Submitted!". No customer
- * picking, no editing, no history. Reuses DocumentUploadDialog's exact
- * two-step flow (raw multipart POST /document-extraction/extract, then
- * POST /documents/from-extraction which creates a draft).
+ * Normal-user submit: pick a type → add one or more photos/files → upload
+ * (async intake, 202) → they're free once each shows uploaded. Extraction +
+ * draft creation run server-side; the history below (polled) shows each file's
+ * outcome so failures are visible and the user can act.
  */
 export default function SubmitPage() {
   const { getToken } = useAuth();
   const [docType, setDocType] = useState<DocType | null>(null);
-  const [file, setFile] = useState<File | null>(null);
+  const [items, setItems] = useState<BatchItem[]>([]);
   const [phase, setPhase] = useState<Phase>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [progress, setProgress] = useState<Record<string, number>>({});
+  const [submittedCount, setSubmittedCount] = useState(0);
+  const [jobs, setJobs] = useState<SubmitJob[]>([]);
+  const [viewer, setViewer] = useState<BatchItem | null>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
-  // Photo preview: object URL for the captured image (null for PDFs), revoked
-  // on replace/unmount by the effect's cleanup. Tap opens the full-screen viewer.
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [viewerOpen, setViewerOpen] = useState(false);
-  // Sequence-gap notice from the backend (best-effort) — shown on the done
-  // screen so the user can upload the numbers in between. Never blocks.
-  const [sequenceWarning, setSequenceWarning] = useState<{ missing: string[]; type: string } | null>(null);
+  const idRef = useRef(0);
+
+  const currentLabel = TYPES.find((t) => t.value === docType)?.label ?? "Document";
+
+  // Revoke all preview object URLs on unmount.
   useEffect(() => {
-    if (!file || file.type === "application/pdf") {
-      setPreviewUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(file);
-    setPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
+    return () => {
+      items.forEach((i) => i.previewUrl && URL.revokeObjectURL(i.previewUrl));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const resetInputs = () => {
-    if (cameraRef.current) cameraRef.current.value = "";
-    if (galleryRef.current) galleryRef.current.value = "";
-  };
+  // Poll the caller's own recent jobs while the done screen is open.
+  useEffect(() => {
+    if (phase !== "done") return;
+    let active = true;
+    const load = async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request({ path: "/submit/jobs/mine", method: "GET" }, {}, token);
+        if (active && res?.success !== false) setJobs(((res.data ?? res) as SubmitJob[]) ?? []);
+      } catch {
+        // best-effort — the list just doesn't refresh this tick
+      }
+    };
+    void load();
+    const iv = setInterval(load, 4000);
+    return () => {
+      active = false;
+      clearInterval(iv);
+    };
+  }, [phase, getToken]);
 
-  const resetAll = () => {
-    setDocType(null);
-    setFile(null);
-    setPhase("idle");
-    setErrorMsg(null);
-    setSequenceWarning(null);
-    resetInputs();
-  };
-
-  const backToChooser = () => {
-    setDocType(null);
-    setFile(null);
-    setErrorMsg(null);
-    resetInputs();
-  };
-
-  // `alreadySized` = the native camera already downsized this (targetWidth/Height
-  // 1600, plugin-side, off the main thread) — skip the redundant main-thread
-  // canvas compression, which was the post-capture stall. Gallery/file picks
-  // (any size) still get compressed here.
-  const pickFile = async (f: File | null, alreadySized = false) => {
+  const addFile = useCallback(async (f: File | null, alreadySized = false) => {
     if (!f) return;
     const isPdf = f.type === "application/pdf";
     const ok = /\/(jpe?g|png|gif|webp|bmp|pdf)$/i.test(f.type) || isPdf;
@@ -177,30 +217,28 @@ export default function SubmitPage() {
       setErrorMsg("That file is over 10 MB — try a smaller photo.");
       return;
     }
-    // Compress camera/gallery images before they sit in state, so the
-    // submit-time upload is a few hundred KB, not several MB. Best-effort —
-    // any failure keeps the original file. PDFs and pre-sized shots pass through.
+    let file = f;
     if (!isPdf && !alreadySized) {
       try {
         const blob = await compressImageToBlob(await fileToDataUrl(f));
-        if (blob.size > 0) {
-          f = new File([blob], f.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
-        }
+        if (blob.size > 0) file = new File([blob], f.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
       } catch {
         // keep original
       }
     }
     setErrorMsg(null);
-    setFile(f);
-  };
+    setItems((prev) => [
+      ...prev,
+      { id: `it-${idRef.current++}`, file, previewUrl: isPdf ? null : URL.createObjectURL(file) },
+    ]);
+  }, []);
 
-  // "Take photo": in-app camera on native (fast, works with no external camera
-  // app), else the capture <input> on web / no-camera.
+  // Native in-app camera (fast, no external app); else the capture <input>.
   const onTakePhoto = async () => {
     if (await hasNativeCamera()) {
       try {
         const f = await captureNativePhoto();
-        if (f) await pickFile(f, true);
+        if (f) await addFile(f, true);
         return;
       } catch {
         setErrorMsg("Camera unavailable — choose a photo from your gallery instead.");
@@ -210,149 +248,130 @@ export default function SubmitPage() {
     cameraRef.current?.click();
   };
 
-  const submit = async () => {
-    if (!file || !docType) return;
+  const removeItem = (id: string) => {
+    setItems((prev) => {
+      const gone = prev.find((i) => i.id === id);
+      if (gone?.previewUrl) URL.revokeObjectURL(gone.previewUrl);
+      return prev.filter((i) => i.id !== id);
+    });
+  };
+
+  const backToChooser = () => {
+    items.forEach((i) => i.previewUrl && URL.revokeObjectURL(i.previewUrl));
+    setItems([]);
+    setDocType(null);
+    setErrorMsg(null);
+    setProgress({});
+    if (cameraRef.current) cameraRef.current.value = "";
+    if (galleryRef.current) galleryRef.current.value = "";
+  };
+
+  const startOver = () => {
+    setJobs([]);
+    setSubmittedCount(0);
+    backToChooser();
+  };
+
+  // Upload each file (shared batchId). Uploaded items are dropped as they go, so
+  // a mid-batch failure leaves ONLY the un-uploaded ones — a retry never
+  // double-submits. Once all upload, extraction is server-side (fire-and-forget).
+  const doSubmit = async () => {
+    if (!items.length || !docType) return;
+    const token = await getToken();
+    if (!token) {
+      setErrorMsg("You're signed out. Please sign in again.");
+      return;
+    }
+    const batchId =
+      typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${idRef.current}`;
+    setPhase("uploading");
+    setErrorMsg(null);
+    const count = items.length;
+    let remaining = [...items];
     try {
-      const token = await getToken();
-      if (!token) {
-        setErrorMsg("You're signed out. Please sign in again.");
-        return;
+      for (const it of items) {
+        setProgress((p) => ({ ...p, [it.id]: 0 }));
+        await uploadOne(it.file, docType, batchId, token, (pct) => setProgress((p) => ({ ...p, [it.id]: pct })));
+        if (it.previewUrl) URL.revokeObjectURL(it.previewUrl);
+        remaining = remaining.filter((x) => x.id !== it.id);
       }
-
-      // BILL: dedicated one-call pipeline — POST /bills/extract-create does
-      // extraction AND creates the unconfirmed bill in one step. postOnSave:
-      // false = machine-intake semantics: NO journal entry until the office
-      // reviews it (an OCR misread must never touch the books). The office
-      // finds it in Bills → Unconfirmed / the Posting Queue.
-      if (docType === "BILL") {
-        setPhase("extracting");
-        const dataUrl = await fileToDataUrl(file);
-        const res = await request(
-          { path: "/bills/extract-create", method: "POST" },
-          { base64: dataUrl, mediaType: file.type, filename: file.name, postOnSave: false },
-          token
-        );
-        if (!res?.success || !res?.data?.id) {
-          throw new Error(res?.message || "Failed to save the bill");
-        }
-        setPhase("done");
-        return;
-      }
-
-      // 1) Extract — raw multipart POST (the request helper doesn't do FormData).
-      setPhase("extracting");
-      const fd = new FormData();
-      fd.append("document", file);
-      fd.append("documentType", toExtractionType(docType));
-      const apiBase = process.env.NEXT_PUBLIC_BACKEND_API_URL || "http://localhost:4040";
-      const extractRes = await fetch(`${apiBase}/document-extraction/extract`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: fd,
-      });
-      const extractJson = await extractRes.json();
-      if (!extractRes.ok || !extractJson?.success) {
-        throw new Error(extractJson?.message || "Extraction failed");
-      }
-      const extracted = extractJson?.data?.data || extractJson?.data;
-      const sourceFileUrl =
-        extractJson?.data?.metadata?.sourceFileUrl ?? extractJson?.metadata?.sourceFileUrl ?? null;
-
-      // 2) Save as a DRAFT (from-extraction → createBasicDocument, status draft).
-      setPhase("saving");
-      const saveRes = await request(
-        { path: "/documents/from-extraction", method: "POST" },
-        { type: docType, extracted, sourceFileUrl },
-        token
-      );
-      if (!saveRes?.success || !saveRes?.data?.id) {
-        throw new Error(saveRes?.message || "Failed to save");
-      }
-      // Best-effort sequence-gap notice — shown on the done screen (additive;
-      // absent when there's no gap or it couldn't be determined).
-      const warn = saveRes?.data?.sequenceWarning;
-      if (warn?.missing?.length) setSequenceWarning(warn);
+      setItems([]);
+      setSubmittedCount(count);
       setPhase("done");
-    } catch (err: any) {
-      console.error("Submit flow failed:", err);
-      setErrorMsg("Something went wrong. Please try again.");
+    } catch {
+      setItems(remaining); // only the un-uploaded remain — safe to retry
+      setErrorMsg("Upload interrupted — keep the app open and tap Submit to finish the rest.");
       setPhase("idle");
     }
   };
 
-  const busy = phase === "extracting" || phase === "saving";
-  const currentLabel = TYPES.find((t) => t.value === docType)?.label ?? "document";
-
-  // ── Submitted! ──────────────────────────────────────────────────────────
+  // ── Done + history ──────────────────────────────────────────────────────
   if (phase === "done") {
     return (
-      <Box
-        sx={{
-          minHeight: "100vh",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          textAlign: "center",
-          p: 3,
-          gap: 2,
-        }}
-      >
-        <CheckCircleIcon sx={{ fontSize: 96, color: "success.main" }} />
-        <Typography variant="h4" fontWeight={700}>
-          Submitted!
-        </Typography>
-        <Typography variant="body1" color="text.secondary">
-          Your {currentLabel.toLowerCase()} was sent for review.
-        </Typography>
-        {sequenceWarning && (
-          <Alert severity="warning" sx={{ maxWidth: 360, width: "100%", textAlign: "left" }}>
-            Heads up — {sequenceWarning.missing.join(", ")}{" "}
-            {sequenceWarning.missing.length === 1 ? "looks" : "look"} missing before this one. If you have{" "}
-            {sequenceWarning.missing.length === 1 ? "it" : "them"}, upload{" "}
-            {sequenceWarning.missing.length === 1 ? "it" : "them"} too.
-          </Alert>
-        )}
-        <Button
-          variant="contained"
-          size="large"
-          onClick={resetAll}
-          sx={{ maxWidth: 360, width: "100%", mt: 2, py: 1.5, fontSize: "1.1rem" }}
-        >
-          Submit another
-        </Button>
-      </Box>
-    );
-  }
+      <Box sx={{ minHeight: "100vh", display: "flex", flexDirection: "column", p: 3, pt: 4, gap: 2 }}>
+        <Box textAlign="center">
+          <CheckCircleIcon sx={{ fontSize: 72, color: "success.main" }} />
+          <Typography variant="h5" fontWeight={700}>
+            Submitted!
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {submittedCount} document{submittedCount === 1 ? "" : "s"} sent for processing. You can close the app — we&apos;ll
+            keep working on them.
+          </Typography>
+        </Box>
 
-  // ── Processing ──────────────────────────────────────────────────────────
-  if (busy) {
-    return (
-      <Box
-        sx={{
-          minHeight: "100vh",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          textAlign: "center",
-          p: 3,
-          gap: 2,
-        }}
-      >
-        <CircularProgress size={56} />
-        <Typography variant="h6">{phase === "extracting" ? "Reading your document…" : "Saving…"}</Typography>
-        <Typography variant="body2" color="text.secondary">
-          This can take a few seconds.
+        <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 1 }}>
+          Your recent submissions
         </Typography>
+        <Stack spacing={1.25}>
+          {jobs.length === 0 ? (
+            <Box sx={{ display: "flex", justifyContent: "center", py: 3 }}>
+              <CircularProgress size={24} />
+            </Box>
+          ) : (
+            jobs.map((j) => {
+              const chip = STATUS_CHIP[j.status] ?? { label: j.status, color: "default" as const };
+              const typeLabel = TYPES.find((t) => t.value === j.docType)?.label ?? j.docType;
+              return (
+                <Box key={j.id} sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1, p: 1.5 }}>
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <Box sx={{ minWidth: 0, flex: 1 }}>
+                      <Typography variant="body2" fontWeight={600} noWrap>
+                        {j.fileName || typeLabel}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" noWrap display="block">
+                        {typeLabel}
+                      </Typography>
+                    </Box>
+                    <Chip size="small" label={chip.label} color={chip.color} />
+                  </Stack>
+                  {j.status === "FAILED" && j.reason && (
+                    <Typography variant="caption" color="error" sx={{ display: "block", mt: 0.5 }}>
+                      {j.reason}
+                    </Typography>
+                  )}
+                  {j.sequenceWarning?.missing?.length ? (
+                    <Alert severity="warning" sx={{ mt: 1, py: 0 }}>
+                      {j.sequenceWarning.missing.join(", ")} look missing before this — upload {j.sequenceWarning.missing.length === 1 ? "it" : "them"} too if you have {j.sequenceWarning.missing.length === 1 ? "it" : "them"}.
+                    </Alert>
+                  ) : null}
+                </Box>
+              );
+            })
+          )}
+        </Stack>
+
+        <Box sx={{ mt: "auto", pt: 2 }}>
+          <Button variant="contained" size="large" fullWidth onClick={startOver} sx={{ py: 1.5, fontSize: "1.1rem" }}>
+            Submit more
+          </Button>
+        </Box>
       </Box>
     );
   }
 
   // ── Type chooser ────────────────────────────────────────────────────────
   if (!docType) {
-    // 10 types: top-aligned scrollable list (centering would clip on phones),
-    // grouped Sales / Inventory with the original 3 first under Sales.
     return (
       <Box sx={{ minHeight: "100vh", display: "flex", flexDirection: "column", p: 3, pt: 4, gap: 2.5 }}>
         <Box textAlign="center">
@@ -365,11 +384,7 @@ export default function SubmitPage() {
         </Box>
         {TYPE_GROUPS.map((g) => (
           <Box key={g.group}>
-            <Typography
-              variant="overline"
-              color="text.secondary"
-              sx={{ display: "block", mb: 1, letterSpacing: 1 }}
-            >
+            <Typography variant="overline" color="text.secondary" sx={{ display: "block", mb: 1, letterSpacing: 1 }}>
               {g.group}
             </Typography>
             <Stack spacing={1.5}>
@@ -396,24 +411,23 @@ export default function SubmitPage() {
     );
   }
 
-  // ── Capture ─────────────────────────────────────────────────────────────
+  const uploading = phase === "uploading";
+
+  // ── Batch build ─────────────────────────────────────────────────────────
   return (
     <Box
       sx={{
-        // 100dvh tracks the VISIBLE mobile viewport (URL bar expanded or not);
-        // plain 100vh overflows it by the bar height and hid the Submit button
-        // below the fold. vh stays as the fallback for pre-dvh browsers.
         minHeight: "100vh",
         "@supports (min-height: 100dvh)": { minHeight: "100dvh" },
         display: "flex",
         flexDirection: "column",
         p: 3,
-        pb: 0, // the sticky footer bar carries its own bottom padding
+        pb: 0,
         gap: 2,
       }}
     >
       <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-        <IconButton onClick={backToChooser} aria-label="Back" size="small">
+        <IconButton onClick={backToChooser} aria-label="Back" size="small" disabled={uploading}>
           <ArrowBackIcon />
         </IconButton>
         <Typography variant="h6" fontWeight={700}>
@@ -421,100 +435,98 @@ export default function SubmitPage() {
         </Typography>
       </Box>
 
-      {/* Camera-first: `capture="environment"` opens the rear camera on mobile. */}
       <input
         ref={cameraRef}
         type="file"
         accept="image/*"
         capture="environment"
         style={{ display: "none" }}
-        onChange={(e) => void pickFile(e.target.files?.[0] || null)}
+        onChange={(e) => void addFile(e.target.files?.[0] || null)}
       />
-      {/* Fallback: gallery / files, PDFs allowed. */}
       <input
         ref={galleryRef}
         type="file"
         accept="image/*,application/pdf,.pdf"
+        multiple
         style={{ display: "none" }}
-        onChange={(e) => void pickFile(e.target.files?.[0] || null)}
+        onChange={(e) => {
+          Array.from(e.target.files ?? []).forEach((f) => void addFile(f));
+          if (galleryRef.current) galleryRef.current.value = "";
+        }}
       />
 
-      <Stack spacing={2} sx={{ mt: 1 }}>
+      <Stack direction="row" spacing={1.5}>
         <Button
           variant="contained"
-          size="large"
           fullWidth
           startIcon={<PhotoCameraIcon />}
           onClick={() => void onTakePhoto()}
-          sx={{ py: 2.5, fontSize: "1.15rem" }}
+          disabled={uploading}
+          sx={{ py: 1.75 }}
         >
-          Take photo
+          Add photo
         </Button>
         <Button
           variant="outlined"
-          size="large"
           fullWidth
           startIcon={<PhotoLibraryIcon />}
           onClick={() => galleryRef.current?.click()}
+          disabled={uploading}
           sx={{ py: 1.75 }}
         >
-          Choose from gallery / files
+          Gallery / files
         </Button>
       </Stack>
 
-      {/* Image: tappable thumbnail preview. PDFs keep the icon card. */}
-      {file && previewUrl && (
-        <Box
-          onClick={() => setViewerOpen(true)}
-          sx={{
-            mt: 1,
-            border: "1px solid",
-            borderColor: "divider",
-            borderRadius: 1,
-            overflow: "hidden",
-            cursor: "pointer",
-          }}
-        >
+      {/* Batch list */}
+      <Stack spacing={1}>
+        {items.map((it) => (
           <Box
-            component="img"
-            src={previewUrl}
-            alt="Captured document"
-            sx={{ display: "block", width: "100%", maxHeight: 260, objectFit: "contain", bgcolor: "grey.100" }}
-          />
-          <Box sx={{ px: 1.5, py: 1, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <Typography variant="caption" color="text.secondary" noWrap sx={{ mr: 1 }}>
-              {file.name} · {(file.size / 1024).toFixed(0)} KB
-            </Typography>
-            <Typography variant="caption" color="primary" sx={{ flexShrink: 0 }}>
-              Tap to view
-            </Typography>
+            key={it.id}
+            sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1, p: 1, display: "flex", alignItems: "center", gap: 1.5 }}
+          >
+            {it.previewUrl ? (
+              <Box
+                component="img"
+                src={it.previewUrl}
+                alt=""
+                onClick={() => !uploading && setViewer(it)}
+                sx={{ width: 48, height: 48, borderRadius: 1, objectFit: "cover", bgcolor: "grey.100", cursor: "pointer", flexShrink: 0 }}
+              />
+            ) : (
+              <DescriptionIcon color="action" sx={{ fontSize: 40, flexShrink: 0 }} />
+            )}
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              <Typography variant="body2" noWrap>
+                {it.file.name}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {(it.file.size / 1024).toFixed(0)} KB
+              </Typography>
+              {uploading && (
+                <LinearProgress
+                  variant="determinate"
+                  value={progress[it.id] ?? 0}
+                  sx={{ mt: 0.5, borderRadius: 1 }}
+                />
+              )}
+            </Box>
+            {uploading ? (
+              (progress[it.id] ?? 0) >= 100 ? (
+                <CheckCircleIcon color="success" fontSize="small" />
+              ) : (
+                <Typography variant="caption" color="text.secondary">
+                  {progress[it.id] ?? 0}%
+                </Typography>
+              )
+            ) : (
+              <IconButton size="small" aria-label="Remove" onClick={() => removeItem(it.id)}>
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            )}
           </Box>
-        </Box>
-      )}
-      {file && !previewUrl && (
-        <Box
-          sx={{
-            mt: 1,
-            p: 2,
-            border: "1px solid",
-            borderColor: "divider",
-            borderRadius: 1,
-            display: "flex",
-            alignItems: "center",
-            gap: 1,
-          }}
-        >
-          <DescriptionIcon color="action" />
-          <Box sx={{ overflow: "hidden" }}>
-            <Typography variant="body2" noWrap>
-              {file.name}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              {(file.size / 1024).toFixed(0)} KB
-            </Typography>
-          </Box>
-        </Box>
-      )}
+        ))}
+      </Stack>
 
       {errorMsg && (
         <Typography variant="body2" color="error">
@@ -522,8 +534,7 @@ export default function SubmitPage() {
         </Typography>
       )}
 
-      {/* Sticky submit bar: always visible regardless of content height or the
-          mobile URL bar; safe-area padding clears iOS home indicators. */}
+      {/* Sticky submit bar */}
       <Box
         sx={{
           position: "sticky",
@@ -538,37 +549,40 @@ export default function SubmitPage() {
           borderColor: "divider",
         }}
       >
-        {!file && (
-          <Typography variant="caption" color="text.secondary" sx={{ display: "block", textAlign: "center", mb: 1 }}>
-            Take or choose a photo to enable Submit.
-          </Typography>
-        )}
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", textAlign: "center", mb: 1 }}>
+          {items.length === 0
+            ? "Add one or more photos to enable Submit."
+            : uploading
+              ? "Keep the app open until every file shows ✓."
+              : `${items.length} ready — keep the app open while they upload.`}
+        </Typography>
         <Button
           variant="contained"
           color="primary"
           size="large"
           fullWidth
-          disabled={!file}
-          onClick={submit}
+          disabled={items.length === 0 || uploading}
+          onClick={() => void doSubmit()}
+          startIcon={uploading ? <CircularProgress size={18} color="inherit" /> : undefined}
           sx={{ py: 1.75, fontSize: "1.1rem" }}
         >
-          Submit
+          {uploading ? "Uploading…" : `Submit ${items.length || ""} document${items.length === 1 ? "" : "s"}`.trim()}
         </Button>
       </Box>
 
-      {/* Full-screen photo viewer */}
-      <Dialog open={viewerOpen} onClose={() => setViewerOpen(false)} fullScreen>
+      {/* Full-screen viewer */}
+      <Dialog open={!!viewer} onClose={() => setViewer(null)} fullScreen>
         <Box sx={{ display: "flex", alignItems: "center", p: 1, gap: 1 }}>
-          <IconButton onClick={() => setViewerOpen(false)} aria-label="Close preview">
+          <IconButton onClick={() => setViewer(null)} aria-label="Close preview">
             <CloseIcon />
           </IconButton>
           <Typography variant="body2" noWrap>
-            {file?.name}
+            {viewer?.file.name}
           </Typography>
         </Box>
-        {previewUrl && (
+        {viewer?.previewUrl && (
           <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", bgcolor: "common.black", overflow: "auto" }}>
-            <Box component="img" src={previewUrl} alt="Captured document" sx={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+            <Box component="img" src={viewer.previewUrl} alt="" sx={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
           </Box>
         )}
       </Dialog>

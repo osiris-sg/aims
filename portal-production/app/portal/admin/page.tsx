@@ -91,6 +91,7 @@ export default function AdminDashboard() {
     { title: "Total Documents", value: stats?.totalDocuments || 0, icon: <DocumentIcon />, color: "customRed.main", path: "documents" },
     { title: "Total Projects", value: stats?.totalProjects || 0, icon: <ProjectIcon />, color: "text.primary", path: "projects" },
     { title: "Total Users", value: stats?.totalUsers || 0, icon: <PeopleIcon />, color: "text.primary", path: "users" },
+    { title: "Uploads log", value: "→", icon: <DocumentIcon />, color: "info.main", path: "uploads" },
   ];
 
   return (

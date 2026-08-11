@@ -57,6 +57,7 @@ export const ROUTES = {
   ADMIN_USERS: "/portal/admin/users",
   ADMIN_ROLES: "/portal/admin/roles",
   ADMIN_AUDIT_LOGS: "/portal/admin/audit",
+  ADMIN_UPLOADS: "/portal/admin/uploads",
 
   VIEW_PERMISSIONS: "/portal/permissions/view",
   EDIT_PERMISSIONS: "/portal/permissions/edit",

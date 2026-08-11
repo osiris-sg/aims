@@ -91,6 +91,7 @@ Run detail (/portal/deliveries/[id]): items table with per-item checkboxes (unli
 === SETTINGS & ADMIN ===
 Company Profile (/portal/settings/company-profile) tabs: General (name, address, phone, reg no, currency), Bank Details (shown on documents), Branding (logo + default stamp), Document Names (rename document types per org), Doc Defaults (default T&Cs / notes / footer per document type — new documents inherit these).
 Admin Panel (/portal/admin, admins only): configuration (modules, custom fields, UI theme, feature-flag switches), organizations management (orgs, API keys, email ingestion, templates).
+Uploads log (/portal/admin/uploads, admins only): the record of documents submitted from the field /submit app (async intake) — each file's status (Queued/Processing/Done/Failed), the failure reason, a link to the original file, and a Retry button for failed extractions. This is where /submit failures surface (a failed extraction creates no draft, so it never reaches the posting queue).
 Account/password/profile: the user avatar menu at the bottom of the sidebar (Clerk account panel) — not a portal route.
 Each document's own change history: editor ⋮ → History & notes.
 `;
