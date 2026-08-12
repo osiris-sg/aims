@@ -23,6 +23,23 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- HOME launcher: lets the device boot straight into AIMS Field
+                 (Sunmi kiosk use). Android NEVER auto-adopts a new HOME app —
+                 adding this only makes AIMS Field an OPTION in the launcher
+                 chooser; the OS prompts the user to pick (and offers "Always"
+                 vs "Just once"). The LAUNCHER filter above is kept, so the app
+                 also stays in the normal app drawer. On the Samsung test device
+                 simply never choose AIMS Field as Home (or pick "Just once") to
+                 keep the stock launcher. Escape if it takes over: Settings →
+                 Apps → Default apps → Home app → pick the stock launcher; or
+                 adb: `adb shell cmd package set-home-activity <stock/.Launcher>`
+                 (see the pinned note in the build report). -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
             <!-- NFC foreground dispatch — claim exclusive priority over system
                  handlers (Samsung's stock NFC handler in particular) while the
                  app is in the foreground. Without these, scanning a tag while
