@@ -35,6 +35,7 @@ import {
   savePrinter,
   listBondedDevices,
   buildDeliveryReceipt,
+  formatUnitLabel,
   printBytes,
   type SavedPrinter,
 } from "../../../../lib/btPrinter";
@@ -171,12 +172,12 @@ export default function AfterAckPage() {
         }
         // Unit label for the review summary (sku + asset name from the run).
         const it = (run?.items ?? []).find((i: any) => i.inventoryId === inventoryId);
-        if (it) setUnitLabel([it.inventory?.sku, it.asset?.name].filter(Boolean).join(" — ") || it.description || null);
+        if (it) setUnitLabel(formatUnitLabel({ sku: it.inventory?.sku, assetName: it.asset?.name, description: it.description }));
         // Every run item for the run-level receipt: unit-based → "SKU — Asset",
         // free-typed (no unit/asset) → its description.
         setReceiptItems(
           (run?.items ?? []).map((i: any) => ({
-            label: [i.inventory?.sku, i.asset?.name].filter(Boolean).join(" — ") || i.description || "Item",
+            label: formatUnitLabel({ sku: i.inventory?.sku, assetName: i.asset?.name, description: i.description }),
             quantity: i.quantity,
           })),
         );

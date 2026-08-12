@@ -185,9 +185,26 @@ export async function rasterizeDataUrl(dataUrl: string, maxWidth = 384): Promise
 }
 
 export interface DeliveryReceiptItem {
-  // Unit-based line → "SKU — Asset name"; free-typed line → its description.
+  // Unit-based line → "SERIAL (Asset name)"; free-typed line → its description.
   label: string;
   quantity?: number;
+}
+
+/**
+ * Receipt line label for a delivery item. Tracked units read as
+ * "SERIAL (Asset name)" — serial first, asset in brackets, ASCII-only (the
+ * receipt builder replaces non-ASCII with '?', which is why the old em-dash
+ * separator printed as '?'). Free-typed items keep their raw description.
+ */
+export function formatUnitLabel(opts: {
+  sku?: string | null;
+  assetName?: string | null;
+  description?: string | null;
+}): string {
+  const sku = opts.sku?.trim();
+  const name = opts.assetName?.trim();
+  if (sku && name) return `${sku} (${name})`;
+  return sku || name || opts.description?.trim() || "Item";
 }
 
 export interface DeliveryReceiptData {

@@ -31,6 +31,7 @@ import {
   savePrinter,
   listBondedDevices,
   buildDeliveryReceipt,
+  formatUnitLabel,
   printBytes,
   type SavedPrinter,
 } from "../../../../lib/btPrinter";
@@ -81,7 +82,7 @@ interface Run {
 
 // Unit-based → "SKU — Asset name"; free-typed → description; else "Item".
 const itemLabel = (i: RunItem): string =>
-  [i.inventory?.sku, i.asset?.name].filter(Boolean).join(" — ") || i.description || "Item";
+  formatUnitLabel({ sku: i.inventory?.sku, assetName: i.asset?.name, description: i.description });
 
 export default function FinishedDeliveryDetailPage() {
   const router = useRouter();
