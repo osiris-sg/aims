@@ -20,8 +20,11 @@ export class CreateChildAssetDto {
   @IsNotEmpty()
   skuKey: string;
 
-  // The scanned parent UNIT — used to spawn its placeholder immediately so the
-  // tech can tag it without re-scanning.
+  // OPTIONAL. When the parent unit already exists, its placeholder is spawned
+  // immediately. On the bind page the parent unit isn't bound yet (the tech
+  // adds the type mid-bind, pre-submit) — omit it, and the placeholder
+  // auto-spawns via autoCreateOnParentUnit when the parent is submitted.
   @IsUUID()
-  parentInventoryId: string;
+  @IsOptional()
+  parentInventoryId?: string;
 }

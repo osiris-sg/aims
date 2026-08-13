@@ -39,11 +39,16 @@ export class AssetsService {
     if (!parent) {
       throw new HttpException('Parent asset not found in this organization.', HttpStatus.NOT_FOUND);
     }
-    const parentUnit = await this.prisma.inventory.findFirst({
-      where: { id: dto.parentInventoryId, assetId: dto.parentAssetId, organizationId },
-      select: { id: true, sku: true, assetId: true },
-    });
-    if (!parentUnit) {
+    // parentInventoryId is optional (bind page: the parent unit isn't bound
+    // yet). When given, we spawn its placeholder now; when absent, the child
+    // auto-spawns at parent submit via autoCreateOnParentUnit.
+    const parentUnit = dto.parentInventoryId
+      ? await this.prisma.inventory.findFirst({
+          where: { id: dto.parentInventoryId, assetId: dto.parentAssetId, organizationId },
+          select: { id: true, sku: true, assetId: true },
+        })
+      : null;
+    if (dto.parentInventoryId && !parentUnit) {
       throw new HttpException('Scanned unit not found under this asset.', HttpStatus.NOT_FOUND);
     }
 
@@ -72,21 +77,38 @@ export class AssetsService {
       select: { id: true, name: true, skuKey: true },
     });
 
-    // Spawn the placeholder for THIS parent unit (idempotent, best-effort),
-    // then read it back to return to the UI.
-    await this.inventoriesService.autoCreateChildUnits([parentUnit], organizationId);
-    const placeholder = await this.prisma.inventory.findFirst({
-      where: { assetId: asset.id, parentInventoryId: parentUnit.id, organizationId, nfcTagUid: null },
-      select: { id: true, sku: true, assetId: true, status: true },
-    });
+    // Spawn the placeholder for THIS parent unit when it already exists
+    // (idempotent, best-effort), then read it back to return to the UI.
+    let placeholder = null as { id: string; sku: string; assetId: string; status: string; assetName: string } | null;
+    if (parentUnit) {
+      await this.inventoriesService.autoCreateChildUnits([parentUnit], organizationId);
+      const row = await this.prisma.inventory.findFirst({
+        where: { assetId: asset.id, parentInventoryId: parentUnit.id, organizationId, nfcTagUid: null },
+        select: { id: true, sku: true, assetId: true, status: true },
+      });
+      if (row) placeholder = { ...row, assetName: asset.name };
+    }
 
-    return {
-      asset,
-      collision: false as const,
-      placeholder: placeholder
-        ? { ...placeholder, assetName: asset.name }
-        : null,
-    };
+    return { asset, collision: false as const, placeholder };
+  }
+
+  /**
+   * Child asset TYPES of a parent asset (for the bind page's inline child
+   * sections). Only tracked auto-create children — the ones that spawn a
+   * placeholder per parent unit. Org-scoped, live rows only.
+   */
+  async getChildAssets(parentAssetId: string, organizationId: string) {
+    return this.prisma.asset.findMany({
+      where: {
+        organizationId,
+        deletedAt: null,
+        parentAssetId,
+        autoCreateOnParentUnit: true,
+        isTracked: true,
+      },
+      select: { id: true, name: true, skuKey: true },
+      orderBy: { createdAt: 'asc' },
+    });
   }
 
   async getAssets(getAssetDto: GetAssetDto, userOrganizationId: string) {

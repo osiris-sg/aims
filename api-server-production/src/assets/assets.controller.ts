@@ -116,6 +116,14 @@ export class AssetsController {
     return this.assetsService.createChildAsset(dto, userOrganization.id);
   }
 
+  // Child asset TYPES of a parent asset — the bind page renders one inline
+  // child-tag section per row. Field-readable (same gate as scan context).
+  @Get(':id/child-assets')
+  @Permissions('field-scan:access')
+  async getChildAssets(@Param('id') id: string, @UserOrganization() userOrganization: any) {
+    return this.assetsService.getChildAssets(id, userOrganization.id);
+  }
+
   @Put('update')
   @Permissions('assets:update')
   @ApiOperation({ summary: 'Update an existing asset' })
