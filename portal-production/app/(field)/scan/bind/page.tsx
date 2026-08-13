@@ -22,16 +22,31 @@ import {
 } from "@mui/material";
 import CameraAltIcon from "@mui/icons-material/CameraAlt";
 import AddIcon from "@mui/icons-material/Add";
+import NfcIcon from "@mui/icons-material/Nfc";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import Chip from "@mui/material/Chip";
 import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import { capturePosition } from "@/helpers/geolocation";
 import { hasNativeCamera, captureNativePhoto } from "../../lib/nativeCamera";
+import { useNfcScan } from "../../hooks/useNfcScan";
 
 interface AssetOption {
   id: string;
   name: string;
   skuKey: string;
+}
+
+// One inline child-asset section (SIDS → TSS, Sim Card, …). The tech types the
+// real serial and taps its own tag; all optional. Rendered by the child's REAL
+// asset name, never a generic "component".
+interface ChildRow {
+  childAssetId: string;
+  name: string; // the child asset's real name (TSS, Sim Card, ZZTestChild)
+  serial: string;
+  tagUid: string | null;
+  failed?: boolean; // a per-child bind failed on submit (parent stays bound)
 }
 
 interface CustomerOption {
@@ -94,8 +109,23 @@ export default function BindTagPage() {
   const search = useSearchParams();
   const { getToken } = useAuth();
   const uid = search?.get("uid") ?? "";
+  const nfc = useNfcScan(); // for the inline CHILD tags (parent tag is the URL uid)
 
   const [step, setStep] = useState<Step>("capture");
+
+  // Inline child-asset tagging (below the parent serial). Populated when the
+  // selected parent asset has tracked auto-create children.
+  const [childRows, setChildRows] = useState<ChildRow[]>([]);
+  const [activeChildId, setActiveChildId] = useState<string | null>(null); // which child is capturing a tag
+  const childHandledUidRef = useRef<string | null>(null);
+  // "Add a child asset type" dialog.
+  const [addTypeOpen, setAddTypeOpen] = useState(false);
+  const [newChildName, setNewChildName] = useState("");
+  const [newChildSkuKey, setNewChildSkuKey] = useState("");
+  const [childSkuKeyEdited, setChildSkuKeyEdited] = useState(false);
+  const [creatingChildType, setCreatingChildType] = useState(false);
+  const [addTypeError, setAddTypeError] = useState<string | null>(null);
+  const suggestSkuKey = (name: string) => name.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
   // Capture step
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -178,6 +208,87 @@ export default function BindTagPage() {
     );
     if (exact) setSelectedAsset(exact);
   }, [assetOptions, searchInput, selectedAsset]);
+
+  // Load the selected parent asset's tracked auto-create child asset TYPES so
+  // we can render one inline tag section per child (TSS, Sim Card, …).
+  useEffect(() => {
+    if (!selectedAsset) {
+      setChildRows([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request(
+          { path: `/assets/${selectedAsset.id}/child-assets`, method: "GET" },
+          {},
+          token,
+        );
+        if (cancelled) return;
+        const kids = (res?.data ?? res) as Array<{ id: string; name: string }>;
+        setChildRows(
+          Array.isArray(kids)
+            ? kids.map((k) => ({ childAssetId: k.id, name: k.name, serial: "", tagUid: null }))
+            : [],
+        );
+      } catch {
+        // Non-fatal — the parent bind still works without child sections.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAsset, getToken]);
+
+  // Inline child-tag NFC: when a child section is capturing, observe the scan
+  // and assign the tag to THAT child row (the parent tag is the static URL uid).
+  useEffect(() => {
+    const scanned = nfc.uid;
+    if (!scanned || scanned === childHandledUidRef.current || !activeChildId) return;
+    childHandledUidRef.current = scanned;
+    setChildRows((rows) => rows.map((r) => (r.childAssetId === activeChildId ? { ...r, tagUid: scanned, failed: false } : r)));
+    setActiveChildId(null);
+    if (nfc.isScanning) void nfc.stopScan();
+  }, [nfc.uid, activeChildId, nfc]);
+
+  const startChildTagScan = (childAssetId: string) => {
+    childHandledUidRef.current = null;
+    setActiveChildId(childAssetId);
+    if (nfc.isSupported && !nfc.isScanning) void nfc.startScan();
+  };
+
+  // "Add a child asset type" — creates the child asset (no placeholder yet;
+  // the parent unit isn't bound), then appends its row ready to fill + tag.
+  const createChildType = async () => {
+    const name = newChildName.trim();
+    const skuKey = newChildSkuKey.trim();
+    if (!name || !skuKey || !selectedAsset) return;
+    setCreatingChildType(true);
+    setAddTypeError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request(
+        { path: "/assets/create-child", method: "POST" },
+        { parentAssetId: selectedAsset.id, name, skuKey },
+        token,
+      );
+      if (res?.success === false) throw new Error(res?.message ?? "Could not create the child asset");
+      const data = res?.data ?? res;
+      if (data?.collision) {
+        setAddTypeError(`Code "${skuKey}" already exists (${data.asset?.name ?? "another asset"}). Pick a different code.`);
+        return;
+      }
+      setChildRows((rows) => [...rows, { childAssetId: data.asset.id, name: data.asset.name, serial: "", tagUid: null }]);
+      setAddTypeOpen(false);
+    } catch (e: any) {
+      setAddTypeError(e?.message ?? "Could not create the child asset");
+    } finally {
+      setCreatingChildType(false);
+    }
+  };
 
   // Capture the tag-time GPS fix once, when the review step opens. Best-effort:
   // capturePosition resolves null on denial/timeout/no signal, which we surface
@@ -562,16 +673,54 @@ export default function BindTagPage() {
       } else {
         toast.success(successMsg);
       }
-      // Post-bind prompt: if this unit spawned untagged child components
-      // (SIDS → TSS/Sim Card), route straight into the components mini-flow so
-      // the tech can tag them now. Otherwise the action chooser, as before.
-      // (The chooser also shows a Components card, so either path reaches it.)
-      const spawnedChildren = payload?.untaggedChildren?.length > 0;
-      if (spawnedChildren) {
-        router.replace(`/scan/asset/${assetId}/components?inventoryId=${inventoryId}`);
-      } else {
-        router.replace(`/scan/asset/${assetId}?inventoryId=${inventoryId}`);
+      // ── INLINE CHILD TAGGING ──────────────────────────────────────────────
+      // Ordering: the parent bind above completed and spawned the placeholders
+      // (createAndBind's create path runs autoCreateChildUnits, returning them
+      // in untaggedChildren). NOW, for each child the tech filled in, complete
+      // its placeholder: match by child assetId, then create-and-bind with
+      // targetInventoryId (de-PENDINGs the sku + flips pending→instock, attaches
+      // the tag). Only on the create path — a matched (existing) parent spawns
+      // no placeholders, so there's nothing to complete.
+      const spawned: Array<{ id: string; assetId: string }> = Array.isArray(payload?.untaggedChildren)
+        ? payload.untaggedChildren
+        : [];
+      const toTag = childRows.filter((c) => c.tagUid); // only the ones the tech tagged
+      let childFailures = 0;
+      if (action !== "matched" && toTag.length && spawned.length) {
+        for (const child of toTag) {
+          const placeholder = spawned.find((s) => s.assetId === child.childAssetId);
+          if (!placeholder) {
+            childFailures++;
+            setChildRows((rows) => rows.map((r) => (r.childAssetId === child.childAssetId ? { ...r, failed: true } : r)));
+            continue;
+          }
+          try {
+            const cRes = await request(
+              { path: "/inventories/create-and-bind", method: "POST" },
+              {
+                assetId: child.childAssetId,
+                targetInventoryId: placeholder.id,
+                nfcTagUid: child.tagUid,
+                serial: child.serial.trim() || undefined,
+              },
+              token,
+            );
+            if (cRes?.success === false) throw new Error(cRes?.message ?? "child bind failed");
+            toast.success(`${child.name} tagged`);
+          } catch (childErr) {
+            // Parent bind is NOT rolled back — the placeholder stays pending for
+            // a retry. Mark the row and count it.
+            childFailures++;
+            setChildRows((rows) => rows.map((r) => (r.childAssetId === child.childAssetId ? { ...r, failed: true } : r)));
+            console.error(`child tag failed for ${child.name}:`, childErr);
+          }
+        }
+        if (childFailures > 0) {
+          toast.warning(`${childFailures} child asset(s) couldn't be tagged — retry from the office.`);
+        }
       }
+
+      router.replace(`/scan/asset/${assetId}?inventoryId=${inventoryId}`);
     } catch (e: any) {
       // Stay on review screen so the tech can correct (e.g. duplicate tag).
       setError(e?.message ?? "Failed to create inventory item.");
@@ -768,6 +917,63 @@ export default function BindTagPage() {
             fullWidth
           />
 
+          {/* Inline child-asset tagging — one section per child asset of the
+              selected parent, each labelled by its REAL name (TSS, Sim Card…).
+              All optional: bind the parent alone, or tag any children too. */}
+          {(childRows.length > 0 || selectedAsset) && (
+            <>
+              <Divider sx={{ my: 1 }} />
+              <Typography variant="subtitle2" fontWeight={700}>
+                Child assets (optional)
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: -1.5 }}>
+                Tag each child of this unit — type its serial and tap its own tag.
+              </Typography>
+              {childRows.map((c) => (
+                <Box key={c.childAssetId} sx={{ border: "1px solid", borderColor: c.failed ? "error.main" : "divider", borderRadius: 1, p: 1.5 }}>
+                  <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                    <Typography variant="body2" fontWeight={700} sx={{ flex: 1 }}>{c.name}</Typography>
+                    {c.tagUid ? (
+                      <Chip size="small" color="success" icon={<CheckCircleIcon />} label="Tag captured" />
+                    ) : (
+                      <Button
+                        size="small"
+                        variant={activeChildId === c.childAssetId ? "outlined" : "contained"}
+                        startIcon={activeChildId === c.childAssetId ? <CircularProgress size={14} /> : <NfcIcon />}
+                        onClick={() => (activeChildId === c.childAssetId ? (nfc.stopScan(), setActiveChildId(null)) : startChildTagScan(c.childAssetId))}
+                      >
+                        {activeChildId === c.childAssetId ? "Hold tag…" : "Tag"}
+                      </Button>
+                    )}
+                  </Stack>
+                  <TextField
+                    size="small"
+                    fullWidth
+                    label={`${c.name} serial (optional)`}
+                    value={c.serial}
+                    onChange={(e) =>
+                      setChildRows((rows) => rows.map((r) => (r.childAssetId === c.childAssetId ? { ...r, serial: e.target.value } : r)))
+                    }
+                  />
+                </Box>
+              ))}
+              <Button
+                variant="outlined"
+                startIcon={<AddIcon />}
+                onClick={() => {
+                  setNewChildName("");
+                  setNewChildSkuKey("");
+                  setChildSkuKeyEdited(false);
+                  setAddTypeError(null);
+                  setAddTypeOpen(true);
+                }}
+                disabled={!selectedAsset}
+              >
+                Add a child asset type
+              </Button>
+            </>
+          )}
+
           <Divider sx={{ my: 1 }} />
 
           {/* Explicit section header (not just the divider caption) so the
@@ -944,6 +1150,53 @@ export default function BindTagPage() {
       {error && <Alert severity="error">{error}</Alert>}
 
       <Button sx={{ mt: 2 }} onClick={() => router.replace("/scan")}>Cancel</Button>
+
+      {/* Add a child asset type — name + skuKey → new child asset under the
+          selected parent, appears as a new inline section ready to tag. */}
+      <Dialog open={addTypeOpen} onClose={() => !creatingChildType && setAddTypeOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Add a child asset type</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            A new type of child asset for {selectedAsset?.name ?? "this unit"}. Name
+            and code only — the office fills in pricing, category and the rest later.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            label="Child asset name"
+            placeholder="e.g. Flow Meter"
+            value={newChildName}
+            onChange={(e) => {
+              const v = e.target.value;
+              setNewChildName(v);
+              if (!childSkuKeyEdited) setNewChildSkuKey(suggestSkuKey(v));
+            }}
+            disabled={creatingChildType}
+            sx={{ mb: 1.5 }}
+          />
+          <TextField
+            fullWidth
+            size="small"
+            label="Code (SKU key)"
+            placeholder="e.g. FLOWMETER"
+            value={newChildSkuKey}
+            onChange={(e) => {
+              setChildSkuKeyEdited(true);
+              setNewChildSkuKey(e.target.value);
+            }}
+            disabled={creatingChildType}
+            helperText="A unique code for this child asset type."
+          />
+          {addTypeError && <Alert severity="error" sx={{ mt: 1.5 }}>{addTypeError}</Alert>}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddTypeOpen(false)} disabled={creatingChildType}>Cancel</Button>
+          <Button variant="contained" onClick={createChildType} disabled={creatingChildType || !newChildName.trim() || !newChildSkuKey.trim()}>
+            {creatingChildType ? <CircularProgress size={18} /> : "Create"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Create Customer dialog — mirrors the after-ack picker's inline flow:
           name only, the server generates the customerCode. */}
