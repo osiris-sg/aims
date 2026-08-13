@@ -399,7 +399,7 @@ export class DeliveriesService {
     const invIds = delivery.items.map((i) => i.inventoryId).filter((v): v is string => !!v);
     // filter(Boolean): free-typed items have assetId null — never query for them.
     const assetIds = [...new Set(delivery.items.map((i) => i.assetId).filter((v): v is string => !!v))];
-    const [units, assets, reports] = await Promise.all([
+    const [units, assets, activeAssignments, reports] = await Promise.all([
       invIds.length
         ? this.prisma.inventory.findMany({
             where: { id: { in: invIds } },
@@ -407,6 +407,16 @@ export class DeliveriesService {
           })
         : Promise.resolve([]),
       this.prisma.asset.findMany({ where: { id: { in: assetIds } }, select: { id: true, name: true, skuKey: true } }),
+      // Active ProjectDeployment per unit (endDate=null assignment) — drives the
+      // office RENTAL/SALE toggle. Null-deployment units can't be set to SALE
+      // (nothing to write to) until they're assigned to a project.
+      invIds.length
+        ? this.prisma.assignment.findMany({
+            where: { inventoryId: { in: invIds }, endDate: null, projectDeploymentId: { not: null } },
+            orderBy: { startDate: 'desc' },
+            select: { inventoryId: true, projectDeployment: { select: { id: true, type: true } } },
+          })
+        : Promise.resolve([]),
       // Proof lives on the MSR rows grouped by deliveryId.
       this.prisma.maintenanceServiceReport.findMany({
         where: { deliveryId: id },
@@ -430,6 +440,15 @@ export class DeliveriesService {
     ]);
     const unitById = new Map(units.map((u) => [u.id, u]));
     const assetById = new Map(assets.map((a) => [a.id, a]));
+    // inventoryId → active ProjectDeployment (id + type). A unit has at most one
+    // active assignment (fieldDeploy soft-closes the rest); take the newest to
+    // be safe. Absent → the unit isn't on a project, so SALE is unavailable.
+    const deploymentByInv = new Map<string, { id: string; type: string }>();
+    for (const a of activeAssignments) {
+      if (a.inventoryId && a.projectDeployment && !deploymentByInv.has(a.inventoryId)) {
+        deploymentByInv.set(a.inventoryId, a.projectDeployment);
+      }
+    }
     // Derived run-level document: exactly one distinct DO across linked items.
     const distinctDocs = [...new Map(
       delivery.items.filter((i) => i.document).map((i) => [i.document!.id, i.document!]),
@@ -441,9 +460,53 @@ export class DeliveriesService {
         ...i,
         inventory: i.inventoryId ? unitById.get(i.inventoryId) ?? null : null,
         asset: assetById.get(i.assetId) ?? null,
+        // Active ProjectDeployment for the RENTAL/SALE toggle (null → unassigned,
+        // SALE disabled). Type mirrors ProjectDeployment.type.
+        deployment: i.inventoryId ? deploymentByInv.get(i.inventoryId) ?? null : null,
       })),
       reports,
     };
+  }
+
+  /**
+   * Office action (Deliveries page): set a delivered unit's commercial intent
+   * (RENTAL vs SALE) for a delivery-run item. Writes ONLY the item's active
+   * ProjectDeployment.type — never Inventory.status. The reserved → rental/sold
+   * flip stays with DO-confirm (deductDocumentItemStock) and the standalone ack
+   * (advanceDeliveryItem), both of which READ this type, so there is exactly one
+   * flip path and no duplication. SALE requires the unit to already be on a
+   * project (a ProjectDeployment to write); RENTAL is the default.
+   */
+  async setItemDeploymentType(
+    deliveryId: string,
+    inventoryId: string,
+    type: 'RENTAL' | 'SALE',
+    organizationId: string,
+  ) {
+    // Org-scope + membership check: the unit must be an item on THIS run.
+    const item = await this.prisma.deliveryItem.findFirst({
+      where: { inventoryId, delivery: { id: deliveryId, organizationId } },
+      select: { id: true },
+    });
+    if (!item) throw new NotFoundException('Delivery item not found for this unit');
+
+    const assignment = await this.prisma.assignment.findFirst({
+      where: { inventoryId, endDate: null, projectDeploymentId: { not: null } },
+      orderBy: { startDate: 'desc' },
+      select: { projectDeploymentId: true },
+    });
+    if (!assignment?.projectDeploymentId) {
+      throw new BadRequestException(
+        'Unit is not assigned to a project yet — assign it to a project before choosing Sale',
+      );
+    }
+
+    const deploymentType = type === 'SALE' ? DeploymentType.SALE : DeploymentType.RENTAL;
+    await this.prisma.projectDeployment.update({
+      where: { id: assignment.projectDeploymentId },
+      data: { type: deploymentType },
+    });
+    return { inventoryId, deploymentId: assignment.projectDeploymentId, type: deploymentType };
   }
 
   async list(

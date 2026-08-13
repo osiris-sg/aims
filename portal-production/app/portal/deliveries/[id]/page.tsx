@@ -27,6 +27,8 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -78,6 +80,9 @@ interface RunDetail {
     document: { id: string; name: string | null; type: string; status: string } | null;
     inventory: { id: string; sku: string; serialNumber: string | null; status: string } | null;
     asset: { id: string; name: string; skuKey: string } | null;
+    // Active ProjectDeployment for the RENTAL/SALE toggle. Null → the unit isn't
+    // on a project yet, so SALE is unavailable (nothing to write to).
+    deployment: { id: string; type: string } | null;
   }>;
   reports: Array<{
     id: string;
@@ -144,6 +149,8 @@ export default function DeliveryDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [acting, setActing] = useState(false);
+  // Per-item RENTAL/SALE toggle busy state, keyed by the unit being updated.
+  const [typeBusy, setTypeBusy] = useState<string | null>(null);
   // Per-item link selection — pre-checked with every unlinked item so the
   // default one-click flow still links the whole run.
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -258,6 +265,41 @@ export default function DeliveryDetailPage() {
       setActionError(e?.message ?? "Create DO failed");
     } finally {
       setActing(false);
+    }
+  };
+
+  // Office: set a unit's RENTAL/SALE intent. Writes ProjectDeployment.type via
+  // the backend (which never touches unit status — the DO flip reads this type).
+  // RENTAL is the default, so a no-deployment unit never calls this (the Sale
+  // button is disabled and re-clicking the selected Rental button is a no-op).
+  const setItemType = async (inventoryId: string, type: "RENTAL" | "SALE") => {
+    setTypeBusy(inventoryId);
+    setActionError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request(
+        { path: `/deliveries/${deliveryId}/items/deployment-type`, method: "POST" },
+        { inventoryId, type },
+        token,
+      );
+      if (res.success === false) throw new Error(res.message ?? "Couldn't update rental/sale");
+      setRun((prev) =>
+        prev
+          ? {
+              ...prev,
+              items: prev.items.map((it) =>
+                it.inventory?.id === inventoryId && it.deployment
+                  ? { ...it, deployment: { ...it.deployment, type } }
+                  : it,
+              ),
+            }
+          : prev,
+      );
+    } catch (e: any) {
+      setActionError(e?.message ?? "Couldn't update rental/sale");
+    } finally {
+      setTypeBusy(null);
     }
   };
 
@@ -378,6 +420,7 @@ export default function DeliveryDetailPage() {
               <TableCell>Description</TableCell>
               <TableCell align="center">Qty</TableCell>
               <TableCell>Status</TableCell>
+              <TableCell>Rental / Sale</TableCell>
               <TableCell>Linked DO</TableCell>
             </TableRow>
           </TableHead>
@@ -408,6 +451,34 @@ export default function DeliveryDetailPage() {
                   <TableCell>{it.description ?? "—"}</TableCell>
                   <TableCell align="center">{it.quantity}</TableCell>
                   <TableCell><Chip size="small" label={ic.label} color={ic.color} /></TableCell>
+                  <TableCell>
+                    {!it.inventory ? (
+                      // Free-typed line — no unit, no deployment to set.
+                      <Typography variant="body2" color="text.secondary">—</Typography>
+                    ) : (
+                      <Stack spacing={0.25} alignItems="flex-start">
+                        <ToggleButtonGroup
+                          size="small"
+                          exclusive
+                          value={it.deployment?.type === "SALE" ? "SALE" : "RENTAL"}
+                          disabled={typeBusy === it.inventory.id}
+                          onChange={(_, val) => {
+                            // Exclusive group returns null when re-clicking the
+                            // selected button — ignore (RENTAL default = no write).
+                            if (val && it.inventory) setItemType(it.inventory.id, val);
+                          }}
+                        >
+                          <ToggleButton value="RENTAL" sx={{ textTransform: "none", py: 0.25 }}>Rental</ToggleButton>
+                          <ToggleButton value="SALE" disabled={!it.deployment} sx={{ textTransform: "none", py: 0.25 }}>Sale</ToggleButton>
+                        </ToggleButtonGroup>
+                        {!it.deployment && (
+                          <Typography variant="caption" color="text.secondary">
+                            Assign to a project to sell
+                          </Typography>
+                        )}
+                      </Stack>
+                    )}
+                  </TableCell>
                   <TableCell>
                     {it.document ? (
                       <Chip size="small" variant="outlined" color="success" label={it.document.name ?? it.document.id} />

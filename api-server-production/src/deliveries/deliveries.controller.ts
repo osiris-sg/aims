@@ -8,7 +8,7 @@ import { DeliveriesService } from './deliveries.service';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { AddDeliveryItemDto } from './dto/add-delivery-item.dto';
 import { CreateDoFromDeliveryDto, LinkDeliveryDto } from './dto/link-delivery.dto';
-import { AddItemPhotosDto, AssignDeliveryItemDto, SkipInstallDto } from './dto/assign-delivery.dto';
+import { AddItemPhotosDto, AssignDeliveryItemDto, SetDeploymentTypeDto, SkipInstallDto } from './dto/assign-delivery.dto';
 
 interface ClerkRequest extends Request {
   user?: { id?: string };
@@ -106,6 +106,18 @@ export class DeliveriesController {
     @UserOrganization() org: { id: string },
   ) {
     return this.service.assignItem(id, dto, org.id);
+  }
+
+  // Office: set a delivered unit's RENTAL/SALE intent (writes the item's active
+  // ProjectDeployment.type only — DO-confirm/ack still own the status flip).
+  @Post(':id/items/deployment-type')
+  @Permissions('documents:create-basic')
+  setDeploymentType(
+    @Param('id') id: string,
+    @Body() dto: SetDeploymentTypeDto,
+    @UserOrganization() org: { id: string },
+  ) {
+    return this.service.setItemDeploymentType(id, dto.inventoryId, dto.type, org.id);
   }
 
   @Post(':id/items/skip-install')
