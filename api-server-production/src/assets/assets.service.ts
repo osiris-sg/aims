@@ -2,6 +2,7 @@ import { HttpStatus, HttpException, Injectable, Inject, forwardRef } from '@nest
 import { GetAssetDto } from './dto/get-assets.dto';
 import { CreateAssetDto } from './dto/create-asset.dto';
 import { CreateChildAssetDto } from './dto/create-child-asset.dto';
+import { CreateBasicAssetDto } from './dto/create-basic-asset.dto';
 import { UpdateAssetDto } from './dto/update-asset.dto';
 import { PrismaService } from 'src/common/prisma.service';
 import { DeleteAssetDto } from './dto/delete-asset.dto';
@@ -90,6 +91,82 @@ export class AssetsService {
     }
 
     return { asset, collision: false as const, placeholder };
+  }
+
+  /**
+   * Field-flow TOP-LEVEL asset creation (bind page): mint a bare catalog
+   * product from name + skuKey when the scanned nameplate matches nothing.
+   * Guardrails against near-duplicate catalog entries (these carry pricing and
+   * appear on quotations/DOs):
+   *   1. Exact-skuKey hard block — returns the existing asset (collision:true),
+   *      never an opaque error, so the UI can offer to select it.
+   *   2. Normalized-exact dedupe on name OR skuKey (strip non-alphanumerics,
+   *      lowercase) — returns the existing asset (matched:true) instead of
+   *      minting a twin. Defense-in-depth behind the bind page's "did you mean"
+   *      gate; even a tech who taps "create" can't duplicate an existing product.
+   * Category is forced to the org's "New" bucket (get-or-create) so field
+   * products are trivial for the office to find and re-file; uom/isTracked take
+   * their schema defaults; no parent (top-level).
+   */
+  async createBasicAsset(dto: CreateBasicAssetDto, organizationId: string) {
+    const name = dto.name.trim();
+    const skuKey = dto.skuKey.trim();
+    if (!name || !skuKey) {
+      throw new HttpException('name and skuKey are required', HttpStatus.BAD_REQUEST);
+    }
+
+    // 1. Exact-skuKey collision (per-org, live rows) — matches
+    // @@unique([skuKey, organizationId, deletedAt]) with deletedAt null.
+    const exactSku = await this.prisma.asset.findFirst({
+      where: { organizationId, deletedAt: null, skuKey },
+      select: { id: true, name: true, skuKey: true },
+    });
+    if (exactSku) {
+      return { asset: exactSku, collision: true as const, matched: false as const };
+    }
+
+    // 2. Normalized-exact dedupe on name OR skuKey. The catalog is org-scoped
+    // and modest (hundreds of rows), and this is a low-frequency field action,
+    // so a full-catalog fetch + in-JS normalization is fine and keeps the match
+    // scheme identical to the bind page's client-side auto-select.
+    const norm = (s: string) => (s ?? '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+    const qName = norm(name);
+    const qSku = norm(skuKey);
+    const candidates = await this.prisma.asset.findMany({
+      where: { organizationId, deletedAt: null },
+      select: { id: true, name: true, skuKey: true },
+    });
+    const dup = candidates.find((a) => norm(a.name) === qName || norm(a.skuKey) === qSku);
+    if (dup) {
+      return { asset: dup, collision: false as const, matched: true as const };
+    }
+
+    // Get-or-create the org's "New" bucket. Category has no (name, org) unique,
+    // so a rare concurrent create could make a second "New" — cosmetic; the
+    // office merges. findFirst-then-create keeps the common path one row.
+    let bucket = await this.prisma.category.findFirst({
+      where: { organizationId, name: 'New' },
+      select: { id: true },
+    });
+    if (!bucket) {
+      bucket = await this.prisma.category.create({
+        data: { name: 'New', organizationId },
+        select: { id: true },
+      });
+    }
+
+    const asset = await this.prisma.asset.create({
+      data: {
+        name,
+        skuKey,
+        categoryId: bucket.id,
+        organizationId,
+        uom: 'PCS',
+        isTracked: true,
+      },
+      select: { id: true, name: true, skuKey: true },
+    });
+    return { asset, collision: false as const, matched: false as const };
   }
 
   /**

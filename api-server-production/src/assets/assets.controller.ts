@@ -3,6 +3,7 @@ import { AssetsService } from './assets.service';
 import { GetAssetDto } from './dto/get-assets.dto';
 import { CreateAssetDto } from './dto/create-asset.dto';
 import { CreateChildAssetDto } from './dto/create-child-asset.dto';
+import { CreateBasicAssetDto } from './dto/create-basic-asset.dto';
 import { UpdateAssetDto } from './dto/update-asset.dto';
 import { DeleteAssetDto } from './dto/delete-asset.dto';
 import { UpdateAssetParentDto } from './dto/update-asset-parent.dto';
@@ -114,6 +115,19 @@ export class AssetsController {
   @ApiBody({ type: CreateChildAssetDto })
   async createChildAsset(@Body() dto: CreateChildAssetDto, @UserOrganization() userOrganization: any) {
     return this.assetsService.createChildAsset(dto, userOrganization.id);
+  }
+
+  // Field-flow TOP-LEVEL asset creation (bind page): when a scanned nameplate
+  // matches no catalog product, the tech mints it here. Narrow permission
+  // (assets:create-basic) — never the full office assets:create. Name + skuKey
+  // only; category forced to the org "New" bucket. Dedupe + exact-skuKey block
+  // return the existing asset (collision/matched) rather than an opaque error.
+  @Post('create-basic')
+  @Permissions('assets:create-basic')
+  @ApiOperation({ summary: 'Create a bare top-level asset from the field (name + skuKey; category = org "New" bucket)' })
+  @ApiBody({ type: CreateBasicAssetDto })
+  async createBasicAsset(@Body() dto: CreateBasicAssetDto, @UserOrganization() userOrganization: any) {
+    return this.assetsService.createBasicAsset(dto, userOrganization.id);
   }
 
   // Child asset TYPES of a parent asset — the bind page renders one inline
