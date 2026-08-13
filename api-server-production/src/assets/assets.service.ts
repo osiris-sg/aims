@@ -1,6 +1,7 @@
-import { HttpStatus, HttpException, Injectable } from '@nestjs/common';
+import { HttpStatus, HttpException, Injectable, Inject, forwardRef } from '@nestjs/common';
 import { GetAssetDto } from './dto/get-assets.dto';
 import { CreateAssetDto } from './dto/create-asset.dto';
+import { CreateChildAssetDto } from './dto/create-child-asset.dto';
 import { UpdateAssetDto } from './dto/update-asset.dto';
 import { PrismaService } from 'src/common/prisma.service';
 import { DeleteAssetDto } from './dto/delete-asset.dto';
@@ -8,10 +9,85 @@ import { AdjustQuantityDto, AdjustmentType } from './dto/adjust-quantity.dto';
 import { CreateAndBindDto } from './dto/create-and-bind.dto';
 import { Prisma } from '@prisma/client';
 import Anthropic from '@anthropic-ai/sdk';
+import { InventoriesService } from 'src/inventories/inventories.service';
 
 @Injectable()
 export class AssetsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject(forwardRef(() => InventoriesService))
+    private inventoriesService: InventoriesService,
+  ) {}
+
+  /**
+   * Field-flow child asset creation (components page). Creates a new child
+   * Asset under the scanned unit's parent — name + skuKey from the tech,
+   * isTracked + autoCreateOnParentUnit forced true, categoryId inherited from
+   * the parent, org from context, everything else defaulted/null. Then spawns
+   * the placeholder child UNIT for the scanned parent unit so the tech can tag
+   * it immediately, and returns it.
+   *
+   * HARD BLOCK on an exact skuKey collision within the org — returns the
+   * EXISTING asset (with collision:true) so the UI can say "that code already
+   * exists" rather than surfacing an opaque P2002.
+   */
+  async createChildAsset(dto: CreateChildAssetDto, organizationId: string) {
+    const parent = await this.prisma.asset.findFirst({
+      where: { id: dto.parentAssetId, organizationId, deletedAt: null },
+      select: { id: true, categoryId: true },
+    });
+    if (!parent) {
+      throw new HttpException('Parent asset not found in this organization.', HttpStatus.NOT_FOUND);
+    }
+    const parentUnit = await this.prisma.inventory.findFirst({
+      where: { id: dto.parentInventoryId, assetId: dto.parentAssetId, organizationId },
+      select: { id: true, sku: true, assetId: true },
+    });
+    if (!parentUnit) {
+      throw new HttpException('Scanned unit not found under this asset.', HttpStatus.NOT_FOUND);
+    }
+
+    const skuKey = dto.skuKey.trim();
+    // Exact-collision hard block (per-org, live rows): return the existing
+    // asset so the UI can message it clearly. Matches @@unique([skuKey,
+    // organizationId, deletedAt]) with deletedAt null.
+    const existing = await this.prisma.asset.findFirst({
+      where: { organizationId, deletedAt: null, skuKey },
+      select: { id: true, name: true, skuKey: true },
+    });
+    if (existing) {
+      return { asset: existing, placeholder: null, collision: true as const };
+    }
+
+    const asset = await this.prisma.asset.create({
+      data: {
+        name: dto.name.trim(),
+        skuKey,
+        parentAssetId: parent.id,
+        categoryId: parent.categoryId, // inherit — office re-categorizes later
+        isTracked: true,
+        autoCreateOnParentUnit: true,
+        organizationId,
+      },
+      select: { id: true, name: true, skuKey: true },
+    });
+
+    // Spawn the placeholder for THIS parent unit (idempotent, best-effort),
+    // then read it back to return to the UI.
+    await this.inventoriesService.autoCreateChildUnits([parentUnit], organizationId);
+    const placeholder = await this.prisma.inventory.findFirst({
+      where: { assetId: asset.id, parentInventoryId: parentUnit.id, organizationId, nfcTagUid: null },
+      select: { id: true, sku: true, assetId: true, status: true },
+    });
+
+    return {
+      asset,
+      collision: false as const,
+      placeholder: placeholder
+        ? { ...placeholder, assetName: asset.name }
+        : null,
+    };
+  }
 
   async getAssets(getAssetDto: GetAssetDto, userOrganizationId: string) {
     try {

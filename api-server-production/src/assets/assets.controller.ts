@@ -2,6 +2,7 @@ import { Controller, Post, Body, Put, Delete, Param, Get, UseGuards, Req, Query 
 import { AssetsService } from './assets.service';
 import { GetAssetDto } from './dto/get-assets.dto';
 import { CreateAssetDto } from './dto/create-asset.dto';
+import { CreateChildAssetDto } from './dto/create-child-asset.dto';
 import { UpdateAssetDto } from './dto/update-asset.dto';
 import { DeleteAssetDto } from './dto/delete-asset.dto';
 import { UpdateAssetParentDto } from './dto/update-asset-parent.dto';
@@ -101,6 +102,18 @@ export class AssetsController {
   @ApiResponse({ status: 400, description: 'Invalid input.' })
   async createAssets(@Body() createAssetDto: CreateAssetDto, @UserOrganization() userOrganization: any) {
     return this.assetsService.createAssets(createAssetDto, userOrganization.id);
+  }
+
+  // Field-flow child asset type creation (components page). Narrow permission
+  // (assets:create-child) — rider roles hold it; the full assets:create is
+  // office-only. Name + skuKey only; parent + flags + category derived
+  // server-side. Spawns the placeholder for the scanned unit so it's taggable.
+  @Post('create-child')
+  @Permissions('assets:create-child')
+  @ApiOperation({ summary: 'Create a child asset type from the field + spawn its placeholder for the scanned unit' })
+  @ApiBody({ type: CreateChildAssetDto })
+  async createChildAsset(@Body() dto: CreateChildAssetDto, @UserOrganization() userOrganization: any) {
+    return this.assetsService.createChildAsset(dto, userOrganization.id);
   }
 
   @Put('update')

@@ -430,13 +430,29 @@ async function main() {
       action: 'create-by-name',
     },
   });
-  // field-tech roles are org-managed (not seeded) — connect the permission to
-  // any that exist so re-seeding keeps live rider roles working. connect is
-  // idempotent on the implicit m2m.
+  // Narrow child-asset creation for the field components page (name + skuKey
+  // only; never the full assets:create office surface).
+  const createChildAssetPermission = await prisma.permission.upsert({
+    where: { name: 'assets:create-child' },
+    update: {},
+    create: {
+      name: 'assets:create-child',
+      description: 'Can create child asset types from the field (name + skuKey only)',
+      resource: 'assets',
+      action: 'create-child',
+    },
+  });
+  // field-tech roles are org-managed (not seeded) — connect both narrow
+  // field permissions to any that exist so re-seeding keeps rider roles
+  // working. connect is idempotent on the implicit m2m.
   for (const fieldTech of await prisma.role.findMany({ where: { name: 'field-tech' }, select: { id: true } })) {
     await prisma.role.update({
       where: { id: fieldTech.id },
-      data: { permissions: { connect: { id: createCustomerByNamePermission.id } } },
+      data: {
+        permissions: {
+          connect: [{ id: createCustomerByNamePermission.id }, { id: createChildAssetPermission.id }],
+        },
+      },
     });
   }
 
