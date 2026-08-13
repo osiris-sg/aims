@@ -271,9 +271,54 @@ export default function AssetActionChooser() {
               router.push(`/scan/asset/${assetId}/delivery-start${invQuery ? `${invQuery}&` : "?"}standalone=1`),
           };
         }
+        // No DO, no run, and this unit can't start a standalone delivery. Two
+        // unrelated conditions used to collapse into one misleading "No open
+        // delivery order" card. Split them: if the unit isn't `instock` the
+        // blocker is its STATUS (reserveUnit's instock-only claim would fail),
+        // so name the real reason; "No open delivery order" is kept ONLY for the
+        // genuine instock/no-unit case where a DO is what's actually missing.
+        const proj = data.activeAssignment?.project?.name;
+        const blocked: { title: string; subtitle: string } | null = (() => {
+          if (!inventory) {
+            return { title: "Start Delivery", subtitle: "Scan a specific unit to start a delivery" };
+          }
+          switch (inventory.status) {
+            case "rental":
+              return {
+                title: "Can't start delivery",
+                subtitle: proj
+                  ? `Already deployed to ${proj} — this unit is out on rental`
+                  : "Already out on rental — can't start a delivery",
+              };
+            case "sold":
+              return {
+                title: "Can't start delivery",
+                subtitle: proj
+                  ? `Already sold to ${proj} — can't start a delivery`
+                  : "Already sold — can't start a delivery",
+              };
+            case "reserved":
+              return {
+                title: "Can't start delivery",
+                subtitle: "Reserved for a delivery in progress — can't start another",
+              };
+            case "maintenance":
+              return {
+                title: "Can't start delivery",
+                subtitle: "In maintenance — can't start a delivery",
+              };
+            case "pending":
+              return {
+                title: "Can't start delivery",
+                subtitle: "Awaiting its serial number — can't start a delivery yet",
+              };
+            default:
+              return null; // instock (or unknown) — a DO is what's genuinely missing
+          }
+        })();
         return {
-          title: "Start Delivery",
-          subtitle: "No open delivery order",
+          title: blocked?.title ?? "Start Delivery",
+          subtitle: blocked?.subtitle ?? "No open delivery order",
           icon: <LocalShippingIcon color="disabled" sx={{ fontSize: 48 }} />,
         };
       }
