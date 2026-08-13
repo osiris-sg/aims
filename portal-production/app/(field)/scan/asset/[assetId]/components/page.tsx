@@ -22,6 +22,7 @@ import {
 import MemoryIcon from "@mui/icons-material/Memory";
 import NfcIcon from "@mui/icons-material/Nfc";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import AddIcon from "@mui/icons-material/Add";
 import { request } from "@/helpers/request";
 import { capturePosition } from "@/helpers/geolocation";
 import { useNfcScan } from "../../../../hooks/useNfcScan";
@@ -65,6 +66,18 @@ export default function ComponentsPage() {
   const [binding, setBinding] = useState(false);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const handledUidRef = useRef<string | null>(null);
+
+  // "Add a component type" dialog — creates a new child ASSET under the parent.
+  const [addTypeOpen, setAddTypeOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newSkuKey, setNewSkuKey] = useState("");
+  const [skuKeyEdited, setSkuKeyEdited] = useState(false);
+  const [creatingType, setCreatingType] = useState(false);
+  const [addTypeError, setAddTypeError] = useState<string | null>(null);
+
+  // Auto-suggest a skuKey from the name until the tech edits it manually:
+  // uppercase, alphanumerics only ("Flow Meter v2" → "FLOWMETERV2").
+  const suggestSkuKey = (name: string) => name.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
   const load = useCallback(async () => {
     try {
@@ -161,6 +174,47 @@ export default function ComponentsPage() {
     void bindChild(uid);
   }, [nfc.uid, active, bindChild]);
 
+  const openAddType = () => {
+    setNewName("");
+    setNewSkuKey("");
+    setSkuKeyEdited(false);
+    setAddTypeError(null);
+    setAddTypeOpen(true);
+  };
+
+  // Create the child asset TYPE (name + skuKey) under the scanned unit's
+  // parent, spawning this unit's placeholder so it lands in the list ready to
+  // tag. Exact-skuKey collision is surfaced clearly (backend returns
+  // collision:true rather than erroring opaquely).
+  const createType = async () => {
+    const name = newName.trim();
+    const skuKey = newSkuKey.trim();
+    if (!name || !skuKey || !inventoryId) return;
+    setCreatingType(true);
+    setAddTypeError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request(
+        { path: "/assets/create-child", method: "POST" },
+        { parentAssetId: assetId, parentInventoryId: inventoryId, name, skuKey },
+        token,
+      );
+      if (res?.success === false) throw new Error(res?.message ?? "Could not create the component type");
+      const data = res?.data ?? res;
+      if (data?.collision) {
+        setAddTypeError(`Code "${skuKey}" already exists (${data.asset?.name ?? "another type"}). Pick a different code.`);
+        return;
+      }
+      setAddTypeOpen(false);
+      await load(); // the new placeholder now appears in the list, ready to tag
+    } catch (e: any) {
+      setAddTypeError(e?.message ?? "Could not create the component type");
+    } finally {
+      setCreatingType(false);
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
@@ -222,9 +276,61 @@ export default function ComponentsPage() {
         </Stack>
       )}
 
+      {/* Add a NEW component type (child asset) not yet in the catalog. */}
+      <Button variant="outlined" startIcon={<AddIcon />} onClick={openAddType} sx={{ mt: 0.5, alignSelf: "stretch" }}>
+        Add a component type
+      </Button>
+
       <Button variant={remaining.length === 0 ? "contained" : "text"} onClick={() => router.replace(doneHref)} sx={{ mt: 1, alignSelf: "center", ...(remaining.length ? { color: "text.secondary" } : {}) }}>
         {remaining.length === 0 ? "Done" : "Finish later"}
       </Button>
+
+      {/* Add-component-type dialog: name + skuKey → new child asset + its
+          placeholder for this unit, ready to tag. */}
+      <Dialog open={addTypeOpen} onClose={() => !creatingType && setAddTypeOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Add a component type</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Creates a new component of this unit. Name and code only — the office
+            fills in pricing, category and the rest later.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            label="Component name"
+            placeholder="e.g. Flow Meter"
+            value={newName}
+            onChange={(e) => {
+              const v = e.target.value;
+              setNewName(v);
+              if (!skuKeyEdited) setNewSkuKey(suggestSkuKey(v));
+            }}
+            disabled={creatingType}
+            sx={{ mb: 1.5 }}
+          />
+          <TextField
+            fullWidth
+            size="small"
+            label="Code (SKU key)"
+            placeholder="e.g. FLOWMETER"
+            value={newSkuKey}
+            onChange={(e) => {
+              setSkuKeyEdited(true);
+              setNewSkuKey(e.target.value);
+            }}
+            disabled={creatingType}
+            helperText="A unique code for this component type."
+          />
+          {addTypeError && <Alert severity="error" sx={{ mt: 1.5 }}>{addTypeError}</Alert>}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddTypeOpen(false)} disabled={creatingType}>Cancel</Button>
+          <Button variant="contained" onClick={createType} disabled={creatingType || !newName.trim() || !newSkuKey.trim()}>
+            {creatingType ? <CircularProgress size={18} /> : "Create"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Per-child tag dialog */}
       <Dialog open={!!active} onClose={() => !binding && closeTag()} fullWidth maxWidth="xs">
