@@ -125,7 +125,16 @@ export default function BindTagPage() {
   const [childSkuKeyEdited, setChildSkuKeyEdited] = useState(false);
   const [creatingChildType, setCreatingChildType] = useState(false);
   const [addTypeError, setAddTypeError] = useState<string | null>(null);
-  const suggestSkuKey = (name: string) => name.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  // Option C: uppercase → alphanumerics only → first 5 of the base, with any
+  // trailing digits preserved so suffix-differentiated names stay distinct
+  // ("ZZTestChild"→"ZZTES", "ZZTestChild2"→"ZZTES2"). Freely editable after.
+  const suggestSkuKey = (name: string) => {
+    const cleaned = name.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const m = cleaned.match(/^(.*?)(\d*)$/);
+    const base = m?.[1] ?? cleaned;
+    const trailingDigits = m?.[2] ?? "";
+    return base.slice(0, 5) + trailingDigits;
+  };
 
   // Capture step
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -275,7 +284,13 @@ export default function BindTagPage() {
         { parentAssetId: selectedAsset.id, name, skuKey },
         token,
       );
-      if (res?.success === false) throw new Error(res?.message ?? "Could not create the child asset");
+      if (res?.success === false) {
+        // NestJS validation returns message as a string[] — join it so the
+        // tech sees the real reason ("skuKey should not be empty") rather than
+        // a bare "Bad request" / "[object Object]".
+        const raw = res?.message;
+        throw new Error(Array.isArray(raw) ? raw.join(". ") : raw ?? "Could not create the child asset");
+      }
       const data = res?.data ?? res;
       if (data?.collision) {
         setAddTypeError(`Code "${skuKey}" already exists (${data.asset?.name ?? "another asset"}). Pick a different code.`);
@@ -284,7 +299,8 @@ export default function BindTagPage() {
       setChildRows((rows) => [...rows, { childAssetId: data.asset.id, name: data.asset.name, serial: "", tagUid: null }]);
       setAddTypeOpen(false);
     } catch (e: any) {
-      setAddTypeError(e?.message ?? "Could not create the child asset");
+      const m = e?.message;
+      setAddTypeError((Array.isArray(m) ? m.join(". ") : m) || "Could not create the child asset");
     } finally {
       setCreatingChildType(false);
     }
