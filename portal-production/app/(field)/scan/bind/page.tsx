@@ -125,6 +125,15 @@ export default function BindTagPage() {
   const [childSkuKeyEdited, setChildSkuKeyEdited] = useState(false);
   const [creatingChildType, setCreatingChildType] = useState(false);
   const [addTypeError, setAddTypeError] = useState<string | null>(null);
+  // "Create new product" dialog — top-level asset when the nameplate matches no
+  // catalog row. Name prefilled from the OCR'd model; skuKey auto-suggested,
+  // editable. The backend forces the "New" category + dedupes.
+  const [createAssetOpen, setCreateAssetOpen] = useState(false);
+  const [newAssetName, setNewAssetName] = useState("");
+  const [newAssetSkuKey, setNewAssetSkuKey] = useState("");
+  const [assetSkuKeyEdited, setAssetSkuKeyEdited] = useState(false);
+  const [creatingAsset, setCreatingAsset] = useState(false);
+  const [createAssetError, setCreateAssetError] = useState<string | null>(null);
   // Option C: uppercase → alphanumerics only → first 5 of the base, with any
   // trailing digits preserved so suffix-differentiated names stay distinct
   // ("ZZTestChild"→"ZZTES", "ZZTestChild2"→"ZZTES2"). Freely editable after.
@@ -303,6 +312,69 @@ export default function BindTagPage() {
       setAddTypeError((Array.isArray(m) ? m.join(". ") : m) || "Could not create the child asset");
     } finally {
       setCreatingChildType(false);
+    }
+  };
+
+  // "Create new product" — open the dialog seeded from whatever's in the picker
+  // query (the OCR'd model, or the tech's typing). skuKey auto-suggested from
+  // the name, editable.
+  const openCreateAsset = () => {
+    const seed = searchInput.trim();
+    setNewAssetName(seed);
+    setNewAssetSkuKey(suggestSkuKey(seed));
+    setAssetSkuKeyEdited(false);
+    setCreateAssetError(null);
+    setCreateAssetOpen(true);
+  };
+
+  // Mint a top-level asset (name + skuKey). The backend dedupes: an exact-skuKey
+  // collision or a normalized-exact name/skuKey match returns the EXISTING asset
+  // instead of a twin — we select that one. Only a genuinely new product is
+  // created; either way we auto-select and continue the bind.
+  const handleCreateAsset = async () => {
+    const name = newAssetName.trim();
+    const skuKey = newAssetSkuKey.trim();
+    if (!name || !skuKey) return;
+    setCreatingAsset(true);
+    setCreateAssetError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request(
+        { path: "/assets/create-basic", method: "POST" },
+        { name, skuKey },
+        token,
+      );
+      if (res?.success === false) {
+        const raw = res?.message;
+        throw new Error(Array.isArray(raw) ? raw.join(". ") : raw ?? "Could not create the product");
+      }
+      const data = res?.data ?? res;
+      // Exact-skuKey collision: keep the dialog open so the tech can pick a
+      // different code, and name the clashing product.
+      if (data?.collision) {
+        setCreateAssetError(
+          `Code "${skuKey}" already exists (${data.asset?.name ?? "another product"}). Pick a different code, or search for it in the list.`,
+        );
+        return;
+      }
+      const asset = data?.asset;
+      if (!asset?.id) throw new Error("Unexpected response from server.");
+      const option: AssetOption = { id: asset.id, name: asset.name, skuKey: asset.skuKey };
+      // Surface it in the options + lock it in as the selection, then continue.
+      setAssetOptions((prev) => [option, ...prev.filter((o) => o.id !== option.id)]);
+      setSelectedAsset(option);
+      setSearchInput(`${option.name} · ${option.skuKey}`);
+      setProductError(false);
+      setCreateAssetOpen(false);
+      // data.matched → a normalized-exact twin already existed; we selected it
+      // rather than duplicating. Tell the tech which happened.
+      toast.success(data?.matched ? `Selected existing product ${asset.name}` : `Product "${asset.name}" created`);
+    } catch (e: any) {
+      const m = e?.message;
+      setCreateAssetError((Array.isArray(m) ? m.join(". ") : m) || "Could not create the product");
+    } finally {
+      setCreatingAsset(false);
     }
   };
 
@@ -832,7 +904,7 @@ export default function BindTagPage() {
       {step === "review" && (
         <>
           <Typography variant="body2" color="text.secondary">
-            Pick the product this unit is, then confirm. New products can only be added by the office.
+            Pick the product this unit is, then confirm. Not in the catalog? Create it below.
           </Typography>
 
           {extractionFailed && (
@@ -890,7 +962,11 @@ export default function BindTagPage() {
             getOptionLabel={(o) => `${o.name} · ${o.skuKey}`}
             isOptionEqualToValue={(a, b) => a.id === b.id}
             loading={searching}
-            noOptionsText="No matching product. Ask the office to add it to the catalog."
+            noOptionsText={
+              <Button size="small" startIcon={<AddIcon />} onClick={openCreateAsset} sx={{ textTransform: "none" }}>
+                Create new product
+              </Button>
+            }
             renderOption={(props, option) => (
               <li {...props} key={option.id}>
                 <Box>
@@ -924,6 +1000,28 @@ export default function BindTagPage() {
               />
             )}
           />
+
+          {/* Near-match "did you mean" gate. Once a product is picked (incl. the
+              auto-select on a normalized-exact match), this hides — so creation
+              is only ever reached when nothing in the catalog matches. When
+              there ARE candidates they sit in the dropdown above ("did you
+              mean?"); this line nudges "pick one, or create". */}
+          {!selectedAsset && searchInput.trim() && !searching && (
+            <Alert severity="info" icon={false} sx={{ py: 0.75 }}>
+              {assetOptions.length > 0 ? (
+                <>
+                  No exact match for <strong>{searchInput.trim()}</strong>. Pick the right one above, or{" "}
+                </>
+              ) : (
+                <>
+                  No product matches <strong>{searchInput.trim()}</strong>.{" "}
+                </>
+              )}
+              <Button size="small" startIcon={<AddIcon />} onClick={openCreateAsset} sx={{ textTransform: "none" }}>
+                Create new product
+              </Button>
+            </Alert>
+          )}
 
           <TextField
             label="Serial number"
@@ -1210,6 +1308,54 @@ export default function BindTagPage() {
           <Button onClick={() => setAddTypeOpen(false)} disabled={creatingChildType}>Cancel</Button>
           <Button variant="contained" onClick={createChildType} disabled={creatingChildType || !newChildName.trim() || !newChildSkuKey.trim()}>
             {creatingChildType ? <CircularProgress size={18} /> : "Create"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Create new product — top-level asset when the nameplate matches no
+          catalog row. Name prefilled from the OCR model; skuKey auto-suggested.
+          Lands in the "New" category for the office to price + re-file. */}
+      <Dialog open={createAssetOpen} onClose={() => !creatingAsset && setCreateAssetOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Create new product</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            A brand-new catalog product. Name and code only — it lands in the
+            &ldquo;New&rdquo; category and the office fills in pricing and the rest later.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            label="Product name"
+            placeholder="e.g. NewAsset1"
+            value={newAssetName}
+            onChange={(e) => {
+              const v = e.target.value;
+              setNewAssetName(v);
+              if (!assetSkuKeyEdited) setNewAssetSkuKey(suggestSkuKey(v));
+            }}
+            disabled={creatingAsset}
+            sx={{ mb: 1.5 }}
+          />
+          <TextField
+            fullWidth
+            size="small"
+            label="Code (SKU key)"
+            placeholder="e.g. NEWASSET1"
+            value={newAssetSkuKey}
+            onChange={(e) => {
+              setAssetSkuKeyEdited(true);
+              setNewAssetSkuKey(e.target.value);
+            }}
+            disabled={creatingAsset}
+            helperText="A unique code for this product."
+          />
+          {createAssetError && <Alert severity="error" sx={{ mt: 1.5 }}>{createAssetError}</Alert>}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateAssetOpen(false)} disabled={creatingAsset}>Cancel</Button>
+          <Button variant="contained" onClick={handleCreateAsset} disabled={creatingAsset || !newAssetName.trim() || !newAssetSkuKey.trim()}>
+            {creatingAsset ? <CircularProgress size={18} /> : "Create"}
           </Button>
         </DialogActions>
       </Dialog>
