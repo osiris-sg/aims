@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsString, IsUUID } from 'class-validator';
+import { IsArray, IsIn, IsString, IsUUID } from 'class-validator';
 
 /**
  * Field action: assign an acknowledged unit to a project from INSIDE the
@@ -19,6 +19,24 @@ export class AssignDeliveryItemDto {
   @ApiProperty({ description: 'The delivered unit being assigned (UUID).' })
   @IsUUID()
   inventoryId!: string;
+}
+
+/**
+ * Office action (Deliveries page): set a delivered unit's commercial intent —
+ * RENTAL vs SALE — for a delivery-run item. This ONLY writes the item's active
+ * ProjectDeployment.type; it never flips Inventory.status. The reserved →
+ * rental/sold flip stays with DO-confirm/ack, which read this type — so there
+ * is exactly one flip path. SALE requires the unit to already be assigned to a
+ * project (a ProjectDeployment to write to); RENTAL is the default.
+ */
+export class SetDeploymentTypeDto {
+  @ApiProperty({ description: 'The delivered unit whose deployment type is being set (UUID).' })
+  @IsUUID()
+  inventoryId!: string;
+
+  @ApiProperty({ enum: ['RENTAL', 'SALE'], description: 'Commercial intent for the unit.' })
+  @IsIn(['RENTAL', 'SALE'])
+  type!: 'RENTAL' | 'SALE';
 }
 
 /** Field action: rider says installation is not needed — item completes with installSkipped. */
