@@ -188,6 +188,11 @@ model Inventory {
   // the field-scan AI extraction at bind time; used for audit / warranty
   // lookups. Distinct from `sku` (which is our own per-unit identifier).
   serialNumber           String?
+  // Manufacture year from the nameplate (per-unit). Nullable — not captured
+  // automatically today (the label OCR returns model + serial only); the office
+  // can fill it, and a future OCR pass may. Surfaced on delivery-created DO
+  // lines ("Year: {y}") only when a group's units agree on one value.
+  year                   Int?
   cameraP2P              String?
   // SIM card identifier for units that carry a cellular modem — in practice the
   // TSS child unit of a SIDS system. Nullable; filled by the office on the unit

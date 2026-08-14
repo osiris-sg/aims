@@ -888,10 +888,28 @@ export class DeliveriesService {
     const units = invIds.length
       ? await this.prisma.inventory.findMany({
           where: { id: { in: invIds } },
-          select: { id: true, sku: true, serialNumber: true, assetId: true, asset: { select: { skuKey: true, name: true } } },
+          select: { id: true, sku: true, serialNumber: true, year: true, assetId: true, asset: { select: { skuKey: true, name: true } } },
         })
       : [];
     const unitById = new Map(units.map((u) => [u.id, u]));
+
+    // Per-unit commercial intent (RENTAL/SALE) for the line verb ("Rental of…"
+    // vs "Sale of…"). Read from each unit's active ProjectDeployment.type — the
+    // same source the office Rental/Sale toggle writes. Default RENTAL when a
+    // unit isn't on a deployment.
+    const activeAssignments = invIds.length
+      ? await this.prisma.assignment.findMany({
+          where: { inventoryId: { in: invIds }, endDate: null, projectDeploymentId: { not: null } },
+          orderBy: { startDate: 'desc' },
+          select: { inventoryId: true, projectDeployment: { select: { type: true } } },
+        })
+      : [];
+    const depTypeByInv = new Map<string, string>();
+    for (const a of activeAssignments) {
+      if (a.inventoryId && a.projectDeployment && !depTypeByInv.has(a.inventoryId)) {
+        depTypeByInv.set(a.inventoryId, a.projectDeployment.type);
+      }
+    }
 
     // Attention / Mobile from the customer's PRIMARY contact (isPrimary=true).
     // Only when a contact is explicitly flagged primary — never guess among
@@ -914,9 +932,11 @@ export class DeliveriesService {
     const config: Record<string, any> = {
       items: selection.map((i) => {
         const u = i.inventoryId ? unitById.get(i.inventoryId) : null;
+        const depType = i.inventoryId ? depTypeByInv.get(i.inventoryId) : undefined;
         return {
           // Per-line description is the product name; the preview builds the
-          // "Rental of N units of … / Model: … / S/No.: …" block from the group.
+          // "Rental/Sale of N units of … / Model: … / Year: … / S/No.: …" block
+          // from the group.
           description: i.description ?? u?.asset?.name ?? u?.sku ?? '',
           quantity: i.quantity,
           unitPrice: 0,
@@ -930,10 +950,17 @@ export class DeliveriesService {
                 // So `sku` is the real-world serial the office writes on the DO.
                 // Omit when the unit somehow has no sku (preview drops the row).
                 ...(u?.sku ? { serialNumbers: [u.sku] } : {}),
-                // Model + per-asset group key — display-only, consumed by the
-                // preview's grouping (createDoFromDelivery is the only writer).
-                ...(u?.asset?.skuKey ? { skuKey: u.asset.skuKey } : {}),
+                // Model → both the display group's "Model:" row (skuKey) AND the
+                // document's Product Code column (itemCode), mirroring /submit so
+                // the code column isn't blank on delivery-created DOs.
+                ...(u?.asset?.skuKey ? { skuKey: u.asset.skuKey, itemCode: u.asset.skuKey } : {}),
+                // Manufacture year — display-only; the preview emits "Year:" when
+                // a group's units agree. Omitted when null (the common case today).
+                ...(u?.year != null ? { year: u.year } : {}),
+                // Per-asset group key + commercial verb — display-only, consumed
+                // by the preview's grouping (createDoFromDelivery is the only writer).
                 ...(u?.assetId ? { deliveryGroup: u.assetId } : {}),
+                ...(depType ? { deploymentType: depType } : {}),
               }
             : {}),
         };

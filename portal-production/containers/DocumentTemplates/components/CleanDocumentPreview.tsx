@@ -202,14 +202,18 @@ export default function CleanDocumentPreview(props: CleanDocumentPreviewProps) {
  * own `serialNumbers`. Here we collapse each consecutive same-`deliveryGroup`
  * run into ONE display row in the office's format:
  *
- *   Rental of N units of {name}
+ *   Rental|Sale of N units of {name}
  *   Model: {skuKey}
+ *   Year: {year}      (only when every unit in the group agrees; else omitted)
  *   S/No.: {serial}   (one per unit that has a serial)
+ *
+ * The verb reflects the units' ProjectDeployment.type (SALE → "Sale of…"), and
+ * Year is emitted only when the group's units carry one agreed value.
  *
  * TIGHTLY SCOPED: only lines with a truthy `deliveryGroup` are touched — every
  * other document (and every hand-made DO) passes through byte-identical, so this
- * cannot alter non-delivery line displays. Year is intentionally never emitted
- * (no data source exists). Merged qty/amount are summed so totals are preserved.
+ * cannot alter non-delivery line displays. Merged qty/amount are summed so
+ * totals are preserved.
  */
 function groupDeliveryLines(raw: any[]): any[] {
   if (!Array.isArray(raw) || raw.length === 0) return raw;
@@ -237,8 +241,17 @@ function groupDeliveryLines(raw: any[]): any[] {
     const amount = run.reduce((s, r) => s + (Number(r.amount) || 0), 0);
     const name = run[0].description || "";
     const model = run[0].skuKey || "";
-    const lines = [`Rental of ${qty} unit${qty === 1 ? "" : "s"} of ${name}`];
+    // Verb reflects the units' commercial intent (ProjectDeployment.type). Any
+    // SALE in the group shows "Sale of…"; otherwise "Rental of…" (the default).
+    const verb = run.some((r) => r.deploymentType === "SALE") ? "Sale" : "Rental";
+    // Year only when EVERY unit in the group carries a year AND they all agree —
+    // otherwise omit the row (no data source populates it yet).
+    const years = run.map((r) => r.year).filter((y) => y != null);
+    const year =
+      years.length === run.length && new Set(years).size === 1 ? years[0] : null;
+    const lines = [`${verb} of ${qty} unit${qty === 1 ? "" : "s"} of ${name}`];
     if (model) lines.push(`Model: ${model}`);
+    if (year != null) lines.push(`Year: ${year}`);
     for (const s of serials) lines.push(`S/No.: ${s}`);
     out.push({ ...run[0], quantity: qty, amount, serialNumbers: serials, description: lines.join("\n") });
     i = j;

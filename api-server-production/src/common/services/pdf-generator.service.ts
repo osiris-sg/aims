@@ -67,6 +67,63 @@ export class PdfGeneratorService {
     }
   }
 
+  /**
+   * Display-only grouping for DOs created from a standalone delivery — the
+   * SERVER-SIDE MIRROR of CleanDocumentPreview.groupDeliveryLines (keep the two
+   * in sync). The backend keeps ONE config line PER UNIT (per-unit DocumentItems
+   * are load-bearing for stock deduction), so N units of the same asset arrive
+   * as N consecutive lines carrying a `deliveryGroup` (= assetId) marker, a
+   * `skuKey` (model), a `year`, a `deploymentType`, and their own
+   * `serialNumbers`. Here we collapse each consecutive same-`deliveryGroup` run
+   * into ONE display row:
+   *
+   *   Rental|Sale of N units of {name}
+   *   Model: {skuKey}
+   *   Year: {year}      (only when every unit in the group agrees; else omitted)
+   *   S/No.: {serial}   (one per unit that has a serial)
+   *
+   * TIGHTLY SCOPED: only lines with a truthy `deliveryGroup` are touched — every
+   * other document (and every hand-made DO) passes through byte-identical.
+   * Merged qty/amount are summed so totals are preserved.
+   */
+  private groupDeliveryLines(raw: any[]): any[] {
+    if (!Array.isArray(raw) || raw.length === 0) return raw;
+    const out: any[] = [];
+    let i = 0;
+    while (i < raw.length) {
+      const line = raw[i];
+      const key = line?.deliveryGroup;
+      if (!key) {
+        out.push(line);
+        i++;
+        continue;
+      }
+      const run = [line];
+      let j = i + 1;
+      while (j < raw.length && raw[j]?.deliveryGroup === key) {
+        run.push(raw[j]);
+        j++;
+      }
+      const serials = run
+        .flatMap((r) => (Array.isArray(r.serialNumbers) ? r.serialNumbers : []))
+        .filter(Boolean);
+      const qty = run.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
+      const amount = run.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+      const name = run[0].description || '';
+      const model = run[0].skuKey || '';
+      const verb = run.some((r) => r.deploymentType === 'SALE') ? 'Sale' : 'Rental';
+      const years = run.map((r) => r.year).filter((y) => y != null);
+      const year = years.length === run.length && new Set(years).size === 1 ? years[0] : null;
+      const lines = [`${verb} of ${qty} unit${qty === 1 ? '' : 's'} of ${name}`];
+      if (model) lines.push(`Model: ${model}`);
+      if (year != null) lines.push(`Year: ${year}`);
+      for (const s of serials) lines.push(`S/No.: ${s}`);
+      out.push({ ...run[0], quantity: qty, amount, serialNumbers: serials, description: lines.join('\n') });
+      i = j;
+    }
+    return out;
+  }
+
   generateInvoiceHtml(data: any): string {
     // Format date helper
     const formatDate = (date: any) => {
@@ -79,8 +136,11 @@ export class PdfGeneratorService {
       });
     };
 
-    // Calculate totals
-    const items = data.items || [];
+    // Calculate totals. Group delivery-created DO lines into the office's
+    // "Rental/Sale of N units / Model / Year / S/No." block (server mirror of
+    // the preview) so the PDF/print matches the on-screen preview. Non-delivery
+    // docs pass through unchanged.
+    const items = this.groupDeliveryLines(data.items || []);
     const subtotal = items.reduce((acc: number, item: any) => acc + (item.amount || 0), 0);
     const totalTax = items.reduce(
       (acc: number, item: any) => acc + (item.amount || 0) * ((item.tax || 9) / 100),
@@ -363,7 +423,7 @@ export class PdfGeneratorService {
         ${items.map((item: any) => `
           <tr>
             <td>
-              <div class="item-description">${item.description}</div>
+              <div class="item-description">${(item.description || '').split('\n').join('<br>')}</div>
               ${item.details ? `
                 <div class="item-details">
                   ${typeof item.details === 'string' ? item.details.split('\n').join('<br>') : item.details}
