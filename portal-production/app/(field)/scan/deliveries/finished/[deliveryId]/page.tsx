@@ -24,6 +24,9 @@ import {
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import PrintIcon from "@mui/icons-material/Print";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import Inventory2Icon from "@mui/icons-material/Inventory2";
 import { request } from "@/helpers/request";
 import {
   isPrinterAvailable,
@@ -78,6 +81,11 @@ interface Run {
   reports: Report[];
   project: { id: string; name: string } | null;
   customer: { id: string; name: string } | null;
+  // Auto-created on completion (standalone runs): the real DO and the draft
+  // invoice fired off it. Absent for office-linked/DO-first runs or if the
+  // completion wrapper hasn't run.
+  document?: { id: string; name: string | null; status: string } | null;
+  invoice?: { id: string; name: string | null; status: string } | null;
 }
 
 // Unit-based → "SKU — Asset name"; free-typed → description; else "Item".
@@ -134,6 +142,12 @@ export default function FinishedDeliveryDetailPage() {
   // skip-installed). Free-typed / skipped items don't flip this on.
   const installNeeded = useMemo(
     () => !!run?.items.some((i) => i.deliveryStatus === "completed" && !i.installSkipped),
+    [run],
+  );
+
+  // Unit-backed lines that reached `completed` — the stock committed to the DO.
+  const committedUnits = useMemo(
+    () => run?.items.filter((i) => i.inventory && i.deliveryStatus === "completed").length ?? 0,
     [run],
   );
 
@@ -230,6 +244,57 @@ export default function FinishedDeliveryDetailPage() {
           Delivery #{run.deliveryNumber}
         </Typography>
       </Stack>
+
+      {/* "What happened" result panel — what completing this run produced:
+          the auto-created DO, the draft invoice (needs office pricing), and the
+          stock committed. Failures show as warnings so the rider knows the
+          office needs to finish it. Shown once the run is completed. */}
+      {(run.status === "completed" || run.document || run.invoice) && (
+        <Card variant="outlined" sx={{ borderColor: "success.main", borderWidth: 1.5 }}>
+          <CardContent sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            <Typography variant="subtitle2" fontWeight={700}>
+              What happened
+            </Typography>
+
+            {run.document ? (
+              <Stack direction="row" spacing={1} alignItems="flex-start">
+                <CheckCircleIcon color="success" fontSize="small" sx={{ mt: 0.2 }} />
+                <Typography variant="body2">
+                  Delivery Order <b>{run.document.name ?? run.document.id}</b> created
+                </Typography>
+              </Stack>
+            ) : (
+              <Stack direction="row" spacing={1} alignItems="flex-start">
+                <WarningAmberIcon color="warning" fontSize="small" sx={{ mt: 0.2 }} />
+                <Typography variant="body2">
+                  Delivery Order not created yet — the office will create it.
+                </Typography>
+              </Stack>
+            )}
+
+            {run.invoice ? (
+              <Stack direction="row" spacing={1} alignItems="flex-start">
+                <CheckCircleIcon color="success" fontSize="small" sx={{ mt: 0.2 }} />
+                <Typography variant="body2">
+                  Invoice <b>{run.invoice.name ?? run.invoice.id}</b> created — <i>draft, needs pricing</i>
+                </Typography>
+              </Stack>
+            ) : run.document ? (
+              <Stack direction="row" spacing={1} alignItems="flex-start">
+                <WarningAmberIcon color="warning" fontSize="small" sx={{ mt: 0.2 }} />
+                <Typography variant="body2">Invoice not created — the office will invoice this DO.</Typography>
+              </Stack>
+            ) : null}
+
+            <Stack direction="row" spacing={1} alignItems="flex-start">
+              <Inventory2Icon color="action" fontSize="small" sx={{ mt: 0.2 }} />
+              <Typography variant="body2">
+                Stock committed: <b>{committedUnits}</b> unit{committedUnits === 1 ? "" : "s"}
+              </Typography>
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
 
       <Card variant="outlined">
         <CardContent sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>

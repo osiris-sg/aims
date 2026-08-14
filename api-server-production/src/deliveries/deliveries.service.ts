@@ -453,9 +453,24 @@ export class DeliveriesService {
     const distinctDocs = [...new Map(
       delivery.items.filter((i) => i.document).map((i) => [i.document!.id, i.document!]),
     ).values()];
+    const runDoc = distinctDocs.length === 1 ? distinctDocs[0] : null;
+    // Draft invoice auto-created from that DO on run completion (sourceDocumentId
+    // link) — powers the field "what happened" result panel. Null until the
+    // completion wrapper has run (or for office-linked/DO-first runs).
+    const invoice = runDoc
+      ? await this.prisma.document.findFirst({
+          where: {
+            organizationId,
+            type: 'INVOICE',
+            config: { path: ['sourceDocumentId'], equals: runDoc.id },
+          },
+          select: { id: true, name: true, status: true },
+        })
+      : null;
     return {
       ...delivery,
-      document: distinctDocs.length === 1 ? distinctDocs[0] : null,
+      document: runDoc,
+      invoice,
       items: delivery.items.map((i) => ({
         ...i,
         inventory: i.inventoryId ? unitById.get(i.inventoryId) ?? null : null,
@@ -705,6 +720,69 @@ export class DeliveriesService {
           ...(target === 'completed' && !delivery.completedAt ? { completedAt: new Date() } : {}),
         },
       });
+      // Standalone completion hook: the FIRST time a run reaches `completed`,
+      // auto-create a real DO from it, commit it, and fire a DRAFT invoice.
+      // Guarded to genuine standalone runs inside the wrapper; best-effort so a
+      // failure never rolls back the run's completion.
+      if (target === 'completed') {
+        await this.autoCreateDoOnRunCompletion(deliveryId, organizationId);
+      }
+    }
+  }
+
+  /**
+   * Standalone completion → real DO + commit + DRAFT invoice.
+   *
+   * When a STANDALONE run (no DO yet) reaches `completed`, mint a real Delivery
+   * Order from it, commit it (stamp DocumentItems completed from the run, deduct
+   * stock, Document.status → delivered_installed), and fire the completion gate
+   * so an INVOICE is auto-created — as an UNCONFIRMED DRAFT the office prices
+   * before confirming (zero-value lines are expected; there is no pricing source
+   * in the field).
+   *
+   * ADDITIVE + STANDALONE-ONLY. The completion gate is fired HERE, not inside
+   * the shared `commitLinkedDeliveryItems` — so the DO-first / office-confirm
+   * callers of that committer are byte-identical (no auto-invoice on their
+   * path). Only a whole, still-unlinked run at completion takes this route; the
+   * office "Create DO from selected" button and per-item linking are untouched.
+   *
+   * Best-effort: every failure is logged, never thrown — the rider's completion
+   * must not roll back. The field result panel derives what actually happened
+   * from persisted state (findById returns the DO + the draft invoice).
+   */
+  private async autoCreateDoOnRunCompletion(deliveryId: string, organizationId: string) {
+    try {
+      const delivery = await this.prisma.delivery.findFirst({
+        where: { id: deliveryId, organizationId },
+        select: { id: true, deliveryNumber: true, items: { select: { documentId: true } } },
+      });
+      if (!delivery || delivery.items.length === 0) return;
+      // Only genuine standalone runs: EVERY item still unlinked. A DO-first run
+      // (born-linked items) or an office-linked run already has its DO — skip.
+      if (delivery.items.some((i) => i.documentId)) return;
+
+      // 1. Real DO from the run (createDoFromDelivery links the run's items).
+      const created = await this.createDoFromDelivery(deliveryId, organizationId);
+      const doId = (created as { createdDocumentId?: string })?.createdDocumentId;
+      if (!doId) return;
+
+      // 2. Commit immediately (the reversal): stamp DocumentItems completed from
+      //    the run, deduct stock, set delivered_installed. Uses the shared
+      //    committer unchanged; we simply call it for a just-completed run rather
+      //    than deferring to a manual confirm.
+      await this.documentsService.commitLinkedDeliveryItems(doId, organizationId);
+
+      // 3. Fire the completion gate → DRAFT (unconfirmed) invoice, idempotent.
+      await this.documentsService.maybeCompleteDeliveryOrderAndInvoice(doId, organizationId);
+
+      this.logger.log(
+        `Delivery #${delivery.deliveryNumber}: completion auto-created DO ${doId} + draft invoice`,
+      );
+    } catch (err: any) {
+      this.logger.error(
+        `autoCreateDoOnRunCompletion failed for delivery ${deliveryId}: ${err?.message}`,
+        err?.stack,
+      );
     }
   }
 
@@ -752,9 +830,12 @@ export class DeliveriesService {
    *   stock is NEVER deducted against an uncommitted draft; the units stay
    *   reserved until confirm-time deduction flips them.
    *
-   * Does NOT create/modify MSRs and does NOT fire the completion gate /
-   * auto-invoice (backburnered by design). Delivery.documentId (legacy
-   * run-level link) is frozen — never written.
+   * This is the OFFICE's manual per-item link (and the target of "Create DO
+   * from selected"): it does NOT fire the completion gate / auto-invoice —
+   * commitment defers to the DO's own confirm. That is separate from a
+   * STANDALONE run that COMPLETES, which now auto-creates + commits its own DO
+   * and fires a draft invoice (see autoCreateDoOnRunCompletion). Does not
+   * create/modify MSRs; Delivery.documentId (legacy run-level link) stays frozen.
    */
   async link(deliveryId: string, documentId: string, organizationId: string, itemIds?: string[]) {
     const delivery = await this.prisma.delivery.findFirst({
