@@ -53,7 +53,7 @@ import { useOrganization } from "@hooks/useOrganization";
 const RESOURCE_URL = process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/";
 const imgSrc = (keyOrData: string) => (keyOrData.startsWith("data:") ? keyOrData : `${RESOURCE_URL}${keyOrData}`);
 
-type RunStatus = "in_progress" | "delivered" | "completed" | "cancelled";
+type RunStatus = "scheduled" | "in_progress" | "delivered" | "completed" | "cancelled";
 
 interface RunDetail {
   id: string;
@@ -64,6 +64,7 @@ interface RunDetail {
   notes: string | null;
   startedAt: string;
   completedAt: string | null;
+  scheduledFor: string | null;
   projectId: string | null;
   customerId: string | null;
   // findById includes both (null until assigned).
@@ -110,7 +111,8 @@ interface DocRow {
   createdAt: string;
 }
 
-const STATUS_CHIP: Record<RunStatus, { label: string; color: "warning" | "info" | "success" | "default" }> = {
+const STATUS_CHIP: Record<RunStatus, { label: string; color: "warning" | "info" | "success" | "default" | "primary" }> = {
+  scheduled: { label: "Scheduled", color: "primary" },
   in_progress: { label: "In progress", color: "warning" },
   delivered: { label: "Delivered", color: "info" },
   completed: { label: "Completed", color: "success" },
@@ -326,7 +328,26 @@ export default function DeliveryDetailPage() {
   const unlinkedItems = run.items.filter((i) => !i.documentId);
   const linkedCount = run.items.length - unlinkedItems.length;
   const distinctDocs = Array.from(new Map(run.items.filter((i) => i.document).map((i) => [i.document!.id, i.document!])).values());
-  const hasUnlinked = unlinkedItems.length > 0 && run.status !== "cancelled";
+  // Scheduled runs have asset-only items (no unit yet) — nothing to link/create
+  // a DO from until a rider delivers, so the link panel is hidden for them.
+  const hasUnlinked = unlinkedItems.length > 0 && run.status !== "cancelled" && run.status !== "scheduled";
+
+  const cancelScheduled = async () => {
+    if (!run) return;
+    setActing(true);
+    setActionError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request({ path: `/deliveries/${deliveryId}/cancel`, method: "POST" }, {}, token);
+      if (res.success === false) throw new Error(res.message ?? "Cancel failed");
+      await load();
+    } catch (e: any) {
+      setActionError(e?.message ?? "Cancel failed");
+    } finally {
+      setActing(false);
+    }
+  };
   const toggleItem = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -366,6 +387,24 @@ export default function DeliveryDetailPage() {
       </Typography>
 
       {actionError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setActionError(null)}>{actionError}</Alert>}
+
+      {/* Scheduled run: asset-only, no rider yet, nothing reserved. A rider picks
+          it up by scanning a matching unit in the field. The office can cancel it
+          outright (no reservation to release). */}
+      {run.status === "scheduled" && (
+        <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
+            Scheduled for {fmtDateTime(run.scheduledFor)}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Waiting for a rider — they claim it by scanning any unit of a scheduled
+            product. Nothing is reserved until then.
+          </Typography>
+          <Button variant="outlined" color="error" onClick={cancelScheduled} disabled={acting}>
+            {acting ? "Cancelling…" : "Cancel scheduled delivery"}
+          </Button>
+        </Paper>
+      )}
 
       {/* Actions — shown while ANY item is unlinked. Selection-scoped: link
           the checked subset, repeat for the rest (items may span DOs). */}

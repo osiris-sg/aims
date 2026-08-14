@@ -2283,6 +2283,7 @@ model ApiKey {
 // ═══════════════════════════════════════════════════════════════════════════
 
 enum DeliveryRunStatus {
+  scheduled // office pre-created; asset-only items, no rider yet — awaiting pickup
   in_progress // rider started; not all items acknowledged yet
   delivered // every item acknowledged (not_installed or better)
   completed // every item completed / install-skipped
@@ -2296,12 +2297,19 @@ model Delivery {
   // Assigned at creation — required, unlike MSR's nullable historic rows.
   deliveryNumber Int
   status         DeliveryRunStatus @default(in_progress)
-  riderUserId    String
+  // Nullable so an office-SCHEDULED run can exist before any rider picks it up.
+  // The rider claims it at scan-to-bind (sets riderUserId, status → in_progress).
+  // Every rider-started run sets it at creation as before.
+  riderUserId    String?
   riderName      String?
   projectId      String?           @db.Uuid
   customerId     String?           @db.Uuid
   siteAddress    String? // free-text drop site when no project is linked yet
   notes          String?
+  // Office-scheduled runs: the target delivery date/time. Null for ad-hoc runs
+  // recorded live in the field. A run with scheduledFor set + status `scheduled`
+  // is waiting for a rider to pick it up.
+  scheduledFor   DateTime?
   // LEGACY run-level link — FROZEN (per-item linking, 2026-08): new code
   // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
   // for zero-downtime deploys (Render db-pushes on deploy while old code may

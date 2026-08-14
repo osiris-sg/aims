@@ -6,6 +6,7 @@ import { useAuth } from "@clerk/nextjs";
 import {
   Alert,
   Box,
+  Button,
   Chip,
   CircularProgress,
   Paper,
@@ -20,7 +21,9 @@ import {
   Typography,
 } from "@mui/material";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
+import EventIcon from "@mui/icons-material/Event";
 import { request } from "@/helpers/request";
+import ScheduleDeliveryDialog from "./_components/ScheduleDeliveryDialog";
 
 /**
  * Office Deliveries queue (phase-1 layer 4; per-item linking 2026-08).
@@ -33,7 +36,7 @@ import { request } from "@/helpers/request";
  * Row click → /portal/deliveries/[id] (proof + per-item link actions).
  */
 
-type RunStatus = "in_progress" | "delivered" | "completed" | "cancelled";
+type RunStatus = "scheduled" | "in_progress" | "delivered" | "completed" | "cancelled";
 
 interface DeliveryRow {
   id: string;
@@ -43,6 +46,7 @@ interface DeliveryRow {
   siteAddress: string | null;
   startedAt: string;
   completedAt: string | null;
+  scheduledFor: string | null;
   items: Array<{
     id: string;
     deliveryStatus: string;
@@ -53,7 +57,8 @@ interface DeliveryRow {
   customer: { id: string; name: string } | null;
 }
 
-const STATUS_CHIP: Record<RunStatus, { label: string; color: "warning" | "info" | "success" | "default" }> = {
+const STATUS_CHIP: Record<RunStatus, { label: string; color: "warning" | "info" | "success" | "default" | "primary" }> = {
+  scheduled: { label: "Scheduled", color: "primary" },
   in_progress: { label: "In progress", color: "warning" },
   delivered: { label: "Delivered", color: "info" },
   completed: { label: "Completed", color: "success" },
@@ -72,6 +77,7 @@ export default function DeliveriesQueuePage() {
   const [limit, setLimit] = useState(20);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -103,6 +109,10 @@ export default function DeliveriesQueuePage() {
         <Typography variant="h5" fontWeight={700}>
           Deliveries
         </Typography>
+        <Box sx={{ flex: 1 }} />
+        <Button variant="contained" startIcon={<EventIcon />} onClick={() => setScheduleOpen(true)}>
+          Schedule a delivery
+        </Button>
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Standalone delivery runs recorded in the field. When a run is completed it
@@ -141,6 +151,7 @@ export default function DeliveriesQueuePage() {
                 <TableCell>Rider</TableCell>
                 <TableCell>Project / Customer / Site</TableCell>
                 <TableCell align="center">Items</TableCell>
+                <TableCell>Scheduled</TableCell>
                 <TableCell>Started</TableCell>
                 <TableCell>Completed</TableCell>
                 <TableCell>Linked DO</TableCell>
@@ -172,6 +183,7 @@ export default function DeliveriesQueuePage() {
                       )}
                     </TableCell>
                     <TableCell align="center">{r.items?.length ?? 0}</TableCell>
+                    <TableCell>{fmtDateTime(r.scheduledFor)}</TableCell>
                     <TableCell>{fmtDateTime(r.startedAt)}</TableCell>
                     <TableCell>{fmtDateTime(r.completedAt)}</TableCell>
                     <TableCell>
@@ -216,6 +228,15 @@ export default function DeliveriesQueuePage() {
           />
         </TableContainer>
       )}
+
+      <ScheduleDeliveryDialog
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        onCreated={() => {
+          setPage(0);
+          void load();
+        }}
+      />
     </Box>
   );
 }

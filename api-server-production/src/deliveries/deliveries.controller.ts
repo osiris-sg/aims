@@ -9,6 +9,7 @@ import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { AddDeliveryItemDto } from './dto/add-delivery-item.dto';
 import { CreateDoFromDeliveryDto, LinkDeliveryDto } from './dto/link-delivery.dto';
 import { AddItemPhotosDto, AssignDeliveryItemDto, SetDeploymentTypeDto, SkipInstallDto } from './dto/assign-delivery.dto';
+import { ScheduleDeliveryDto, ClaimScheduledDto } from './dto/schedule-delivery.dto';
 
 interface ClerkRequest extends Request {
   user?: { id?: string };
@@ -35,6 +36,29 @@ export class DeliveriesController {
     const riderUserId = req.user?.id;
     if (!riderUserId) throw new UnauthorizedException('Missing authenticated user');
     return this.service.create(dto, org.id, riderUserId);
+  }
+
+  // Office: pre-create a scheduled run (asset-only items, no rider, nothing
+  // reserved). Same office persona as link/create-do.
+  @Post('scheduled')
+  @Permissions('documents:create-basic')
+  createScheduled(@Body() dto: ScheduleDeliveryDto, @UserOrganization() org: { id: string }) {
+    return this.service.createScheduled(dto, org.id);
+  }
+
+  // Field: a rider claims a scheduled run by scanning a matching unit — binds +
+  // reserves it, sets the rider, starts the run.
+  @Post(':id/claim-scheduled')
+  @Permissions('maintenance-reports:create')
+  claimScheduled(
+    @Param('id') id: string,
+    @Body() dto: ClaimScheduledDto,
+    @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
+  ) {
+    const riderUserId = req.user?.id;
+    if (!riderUserId) throw new UnauthorizedException('Missing authenticated user');
+    return this.service.claimScheduled(id, dto, org.id, riderUserId);
   }
 
   @Post(':id/items')

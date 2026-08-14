@@ -1157,6 +1157,26 @@ export class MaintenanceReportsService {
       }
     }
 
+    // Scheduled-delivery match (Stage 3): an instock unit whose ASSET has an
+    // OPEN (inventoryId-null) slot on a `scheduled` run → the chooser offers
+    // "Start scheduled delivery #N" (claim + bind) instead of a fresh start.
+    // Skipped when the unit already sits on a resolved DO or an open run.
+    let scheduledMatch: { deliveryId: string; deliveryNumber: number; scheduledFor: string | null } | null = null;
+    if (inventory?.status === InventoryStatus.instock && !resolvedDeliveryOrder && !standaloneDelivery) {
+      const sched = await this.prisma.deliveryItem.findFirst({
+        where: { assetId, inventoryId: null, delivery: { organizationId, status: 'scheduled' } },
+        orderBy: { delivery: { scheduledFor: 'asc' } },
+        select: { delivery: { select: { id: true, deliveryNumber: true, scheduledFor: true } } },
+      });
+      if (sched?.delivery) {
+        scheduledMatch = {
+          deliveryId: sched.delivery.id,
+          deliveryNumber: sched.delivery.deliveryNumber,
+          scheduledFor: sched.delivery.scheduledFor ? sched.delivery.scheduledFor.toISOString() : null,
+        };
+      }
+    }
+
     return {
       asset,
       inventory,
@@ -1178,6 +1198,8 @@ export class MaintenanceReportsService {
       standaloneDelivery,
       canStartStandaloneDelivery,
       riderOpenDelivery,
+      // { deliveryId, deliveryNumber, scheduledFor } | null (Stage 3).
+      scheduledMatch,
     };
   }
 
