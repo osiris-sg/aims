@@ -6,6 +6,7 @@ import { DocumentsService } from '../documents/documents.service';
 import { ProjectsService } from '../projects/projects.service';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { AddDeliveryItemDto } from './dto/add-delivery-item.dto';
+import { ScheduleDeliveryDto, ClaimScheduledDto } from './dto/schedule-delivery.dto';
 
 // Item-lifecycle rank for folds/comparisons. Shared enum with DocumentItem:
 // not_delivered → delivering → not_installed → completed (monotonic).
@@ -251,6 +252,127 @@ export class DeliveriesService {
   }
 
   // ── create / basket ──────────────────────────────────────────────────────
+
+  /**
+   * Office: pre-create a SCHEDULED run. Asset-only items (inventoryId null,
+   * quantity from the office), no rider yet (status `scheduled`, riderUserId
+   * null). NOTHING is reserved — no specific unit is earmarked, so there is no
+   * hold to release if the run is cancelled or never picked up. A rider claims
+   * it later by scanning a matching unit (claimScheduled).
+   */
+  async createScheduled(dto: ScheduleDeliveryDto, organizationId: string) {
+    if (!dto.items?.length) throw new BadRequestException('At least one item is required');
+    const assetIds = [...new Set(dto.items.map((i) => i.assetId))];
+    const assets = await this.prisma.asset.findMany({
+      where: { id: { in: assetIds }, organizationId, deletedAt: null },
+      select: { id: true, name: true },
+    });
+    const assetById = new Map(assets.map((a) => [a.id, a]));
+    for (const it of dto.items) {
+      if (!assetById.has(it.assetId)) throw new NotFoundException(`Asset ${it.assetId} not found in this organization`);
+    }
+
+    // Per-org serial with P2002 retry (same pattern as create()).
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const latest = await this.prisma.delivery.findFirst({
+        where: { organizationId },
+        orderBy: { deliveryNumber: 'desc' },
+        select: { deliveryNumber: true },
+      });
+      const deliveryNumber = (latest?.deliveryNumber ?? 0) + 1;
+      try {
+        return await this.prisma.delivery.create({
+          data: {
+            organizationId,
+            deliveryNumber,
+            status: 'scheduled',
+            riderUserId: null,
+            riderName: null,
+            scheduledFor: new Date(dto.scheduledFor),
+            projectId: dto.projectId,
+            customerId: dto.customerId,
+            items: {
+              create: dto.items.map((it) => ({
+                assetId: it.assetId,
+                inventoryId: null, // asset-only — bound when a rider scans a unit
+                quantity: it.quantity,
+                description: assetById.get(it.assetId)!.name,
+              })),
+            },
+          },
+          include: { items: true },
+        });
+      } catch (err) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') continue;
+        throw err;
+      }
+    }
+    throw new BadRequestException('Could not allocate a delivery number — please retry');
+  }
+
+  /**
+   * Field: a rider claims a scheduled run by scanning a unit whose ASSET matches
+   * one of its open (inventoryId-null) scheduled items. Reserves the unit
+   * (instock → reserved), binds it into the slot, sets the rider, and starts the
+   * run (scheduled → in_progress). The rider then proceeds through the normal
+   * per-item flow (photo/DO_START → ack → …) in the run basket.
+   *
+   * Quantity > 1: the open slot is SPLIT — its quantity is decremented and a new
+   * qty-1 item carrying this unit is created, so each physical unit gets its own
+   * DeliveryItem (needed for per-unit start/ack/deduction). The remaining
+   * unbound quantity stays claimable by the next scan. Several different assets:
+   * each has its own item; a scan only matches the slot with the same assetId.
+   */
+  async claimScheduled(
+    deliveryId: string,
+    dto: ClaimScheduledDto,
+    organizationId: string,
+    riderUserId: string,
+  ) {
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      include: { items: true },
+    });
+    if (!run) throw new NotFoundException('Delivery not found');
+    if (run.status !== 'scheduled') {
+      throw new BadRequestException(`Delivery #${run.deliveryNumber} is not scheduled (status: ${run.status})`);
+    }
+    const slot = run.items.find((i) => i.assetId === dto.assetId && !i.inventoryId);
+    if (!slot) {
+      throw new BadRequestException('No open scheduled slot for this asset on this run');
+    }
+    const unit = await this.prisma.inventory.findFirst({
+      where: { id: dto.inventoryId, assetId: dto.assetId, organizationId },
+      select: { id: true, sku: true, status: true },
+    });
+    if (!unit) throw new NotFoundException('Scanned unit not found under this asset');
+
+    // Reserve first (guarded instock → reserved): if the unit isn't available,
+    // fail before mutating the run (matches create()'s reserve-before-create).
+    await this.reserveUnit(dto.inventoryId, organizationId, run.deliveryNumber);
+
+    await this.prisma.$transaction(async (tx) => {
+      if ((slot.quantity ?? 1) > 1) {
+        // Split: shrink the open slot, mint a bound qty-1 item for this unit.
+        await tx.deliveryItem.update({ where: { id: slot.id }, data: { quantity: (slot.quantity ?? 1) - 1 } });
+        await tx.deliveryItem.create({
+          data: { deliveryId, assetId: dto.assetId, inventoryId: dto.inventoryId, quantity: 1, description: slot.description },
+        });
+      } else {
+        await tx.deliveryItem.update({ where: { id: slot.id }, data: { inventoryId: dto.inventoryId } });
+      }
+      // Claim the run: assign the rider + start it. Only the FIRST claimant sets
+      // the rider; a run already claimed by an earlier scan stays with that
+      // rider (status is no longer `scheduled`, so a second claim is rejected
+      // above and the unit routes through the normal open-run path instead).
+      await tx.delivery.update({
+        where: { id: deliveryId },
+        data: { riderUserId, ...(dto.riderName ? { riderName: dto.riderName } : {}), status: 'in_progress', startedAt: new Date() },
+      });
+    });
+
+    return { deliveryId, deliveryNumber: run.deliveryNumber, claimed: true };
+  }
 
   async create(dto: CreateDeliveryDto, organizationId: string, riderUserId: string) {
     const asset = await this.prisma.asset.findFirst({
@@ -697,7 +819,16 @@ export class DeliveriesService {
         items: { select: { deliveryStatus: true } },
       },
     });
-    if (!delivery || delivery.status === 'cancelled' || delivery.items.length === 0) return;
+    // `scheduled` is guarded like `cancelled`: an unclaimed scheduled run must
+    // never be folded into in_progress by a stray recompute (its asset-only
+    // items are not_delivered). The rider's claim transitions it explicitly.
+    if (
+      !delivery ||
+      delivery.status === 'cancelled' ||
+      delivery.status === 'scheduled' ||
+      delivery.items.length === 0
+    )
+      return;
 
     // Fold over ALL items — unit-backed AND free-typed. Free-typed lines are
     // full delivery participants now (marked delivered via markFreeTypedDelivered),
@@ -1251,8 +1382,11 @@ export class DeliveriesService {
       include: { items: true },
     });
     if (!delivery) throw new NotFoundException('Delivery not found');
-    if (delivery.status !== 'in_progress') {
-      throw new BadRequestException(`Only in_progress deliveries can be cancelled (status: ${delivery.status})`);
+    // Scheduled runs cancel freely (asset-only, nothing reserved → nothing to
+    // release); in_progress runs cancel only when nothing is delivered/linked
+    // (guarded below).
+    if (delivery.status !== 'in_progress' && delivery.status !== 'scheduled') {
+      throw new BadRequestException(`Only scheduled or in_progress deliveries can be cancelled (status: ${delivery.status})`);
     }
     const deliveredItem = delivery.items.find((i) => i.deliveredAt !== null);
     if (deliveredItem) {
