@@ -4293,7 +4293,11 @@ export class DocumentsService {
    * ONE-WAY: completion → invoice is never auto-unwound (reversal = manual
    * credit note).
    */
-  private async maybeCompleteDeliveryOrderAndInvoice(
+  // Public so the standalone-completion wrapper (deliveries.autoCreateDoOnRun-
+  // Completion) can fire the gate for its freshly-committed auto-DO. Returns the
+  // created/existing invoice (or null when not all deliverable items are done);
+  // the DO-first callers (advanceDeliveryItem, bulkComplete) ignore the return.
+  async maybeCompleteDeliveryOrderAndInvoice(
     documentId: string,
     organizationId: string,
   ) {
@@ -4305,14 +4309,14 @@ export class DocumentsService {
     const allDone =
       deliverable.length === 0 ||
       deliverable.every((i) => i.deliveryStatus === DeliveryStatus.completed);
-    if (!allDone) return;
+    if (!allDone) return null;
 
     await this.prisma.document.update({
       where: { id: documentId },
       data: { status: DocumentStatus.delivered_installed },
     });
 
-    await this.createInvoiceFromDeliveryOrder(documentId, organizationId);
+    return this.createInvoiceFromDeliveryOrder(documentId, organizationId);
   }
 
   /**

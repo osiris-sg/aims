@@ -105,9 +105,10 @@ export default function DeliveriesQueuePage() {
         </Typography>
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Standalone delivery runs recorded in the field. Link each run&apos;s items to
-        Delivery Orders — created DOs start as drafts and deduct stock when confirmed
-        (it does not create an invoice).
+        Standalone delivery runs recorded in the field. When a run is completed it
+        auto-creates a Delivery Order and a <b>draft</b> invoice — price and confirm
+        the invoice here. You can still link a run&apos;s items to an existing DO, or
+        create one from a subset, using the actions on each run.
       </Typography>
 
       {!loading && (
