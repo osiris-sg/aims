@@ -218,6 +218,9 @@ export default function ScheduleDeliveryDialog({
   const canSubmit = !!scheduleDate && !!scheduleTime && !!project && validRows.length > 0 && !submitting;
 
   // Fetch the customer's CONFIRMED quotations and open the extract dialog.
+  // /documents is server-paginated (default 20 newest of ANY type), so we MUST
+  // filter server-side (type + status + customer) and read the `docs` array —
+  // otherwise real quotations (buried past the 20-doc window) never load.
   const openQuotations = async () => {
     if (!customer) return;
     setQuoteLoading(true);
@@ -225,17 +228,26 @@ export default function ScheduleDeliveryDialog({
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path: "/documents", method: "POST" }, { organizationId: organization?.id }, token);
-      const qTypes = ["QUOTATION", "QT", "QO", "QO1", "QO2"];
-      const list = (res?.data || []).filter(
-        (d: any) =>
-          qTypes.includes(String(d.documentType || d.type || "").toUpperCase()) &&
-          d.config?.customerId === customer.id &&
-          d.status === "confirmed",
+      const res = await request(
+        { path: "/documents", method: "POST" },
+        {
+          organizationId: organization?.id,
+          documentTypes: ["QUOTATION", "QT", "QO", "QO1", "QO2"],
+          status: "confirmed",
+          customerId: customer.id,
+          limit: 200,
+        },
+        token,
       );
+      // getDocumentsPaginated → { docs, total, ... }; helper nests it under .data.
+      const body = res?.data ?? res;
+      const docs: any[] = Array.isArray(body) ? body : Array.isArray(body?.docs) ? body.docs : [];
+      // Server already scoped to confirmed quotations for this customer; keep only
+      // the ones that actually carry line items to pull.
+      const list = docs.filter((d: any) => Array.isArray(d.config?.items) && d.config.items.length > 0);
       setQuotations(list);
       setQuoteOpen(true);
-      if (list.length === 0) setNote("No confirmed quotations found for this customer.");
+      if (list.length === 0) setNote("No confirmed quotations with line items found for this customer.");
     } catch (e: any) {
       setError(e?.message ?? "Couldn't load quotations");
     } finally {
