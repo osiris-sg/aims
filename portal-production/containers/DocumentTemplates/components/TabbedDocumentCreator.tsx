@@ -920,15 +920,28 @@ export default function TabbedDocumentCreator({
     // Check if this is an invoice type that doesn't need item tax
     const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
 
-    // If there are existing items, map them
+    // If there are existing items, map them. Items born outside the editor
+    // (external API, Xero import, scripts) may lack an `id` or carry
+    // duplicates — but every row operation (delete / pencil-edit / drag)
+    // keys on item.id, so id-less rows made "delete row 2" remove every
+    // such row and made the pencil edit append instead of replace. Assign a
+    // fresh unique id to any missing/duplicate on load.
     if (existingItems.length > 0) {
-      const mapped = existingItems.map((item: any) => ({
-        ...item,
-        inventoryItemId: item.inventoryItemId || item.inventoryId || "",  // Support both old and new field names
-        inventoryId: undefined,  // Remove old field name if it exists
-        // Only include tax for non-invoice types
-        tax: isInvoiceType ? undefined : (item.tax || "9"),
-      }));
+      let idSeed = Date.now();
+      const seenIds = new Set<any>();
+      const mapped = existingItems.map((item: any) => {
+        let id = item.id;
+        if (id == null || seenIds.has(id)) id = ++idSeed;
+        seenIds.add(id);
+        return {
+          ...item,
+          id,
+          inventoryItemId: item.inventoryItemId || item.inventoryId || "",  // Support both old and new field names
+          inventoryId: undefined,  // Remove old field name if it exists
+          // Only include tax for non-invoice types
+          tax: isInvoiceType ? undefined : (item.tax || "9"),
+        };
+      });
       return mapped;
     }
 

@@ -374,11 +374,11 @@ export class DocumentsController {
       let html: string;
       if (body.documentType === 'TI') {
         // Tax Invoice
-        html = this.pdfGeneratorService.generateInvoiceHtml(body.data);
+        html = this.pdfGeneratorService.generateInvoiceHtml({ documentType: body.documentType, ...body.data });
       } else {
         // For other document types, we'll use the invoice template for now
         // You can create separate templates for each type later
-        html = this.pdfGeneratorService.generateInvoiceHtml(body.data);
+        html = this.pdfGeneratorService.generateInvoiceHtml({ documentType: body.documentType, ...body.data });
       }
 
       // Generate PDF from HTML

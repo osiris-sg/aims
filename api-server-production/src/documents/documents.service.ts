@@ -19,6 +19,7 @@ import { S3Service } from 'src/common/services/s3.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
 import { AuditService } from 'src/common/audit.service';
 import * as moment from 'moment';
+import { isPortedType, PORTED_PDF_MARGIN } from '../common/services/document-html';
 
 // Who performed a document action — derived from req.user in the controller.
 export interface DocumentActor {
@@ -2577,6 +2578,20 @@ export class DocumentsService {
       delete duplicatedConfig.confirmedAt;
       delete duplicatedConfig.confirmedBy;
 
+      // Items born outside the editor (Xero sync, external API, EW flow) can
+      // lack `id`s — and the editor keys delete/edit/drag on item.id, so an
+      // id-less duplicate breaks row operations. Stamp unique ids on copy.
+      if (Array.isArray(duplicatedConfig.items)) {
+        let idSeed = Date.now();
+        const seenIds = new Set<any>();
+        duplicatedConfig.items = duplicatedConfig.items.map((item: any) => {
+          let id = item?.id;
+          if (id == null || seenIds.has(id)) id = ++idSeed;
+          seenIds.add(id);
+          return { ...item, id };
+        });
+      }
+
       // Reuse createBasicDocument so we get the standard document-number
       // generation, organization defaults, and item junction sync.
       return await this.createBasicDocument(
@@ -5073,10 +5088,33 @@ export class DocumentsService {
           const documentInfo = config.documentInfo || { documentNumber: document.name };
           const items: any[] = Array.isArray(config.items) ? config.items : [];
           const dueDate = config.dueDate ? moment(config.dueDate).format('DD MMM YYYY') : undefined;
-          p = { document, customer: config.customer || { name: config.customerName }, documentInfo, items, config, isQuotation: false, dueDate };
+          // Title/labels follow the document type — this used to be hardcoded
+          // false, so quotations rendered as "Tax Invoice".
+          const isQuotation = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(String(document.type).toUpperCase());
+          p = {
+            document,
+            customer: config.customer || { name: config.customerName },
+            // The document number lives on Document.name, not in config, so the
+            // header showed a blank number without this fallback.
+            documentInfo: { ...documentInfo, documentNumber: documentInfo?.documentNumber || document.name },
+            items,
+            config,
+            isQuotation,
+            dueDate,
+          };
         }
         const html = this.pdfGeneratorService.generateInvoiceHtml({
+          // Selects the ported portal layout for this type (falls back to the
+          // legacy generic layout for types not ported yet).
+          documentType: p.document.type,
+          ...(p.config || {}),
+          // The number lives on Document.name, not in config — the renderer
+          // falls back to it for the "QUOTATION NO." / header line.
+          name: p.document.name,
           organization: p.document.organization,
+          // The generator reads `data.company` (never `data.organization`), so
+          // without this the letterhead/GST/Tel block rendered empty.
+          company: p.document.organization,
           customer: p.customer,
           documentInfo: p.documentInfo,
           items: p.items,
@@ -5084,7 +5122,10 @@ export class DocumentsService {
           isQuotation: p.isQuotation,
           dueDate: p.dueDate,
         });
-        const pdfBuffer = await this.pdfGeneratorService.generatePdfFromHtml(html);
+        const pdfBuffer = await this.pdfGeneratorService.generatePdfFromHtml(
+          html,
+          isPortedType(p.document.type) ? { margin: PORTED_PDF_MARGIN } : undefined,
+        );
         const { key } = await this.s3Service.uploadPdf(organizationId, p.document.type, documentId, pdfBuffer);
         return await this.s3Service.getSignedUrl(key, 3600);
       }
