@@ -4352,9 +4352,12 @@ export class DocumentsService {
     const templateId = await this.resolveTemplateIdForType('INVOICE', organizationId);
 
     // Carry the DO config forward (items/customer/etc.), stamp the source link
-    // + a fresh date. config.items remains the source of truth downstream.
+    // + a fresh date. The DO is a GOODS document (lines are 0); the INVOICE
+    // prices its own lines from the asset here (rate x quantity, no duration),
+    // so an unpriced DO no longer yields an unpriced invoice.
     const invoiceConfig = {
       ...doConfig,
+      items: await this.priceInvoiceLinesFromAsset(Array.isArray(doConfig.items) ? doConfig.items : [], organizationId),
       date: new Date().toISOString(),
       sourceDocumentId: documentId,
       sourceDocumentNumber: doDoc.name ?? undefined,
@@ -4370,6 +4373,70 @@ export class DocumentsService {
     );
     console.log(`🧾 DO→INVOICE: created invoice ${invoice.id} from DO ${documentId}`);
     return invoice;
+  }
+
+  /**
+   * Price a DO→INVOICE's goods lines from the asset — rate x quantity, no
+   * duration. Intent (rental vs sale) per line comes from the config line's
+   * deploymentType (set by createDoFromDelivery) or the unit's active
+   * ProjectDeployment.type, defaulting to RENTAL (a delivered unit is a rental).
+   *   • SALE   → Asset.price
+   *   • RENTAL → Asset.customPrices "Monthly Rental" (14 assets) with a
+   *              rental/hire label fallback ("Rental Price" outlier, etc.)
+   * NO GUESSING: when the asset has no matching price the line stays 0 for the
+   * office to fill on the still-editable DRAFT. Non-goods lines (remarks, no
+   * asset/unit) are left untouched. The DO's own lines stay 0 (goods-only).
+   */
+  private async priceInvoiceLinesFromAsset(items: any[], organizationId: string): Promise<any[]> {
+    if (!items.length) return items;
+    const unitIds = [...new Set(items.map((i) => i.inventoryItemId).filter((v): v is string => !!v))];
+    const units = unitIds.length
+      ? await this.prisma.inventory.findMany({ where: { id: { in: unitIds } }, select: { id: true, assetId: true } })
+      : [];
+    const unitAsset = new Map(units.map((u) => [u.id, u.assetId]));
+    const deploys = unitIds.length
+      ? await this.prisma.assignment.findMany({
+          where: { inventoryId: { in: unitIds }, endDate: null, projectDeploymentId: { not: null } },
+          orderBy: { startDate: 'desc' },
+          select: { inventoryId: true, projectDeployment: { select: { type: true } } },
+        })
+      : [];
+    const unitDeploy = new Map<string, string>();
+    for (const a of deploys) {
+      if (a.inventoryId && a.projectDeployment && !unitDeploy.has(a.inventoryId)) unitDeploy.set(a.inventoryId, a.projectDeployment.type);
+    }
+    const assetIds = [
+      ...new Set(items.map((i) => i.assetId || (i.inventoryItemId ? unitAsset.get(i.inventoryItemId) : null)).filter((v): v is string => !!v)),
+    ];
+    const assets = assetIds.length
+      ? await this.prisma.asset.findMany({ where: { id: { in: assetIds }, organizationId }, select: { id: true, price: true, customPrices: true } })
+      : [];
+    const assetById = new Map(assets.map((a) => [a.id, a]));
+
+    // Label variance: prefer "Monthly Rental" (the 14), then any rental/hire label.
+    const rentalRate = (cp: any): number | null => {
+      const arr = Array.isArray(cp) ? cp : [];
+      const e = arr.find((x) => /monthly\s*rental/i.test(x?.label || '')) ?? arr.find((x) => /rental|hire/i.test(x?.label || ''));
+      const v = e?.value;
+      if (typeof v === 'number') return v;
+      return v != null && !isNaN(Number(v)) ? Number(v) : null;
+    };
+
+    return items.map((it) => {
+      const assetId: string | null = it.assetId || (it.inventoryItemId ? unitAsset.get(it.inventoryItemId) ?? null : null);
+      const asset = assetId ? assetById.get(assetId) : null;
+      if (!asset) return it; // non-goods / unresolved → leave as-is (0)
+      const intent = it.deploymentType || (it.inventoryItemId ? unitDeploy.get(it.inventoryItemId) : null) || 'RENTAL';
+      const unitPrice =
+        intent === 'SALE'
+          ? typeof asset.price === 'number'
+            ? asset.price
+            : 0
+          : rentalRate(asset.customPrices) ?? 0;
+      const qty = Number(it.quantity) || 1;
+      const amount = Math.round(unitPrice * qty * 100) / 100;
+      return { ...it, unitPrice, price: unitPrice, amount };
+    });
   }
 
   /**
