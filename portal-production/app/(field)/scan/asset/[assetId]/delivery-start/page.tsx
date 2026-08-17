@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
-import { Alert, Autocomplete, Box, Button, CircularProgress, Divider, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Autocomplete, Box, Button, CircularProgress, Stack, TextField, Typography } from "@mui/material";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 
 interface CustomerOption {
@@ -188,10 +188,6 @@ export default function StartDeliveryPage() {
     };
   }, [selectedCustomer, getToken]);
 
-  const goToBasket = () => {
-    if (runId) router.replace(`/scan/delivery/${runId}`);
-  };
-
   // Assign the started unit to the picked project (per-unit; deferred flip).
   const doAssign = async () => {
     if (!runId || !inventoryId || !selectedProject || assigning) return;
@@ -331,7 +327,8 @@ export default function StartDeliveryPage() {
           Assign to project
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center", maxWidth: 360 }}>
-          Delivery started. Optionally assign this unit to a customer&apos;s project — you can skip and do it later.
+          Delivery started. Assign this unit to a customer&apos;s project to continue — the project is
+          what matches this run to a scheduled delivery. Both are required.
         </Typography>
 
         <Box sx={{ width: "100%", maxWidth: 360, display: "flex", flexDirection: "column", gap: 2 }}>
@@ -343,7 +340,7 @@ export default function StartDeliveryPage() {
             getOptionLabel={(o) => o.name}
             isOptionEqualToValue={(a, b) => a.id === b.id}
             loading={customerSearching}
-            renderInput={(params) => <TextField {...params} label="Customer (optional)" placeholder="Search customer" />}
+            renderInput={(params) => <TextField {...params} label="Customer" placeholder="Search customer" required />}
           />
           <Autocomplete<ProjectOption, false, false, false>
             options={projectOptions}
@@ -354,7 +351,7 @@ export default function StartDeliveryPage() {
             loading={projectsLoading}
             disabled={!selectedCustomer}
             renderInput={(params) => (
-              <TextField {...params} label="Project (optional)" placeholder={selectedCustomer ? "Search project" : "Pick a customer first"} />
+              <TextField {...params} label="Project" placeholder={selectedCustomer ? "Search project" : "Pick a customer first"} required error={!!selectedCustomer && !selectedProject} />
             )}
           />
 
@@ -368,10 +365,6 @@ export default function StartDeliveryPage() {
             sx={{ py: 1.5, fontSize: "1rem", minHeight: 48 }}
           >
             {assigning ? <CircularProgress size={20} color="inherit" /> : "Assign & continue"}
-          </Button>
-          <Divider>or</Divider>
-          <Button variant="text" onClick={goToBasket} disabled={assigning} fullWidth sx={{ minHeight: 44 }}>
-            Skip — go to basket
           </Button>
         </Box>
       </Box>

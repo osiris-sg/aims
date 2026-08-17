@@ -578,10 +578,10 @@ export default function DeliveryBasketPage() {
         </Typography>
         {/* One signature/photo/GPS for every unit still delivering (per-unit
             Acknowledge stays available below for partial deliveries). */}
-        {/* Returns collect via this one action even for a single unit (the
-            per-unit ack routes through the install-bearing after-ack, which
-            returns skip); outbound keeps the ≥2 "Acknowledge all" convenience. */}
-        {deliveringUnits.length >= (run.direction === "RETURN" ? 1 : 2) && (
+        {/* Stays available while ANY unit is still un-acknowledged (≥1) — not just
+            ≥2 — so the remaining units after a per-unit ack can still be done in
+            one pass. Free-typed lines aren't acked here; they use "Mark delivered". */}
+        {deliveringUnits.length >= 1 && (
           <Button
             size="small"
             variant="contained"
@@ -593,7 +593,7 @@ export default function DeliveryBasketPage() {
             }}
             disabled={busy || ackBusy}
           >
-            {run.direction === "RETURN" ? `Confirm return (${deliveringUnits.length})` : `Acknowledge all (${deliveringUnits.length})`}
+            {run.direction === "RETURN" ? `Confirm return (${deliveringUnits.length})` : `Acknowledge remaining (${deliveringUnits.length})`}
           </Button>
         )}
       </Stack>

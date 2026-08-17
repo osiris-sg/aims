@@ -227,7 +227,7 @@ export default function ScheduleDeliveryDialog({
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const res = await request(
-        { path: "/documents", method: "POST" },
+        { path: "/documents/paginated", method: "POST" },
         {
           organizationId: organization?.id,
           documentTypes: ["QUOTATION", "QT", "QO", "QO1", "QO2"],
