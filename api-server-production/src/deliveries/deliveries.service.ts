@@ -297,13 +297,14 @@ export class DeliveriesService {
     // the rider's project pick can later resolve back to this run.
     const project = await this.prisma.project.findFirst({
       where: { id: dto.projectId, organizationId },
-      select: { id: true, name: true, customerId: true, address: true, siteOffice: { select: { address: true } } },
+      select: { id: true, name: true, customerId: true },
     });
     if (!project) throw new NotFoundException('Project not found in this organization');
     const customerId = dto.customerId ?? project.customerId ?? undefined;
-    // Delivery address: what the office typed (dto.address) wins; else the
-    // project's own address, then its site office's. Lands on the DO's Deliver To.
-    const deliveryAddress = (dto.address?.trim() || project.address || project.siteOffice?.address || '').trim();
+    // Delivery address: what the office typed (dto.address) wins; else default to
+    // the project NAME (for this fleet the project name IS its site address).
+    // Lands on the DO's Deliver To.
+    const deliveryAddress = (dto.address?.trim() || project.name || '').trim();
     const assetIds = [...new Set(dto.items.map((i) => i.assetId).filter((v): v is string => !!v))];
     const assets = await this.prisma.asset.findMany({
       where: { id: { in: assetIds }, organizationId, deletedAt: null },

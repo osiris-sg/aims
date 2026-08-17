@@ -31,10 +31,6 @@ export class UpdateProjectDto {
 
   @IsString()
   @IsOptional()
-  address?: string;
-
-  @IsString()
-  @IsOptional()
   siteOfficeId?: string;
 
   @IsString()

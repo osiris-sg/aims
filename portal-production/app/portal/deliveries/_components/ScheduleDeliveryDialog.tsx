@@ -37,7 +37,7 @@ import ExtractQuotationDialog from "@/containers/DocumentTemplates/components/Ex
 
 interface AssetOption { id: string; name: string; skuKey: string }
 interface CustomerOption { id: string; name: string; customerCode: string | null; address: string | null }
-interface ProjectOption { id: string; name: string; address: string | null }
+interface ProjectOption { id: string; name: string }
 // quantity is a RAW STRING so the field is freely typeable; clamped on blur/submit.
 // A row is EITHER a catalog product (asset set) OR free-typed (asset null +
 // description). quantity is shared.
@@ -185,9 +185,7 @@ export default function ScheduleDeliveryDialog({
         const docs = res?.data?.docs;
         if (!cancelled) {
           setProjectOptions(
-            Array.isArray(docs)
-              ? docs.map((p: any) => ({ id: p.id, name: p.name, address: p.address ?? p.siteOffice?.address ?? null }))
-              : [],
+            Array.isArray(docs) ? docs.map((p: any) => ({ id: p.id, name: p.name })) : [],
           );
         }
       } catch {
@@ -199,13 +197,13 @@ export default function ScheduleDeliveryDialog({
     };
   }, [customer, getToken]);
 
-  // Auto-fill the delivery address from the PROJECT's address (fallback: the
-  // customer's), unless the user has already typed one. Mirrors the project so
-  // the DO's "Deliver To" matches what the project says.
+  // Auto-fill the delivery address from the PROJECT NAME — for this fleet a
+  // project's name IS its site address (e.g. "Tuas Avenue 8"). Freely editable
+  // afterwards; lands on the DO's "Deliver To".
   useEffect(() => {
     if (addressTouched) return;
-    setAddress(project?.address || customer?.address || "");
-  }, [project, customer, addressTouched]);
+    setAddress(project?.name || "");
+  }, [project, addressTouched]);
 
   const setRow = (i: number, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -270,7 +268,7 @@ export default function ScheduleDeliveryDialog({
     }
     if (cfg.projectId) {
       const match = projectOptions.find((p) => p.id === cfg.projectId);
-      setProject(match ?? { id: String(cfg.projectId), name: cfg.projectName || "Project from quotation", address: null });
+      setProject(match ?? { id: String(cfg.projectId), name: cfg.projectName || "Project from quotation" });
     }
     const items: any[] = Array.isArray(cfg.items) ? cfg.items : [];
     if (items.length) {
