@@ -1969,6 +1969,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     {infoRow("Attention", data.attention?.name || data.documentInfo?.contactName || data.documentInfo?.contact || "", { boldValue: true })}
                     {infoRow("Mobile", data.attention?.phoneNumber || data.attention?.phone || data.documentInfo?.contactNumber || "", { boldValue: true })}
                     {infoRow("Delivery To", data.deliveryTo || "", { boldValue: true })}
+                    {/* Project — directly below Deliver To; blank-hidden. */}
+                    {(data.projectName || data.documentInfo?.projectName || data.project?.name)
+                      ? infoRow("Project", data.projectName || data.documentInfo?.projectName || data.project?.name, { boldValue: true })
+                      : null}
                   </Box>
                 </Box>
                 <Box sx={{ width: "40%" }}>

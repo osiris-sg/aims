@@ -613,15 +613,34 @@ export class DeliveriesService {
     if (!dto.assetId) {
       const description = dto.description?.trim();
       if (!description) throw new BadRequestException('A description is required for a free-typed item');
-      return this.prisma.deliveryItem.create({
+      const quantity = dto.quantity ?? 1;
+      // If this run is DO-linked (scheduled / merged), a field-added free-typed
+      // line must ALSO reach the DO — mirror the schedule path: born-link the item
+      // to the run's DO and append a description line to it. Otherwise (unlinked
+      // run) it stays office-resolved later. (Fixes the "N of N+1 linked" drift.)
+      const linked = await this.prisma.deliveryItem.findFirst({
+        where: { deliveryId, documentId: { not: null } },
+        select: { documentId: true },
+      });
+      const documentId = linked?.documentId ?? null;
+      const created = await this.prisma.deliveryItem.create({
         data: {
           deliveryId,
           assetId: null,
           inventoryId: null,
           description,
-          quantity: dto.quantity ?? 1,
+          quantity,
+          ...(documentId ? { documentId } : {}),
         },
       });
+      if (documentId) {
+        try {
+          await this.documentsService.appendFreeTypedLineToDocument(documentId, organizationId, { description, quantity });
+        } catch (err: any) {
+          this.logger.warn(`addItem: appending free-typed line to DO ${documentId} failed: ${err?.message}`);
+        }
+      }
+      return created;
     }
 
     const asset = await this.prisma.asset.findFirst({

@@ -4141,6 +4141,35 @@ export class DocumentsService {
   };
 
   /**
+   * Append ONE free-typed (description-only) line to a document — mirrors how a
+   * scheduled DO carries free-typed lines. Pushes a `{description, quantity}` row
+   * into config.items (no assetId / no unit) and re-syncs DocumentItems so the two
+   * layers stay consistent. Used when a rider adds a free-typed item in the field
+   * basket on a DO-linked run (there's no asset slot to bind, so the DO would
+   * otherwise never gain the line). No pricing, no stock, no GL.
+   */
+  async appendFreeTypedLineToDocument(
+    documentId: string,
+    organizationId: string,
+    line: { description: string; quantity: number },
+  ): Promise<void> {
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { config: true },
+    });
+    if (!doc) return;
+    const config: any = doc.config ?? {};
+    const items: any[] = Array.isArray(config.items) ? config.items : [];
+    items.push({ description: line.description, quantity: line.quantity, unitPrice: 0, amount: 0 });
+    const newConfig = { ...config, items };
+    await this.prisma.document.update({
+      where: { id: documentId },
+      data: { config: newConfig as Prisma.InputJsonValue },
+    });
+    await this.syncDocumentItems(documentId, newConfig, organizationId);
+  }
+
+  /**
    * Auto-bind (tag-time): fill ONE unbound asset-level slot on the given DO
    * with a specific physical unit. A "slot" is a DocumentItem the office left
    * at asset level: itemType=ASSET, inventoryId NULL, same asset, still
