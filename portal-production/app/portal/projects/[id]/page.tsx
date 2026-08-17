@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
@@ -1002,6 +1003,10 @@ function FieldReportCard({
           <Stack direction="row" gap={1} flexWrap="wrap">
             {report.photos.map((p) => {
               const src = resolveImageSrc(p);
+              // S3 keys go through next/image (resized thumbnail); data: /
+              // pass-through URLs fall back to a plain lazy <img>. Click still
+              // opens the full-size src in the viewer dialog.
+              const optimizable = src.startsWith(RESOURCE_URL);
               return (
                 <Box
                   key={p}
@@ -1017,8 +1022,26 @@ function FieldReportCard({
                     "&:hover": { borderColor: "primary.main" },
                   }}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  {optimizable ? (
+                    <Image
+                      src={src}
+                      alt=""
+                      width={96}
+                      height={96}
+                      loading="lazy"
+                      decoding="async"
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={src}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    />
+                  )}
                 </Box>
               );
             })}

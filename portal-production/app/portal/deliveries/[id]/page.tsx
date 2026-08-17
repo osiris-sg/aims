@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Image from "next/image";
 import { useAuth } from "@clerk/nextjs";
 import {
   Alert,
@@ -569,17 +570,51 @@ export default function DeliveryDetailPage() {
               )}
               {r.photos.length > 0 && (
                 <Stack direction="row" spacing={1} sx={{ mb: 1, flexWrap: "wrap", gap: 1 }}>
-                  {r.photos.map((k) => (
-                    <Box
-                      key={k}
-                      component="a"
-                      href={imgSrc(k)}
-                      target="_blank"
-                      sx={{ display: "block" }}
-                    >
-                      <Box component="img" src={imgSrc(k)} alt="Delivery photo" sx={{ width: 120, height: 120, objectFit: "cover", borderRadius: 1, border: "1px solid", borderColor: "divider" }} />
-                    </Box>
-                  ))}
+                  {r.photos.map((k) => {
+                    const src = imgSrc(k);
+                    // Only S3-hosted keys can go through next/image's optimizer
+                    // (resized thumbnail); data: / other URLs fall back to a
+                    // plain lazy <img>. Full-size raw src stays behind the link.
+                    const optimizable = src.startsWith(RESOURCE_URL);
+                    return (
+                      <Box
+                        key={k}
+                        component="a"
+                        href={src}
+                        target="_blank"
+                        sx={{
+                          display: "block",
+                          width: 120,
+                          height: 120,
+                          borderRadius: 1,
+                          overflow: "hidden",
+                          border: "1px solid",
+                          borderColor: "divider",
+                        }}
+                      >
+                        {optimizable ? (
+                          <Image
+                            src={src}
+                            alt="Delivery photo"
+                            width={120}
+                            height={120}
+                            loading="lazy"
+                            decoding="async"
+                            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                          />
+                        ) : (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={src}
+                            alt="Delivery photo"
+                            loading="lazy"
+                            decoding="async"
+                            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                          />
+                        )}
+                      </Box>
+                    );
+                  })}
                 </Stack>
               )}
               {r.signature && (
