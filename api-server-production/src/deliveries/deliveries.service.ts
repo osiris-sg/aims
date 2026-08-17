@@ -297,19 +297,28 @@ export class DeliveriesService {
     // the rider's project pick can later resolve back to this run.
     const project = await this.prisma.project.findFirst({
       where: { id: dto.projectId, organizationId },
-      select: { id: true, customerId: true },
+      select: { id: true, name: true, customerId: true, address: true, siteOffice: { select: { address: true } } },
     });
     if (!project) throw new NotFoundException('Project not found in this organization');
     const customerId = dto.customerId ?? project.customerId ?? undefined;
-    const assetIds = [...new Set(dto.items.map((i) => i.assetId))];
+    // Delivery address: what the office typed (dto.address) wins; else the
+    // project's own address, then its site office's. Lands on the DO's Deliver To.
+    const deliveryAddress = (dto.address?.trim() || project.address || project.siteOffice?.address || '').trim();
+    const assetIds = [...new Set(dto.items.map((i) => i.assetId).filter((v): v is string => !!v))];
     const assets = await this.prisma.asset.findMany({
       where: { id: { in: assetIds }, organizationId, deletedAt: null },
       select: { id: true, name: true, skuKey: true },
     });
     const assetById = new Map(assets.map((a) => [a.id, a]));
+    // Each line is EITHER a catalog product (assetId) OR a FREE-TYPED line
+    // (description only, no assetId). Free-typed slots carry through to the DO as
+    // a description line but can never be unit-bound by a rider (nothing to match).
     for (const it of dto.items) {
-      if (!assetById.has(it.assetId)) throw new NotFoundException(`Asset ${it.assetId} not found in this organization`);
+      if (it.assetId && !assetById.has(it.assetId)) throw new NotFoundException(`Asset ${it.assetId} not found in this organization`);
+      if (!it.assetId && !it.description?.trim()) throw new BadRequestException('A free-typed item needs a description');
     }
+    const lineDescription = (it: { assetId?: string; description?: string }) =>
+      it.assetId ? assetById.get(it.assetId)!.name : (it.description?.trim() ?? '');
 
     // 1. Create the scheduled run (asset-only items). Per-org serial + P2002 retry.
     let run: Prisma.DeliveryGetPayload<{ include: { items: true } }> | null = null;
@@ -331,13 +340,13 @@ export class DeliveriesService {
             scheduledFor: new Date(dto.scheduledFor),
             projectId: dto.projectId,
             customerId,
-            ...(dto.address?.trim() ? { siteAddress: dto.address.trim() } : {}),
+            ...(deliveryAddress ? { siteAddress: deliveryAddress } : {}),
             items: {
               create: dto.items.map((it) => ({
-                assetId: it.assetId,
+                assetId: it.assetId ?? null, // null = free-typed (never unit-bound)
                 inventoryId: null, // asset-only — bound when a rider scans a unit
                 quantity: it.quantity,
-                description: assetById.get(it.assetId)!.name,
+                description: lineDescription(it),
               })),
             },
           },
@@ -365,16 +374,35 @@ export class DeliveriesService {
           })
         : null;
       const doConfig: Record<string, any> = {
-        // Asset-level lines (assetId only → syncDocumentItems makes ASSET-typed
-        // DocumentItems = the unbound slots bindUnitToUnboundDoSlot fills on scan).
-        items: dto.items.map((it) => {
+        // Catalog lines are EXPANDED to N × qty-1 ASSET slots (not one qty-N line)
+        // so each unit binds its OWN slot and stamps its OWN serial as it merges
+        // in — bindUnitToUnboundDoSlot fills one qty-1 slot per unit. `deliveryGroup`
+        // makes the preview render them as the office's grouped block ("Rental of
+        // N units of {name} / Model: {skuKey} / S/No.: …") and the invoice price
+        // per unit. Free-typed lines (no assetId) stay as a single description row.
+        items: dto.items.flatMap((it) => {
+          if (!it.assetId) {
+            return [{ description: it.description?.trim() ?? '', quantity: it.quantity, unitPrice: 0, amount: 0 }];
+          }
           const a = assetById.get(it.assetId)!;
-          return { assetId: it.assetId, sku: a.skuKey, itemCode: a.skuKey, description: a.name, quantity: it.quantity, unitPrice: 0, amount: 0 };
+          return Array.from({ length: it.quantity }, () => ({
+            assetId: it.assetId,
+            sku: a.skuKey,
+            itemCode: a.skuKey,
+            skuKey: a.skuKey,
+            description: a.name,
+            quantity: 1,
+            unitPrice: 0,
+            amount: 0,
+            deliveryGroup: it.assetId, // preview grouping key (per-asset block)
+          }));
         }),
         ...(dto.poNumber ? { poNo: dto.poNumber } : {}),
-        // "Deliver To" on the DO template reads config.deliveryTo — wire the
-        // scheduled run's site address to it (previously never populated).
-        ...(dto.address?.trim() ? { deliveryTo: dto.address.trim() } : {}),
+        // The DO template renders the project from config.projectName (#1) and
+        // "Deliver To" from config.deliveryTo (#3) — wire both (were unpopulated).
+        projectName: project.name,
+        documentInfo: { projectName: project.name },
+        ...(deliveryAddress ? { deliveryTo: deliveryAddress } : {}),
         ...(customer
           ? {
               customerId: customer.id,
@@ -1649,6 +1677,61 @@ export class DeliveriesService {
    * flag, so a fully-skipped run completes normally. Run-scoped twin of the
    * DO-first POST /maintenance-reports/do-skip-install/:doId.
    */
+  /**
+   * "Acknowledge all" (2026-08): capture ONE customer signature + one photo + GPS
+   * and apply the SAME proof to EVERY unit currently `delivering` on the run, so a
+   * rider with N units doesn't walk the ack flow N times. ONE DO_ACK MSR per unit
+   * (each carrying the shared proof) keeps per-item state transitions correct —
+   * each unit advances delivering → not_installed via advanceDeliveryItem('ack'),
+   * which also does the reserved → rental/sold hand-off flip. The per-unit ack
+   * stays available for partial deliveries.
+   */
+  async acknowledgeAll(
+    deliveryId: string,
+    dto: { signature?: string; recipientName?: string; photos?: string[]; latitude?: number; longitude?: number; technicianName?: string },
+    organizationId: string,
+    technicianUserId: string,
+  ) {
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: { id: true, status: true, items: { select: { inventoryId: true, assetId: true, deliveryStatus: true } } },
+    });
+    if (!run) throw new NotFoundException('Delivery not found');
+    if (run.status === 'cancelled') throw new BadRequestException('Cannot acknowledge on a cancelled delivery');
+    // Only units mid-delivery (DO_START fired, not yet acknowledged) with a unit.
+    const pending = run.items.filter(
+      (i) => i.inventoryId && i.assetId && i.deliveryStatus === DeliveryStatus.delivering,
+    );
+    if (pending.length === 0) throw new BadRequestException('No units are awaiting acknowledgement on this run');
+
+    const now = new Date();
+    let acknowledged = 0;
+    for (const it of pending) {
+      await this.prisma.maintenanceServiceReport.create({
+        data: {
+          organizationId,
+          technicianUserId,
+          assetId: it.assetId!,
+          inventoryId: it.inventoryId!,
+          deliveryId,
+          kind: 'DO_ACK',
+          status: dto.signature ? 'completed' : 'draft',
+          description: 'Delivery acknowledged (bulk)',
+          ...(dto.signature ? { signature: dto.signature, signedAt: now } : {}),
+          ...(dto.recipientName ? { signedByName: dto.recipientName } : {}),
+          ...(dto.photos?.length ? { photos: dto.photos } : {}),
+          ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
+          ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
+          ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
+        },
+      });
+      const updated = await this.advanceDeliveryItem(deliveryId, it.inventoryId!, 'ack', organizationId);
+      if (updated) acknowledged++;
+    }
+    await this.recomputeRunStatus(deliveryId, organizationId);
+    return { acknowledged, total: pending.length };
+  }
+
   async skipInstall(deliveryId: string, inventoryId: string, organizationId: string) {
     const updated = await this.advanceDeliveryItem(deliveryId, inventoryId, 'skip', organizationId);
     if (!updated) {

@@ -677,6 +677,10 @@ model Project {
   projectNumber    String? // e.g. PRJ-2026-001
   name             String
   description      String?
+  // Optional plain delivery/site address for the project (free text). Preferred
+  // over the linked SiteOffice.address as the "Deliver To" source for scheduled
+  // deliveries. Additive/nullable.
+  address          String?
   organizationId   String?
   customerId       String?             @db.Uuid // direct FK; siteOffice still optional
   customerPoNumber String?

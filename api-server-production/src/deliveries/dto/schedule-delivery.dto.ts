@@ -12,13 +12,23 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-/** One scheduled line: an ASSET + a quantity (no specific unit — asset-only). */
+/**
+ * One scheduled line. EITHER a catalog product (assetId) + quantity, OR a
+ * FREE-TYPED line (description only, no assetId — office resolves it later; a
+ * rider can never unit-bind to it). Exactly one of assetId/description is used.
+ */
 export class ScheduleDeliveryItemDto {
-  @ApiProperty({ description: 'Asset to schedule (UUID).' })
+  @ApiProperty({ required: false, description: 'Catalog asset (UUID). Omit for a free-typed line.' })
+  @IsOptional()
   @IsUUID()
-  assetId!: string;
+  assetId?: string;
 
-  @ApiProperty({ description: 'How many units of this asset to deliver.', default: 1 })
+  @ApiProperty({ required: false, description: 'Free-typed description (used when no assetId).' })
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiProperty({ description: 'How many units of this line to deliver.', default: 1 })
   @IsInt()
   @Min(1)
   quantity!: number;

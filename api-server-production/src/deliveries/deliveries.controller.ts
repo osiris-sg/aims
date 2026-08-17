@@ -8,7 +8,7 @@ import { DeliveriesService } from './deliveries.service';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { AddDeliveryItemDto } from './dto/add-delivery-item.dto';
 import { CreateDoFromDeliveryDto, LinkDeliveryDto } from './dto/link-delivery.dto';
-import { AddItemPhotosDto, AssignDeliveryItemDto, SetDeploymentTypeDto, SkipInstallDto } from './dto/assign-delivery.dto';
+import { AckAllDto, AddItemPhotosDto, AssignDeliveryItemDto, SetDeploymentTypeDto, SkipInstallDto } from './dto/assign-delivery.dto';
 import { ScheduleDeliveryDto, ClaimScheduledDto } from './dto/schedule-delivery.dto';
 
 interface ClerkRequest extends Request {
@@ -152,6 +152,21 @@ export class DeliveriesController {
     @UserOrganization() org: { id: string },
   ) {
     return this.service.skipInstall(id, dto.inventoryId, org.id);
+  }
+
+  // Field: acknowledge EVERY delivering unit on the run at once with one
+  // signature + photo + GPS (one DO_ACK MSR per unit carrying the shared proof).
+  @Post(':id/ack-all')
+  @Permissions('maintenance-reports:create')
+  ackAll(
+    @Param('id') id: string,
+    @Body() dto: AckAllDto,
+    @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
+  ) {
+    const riderUserId = req.user?.id;
+    if (!riderUserId) throw new UnauthorizedException('Missing authenticated user');
+    return this.service.acknowledgeAll(id, dto, org.id, riderUserId);
   }
 
   // Mark a FREE-TYPED item delivered (no unit to scan). Keyed by DeliveryItem.id;
