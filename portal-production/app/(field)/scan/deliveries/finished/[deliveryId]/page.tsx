@@ -276,7 +276,7 @@ export default function FinishedDeliveryDetailPage() {
               <Stack direction="row" spacing={1} alignItems="flex-start">
                 <CheckCircleIcon color="success" fontSize="small" sx={{ mt: 0.2 }} />
                 <Typography variant="body2">
-                  Invoice <b>{run.invoice.name ?? run.invoice.id}</b> created — <i>draft, needs pricing</i>
+                  Invoice <b>{run.invoice.name ?? run.invoice.id}</b> created — <i>draft — review pricing</i>
                 </Typography>
               </Stack>
             ) : run.document ? (
