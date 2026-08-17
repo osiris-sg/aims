@@ -331,6 +331,7 @@ export class DeliveriesService {
             scheduledFor: new Date(dto.scheduledFor),
             projectId: dto.projectId,
             customerId,
+            ...(dto.address?.trim() ? { siteAddress: dto.address.trim() } : {}),
             items: {
               create: dto.items.map((it) => ({
                 assetId: it.assetId,
@@ -371,6 +372,9 @@ export class DeliveriesService {
           return { assetId: it.assetId, sku: a.skuKey, itemCode: a.skuKey, description: a.name, quantity: it.quantity, unitPrice: 0, amount: 0 };
         }),
         ...(dto.poNumber ? { poNo: dto.poNumber } : {}),
+        // "Deliver To" on the DO template reads config.deliveryTo — wire the
+        // scheduled run's site address to it (previously never populated).
+        ...(dto.address?.trim() ? { deliveryTo: dto.address.trim() } : {}),
         ...(customer
           ? {
               customerId: customer.id,

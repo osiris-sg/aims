@@ -102,6 +102,24 @@ export default function DeliveriesQueuePage() {
     void load();
   }, [load]);
 
+  // Open a linked DO in the document editor. The list summary doesn't carry the
+  // template id, so resolve it via GET /documents/:id first (same pattern the
+  // run-detail "Create DO" flow uses), then route into the DELIVERY_ORDER editor.
+  const openDocument = useCallback(
+    async (docId: string) => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request({ path: `/documents/${docId}`, method: "GET" }, {}, token);
+        const templateId = (res?.data ?? res)?.documentTemplateId;
+        if (templateId) router.push(`/portal/documents/DELIVERY_ORDER/${templateId}/${docId}`);
+      } catch {
+        /* non-fatal: leave the user on the list */
+      }
+    },
+    [getToken, router],
+  );
+
   return (
     <Box sx={{ p: 3 }}>
       <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 0.5 }}>
@@ -199,13 +217,26 @@ export default function DeliveriesQueuePage() {
                           );
                         }
                         const distinct = Array.from(new Map(linked.filter((i) => i.document).map((i) => [i.document!.id, i.document!])).values());
+                        // Single DO → a clickable chip that opens the document; multiple
+                        // distinct DOs → a plain count (open individual ones from the run).
+                        if (distinct.length === 1) {
+                          const d = distinct[0];
+                          return (
+                            <Chip
+                              size="small"
+                              variant="outlined"
+                              color="success"
+                              clickable
+                              label={d.name ?? "linked"}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void openDocument(d.id);
+                              }}
+                            />
+                          );
+                        }
                         return (
-                          <Chip
-                            size="small"
-                            variant="outlined"
-                            color="success"
-                            label={distinct.length === 1 ? distinct[0].name ?? "linked" : `${distinct.length} DOs`}
-                          />
+                          <Chip size="small" variant="outlined" color="success" label={`${distinct.length} DOs`} />
                         );
                       })()}
                     </TableCell>
