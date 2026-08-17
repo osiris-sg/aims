@@ -383,7 +383,10 @@ export default function ScheduleDeliveryDialog({
           sx={{ mb: 2 }}
         />
 
-        {/* 3) ADDRESS (auto-filled from the project; freely editable → DO "Deliver To") */}
+        {/* 3) ADDRESS (auto-filled from the project; freely editable → DO "Deliver To").
+            When auto-filled, render the text as clearly-present, editable content
+            (solid text + shrunk label + subtle highlight) so it never reads as a
+            greyed placeholder. */}
         <TextField
           label="Delivery address"
           placeholder="Where the goods go — lands on the DO's Deliver To"
@@ -396,8 +399,22 @@ export default function ScheduleDeliveryDialog({
           size="small"
           multiline
           minRows={2}
-          helperText="Auto-filled from the project; edit as needed."
-          sx={{ mb: 2 }}
+          // Keep the label floated so the filled address sits plainly in the box.
+          InputLabelProps={{ shrink: true }}
+          helperText={
+            address && !addressTouched
+              ? "Auto-filled from the project — edit if needed"
+              : "Where the goods go — lands on the DO's Deliver To"
+          }
+          sx={{
+            mb: 2,
+            // Full-strength text (never the muted placeholder colour).
+            "& .MuiInputBase-input": { color: "text.primary", opacity: 1, fontWeight: 500 },
+            // Subtle highlight while the value is still the project's auto-fill.
+            ...(address && !addressTouched
+              ? { "& .MuiOutlinedInput-root": { backgroundColor: "action.hover" } }
+              : {}),
+          }}
         />
 
         {/* 4) PRODUCTS */}
