@@ -196,7 +196,7 @@ export class ProjectsService {
             name: project.name,
             projectNumber: project.projectNumber,
             siteOffice: project.siteOffice
-              ? { id: project.siteOffice.id, name: project.siteOffice.name }
+              ? { id: project.siteOffice.id, name: project.siteOffice.name, address: project.siteOffice.address ?? null }
               : null,
             customer: resolvedCustomer
               ? { id: resolvedCustomer.id, name: resolvedCustomer.name }

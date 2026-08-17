@@ -58,6 +58,15 @@ export class ScheduleDeliveryDto {
   @IsOptional()
   @IsString()
   poNumber?: string;
+
+  @ApiProperty({
+    required: false,
+    description:
+      'Delivery/site address (free text; auto-filled from the project in the UI). Lands on the run\'s siteAddress AND the draft DO\'s config.deliveryTo ("Deliver To").',
+  })
+  @IsOptional()
+  @IsString()
+  address?: string;
 }
 
 /**
