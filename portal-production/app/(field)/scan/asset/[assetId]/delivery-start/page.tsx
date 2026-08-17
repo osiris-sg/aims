@@ -48,6 +48,10 @@ export default function StartDeliveryPage() {
   // Standalone mode (Layer 3): no DO exists — create a Delivery run first,
   // then the DO_START MSR carries deliveryId instead of documentId.
   const standalone = search?.get("standalone") === "1";
+  // RETURN mode (reverse delivery): collect a rental unit back to stock. Same
+  // field flow (photo/GPS at pickup → collect-ack) minus the assign + install.
+  const isReturn = search?.get("return") === "1";
+  const verb = isReturn ? "Return" : "Delivery";
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Optional outbound-condition photos (no minimum) — same shared capture
@@ -256,10 +260,13 @@ export default function StartDeliveryPage() {
             assetId,
             inventoryId,
             ...(technicianName ? { riderName: technicianName } : {}),
+            // RETURN run: the backend skips reservation (the unit is out on
+            // rental) and blocks a sold unit with the credit-note message.
+            ...(isReturn ? { direction: "RETURN" } : {}),
           },
           token,
         );
-        if (runRes.success === false) throw new Error(runRes.message ?? "Could not start delivery");
+        if (runRes.success === false) throw new Error(runRes.message ?? (isReturn ? "Could not start return" : "Could not start delivery"));
         deliveryId = runRes.data?.id ?? runRes.id;
         if (!deliveryId) throw new Error("No delivery id returned");
       }
@@ -269,7 +276,7 @@ export default function StartDeliveryPage() {
         {
           assetId,
           ...(inventoryId ? { inventoryId } : {}),
-          description: "Delivery started",
+          description: isReturn ? "Return started" : "Delivery started",
           kind: "DO_START",
           ...(standalone && deliveryId ? { deliveryId } : { documentId: doId }),
           ...(technicianName ? { technicianName } : {}),
@@ -289,8 +296,14 @@ export default function StartDeliveryPage() {
       // (which awaits Android permission prompts that can take seconds).
       void bgLocation.start(reportId);
       if (standalone && deliveryId) {
-        // Standalone: assign is the last step of starting — park in the assign
-        // phase (optional project pick), then land on the basket.
+        // RETURN: the unit is already on a project — no assign step. Go straight
+        // to the run basket to collect (acknowledge) and finish.
+        if (isReturn) {
+          router.replace(`/scan/delivery/${deliveryId}`);
+          return;
+        }
+        // Standalone delivery: assign is the last step of starting — park in the
+        // assign phase (optional project pick), then land on the basket.
         setRunId(deliveryId);
         setPhase("assign");
         setSubmitting(false);
@@ -369,7 +382,7 @@ export default function StartDeliveryPage() {
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 3, alignItems: "center" }}>
       <LocalShippingIcon sx={{ fontSize: 80, color: "primary.main", mt: 4 }} />
       <Typography variant="h6" fontWeight={700} sx={{ textAlign: "center" }}>
-        Start Delivery
+        Start {verb}
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center", maxWidth: 360 }}>
         Confirm you&apos;re taking this equipment out for delivery. GPS tracking
@@ -427,7 +440,7 @@ export default function StartDeliveryPage() {
           fullWidth
           sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
         >
-          {submitting ? <CircularProgress size={20} color="inherit" /> : uploading ? "Uploading…" : "Confirm & Start"}
+          {submitting ? <CircularProgress size={20} color="inherit" /> : uploading ? "Uploading…" : `Confirm & Start ${verb}`}
         </Button>
       </Stack>
     </Box>

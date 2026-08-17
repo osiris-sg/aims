@@ -2294,12 +2294,20 @@ enum DeliveryRunStatus {
   cancelled // abandoned — reserved units restored to instock
 }
 
+enum DeliveryDirection {
+  OUTBOUND // normal delivery: stock goes OUT to a project (instock → rental/sold)
+  RETURN // reverse delivery: rental stock comes BACK from a project (rental → instock)
+}
+
 model Delivery {
   id             String            @id @default(uuid()) @db.Uuid
   organizationId String
   // Per-org serial (paper-trail analogue, same pattern as MSR.reportNumber).
   // Assigned at creation — required, unlike MSR's nullable historic rows.
   deliveryNumber Int
+  // OUTBOUND (normal delivery) or RETURN (reverse — collecting rentals back to
+  // stock). Additive with a default so every existing run reads as OUTBOUND.
+  direction      DeliveryDirection @default(OUTBOUND)
   status         DeliveryRunStatus @default(in_progress)
   // Nullable so an office-SCHEDULED run can exist before any rider picks it up.
   // The rider claims it at scan-to-bind (sets riderUserId, status → in_progress).

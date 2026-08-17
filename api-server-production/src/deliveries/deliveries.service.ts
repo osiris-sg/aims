@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { DeliveryStatus, DeploymentStatus, DeploymentType, InventoryStatus, Prisma } from '@prisma/client';
+import { DeliveryDirection, DeliveryStatus, DeploymentStatus, DeploymentType, InventoryStatus, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
 import { isUnconfirmedDoc } from 'src/common/doc-status';
 import { DocumentsService } from '../documents/documents.service';
@@ -518,6 +518,26 @@ export class DeliveriesService {
     });
     if (!asset) throw new NotFoundException('Asset not found in this organization');
 
+    // RETURN (reverse delivery): the unit is already OUT on rental, so we DON'T
+    // reserve (reserve is an instock→reserved claim). Guard it's genuinely a
+    // rental — a SOLD unit is a commercial reversal (credit note), not a return.
+    const isReturn = dto.direction === 'RETURN';
+    if (isReturn && dto.inventoryId) {
+      const unit = await this.prisma.inventory.findFirst({
+        where: { id: dto.inventoryId, organizationId },
+        select: { status: true },
+      });
+      if (!unit) throw new NotFoundException('Unit not found in this organization');
+      if (unit.status === InventoryStatus.sold) {
+        throw new BadRequestException(
+          'This unit was sold — process a Credit Note to take it back, then it can be re-received into stock. It cannot be returned as a rental.',
+        );
+      }
+      if (unit.status !== InventoryStatus.rental) {
+        throw new BadRequestException(`Only a unit currently out on rental can be returned (this one is ${unit.status}).`);
+      }
+    }
+
     // Per-org serial with P2002 retry (same pattern as MSR.reportNumber).
     const computeNextNumber = async () => {
       const latest = await this.prisma.delivery.findFirst({
@@ -534,7 +554,7 @@ export class DeliveriesService {
       // Reserve BEFORE creating the run so an unavailable unit fails cleanly
       // with nothing to roll back (first attempt only — the retry is purely a
       // serial-number race, the unit is already ours).
-      if (attempt === 0 && dto.inventoryId) {
+      if (attempt === 0 && dto.inventoryId && !isReturn) {
         await this.reserveUnit(dto.inventoryId, organizationId, deliveryNumber);
       }
       try {
@@ -542,6 +562,7 @@ export class DeliveriesService {
           data: {
             organizationId,
             deliveryNumber,
+            direction: isReturn ? DeliveryDirection.RETURN : DeliveryDirection.OUTBOUND,
             riderUserId,
             riderName: dto.riderName,
             projectId: dto.projectId,
@@ -566,8 +587,9 @@ export class DeliveriesService {
         if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002' && attempt === 0) {
           continue; // serial collision — recompute and retry once
         }
-        // Creation failed for real — don't strand the reservation.
-        if (dto.inventoryId) await this.releaseUnit(dto.inventoryId, 0).catch(() => undefined);
+        // Creation failed for real — don't strand the reservation (RETURN never
+        // reserved, so there's nothing to release).
+        if (dto.inventoryId && !isReturn) await this.releaseUnit(dto.inventoryId, 0).catch(() => undefined);
         throw err;
       }
     }
@@ -1030,6 +1052,7 @@ export class DeliveriesService {
       select: {
         id: true,
         status: true,
+        direction: true,
         completedAt: true,
         items: { select: { deliveryStatus: true } },
       },
@@ -1076,14 +1099,22 @@ export class DeliveriesService {
       // They can't double-fire: the dispatch picks one, and the linked run's
       // documentId makes autoCreate a no-op even if reached.
       if (target === 'completed') {
-        const linkedItem = await this.prisma.deliveryItem.findFirst({
-          where: { deliveryId, documentId: { not: null } },
-          select: { documentId: true },
-        });
-        if (linkedItem?.documentId) {
-          await this.commitScheduledRunOnCompletion(deliveryId, organizationId, linkedItem.documentId);
+        // ⚠️ Direction branch FIRST: a RETURN run must NEVER hit the OUTBOUND DO
+        // path (its items carry no documentId, so the unlinked branch would
+        // wrongly mint a DO). A return produces an RDO only — the stock flip +
+        // off-hire already happened per unit at collection-ack.
+        if (delivery.direction === DeliveryDirection.RETURN) {
+          await this.completeReturnRun(deliveryId, organizationId);
         } else {
-          await this.autoCreateDoOnRunCompletion(deliveryId, organizationId);
+          const linkedItem = await this.prisma.deliveryItem.findFirst({
+            where: { deliveryId, documentId: { not: null } },
+            select: { documentId: true },
+          });
+          if (linkedItem?.documentId) {
+            await this.commitScheduledRunOnCompletion(deliveryId, organizationId, linkedItem.documentId);
+          } else {
+            await this.autoCreateDoOnRunCompletion(deliveryId, organizationId);
+          }
         }
       }
     }
@@ -1694,11 +1725,12 @@ export class DeliveriesService {
   ) {
     const run = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },
-      select: { id: true, status: true, items: { select: { inventoryId: true, assetId: true, deliveryStatus: true } } },
+      select: { id: true, status: true, direction: true, items: { select: { inventoryId: true, assetId: true, deliveryStatus: true } } },
     });
     if (!run) throw new NotFoundException('Delivery not found');
     if (run.status === 'cancelled') throw new BadRequestException('Cannot acknowledge on a cancelled delivery');
-    // Only units mid-delivery (DO_START fired, not yet acknowledged) with a unit.
+    const isReturn = run.direction === DeliveryDirection.RETURN;
+    // Only units mid-flow (started, not yet acknowledged/collected) with a unit.
     const pending = run.items.filter(
       (i) => i.inventoryId && i.assetId && i.deliveryStatus === DeliveryStatus.delivering,
     );
@@ -1707,6 +1739,8 @@ export class DeliveriesService {
     const now = new Date();
     let acknowledged = 0;
     for (const it of pending) {
+      // Reuse the DO_ACK MSR kind for returns too (no new enum value) — the run's
+      // direction distinguishes a collection from a delivery hand-off.
       await this.prisma.maintenanceServiceReport.create({
         data: {
           organizationId,
@@ -1716,7 +1750,7 @@ export class DeliveriesService {
           deliveryId,
           kind: 'DO_ACK',
           status: dto.signature ? 'completed' : 'draft',
-          description: 'Delivery acknowledged (bulk)',
+          description: isReturn ? 'Return collected (bulk)' : 'Delivery acknowledged (bulk)',
           ...(dto.signature ? { signature: dto.signature, signedAt: now } : {}),
           ...(dto.recipientName ? { signedByName: dto.recipientName } : {}),
           ...(dto.photos?.length ? { photos: dto.photos } : {}),
@@ -1725,11 +1759,153 @@ export class DeliveriesService {
           ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
         },
       });
-      const updated = await this.advanceDeliveryItem(deliveryId, it.inventoryId!, 'ack', organizationId);
+      // RETURN: collect (delivering → completed, SKIP install), flip rental →
+      // instock, and off-hire the deployment (last-unit guard). OUTBOUND: the
+      // normal ack (delivering → not_installed) — install/sign still follow.
+      const updated = isReturn
+        ? await this.collectReturnUnit(deliveryId, it.inventoryId!, organizationId)
+        : await this.advanceDeliveryItem(deliveryId, it.inventoryId!, 'ack', organizationId);
       if (updated) acknowledged++;
     }
     await this.recomputeRunStatus(deliveryId, organizationId);
     return { acknowledged, total: pending.length };
+  }
+
+  /**
+   * Collect ONE unit on a RETURN run at collection-ack: advance the item
+   * delivering → completed (returns have NO install step), flip the unit
+   * rental → instock (guarded/idempotent), and off-hire its deployment when it's
+   * the LAST active rental unit on that deployment (partial returns never stop
+   * billing for units still on site). A pure release — nothing was reserved.
+   */
+  private async collectReturnUnit(deliveryId: string, inventoryId: string, organizationId: string) {
+    const item = await this.prisma.deliveryItem.findFirst({
+      where: { deliveryId, inventoryId, deliveryStatus: DeliveryStatus.delivering },
+      select: { id: true },
+    });
+    if (!item) return null; // already collected / not eligible — idempotent
+    const now = new Date();
+    await this.prisma.deliveryItem.update({
+      where: { id: item.id },
+      data: { deliveryStatus: DeliveryStatus.completed, deliveredAt: now, completedAt: now },
+    });
+    // rental → instock (guarded so a re-run / non-rental is a no-op).
+    await this.prisma.inventory.updateMany({
+      where: { id: inventoryId, organizationId, status: InventoryStatus.rental },
+      data: { status: InventoryStatus.instock },
+    });
+    await this.offHireDeploymentOnReturn(inventoryId, organizationId);
+    return this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
+  }
+
+  /**
+   * Off-hire the returned unit's active deployment — but ONLY when no other unit
+   * on that same deployment is still out (`rental`). Reuses projects.offHire
+   * (marks OFF_HIRED + deactivates chained recurring-invoice templates so rent
+   * stops at the return date). Best-effort.
+   */
+  private async offHireDeploymentOnReturn(inventoryId: string, organizationId: string) {
+    try {
+      const assignment = await this.prisma.assignment.findFirst({
+        where: { inventoryId, endDate: null, projectDeploymentId: { not: null } },
+        orderBy: { startDate: 'desc' },
+        select: { projectDeploymentId: true },
+      });
+      const depId = assignment?.projectDeploymentId;
+      if (!depId) return;
+      // Last-unit guard: any OTHER unit on this deployment still out on rental?
+      const siblings = await this.prisma.assignment.findMany({
+        where: { projectDeploymentId: depId, endDate: null, inventoryId: { not: inventoryId } },
+        select: { inventoryId: true },
+      });
+      const sibIds = siblings.map((s) => s.inventoryId).filter((v): v is string => !!v);
+      const stillOut = sibIds.length
+        ? await this.prisma.inventory.count({ where: { id: { in: sibIds }, status: InventoryStatus.rental } })
+        : 0;
+      if (stillOut > 0) return; // partial return — keep billing for the rest
+      await this.projectsService.offHireDeployment(depId, organizationId);
+    } catch (err: any) {
+      this.logger.warn(`offHireDeploymentOnReturn failed for unit ${inventoryId}: ${err?.message}`);
+    }
+  }
+
+  /** Resolve ONE RETURN_DELIVERY_ORDER (RDO) template id for the org. */
+  private async resolveReturnDeliveryOrderTemplateId(organizationId: string): Promise<string> {
+    const type = 'RETURN_DELIVERY_ORDER';
+    const selections = await this.prisma.organizationActiveTemplate.findMany({ where: { organizationId, type } });
+    if (selections.length > 0) {
+      const primary = selections.find((s) => s.isPrimary);
+      if (primary) return primary.templateId;
+      const sel = await this.prisma.documentTemplate.findFirst({
+        where: { id: { in: selections.map((s) => s.templateId) } },
+        select: { id: true },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+      });
+      return sel?.id ?? selections[0].templateId;
+    }
+    const tmpl =
+      (await this.prisma.documentTemplate.findFirst({ where: { type, organizationId, isActive: true }, select: { id: true }, orderBy: [{ createdAt: 'desc' }] })) ??
+      (await this.prisma.documentTemplate.findFirst({ where: { OR: [{ type, isDefault: true }, { type, organizationId }] }, select: { id: true }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }] }));
+    if (!tmpl) throw new NotFoundException('No RETURN_DELIVERY_ORDER template found for this organization');
+    return tmpl.id;
+  }
+
+  /**
+   * RETURN-run completion: create an RDO (Return Delivery Order) from the
+   * collected units — the mirror of autoCreateDoOnRunCompletion, but GOODS-ONLY.
+   * No stock deduction (the rental → instock flip happened per unit at collect-
+   * ack), no invoice, NO GL (RETURN_DELIVERY_ORDER isn't a GL-posting type). The
+   * grouped per-unit lines mirror the DO format so the printed RDO reads the same.
+   * Best-effort + idempotent (skips if the run already produced a document).
+   */
+  private async completeReturnRun(deliveryId: string, organizationId: string) {
+    try {
+      const run = await this.prisma.delivery.findFirst({
+        where: { id: deliveryId, organizationId },
+        select: {
+          id: true, deliveryNumber: true, projectId: true, siteAddress: true,
+          customer: { select: { id: true, name: true } },
+          items: { select: { assetId: true, inventoryId: true, description: true, quantity: true, documentId: true } },
+        },
+      });
+      if (!run) return;
+      if (run.items.some((i) => i.documentId)) return; // already has a doc — idempotent
+      const collected = run.items.filter((i) => i.inventoryId && i.assetId);
+      if (collected.length === 0) return;
+
+      const templateId = await this.resolveReturnDeliveryOrderTemplateId(organizationId);
+      const invIds = collected.map((i) => i.inventoryId!) as string[];
+      const units = await this.prisma.inventory.findMany({
+        where: { id: { in: invIds } },
+        select: { id: true, sku: true, year: true, assetId: true, asset: { select: { skuKey: true, name: true } } },
+      });
+      const unitById = new Map(units.map((u) => [u.id, u]));
+      const items = collected.map((i) => {
+        const u = unitById.get(i.inventoryId!);
+        return {
+          description: i.description ?? u?.asset?.name ?? u?.sku ?? '',
+          quantity: i.quantity ?? 1,
+          unitPrice: 0,
+          amount: 0,
+          inventoryItemId: i.inventoryId,
+          ...(u?.sku ? { serialNumbers: [u.sku] } : {}),
+          ...(u?.asset?.skuKey ? { skuKey: u.asset.skuKey, itemCode: u.asset.skuKey } : {}),
+          ...(u?.year != null ? { year: u.year } : {}),
+          ...(u?.assetId ? { deliveryGroup: u.assetId } : {}),
+        };
+      });
+      const config: Record<string, any> = {
+        items,
+        ...(run.siteAddress ? { deliveryTo: run.siteAddress } : {}),
+        ...(run.customer ? { customerId: run.customer.id, customerName: run.customer.name, customer: { id: run.customer.id, name: run.customer.name } } : {}),
+        note: `Return of ${collected.length} unit(s) collected on delivery run #${run.deliveryNumber}.`,
+      };
+      const doc = await this.documentsService.createBasicDocument(templateId, 'RETURN_DELIVERY_ORDER', organizationId, config, run.projectId ?? undefined);
+      await this.prisma.deliveryItem.updateMany({ where: { deliveryId: run.id }, data: { documentId: doc.id } });
+      this.logger.log(`Return run #${run.deliveryNumber}: created RDO ${doc.id} for ${collected.length} unit(s) (goods-only, no GL).`);
+    } catch (err: any) {
+      this.logger.error(`completeReturnRun failed for delivery ${deliveryId}: ${err?.message}`, err?.stack);
+    }
   }
 
   async skipInstall(deliveryId: string, inventoryId: string, organizationId: string) {

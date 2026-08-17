@@ -73,6 +73,7 @@ interface RunItem {
 interface Run {
   id: string;
   deliveryNumber: number;
+  direction?: "OUTBOUND" | "RETURN";
   status: "in_progress" | "delivered" | "completed" | "cancelled";
   riderName: string | null;
   siteAddress: string | null;
@@ -544,7 +545,7 @@ export default function DeliveryBasketPage() {
       <Stack direction="row" spacing={2} alignItems="center">
         <LocalShippingIcon color="primary" sx={{ fontSize: 44 }} />
         <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography variant="h6" fontWeight={700}>Delivery #{run.deliveryNumber}</Typography>
+          <Typography variant="h6" fontWeight={700}>{run.direction === "RETURN" ? "Return" : "Delivery"} #{run.deliveryNumber}</Typography>
           <Typography variant="body2" color="text.secondary">
             {RUN_STATUS_LABEL[run.status]}
             {(() => {
@@ -577,7 +578,10 @@ export default function DeliveryBasketPage() {
         </Typography>
         {/* One signature/photo/GPS for every unit still delivering (per-unit
             Acknowledge stays available below for partial deliveries). */}
-        {deliveringUnits.length >= 2 && (
+        {/* Returns collect via this one action even for a single unit (the
+            per-unit ack routes through the install-bearing after-ack, which
+            returns skip); outbound keeps the ≥2 "Acknowledge all" convenience. */}
+        {deliveringUnits.length >= (run.direction === "RETURN" ? 1 : 2) && (
           <Button
             size="small"
             variant="contained"
@@ -589,7 +593,7 @@ export default function DeliveryBasketPage() {
             }}
             disabled={busy || ackBusy}
           >
-            Acknowledge all ({deliveringUnits.length})
+            {run.direction === "RETURN" ? `Confirm return (${deliveringUnits.length})` : `Acknowledge all (${deliveringUnits.length})`}
           </Button>
         )}
       </Stack>
@@ -645,7 +649,7 @@ export default function DeliveryBasketPage() {
                         Start delivery
                       </Button>
                     )}
-                    {it.deliveryStatus === "delivering" && (
+                    {it.deliveryStatus === "delivering" && run.direction !== "RETURN" && (
                       <Button
                         size="small"
                         variant="contained"
@@ -918,11 +922,11 @@ export default function DeliveryBasketPage() {
       {/* Acknowledge all — one signature + optional photo + GPS, applied to every
           unit still delivering on the run. */}
       <Dialog open={ackAllOpen} onClose={() => !ackBusy && setAckAllOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>Acknowledge all ({deliveringUnits.length})</DialogTitle>
+        <DialogTitle>{run.direction === "RETURN" ? "Confirm return" : "Acknowledge all"} ({deliveringUnits.length})</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            One customer signature (and optional photo) applies to all {deliveringUnits.length} units
-            currently out for delivery.
+            One signature (and optional photo) applies to all {deliveringUnits.length}{" "}
+            {run.direction === "RETURN" ? "units being collected — they return to stock." : "units currently out for delivery."}
           </Typography>
           <TextField
             fullWidth
