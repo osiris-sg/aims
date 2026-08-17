@@ -74,8 +74,13 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
    * webhooks, register the number on Cloud API, and persist the connection.
    */
   async onboard(organizationId: string, dto: OnboardDto) {
-    if (!dto?.code || !dto?.wabaId || !dto?.phoneNumberId) {
-      throw new BadRequestException('code, wabaId and phoneNumberId are required');
+    // phoneNumberId is optional on purpose. Embedded Signup emits
+    // FINISH_ONLY_WABA (waba_id but no phone_number_id) for several flows,
+    // notably coexistence, so requiring it from the browser produced spurious
+    // "WABA details were not received" failures. When it's absent we resolve it
+    // from the WABA below, which is authoritative anyway.
+    if (!dto?.code || !dto?.wabaId) {
+      throw new BadRequestException('code and wabaId are required');
     }
     const appId = this.configService.get<string>('WHATSAPP.APP_ID');
     const appSecret = this.configService.get<string>('WHATSAPP.APP_SECRET');
@@ -92,18 +97,40 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     // 2. Subscribe our app to the WABA so its webhooks reach us.
     await this.graph(`${dto.wabaId}/subscribed_apps`, { method: 'POST', token: accessToken });
 
-    // 3. Fetch the human-readable number details for display.
+    // 3. Resolve the phone number. If the browser didn't hand us one
+    //    (FINISH_ONLY_WABA), ask the WABA for its numbers and take the first.
+    let phoneNumberId = dto.phoneNumberId || null;
     let displayPhoneNumber: string | null = null;
     let verifiedName: string | null = null;
-    try {
-      const phone = await this.graph<{ display_phone_number?: string; verified_name?: string }>(
-        `${dto.phoneNumberId}?fields=display_phone_number,verified_name`,
+
+    if (!phoneNumberId) {
+      const list = await this.graph<{ data?: Array<{ id: string; display_phone_number?: string; verified_name?: string }> }>(
+        `${dto.wabaId}/phone_numbers?fields=id,display_phone_number,verified_name`,
         { token: accessToken },
       );
-      displayPhoneNumber = phone.display_phone_number || null;
-      verifiedName = phone.verified_name || null;
-    } catch (e) {
-      this.logger.warn(`Could not fetch phone details: ${(e as Error).message}`);
+      const first = list?.data?.[0];
+      if (!first?.id) {
+        throw new BadRequestException(
+          'Signup completed but this WhatsApp Business Account has no phone number yet. Add a number in WhatsApp Manager, then connect again.',
+        );
+      }
+      phoneNumberId = first.id;
+      displayPhoneNumber = first.display_phone_number || null;
+      verifiedName = first.verified_name || null;
+      this.logger.log(`Resolved phone ${phoneNumberId} from WABA ${dto.wabaId} (browser sent none)`);
+    }
+
+    if (!displayPhoneNumber) {
+      try {
+        const phone = await this.graph<{ display_phone_number?: string; verified_name?: string }>(
+          `${phoneNumberId}?fields=display_phone_number,verified_name`,
+          { token: accessToken },
+        );
+        displayPhoneNumber = phone.display_phone_number || null;
+        verifiedName = phone.verified_name || null;
+      } catch (e) {
+        this.logger.warn(`Could not fetch phone details: ${(e as Error).message}`);
+      }
     }
 
     // 4. Register the number on Cloud API with a fresh 2FA pin. "already
@@ -114,7 +141,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     let registered = true;
     if (!dto.coexistence) {
       try {
-        await this.graph(`${dto.phoneNumberId}/register`, {
+        await this.graph(`${phoneNumberId}/register`, {
           method: 'POST',
           token: accessToken,
           body: { messaging_product: 'whatsapp', pin },
@@ -129,7 +156,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       where: { organizationId },
       update: {
         wabaId: dto.wabaId,
-        phoneNumberId: dto.phoneNumberId,
+        phoneNumberId,
         displayPhoneNumber,
         verifiedName,
         accessToken,
@@ -141,7 +168,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       create: {
         organizationId,
         wabaId: dto.wabaId,
-        phoneNumberId: dto.phoneNumberId,
+        phoneNumberId,
         displayPhoneNumber,
         verifiedName,
         accessToken,

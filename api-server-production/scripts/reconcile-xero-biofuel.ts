@@ -70,7 +70,12 @@ async function reconcileGL(tokens: Awaited<ReturnType<typeof getXeroTokens>>) {
     if (js.length === 0) break;
     page++;
     for (const jrnl of js) {
-      const jdate = new Date(jrnl.JournalDate);
+      // Xero /Journals returns .NET dates ("/Date(1725062400000+0000)/") —
+      // new Date() can't parse those (NaN never > asofMs), which silently
+      // disabled this cut and made the GL table drift by exactly the
+      // future-dated journals (found 2026-08-17).
+      const dotnetMs = /\/Date\((\d+)/.exec(String(jrnl.JournalDate || ""))?.[1];
+      const jdate = dotnetMs ? new Date(Number(dotnetMs)) : new Date(jrnl.JournalDate);
       if (jdate.getTime() > asofMs) continue; // respect as-of cut-off
       for (const l of jrnl.JournalLines || []) {
         // Xero bank accounts (Customer Deposits, Airwallex) and some CoA rows

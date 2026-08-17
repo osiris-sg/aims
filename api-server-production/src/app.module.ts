@@ -63,6 +63,7 @@ import { SubmitModule } from './submit/submit.module';
 import { PostingQueueModule } from './posting-queue/posting-queue.module';
 import { ApiV1Module } from './api-v1/api-v1.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
+import { OperatorModule } from './operator/operator.module';
 import { GuideModule } from './guide/guide.module';
 
 @Module({
@@ -127,6 +128,7 @@ import { GuideModule } from './guide/guide.module';
     PostingQueueModule,
     ApiV1Module,
     WhatsAppModule,
+    OperatorModule,
   ],
   controllers: [AppController],
   providers: [

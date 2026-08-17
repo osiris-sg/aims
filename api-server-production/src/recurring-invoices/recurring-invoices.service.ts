@@ -182,6 +182,12 @@ export class RecurringInvoicesService {
     // Invoice date = the run date (page/email showed "—" without it).
     if (!config.date) config.date = runDate.toISOString().slice(0, 10);
     if (template.numberFormatId) config.numberFormatId = template.numberFormatId;
+    // The schedule's Reference lands in config.reference (list column), but
+    // the editor + printed doc read documentInfo.referenceNo — mirror it so
+    // the field shows everywhere (guru 2026-08-11).
+    if (config.reference && !config.documentInfo?.referenceNo) {
+      config.documentInfo = { ...(config.documentInfo || {}), referenceNo: config.reference };
+    }
 
     // Trade in the customer's master-file currency (GL converts on posting).
     const customerMaster = await this.prisma.customer.findUnique({

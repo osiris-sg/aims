@@ -53,18 +53,25 @@ async function main() {
     if (acct) srcAcct.set(t.lastRunDocumentId, String(acct));
   }
 
-  type Row = { doc: any; contactId: string; acct: string; item: any };
+  // Each priced item carries its own accountCode in AIMS now
+  // (_stamp-account-codes.ts / _split-dual-code.ts); the July-source lookup is
+  // only a fallback.
+  type Row = { doc: any; contactId: string; lines: any[] };
   const rows: Row[] = [];
   for (const d of gen) {
     const c: any = d.config;
     if (HOLD.has(d.name!)) { console.log(`HOLD  ${d.name} — accountant question`); continue; }
     if (c.xeroInvoiceId) { console.log(`SKIP  ${d.name} — already in Xero (${c.xeroInvoiceId})`); continue; }
     const cust = custs.get(c.customerId);
-    const acct = srcAcct.get(d.id);
-    if (!cust?.xeroId || !acct) { console.log(`ERR   ${d.name} — missing ${!cust?.xeroId ? 'xero contact' : 'account code'}`); continue; }
-    const item = (c.items || []).find((i: any) => Number(i.unitPrice) > 0) || c.items?.[0];
-    rows.push({ doc: d, contactId: cust.xeroId, acct, item });
-    console.log(`PUSH  ${d.name} | ${cust.name.slice(0, 30)} | acct ${acct} | ${Number(item.quantity)} × ${Number(item.unitPrice)} = ${c.subTotal} net`);
+    const lines = (c.items || [])
+      .filter((i: any) => Number(i.amount) || Number(i.unitPrice))
+      .map((i: any) => ({ ...i, accountCode: i.accountCode || srcAcct.get(d.id) }));
+    if (!cust?.xeroId || !lines.length || lines.some((l: any) => !l.accountCode)) {
+      console.log(`ERR   ${d.name} — missing ${!cust?.xeroId ? 'xero contact' : 'account code'}`);
+      continue;
+    }
+    rows.push({ doc: d, contactId: cust.xeroId, lines });
+    console.log(`PUSH  ${d.name} | ${cust.name.slice(0, 30)} | ${lines.map((l: any) => `${l.accountCode}:${l.amount}`).join(' + ')} = ${c.subTotal} net`);
   }
   console.log(`\n${rows.length} to push, date ${DATE} due ${DUE}`);
   if (!APPLY) { console.log('dry-run — pass --apply'); return; }
@@ -95,13 +102,13 @@ async function main() {
         Reference: (r.doc.config as any).reference || undefined,
         Status: 'DRAFT',
         LineAmountTypes: 'Exclusive',
-        LineItems: [{
-          Description: r.item.description,
-          Quantity: Number(r.item.quantity) || 1,
-          UnitAmount: Number(r.item.unitPrice) || 0,
-          AccountCode: r.acct,
+        LineItems: r.lines.map((l: any) => ({
+          Description: l.description,
+          Quantity: Number(l.quantity) || 1,
+          UnitAmount: Number(l.unitPrice) || 0,
+          AccountCode: String(l.accountCode),
           TaxType: tr.TaxType,
-        }],
+        })),
       })),
     };
     const res: any = await x('PUT', '/Invoices?SummarizeErrors=false', payload);

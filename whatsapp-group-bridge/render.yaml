@@ -1,0 +1,40 @@
+# Render Blueprint for the WhatsApp group bridge (unofficial whatsapp-web.js worker).
+# Apply via Render dashboard → New → Blueprint → point at this repo.
+# Creates a Background Worker running headless Chromium, with a persistent disk
+# for the linked-device session so it survives restarts/redeploys.
+services:
+  - type: worker
+    name: whatsapp-group-bridge
+    runtime: docker
+    repo: https://github.com/osiris-sg/aims
+    branch: elroy/dev
+    rootDir: whatsapp-group-bridge
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    region: singapore
+    plan: starter
+    numInstances: 1
+    autoDeploy: false # deploy manually so an unrelated branch commit doesn't restart the bridge
+    disk:
+      name: wa-session
+      mountPath: /data # SESSION_DIR points here so the login survives deploys
+      sizeGB: 1
+    envVars:
+      - key: SESSION_DIR
+        value: /data/.wwebjs_auth
+      - key: AIMS_API_BASE
+        value: https://aims-ahwy.onrender.com
+      - key: AIMS_ORG_ID
+        value: d068f159-e45a-4da8-beaf-62e903f44141
+      - key: AIMS_GROUP_BRIDGE_TOKEN
+        sync: false # secret — enter in the dashboard (matches WHATSAPP_GROUP_BRIDGE_TOKEN on the API)
+      - key: TRIGGER
+        value: '@pa\b'
+      - key: ALLOWED_GROUPS
+        value: 120363411255199907@g.us
+      - key: REPLY_DELAY_MS
+        value: '300000'
+      - key: MIN_REPLY_GAP_MS
+        value: '4000'
+      - key: PUPPETEER_EXECUTABLE_PATH
+        value: /usr/bin/chromium

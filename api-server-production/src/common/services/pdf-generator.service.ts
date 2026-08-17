@@ -1,9 +1,18 @@
 import { Injectable } from '@nestjs/common';
 import * as puppeteer from 'puppeteer';
+import { renderDocumentHtml } from './document-html';
 
 @Injectable()
 export class PdfGeneratorService {
-  async generatePdfFromHtml(html: string): Promise<Buffer> {
+  /**
+   * @param options.margin page margins for the PDF. Omitted = the legacy
+   *        zero-margin behaviour (layouts that pad themselves). The ported
+   *        portal layouts pass real margins so every page is inset properly.
+   */
+  async generatePdfFromHtml(
+    html: string,
+    options?: { margin?: { top: string; right: string; bottom: string; left: string } },
+  ): Promise<Buffer> {
     let browser = null;
 
     try {
@@ -24,13 +33,11 @@ export class PdfGeneratorService {
       await page.setViewport({ width: 1200, height: 1600 });
       await page.setContent(html, { waitUntil: 'networkidle0' });
 
-      // Add styles for print media
+      // Add styles for print media. Only force zero page margins for the
+      // legacy layouts — otherwise we'd override the caller's own @page rule.
       await page.addStyleTag({
         content: `
-          @page {
-            size: A4;
-            margin: 0;
-          }
+          ${options?.margin ? '' : '@page { size: A4; margin: 0; }'}
           body {
             margin: 0;
             padding: 0;
@@ -48,12 +55,7 @@ export class PdfGeneratorService {
       const pdfBuffer = await page.pdf({
         format: 'A4',
         printBackground: true,
-        margin: {
-          top: '0',
-          right: '0',
-          bottom: '0',
-          left: '0',
-        },
+        margin: options?.margin ?? { top: '0', right: '0', bottom: '0', left: '0' },
       });
 
       return Buffer.from(pdfBuffer);
@@ -124,7 +126,23 @@ export class PdfGeneratorService {
     return out;
   }
 
+  /**
+   * Build the HTML for a document PDF.
+   *
+   * Prefers the ported portal layout (document-html/) so server-generated PDFs
+   * look like the portal's preview/print output. Types not ported yet fall
+   * through to the legacy generic layout below.
+   */
   generateInvoiceHtml(data: any): string {
+    const type = data?.documentType || data?.type || data?.document?.type || (data?.isQuotation ? 'QUOTATION' : '');
+    if (type) {
+      const ported = renderDocumentHtml(type, data, data?.organization || data?.company);
+      if (ported) return ported;
+    }
+    return this.generateLegacyInvoiceHtml(data);
+  }
+
+  private generateLegacyInvoiceHtml(data: any): string {
     // Format date helper
     const formatDate = (date: any) => {
       if (!date) return '';

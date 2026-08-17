@@ -174,12 +174,24 @@ export default function WhatsAppPage() {
 
   const completeOnboard = useCallback(
     async (code: string) => {
-      const { wabaId, phoneNumberId } = sessionInfoRef.current;
-      if (!wabaId || !phoneNumberId) {
-        toast.error("Signup finished but WABA details were not received — please try again.");
+      // The WA_EMBEDDED_SIGNUP postMessage and the FB.login callback are
+      // independent, and Meta does not guarantee an order — reading the ref
+      // straight away lost the race and produced spurious "WABA details were
+      // not received" errors. Wait briefly for the message to land.
+      let wabaId = sessionInfoRef.current.wabaId;
+      let phoneNumberId = sessionInfoRef.current.phoneNumberId;
+      for (let i = 0; i < 30 && !wabaId; i++) {
+        await new Promise((r) => setTimeout(r, 200)); // up to ~6s
+        wabaId = sessionInfoRef.current.wabaId;
+        phoneNumberId = sessionInfoRef.current.phoneNumberId;
+      }
+      if (!wabaId) {
+        toast.error("Signup finished but the WhatsApp account id was not received. Please try connecting again.");
         setConnecting(false);
         return;
       }
+      // phoneNumberId may legitimately be absent (FINISH_ONLY_WABA, e.g.
+      // coexistence). The server resolves it from the WABA in that case.
       try {
         await request("/whatsapp/onboard", {
           method: "POST",

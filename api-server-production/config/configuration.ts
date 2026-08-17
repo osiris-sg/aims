@@ -32,4 +32,10 @@ export default () => ({
     // authenticate to POST /whatsapp/group-agent.
     GROUP_BRIDGE_TOKEN: process.env.WHATSAPP_GROUP_BRIDGE_TOKEN,
   },
+  // AIMS Operator: the chat agent that executes real AIMS actions.
+  TELEGRAM: {
+    BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
+    // Echoed by Telegram in X-Telegram-Bot-Api-Secret-Token on every webhook.
+    WEBHOOK_SECRET: process.env.TELEGRAM_WEBHOOK_SECRET,
+  },
 });
