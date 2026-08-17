@@ -260,20 +260,50 @@ export class DeliveriesService {
    * hold to release if the run is cancelled or never picked up. A rider claims
    * it later by scanning a matching unit (claimScheduled).
    */
+  /** Resolve ONE DELIVERY_ORDER template id for the org (mirrors createDoFromDelivery). */
+  private async resolveDeliveryOrderTemplateId(organizationId: string): Promise<string> {
+    const type = 'DELIVERY_ORDER';
+    const selections = await this.prisma.organizationActiveTemplate.findMany({ where: { organizationId, type } });
+    if (selections.length > 0) {
+      const primary = selections.find((s) => s.isPrimary);
+      if (primary) return primary.templateId;
+      const sel = await this.prisma.documentTemplate.findFirst({
+        where: { id: { in: selections.map((s) => s.templateId) } },
+        select: { id: true },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+      });
+      return sel?.id ?? selections[0].templateId;
+    }
+    const tmpl =
+      (await this.prisma.documentTemplate.findFirst({
+        where: { type, organizationId, isActive: true },
+        select: { id: true },
+        orderBy: [{ createdAt: 'desc' }],
+      })) ??
+      (await this.prisma.documentTemplate.findFirst({
+        where: { OR: [{ type, isDefault: true }, { type, organizationId }] },
+        select: { id: true },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+      }));
+    if (!tmpl) throw new NotFoundException('No DELIVERY_ORDER template found for this organization');
+    return tmpl.id;
+  }
+
   async createScheduled(dto: ScheduleDeliveryDto, organizationId: string) {
     if (!dto.items?.length) throw new BadRequestException('At least one item is required');
     const assetIds = [...new Set(dto.items.map((i) => i.assetId))];
     const assets = await this.prisma.asset.findMany({
       where: { id: { in: assetIds }, organizationId, deletedAt: null },
-      select: { id: true, name: true },
+      select: { id: true, name: true, skuKey: true },
     });
     const assetById = new Map(assets.map((a) => [a.id, a]));
     for (const it of dto.items) {
       if (!assetById.has(it.assetId)) throw new NotFoundException(`Asset ${it.assetId} not found in this organization`);
     }
 
-    // Per-org serial with P2002 retry (same pattern as create()).
-    for (let attempt = 0; attempt < 3; attempt++) {
+    // 1. Create the scheduled run (asset-only items). Per-org serial + P2002 retry.
+    let run: Prisma.DeliveryGetPayload<{ include: { items: true } }> | null = null;
+    for (let attempt = 0; attempt < 3 && !run; attempt++) {
       const latest = await this.prisma.delivery.findFirst({
         where: { organizationId },
         orderBy: { deliveryNumber: 'desc' },
@@ -281,7 +311,7 @@ export class DeliveriesService {
       });
       const deliveryNumber = (latest?.deliveryNumber ?? 0) + 1;
       try {
-        return await this.prisma.delivery.create({
+        run = await this.prisma.delivery.create({
           data: {
             organizationId,
             deliveryNumber,
@@ -307,7 +337,48 @@ export class DeliveriesService {
         throw err;
       }
     }
-    throw new BadRequestException('Could not allocate a delivery number — please retry');
+    if (!run) throw new BadRequestException('Could not allocate a delivery number — please retry');
+
+    // 2. Create the DRAFT DO immediately (asset-level lines, PO number, customer),
+    //    and born-link the run's items to it (DeliveryItem.documentId). The office
+    //    prices it before the rider goes out; completion commits THIS DO rather
+    //    than creating a new one. Best-effort: if DO creation fails the run stays
+    //    unlinked and the Stage-2 completion auto-create is the fallback.
+    let documentId: string | undefined;
+    try {
+      const templateId = await this.resolveDeliveryOrderTemplateId(organizationId);
+      const customer = dto.customerId
+        ? await this.prisma.customer.findFirst({
+            where: { id: dto.customerId, organizationId },
+            select: { id: true, name: true, customerCode: true, email: true, phone: true, address: true },
+          })
+        : null;
+      const doConfig: Record<string, any> = {
+        // Asset-level lines (assetId only → syncDocumentItems makes ASSET-typed
+        // DocumentItems = the unbound slots bindUnitToUnboundDoSlot fills on scan).
+        items: dto.items.map((it) => {
+          const a = assetById.get(it.assetId)!;
+          return { assetId: it.assetId, sku: a.skuKey, itemCode: a.skuKey, description: a.name, quantity: it.quantity, unitPrice: 0, amount: 0 };
+        }),
+        ...(dto.poNumber ? { poNo: dto.poNumber } : {}),
+        ...(customer
+          ? {
+              customerId: customer.id,
+              customerName: customer.name,
+              ...(customer.customerCode ? { customerCode: customer.customerCode } : {}),
+              ...(customer.address ? { customerAddress: customer.address } : {}),
+              ...(customer.email ? { customerEmail: customer.email } : {}),
+            }
+          : {}),
+      };
+      const doc = await this.documentsService.createBasicDocument(templateId, 'DELIVERY_ORDER', organizationId, doConfig, dto.projectId);
+      documentId = doc.id;
+      await this.prisma.deliveryItem.updateMany({ where: { deliveryId: run.id }, data: { documentId: doc.id } });
+    } catch (err: any) {
+      this.logger.error(`createScheduled: draft DO creation failed for delivery ${run.id}: ${err?.message}`, err?.stack);
+    }
+
+    return { ...run, documentId };
   }
 
   /**
@@ -353,10 +424,19 @@ export class DeliveriesService {
 
     await this.prisma.$transaction(async (tx) => {
       if ((slot.quantity ?? 1) > 1) {
-        // Split: shrink the open slot, mint a bound qty-1 item for this unit.
+        // Split: shrink the open slot, mint a bound qty-1 item for this unit. The
+        // new item INHERITS the slot's documentId so a scheduled (born-linked)
+        // run stays fully linked — the completion hook routes it to commit-only.
         await tx.deliveryItem.update({ where: { id: slot.id }, data: { quantity: (slot.quantity ?? 1) - 1 } });
         await tx.deliveryItem.create({
-          data: { deliveryId, assetId: dto.assetId, inventoryId: dto.inventoryId, quantity: 1, description: slot.description },
+          data: {
+            deliveryId,
+            assetId: dto.assetId,
+            inventoryId: dto.inventoryId,
+            quantity: 1,
+            description: slot.description,
+            documentId: slot.documentId, // born-linked preserved
+          },
         });
       } else {
         await tx.deliveryItem.update({ where: { id: slot.id }, data: { inventoryId: dto.inventoryId } });
@@ -370,6 +450,21 @@ export class DeliveriesService {
         data: { riderUserId, ...(dto.riderName ? { riderName: dto.riderName } : {}), status: 'in_progress', startedAt: new Date() },
       });
     });
+
+    // Bind this unit into the scheduled DO's matching ASSET-level slot (turns an
+    // asset-level line into a serial-bound one), if the run has a pre-created DO.
+    // Best-effort: commitLinkedDeliveryItems re-binds any stragglers at completion.
+    if (slot.documentId) {
+      try {
+        await this.documentsService.bindUnitToUnboundDoSlot(slot.documentId, organizationId, {
+          id: dto.inventoryId,
+          assetId: dto.assetId,
+          sku: unit.sku,
+        });
+      } catch (err: any) {
+        this.logger.warn(`claimScheduled: DO slot bind failed for unit ${dto.inventoryId}: ${err?.message}`);
+      }
+    }
 
     return { deliveryId, deliveryNumber: run.deliveryNumber, claimed: true };
   }
@@ -576,6 +671,11 @@ export class DeliveriesService {
       delivery.items.filter((i) => i.document).map((i) => [i.document!.id, i.document!]),
     ).values()];
     const runDoc = distinctDocs.length === 1 ? distinctDocs[0] : null;
+    // PO number off the DO's config (rendered as "Your PO No." on the DO) — shown
+    // inline on the rider's scheduled-run screen alongside a "View full DO" link.
+    const runDocPoNo = runDoc
+      ? (((await this.prisma.document.findUnique({ where: { id: runDoc.id }, select: { config: true } }))?.config as any)?.poNo ?? null)
+      : null;
     // Draft invoice auto-created from that DO on run completion (sourceDocumentId
     // link) — powers the field "what happened" result panel. Null until the
     // completion wrapper has run (or for office-linked/DO-first runs).
@@ -591,7 +691,7 @@ export class DeliveriesService {
       : null;
     return {
       ...delivery,
-      document: runDoc,
+      document: runDoc ? { ...runDoc, poNo: runDocPoNo } : null,
       invoice,
       items: delivery.items.map((i) => ({
         ...i,
@@ -688,6 +788,7 @@ export class DeliveriesService {
             select: {
               id: true,
               deliveryStatus: true,
+              assetId: true,
               inventoryId: true,
               documentId: true,
               document: { select: { id: true, name: true } },
@@ -712,14 +813,28 @@ export class DeliveriesService {
         })
       : [];
     const unitById = new Map(units.map((u) => [u.id, u]));
-    const enriched = docs.map((d) => ({
-      ...d,
-      items: d.items.map((i) => ({
-        ...i,
-        sku: i.inventoryId ? (unitById.get(i.inventoryId)?.sku ?? null) : null,
-        serialNumber: i.inventoryId ? (unitById.get(i.inventoryId)?.serialNumber ?? null) : null,
-      })),
-    }));
+    // Per-run DO summary (id, name, poNo) — the scheduled-run screen shows the PO
+    // number inline + a "View full DO" link. Scheduled runs have exactly one DO.
+    const docIds = [
+      ...new Set(docs.flatMap((d) => d.items.map((i) => i.documentId).filter((v): v is string => !!v))),
+    ];
+    const docRows = docIds.length
+      ? await this.prisma.document.findMany({ where: { id: { in: docIds } }, select: { id: true, name: true, config: true } })
+      : [];
+    const poNoByDoc = new Map(docRows.map((dc) => [dc.id, (dc.config as any)?.poNo ?? null]));
+    const enriched = docs.map((d) => {
+      const distinct = [...new Map(d.items.filter((i) => i.document).map((i) => [i.document!.id, i.document!])).values()];
+      const runDoc = distinct.length === 1 ? distinct[0] : null;
+      return {
+        ...d,
+        document: runDoc ? { ...runDoc, poNo: poNoByDoc.get(runDoc.id) ?? null } : null,
+        items: d.items.map((i) => ({
+          ...i,
+          sku: i.inventoryId ? (unitById.get(i.inventoryId)?.sku ?? null) : null,
+          serialNumber: i.inventoryId ? (unitById.get(i.inventoryId)?.serialNumber ?? null) : null,
+        })),
+      };
+    });
     return { docs: enriched, total, page, limit };
   }
 
@@ -851,13 +966,47 @@ export class DeliveriesService {
           ...(target === 'completed' && !delivery.completedAt ? { completedAt: new Date() } : {}),
         },
       });
-      // Standalone completion hook: the FIRST time a run reaches `completed`,
-      // auto-create a real DO from it, commit it, and fire a DRAFT invoice.
-      // Guarded to genuine standalone runs inside the wrapper; best-effort so a
-      // failure never rolls back the run's completion.
+      // Completion hook: the FIRST time a run reaches `completed`. Exactly ONE
+      // of two mutually-exclusive branches runs, routed by whether the run is
+      // already linked to a DO:
+      //   • LINKED (scheduled — born-linked to its pre-created draft DO) →
+      //     commit-only: commit that existing DO + fire the invoice. NEVER
+      //     creates a DO (autoCreate's own guard would also skip it).
+      //   • UNLINKED (unscheduled) → Stage-2 create-and-commit, unchanged.
+      // They can't double-fire: the dispatch picks one, and the linked run's
+      // documentId makes autoCreate a no-op even if reached.
       if (target === 'completed') {
-        await this.autoCreateDoOnRunCompletion(deliveryId, organizationId);
+        const linkedItem = await this.prisma.deliveryItem.findFirst({
+          where: { deliveryId, documentId: { not: null } },
+          select: { documentId: true },
+        });
+        if (linkedItem?.documentId) {
+          await this.commitScheduledRunOnCompletion(deliveryId, organizationId, linkedItem.documentId);
+        } else {
+          await this.autoCreateDoOnRunCompletion(deliveryId, organizationId);
+        }
       }
+    }
+  }
+
+  /**
+   * Completion for a run ALREADY linked to a DO (scheduled runs, born-linked to
+   * their pre-created draft DO). Commits that EXISTING DO — stamp DocumentItems
+   * completed, bind any still-unbound units into their asset slots, deduct stock,
+   * set delivered_installed — then fire the (idempotent) invoice from the now
+   * office-priced DO. Link-and-commit, NOT create-and-commit: no new DO is made.
+   * Best-effort: failures are logged, never roll back the run's completion.
+   */
+  private async commitScheduledRunOnCompletion(deliveryId: string, organizationId: string, documentId: string) {
+    try {
+      await this.documentsService.commitLinkedDeliveryItems(documentId, organizationId);
+      await this.documentsService.maybeCompleteDeliveryOrderAndInvoice(documentId, organizationId);
+      this.logger.log(`Delivery ${deliveryId}: completion committed pre-created DO ${documentId} + invoice`);
+    } catch (err: any) {
+      this.logger.error(
+        `commitScheduledRunOnCompletion failed for delivery ${deliveryId}, DO ${documentId}: ${err?.message}`,
+        err?.stack,
+      );
     }
   }
 
@@ -1388,6 +1537,31 @@ export class DeliveriesService {
     if (delivery.status !== 'in_progress' && delivery.status !== 'scheduled') {
       throw new BadRequestException(`Only scheduled or in_progress deliveries can be cancelled (status: ${delivery.status})`);
     }
+
+    // Scheduled runs: asset-only, nothing reserved/delivered, born-linked to
+    // their OWN pre-created draft DO. Cancelling deletes that draft DO iff it's
+    // still unconfirmed (Cascade drops its DocumentItems; DeliveryItem.documentId
+    // is SetNull); if the office already confirmed it, leave the DO and just
+    // cancel the run, surfacing a note. Handled BEFORE the in_progress
+    // delivered/linked guards below (those would otherwise block on the born-link).
+    if (delivery.status === 'scheduled') {
+      const docId = delivery.items.map((i) => i.documentId).find((v): v is string => !!v);
+      let note: string | undefined;
+      if (docId) {
+        const doc = await this.prisma.document.findFirst({
+          where: { id: docId, organizationId },
+          select: { id: true, name: true, status: true },
+        });
+        if (doc && isUnconfirmedDoc(doc.status)) {
+          await this.prisma.document.delete({ where: { id: docId } });
+        } else if (doc) {
+          note = `Draft DO ${doc.name ?? doc.id} was already confirmed — left in place; only the run was cancelled.`;
+        }
+      }
+      const updated = await this.prisma.delivery.update({ where: { id: deliveryId }, data: { status: 'cancelled' } });
+      return note ? { ...updated, note } : updated;
+    }
+
     const deliveredItem = delivery.items.find((i) => i.deliveredAt !== null);
     if (deliveredItem) {
       throw new BadRequestException(

@@ -51,6 +51,11 @@ export class ScheduleDeliveryDto {
   @IsOptional()
   @IsUUID()
   projectId?: string;
+
+  @ApiProperty({ required: false, description: "Customer PO number — lands on the draft DO's config.poNo (\"Your PO No.\")." })
+  @IsOptional()
+  @IsString()
+  poNumber?: string;
 }
 
 /**
