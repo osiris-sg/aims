@@ -203,6 +203,7 @@ async function main() {
         xeroBillId: inv.InvoiceID,
         xeroBillNumber: billNumber,
         xeroStatus: inv.Status,
+        referenceNo: inv.Reference || null, // editor binds documentInfo.referenceNo/referenceNo — xeroReference alone only shows in list view
         xeroReference: inv.Reference || null,
         xeroSubtotal: inv.SubTotal ?? 0,
         xeroTax: inv.TotalTax ?? 0,
@@ -211,6 +212,7 @@ async function main() {
         xeroAmountPaid: inv.AmountPaid ?? 0,
         xeroHasAttachments: inv.HasAttachments === true,
         documentInfo: {
+          referenceNo: inv.Reference || null,
           currency: inv.CurrencyCode || "SGD",
           gstPercent: inv.SubTotal && inv.TotalTax ? Math.round((inv.TotalTax / inv.SubTotal) * 100) : 9,
         },

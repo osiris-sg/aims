@@ -20,6 +20,8 @@ import {
   Typography,
   InputAdornment,
   Chip,
+  Tooltip,
+  alpha,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -380,6 +382,33 @@ export default function StockCardDialog({
                   >
                     <TableCell sx={{ fontWeight: 500, color: "text.primary" }}>
                       {item.sku || "-"}
+                      {/* GL account this product will post to, under the code
+                          (guru 2026-08-17) — follows the active Sales/Rental
+                          tab, since that's what decorate() will stamp on the
+                          line. */}
+                      {(() => {
+                        const acc = revenueMode === "rental" ? accRental(item) : accSales(item);
+                        if (!acc) return null;
+                        return (
+                          <Tooltip title={`Posts to GL account ${acc} (${revenueMode})`}>
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                display: "inline-block",
+                                mt: 0.25,
+                                px: 0.5,
+                                borderRadius: 0.5,
+                                fontWeight: 400,
+                                fontVariantNumeric: "tabular-nums",
+                                color: "text.secondary",
+                                bgcolor: (t) => alpha(t.palette.primary.main, t.palette.mode === "dark" ? 0.18 : 0.08),
+                              }}
+                            >
+                              GL {acc}
+                            </Typography>
+                          </Tooltip>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell sx={{ color: "text.primary" }}>{getItemDescription(item)}</TableCell>
                     <TableCell sx={{ color: "text.secondary" }}>

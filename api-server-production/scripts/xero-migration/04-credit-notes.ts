@@ -184,6 +184,7 @@ async function importType(tokens: any, side: "AR" | "AP") {
         xeroCreditNoteId: cn.CreditNoteID,
         xeroCreditNoteNumber: cnNumber,
         xeroStatus: cn.Status,
+        referenceNo: cn.Reference || null, // editor binds documentInfo.referenceNo/referenceNo
         xeroReference: cn.Reference || null,
         xeroSubtotal: cn.SubTotal ?? 0,
         xeroTax: cn.TotalTax ?? 0,
@@ -191,6 +192,7 @@ async function importType(tokens: any, side: "AR" | "AP") {
         xeroRemainingCredit: cn.RemainingCredit ?? 0,
         xeroHasAttachments: cn.HasAttachments === true,
         documentInfo: {
+          referenceNo: cn.Reference || null,
           currency: cn.CurrencyCode || "SGD",
           gstPercent: cn.SubTotal && cn.TotalTax ? Math.round((cn.TotalTax / cn.SubTotal) * 100) : 9,
         },

@@ -41,6 +41,7 @@ import {
   ListItemText,
   InputAdornment,
   ButtonGroup,
+  alpha,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -1442,6 +1443,19 @@ export default function TabbedDocumentCreator({
     if (selectedItem.assetId) {
       prefetchPriceHistory(selectedItem.assetId);
     }
+  };
+
+  // Is this row a SERVICE line? `isService` / `revenueTag` are only written by
+  // lines added since those fields existed — ~4.3k older SV-coded lines carry
+  // neither, which used to send the edit pencil to the Stock Card instead of
+  // the Service picker (guru 2026-08-17). Fall back to the services-master code
+  // convention (SV### — see revenue-items.service.ts nextCode) for those, but
+  // only when the row isn't tied to a stock item.
+  const isServiceRow = (item: any): boolean => {
+    if (item?.isService) return true;
+    if (item?.revenueTag === "service") return true;
+    if (item?.inventoryItemId) return false;
+    return /^SV\d+$/i.test(String(item?.itemCode || "").trim());
   };
 
   // Build a service line carrying the doc-type-specific fields. Shared by the
@@ -4894,7 +4908,7 @@ export default function TabbedDocumentCreator({
                               const configLabel = existingData?.columnLabels?.[columnId] ?? existingData?.config?.columnLabels?.[columnId];
                               const label = isTemplateEditMode ? templateWatch(`columnLabels.${columnId}`) || columnId :
                                 configLabel ? configLabel :
-                                columnId === "item" ? (items.some((i: any) => i.isService) ? "Item" : "Product Code") :
+                                columnId === "item" ? (items.some((i: any) => isServiceRow(i)) ? "Item" : "Product Code") :
                                 columnId === "description" ? "Description" :
                                 columnId === "uom" ? "UOM" :
                                 columnId === "quantity" ? "Quantity" :
@@ -5063,7 +5077,7 @@ export default function TabbedDocumentCreator({
                                   // SKU dropdown / free-text field is gone — the pencil
                                   // reopens the Stock Card (stock lines) or the Service
                                   // picker (service lines) to change/re-pick this row.
-                                  const isSvcRow = item.isService;
+                                  const isSvcRow = isServiceRow(item);
                                   const rowCode = isSvcRow
                                     ? (item.itemCode || "")
                                     : (item.inventoryItemId
@@ -5092,6 +5106,28 @@ export default function TabbedDocumentCreator({
                                           </IconButton>
                                         </Tooltip>
                                       </Box>
+                                      {/* GL account this line posts to, under the code
+                                          (guru 2026-08-17) — the code alone doesn't say
+                                          which account it hits, so a mis-picked item is
+                                          invisible until the ledger is wrong. */}
+                                      {item.accountCode && (
+                                        <Tooltip title={`Posts to GL account ${item.accountCode}${item.accountName ? ` — ${item.accountName}` : ""}`}>
+                                          <Typography
+                                            variant="caption"
+                                            sx={{
+                                              display: "inline-block",
+                                              mt: 0.25,
+                                              px: 0.5,
+                                              borderRadius: 0.5,
+                                              fontVariantNumeric: "tabular-nums",
+                                              color: "text.secondary",
+                                              bgcolor: (t) => alpha(t.palette.primary.main, t.palette.mode === "dark" ? 0.18 : 0.08),
+                                            }}
+                                          >
+                                            GL {item.accountCode}{item.accountName ? ` · ${item.accountName}` : ""}
+                                          </Typography>
+                                        </Tooltip>
+                                      )}
                                       {item.revenueTag && (
                                         <Typography variant="caption" sx={{ display: "block", color: "text.secondary", mt: 0.25 }}>({item.revenueTag})</Typography>
                                       )}

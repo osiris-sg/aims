@@ -134,7 +134,23 @@ export default function RevenueItemPickerDialog({
                   >
                     <TableCell>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>{it.name}</Typography>
-                      {it.code && <Typography variant="caption" sx={{ color: "text.secondary" }}>{it.code}</Typography>}
+                      {/* Code + the GL account it posts to, same badge the invoice
+                          line shows so the two read identically (guru 2026-08-17). */}
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
+                        {it.code && <Typography variant="caption" sx={{ color: "text.secondary" }}>{it.code}</Typography>}
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            px: 0.5,
+                            borderRadius: 0.5,
+                            fontVariantNumeric: "tabular-nums",
+                            color: "text.secondary",
+                            bgcolor: (t) => alpha(t.palette.primary.main, t.palette.mode === "dark" ? 0.18 : 0.08),
+                          }}
+                        >
+                          GL {it.accountCode}
+                        </Typography>
+                      </Box>
                     </TableCell>
                     <TableCell><Chip size="small" variant="outlined" label={it.type === "PRODUCT" ? "Item" : "Service"} color={it.type === "PRODUCT" ? "primary" : "default"} /></TableCell>
                     <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{it.unitPrice != null ? it.unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</TableCell>
