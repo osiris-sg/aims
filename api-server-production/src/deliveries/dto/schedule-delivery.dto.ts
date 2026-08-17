@@ -42,15 +42,17 @@ export class ScheduleDeliveryDto {
   @Type(() => ScheduleDeliveryItemDto)
   items!: ScheduleDeliveryItemDto[];
 
-  @ApiProperty({ required: false, description: 'Optional drop customer (UUID).' })
+  @ApiProperty({ required: false, description: 'Optional drop customer (UUID). Derived from the project when omitted.' })
   @IsOptional()
   @IsUUID()
   customerId?: string;
 
-  @ApiProperty({ required: false, description: 'Optional project (UUID).' })
-  @IsOptional()
+  @ApiProperty({
+    description:
+      'Project (UUID) — REQUIRED. The rider\'s project assignment at start-delivery is what resolves which scheduled run they are fulfilling (post-assign matching), so a scheduled run must carry a project from birth.',
+  })
   @IsUUID()
-  projectId?: string;
+  projectId!: string;
 
   @ApiProperty({ required: false, description: "Customer PO number — lands on the draft DO's config.poNo (\"Your PO No.\")." })
   @IsOptional()

@@ -202,7 +202,11 @@ export default function StartDeliveryPage() {
         token,
       );
       if (res?.success === false) throw new Error(res?.message ?? "Assignment failed");
-      goToBasket();
+      // The assign may have MERGED this unit into an office-scheduled run for the
+      // chosen project (move-and-discard) — THIS ad-hoc run can now be deleted.
+      // Land on the run the backend says is live (the scheduled run if merged).
+      const effectiveRunId = res?.data?.runId ?? res?.runId ?? runId;
+      router.replace(`/scan/delivery/${effectiveRunId}`);
     } catch (e: any) {
       setError(e?.message ?? "Assignment failed");
     } finally {

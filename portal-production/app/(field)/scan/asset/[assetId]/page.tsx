@@ -9,7 +9,6 @@ import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import HandymanIcon from "@mui/icons-material/Handyman";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DescriptionIcon from "@mui/icons-material/Description";
-import EventIcon from "@mui/icons-material/Event";
 import { request } from "@/helpers/request";
 
 type DeliveryItemStatus = "not_delivered" | "delivering" | "not_installed" | "completed";
@@ -65,9 +64,6 @@ interface ScanContext {
   } | null;
   canStartStandaloneDelivery?: boolean;
   riderOpenDelivery?: { id: string; deliveryNumber: number } | null;
-  // Stage 3: an open scheduled run whose asset matches this scanned unit — the
-  // chooser offers "Start scheduled delivery #N" (claim + bind + start).
-  scheduledMatch?: { deliveryId: string; deliveryNumber: number; scheduledFor: string | null } | null;
 }
 
 // Per-item status → chip label + colour for the delivery-items list.
@@ -92,8 +88,6 @@ export default function AssetActionChooser() {
   // "Add to Delivery #N" card; reservation 400s surface here.
   const [addErr, setAddErr] = useState<string | null>(null);
   const [addBusy, setAddBusy] = useState(false);
-  // Stage 3: claiming a scheduled run by scanning a matching unit.
-  const [schedBusy, setSchedBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -199,30 +193,6 @@ export default function AssetActionChooser() {
     }
   };
 
-  // Claim a scheduled run: bind this unit into its matching open slot, reserve
-  // it, set the rider + start the run, then enter the normal run basket where
-  // the per-item start (photo) → ack flow proceeds unchanged.
-  const startScheduled = async () => {
-    if (!data.scheduledMatch || !inventory || schedBusy) return;
-    setAddErr(null);
-    setSchedBusy(true);
-    try {
-      const token = await getToken();
-      if (!token) throw new Error("Not signed in");
-      const res = await request(
-        { path: `/deliveries/${data.scheduledMatch.deliveryId}/claim-scheduled`, method: "POST" },
-        { inventoryId: inventory.id, assetId },
-        token,
-      );
-      if (res.success === false) throw new Error(res.message ?? "Couldn't start the scheduled delivery");
-      router.push(`/scan/delivery/${data.scheduledMatch.deliveryId}`);
-    } catch (e: any) {
-      setAddErr(e?.message ?? "Couldn't start the scheduled delivery");
-    } finally {
-      setSchedBusy(false);
-    }
-  };
-
   const deliveryCard: { title: string; subtitle: string; icon: React.ReactNode; onClick?: () => void } = (() => {
     switch (deliveryStage) {
       case "start":
@@ -257,16 +227,6 @@ export default function AssetActionChooser() {
           icon: <CheckCircleIcon color="success" sx={{ fontSize: 48 }} />,
         };
       default: {
-        // Scheduled pickup (Stage 3) wins the null-stage slot: an instock unit
-        // whose asset has an OPEN scheduled slot → claim + bind + start that run.
-        if (data.scheduledMatch) {
-          return {
-            title: `Start scheduled delivery #${data.scheduledMatch.deliveryNumber}`,
-            subtitle: schedBusy ? "Starting…" : "Pick up this scheduled delivery with this unit",
-            icon: <EventIcon color="primary" sx={{ fontSize: 48 }} />,
-            onClick: startScheduled,
-          };
-        }
         // null stage: no DO for this asset/unit. Standalone-delivery arm
         // (Layer 3): an open run containing this unit shows ITS stage and
         // routes into the run's basket; an instock unit with no run gets an

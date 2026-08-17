@@ -456,6 +456,37 @@ export default function DeliveryBasketPage() {
   );
   const canAdd = run.status === "in_progress" && !anyAcknowledged;
 
+  // Unbound office-scheduled slots (assetId set, no unit yet) = a merged
+  // scheduled run's remaining quantity. Render them as a per-asset "remaining to
+  // load" summary instead of dead per-slot cards; scanning a matching unit fills
+  // the next slot (the backend's addItem is slot-aware).
+  const unboundSlots = run.items.filter((it) => it.assetId && !it.inventoryId);
+  const visibleItems = run.items.filter((it) => !(it.assetId && !it.inventoryId));
+  const scheduledSummary = (() => {
+    if (unboundSlots.length === 0) return [] as Array<{ assetId: string; label: string; scheduled: number; delivered: number; remaining: number }>;
+    const byAsset = new Map<string, { label: string; remaining: number; delivered: number }>();
+    for (const s of unboundSlots) {
+      const cur = byAsset.get(s.assetId!) ?? {
+        label: s.asset?.skuKey || s.asset?.name || s.description || "Unit",
+        remaining: 0,
+        delivered: 0,
+      };
+      cur.remaining += s.quantity ?? 1;
+      byAsset.set(s.assetId!, cur);
+    }
+    // "delivered" = units of that asset already bound onto the run.
+    for (const it of run.items) {
+      if (it.assetId && it.inventoryId && byAsset.has(it.assetId)) byAsset.get(it.assetId)!.delivered += 1;
+    }
+    return Array.from(byAsset, ([assetId, v]) => ({
+      assetId,
+      label: v.label,
+      remaining: v.remaining,
+      delivered: v.delivered,
+      scheduled: v.delivered + v.remaining,
+    }));
+  })();
+
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5 }}>
       <Stack direction="row" spacing={2} alignItems="center">
@@ -489,10 +520,10 @@ export default function DeliveryBasketPage() {
       {nfc.error && <Alert severity="warning">{nfc.error}</Alert>}
 
       <Typography variant="subtitle1" fontWeight={600}>
-        Items ({run.items.length})
+        Items ({visibleItems.length})
       </Typography>
       <Stack spacing={1}>
-        {run.items.map((it) => {
+        {visibleItems.map((it) => {
           const chip = STATUS_CHIP[it.deliveryStatus] ?? { label: it.deliveryStatus, color: "default" as const };
           return (
             <Card key={it.id} variant="outlined">
@@ -601,6 +632,43 @@ export default function DeliveryBasketPage() {
           );
         })}
       </Stack>
+
+      {scheduledSummary.length > 0 && (
+        <Box>
+          <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+            Scheduled — remaining to load
+          </Typography>
+          <Stack spacing={1}>
+            {scheduledSummary.map((s) => (
+              <Card key={s.assetId} variant="outlined" sx={{ borderStyle: "dashed" }}>
+                <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <Box sx={{ minWidth: 0, flex: 1 }}>
+                      <Typography variant="body2" fontWeight={600} noWrap>{s.label}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {s.scheduled} scheduled · {s.delivered} delivered · {s.remaining} remaining
+                      </Typography>
+                    </Box>
+                    <Chip size="small" color="warning" label={`${s.remaining} to load`} />
+                  </Stack>
+                  {canAdd && (
+                    <Button
+                      size="small"
+                      variant="contained"
+                      startIcon={nfc.isScanning ? <CircularProgress size={16} /> : <NfcIcon />}
+                      onClick={() => (nfc.isSupported ? nfc.startScan() : setManualOpen(true))}
+                      disabled={busy || nfc.isScanning}
+                      sx={{ mt: 1.5, minHeight: 40 }}
+                    >
+                      Scan another {s.label}
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </Stack>
+        </Box>
+      )}
 
       {canAdd && (
         <Stack spacing={1.5}>

@@ -10,9 +10,10 @@ import { request } from "@/helpers/request";
 
 /**
  * Rider "Scheduled deliveries" list (read-only). Org-wide scheduled runs waiting
- * for a rider to pick up — the rider claims one by SCANNING any unit whose asset
- * matches a scheduled item (which routes through the scan chooser's "Start
- * scheduled delivery" card). This screen is just the manifest of what's due.
+ * to be fulfilled. There is no "claim scheduled" action here or on the scan
+ * chooser — a rider just starts any matching unit as a normal delivery and
+ * assigns it to the run's PROJECT; the backend then matches that project to this
+ * run and moves the unit in. This screen is only the manifest of what's due.
  */
 
 interface SchedItem {
@@ -72,7 +73,7 @@ export default function ScheduledDeliveriesPage() {
         <Typography variant="h6" fontWeight={700}>Scheduled deliveries</Typography>
       </Stack>
       <Typography variant="body2" color="text.secondary">
-        Scan any unit of a scheduled product to pick up its delivery.
+        Start any matching unit as usual and assign it to the project — it&apos;s matched to the scheduled run automatically.
       </Typography>
 
       {error && <Alert severity="error">{error}</Alert>}

@@ -167,7 +167,10 @@ export default function ScheduleDeliveryDialog({
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
 
   const validRows = rows.filter((r) => r.asset && (parseInt(r.quantity, 10) || 0) >= 1);
-  const canSubmit = !!scheduledFor && validRows.length > 0 && !submitting;
+  // Project is REQUIRED: the rider's project pick at start-delivery is what
+  // resolves which scheduled run they're fulfilling (post-assign matching), so a
+  // scheduled run must carry a project from birth.
+  const canSubmit = !!scheduledFor && !!project && validRows.length > 0 && !submitting;
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -204,7 +207,8 @@ export default function ScheduleDeliveryDialog({
       <DialogContent dividers>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Pick the products (by type + quantity) and when they should go out. No unit is
-          reserved now — a rider picks it up by scanning any matching unit in the field.
+          reserved now — the run is fulfilled when a rider starts a matching unit in the
+          field and assigns it to this project.
         </Typography>
 
         <TextField
@@ -280,8 +284,11 @@ export default function ScheduleDeliveryDialog({
         </Button>
 
         <Box sx={{ mt: 2 }}>
-          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
-            Customer / project (optional)
+          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
+            Customer &amp; project
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+            Required — the rider is matched back to this run by the project they assign in the field.
           </Typography>
           <Autocomplete<CustomerOption, false, false, false>
             size="small"
@@ -294,7 +301,7 @@ export default function ScheduleDeliveryDialog({
             }}
             getOptionLabel={(o) => (o.customerCode ? `${o.name} · ${o.customerCode}` : o.name)}
             isOptionEqualToValue={(a, b) => a.id === b.id}
-            renderInput={(params) => <TextField {...params} label="Customer" placeholder="Search customers" />}
+            renderInput={(params) => <TextField {...params} label="Customer" placeholder="Search customers" required />}
             sx={{ mb: 1.5 }}
           />
           {customer && (
@@ -306,7 +313,9 @@ export default function ScheduleDeliveryDialog({
               getOptionLabel={(o) => o.name}
               isOptionEqualToValue={(a, b) => a.id === b.id}
               noOptionsText="No projects for this customer yet."
-              renderInput={(params) => <TextField {...params} label="Project" placeholder="Pick a project" />}
+              renderInput={(params) => (
+                <TextField {...params} label="Project" placeholder="Pick a project" required error={!!customer && !project} />
+              )}
             />
           )}
         </Box>
