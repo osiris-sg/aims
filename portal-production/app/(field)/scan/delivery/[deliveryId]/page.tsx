@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 import {
   Alert,
   Box,
@@ -32,6 +32,8 @@ import EditNoteIcon from "@mui/icons-material/EditNote";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
+import SignaturePadField, { SignaturePadHandle } from "@/components/delivery/SignaturePadField";
+import { capturePosition } from "@/helpers/geolocation";
 import { useNfcScan } from "../../../hooks/useNfcScan";
 
 /**
@@ -136,6 +138,13 @@ export default function DeliveryBasketPage() {
   const [pending, setPending] = useState<{ mode: "add" | "start" | "photos"; assetId: string; inventoryId: string; sku?: string } | null>(null);
   const [pendingPhotos, setPendingPhotos] = useState<CapturedPhoto[]>([]);
   const [photoUploading, setPhotoUploading] = useState(false);
+  // "Acknowledge all" — one signature + photo + GPS applied to every delivering unit.
+  const { user } = useUser();
+  const [ackAllOpen, setAckAllOpen] = useState(false);
+  const [ackPhotos, setAckPhotos] = useState<CapturedPhoto[]>([]);
+  const [ackRecipient, setAckRecipient] = useState("");
+  const [ackBusy, setAckBusy] = useState(false);
+  const ackSigRef = useRef<SignaturePadHandle>(null);
   // Guards double-handling the same NFC read (uid persists until next startScan)
   const handledUidRef = useRef<string | null>(null);
 
@@ -456,6 +465,49 @@ export default function DeliveryBasketPage() {
   );
   const canAdd = run.status === "in_progress" && !anyAcknowledged;
 
+  // Units mid-delivery (DO_START fired, not yet acknowledged) — the ones
+  // "Acknowledge all" covers in one signature/photo/GPS pass.
+  const deliveringUnits = run.items.filter((it) => it.inventoryId && it.deliveryStatus === "delivering");
+
+  const submitAckAll = async () => {
+    const sig = ackSigRef.current?.toDataUrl?.() || "";
+    if (!sig) {
+      setActionMsg("Capture the customer's signature first.");
+      return;
+    }
+    setAckBusy(true);
+    setActionMsg(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const gps = await capturePosition().catch(() => null);
+      const technicianName =
+        user?.fullName ?? user?.firstName ?? user?.username ?? user?.primaryEmailAddress?.emailAddress ?? undefined;
+      const res = await request(
+        { path: `/deliveries/${deliveryId}/ack-all`, method: "POST" },
+        {
+          signature: sig,
+          ...(ackRecipient.trim() ? { recipientName: ackRecipient.trim() } : {}),
+          ...(ackPhotos.length ? { photos: ackPhotos.map((p) => p.key) } : {}),
+          ...(gps ? { latitude: gps.latitude, longitude: gps.longitude } : {}),
+          ...(technicianName ? { technicianName } : {}),
+        },
+        token,
+      );
+      if (res?.success === false) throw new Error(res?.message ?? "Acknowledge all failed");
+      const n = (res?.data ?? res)?.acknowledged ?? 0;
+      setActionMsg(`Acknowledged ${n} unit${n === 1 ? "" : "s"} ✓`);
+      setAckAllOpen(false);
+      setAckPhotos([]);
+      setAckRecipient("");
+      await load();
+    } catch (e: any) {
+      setActionMsg(e?.message ?? "Acknowledge all failed");
+    } finally {
+      setAckBusy(false);
+    }
+  };
+
   // Unbound office-scheduled slots (assetId set, no unit yet) = a merged
   // scheduled run's remaining quantity. Render them as a per-asset "remaining to
   // load" summary instead of dead per-slot cards; scanning a matching unit fills
@@ -519,9 +571,28 @@ export default function DeliveryBasketPage() {
       )}
       {nfc.error && <Alert severity="warning">{nfc.error}</Alert>}
 
-      <Typography variant="subtitle1" fontWeight={600}>
-        Items ({visibleItems.length})
-      </Typography>
+      <Stack direction="row" alignItems="center" spacing={1}>
+        <Typography variant="subtitle1" fontWeight={600} sx={{ flex: 1 }}>
+          Items ({visibleItems.length})
+        </Typography>
+        {/* One signature/photo/GPS for every unit still delivering (per-unit
+            Acknowledge stays available below for partial deliveries). */}
+        {deliveringUnits.length >= 2 && (
+          <Button
+            size="small"
+            variant="contained"
+            startIcon={<LocalShippingIcon />}
+            onClick={() => {
+              setAckPhotos([]);
+              setAckRecipient("");
+              setAckAllOpen(true);
+            }}
+            disabled={busy || ackBusy}
+          >
+            Acknowledge all ({deliveringUnits.length})
+          </Button>
+        )}
+      </Stack>
       <Stack spacing={1}>
         {visibleItems.map((it) => {
           const chip = STATUS_CHIP[it.deliveryStatus] ?? { label: it.deliveryStatus, color: "default" as const };
@@ -840,6 +911,44 @@ export default function DeliveryBasketPage() {
             ) : (
               "Add & start delivery"
             )}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Acknowledge all — one signature + optional photo + GPS, applied to every
+          unit still delivering on the run. */}
+      <Dialog open={ackAllOpen} onClose={() => !ackBusy && setAckAllOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Acknowledge all ({deliveringUnits.length})</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            One customer signature (and optional photo) applies to all {deliveringUnits.length} units
+            currently out for delivery.
+          </Typography>
+          <TextField
+            fullWidth
+            size="small"
+            label="Received by (optional)"
+            value={ackRecipient}
+            onChange={(e) => setAckRecipient(e.target.value)}
+            sx={{ mb: 1.5 }}
+          />
+          <PhotoCaptureField
+            label="Proof photo (optional)"
+            photos={ackPhotos}
+            onChange={setAckPhotos}
+            upload={uploadDoStart}
+            onError={(m) => setActionMsg(m || null)}
+            onUploadingChange={setPhotoUploading}
+          />
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5, mb: 0.5 }}>
+            Customer signature
+          </Typography>
+          <SignaturePadField ref={ackSigRef} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAckAllOpen(false)} disabled={ackBusy}>Cancel</Button>
+          <Button variant="contained" onClick={submitAckAll} disabled={ackBusy || photoUploading}>
+            {ackBusy ? <CircularProgress size={18} /> : `Acknowledge ${deliveringUnits.length}`}
           </Button>
         </DialogActions>
       </Dialog>

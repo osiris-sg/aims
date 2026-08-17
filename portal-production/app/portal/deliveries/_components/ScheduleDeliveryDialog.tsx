@@ -37,9 +37,11 @@ import ExtractQuotationDialog from "@/containers/DocumentTemplates/components/Ex
 
 interface AssetOption { id: string; name: string; skuKey: string }
 interface CustomerOption { id: string; name: string; customerCode: string | null; address: string | null }
-interface ProjectOption { id: string; name: string; siteOfficeAddress: string | null }
+interface ProjectOption { id: string; name: string; address: string | null }
 // quantity is a RAW STRING so the field is freely typeable; clamped on blur/submit.
-interface Row { asset: AssetOption | null; quantity: string }
+// A row is EITHER a catalog product (asset set) OR free-typed (asset null +
+// description). quantity is shared.
+interface Row { asset: AssetOption | null; description: string; freeTyped: boolean; quantity: string }
 
 export default function ScheduleDeliveryDialog({
   open,
@@ -53,7 +55,7 @@ export default function ScheduleDeliveryDialog({
   const { getToken } = useAuth();
   const { organization } = useOrganization();
 
-  const [rows, setRows] = useState<Row[]>([{ asset: null, quantity: "1" }]);
+  const [rows, setRows] = useState<Row[]>([{ asset: null, description: "", freeTyped: false, quantity: "1" }]);
   // Date + time are held separately so BOTH are independently settable (a single
   // datetime-local left the time portion effectively uneditable for the office).
   const [scheduleDate, setScheduleDate] = useState("");
@@ -87,7 +89,7 @@ export default function ScheduleDeliveryDialog({
   // Reset on (re)open.
   useEffect(() => {
     if (open) {
-      setRows([{ asset: null, quantity: "1" }]);
+      setRows([{ asset: null, description: "", freeTyped: false, quantity: "1" }]);
       setScheduleDate("");
       setScheduleTime("09:00");
       setPoNumber("");
@@ -184,7 +186,7 @@ export default function ScheduleDeliveryDialog({
         if (!cancelled) {
           setProjectOptions(
             Array.isArray(docs)
-              ? docs.map((p: any) => ({ id: p.id, name: p.name, siteOfficeAddress: p.siteOffice?.address ?? null }))
+              ? docs.map((p: any) => ({ id: p.id, name: p.name, address: p.address ?? p.siteOffice?.address ?? null }))
               : [],
           );
         }
@@ -197,17 +199,22 @@ export default function ScheduleDeliveryDialog({
     };
   }, [customer, getToken]);
 
-  // Auto-fill the address from the project's site office (fallback: customer),
-  // unless the user has already typed one.
+  // Auto-fill the delivery address from the PROJECT's address (fallback: the
+  // customer's), unless the user has already typed one. Mirrors the project so
+  // the DO's "Deliver To" matches what the project says.
   useEffect(() => {
     if (addressTouched) return;
-    setAddress(project?.siteOfficeAddress || customer?.address || "");
+    setAddress(project?.address || customer?.address || "");
   }, [project, customer, addressTouched]);
 
   const setRow = (i: number, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
 
-  const validRows = rows.filter((r) => r.asset && (parseInt(r.quantity, 10) || 0) >= 1);
+  // A row counts when it has qty ≥ 1 AND either a picked product OR (free-typed)
+  // a non-empty description.
+  const validRows = rows.filter(
+    (r) => (r.freeTyped ? r.description.trim().length > 0 : !!r.asset) && (parseInt(r.quantity, 10) || 0) >= 1,
+  );
   const canSubmit = !!scheduleDate && !!scheduleTime && !!project && validRows.length > 0 && !submitting;
 
   // Fetch the customer's CONFIRMED quotations and open the extract dialog.
@@ -251,7 +258,7 @@ export default function ScheduleDeliveryDialog({
     }
     if (cfg.projectId) {
       const match = projectOptions.find((p) => p.id === cfg.projectId);
-      setProject(match ?? { id: String(cfg.projectId), name: cfg.projectName || "Project from quotation", siteOfficeAddress: null });
+      setProject(match ?? { id: String(cfg.projectId), name: cfg.projectName || "Project from quotation", address: null });
     }
     const items: any[] = Array.isArray(cfg.items) ? cfg.items : [];
     if (items.length) {
@@ -264,8 +271,11 @@ export default function ScheduleDeliveryDialog({
       const resolved: Row[] = await Promise.all(
         items.map(async (it) => {
           const qty = String(Math.max(1, parseInt(it?.quantity, 10) || 1));
-          const text = String(it?.itemCode || it?.sku || it?.description || "").trim();
-          if (!text || !token) return { asset: null, quantity: qty };
+          const text = String(it?.description || it?.itemCode || it?.sku || "").trim();
+          // Unmatched (or no) product → land as a FREE-TYPED row carrying the
+          // quotation text, so nothing from the quotation is silently dropped.
+          const freeRow: Row = { asset: null, description: text, freeTyped: true, quantity: qty };
+          if (!text || !token) return freeRow;
           try {
             const r = await request(
               { path: `/assets/search?q=${encodeURIComponent(text.slice(0, 60))}`, method: "GET" },
@@ -273,16 +283,16 @@ export default function ScheduleDeliveryDialog({
               token,
             );
             const arr = Array.isArray(r?.data) ? r.data : Array.isArray(r) ? r : [];
-            return { asset: arr[0] ?? null, quantity: qty };
+            return arr[0] ? { asset: arr[0], description: "", freeTyped: false, quantity: qty } : freeRow;
           } catch {
-            return { asset: null, quantity: qty };
+            return freeRow;
           }
         }),
       );
-      const finalRows = resolved.length ? resolved : [{ asset: null, quantity: "1" }];
+      const finalRows = resolved.length ? resolved : [{ asset: null, description: "", freeTyped: false, quantity: "1" }];
       setRows(finalRows);
-      const matched = finalRows.filter((r) => r.asset).length;
-      setNote(`Quotation applied — ${matched}/${finalRows.length} line(s) matched a product. Review products, quantities & address.`);
+      const matched = finalRows.filter((r) => !r.freeTyped).length;
+      setNote(`Quotation applied — ${matched}/${finalRows.length} line(s) matched a catalog product; the rest are free-typed. Review products, quantities & address.`);
     } else {
       setNote("Quotation applied (customer/project/address). It had no line items.");
     }
@@ -301,7 +311,11 @@ export default function ScheduleDeliveryDialog({
         { path: "/deliveries/scheduled", method: "POST" },
         {
           scheduledFor,
-          items: validRows.map((r) => ({ assetId: r.asset!.id, quantity: Math.max(1, parseInt(r.quantity, 10) || 1) })),
+          items: validRows.map((r) =>
+            r.freeTyped
+              ? { description: r.description.trim(), quantity: Math.max(1, parseInt(r.quantity, 10) || 1) }
+              : { assetId: r.asset!.id, quantity: Math.max(1, parseInt(r.quantity, 10) || 1) },
+          ),
           ...(poNumber.trim() ? { poNumber: poNumber.trim() } : {}),
           ...(address.trim() ? { address: address.trim() } : {}),
           ...(customer ? { customerId: customer.id } : {}),
@@ -424,23 +438,36 @@ export default function ScheduleDeliveryDialog({
         <Stack spacing={1.5} sx={{ mb: 1 }}>
           {rows.map((row, i) => (
             <Stack key={i} direction="row" spacing={1} alignItems="flex-start">
-              <Autocomplete<AssetOption, false, false, false>
-                sx={{ flex: 1 }}
-                size="small"
-                options={assetOptions}
-                filterOptions={(x) => x}
-                value={row.asset}
-                onChange={(_, picked) => setRow(i, { asset: picked })}
-                onInputChange={(_, v, reason) => {
-                  if (reason === "input") setAssetInput(v);
-                }}
-                getOptionLabel={(o) => `${o.name} · ${o.skuKey}`}
-                isOptionEqualToValue={(a, b) => a.id === b.id}
-                loading={assetSearching}
-                renderInput={(params) => (
-                  <TextField {...params} label="Product" placeholder="Search by name or SKU" />
-                )}
-              />
+              {row.freeTyped ? (
+                // Free-typed line: a description (no catalog product). Carries to the
+                // DO as a plain line; a rider can never unit-bind to it.
+                <TextField
+                  sx={{ flex: 1 }}
+                  size="small"
+                  label="Free-typed item"
+                  placeholder="e.g. 1 set 25 mm 5 core cable"
+                  value={row.description}
+                  onChange={(e) => setRow(i, { description: e.target.value })}
+                />
+              ) : (
+                <Autocomplete<AssetOption, false, false, false>
+                  sx={{ flex: 1 }}
+                  size="small"
+                  options={assetOptions}
+                  filterOptions={(x) => x}
+                  value={row.asset}
+                  onChange={(_, picked) => setRow(i, { asset: picked })}
+                  onInputChange={(_, v, reason) => {
+                    if (reason === "input") setAssetInput(v);
+                  }}
+                  getOptionLabel={(o) => `${o.name} · ${o.skuKey}`}
+                  isOptionEqualToValue={(a, b) => a.id === b.id}
+                  loading={assetSearching}
+                  renderInput={(params) => (
+                    <TextField {...params} label="Product" placeholder="Search by name or SKU" />
+                  )}
+                />
+              )}
               <TextField
                 label="Qty"
                 type="number"
@@ -462,9 +489,14 @@ export default function ScheduleDeliveryDialog({
             </Stack>
           ))}
         </Stack>
-        <Button size="small" startIcon={<AddIcon />} onClick={() => setRows((rs) => [...rs, { asset: null, quantity: "1" }])}>
-          Add another product
-        </Button>
+        <Stack direction="row" spacing={1}>
+          <Button size="small" startIcon={<AddIcon />} onClick={() => setRows((rs) => [...rs, { asset: null, description: "", freeTyped: false, quantity: "1" }])}>
+            Add product
+          </Button>
+          <Button size="small" startIcon={<AddIcon />} onClick={() => setRows((rs) => [...rs, { asset: null, description: "", freeTyped: true, quantity: "1" }])}>
+            Free type item
+          </Button>
+        </Stack>
 
         <Divider sx={{ my: 2 }} />
 

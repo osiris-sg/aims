@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsIn, IsString, IsUUID } from 'class-validator';
+import { IsArray, IsIn, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
 
 /**
  * Field action: assign an acknowledged unit to a project from INSIDE the
@@ -59,4 +59,41 @@ export class AddItemPhotosDto {
   @IsArray()
   @IsString({ each: true })
   photos!: string[];
+}
+
+/**
+ * Field action: "Acknowledge all" — one signature + one photo + GPS applied to
+ * every unit currently delivering on the run (one DO_ACK MSR per unit).
+ */
+export class AckAllDto {
+  @ApiProperty({ required: false, description: 'Customer signature (data URL / S3 key).' })
+  @IsOptional()
+  @IsString()
+  signature?: string;
+
+  @ApiProperty({ required: false, description: 'Recipient / signer name.' })
+  @IsOptional()
+  @IsString()
+  recipientName?: string;
+
+  @ApiProperty({ required: false, description: 'S3 keys of the shared proof photo(s).', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  photos?: string[];
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
+
+  @ApiProperty({ required: false, description: 'Rider display name for the report.' })
+  @IsOptional()
+  @IsString()
+  technicianName?: string;
 }
