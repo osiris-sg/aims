@@ -871,10 +871,25 @@ export class MaintenanceReportsService {
     // The single DO we lock onto: most recent DELIVERY_ORDER matching the
     // filter, WITHOUT any report-state exclusion (an acked / installed DO is
     // intentionally still selected so we read its real stage, not skip it).
+    //
+    // EXCEPTION (2026-08): exclude the draft DO born-linked to a `scheduled`
+    // run. Those DOs carry asset-level (unbound) slots that match ANY unit of
+    // the asset, so a scan would otherwise resolve them and route the rider
+    // DO-first — claiming the scheduled run by DO resolution BEFORE they pick a
+    // project, which defeats the post-assign merge. Excluding them makes the
+    // rider start ad-hoc → assign → tryMergeIntoScheduledRun. The exclusion is
+    // status-scoped: once the run is claimed (scheduled → in_progress at merge)
+    // its items are no longer on a `scheduled` run, so the DO resolves normally
+    // again for the rest of the flow. A genuine DO-first DO (no delivery items,
+    // or items on an in_progress run) is unaffected — `none` holds vacuously.
     const resolvedDoItem = await this.prisma.documentItem.findFirst({
       where: {
         ...itemFilter,
-        document: { organizationId, type: 'DELIVERY_ORDER' },
+        document: {
+          organizationId,
+          type: 'DELIVERY_ORDER',
+          deliveryItems: { none: { delivery: { status: 'scheduled' } } },
+        },
       },
       orderBy: { document: { createdAt: 'desc' } },
       include: { document: true },
