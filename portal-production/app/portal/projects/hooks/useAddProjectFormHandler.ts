@@ -31,6 +31,7 @@ const assignmentSchema = z.object({
 
 const projectSchema = z.object({
   name: z.string().min(1, "Project name is required"),
+  address: z.string().optional(),
   customerId: z.string().min(1, "Customer is required"),
   siteOfficeId: z.string().min(1, "Site office is required"),
   startDate: z.date({ required_error: "Start date is required" }),
@@ -72,6 +73,7 @@ export const useAddProjectFormHandler = () => {
     resolver: zodResolver(projectSchema),
     defaultValues: {
       name: "",
+      address: "",
       customerId: "",
       startDate: new Date(),
       endDate: new Date(),
@@ -150,6 +152,7 @@ export const useAddProjectFormHandler = () => {
         setProject(response.data);
         methods.reset({
           name: response.data.name,
+          address: response.data.address || "",
           customerId: response.data.siteOffice.customer.id || "",
           siteOfficeId: response.data.siteOffice.id || "",
           startDate: response.data.startDate ? new Date(response.data.startDate) : new Date(),
