@@ -6,6 +6,7 @@ import { useAuth } from "@clerk/nextjs";
 import { Avatar, Box, Button, Card, CardActionArea, CardContent, Chip, CircularProgress, Stack, Typography, Alert } from "@mui/material";
 import BuildIcon from "@mui/icons-material/Build";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
+import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import HandymanIcon from "@mui/icons-material/Handyman";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DescriptionIcon from "@mui/icons-material/Description";
@@ -64,6 +65,10 @@ interface ScanContext {
   } | null;
   canStartStandaloneDelivery?: boolean;
   riderOpenDelivery?: { id: string; deliveryNumber: number } | null;
+  // Reverse delivery: a rental unit can be collected back to stock; sold units
+  // are blocked with a credit-note message.
+  canStartReturn?: boolean;
+  returnBlockedReason?: string | null;
 }
 
 // Per-item status → chip label + colour for the delivery-items list.
@@ -378,6 +383,29 @@ export default function AssetActionChooser() {
           <CardActionArea disabled>{deliveryCardInner}</CardActionArea>
         )}
       </Card>
+
+      {/* Reverse delivery: collect a rental unit back to stock. Same field flow
+          (photo/GPS → collect-ack), no assign/install. */}
+      {data.canStartReturn && inventory && (
+        <Card variant="outlined">
+          <CardActionArea
+            onClick={() =>
+              router.push(
+                `/scan/asset/${assetId}/delivery-start?standalone=1&return=1&inventoryId=${encodeURIComponent(inventory.id)}`,
+              )
+            }
+          >
+            <CardContent sx={{ display: "flex", gap: 2.5, alignItems: "center", py: 3, minHeight: 96 }}>
+              <AssignmentReturnIcon color="primary" sx={{ fontSize: 48 }} />
+              <Box>
+                <Typography variant="h6" fontWeight={700}>Start Return</Typography>
+                <Typography variant="body2" color="text.secondary">Collect this rental unit back to stock</Typography>
+              </Box>
+            </CardContent>
+          </CardActionArea>
+        </Card>
+      )}
+      {data.returnBlockedReason && <Alert severity="info">{data.returnBlockedReason}</Alert>}
 
       {/* Per-item delivery list (Phase 5). Augments the single morphing card:
           one row per item on the resolved DO, each with a status chip + the

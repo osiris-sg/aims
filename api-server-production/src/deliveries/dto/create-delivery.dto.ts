@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 
 /**
  * Create a standalone Delivery run with its first item (the scanned unit).
@@ -15,6 +15,11 @@ export class CreateDeliveryDto {
   @IsOptional()
   @IsUUID()
   inventoryId?: string;
+
+  @ApiPropertyOptional({ description: "Run direction: OUTBOUND (default) or RETURN (collecting a rental back to stock).", enum: ['OUTBOUND', 'RETURN'] })
+  @IsOptional()
+  @IsIn(['OUTBOUND', 'RETURN'])
+  direction?: 'OUTBOUND' | 'RETURN';
 
   @ApiPropertyOptional({ description: 'Free-text line description (defaults to asset/unit name).' })
   @IsOptional()

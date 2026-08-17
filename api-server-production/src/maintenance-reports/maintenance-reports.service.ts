@@ -1180,9 +1180,21 @@ export class MaintenanceReportsService {
     // for response-shape stability with any older client.
     const scheduledMatch: null = null;
 
+    // Reverse delivery (2026-08): a unit currently OUT on rental can be collected
+    // back to stock via a RETURN run. A SOLD unit is a commercial reversal
+    // (credit note), not a return — surface a block reason instead of the action.
+    const canStartReturn = inventory?.status === InventoryStatus.rental;
+    const returnBlockedReason =
+      inventory?.status === InventoryStatus.sold
+        ? 'This unit was sold — process a Credit Note to take it back. It cannot be returned as a rental.'
+        : null;
+
     return {
       asset,
       inventory,
+      // Reverse-delivery eligibility for the scanned unit.
+      canStartReturn,
+      returnBlockedReason,
       // { project: {id,name}, projectDeployment: {type}|null } | null — the
       // unit's active assignment for the field Assign-to-Project flow.
       activeAssignment,
