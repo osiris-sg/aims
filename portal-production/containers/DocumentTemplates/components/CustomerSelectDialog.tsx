@@ -6,6 +6,10 @@ import {
   DialogTitle,
   DialogContent,
   Box,
+  Button,
+  CircularProgress,
+  Collapse,
+  Stack,
   TextField,
   Table,
   TableBody,
@@ -21,7 +25,10 @@ import {
 import {
   Close as CloseIcon,
   Search as SearchIcon,
+  Add as AddIcon,
 } from "@mui/icons-material";
+import { toast } from "react-toastify";
+import { useCreateCustomer } from "@/app/portal/hooks/api";
 
 interface Customer {
   id: string;
@@ -52,6 +59,41 @@ export default function CustomerSelectDialog({
 }: CustomerSelectDialogProps) {
   const [searchTerm, setSearchTerm] = useState("");
 
+  // Quick-add: create a customer without leaving the picker (guru 2026-08-18).
+  // The backend generates the customer code from the name; the new customer is
+  // selected into the document immediately on success.
+  const createCustomer = useCreateCustomer();
+  const [addOpen, setAddOpen] = useState(false);
+  const [draft, setDraft] = useState({ name: "", phone: "", email: "", address: "" });
+  const openAddForm = () => {
+    // Seed the name with whatever the user was searching for — the usual
+    // trigger is "typed a name, no match".
+    setDraft({ name: searchTerm.trim(), phone: "", email: "", address: "" });
+    setAddOpen(true);
+  };
+  const submitNewCustomer = async () => {
+    const name = draft.name.trim();
+    if (!name) {
+      toast.warn("Customer name is required");
+      return;
+    }
+    try {
+      const created = await createCustomer.mutateAsync({
+        name,
+        phone: draft.phone.trim() || null,
+        email: draft.email.trim() || null,
+        address: draft.address.trim() || null,
+      } as any);
+      toast.success(`Customer ${created?.customerCode ? `${created.customerCode} — ` : ""}${created?.name || name} created`);
+      setAddOpen(false);
+      setSearchTerm("");
+      onSelectCustomer(created);
+      onClose();
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to create the customer");
+    }
+  };
+
   // Free-text search across ALL displayed columns (code, name, phone, email).
   const filteredCustomers = useMemo(() => {
     if (!searchTerm.trim()) {
@@ -74,6 +116,7 @@ export default function CustomerSelectDialog({
 
   const handleClose = () => {
     setSearchTerm("");
+    setAddOpen(false);
     onClose();
   };
 
@@ -122,27 +165,84 @@ export default function CustomerSelectDialog({
             This combo box begins searching as soon as you begin typing the first character
           </Typography>
 
-          {/* Search Input */}
-          <TextField
-            fullWidth
-            placeholder="Search customers..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            size="small"
-            autoFocus
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon color="action" />
-                </InputAdornment>
-              ),
-            }}
-            sx={{
-              mb: 1.5,
-              bgcolor: "background.paper",
-            }}
-          />
+          {/* Search Input + quick-add */}
+          <Stack direction="row" gap={1} sx={{ mb: 1.5 }}>
+            <TextField
+              fullWidth
+              placeholder="Search customers..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              size="small"
+              autoFocus
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon color="action" />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ bgcolor: "background.paper" }}
+            />
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={() => (addOpen ? setAddOpen(false) : openAddForm())}
+              sx={{ whiteSpace: "nowrap", flexShrink: 0 }}
+            >
+              New Customer
+            </Button>
+          </Stack>
 
+          {/* Inline create form — code is auto-generated from the name. */}
+          <Collapse in={addOpen}>
+            <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+              <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center">
+                <TextField
+                  size="small"
+                  label="Company name *"
+                  value={draft.name}
+                  onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+                  sx={{ flex: "1 1 220px" }}
+                  autoFocus
+                />
+                <TextField
+                  size="small"
+                  label="Phone"
+                  value={draft.phone}
+                  onChange={(e) => setDraft((d) => ({ ...d, phone: e.target.value }))}
+                  sx={{ width: 140 }}
+                />
+                <TextField
+                  size="small"
+                  label="Email"
+                  value={draft.email}
+                  onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))}
+                  sx={{ flex: "1 1 180px" }}
+                />
+                <TextField
+                  size="small"
+                  label="Address"
+                  value={draft.address}
+                  onChange={(e) => setDraft((d) => ({ ...d, address: e.target.value }))}
+                  sx={{ flex: "2 1 260px" }}
+                />
+                <Button
+                  variant="contained"
+                  size="small"
+                  onClick={submitNewCustomer}
+                  disabled={createCustomer.isPending || !draft.name.trim()}
+                  startIcon={createCustomer.isPending ? <CircularProgress size={14} color="inherit" /> : undefined}
+                  sx={{ whiteSpace: "nowrap" }}
+                >
+                  Create & select
+                </Button>
+              </Stack>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.75 }}>
+                The customer code is generated automatically. Full details (GST, currency, salesman, contacts) can be added later in Masterfiles.
+              </Typography>
+            </Paper>
+          </Collapse>
         </Box>
 
         {/* Results Table */}
@@ -203,6 +303,15 @@ export default function CustomerSelectDialog({
                     <Typography color="text.secondary">
                       {searchTerm ? "No customers found matching your search" : "No customers available"}
                     </Typography>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<AddIcon />}
+                      onClick={openAddForm}
+                      sx={{ mt: 1.5 }}
+                    >
+                      {searchTerm.trim() ? `Create “${searchTerm.trim()}” as a new customer` : "Create a new customer"}
+                    </Button>
                   </TableCell>
                 </TableRow>
               ) : (
