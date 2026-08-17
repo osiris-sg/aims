@@ -19,6 +19,23 @@ import { PrismaClient, DocumentStatus, Prisma } from "@prisma/client";
 import * as dotenv from "dotenv";
 dotenv.config();
 
+// Product code from the Revenue Master File: each account code maps to one
+// SV-code (only 206 is shared — Installation vs Transport, description decides).
+// Xero lines rarely carry ItemCode, so derive it account-first (guru 2026-08-17).
+const SV_BY_ACCOUNT: Record<string, string> = {
+  "200": "SV001", "201": "SV002", "202": "SV003", "203": "SV004", "207": "SV006",
+  "209": "SV007", "210": "SV008", "211": "SV009", "212": "SV010", "213": "SV011",
+  "214": "SV012", "216": "SV013", "222": "SV014", "223": "SV015", "225": "SV016",
+  "226": "SV017", "260": "SV018", "261": "SV019", "262": "SV020", "263": "SV021",
+  "264": "SV022", "270": "SV023", "271": "SV024", "443": "SV025",
+};
+function svCodeFor(accountCode: string | null | undefined, description: string): string | null {
+  if (!accountCode) return null;
+  if (accountCode === "206") return /install/i.test(description || "") ? "IS" : "SV005";
+  return SV_BY_ACCOUNT[accountCode] || null;
+}
+
+
 import { BIOFUEL_ORG_ID, getXeroTokens, xeroGet, modifiedSinceArg } from "./_common";
 
 const MODIFIED_SINCE = modifiedSinceArg();
@@ -171,7 +188,7 @@ async function main() {
         amount: li.LineAmount ?? 0,
         taxAmount: li.TaxAmount ?? 0,
         accountCode: li.AccountCode || null,
-        itemCode: li.ItemCode || null,
+        itemCode: li.ItemCode || svCodeFor(li.AccountCode, li.Description || ""),
         taxType: li.TaxType || null,
         discount: li.DiscountRate ?? 0,
       }));

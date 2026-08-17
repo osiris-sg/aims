@@ -29,6 +29,9 @@ async function main() {
   // 2) AIMS invoices by name.
   const aims = await prisma.document.findMany({ where: { organizationId: ORG, type: 'INVOICE' }, select: { id: true, name: true, config: true } });
   const byName = new Map(aims.map((d) => [d.name, d]));
+  // Match by xeroInvoiceId FIRST — AIMS names can lag Xero renumbering (and
+  // vice versa); a blind name-match stamps the wrong invoice's balances.
+  const byId = new Map(aims.filter((d) => (d.config as any)?.xeroInvoiceId).map((d) => [(d.config as any).xeroInvoiceId, d]));
 
   let matched = 0, notInAims = 0, arDue = 0;
   const statusN: Record<string, number> = {};
@@ -42,7 +45,12 @@ async function main() {
     if (!isVoid) arDue += due;
     statusN[status] = (statusN[status] || 0) + 1;
 
-    const doc = byName.get(number);
+    let doc = byId.get(inv.InvoiceID);
+    if (!doc) {
+      const cand = byName.get(number);
+      const candId = cand ? ((cand.config as any) || {}).xeroInvoiceId : null;
+      if (cand && (!candId || candId === inv.InvoiceID)) doc = cand;
+    }
     if (!doc) { notInAims++; continue; }
     // Preserve draft-ness: a DRAFT/SUBMITTED invoice has AmountDue > 0 but is
     // NOT awaiting payment — it isn't approved yet.
@@ -57,12 +65,17 @@ async function main() {
   // of the /Invoices API entirely) — neutralize it or AR drifts forever.
   // Only valid on a FULL pull; with --modified-since the pull is partial.
   const seen = new Set(all.map((i) => (i.InvoiceNumber || '').trim()).filter(Boolean));
+  // Suffixed duplicate-number rows ("BI... (87d0)") and renumber-lagged rows
+  // never name-match the pull — treat presence of the row's xeroInvoiceId in
+  // the pull as seen too, or real invoices get phantom-voided.
+  const seenIds = new Set(all.map((i) => i.InvoiceID).filter(Boolean));
   let phantoms = 0;
   for (const d of MODIFIED_SINCE ? [] : aims) {
     const c: any = d.config || {};
     if (!c.xeroImported || c.voided) continue;
     if (Number(c.xeroBalance || 0) <= 0.005) continue;
     if (seen.has((d.name || '').trim())) continue;
+    if (c.xeroInvoiceId && seenIds.has(c.xeroInvoiceId)) continue;
     console.log(`  ⚠ phantom: ${d.name} balance ${c.xeroBalance} — no longer in Xero; zeroing + marking voided`);
     await withDbRetry(() => prisma.document.update({
       where: { id: d.id },
