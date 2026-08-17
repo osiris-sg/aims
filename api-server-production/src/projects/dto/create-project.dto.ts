@@ -29,12 +29,6 @@ export class CreateProjectDto {
   @IsNotEmpty()
   name: string;
 
-  // Optional plain delivery/site address (free text) — the preferred "Deliver To"
-  // source for scheduled deliveries.
-  @IsString()
-  @IsOptional()
-  address?: string;
-
   @IsString()
   @IsNotEmpty()
   siteOfficeId: string;

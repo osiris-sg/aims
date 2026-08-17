@@ -48,10 +48,6 @@ export default function ProjectCreation() {
       <Stack direction="column" spacing="var(--default-gap)">
         <FormInputBox control={control} name="name" label="Name" placeHolder="Enter Project Name" required />
 
-        {/* Optional plain delivery/site address — auto-fills the DO's "Deliver To"
-            when scheduling a delivery for this project. */}
-        <FormInputBox control={control} name="address" label="Delivery Address" placeHolder="Optional — used as the delivery order's Deliver To" />
-
         <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <Typography variant="body1">Customer *</Typography>

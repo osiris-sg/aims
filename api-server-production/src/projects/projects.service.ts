@@ -195,11 +195,8 @@ export class ProjectsService {
             id: project.id,
             name: project.name,
             projectNumber: project.projectNumber,
-            // Delivery-address source for scheduled deliveries: the project's own
-            // address wins, else its linked site office's.
-            address: project.address ?? project.siteOffice?.address ?? null,
             siteOffice: project.siteOffice
-              ? { id: project.siteOffice.id, name: project.siteOffice.name, address: project.siteOffice.address ?? null }
+              ? { id: project.siteOffice.id, name: project.siteOffice.name }
               : null,
             customer: resolvedCustomer
               ? { id: resolvedCustomer.id, name: resolvedCustomer.name }
@@ -1154,7 +1151,6 @@ export class ProjectsService {
       const project = await this.prisma.project.create({
         data: {
           name: createProjectDto.name,
-          ...(createProjectDto.address?.trim() ? { address: createProjectDto.address.trim() } : {}),
           siteOfficeId: createProjectDto.siteOfficeId,
           startDate: createProjectDto.startDate,
           endDate: createProjectDto.endDate,
