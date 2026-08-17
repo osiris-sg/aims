@@ -48,6 +48,7 @@ export default function ScheduleDeliveryDialog({
 
   const [rows, setRows] = useState<Row[]>([{ asset: null, quantity: 1 }]);
   const [scheduledFor, setScheduledFor] = useState("");
+  const [poNumber, setPoNumber] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,6 +69,7 @@ export default function ScheduleDeliveryDialog({
     if (open) {
       setRows([{ asset: null, quantity: 1 }]);
       setScheduledFor("");
+      setPoNumber("");
       setError(null);
       setCustomer(null);
       setProject(null);
@@ -177,6 +179,7 @@ export default function ScheduleDeliveryDialog({
         {
           scheduledFor: new Date(scheduledFor).toISOString(),
           items: validRows.map((r) => ({ assetId: r.asset!.id, quantity: r.quantity })),
+          ...(poNumber.trim() ? { poNumber: poNumber.trim() } : {}),
           ...(customer ? { customerId: customer.id } : {}),
           ...(project ? { projectId: project.id } : {}),
         },
@@ -210,6 +213,17 @@ export default function ScheduleDeliveryDialog({
           fullWidth
           size="small"
           InputLabelProps={{ shrink: true }}
+          sx={{ mb: 2 }}
+        />
+
+        <TextField
+          label="PO number (optional)"
+          placeholder="Customer's PO number"
+          value={poNumber}
+          onChange={(e) => setPoNumber(e.target.value)}
+          fullWidth
+          size="small"
+          helperText='Lands on the draft DO as "Your PO No."'
           sx={{ mb: 2 }}
         />
 

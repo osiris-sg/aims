@@ -19,6 +19,7 @@ interface SchedItem {
   id: string;
   quantity: number | null;
   description: string | null;
+  assetId: string | null;
   inventoryId: string | null;
 }
 interface SchedRun {
@@ -29,6 +30,8 @@ interface SchedRun {
   items: SchedItem[];
   project: { id: string; name: string } | null;
   customer: { id: string; name: string } | null;
+  // The run's pre-created draft DO (PO number + a full-DO link target).
+  document: { id: string; name: string | null; poNo: string | null } | null;
 }
 
 const fmt = (d: string | null) =>
@@ -103,6 +106,11 @@ export default function ScheduledDeliveriesPage() {
                     {r.project?.name ?? r.customer?.name ?? r.siteAddress}
                   </Typography>
                 )}
+                {r.document?.poNo && (
+                  <Typography variant="body2">
+                    <b>PO No.:</b> {r.document.poNo}
+                  </Typography>
+                )}
                 <Stack spacing={0.25} sx={{ mt: 0.5 }}>
                   {(open.length ? open : r.items).map((i) => (
                     <Typography key={i.id} variant="body2">
@@ -110,6 +118,16 @@ export default function ScheduledDeliveriesPage() {
                     </Typography>
                   ))}
                 </Stack>
+                {r.document?.id && r.items[0]?.assetId && (
+                  <Button
+                    size="small"
+                    variant="text"
+                    sx={{ alignSelf: "flex-start", textTransform: "none", mt: 0.5 }}
+                    onClick={() => router.push(`/scan/asset/${r.items[0].assetId}/do/${r.document!.id}/view`)}
+                  >
+                    View full DO
+                  </Button>
+                )}
               </CardContent>
             </Card>
           );
