@@ -2418,3 +2418,49 @@ model WhatsAppContact {
 
   @@unique([organizationId, waId])
 }
+
+// ── AIMS Operator (chat agent that executes real AIMS actions) ──────────────
+// Identity is Clerk-only in this app (there is no User model), so a chat sender
+// must be explicitly linked to a Clerk user id before the agent will act.
+
+model OperatorIdentity {
+  id             String    @id @default(uuid())
+  channel        String // 'telegram' | 'whatsapp'
+  channelUserId  String // Telegram numeric id (as string) | WhatsApp phone digits
+  clerkUserId    String // the AIMS/Clerk user id this sender acts as
+  organizationId String? // chosen active org (required once a user is in >1 org)
+  displayName    String?
+  verified       Boolean   @default(false)
+  lastSeenAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([channel, channelUserId])
+  @@index([clerkUserId])
+}
+
+// Short-lived code generated in the portal, texted to the bot to prove the
+// sender owns the AIMS account.
+model OperatorLinkCode {
+  id          String    @id @default(uuid())
+  code        String    @unique
+  clerkUserId String
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([clerkUserId])
+}
+
+// Per-sender conversation state: recent turns + any draft awaiting confirmation.
+model OperatorSession {
+  id            String   @id @default(uuid())
+  channel       String
+  channelUserId String
+  state         Json // { history: [...], pendingAction?: {...} }
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([channel, channelUserId])
+}
