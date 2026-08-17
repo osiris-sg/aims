@@ -30,6 +30,7 @@ import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import { capturePosition } from "@/helpers/geolocation";
 import { hasNativeCamera, captureNativePhoto } from "../../lib/nativeCamera";
+import { compressImageDataUrl } from "../../lib/imageCompress";
 import { useNfcScan } from "../../hooks/useNfcScan";
 
 interface AssetOption {
@@ -67,29 +68,6 @@ const FIELD_BUTTON_SX = {
   fontSize: "1rem",
   minHeight: 48,
 } as const;
-
-// Phone-camera JPEGs run 4–8 MB; Claude's image input cap is 5 MB. Resize
-// to 1280px wide at JPEG quality 0.7 — typically ~200–400 KB, well clear.
-const compressImage = (dataUrl: string, maxWidth = 1280, quality = 0.7): Promise<string> => {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      let w = img.width;
-      let h = img.height;
-      if (w > maxWidth) {
-        h = (h * maxWidth) / w;
-        w = maxWidth;
-      }
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      ctx?.drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL("image/jpeg", quality));
-    };
-    img.src = dataUrl;
-  });
-};
 
 /**
  * Field create-and-bind flow. The technician arrives here because the scanned
@@ -578,16 +556,12 @@ export default function BindTagPage() {
     }
   };
 
-  // Read one nameplate File → dataURL preview. `alreadySized` is true for native
-  // camera shots (plugin-downsized) so we skip the redundant main-thread
-  // compress; false for gallery/web picks (any size).
-  const processPhotoFile = (file: File, alreadySized = false) => {
-    const reader = new FileReader();
-    reader.onload = async () => {
-      if (typeof reader.result !== "string") return;
-      setPhotoDataUrl(alreadySized ? reader.result : await compressImage(reader.result));
-    };
-    reader.readAsDataURL(file);
+  // Read one nameplate File → compressed dataURL preview. ALL sources are
+  // compressed: the native Sunmi camera ignores takePhoto's resize and returns
+  // raw 8 MP frames, so there's nothing "already sized" to trust. compression
+  // runs off the main thread.
+  const processPhotoFile = (file: File) => {
+    void compressImageDataUrl(file).then(setPhotoDataUrl);
   };
 
   // "Scan Equipment Label" tap: in-app camera on native (works with no external
@@ -596,7 +570,7 @@ export default function BindTagPage() {
     if (await hasNativeCamera()) {
       try {
         const file = await captureNativePhoto();
-        if (file) processPhotoFile(file, true);
+        if (file) processPhotoFile(file);
         return;
       } catch {
         toast.info("Camera unavailable — choose an existing photo instead.");
@@ -607,7 +581,7 @@ export default function BindTagPage() {
 
   const onPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) processPhotoFile(file, false);
+    if (file) processPhotoFile(file);
   };
 
   const analyze = async () => {

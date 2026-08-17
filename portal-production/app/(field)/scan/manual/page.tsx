@@ -25,27 +25,7 @@ import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
 import { useNfcScan } from "../../hooks/useNfcScan";
 import { hasNativeCamera, captureNativePhoto } from "../../lib/nativeCamera";
-
-// Phone-camera JPEGs run 4–8 MB; Claude's image input cap is 5 MB. Resize to
-// 1280px wide at JPEG quality 0.7 (~200–400 KB). Same settings as the bind page.
-const compressImage = (dataUrl: string, maxWidth = 1280, quality = 0.7): Promise<string> =>
-  new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      let w = img.width;
-      let h = img.height;
-      if (w > maxWidth) {
-        h = (h * maxWidth) / w;
-        w = maxWidth;
-      }
-      canvas.width = w;
-      canvas.height = h;
-      canvas.getContext("2d")?.drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL("image/jpeg", quality));
-    };
-    img.src = dataUrl;
-  });
+import { compressImageDataUrl } from "../../lib/imageCompress";
 
 // Normalized match (strip non-alphanumerics + lowercase) so an OCR'd "KBZ 43.7"
 // preselects the catalog "KBZ43.7". Exact-after-normalization only — no
@@ -178,21 +158,17 @@ export default function ManualEntryPage() {
 
   // Camera → compress → extract. Kept separate from resolve(): reading the
   // plate only fills the form; the tech still taps "Find unit".
-  // Read one nameplate File → dataURL → AI plate extraction. `alreadySized` is
-  // true for native camera shots (plugin-downsized) so extraction skips the
-  // redundant main-thread compress; false for gallery/web picks (any size).
-  const processPlateFile = (file: File, alreadySized = false) => {
-    const reader = new FileReader();
-    reader.onload = async () => {
-      if (typeof reader.result === "string") await extractPlate(reader.result, alreadySized);
-    };
-    reader.readAsDataURL(file);
+  // One nameplate File → compressed dataURL → AI plate extraction. ALL sources
+  // are compressed: the native Sunmi camera ignores takePhoto's resize and hands
+  // back raw 8 MP frames, so there's nothing "already sized" to trust.
+  const processPlateFile = (file: File) => {
+    void extractPlate(file);
   };
 
   const onPlatePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (cameraRef.current) cameraRef.current.value = ""; // allow re-picking the same file
-    if (file) processPlateFile(file, false);
+    if (file) processPlateFile(file);
   };
 
   // "Scan nameplate" tap: use the in-app camera on native (works with no
@@ -202,7 +178,7 @@ export default function ManualEntryPage() {
     if (await hasNativeCamera()) {
       try {
         const file = await captureNativePhoto();
-        if (file) processPlateFile(file, true);
+        if (file) processPlateFile(file);
         return;
       } catch {
         setPlateFailed(true); // camera unavailable — let them pick a photo instead
@@ -211,7 +187,7 @@ export default function ManualEntryPage() {
     cameraRef.current?.click();
   };
 
-  const extractPlate = async (rawDataUrl: string, alreadySized = false) => {
+  const extractPlate = async (source: File | string) => {
     setExtracting(true);
     setPlateFailed(false);
     setReadSummary(null);
@@ -219,9 +195,9 @@ export default function ManualEntryPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      // Native camera shots are already plugin-downsized — skip the redundant
-      // main-thread compress; gallery/web picks still need it.
-      const image = alreadySized ? rawDataUrl : await compressImage(rawDataUrl);
+      // Compress every source (off the main thread) before the AI call — the
+      // native Sunmi camera hands back raw 8 MP frames despite takePhoto's resize.
+      const image = await compressImageDataUrl(source);
       const res = await request(
         { path: "/assets/manual-entry/extract-label", method: "POST", timeout: 120000 },
         { image },
