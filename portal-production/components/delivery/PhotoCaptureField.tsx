@@ -17,6 +17,7 @@ import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
 import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { hasNativeCamera, captureNativePhotos } from "@/app/(field)/lib/nativeCamera";
+import { compressImageBlob } from "@/app/(field)/lib/imageCompress";
 
 export interface CapturedPhoto {
   key: string;
@@ -41,52 +42,6 @@ interface Props {
   onUploadingChange?: (uploading: boolean) => void;
   disabled?: boolean;
 }
-
-// Phone-camera JPEGs run 4–8 MB. Resize to 1280px wide at JPEG q0.7 — typically
-// ~200–400 KB — before upload, otherwise the S3 PUT is painfully slow on field
-// LTE and the office gets oversized assets it never zooms into.
-//
-// Uses canvas.toBlob() rather than canvas.toDataURL() + fetch(dataUrl).blob():
-// the round-trip via fetch() on a data URL produces a Blob with an empty `.type`
-// in the Capacitor Android WebView, which downstream upload maps to a ".unknown"
-// extension and the backend silently drops. toBlob guarantees the type asked for.
-const compressImageToBlob = (
-  dataUrl: string,
-  maxWidth = 1280,
-  quality = 0.7,
-): Promise<Blob> => {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      let w = img.width;
-      let h = img.height;
-      if (w > maxWidth) {
-        h = (h * maxWidth) / w;
-        w = maxWidth;
-      }
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      ctx?.drawImage(img, 0, 0, w, h);
-      canvas.toBlob(
-        (blob) => resolve(blob ?? new Blob([], { type: "image/jpeg" })),
-        "image/jpeg",
-        quality,
-      );
-    };
-    img.src = dataUrl;
-  });
-};
-
-const fileToDataUrl = (file: File): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () =>
-      resolve(typeof reader.result === "string" ? reader.result : "");
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
 
 /**
  * Presentational proof-photo capture: pick from camera/gallery → compress →
@@ -127,22 +82,19 @@ export default function PhotoCaptureField({
     onUploadingChange?.(v);
   };
 
-  // Upload each file, appending to the set (preserves multi-photo). `compress`
-  // runs the main-thread canvas resize — needed for gallery/web picks (any
-  // size), but SKIPPED for native camera shots, which the plugin already
-  // downsized (that redundant compression was the post-capture UI stall).
-  const ingestFiles = async (files: File[], compress = true) => {
+  // Upload each file, appending to the set (preserves multi-photo). EVERY source
+  // is compressed — the native Sunmi camera ignores takePhoto's resize and hands
+  // back raw 8 MP / 3–4 MB frames, so we can't trust it to have downsized.
+  // compressImageBlob does the decode+encode off the main thread to avoid the
+  // per-photo UI stall that previously motivated skipping this on native shots.
+  const ingestFiles = async (files: File[]) => {
     if (files.length === 0) return;
     onError?.("");
     setUploadingFlag(true);
     try {
       const newPhotos: CapturedPhoto[] = [];
       for (const file of files) {
-        let blob: Blob = file;
-        if (compress) {
-          const originalDataUrl = await fileToDataUrl(file);
-          blob = await compressImageToBlob(originalDataUrl);
-        }
+        const blob = await compressImageBlob(file);
         const key = await upload(blob);
         if (key) {
           newPhotos.push({ key, previewUrl: URL.createObjectURL(blob) });
@@ -161,14 +113,13 @@ export default function PhotoCaptureField({
   };
 
   // Native "Take photos" — the camera auto-reopens after each shot so the rider
-  // captures several in a row (backing out of the camera finishes). Every shot
-  // is plugin-downsized, so upload without re-compressing. A real failure before
-  // any capture flips to the gallery-only guard.
+  // captures several in a row (backing out of the camera finishes). A real
+  // failure before any capture flips to the gallery-only guard.
   const handleTakePhoto = async () => {
     setCamMsg(null);
     try {
       const files = await captureNativePhotos();
-      if (files.length) await ingestFiles(files, false);
+      if (files.length) await ingestFiles(files);
     } catch {
       setNativeCam(false);
       setCamMsg("Camera unavailable — choose an existing photo below.");
