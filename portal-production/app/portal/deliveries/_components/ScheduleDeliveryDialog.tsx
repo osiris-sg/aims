@@ -32,7 +32,9 @@ import { useOrganization } from "@hooks/useOrganization";
 interface AssetOption { id: string; name: string; skuKey: string }
 interface CustomerOption { id: string; name: string; customerCode: string | null }
 interface ProjectOption { id: string; name: string }
-interface Row { asset: AssetOption | null; quantity: number }
+// quantity is held as a RAW STRING so the field is freely typeable (empty /
+// partial while typing); it's clamped to a numeric min-1 on blur + at submit.
+interface Row { asset: AssetOption | null; quantity: string }
 
 export default function ScheduleDeliveryDialog({
   open,
@@ -46,7 +48,7 @@ export default function ScheduleDeliveryDialog({
   const { getToken } = useAuth();
   const { organization } = useOrganization();
 
-  const [rows, setRows] = useState<Row[]>([{ asset: null, quantity: 1 }]);
+  const [rows, setRows] = useState<Row[]>([{ asset: null, quantity: "1" }]);
   const [scheduledFor, setScheduledFor] = useState("");
   const [poNumber, setPoNumber] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -67,7 +69,7 @@ export default function ScheduleDeliveryDialog({
   // Reset on (re)open.
   useEffect(() => {
     if (open) {
-      setRows([{ asset: null, quantity: 1 }]);
+      setRows([{ asset: null, quantity: "1" }]);
       setScheduledFor("");
       setPoNumber("");
       setError(null);
@@ -164,7 +166,7 @@ export default function ScheduleDeliveryDialog({
   const setRow = (i: number, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
 
-  const validRows = rows.filter((r) => r.asset && r.quantity >= 1);
+  const validRows = rows.filter((r) => r.asset && (parseInt(r.quantity, 10) || 0) >= 1);
   const canSubmit = !!scheduledFor && validRows.length > 0 && !submitting;
 
   const submit = async () => {
@@ -178,7 +180,7 @@ export default function ScheduleDeliveryDialog({
         { path: "/deliveries/scheduled", method: "POST" },
         {
           scheduledFor: new Date(scheduledFor).toISOString(),
-          items: validRows.map((r) => ({ assetId: r.asset!.id, quantity: r.quantity })),
+          items: validRows.map((r) => ({ assetId: r.asset!.id, quantity: Math.max(1, parseInt(r.quantity, 10) || 1) })),
           ...(poNumber.trim() ? { poNumber: poNumber.trim() } : {}),
           ...(customer ? { customerId: customer.id } : {}),
           ...(project ? { projectId: project.id } : {}),
@@ -255,9 +257,12 @@ export default function ScheduleDeliveryDialog({
                 type="number"
                 size="small"
                 value={row.quantity}
-                onChange={(e) => setRow(i, { quantity: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                // Accept the raw digits (incl. empty/partial) so the field is
+                // freely typeable; strip non-digits and clamp to min 1 on blur.
+                onChange={(e) => setRow(i, { quantity: e.target.value.replace(/[^0-9]/g, "") })}
+                onBlur={() => setRow(i, { quantity: String(Math.max(1, parseInt(row.quantity, 10) || 1)) })}
                 sx={{ width: 88 }}
-                inputProps={{ min: 1 }}
+                inputProps={{ min: 1, inputMode: "numeric" }}
               />
               <IconButton
                 aria-label="remove"
@@ -270,7 +275,7 @@ export default function ScheduleDeliveryDialog({
             </Stack>
           ))}
         </Stack>
-        <Button size="small" startIcon={<AddIcon />} onClick={() => setRows((rs) => [...rs, { asset: null, quantity: 1 }])}>
+        <Button size="small" startIcon={<AddIcon />} onClick={() => setRows((rs) => [...rs, { asset: null, quantity: "1" }])}>
           Add another product
         </Button>
 
