@@ -4252,6 +4252,34 @@ export class DocumentsService {
   }
 
   /**
+   * Regenerate a scheduled draft DO from a config fragment: merge the fragment
+   * over the existing config (so logo/stamp/template layout survive), optionally
+   * re-point projectId, then re-sync DocumentItems. Used when the office edits a
+   * still-scheduled delivery run (nothing bound yet, placeholder DO number kept).
+   */
+  async replaceScheduledDoConfig(
+    documentId: string,
+    organizationId: string,
+    fragment: Record<string, any>,
+    projectId?: string,
+  ): Promise<void> {
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { config: true },
+    });
+    if (!doc) return;
+    const merged = { ...((doc.config as any) ?? {}), ...fragment };
+    await this.prisma.document.update({
+      where: { id: documentId },
+      data: {
+        config: merged as Prisma.InputJsonValue,
+        ...(projectId !== undefined ? { projectId } : {}),
+      },
+    });
+    await this.syncDocumentItems(documentId, merged, organizationId);
+  }
+
+  /**
    * Auto-bind (tag-time): fill ONE unbound asset-level slot on the given DO
    * with a specific physical unit. A "slot" is a DocumentItem the office left
    * at asset level: itemType=ASSET, inventoryId NULL, same asset, still

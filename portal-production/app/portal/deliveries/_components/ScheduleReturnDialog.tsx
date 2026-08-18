@@ -265,7 +265,18 @@ export default function ScheduleReturnDialog({
   };
 
   return (
-    <Dialog open={open} onClose={() => !submitting && onClose()} fullWidth maxWidth="sm">
+    <Dialog
+      open={open}
+      onClose={() => {
+        // Match the delivery dialog: click-outside / Escape SAVES a complete form
+        // (only Cancel discards). Incomplete → say what's missing, never silent.
+        if (submitting) return;
+        if (canSubmit) void submit();
+        else setError("Pick a customer, add at least one unit and set a date to save. Press Cancel to discard.");
+      }}
+      fullWidth
+      maxWidth="sm"
+    >
       <DialogTitle>Schedule a return</DialogTitle>
       <DialogContent dividers>
         {/* 1) CUSTOMER */}

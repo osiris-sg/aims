@@ -39,6 +39,7 @@ import NoteAddIcon from "@mui/icons-material/NoteAdd";
 import PlaceIcon from "@mui/icons-material/Place";
 import { request } from "@/helpers/request";
 import { useOrganization } from "@hooks/useOrganization";
+import ScheduleDeliveryDialog from "@/app/portal/deliveries/_components/ScheduleDeliveryDialog";
 
 /**
  * Delivery run detail (office). Items + the field PROOF (photos, signature,
@@ -60,6 +61,7 @@ interface RunDetail {
   id: string;
   deliveryNumber: number;
   status: RunStatus;
+  direction?: "OUTBOUND" | "RETURN";
   riderName: string | null;
   siteAddress: string | null;
   notes: string | null;
@@ -72,11 +74,12 @@ interface RunDetail {
   project: { id: string; name: string } | null;
   customer: { id: string; name: string } | null;
   // Derived by the backend: the single distinct DO across linked items, else null.
-  document: { id: string; name: string | null; type: string; status: string } | null;
+  document: { id: string; name: string | null; type: string; status: string; poNo?: string | null; machineLocation?: string | null } | null;
   items: Array<{
     id: string;
     quantity: number;
     description: string | null;
+    assetClass?: string | null;
     deliveryStatus: string;
     documentId: string | null;
     document: { id: string; name: string | null; type: string; status: string } | null;
@@ -163,6 +166,8 @@ export default function DeliveryDetailPage() {
   const [docs, setDocs] = useState<DocRow[] | null>(null);
   const [docsError, setDocsError] = useState<string | null>(null);
   const [showAllDos, setShowAllDos] = useState(false);
+  // Edit a still-scheduled DELIVERY run (same form, prefilled).
+  const [editOpen, setEditOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -375,6 +380,14 @@ export default function DeliveryDetailPage() {
           <Chip size="small" variant="outlined" color="success" label={`Linked: ${distinctDocs[0].name ?? distinctDocs[0].id}`} />
         ) : (
           <Chip size="small" variant="outlined" color="success" label={`Linked: ${distinctDocs.length} DOs`} />
+        )}
+        {run.status === "scheduled" && run.direction !== "RETURN" && (
+          <>
+            <Box sx={{ flex: 1 }} />
+            <Button size="small" variant="outlined" onClick={() => setEditOpen(true)}>
+              Edit
+            </Button>
+          </>
         )}
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -680,6 +693,26 @@ export default function DeliveryDetailPage() {
           <Typography variant="body2">{run.notes}</Typography>
         </>
       )}
+
+      {/* Edit a still-scheduled delivery: the same form, prefilled (the backend
+          rejects the PATCH if a rider has since started). */}
+      <ScheduleDeliveryDialog
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        onCreated={() => {
+          setEditOpen(false);
+          void load();
+        }}
+        editRun={{
+          id: run.id,
+          customer: run.customer,
+          project: run.project,
+          siteAddress: run.siteAddress,
+          scheduledFor: run.scheduledFor,
+          document: run.document ? { poNo: run.document.poNo, machineLocation: run.document.machineLocation } : null,
+          items: run.items.map((i) => ({ asset: i.asset, quantity: i.quantity, description: i.description, assetClass: i.assetClass })),
+        }}
+      />
     </Box>
   );
 }

@@ -291,6 +291,57 @@ export class DeliveriesService {
     return tmpl.id;
   }
 
+  /**
+   * Build the draft-DO config fragment for a scheduled delivery (items + header
+   * fields). Shared by createScheduled and updateScheduled so the two never drift.
+   * Catalog lines are EXPANDED to N x qty-1 asset slots (each unit binds its own
+   * slot + stamps its own serial); free-typed lines stay a single description row.
+   */
+  private buildScheduledDoConfig(params: {
+    items: ScheduleDeliveryDto['items'];
+    assetById: Map<string, { id: string; name: string; skuKey: string | null }>;
+    projectName: string;
+    deliveryAddress: string;
+    poNumber?: string;
+    machineLocation?: string;
+    customer: { id: string; name: string; customerCode: string | null; address: string | null; email: string | null } | null;
+  }): Record<string, any> {
+    const { items, assetById, projectName, deliveryAddress, poNumber, machineLocation, customer } = params;
+    return {
+      items: items.flatMap((it) => {
+        if (!it.assetId) {
+          return [{ description: it.description?.trim() ?? '', quantity: it.quantity, unitPrice: 0, amount: 0 }];
+        }
+        const a = assetById.get(it.assetId)!;
+        return Array.from({ length: it.quantity }, () => ({
+          assetId: it.assetId,
+          sku: a.skuKey,
+          itemCode: a.skuKey,
+          skuKey: a.skuKey,
+          description: a.name,
+          quantity: 1,
+          unitPrice: 0,
+          amount: 0,
+          deliveryGroup: it.assetId,
+        }));
+      }),
+      ...(poNumber ? { poNo: poNumber } : {}),
+      projectName,
+      documentInfo: { projectName },
+      ...(deliveryAddress ? { deliveryTo: deliveryAddress } : {}),
+      ...(machineLocation?.trim() ? { machineLocation: machineLocation.trim() } : {}),
+      ...(customer
+        ? {
+            customerId: customer.id,
+            customerName: customer.name,
+            ...(customer.customerCode ? { customerCode: customer.customerCode } : {}),
+            ...(customer.address ? { customerAddress: customer.address } : {}),
+            ...(customer.email ? { customerEmail: customer.email } : {}),
+          }
+        : {}),
+    };
+  }
+
   async createScheduled(dto: ScheduleDeliveryDto, organizationId: string) {
     if (!dto.items?.length) throw new BadRequestException('At least one item is required');
     // projectId is REQUIRED (post-assign matching keys on it). Validate it up
@@ -379,48 +430,15 @@ export class DeliveriesService {
             select: { id: true, name: true, customerCode: true, email: true, phone: true, address: true },
           })
         : null;
-      const doConfig: Record<string, any> = {
-        // Catalog lines are EXPANDED to N × qty-1 ASSET slots (not one qty-N line)
-        // so each unit binds its OWN slot and stamps its OWN serial as it merges
-        // in — bindUnitToUnboundDoSlot fills one qty-1 slot per unit. `deliveryGroup`
-        // makes the preview render them as the office's grouped block ("Rental of
-        // N units of {name} / Model: {skuKey} / S/No.: …") and the invoice price
-        // per unit. Free-typed lines (no assetId) stay as a single description row.
-        items: dto.items.flatMap((it) => {
-          if (!it.assetId) {
-            return [{ description: it.description?.trim() ?? '', quantity: it.quantity, unitPrice: 0, amount: 0 }];
-          }
-          const a = assetById.get(it.assetId)!;
-          return Array.from({ length: it.quantity }, () => ({
-            assetId: it.assetId,
-            sku: a.skuKey,
-            itemCode: a.skuKey,
-            skuKey: a.skuKey,
-            description: a.name,
-            quantity: 1,
-            unitPrice: 0,
-            amount: 0,
-            deliveryGroup: it.assetId, // preview grouping key (per-asset block)
-          }));
-        }),
-        ...(dto.poNumber ? { poNo: dto.poNumber } : {}),
-        // The DO template renders the project from config.projectName (#1) and
-        // "Deliver To" from config.deliveryTo (#3) — wire both (were unpopulated).
+      const doConfig = this.buildScheduledDoConfig({
+        items: dto.items,
+        assetById,
         projectName: project.name,
-        documentInfo: { projectName: project.name },
-        ...(deliveryAddress ? { deliveryTo: deliveryAddress } : {}),
-        // Machine location — free-text sub-location, rendered under "Deliver To".
-        ...(dto.machineLocation?.trim() ? { machineLocation: dto.machineLocation.trim() } : {}),
-        ...(customer
-          ? {
-              customerId: customer.id,
-              customerName: customer.name,
-              ...(customer.customerCode ? { customerCode: customer.customerCode } : {}),
-              ...(customer.address ? { customerAddress: customer.address } : {}),
-              ...(customer.email ? { customerEmail: customer.email } : {}),
-            }
-          : {}),
-      };
+        deliveryAddress,
+        poNumber: dto.poNumber,
+        machineLocation: dto.machineLocation,
+        customer,
+      });
       // OSI-83: a scheduled DRAFT must NOT consume a real DO number — mint a
       // per-org placeholder (DO-PENDING-NN); the real number is claimed when the
       // office confirms the DO. Max-of-existing so it survives arbitrary padding.
@@ -441,6 +459,107 @@ export class DeliveriesService {
     }
 
     return { ...run, documentId };
+  }
+
+  /**
+   * Office: edit a still-SCHEDULED delivery run (items, date, PO, address, machine
+   * location, customer/project). ONLY while `scheduled` and nothing has been
+   * bound — once a rider starts (status flips off `scheduled`) this is rejected,
+   * because bound units + in-flight proof can't be safely swapped. Replaces the
+   * item set and REGENERATES the born-linked draft DO from the new form.
+   */
+  async updateScheduled(id: string, dto: ScheduleDeliveryDto, organizationId: string) {
+    const run = await this.prisma.delivery.findFirst({
+      where: { id, organizationId },
+      include: { items: { select: { id: true, documentId: true } } },
+    });
+    if (!run) throw new NotFoundException('Delivery not found');
+    if (run.status !== 'scheduled') {
+      throw new BadRequestException(
+        `Only a scheduled run can be edited (this one is ${run.status}). Once a rider starts, it can no longer be changed.`,
+      );
+    }
+    if (run.direction === DeliveryDirection.RETURN) {
+      throw new BadRequestException('This endpoint edits scheduled deliveries, not returns.');
+    }
+    if (!dto.items?.length) throw new BadRequestException('At least one item is required');
+
+    const project = await this.prisma.project.findFirst({
+      where: { id: dto.projectId, organizationId },
+      select: { id: true, name: true, customerId: true },
+    });
+    if (!project) throw new NotFoundException('Project not found in this organization');
+    const customerId = dto.customerId ?? project.customerId ?? undefined;
+    const deliveryAddress = (dto.address?.trim() || project.name || '').trim();
+    const assetIds = [...new Set(dto.items.map((i) => i.assetId).filter((v): v is string => !!v))];
+    const assets = await this.prisma.asset.findMany({
+      where: { id: { in: assetIds }, organizationId, deletedAt: null },
+      select: { id: true, name: true, skuKey: true },
+    });
+    const assetById = new Map(assets.map((a) => [a.id, a]));
+    for (const it of dto.items) {
+      if (it.assetId && !assetById.has(it.assetId)) throw new NotFoundException(`Asset ${it.assetId} not found in this organization`);
+      if (!it.assetId && !it.description?.trim()) throw new BadRequestException('A free-typed item needs a description');
+    }
+    const lineDescription = (it: { assetId?: string; description?: string }) =>
+      it.assetId ? assetById.get(it.assetId)!.name : (it.description?.trim() ?? '');
+    const documentId = run.items.find((i) => i.documentId)?.documentId ?? null;
+
+    // Swap the item set (scheduled = nothing bound) + update the run's fields.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.deliveryItem.deleteMany({ where: { deliveryId: id } });
+      await tx.deliveryItem.createMany({
+        data: dto.items.map((it) => ({
+          deliveryId: id,
+          assetId: it.assetId ?? null,
+          inventoryId: null,
+          quantity: it.quantity,
+          description: lineDescription(it),
+          assetClass: it.assetId ? null : it.assetClass ?? AssetClass.EQUIPMENT,
+          ...(documentId ? { documentId } : {}),
+        })),
+      });
+      await tx.delivery.update({
+        where: { id },
+        data: {
+          scheduledFor: new Date(dto.scheduledFor),
+          projectId: dto.projectId,
+          customerId,
+          siteAddress: deliveryAddress || null,
+        },
+      });
+    });
+
+    // Regenerate the born-linked draft DO from the new form (merge over the DO's
+    // existing config so logo/stamp/template layout survive). Best-effort.
+    if (documentId) {
+      try {
+        const customer = customerId
+          ? await this.prisma.customer.findFirst({
+              where: { id: customerId, organizationId },
+              select: { id: true, name: true, customerCode: true, address: true, email: true },
+            })
+          : null;
+        const fragment = this.buildScheduledDoConfig({
+          items: dto.items,
+          assetById,
+          projectName: project.name,
+          deliveryAddress,
+          poNumber: dto.poNumber,
+          machineLocation: dto.machineLocation,
+          customer,
+        });
+        // On edit a CLEARED PO / machine location must actually clear on the DO
+        // (a plain config merge would keep the old value), so set them explicitly.
+        fragment.poNo = dto.poNumber?.trim() ? dto.poNumber.trim() : null;
+        fragment.machineLocation = dto.machineLocation?.trim() ? dto.machineLocation.trim() : null;
+        await this.documentsService.replaceScheduledDoConfig(documentId, organizationId, fragment, dto.projectId);
+      } catch (err: any) {
+        this.logger.error(`updateScheduled: draft DO regen failed for run ${id}: ${err?.message}`, err?.stack);
+      }
+    }
+
+    return this.prisma.delivery.findUniqueOrThrow({ where: { id }, include: { items: true } });
   }
 
   /**
@@ -1015,9 +1134,12 @@ export class DeliveriesService {
     const runDoc = distinctDocs.length === 1 ? distinctDocs[0] : null;
     // PO number off the DO's config (rendered as "Your PO No." on the DO) — shown
     // inline on the rider's scheduled-run screen alongside a "View full DO" link.
-    const runDocPoNo = runDoc
-      ? (((await this.prisma.document.findUnique({ where: { id: runDoc.id }, select: { config: true } }))?.config as any)?.poNo ?? null)
+    const runDocCfg = runDoc
+      ? ((await this.prisma.document.findUnique({ where: { id: runDoc.id }, select: { config: true } }))?.config as any)
       : null;
+    const runDocPoNo = runDocCfg?.poNo ?? null;
+    // Machine location off the same DO config — powers the edit-scheduled prefill.
+    const runDocMachineLocation = runDocCfg?.machineLocation ?? null;
     // Draft invoice auto-created from that DO on run completion (sourceDocumentId
     // link) — powers the field "what happened" result panel. Null until the
     // completion wrapper has run (or for office-linked/DO-first runs).
@@ -1033,7 +1155,7 @@ export class DeliveriesService {
       : null;
     return {
       ...delivery,
-      document: runDoc ? { ...runDoc, poNo: runDocPoNo } : null,
+      document: runDoc ? { ...runDoc, poNo: runDocPoNo, machineLocation: runDocMachineLocation } : null,
       invoice,
       items: delivery.items.map((i) => ({
         ...i,
