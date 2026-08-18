@@ -3588,19 +3588,9 @@ export class DocumentsService {
         );
       }
 
-      // 3. Validate the invoice is past confirmation — invoices only.
-      // Status model v2 (guru 2026-07-24): confirm moves invoices to
-      // 'pending_payment' ("Awaiting Payment"), then 'paid' — the old
-      // 'confirmed' value only lingers on pre-migration docs. This guard
-      // still checking ONLY 'confirmed' silently broke every invoice email
-      // (found 2026-08-06).
-      const sendableStatuses = ['confirmed', 'pending_payment', 'paid'];
-      if (!isQuotation && !sendableStatuses.includes(document.status)) {
-        throw new HttpException(
-          'Only confirmed invoices can be sent. Please confirm the invoice first.',
-          HttpStatus.BAD_REQUEST,
-        );
-      }
+      // 3. No status gate: invoices are sendable in EVERY status, drafts
+      // included (guru 2026-08-18 — the old confirmed-only guard blocked
+      // sending unconfirmed invoices).
 
       // 4. Extract invoice details from config
       const config: any = document.config;
