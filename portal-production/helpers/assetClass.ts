@@ -14,7 +14,7 @@ export const DEFAULT_ASSET_CLASS: AssetClass = "EQUIPMENT";
 
 /** Minimum photos required at tagging, per class. */
 export const MIN_PHOTOS_BY_ASSET_CLASS: Record<AssetClass, number> = {
-  EQUIPMENT: 4,
+  EQUIPMENT: 5, // Front, Back, Left, Right, Top
   ACCESSORY: 1,
 };
 

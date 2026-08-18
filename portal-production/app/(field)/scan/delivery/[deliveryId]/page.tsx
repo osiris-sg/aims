@@ -50,7 +50,7 @@ import { useNfcScan } from "../../../hooks/useNfcScan";
  * Standalone-delivery BASKET (Layer 3 + in-basket scanning patch).
  *
  * Every item is independently actionable through its own lifecycle:
- *   not_delivered → [Start delivery] → delivering → [Acknowledge]
+ *   not_delivered → [Start Delivery] → delivering → [Acknowledge]
  *   → not_installed → [Complete installation | Install not needed] → completed
  * (The Start button is Fix B — items added before the DO_START-on-add fix, or
  * whose auto-start failed, are unsticked with one tap.)
@@ -707,7 +707,7 @@ export default function DeliveryBasketPage() {
                         disabled={busy}
                         sx={{ minHeight: 40 }}
                       >
-                        Start delivery
+                        Start Delivery
                       </Button>
                     )}
                     {it.deliveryStatus === "delivering" && run.direction !== "RETURN" && (
@@ -718,7 +718,7 @@ export default function DeliveryBasketPage() {
                         onClick={() => router.push(hasDraftAck(it) ? afterAckHref(it) : ackHref(it))}
                         sx={{ minHeight: 40 }}
                       >
-                        {hasDraftAck(it) ? "Continue" : "Delivered"}
+                        {hasDraftAck(it) ? "Continue" : "End Delivery"}
                       </Button>
                     )}
                     {it.deliveryStatus === "not_installed" && (
@@ -1011,7 +1011,7 @@ export default function DeliveryBasketPage() {
             ) : pending?.mode === "photos" ? (
               "Add photos"
             ) : pending?.mode === "start" ? (
-              "Start delivery"
+              "Start Delivery"
             ) : (
               "Add & start delivery"
             )}
@@ -1027,8 +1027,8 @@ export default function DeliveryBasketPage() {
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
             One signature (and optional photo) applies to all {deliveringUnits.length}{" "}
             {run.direction === "RETURN"
-              ? "units being collected — they return to stock."
-              : "units currently out for delivery. They're marked delivered (no installation). A unit that needs installing — use its own Delivered button instead."}
+              ? "units being collected, they return to stock."
+              : "units currently out for delivery. They're marked delivered (no installation). A unit that needs installing uses its own End Delivery button instead."}
           </Typography>
           <TextField
             fullWidth
