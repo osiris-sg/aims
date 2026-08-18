@@ -26,6 +26,7 @@ interface SchedItem {
 interface SchedRun {
   id: string;
   deliveryNumber: number;
+  direction?: "OUTBOUND" | "RETURN";
   scheduledFor: string | null;
   siteAddress: string | null;
   items: SchedItem[];
@@ -70,10 +71,10 @@ export default function ScheduledDeliveriesPage() {
       </Button>
       <Stack direction="row" alignItems="center" spacing={1}>
         <EventIcon color="primary" />
-        <Typography variant="h6" fontWeight={700}>Scheduled deliveries</Typography>
+        <Typography variant="h6" fontWeight={700}>Scheduled</Typography>
       </Stack>
       <Typography variant="body2" color="text.secondary">
-        Start any matching unit as usual and assign it to the project — it&apos;s matched to the scheduled run automatically.
+        Start any matching unit as usual. A delivery is matched to its run by the project you assign; a return is matched by the unit you scan. It joins the scheduled run automatically.
       </Typography>
 
       {error && <Alert severity="error">{error}</Alert>}
@@ -90,9 +91,12 @@ export default function ScheduledDeliveriesPage() {
         </Card>
       ) : (
         (runs ?? []).map((r) => {
-          // Show only still-open (unbound) scheduled slots — a bound item means
-          // someone already started picking that unit up.
+          const isReturn = r.direction === "RETURN";
+          // Deliveries: show still-open (unbound) slots — a bound item means
+          // someone already started picking it up. Returns are unit-bound from
+          // birth, so their manifest IS the units to collect.
           const open = r.items.filter((i) => !i.inventoryId);
+          const rows = isReturn ? r.items : open.length ? open : r.items;
           return (
             <Card key={r.id} variant="outlined">
               <CardContent sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
@@ -100,6 +104,7 @@ export default function ScheduledDeliveriesPage() {
                   <Typography variant="subtitle2" fontWeight={700} sx={{ fontFamily: "monospace" }}>
                     #{r.deliveryNumber}
                   </Typography>
+                  <Chip size="small" color={isReturn ? "secondary" : "primary"} variant="outlined" label={isReturn ? "Return" : "Delivery"} />
                   <Chip size="small" color="primary" label={fmt(r.scheduledFor)} />
                 </Stack>
                 {(r.customer?.name || r.project?.name || r.siteAddress) && (
@@ -112,14 +117,17 @@ export default function ScheduledDeliveriesPage() {
                     <b>PO No.:</b> {r.document.poNo}
                   </Typography>
                 )}
+                {isReturn && (
+                  <Typography variant="caption" color="text.secondary">Collect:</Typography>
+                )}
                 <Stack spacing={0.25} sx={{ mt: 0.5 }}>
-                  {(open.length ? open : r.items).map((i) => (
+                  {rows.map((i) => (
                     <Typography key={i.id} variant="body2">
                       • {i.description ?? "Item"}{i.quantity && i.quantity > 1 ? ` ×${i.quantity}` : ""}
                     </Typography>
                   ))}
                 </Stack>
-                {r.document?.id && r.items[0]?.assetId && (
+                {!isReturn && r.document?.id && r.items[0]?.assetId && (
                   <Button
                     size="small"
                     variant="text"

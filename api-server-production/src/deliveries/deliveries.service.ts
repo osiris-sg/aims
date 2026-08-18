@@ -8,6 +8,7 @@ import { ProjectsService } from '../projects/projects.service';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { AddDeliveryItemDto } from './dto/add-delivery-item.dto';
 import { ScheduleDeliveryDto, ClaimScheduledDto } from './dto/schedule-delivery.dto';
+import { ScheduleReturnDto } from './dto/schedule-return.dto';
 
 // Item-lifecycle rank for folds/comparisons. Shared enum with DocumentItem:
 // not_delivered → delivering → not_installed → completed (monotonic).
@@ -443,6 +444,114 @@ export class DeliveriesService {
   }
 
   /**
+   * Office: pre-create a scheduled RETURN run to collect specific units. Unlike a
+   * scheduled delivery, a return targets KNOWN units, so each is unit-bound from
+   * birth (inventoryId set). NO document is created (the RDO is minted only at
+   * completion) and nothing is reserved (the units are already out on rental).
+   * projectId is set only when every unit shares ONE active project; mixed → null
+   * (per-project RDO splitting is deferred).
+   */
+  async createScheduledReturn(dto: ScheduleReturnDto, organizationId: string) {
+    const inventoryIds = [...new Set(dto.inventoryIds)];
+    if (!inventoryIds.length) throw new BadRequestException('At least one unit is required');
+
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: dto.customerId, organizationId },
+      select: { id: true },
+    });
+    if (!customer) throw new NotFoundException('Customer not found in this organization');
+
+    // Units must be org-scoped AND currently on rental (only an out-on-rental unit
+    // can be collected back).
+    const units = await this.prisma.inventory.findMany({
+      where: { id: { in: inventoryIds }, organizationId },
+      select: { id: true, assetId: true, status: true, sku: true, asset: { select: { name: true } } },
+    });
+    if (units.length !== inventoryIds.length) {
+      throw new NotFoundException('One or more units were not found in this organization');
+    }
+    const notRental = units.filter((u) => u.status !== InventoryStatus.rental);
+    if (notRental.length) {
+      throw new BadRequestException(
+        `Only units currently on rental can be scheduled for return. Not on rental: ${notRental.map((u) => u.sku).join(', ')}`,
+      );
+    }
+
+    // Reject a unit already sitting on an OPEN (scheduled) return run.
+    const already = await this.prisma.deliveryItem.findMany({
+      where: {
+        inventoryId: { in: inventoryIds },
+        delivery: { organizationId, direction: DeliveryDirection.RETURN, status: 'scheduled' },
+      },
+      select: { inventoryId: true },
+    });
+    if (already.length) {
+      const skus = units.filter((u) => already.some((a) => a.inventoryId === u.id)).map((u) => u.sku);
+      throw new BadRequestException(`Already on a scheduled return: ${skus.join(', ')}`);
+    }
+
+    // Active project per unit → one shared projectId when all match, null when mixed.
+    const assignments = await this.prisma.assignment.findMany({
+      where: { inventoryId: { in: inventoryIds }, endDate: null },
+      select: { inventoryId: true, projectId: true },
+      orderBy: { startDate: 'desc' },
+    });
+    const projectByUnit = new Map<string, string | null>();
+    for (const a of assignments) {
+      if (a.inventoryId && !projectByUnit.has(a.inventoryId)) projectByUnit.set(a.inventoryId, a.projectId ?? null);
+    }
+    const distinctProjects = [...new Set(inventoryIds.map((id) => projectByUnit.get(id) ?? null))];
+    const sharedProjectId = distinctProjects.length === 1 && distinctProjects[0] ? distinctProjects[0] : null;
+
+    const unitById = new Map(units.map((u) => [u.id, u]));
+
+    // One Delivery (RETURN, scheduled) + one unit-bound item per unit. Per-org
+    // serial with P2002 retry (same pattern as createScheduled).
+    let run: Prisma.DeliveryGetPayload<{ include: { items: true } }> | null = null;
+    for (let attempt = 0; attempt < 3 && !run; attempt++) {
+      const latest = await this.prisma.delivery.findFirst({
+        where: { organizationId },
+        orderBy: { deliveryNumber: 'desc' },
+        select: { deliveryNumber: true },
+      });
+      const deliveryNumber = (latest?.deliveryNumber ?? 0) + 1;
+      try {
+        run = await this.prisma.delivery.create({
+          data: {
+            organizationId,
+            deliveryNumber,
+            direction: DeliveryDirection.RETURN,
+            status: 'scheduled',
+            riderUserId: null,
+            riderName: null,
+            scheduledFor: new Date(dto.scheduledFor),
+            customerId: dto.customerId,
+            projectId: sharedProjectId,
+            ...(dto.notes?.trim() ? { notes: dto.notes.trim() } : {}),
+            items: {
+              create: inventoryIds.map((id) => {
+                const u = unitById.get(id)!;
+                return {
+                  assetId: u.assetId,
+                  inventoryId: id,
+                  quantity: 1,
+                  description: u.asset?.name ?? u.sku ?? 'Unit',
+                };
+              }),
+            },
+          },
+          include: { items: true },
+        });
+      } catch (err) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') continue;
+        throw err;
+      }
+    }
+    if (!run) throw new BadRequestException('Could not allocate a delivery number — please retry');
+    return run;
+  }
+
+  /**
    * Field: a rider claims a scheduled run by scanning a unit whose ASSET matches
    * one of its open (inventoryId-null) scheduled items. Reserves the unit
    * (instock → reserved), binds it into the slot, sets the rider, and starts the
@@ -554,6 +663,43 @@ export class DeliveriesService {
       }
       if (unit.status !== InventoryStatus.rental) {
         throw new BadRequestException(`Only a unit currently out on rental can be returned (this one is ${unit.status}).`);
+      }
+
+      // Join-on-scan: if this unit sits on an office-scheduled RETURN run (still
+      // scheduled, or already claimed and in_progress from an earlier unit's
+      // scan), fulfil THAT run instead of minting an ad-hoc one. Early collection
+      // joins silently. The first scan claims the run (scheduled → in_progress +
+      // rider); later scans continue in the same basket. The unit's item already
+      // exists (born unit-bound), so the DO_START MSR just advances it.
+      const scheduled = await this.prisma.deliveryItem.findFirst({
+        where: {
+          inventoryId: dto.inventoryId,
+          delivery: {
+            organizationId,
+            direction: DeliveryDirection.RETURN,
+            status: { in: ['scheduled', 'in_progress'] },
+          },
+        },
+        select: { deliveryId: true, delivery: { select: { status: true } } },
+      });
+      if (scheduled) {
+        if (scheduled.delivery.status === 'scheduled') {
+          return this.prisma.delivery.update({
+            where: { id: scheduled.deliveryId },
+            data: {
+              status: 'in_progress',
+              riderUserId,
+              ...(dto.riderName ? { riderName: dto.riderName } : {}),
+              startedAt: new Date(),
+            },
+            include: { items: true },
+          });
+        }
+        // Already claimed by an earlier scan on this run — continue there.
+        return this.prisma.delivery.findUniqueOrThrow({
+          where: { id: scheduled.deliveryId },
+          include: { items: true },
+        });
       }
     }
 
