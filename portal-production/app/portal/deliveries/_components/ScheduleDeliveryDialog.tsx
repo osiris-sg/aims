@@ -43,6 +43,41 @@ interface ProjectOption { id: string; name: string }
 // description). quantity is shared.
 interface Row { asset: AssetOption | null; description: string; freeTyped: boolean; quantity: string }
 
+// Quotation descriptions are rich text (the editor stores HTML like
+// "<b>100-Ton Excavator</b><div><i>Note: …</i></div>"). Convert to plain text
+// for the free-typed field and any text search: block boundaries → \n, tags
+// stripped, entities decoded, blank lines dropped. Never let raw markup leak into
+// the field or a search query (it matches nothing).
+function htmlToText(input: unknown): string {
+  const raw = String(input ?? "");
+  if (!raw) return "";
+  if (!/[<&]/.test(raw)) return raw.trim(); // plain already
+  let s = raw
+    .replace(/<\s*(br|hr)\s*\/?\s*>/gi, "\n")
+    .replace(/<\/\s*(div|p|li|tr|h[1-6])\s*>/gi, "\n")
+    .replace(/<\s*li[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, ""); // strip remaining tags
+  if (typeof document !== "undefined") {
+    const el = document.createElement("textarea");
+    el.innerHTML = s;
+    s = el.value; // decode entities via the DOM
+  } else {
+    s = s
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'");
+  }
+  return s
+    .split("\n")
+    .map((line) => line.replace(/[^\S\n]+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
 export default function ScheduleDeliveryDialog({
   open,
   onClose,
@@ -254,22 +289,30 @@ export default function ScheduleDeliveryDialog({
   };
 
   // Apply a selected quotation: autofill project + address + PO + line items.
-  // Quotation lines are description-only (no catalog assetId), so each is
-  // best-effort resolved to a product via /assets/search; unmatched lines land
-  // with their quantity and a blank product for the office to pick. All editable.
+  // Quotation lines carry a REAL catalog pointer (itemCode → skuKey, and an
+  // inventoryItemId that actually holds the asset id), so matching keys on that —
+  // NOT fuzzy text (the catalog name "100 TON EXCAVATOR" isn't a substring of the
+  // quoted "100-Ton Excavator with Operator"). Descriptions are rich text → HTML
+  // is stripped before display/search. Unmatched lines land free-typed. All editable.
   const applyQuotation = async (q: any) => {
     setQuoteOpen(false);
     setError(null);
     const cfg = q?.config || {};
-    if (cfg.poNo) setPoNumber(String(cfg.poNo));
+    // Quotations in this org use `referenceNo`/`poNo` — read either (both empty in
+    // current data, so this is defensive and simply won't fire).
+    const poValue = cfg.poNo || cfg.referenceNo;
+    if (poValue) setPoNumber(String(poValue));
     if (cfg.customerAddress) {
       setAddress(String(cfg.customerAddress));
       setAddressTouched(true);
     }
+    // Quotations here never carry a projectId — this fills only if one is present.
     if (cfg.projectId) {
       const match = projectOptions.find((p) => p.id === cfg.projectId);
       setProject(match ?? { id: String(cfg.projectId), name: cfg.projectName || "Project from quotation" });
     }
+    const filledPo = !!poValue;
+    const filledProject = !!cfg.projectId;
     const items: any[] = Array.isArray(cfg.items) ? cfg.items : [];
     if (items.length) {
       let token: string | null = null;
@@ -278,33 +321,80 @@ export default function ScheduleDeliveryDialog({
       } catch {
         /* ignore */
       }
+      // Reuse the permission-safe /assets/search the picker already uses. Its
+      // filter is a name|skuKey SUBSTRING match, so for an itemCode we additionally
+      // require an EXACT skuKey (avoids EXC100 matching EXC1000).
+      const searchAssets = async (query: string): Promise<AssetOption[]> => {
+        if (!query || !token) return [];
+        try {
+          const r = await request(
+            { path: `/assets/search?q=${encodeURIComponent(query.slice(0, 60))}`, method: "GET" },
+            {},
+            token,
+          );
+          return Array.isArray(r?.data) ? r.data : Array.isArray(r) ? r : [];
+        } catch {
+          return [];
+        }
+      };
+      // inventoryItemId on a quotation line actually holds the ASSET id — resolve
+      // by id, best-effort (may 403 for some roles → caught → skip to next tier).
+      const assetById = async (id: string): Promise<AssetOption | null> => {
+        if (!id || !token) return null;
+        try {
+          const r = await request({ path: `/assets/${encodeURIComponent(id)}`, method: "GET" }, {}, token);
+          const a: any = r?.data ?? r;
+          return a && a.id ? { id: a.id, name: a.name, skuKey: a.skuKey } : null;
+        } catch {
+          return null;
+        }
+      };
       const resolved: Row[] = await Promise.all(
         items.map(async (it) => {
           const qty = String(Math.max(1, parseInt(it?.quantity, 10) || 1));
-          const text = String(it?.description || it?.itemCode || it?.sku || "").trim();
-          // Unmatched (or no) product → land as a FREE-TYPED row carrying the
-          // quotation text, so nothing from the quotation is silently dropped.
-          const freeRow: Row = { asset: null, description: text, freeTyped: true, quantity: qty };
-          if (!text || !token) return freeRow;
-          try {
-            const r = await request(
-              { path: `/assets/search?q=${encodeURIComponent(text.slice(0, 60))}`, method: "GET" },
-              {},
-              token,
+          const cleanText = htmlToText(it?.description);
+          // Nothing matched → FREE-TYPED with PLAIN-TEXT description, so no line is
+          // silently dropped and no raw HTML leaks into the field.
+          const freeRow: Row = { asset: null, description: cleanText, freeTyped: true, quantity: qty };
+          if (!token) return freeRow;
+          // 1. PRIMARY — itemCode → exact skuKey (the reliable catalog key).
+          const itemCode = String(it?.itemCode || "").trim();
+          if (itemCode) {
+            const hit = (await searchAssets(itemCode)).find(
+              (a) => (a.skuKey || "").toLowerCase() === itemCode.toLowerCase(),
             );
-            const arr = Array.isArray(r?.data) ? r.data : Array.isArray(r) ? r : [];
-            return arr[0] ? { asset: arr[0], description: "", freeTyped: false, quantity: qty } : freeRow;
-          } catch {
-            return freeRow;
+            if (hit) return { asset: hit, description: "", freeTyped: false, quantity: qty };
           }
+          // 2. FALLBACK — inventoryItemId (asset id), if the role can read it.
+          const invId = String(it?.inventoryItemId || "").trim();
+          if (invId) {
+            const byId = await assetById(invId);
+            if (byId) return { asset: byId, description: "", freeTyped: false, quantity: qty };
+          }
+          // 3. LAST RESORT — HTML-stripped fuzzy text (first line only).
+          const firstLine = cleanText.split("\n")[0] || "";
+          if (firstLine) {
+            const arr = await searchAssets(firstLine);
+            if (arr[0]) return { asset: arr[0], description: "", freeTyped: false, quantity: qty };
+          }
+          return freeRow;
         }),
       );
       const finalRows = resolved.length ? resolved : [{ asset: null, description: "", freeTyped: false, quantity: "1" }];
       setRows(finalRows);
       const matched = finalRows.filter((r) => !r.freeTyped).length;
-      setNote(`Quotation applied — ${matched}/${finalRows.length} line(s) matched a catalog product; the rest are free-typed. Review products, quantities & address.`);
+      // Honest summary: matched count + SEPARATELY whether project/PO were filled.
+      // Never imply the project came from the quotation (they don't carry one).
+      const parts = [`Quotation applied — ${matched}/${finalRows.length} line(s) matched a catalog product; the rest are free-typed.`];
+      parts.push(filledPo ? "PO number filled." : "No PO on the quotation.");
+      parts.push(filledProject ? "Project taken from the quotation." : "This quotation has no project — pick one below (required).");
+      parts.push("Review products, quantities & address.");
+      setNote(parts.join(" "));
     } else {
-      setNote("Quotation applied (customer/project/address). It had no line items.");
+      const parts = ["Quotation applied — it had no line items."];
+      parts.push(filledPo ? "PO number filled." : "No PO on the quotation.");
+      parts.push(filledProject ? "Project taken from the quotation." : "This quotation has no project — pick one below (required).");
+      setNote(parts.join(" "));
     }
   };
 
