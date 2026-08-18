@@ -977,6 +977,10 @@ export class MaintenanceReportsService {
     //
     // Genuine DO-first is untouched: a manually created DO has no delivery items
     // at all, so the first arm holds vacuously and it resolves as before.
+    // A unit sitting in stock is out on nothing, so a DO that already completed
+    // its line for it is spent (see the NOT clause below).
+    const unitIsBackInStock = inventory?.status === InventoryStatus.instock;
+
     const resolvedDoItem = await this.prisma.documentItem.findFirst({
       where: {
         ...itemFilter,
@@ -994,6 +998,31 @@ export class MaintenanceReportsService {
             // is continuing their own delivery rather than claiming a new one.
             ...(inventoryId ? [{ deliveryItems: { some: { inventoryId } } }] : []),
           ],
+          // SPENT DOs DO NOT CLAIM A UNIT THAT IS BACK IN STOCK. A DO whose line
+          // for THIS unit already reached `completed` is history the moment the
+          // unit returns to `instock`: it was delivered and has since come back,
+          // so it is out on nothing. Without this a returned unit could never
+          // start a new delivery — the old DO kept resolving, which suppressed
+          // the standalone Start card and reported stage `completed` on the
+          // DO-first one, leaving no offer at all.
+          //
+          // Deliberately narrow, and NOT the report-state exclusion the comment
+          // above warns against: that bug was a unit still OUT whose acked DO was
+          // skipped so a DIFFERENT DO re-qualified for `start`. This fires only
+          // when the unit is demonstrably back in stock, where no DO should be
+          // claiming it at all.
+          ...(unitIsBackInStock && inventoryId
+            ? {
+                NOT: {
+                  documentItems: {
+                    some: {
+                      OR: [{ inventoryId }, { itemId: inventoryId, itemType: ItemType.INVENTORY }],
+                      deliveryStatus: DeliveryStatus.completed,
+                    },
+                  },
+                },
+              }
+            : {}),
         },
       },
       orderBy: { document: { createdAt: 'desc' } },
