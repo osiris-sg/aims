@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
@@ -45,6 +45,18 @@ export class DeliveriesController {
   @Permissions('documents:create-basic')
   createScheduled(@Body() dto: ScheduleDeliveryDto, @UserOrganization() org: { id: string }) {
     return this.service.createScheduled(dto, org.id);
+  }
+
+  // Office: edit a still-scheduled delivery run (same form, prefilled). Rejected
+  // once a rider has started (status no longer 'scheduled'). Regenerates the DO.
+  @Patch('scheduled/:id')
+  @Permissions('documents:create-basic')
+  updateScheduled(
+    @Param('id') id: string,
+    @Body() dto: ScheduleDeliveryDto,
+    @UserOrganization() org: { id: string },
+  ) {
+    return this.service.updateScheduled(id, dto, org.id);
   }
 
   // Office: pre-create a scheduled RETURN run for specific units. No document is

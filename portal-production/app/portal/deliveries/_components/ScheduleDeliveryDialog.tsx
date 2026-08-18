@@ -88,14 +88,28 @@ function htmlToText(input: unknown): string {
     .trim();
 }
 
+// A still-scheduled run to edit (prefill + PATCH instead of create). Shape mirrors
+// the run detail's findById payload.
+interface EditRun {
+  id: string;
+  customer: { id: string; name: string; customerCode?: string | null } | null;
+  project: { id: string; name: string } | null;
+  siteAddress: string | null;
+  scheduledFor: string | null;
+  document: { poNo?: string | null; machineLocation?: string | null } | null;
+  items: Array<{ asset: { id: string; name: string; skuKey: string } | null; quantity: number; description: string | null; assetClass?: string | null }>;
+}
+
 export default function ScheduleDeliveryDialog({
   open,
   onClose,
   onCreated,
+  editRun,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
+  editRun?: EditRun | null;
 }) {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
@@ -131,31 +145,67 @@ export default function ScheduleDeliveryDialog({
   // is picked; edits are persisted straight to the project (PUT), since the
   // project already exists here.
   const [projectContactIds, setProjectContactIds] = useState<string[]>([]);
+  // Inline create (customers:create-by-name / projects:create-by-name) so a new
+  // customer or project can be minted without leaving the dialog.
+  const [createCustomerOpen, setCreateCustomerOpen] = useState(false);
+  const [createCustomerName, setCreateCustomerName] = useState("");
+  const [creatingCustomer, setCreatingCustomer] = useState(false);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [createProjectName, setCreateProjectName] = useState("");
+  const [creatingProject, setCreatingProject] = useState(false);
 
   // Quotation extraction (opened after a customer is chosen).
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [quotations, setQuotations] = useState<any[]>([]);
   const [quoteLoading, setQuoteLoading] = useState(false);
 
-  // Reset on (re)open.
+  // Reset on (re)open — or PREFILL from the run being edited.
   useEffect(() => {
-    if (open) {
-      setRows([{ asset: null, description: "", freeTyped: false, quantity: "1", assetClass: DEFAULT_ASSET_CLASS }]);
-      setScheduleDate("");
-      setScheduleTime("09:00");
-      setPoNumber("");
-      setAddress("");
-      setAddressTouched(false);
-      setMachineLocation("");
-      setError(null);
-      setNote(null);
-      setCustomer(null);
-      setProject(null);
-      setCustomerInput("");
-      setAssetInput("");
-      setQuotations([]);
+    if (!open) return;
+    setError(null);
+    setNote(null);
+    setCustomerInput("");
+    setAssetInput("");
+    setQuotations([]);
+    if (editRun) {
+      // Edit mode: prefill from the still-scheduled run + its draft DO.
+      setRows(
+        editRun.items.length
+          ? editRun.items.map((it) =>
+              it.asset
+                ? { asset: it.asset, description: "", freeTyped: false, quantity: String(Math.max(1, it.quantity || 1)), assetClass: DEFAULT_ASSET_CLASS }
+                : { asset: null, description: it.description ?? "", freeTyped: true, quantity: String(Math.max(1, it.quantity || 1)), assetClass: normalizeAssetClass(it.assetClass) },
+            )
+          : [{ asset: null, description: "", freeTyped: false, quantity: "1", assetClass: DEFAULT_ASSET_CLASS }],
+      );
+      const pad = (n: number) => String(n).padStart(2, "0");
+      if (editRun.scheduledFor) {
+        const d = new Date(editRun.scheduledFor);
+        setScheduleDate(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
+        setScheduleTime(`${pad(d.getHours())}:${pad(d.getMinutes())}`);
+      } else {
+        setScheduleDate("");
+        setScheduleTime("09:00");
+      }
+      setPoNumber(editRun.document?.poNo ?? "");
+      setAddress(editRun.siteAddress ?? "");
+      setAddressTouched(true); // keep the saved address; don't auto-overwrite on project load
+      setMachineLocation(editRun.document?.machineLocation ?? "");
+      setCustomer(editRun.customer ? { id: editRun.customer.id, name: editRun.customer.name, customerCode: editRun.customer.customerCode ?? null, address: null } : null);
+      setProject(editRun.project ? { id: editRun.project.id, name: editRun.project.name } : null);
+      return;
     }
-  }, [open]);
+    // Create mode: blank form.
+    setRows([{ asset: null, description: "", freeTyped: false, quantity: "1", assetClass: DEFAULT_ASSET_CLASS }]);
+    setScheduleDate("");
+    setScheduleTime("09:00");
+    setPoNumber("");
+    setAddress("");
+    setAddressTouched(false);
+    setMachineLocation("");
+    setCustomer(null);
+    setProject(null);
+  }, [open, editRun]);
 
   // Debounced asset search.
   useEffect(() => {
@@ -459,6 +509,63 @@ export default function ScheduleDeliveryDialog({
     }
   };
 
+  // Inline create-customer: seed the dialog with whatever was typed in the picker.
+  const openCreateCustomer = () => {
+    setCreateCustomerName(customerInput.trim());
+    setCreateCustomerOpen(true);
+  };
+  const handleCreateCustomer = async () => {
+    const trimmed = createCustomerName.trim();
+    if (!trimmed) return;
+    setCreatingCustomer(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request({ path: "/customers/create-by-name", method: "POST" }, { name: trimmed }, token);
+      const created = res?.data;
+      if (res?.success && created?.id) {
+        const option: CustomerOption = { id: created.id, name: created.name ?? trimmed, customerCode: created.customerCode ?? null, address: created.address ?? null };
+        setCustomerOptions((prev) => [option, ...prev]);
+        setCustomer(option);
+        setCreateCustomerOpen(false);
+        setCreateCustomerName("");
+      } else {
+        setError(res?.message ?? "Failed to create customer");
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to create customer");
+    } finally {
+      setCreatingCustomer(false);
+    }
+  };
+  const handleCreateProject = async () => {
+    const trimmed = createProjectName.trim();
+    if (!trimmed || !customer) return;
+    setCreatingProject(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request(
+        { path: "/projects/create-by-name", method: "POST" },
+        { name: trimmed, customerId: customer.id },
+        token,
+      );
+      if (res?.success && res.data?.id) {
+        const createdP: ProjectOption = { id: res.data.id, name: res.data.name ?? trimmed };
+        setProjectOptions((prev) => [createdP, ...prev]);
+        setProject(createdP);
+        setCreateProjectOpen(false);
+        setCreateProjectName("");
+      } else {
+        setError(res?.message ?? "Failed to create project");
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to create project");
+    } finally {
+      setCreatingProject(false);
+    }
+  };
+
   const submit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
@@ -469,7 +576,9 @@ export default function ScheduleDeliveryDialog({
       // Combine the separate date + time into one local datetime → ISO.
       const scheduledFor = new Date(`${scheduleDate}T${scheduleTime}`).toISOString();
       const res = await request(
-        { path: "/deliveries/scheduled", method: "POST" },
+        editRun
+          ? { path: `/deliveries/scheduled/${editRun.id}`, method: "PATCH" }
+          : { path: "/deliveries/scheduled", method: "POST" },
         {
           scheduledFor,
           items: validRows.map((r) =>
@@ -504,15 +613,17 @@ export default function ScheduleDeliveryDialog({
     <Dialog
       open={open}
       onClose={() => {
-        // Click-outside / Escape SAVES and creates the draft (only the Cancel
-        // button discards). An incomplete form makes submit() a no-op, so the
-        // dialog stays open rather than silently dropping the entries.
-        if (!submitting) void submit();
+        // Click-outside / Escape SAVES a complete form and creates the draft
+        // (only Cancel discards). An incomplete form can't save, so instead of
+        // silently no-oping we say what's missing. Always a visible result.
+        if (submitting) return;
+        if (canSubmit) void submit();
+        else setError("Pick a date, project and at least one product to save. Press Cancel to discard.");
       }}
       fullWidth
       maxWidth="sm"
     >
-      <DialogTitle>Schedule a delivery</DialogTitle>
+      <DialogTitle>{editRun ? "Edit scheduled delivery" : "Schedule a delivery"}</DialogTitle>
       <DialogContent dividers>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           The run is fulfilled when a rider starts a matching unit in the field and assigns it to
@@ -536,8 +647,18 @@ export default function ScheduleDeliveryDialog({
           isOptionEqualToValue={(a, b) => a.id === b.id}
           loading={customerSearching}
           renderInput={(params) => <TextField {...params} label="Customer" placeholder="Search customers" required />}
-          sx={{ mb: 1 }}
+          noOptionsText={
+            <Button size="small" startIcon={<AddIcon />} onClick={openCreateCustomer}>
+              Create customer
+            </Button>
+          }
+          sx={{ mb: 0.5 }}
         />
+        {!customer && (
+          <Button size="small" startIcon={<AddIcon />} onClick={openCreateCustomer} sx={{ textTransform: "none", mb: 1 }}>
+            New customer
+          </Button>
+        )}
 
         {/* Quotation extraction — available once a customer is chosen. */}
         <Button
@@ -559,7 +680,11 @@ export default function ScheduleDeliveryDialog({
           getOptionLabel={(o) => o.name}
           isOptionEqualToValue={(a, b) => a.id === b.id}
           disabled={!customer}
-          noOptionsText="No projects for this customer yet."
+          noOptionsText={
+            <Button size="small" startIcon={<AddIcon />} onClick={() => setCreateProjectOpen(true)}>
+              Create project
+            </Button>
+          }
           renderInput={(params) => (
             <TextField
               {...params}
@@ -567,11 +692,16 @@ export default function ScheduleDeliveryDialog({
               placeholder={customer ? "Pick a project" : "Pick a customer first"}
               required
               error={!!customer && !project}
-              helperText="Required — the rider is matched back to this run by the project."
+              helperText="Required. The rider is matched back to this run by the project."
             />
           )}
-          sx={{ mb: 2 }}
+          sx={{ mb: 0.5 }}
         />
+        {customer && (
+          <Button size="small" startIcon={<AddIcon />} onClick={() => setCreateProjectOpen(true)} sx={{ textTransform: "none", mb: 2 }}>
+            New project for {customer.name}
+          </Button>
+        )}
 
         {/* OSI-84 — contact people for this project (saved to the project). */}
         {project && (
@@ -766,7 +896,7 @@ export default function ScheduleDeliveryDialog({
       <DialogActions>
         <Button onClick={onClose} disabled={submitting}>Cancel</Button>
         <Button variant="contained" onClick={submit} disabled={!canSubmit}>
-          {submitting ? <CircularProgress size={18} /> : "Schedule"}
+          {submitting ? <CircularProgress size={18} /> : editRun ? "Save changes" : "Schedule"}
         </Button>
       </DialogActions>
 
@@ -778,6 +908,50 @@ export default function ScheduleDeliveryDialog({
         selectedCustomerId={customer?.id}
         selectedCustomerName={customer?.name}
       />
+
+      {/* Inline create-customer dialog */}
+      <Dialog open={createCustomerOpen} onClose={() => !creatingCustomer && setCreateCustomerOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>New customer</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            label="Customer name"
+            value={createCustomerName}
+            onChange={(e) => setCreateCustomerName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleCreateCustomer()}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateCustomerOpen(false)} disabled={creatingCustomer}>Cancel</Button>
+          <Button variant="contained" onClick={handleCreateCustomer} disabled={creatingCustomer || !createCustomerName.trim()}>
+            {creatingCustomer ? <CircularProgress size={18} /> : "Create"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Inline create-project dialog */}
+      <Dialog open={createProjectOpen} onClose={() => !creatingProject && setCreateProjectOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>New project</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            label="Project name"
+            value={createProjectName}
+            onChange={(e) => setCreateProjectName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleCreateProject()}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateProjectOpen(false)} disabled={creatingProject}>Cancel</Button>
+          <Button variant="contained" onClick={handleCreateProject} disabled={creatingProject || !createProjectName.trim()}>
+            {creatingProject ? <CircularProgress size={18} /> : "Create"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   );
 }
