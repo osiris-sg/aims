@@ -32,6 +32,7 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import { accountTypeLabel, sortAccountsByType } from "@/components/glAccountGrouping";
 import CloudSyncIcon from "@mui/icons-material/CloudSync";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../../_lib/api";
@@ -62,7 +63,7 @@ type LineForm = {
   accountId: string | null;
 };
 
-type Account = { id: string; code: string; name: string; category: "PNL" | "BALANCE_SHEET"; isActive: boolean };
+type Account = { id: string; code: string; name: string; category: "PNL" | "BALANCE_SHEET"; accountType?: string; isActive: boolean };
 
 type TaxRateOpt = { id: string; code: string; name: string; rate: number; direction: string; isActive: boolean };
 
@@ -1059,7 +1060,10 @@ export default function BillEditorDialog({
                   <TableCell>
                     <Autocomplete
                       size="small"
-                      options={accounts}
+                      // Grouped by account type (Fixed Assets, Expenses, …) —
+                      // options pre-sorted so each group renders contiguously.
+                      options={sortAccountsByType(accounts)}
+                      groupBy={(o) => accountTypeLabel(o.accountType)}
                       value={accounts.find((a) => a.id === l.accountId) || null}
                       onChange={(_, v) => setLine(l.uid, { accountId: v?.id || null })}
                       getOptionLabel={(o) => `${o.code} — ${o.name}`}

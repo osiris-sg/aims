@@ -379,6 +379,32 @@ export class BillsService {
           : ROUND(
               dto.taxAmount !== undefined ? dto.taxAmount : dto.lines.reduce((s: number, l: BillLine) => s + (l.taxAmount || 0), 0),
             );
+      // Save-time learning: an account changed directly on a line (outside
+      // the Review dialog) is still an accountant correction — teach the
+      // memory, keyed on the old line with the same description. Best-effort.
+      try {
+        const oldByDesc = new Map<string, string | null>(
+          ((config.lines || []) as any[]).map((l: any) => [String(l.description || '').trim(), l.accountId ?? null]),
+        );
+        const changed = (dto.lines as any[]).filter((l: any) => {
+          const desc = String(l.description || '').trim();
+          return desc && l.accountId && oldByDesc.has(desc) && oldByDesc.get(desc) !== l.accountId;
+        });
+        if (changed.length) {
+          const accts = await this.prisma.chartOfAccount.findMany({
+            where: { id: { in: changed.map((l: any) => l.accountId) }, organizationId },
+            select: { id: true, code: true },
+          });
+          const codeById = new Map(accts.map((a) => [a.id, a.code]));
+          await this.memory.record(
+            organizationId,
+            'PURCHASE',
+            changed
+              .filter((l: any) => codeById.has(l.accountId))
+              .map((l: any) => ({ text: l.description, accountCode: codeById.get(l.accountId)!, accountId: l.accountId })),
+          );
+        }
+      } catch { /* learning must never block a save */ }
       config.lines = dto.lines;
       config.items = dto.lines;
       config.subtotal = amountsAre === 'INCLUSIVE' ? ROUND(linesSum - taxAmount) : linesSum;
@@ -642,7 +668,7 @@ export class BillsService {
         else stillNeed.push(ni);
       });
       if (stillNeed.length > 0) {
-        const batch = await this.coa.suggestAccountsBatch(organizationId, stillNeed.map(({ l }) => l.description || ''), ['PURCHASE', 'EXPENSE', 'EXCHANGE_GAIN_LOSS']);
+        const batch = await this.coa.suggestAccountsBatch(organizationId, stillNeed.map(({ l }) => l.description || ''), ['PURCHASE', 'EXPENSE', 'EXCHANGE_GAIN_LOSS', 'FIXED_ASSET']);
         stillNeed.forEach(({ i }, k) => {
           if (batch[k]) suggestions[i] = { ...batch[k]!, source: 'ai' };
         });

@@ -23,6 +23,7 @@ import {
   Typography,
   alpha,
 } from "@mui/material";
+import { accountTypeLabel, sortAccountsByType } from "@/components/glAccountGrouping";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import LockIcon from "@mui/icons-material/Lock";
 
@@ -56,7 +57,7 @@ export type PreviewResult = {
   warnings: string[];
 };
 
-export type PreviewAccount = { id?: string; code: string; name: string };
+export type PreviewAccount = { id?: string; code: string; name: string; accountType?: string };
 
 const fmt = (n: number) =>
   n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -181,7 +182,8 @@ export default function PostingPreviewDialog({
                               <Autocomplete
                                 size="small"
                                 fullWidth
-                                options={accounts}
+                                options={sortAccountsByType(accounts)}
+                                groupBy={(o: any) => accountTypeLabel(o.accountType)}
                                 value={selected}
                                 onChange={(_, v) =>
                                   setCodeByLine((m) => ({ ...m, [l.lineIndex as number]: v?.code || null }))
