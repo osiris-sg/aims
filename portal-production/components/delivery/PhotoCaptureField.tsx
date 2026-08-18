@@ -57,7 +57,7 @@ export default function PhotoCaptureField({
   onUploadingChange,
   disabled,
 }: Props) {
-  const { uploading, isNative, nativeCam, camMsg, setCamMsg, ingestFiles, takeNativePhotos } =
+  const { uploading, captureMode, camMsg, setCamMsg, ingestFiles, takeNativePhotos } =
     usePhotoUploader({ upload, onError, onUploadingChange });
 
   const append = (captured: CapturedPhoto[]) => {
@@ -115,9 +115,48 @@ export default function PhotoCaptureField({
         </Alert>
       )}
 
-      {!isNative ? (
-        // Web: unchanged — the browser's capture input (camera on mobile web,
-        // file chooser on desktop).
+      <Stack spacing={1}>
+        {captureMode === "inapp" ? (
+          // Native shell, in-app CameraX. The Sunmi has no camera app, so this
+          // is its only working path.
+          <>
+            <Button
+              variant="contained"
+              startIcon={<PhotoCameraIcon />}
+              onClick={() => void takeNativePhotos().then(append)}
+              disabled={uploading || disabled}
+              fullWidth
+            >
+              Take photos
+            </Button>
+            <Typography variant="caption" color="text.secondary" sx={{ textAlign: "center" }}>
+              The camera stays open. Keep shooting, then press back on the
+              camera when you&apos;re done. Photos are kept.
+            </Typography>
+          </>
+        ) : (
+          // Web, or a native shell whose in-app camera failed: the device
+          // camera via <input capture>. This is what worked before the in-app
+          // path existed and is what a normal phone needs.
+          <Button
+            component="label"
+            variant="contained"
+            startIcon={<PhotoCameraIcon />}
+            disabled={uploading || disabled}
+            fullWidth
+          >
+            Take photos
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              capture="environment"
+              hidden
+              onChange={(e) => handleFiles(e.target.files)}
+            />
+          </Button>
+        )}
+        {/* Gallery is always available as a last resort. */}
         <Button
           component="label"
           variant="outlined"
@@ -125,56 +164,10 @@ export default function PhotoCaptureField({
           disabled={uploading || disabled}
           fullWidth
         >
-          Add photos
-          <input
-            type="file"
-            accept="image/*"
-            multiple
-            capture="environment"
-            hidden
-            onChange={(e) => handleFiles(e.target.files)}
-          />
+          Choose from gallery
+          <input type="file" accept="image/*" multiple hidden onChange={(e) => handleFiles(e.target.files)} />
         </Button>
-      ) : (
-        // Native shell: prefer the in-app camera (works with no external camera
-        // app). Always offer the gallery too; when there's no camera sensor,
-        // gallery is the only option and the guard message explains why.
-        <Stack spacing={1}>
-          {nativeCam !== false && (
-            <>
-              <Button
-                variant="contained"
-                startIcon={<PhotoCameraIcon />}
-                onClick={() => void takeNativePhotos().then(append)}
-                disabled={uploading || disabled || nativeCam === null}
-                fullWidth
-              >
-                Take photos
-              </Button>
-              <Typography variant="caption" color="text.secondary" sx={{ textAlign: "center" }}>
-                The camera stays open — keep shooting, then press back on the
-                camera when you&apos;re done. Photos are kept.
-              </Typography>
-            </>
-          )}
-          <Button
-            component="label"
-            variant="outlined"
-            startIcon={<AddPhotoAlternateIcon />}
-            disabled={uploading || disabled}
-            fullWidth
-          >
-            Choose from gallery
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              hidden
-              onChange={(e) => handleFiles(e.target.files)}
-            />
-          </Button>
-        </Stack>
-      )}
+      </Stack>
     </Box>
   );
 }

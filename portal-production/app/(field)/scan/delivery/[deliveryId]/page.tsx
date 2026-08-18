@@ -565,9 +565,11 @@ export default function DeliveryBasketPage() {
         await load();
       } else {
         // Deliver all signs + skip-installs every unit → the run completes and
-        // its DO auto-creates. Converge on the SAME printable done screen as the
-        // per-unit flow instead of dropping back to the basket with no print.
-        router.push(`/scan/deliveries/finished/${deliveryId}`);
+        // its DO auto-creates. No result interstitial: stay in the basket, which
+        // now shows the completed state. The run-level screen (with reprint) is
+        // still reachable from Finished deliveries.
+        setActionMsg(`Delivered ${n} unit${n === 1 ? "" : "s"} ✓`);
+        await load();
       }
     } catch (e: any) {
       setActionMsg(e?.message ?? "Deliver all failed");
@@ -794,16 +796,34 @@ export default function DeliveryBasketPage() {
                     <Chip size="small" color="warning" label={`${s.remaining} to load`} />
                   </Stack>
                   {canFillScheduledSlot && s.remaining > 0 && (
-                    <Button
-                      size="small"
-                      variant="contained"
-                      startIcon={nfc.isScanning ? <CircularProgress size={16} /> : <NfcIcon />}
-                      onClick={() => (nfc.isSupported ? nfc.startScan() : setManualOpen(true))}
-                      disabled={busy || nfc.isScanning}
-                      sx={{ mt: 1.5, minHeight: 40 }}
-                    >
-                      Scan another {s.label}
-                    </Button>
+                    // Scan OR key the serial: a tag can be missing or unreadable,
+                    // and the slot still has to be fillable without leaving the card.
+                    <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        startIcon={nfc.isScanning ? <CircularProgress size={16} /> : <NfcIcon />}
+                        onClick={() => (nfc.isSupported ? nfc.startScan() : setManualOpen(true))}
+                        disabled={busy || nfc.isScanning}
+                        sx={{ flex: 1, minHeight: 40 }}
+                      >
+                        Scan another {s.label}
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<KeyboardIcon />}
+                        onClick={() => {
+                          setManualOpen(true);
+                          setCandidates(null);
+                          setSerial("");
+                        }}
+                        disabled={busy}
+                        sx={{ minHeight: 40, whiteSpace: "nowrap" }}
+                      >
+                        Enter serial
+                      </Button>
+                    </Stack>
                   )}
                 </CardContent>
               </Card>

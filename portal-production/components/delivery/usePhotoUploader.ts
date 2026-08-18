@@ -34,15 +34,22 @@ interface Options {
 export function usePhotoUploader({ upload, onError, onUploadingChange }: Options) {
   const [uploading, setUploading] = useState(false);
   const isNative = Capacitor.isNativePlatform();
-  // Show the in-app camera on ANY native shell and let Camera.takePhoto() (the
-  // CameraX-backed capture, present in the APK and working on the Sunmi) be the
-  // source of truth. We deliberately do NOT pre-gate on a FEATURE_CAMERA_ANY
-  // capability probe: rugged devices like the Sunmi V3 under-report that feature
-  // even with a working sensor, and gating on it hid the camera button and left
-  // only the gallery (which the Sunmi cannot populate). A REAL capture failure
-  // (the catch in takeNativePhotos/Once) flips this to false so the gallery-only
-  // guard shows. Web stays null so the components keep their <input> path.
-  const [nativeCam, setNativeCam] = useState<boolean | null>(isNative ? true : null);
+  // CAPTURE MODE — chosen by OUTCOME, never by a capability probe.
+  //
+  // Two device classes have to work and they need opposite things:
+  //   • Sunmi V3     — no camera app at all, so <input capture> degrades to a
+  //                    gallery it cannot populate. It NEEDS Camera.takePhoto().
+  //   • normal phone — has a camera app; <input capture> opens it. takePhoto()
+  //                    only works if the APK actually carries the plugin.
+  //
+  // Probing was tried twice and guessed wrong both times: FEATURE_CAMERA_ANY
+  // under-reports on the Sunmi, and assuming "native = takePhoto works" breaks
+  // any device on an APK built before @capacitor/camera was added. So we stop
+  // predicting. Native starts on the in-app camera (the Sunmi's only option);
+  // if a real capture throws we fall back to <input capture> — the path that
+  // worked before the Sunmi work — rather than stranding the rider on gallery.
+  const [inAppFailed, setInAppFailed] = useState(false);
+  const captureMode: 'inapp' | 'input' = isNative && !inAppFailed ? 'inapp' : 'input';
   const [camMsg, setCamMsg] = useState<string | null>(null);
 
   const setUploadingFlag = (v: boolean) => {
@@ -82,8 +89,8 @@ export function usePhotoUploader({ upload, onError, onUploadingChange }: Options
       const files = await captureNativePhotos();
       return files.length ? await ingestFiles(files) : [];
     } catch {
-      setNativeCam(false);
-      setCamMsg("Camera unavailable. Choose an existing photo below.");
+      setInAppFailed(true);
+      setCamMsg("Switched to the device camera. Tap the camera button again.");
       return [];
     }
   };
@@ -95,8 +102,8 @@ export function usePhotoUploader({ upload, onError, onUploadingChange }: Options
       const file = await captureNativePhoto();
       return file ? await ingestFiles([file]) : [];
     } catch {
-      setNativeCam(false);
-      setCamMsg("Camera unavailable. Choose an existing photo below.");
+      setInAppFailed(true);
+      setCamMsg("Switched to the device camera. Tap the camera button again.");
       return [];
     }
   };
@@ -104,7 +111,7 @@ export function usePhotoUploader({ upload, onError, onUploadingChange }: Options
   return {
     uploading,
     isNative,
-    nativeCam,
+    captureMode,
     camMsg,
     setCamMsg,
     ingestFiles,
