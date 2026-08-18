@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { ASSET_CLASSES, DEFAULT_ASSET_CLASS } from "@/helpers/assetClass";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -68,6 +69,9 @@ const assetSchema = z.object({
   salesAccountCode: z.string().optional(),
   rentalAccountCode: z.string().optional(),
   points: z.coerce.number().min(0).optional(),
+  // Equipment vs Accessory — sets the minimum photos the field must capture
+  // when a unit of this asset is tagged.
+  assetClass: z.enum(ASSET_CLASSES).default(DEFAULT_ASSET_CLASS),
   isTracked: z.boolean().default(true),
   // Use coerce to convert string input to number. Optional for everyone —
   // untracked products can start at 0 stock; the Quantity field is just for an
@@ -89,6 +93,7 @@ const updateAssetSchema = z.object({
   salesAccountCode: z.string().optional().nullable(),
   rentalAccountCode: z.string().optional().nullable(),
   points: z.number().min(0).optional().nullable(),
+  assetClass: z.enum(ASSET_CLASSES).optional(),
   isTracked: z.boolean().optional(),
   quantity: z.number().min(0).optional().nullable(),
   minQuantity: z.number().min(0).optional().nullable(),
@@ -130,6 +135,7 @@ export const useAddAssetFormHandler = () => {
       salesAccountCode: undefined,
       rentalAccountCode: undefined,
       points: undefined,
+      assetClass: DEFAULT_ASSET_CLASS,
       isTracked: true,
       quantity: undefined,
       minQuantity: undefined,
@@ -182,6 +188,8 @@ export const useAddAssetFormHandler = () => {
           rentalAccountCode: response.data.rentalAccountCode ?? undefined,
           points: response.data.points ?? undefined,
           image: response.data.image,
+          // Rows written before the class existed read back as Equipment.
+          assetClass: response.data.assetClass ?? DEFAULT_ASSET_CLASS,
           isTracked: response.data.isTracked !== false, // Default to true
           quantity: response.data.quantity ?? undefined,
           minQuantity: response.data.minQuantity ?? undefined,
@@ -286,6 +294,7 @@ export const useAddAssetFormHandler = () => {
       uom?: string;
       description?: string;
       image?: any;
+      assetClass?: string;
       isTracked?: boolean;
       quantity?: number;
       minQuantity?: number;
@@ -300,6 +309,7 @@ export const useAddAssetFormHandler = () => {
       uom: data.uom,
       description: data.description,
       image: data.image || undefined, // Keep image as is, don't send if undefined
+      assetClass: data.assetClass || DEFAULT_ASSET_CLASS,
       isTracked: data.isTracked,
       // Blank/invalid starting stock → 0; backend requires a non-negative integer.
       quantity: Number.isFinite(Number(data.quantity)) ? Math.max(0, Math.floor(Number(data.quantity))) : 0,

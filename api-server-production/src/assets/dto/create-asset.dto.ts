@@ -1,4 +1,5 @@
-import { IsNotEmpty, IsOptional, IsString, IsUUID, IsBoolean, IsInt, IsNumber, Min, ValidateIf, IsIn, IsArray, ValidateNested } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsUUID, IsBoolean, IsInt, IsNumber, Min, ValidateIf, IsIn, IsArray, ValidateNested, IsEnum } from 'class-validator';
+import { AssetClass } from '@prisma/client';
 import { Type } from 'class-transformer';
 
 export class CustomPriceDto {
@@ -112,6 +113,12 @@ export class CreateAssetDto {
   @IsOptional()
   @Min(0)
   points?: number;
+
+  // Equipment vs Accessory — sets the minimum photos required at tagging.
+  // Omitted → the column default (EQUIPMENT).
+  @IsEnum(AssetClass)
+  @IsOptional()
+  assetClass?: AssetClass;
 
   // Tracking mode: true = individual inventory items with SKUs (Asset), false = simple quantity (Product)
   @IsBoolean()

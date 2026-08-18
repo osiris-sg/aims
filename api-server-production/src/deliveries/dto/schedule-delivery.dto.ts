@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayNotEmpty,
   IsArray,
+  IsEnum,
   IsInt,
   IsISO8601,
   IsOptional,
@@ -11,6 +12,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { AssetClass } from '@prisma/client';
 
 /**
  * One scheduled line. EITHER a catalog product (assetId) + quantity, OR a
@@ -32,6 +34,16 @@ export class ScheduleDeliveryItemDto {
   @IsInt()
   @Min(1)
   quantity!: number;
+
+  @ApiProperty({
+    required: false,
+    enum: AssetClass,
+    description:
+      'Equipment or Accessory. Only meaningful on a FREE-TYPED line (a catalog line reads the class off its asset). Omitted → EQUIPMENT.',
+  })
+  @IsOptional()
+  @IsEnum(AssetClass)
+  assetClass?: AssetClass;
 }
 
 /**

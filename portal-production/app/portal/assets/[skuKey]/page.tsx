@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useEffect } from "react";
+import { assetClassLabel } from "@/helpers/assetClass";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
@@ -297,6 +298,14 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
                   label={asset.isTracked !== false ? "Asset" : "Product"}
                   size="small"
                   color={asset.isTracked !== false ? "primary" : "success"}
+                  variant="outlined"
+                />
+                {/* Equipment vs Accessory. Sets the photo minimum the field
+                    must meet when a unit of this product is tagged. */}
+                <Chip
+                  label={assetClassLabel(asset.assetClass)}
+                  size="small"
+                  color="default"
                   variant="outlined"
                 />
               </Stack>

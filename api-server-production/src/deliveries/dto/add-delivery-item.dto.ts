@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Min, ValidateIf } from 'class-validator';
+import { IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Min, ValidateIf } from 'class-validator';
+import { AssetClass } from '@prisma/client';
 
 /**
  * Basket add: append an item to an in-progress run. Two shapes:
@@ -30,4 +31,13 @@ export class AddDeliveryItemDto {
   @IsInt()
   @Min(1)
   quantity?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Equipment or Accessory. Only meaningful on a FREE-TYPED line (a catalog line reads the class off its asset). Omitted → EQUIPMENT.',
+    enum: AssetClass,
+  })
+  @IsOptional()
+  @IsEnum(AssetClass)
+  assetClass?: AssetClass;
 }
