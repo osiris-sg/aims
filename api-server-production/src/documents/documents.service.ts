@@ -2822,6 +2822,14 @@ export class DocumentsService {
         : [];
       const customerMap = new Map(customers.map((c) => [c.id, c.name]));
 
+      // Quotation project lives on the Document.projectId COLUMN (not config),
+      // so it was being stripped from this response — resolve names in one batch.
+      const projectIds = rows.map((d: any) => d.projectId).filter(Boolean);
+      const projects = projectIds.length
+        ? await this.prisma.project.findMany({ where: { id: { in: [...new Set(projectIds)] } }, select: { id: true, name: true } })
+        : [];
+      const projectMap = new Map(projects.map((p) => [p.id, p.name]));
+
       const docs = rows.map((doc: any) => {
         const config = doc.config as any;
         const cid = config?.customer?.id || config?.customerId;
@@ -2834,6 +2842,10 @@ export class DocumentsService {
           templateId: doc.documentTemplateId,
           status: doc.status,
           createdAt: doc.createdAt,
+          // The project column + its resolved name (null when unset) so the
+          // schedule dialog's extract can fill the project from real quotations.
+          projectId: doc.projectId ?? null,
+          projectName: (doc.projectId && projectMap.get(doc.projectId)) ?? null,
           config: doc.config,
         };
       });

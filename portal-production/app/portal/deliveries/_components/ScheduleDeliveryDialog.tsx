@@ -309,13 +309,17 @@ export default function ScheduleDeliveryDialog({
       setAddress(String(cfg.customerAddress));
       setAddressTouched(true);
     }
-    // Quotations here never carry a projectId — this fills only if one is present.
-    if (cfg.projectId) {
-      const match = projectOptions.find((p) => p.id === cfg.projectId);
-      setProject(match ?? { id: String(cfg.projectId), name: cfg.projectName || "Project from quotation" });
+    // The project lives on the Document.projectId COLUMN (now surfaced top-level by
+    // getDocumentsPaginated), not in config — real quotations only populate the
+    // column. Prefer the column, fall back to legacy config.projectId.
+    const pid = q?.projectId ?? cfg.projectId;
+    const pname = q?.projectName ?? cfg.projectName;
+    if (pid) {
+      const match = projectOptions.find((p) => p.id === pid);
+      setProject(match ?? { id: String(pid), name: pname || "Project from quotation" });
     }
     const filledPo = !!poValue;
-    const filledProject = !!cfg.projectId;
+    const filledProject = !!pid;
     const items: any[] = Array.isArray(cfg.items) ? cfg.items : [];
     if (items.length) {
       let token: string | null = null;
