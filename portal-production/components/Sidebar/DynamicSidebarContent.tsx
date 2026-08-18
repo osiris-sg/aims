@@ -10,8 +10,8 @@ import {
   Collapse,
   Tooltip,
   useTheme,
-  CircularProgress,
   Box,
+  Skeleton,
   Typography,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
@@ -143,18 +143,24 @@ export default function DynamicSidebarContent() {
     return false;
   };
 
-  // Loading state
+  // Loading state — skeleton menu rows keep the sidebar's shape while the
+  // org's modules load, instead of a lone spinner in an empty rail that reads
+  // like a broken/mobile layout (guru 2026-08-18).
   if (loading) {
     return (
-      <Stack
-        sx={{
-          flexGrow: 1,
-          p: isCollapsed ? 1 : "var(--default-gap)",
-          justifyContent: "center",
-          alignItems: "center",
-        }}
-      >
-        <CircularProgress size={24} sx={{ color: "#FFFFFF" }} />
+      <Stack sx={{ flexGrow: 1, p: isCollapsed ? 1 : "var(--default-gap)", gap: 1.75, mt: 1 }}>
+        {Array.from({ length: 9 }).map((_, i) => (
+          <Stack key={i} direction="row" alignItems="center" gap={1.5} sx={{ px: isCollapsed ? 0.5 : 1 }}>
+            <Skeleton variant="circular" width={22} height={22} sx={{ bgcolor: "rgba(255,255,255,0.14)", flexShrink: 0 }} />
+            {!isCollapsed && (
+              <Skeleton
+                variant="rounded"
+                height={12}
+                sx={{ bgcolor: "rgba(255,255,255,0.14)", borderRadius: 1, width: `${55 + ((i * 17) % 30)}%` }}
+              />
+            )}
+          </Stack>
+        ))}
       </Stack>
     );
   }

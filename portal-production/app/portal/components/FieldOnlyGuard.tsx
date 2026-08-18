@@ -63,7 +63,9 @@ export default function FieldOnlyGuard({ children }: { children: React.ReactNode
 
   if (!checked || !allow) {
     return (
-      <Box sx={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      // width/flex so the spinner centers even when this renders as a flex
+      // item beside the sidebar (it used to sit hard-left on reload).
+      <Box sx={{ minHeight: "100vh", width: "100%", flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <CircularProgress />
       </Box>
     );
