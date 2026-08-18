@@ -6,6 +6,8 @@ import { useAuth, useUser } from "@clerk/nextjs";
 import { Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography } from "@mui/material";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import AddIcon from "@mui/icons-material/Add";
+import CameraAltIcon from "@mui/icons-material/CameraAlt";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 
 interface CustomerOption {
   id: string;
@@ -66,7 +68,9 @@ export default function StartDeliveryPage() {
   // ASSIGN phase — optional per-unit customer→project pick (a run can span
   // projects). Assign or Skip, then land on the basket. fieldDeploy defers the
   // status flip, so the unit stays reserved until ack.
-  const [phase, setPhase] = useState<"start" | "assign">("start");
+  // "photos" is a full-screen step, not a cramped inline block: the guided
+  // sequence needs the whole viewport on a phone. Mirrors how after-ack steps.
+  const [phase, setPhase] = useState<"start" | "photos" | "assign">("start");
   const [runId, setRunId] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
   const [customerOptions, setCustomerOptions] = useState<CustomerOption[]>([]);
@@ -572,6 +576,81 @@ export default function StartDeliveryPage() {
     );
   }
 
+  // ── PHOTO STEP: the capture sequence gets the whole screen ──────────────
+  if (phase === "photos") {
+    const met = photos.length >= requiredPhotos;
+    return (
+      <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2, minHeight: "100vh" }}>
+        <Typography variant="h6" fontWeight={700}>
+          Condition photos
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          {standalone
+            ? `${requiredPhotos} photo${requiredPhotos === 1 ? "" : "s"} needed before this ${verb.toLowerCase()} can start.`
+            : "Optional for this delivery."}
+        </Typography>
+
+        {/* Accessory returns get the static outbound strip; equipment returns
+            compare per angle inside GuidedPhotoCapture. */}
+        {isReturn && !(standalone && requiredPhotos > 1) && outboundPhotos.length > 0 && (
+          <Box>
+            <Typography variant="subtitle2" sx={{ mb: 0.25 }}>
+              Delivered condition (for comparison)
+            </Typography>
+            <Stack direction="row" spacing={1} sx={{ overflowX: "auto", pb: 1 }}>
+              {outboundPhotos.map((src, i) => (
+                <Box
+                  key={i}
+                  component="img"
+                  src={src}
+                  alt=""
+                  sx={{ width: 84, height: 84, flexShrink: 0, borderRadius: 1, objectFit: "cover", border: "1px solid", borderColor: "divider" }}
+                />
+              ))}
+            </Stack>
+          </Box>
+        )}
+
+        {standalone && requiredPhotos > 1 ? (
+          <GuidedPhotoCapture
+            photos={photos}
+            onChange={setPhotos}
+            upload={uploadDoStart}
+            minPhotos={requiredPhotos}
+            onError={(m) => setError(m || null)}
+            onUploadingChange={setUploading}
+            comparison={isReturn ? { photos: outboundPhotos, angles: outboundAngles } : undefined}
+          />
+        ) : (
+          <PhotoCaptureField
+            label={standalone ? "Condition photos (required)" : "Condition photos (optional)"}
+            photos={photos}
+            onChange={setPhotos}
+            upload={uploadDoStart}
+            onError={(m) => setError(m || null)}
+            onUploadingChange={setUploading}
+          />
+        )}
+
+        {error && <Alert severity="error">{error}</Alert>}
+
+        <Box sx={{ flexGrow: 1 }} />
+        <Button
+          variant="contained"
+          onClick={() => {
+            setError(null);
+            setPhase("start");
+          }}
+          disabled={uploading}
+          fullWidth
+          sx={{ py: 1.5, fontSize: "1rem", minHeight: 48 }}
+        >
+          {uploading ? "Uploading…" : met ? "Done" : `Back (${photos.length} of ${requiredPhotos})`}
+        </Button>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 3, alignItems: "center" }}>
       <LocalShippingIcon sx={{ fontSize: 80, color: "primary.main", mt: 4 }} />
@@ -630,28 +709,29 @@ export default function StartDeliveryPage() {
         </Box>
       )}
 
+      {/* Photos live on their own screen (phase "photos"). This is just the
+          entry point plus a progress summary. */}
       <Box sx={{ width: "100%", maxWidth: 360 }}>
-        {standalone && requiredPhotos > 1 ? (
-          // Equipment going out: walk the named angles instead of a free-form
-          // picker, so the office gets a comparable set for every unit.
-          <GuidedPhotoCapture
-            photos={photos}
-            onChange={setPhotos}
-            upload={uploadDoStart}
-            minPhotos={requiredPhotos}
-            onError={(m) => setError(m || null)}
-            onUploadingChange={setUploading}
-            comparison={isReturn ? { photos: outboundPhotos, angles: outboundAngles } : undefined}
-          />
-        ) : (
-          <PhotoCaptureField
-            label={standalone ? "Condition photos (required)" : "Condition photos (optional)"}
-            photos={photos}
-            onChange={setPhotos}
-            upload={uploadDoStart}
-            onError={(m) => setError(m || null)}
-            onUploadingChange={setUploading}
-          />
+        <Button
+          variant={photos.length >= requiredPhotos ? "outlined" : "contained"}
+          startIcon={photos.length >= requiredPhotos ? <CheckCircleIcon color="success" /> : <CameraAltIcon />}
+          onClick={() => setPhase("photos")}
+          disabled={submitting}
+          fullWidth
+          sx={{ py: 1.5, minHeight: 56, fontSize: "1rem" }}
+        >
+          {photos.length === 0
+            ? standalone
+              ? `Take condition photos (${requiredPhotos} needed)`
+              : "Add condition photos (optional)"
+            : `Condition photos: ${photos.length} of ${requiredPhotos}`}
+        </Button>
+        {standalone && photos.length < requiredPhotos && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5, textAlign: "center" }}>
+            {requiredPhotos > 1
+              ? "This unit is equipment, so it needs a full set of angles."
+              : "One photo of the unit's condition is required."}
+          </Typography>
         )}
       </Box>
 
@@ -714,7 +794,7 @@ export default function StartDeliveryPage() {
           fullWidth
           sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
         >
-          {submitting ? <CircularProgress size={20} color="inherit" /> : uploading ? "Uploading…" : `Confirm & Start ${verb}`}
+          {submitting ? <CircularProgress size={20} color="inherit" /> : uploading ? "Uploading…" : `Start ${verb}`}
         </Button>
       </Stack>
     </Box>
