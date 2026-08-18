@@ -3,8 +3,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
-import { Alert, Autocomplete, Box, Button, CircularProgress, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography } from "@mui/material";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
+import AddIcon from "@mui/icons-material/Add";
 
 interface CustomerOption {
   id: string;
@@ -74,6 +75,15 @@ export default function StartDeliveryPage() {
   const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(false);
   const prevCustomerRef = useRef<string | null>(null);
+  // Inline create (restored from after-ack — OSI-79): a rider can mint a new
+  // customer/project without leaving the assign step, via the narrow field
+  // permissions they already hold (customers:create-by-name / projects:create-by-name).
+  const [createCustomerOpen, setCreateCustomerOpen] = useState(false);
+  const [createCustomerName, setCreateCustomerName] = useState("");
+  const [creatingCustomer, setCreatingCustomer] = useState(false);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [createProjectName, setCreateProjectName] = useState("");
+  const [creatingProject, setCreatingProject] = useState(false);
 
   // Clerk-auth'd upload closure for the shared PhotoCaptureField — the
   // component stays auth-agnostic; the token lives here (folder: do-start).
@@ -318,6 +328,67 @@ export default function StartDeliveryPage() {
     }
   };
 
+  // Inline create-customer: seed the dialog with whatever was typed into the picker.
+  const openCreateCustomer = () => {
+    setCreateCustomerName(customerInput.trim());
+    setCreateCustomerOpen(true);
+  };
+
+  const handleCreateCustomer = async () => {
+    const trimmed = createCustomerName.trim();
+    if (!trimmed) return;
+    setCreatingCustomer(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      // Narrow field endpoint (customers:create-by-name) — name only, server
+      // generates the code; the office create surface stays gated.
+      const res = await request({ path: "/customers/create-by-name", method: "POST" }, { name: trimmed }, token);
+      const created = res?.data;
+      if (res?.success && created?.id) {
+        const option: CustomerOption = { id: created.id, name: created.name ?? trimmed, customerCode: created.customerCode ?? null };
+        setCustomerOptions((prev) => [option, ...prev]);
+        setSelectedCustomer(option);
+        setCreateCustomerOpen(false);
+        setCreateCustomerName("");
+      } else {
+        setError(res?.message ?? "Failed to create customer");
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to create customer");
+    } finally {
+      setCreatingCustomer(false);
+    }
+  };
+
+  const handleCreateProject = async () => {
+    const trimmed = createProjectName.trim();
+    if (!trimmed || !selectedCustomer) return;
+    setCreatingProject(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request(
+        { path: "/projects/create-by-name", method: "POST" },
+        { name: trimmed, customerId: selectedCustomer.id },
+        token,
+      );
+      if (res?.success && res.data?.id) {
+        const created: ProjectOption = { id: res.data.id, name: res.data.name ?? trimmed };
+        setProjectOptions((prev) => [created, ...prev]);
+        setSelectedProject(created);
+        setCreateProjectOpen(false);
+        setCreateProjectName("");
+      } else {
+        setError(res?.message ?? "Failed to create project");
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to create project");
+    } finally {
+      setCreatingProject(false);
+    }
+  };
+
   // ── ASSIGN phase (standalone, after DO_START) ───────────────────────────────
   if (phase === "assign") {
     return (
@@ -332,28 +403,52 @@ export default function StartDeliveryPage() {
         </Typography>
 
         <Box sx={{ width: "100%", maxWidth: 360, display: "flex", flexDirection: "column", gap: 2 }}>
-          <Autocomplete<CustomerOption, false, false, false>
-            options={customerOptions}
-            value={selectedCustomer}
-            onChange={(_, v) => setSelectedCustomer(v)}
-            onInputChange={(_, v) => setCustomerInput(v)}
-            getOptionLabel={(o) => o.name}
-            isOptionEqualToValue={(a, b) => a.id === b.id}
-            loading={customerSearching}
-            renderInput={(params) => <TextField {...params} label="Customer" placeholder="Search customer" required />}
-          />
-          <Autocomplete<ProjectOption, false, false, false>
-            options={projectOptions}
-            value={selectedProject}
-            onChange={(_, v) => setSelectedProject(v)}
-            getOptionLabel={(o) => o.name}
-            isOptionEqualToValue={(a, b) => a.id === b.id}
-            loading={projectsLoading}
-            disabled={!selectedCustomer}
-            renderInput={(params) => (
-              <TextField {...params} label="Project" placeholder={selectedCustomer ? "Search project" : "Pick a customer first"} required error={!!selectedCustomer && !selectedProject} />
+          <Box>
+            <Autocomplete<CustomerOption, false, false, false>
+              options={customerOptions}
+              value={selectedCustomer}
+              onChange={(_, v) => setSelectedCustomer(v)}
+              onInputChange={(_, v) => setCustomerInput(v)}
+              getOptionLabel={(o) => o.name}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              loading={customerSearching}
+              renderInput={(params) => <TextField {...params} label="Customer" placeholder="Search customer" required />}
+              noOptionsText={
+                <Button size="small" startIcon={<AddIcon />} onClick={openCreateCustomer}>
+                  Create customer
+                </Button>
+              }
+            />
+            {!selectedCustomer && (
+              <Button size="small" startIcon={<AddIcon />} onClick={openCreateCustomer} sx={{ textTransform: "none", mt: 0.5 }}>
+                New customer
+              </Button>
             )}
-          />
+          </Box>
+          <Box>
+            <Autocomplete<ProjectOption, false, false, false>
+              options={projectOptions}
+              value={selectedProject}
+              onChange={(_, v) => setSelectedProject(v)}
+              getOptionLabel={(o) => o.name}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              loading={projectsLoading}
+              disabled={!selectedCustomer}
+              renderInput={(params) => (
+                <TextField {...params} label="Project" placeholder={selectedCustomer ? "Search project" : "Pick a customer first"} required error={!!selectedCustomer && !selectedProject} />
+              )}
+              noOptionsText={
+                <Button size="small" startIcon={<AddIcon />} onClick={() => setCreateProjectOpen(true)}>
+                  Create project
+                </Button>
+              }
+            />
+            {selectedCustomer && (
+              <Button size="small" startIcon={<AddIcon />} onClick={() => setCreateProjectOpen(true)} sx={{ textTransform: "none", mt: 0.5 }}>
+                New project for {selectedCustomer.name}
+              </Button>
+            )}
+          </Box>
 
           {error && <Alert severity="error">{error}</Alert>}
 
@@ -367,6 +462,50 @@ export default function StartDeliveryPage() {
             {assigning ? <CircularProgress size={20} color="inherit" /> : "Assign & continue"}
           </Button>
         </Box>
+
+        {/* Inline create-customer dialog (restored — OSI-79) */}
+        <Dialog open={createCustomerOpen} onClose={() => !creatingCustomer && setCreateCustomerOpen(false)} fullWidth maxWidth="xs">
+          <DialogTitle>New customer</DialogTitle>
+          <DialogContent>
+            <TextField
+              autoFocus
+              fullWidth
+              label="Customer name"
+              value={createCustomerName}
+              onChange={(e) => setCreateCustomerName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleCreateCustomer()}
+              sx={{ mt: 1 }}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setCreateCustomerOpen(false)} disabled={creatingCustomer}>Cancel</Button>
+            <Button variant="contained" onClick={handleCreateCustomer} disabled={creatingCustomer || !createCustomerName.trim()}>
+              {creatingCustomer ? <CircularProgress size={18} /> : "Create"}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Inline create-project dialog (restored — OSI-79) */}
+        <Dialog open={createProjectOpen} onClose={() => !creatingProject && setCreateProjectOpen(false)} fullWidth maxWidth="xs">
+          <DialogTitle>New project</DialogTitle>
+          <DialogContent>
+            <TextField
+              autoFocus
+              fullWidth
+              label="Project name"
+              value={createProjectName}
+              onChange={(e) => setCreateProjectName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleCreateProject()}
+              sx={{ mt: 1 }}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setCreateProjectOpen(false)} disabled={creatingProject}>Cancel</Button>
+            <Button variant="contained" onClick={handleCreateProject} disabled={creatingProject || !createProjectName.trim()}>
+              {creatingProject ? <CircularProgress size={18} /> : "Create"}
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     );
   }
