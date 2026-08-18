@@ -243,8 +243,19 @@ Return JSON array.`;
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return result;
 
+    // FIXED_ASSET lives on the balance sheet, not PNL — callers that allow it
+    // (bill coding: capitalized equipment) need it OR'd past the PNL filter.
+    const pnlTypes = allowedTypes.filter((t) => t !== 'FIXED_ASSET');
+    const wantsFixedAsset = allowedTypes.includes('FIXED_ASSET');
     const accounts = await this.prisma.chartOfAccount.findMany({
-      where: { organizationId, isActive: true, category: 'PNL', accountType: { in: allowedTypes } },
+      where: {
+        organizationId,
+        isActive: true,
+        OR: [
+          { category: 'PNL', accountType: { in: pnlTypes } },
+          ...(wantsFixedAsset ? [{ accountType: 'FIXED_ASSET' }] : []),
+        ],
+      },
       select: { id: true, code: true, name: true, accountType: true },
       orderBy: { code: 'asc' },
     });
@@ -262,7 +273,11 @@ Output ONLY a JSON array — one object per input line, each with:
   - "confidence": number 0-1 (1 = perfect match)
   - "reason": one short clause explaining the choice
 
-Never invent codes. Never include accounts not in the list. Cover every index.`;
+Never invent codes. Never include accounts not in the list. Cover every index.
+When the candidate list contains FIXED_ASSET accounts: durable equipment and
+hardware purchases (computers, monitors, cameras, routers, machinery, office
+equipment) belong to the matching FIXED_ASSET account — capitalize them rather
+than expensing, unless the line is clearly a consumable, service, or repair.`;
 
     const userPrompt = `Lines (index: description):
 ${numbered}
