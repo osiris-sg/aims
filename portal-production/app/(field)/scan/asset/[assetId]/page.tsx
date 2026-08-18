@@ -89,10 +89,6 @@ export default function AssetActionChooser() {
   const [data, setData] = useState<ScanContext | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  // Standalone basket-add (Layer 3): error + busy state for the
-  // "Add to Delivery #N" card; reservation 400s surface here.
-  const [addErr, setAddErr] = useState<string | null>(null);
-  const [addBusy, setAddBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -159,44 +155,9 @@ export default function AssetActionChooser() {
   const invQuery = inventory ? `?inventoryId=${encodeURIComponent(inventory.id)}` : "";
   const doRef = resolvedDeliveryOrder?.name ?? resolvedDeliveryOrder?.id ?? "";
 
-  // Standalone basket-add (Layer 3): reserve this unit into the rider's open
-  // run via POST /deliveries/:id/items, then land on the run's basket page.
-  // A reservation 400 ("not available") surfaces as a clean inline alert.
-  const addToOpenRun = async () => {
-    if (!data.riderOpenDelivery || !inventory || addBusy) return;
-    setAddErr(null);
-    setAddBusy(true);
-    try {
-      const token = await getToken();
-      if (!token) throw new Error("Not signed in");
-      const res = await request(
-        { path: `/deliveries/${data.riderOpenDelivery.id}/items`, method: "POST" },
-        { assetId, inventoryId: inventory.id },
-        token,
-      );
-      if (res.success === false) throw new Error(res.message ?? "Could not add unit");
-      // Fix A: a unit joining an in-progress run is on the truck — fire its
-      // DO_START so it advances not_delivered → delivering and is immediately
-      // actionable in the basket. Best-effort: the add already succeeded, so a
-      // failure here just leaves the item startable via the basket's button.
-      await request(
-        { path: "/maintenance-reports", method: "POST" },
-        {
-          assetId,
-          inventoryId: inventory.id,
-          kind: "DO_START",
-          deliveryId: data.riderOpenDelivery.id,
-          description: "Delivery started (added to run)",
-        },
-        token,
-      ).catch(() => undefined);
-      router.push(`/scan/delivery/${data.riderOpenDelivery.id}`);
-    } catch (e: any) {
-      setAddErr(e?.message ?? "Unit not available — already out for delivery");
-    } finally {
-      setAddBusy(false);
-    }
-  };
+  // (OSI-85) The "add this unit to your open run" path was removed from the
+  // scanner — a fresh scan always starts a NEW delivery. Adding a unit to an
+  // existing run happens from inside that run's basket / Deliveries in progress.
 
   const deliveryCard: { title: string; subtitle: string; icon: React.ReactNode; onClick?: () => void } = (() => {
     switch (deliveryStage) {
@@ -259,14 +220,8 @@ export default function AssetActionChooser() {
             onClick: () => router.push(`/scan/delivery/${standalone.id}`),
           };
         }
-        if (data.canStartStandaloneDelivery && data.riderOpenDelivery) {
-          return {
-            title: `Add to Delivery #${data.riderOpenDelivery.deliveryNumber}`,
-            subtitle: addBusy ? "Adding unit…" : "Add this unit to your delivery in progress",
-            icon: <LocalShippingIcon color="primary" sx={{ fontSize: 48 }} />,
-            onClick: addToOpenRun,
-          };
-        }
+        // (OSI-85) A fresh scan ALWAYS starts a NEW delivery — the old
+        // "Add to Delivery #N" card for the rider's open run was removed here.
         if (data.canStartStandaloneDelivery) {
           return {
             title: "Start Delivery",
@@ -365,9 +320,6 @@ export default function AssetActionChooser() {
 
       {/* "Assign to Project" removed (2026-08): project assignment now happens
           only inside the delivery flow, at the after-ack step. */}
-
-      {/* Reservation failure from the standalone "Add to Delivery" card. */}
-      {addErr && <Alert severity="warning">{addErr}</Alert>}
 
       {/* Single morphing delivery card: Start Delivery → Acknowledge Delivery →
           Complete Installation → Completed, driven by deliveryStage. */}

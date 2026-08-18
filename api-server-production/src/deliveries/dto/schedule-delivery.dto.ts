@@ -77,6 +77,15 @@ export class ScheduleDeliveryDto {
   @IsOptional()
   @IsString()
   address?: string;
+
+  @ApiProperty({
+    required: false,
+    description:
+      'Machine location — free-text sub-location within the site (tower, floor, unit). NOT a saved address; per-delivery detail. Lands on the draft DO\'s config.machineLocation, rendered under "Deliver To".',
+  })
+  @IsOptional()
+  @IsString()
+  machineLocation?: string;
 }
 
 /**
