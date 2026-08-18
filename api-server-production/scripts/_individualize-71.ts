@@ -80,7 +80,9 @@ const bumpDates = (s: string, june: boolean) => s.split("\n").map(line => {
     if (!srcName) { skipped.push(`${d.name}: no template mapping (hand-built?) — left as-is`); continue; }
     const src = xeroByNum.get(srcName);
     if (!src) { skipped.push(`${d.name}: source ${srcName} not fetched from Xero`); continue; }
-    if ((c.items || []).filter((it: any) => Number(it.amount)).length > 1) { skipped.push(`${d.name}: already multi-amount-line — left as-is`); continue; }
+    const FORCE = ["BI202608013", "BI202608014", "BI202608015", "BI202608017"];
+    if (!FORCE.includes(d.name!) && (c.items || []).filter((it: any) => Number(it.amount)).length > 1) { skipped.push(`${d.name}: already multi-amount-line — left as-is`); continue; }
+    if (!FORCE.includes(d.name!) && c.lineFormat) { skipped.push(`${d.name}: already rebuilt`); continue; }
     const srcLines: any[] = src.LineItems || [];
     const srcNet = srcLines.reduce((s, l) => s + (Number(l.LineAmount) || 0), 0);
     if (Math.abs(srcNet - c.subTotal) > 0.02) { skipped.push(`${d.name}: source ${srcName} net ${srcNet.toFixed(2)} ≠ draft subTotal ${c.subTotal} — needs manual split`); continue; }

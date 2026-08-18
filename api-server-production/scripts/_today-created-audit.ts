@@ -7,7 +7,7 @@ neonConfig.webSocketConstructor = ws as unknown as typeof WebSocket;
 const prisma = new PrismaClient({ adapter: new PrismaNeon({ connectionString: fs.readFileSync(".env.production", "utf8").match(/^DATABASE_URL="?([^"\n]+)"?/m)![1] }) } as any);
 const ORG = "52e90ba8-bfbd-48b0-bb76-4f9667bf74f1";
 (async () => {
-  const start = new Date("2026-08-18T00:00:00+08:00");
+  const start = new Date("2026-08-17T00:00:00+08:00");
   const logs = await prisma.auditLog.findMany({
     where: { organizationId: ORG, resource: "document", action: { contains: "create" }, createdAt: { gte: start } },
     orderBy: { createdAt: "asc" },
