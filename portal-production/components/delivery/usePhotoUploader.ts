@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Capacitor } from "@capacitor/core";
-import { hasNativeCamera, captureNativePhoto, captureNativePhotos } from "@/app/(field)/lib/nativeCamera";
+import { captureNativePhoto, captureNativePhotos } from "@/app/(field)/lib/nativeCamera";
 import { compressImageBlob } from "@/app/(field)/lib/imageCompress";
 
 export interface CapturedPhoto {
@@ -33,22 +33,17 @@ interface Options {
  */
 export function usePhotoUploader({ upload, onError, onUploadingChange }: Options) {
   const [uploading, setUploading] = useState(false);
-  // null = still checking / web (use <input>), true = native shell with a
-  // camera sensor, false = native shell WITHOUT one (gallery only + guard).
   const isNative = Capacitor.isNativePlatform();
-  const [nativeCam, setNativeCam] = useState<boolean | null>(null);
+  // Show the in-app camera on ANY native shell and let Camera.takePhoto() (the
+  // CameraX-backed capture, present in the APK and working on the Sunmi) be the
+  // source of truth. We deliberately do NOT pre-gate on a FEATURE_CAMERA_ANY
+  // capability probe: rugged devices like the Sunmi V3 under-report that feature
+  // even with a working sensor, and gating on it hid the camera button and left
+  // only the gallery (which the Sunmi cannot populate). A REAL capture failure
+  // (the catch in takeNativePhotos/Once) flips this to false so the gallery-only
+  // guard shows. Web stays null so the components keep their <input> path.
+  const [nativeCam, setNativeCam] = useState<boolean | null>(isNative ? true : null);
   const [camMsg, setCamMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isNative) return;
-    let cancelled = false;
-    void hasNativeCamera().then((ok) => {
-      if (!cancelled) setNativeCam(ok);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [isNative]);
 
   const setUploadingFlag = (v: boolean) => {
     setUploading(v);

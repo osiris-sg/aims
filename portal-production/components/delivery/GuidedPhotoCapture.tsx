@@ -20,9 +20,9 @@ import { usePhotoUploader, type CapturedPhoto } from "./usePhotoUploader";
 export type { CapturedPhoto };
 
 /**
- * The angles an equipment unit is walked through, in order. The first three are
- * named; anything past them is an extra angle the rider chooses, which is what
- * carries the count to the required minimum.
+ * The angles an equipment unit is walked through, in order (5 for equipment:
+ * Front, Back, Left, Right, Top). These match the equipment minimum, so every
+ * named slot is required; anything past them is an extra angle the rider chooses.
  *
  * DEFERRED (not built): an example reference photo per angle to show the
  * operator what "good" looks like. Tracked on OSI-81.
@@ -30,7 +30,9 @@ export type { CapturedPhoto };
 const STEPS = [
   { key: "front", label: "Front", hint: "Face the unit head on, whole unit in frame." },
   { key: "back", label: "Back", hint: "Walk around and shoot the rear panel." },
-  { key: "overall", label: "Overall appearance", hint: "Step back so the whole unit and its surroundings are visible." },
+  { key: "left", label: "Left", hint: "Shoot the left side square on." },
+  { key: "right", label: "Right", hint: "Shoot the right side square on." },
+  { key: "top", label: "Top", hint: "Shoot from above so the top surface is visible." },
 ] as const;
 
 interface Props {
@@ -47,10 +49,10 @@ interface Props {
 }
 
 /**
- * Guided condition capture for EQUIPMENT: front, then back, then overall, then
- * as many extra angles as the minimum still needs. One shot per step rather
- * than a free-for-all picker, so the office gets a comparable set for every
- * unit instead of four photos of the same corner.
+ * Guided condition capture for EQUIPMENT: front, back, left, right, top, then
+ * any extra angles the minimum still needs. One shot per step rather than a
+ * free-for-all picker, so the office gets a comparable set for every unit
+ * instead of several photos of the same corner.
  *
  * The angle labels are guidance for the rider, not stored metadata. The
  * submitted payload is still a flat photos[] of S3 keys, so nothing downstream
@@ -71,8 +73,8 @@ export default function GuidedPhotoCapture({
   // Which slot the rider is filling. Slots past STEPS.length are extra angles.
   const [stepIndex, setStepIndex] = useState(0);
 
-  // Total slots to walk: the three named angles, plus however many extras the
-  // minimum still demands (minimum 4 gives exactly one extra).
+  // Total slots to walk: the named angles, plus however many extras the minimum
+  // still demands (the equipment minimum equals the named angles, so no extras).
   const totalSlots = Math.max(STEPS.length, minPhotos);
   const current = STEPS[stepIndex];
   const currentLabel = current?.label ?? `Additional angle ${stepIndex - STEPS.length + 1}`;

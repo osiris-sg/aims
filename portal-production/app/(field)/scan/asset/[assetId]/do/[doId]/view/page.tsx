@@ -43,6 +43,15 @@ export default function ViewDeliveryOrderPage() {
   const paperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const [scaledHeight, setScaledHeight] = useState<number | undefined>(undefined);
+  // User pinch-zoom on TOP of the fit-to-width base. The Android WebView disables
+  // native pinch-zoom, so we drive it ourselves: a two-finger pinch multiplies the
+  // base scale (clamped 1x..4x). effectiveScale = scale * userZoom.
+  const [userZoom, setUserZoom] = useState(1);
+  const userZoomRef = useRef(1);
+  useEffect(() => {
+    userZoomRef.current = userZoom;
+  }, [userZoom]);
+  const pinchRef = useRef<{ startDist: number; startZoom: number } | null>(null);
 
   const fetchDoc = useCallback(async () => {
     if (!doId) return;
@@ -102,6 +111,40 @@ export default function ViewDeliveryOrderPage() {
     return () => ro.disconnect();
   }, [data, variant, maintenanceReports]);
 
+  // Two-finger pinch-zoom. Listeners are non-passive so we can preventDefault and
+  // stop the scroller from panning mid-pinch; one finger still scrolls normally.
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    const dist = (t: TouchList) =>
+      Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        pinchRef.current = { startDist: dist(e.touches) || 1, startZoom: userZoomRef.current };
+      }
+    };
+    const onMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && pinchRef.current) {
+        e.preventDefault();
+        const ratio = dist(e.touches) / pinchRef.current.startDist;
+        setUserZoom(Math.min(4, Math.max(1, pinchRef.current.startZoom * ratio)));
+      }
+    };
+    const onEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) pinchRef.current = null;
+    };
+    scroller.addEventListener("touchstart", onStart, { passive: false });
+    scroller.addEventListener("touchmove", onMove, { passive: false });
+    scroller.addEventListener("touchend", onEnd);
+    scroller.addEventListener("touchcancel", onEnd);
+    return () => {
+      scroller.removeEventListener("touchstart", onStart);
+      scroller.removeEventListener("touchmove", onMove);
+      scroller.removeEventListener("touchend", onEnd);
+      scroller.removeEventListener("touchcancel", onEnd);
+    };
+  }, []);
+
   if (loading) {
     return (
       <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
@@ -153,15 +196,18 @@ export default function ViewDeliveryOrderPage() {
           renders at fixed A4 width and is CSS-scaled down to the viewport; the
           wrapper reserves the SCALED box so scrolling/centering stay correct.
           No horizontal padding ⇒ scrollRef.clientWidth is the true usable width.
-          Pinch-zoom still works to inspect detail. */}
-      <Box ref={scrollRef} sx={{ flex: 1, overflow: "auto", py: 2, bgcolor: "#f5f5f5" }}>
-        <Box sx={{ width: DOC_WIDTH_PX * scale, height: scaledHeight, mx: "auto" }}>
+          Two-finger pinch zooms in to inspect detail (custom handler above). */}
+      <Box
+        ref={scrollRef}
+        sx={{ flex: 1, overflow: "auto", py: 2, bgcolor: "#f5f5f5", touchAction: "pan-x pan-y" }}
+      >
+        <Box sx={{ width: DOC_WIDTH_PX * scale * userZoom, height: scaledHeight != null ? scaledHeight * userZoom : undefined, mx: "auto" }}>
           <Box
             ref={paperRef}
             sx={{
               width: DOC_WIDTH_PX,
               transformOrigin: "top left",
-              transform: `scale(${scale})`,
+              transform: `scale(${scale * userZoom})`,
               bgcolor: "#fff",
               boxShadow: 1,
             }}

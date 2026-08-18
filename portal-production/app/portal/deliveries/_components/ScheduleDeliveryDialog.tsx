@@ -501,7 +501,17 @@ export default function ScheduleDeliveryDialog({
   };
 
   return (
-    <Dialog open={open} onClose={() => !submitting && onClose()} fullWidth maxWidth="sm">
+    <Dialog
+      open={open}
+      onClose={() => {
+        // Click-outside / Escape SAVES and creates the draft (only the Cancel
+        // button discards). An incomplete form makes submit() a no-op, so the
+        // dialog stays open rather than silently dropping the entries.
+        if (!submitting) void submit();
+      }}
+      fullWidth
+      maxWidth="sm"
+    >
       <DialogTitle>Schedule a delivery</DialogTitle>
       <DialogContent dividers>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -591,8 +601,9 @@ export default function ScheduleDeliveryDialog({
           size="small"
           multiline
           minRows={2}
-          // Keep the label floated so the filled address sits plainly in the box.
-          InputLabelProps={{ shrink: true }}
+          // Keep the label floated so the filled address sits plainly in the box;
+          // force normal weight so the label never renders bold.
+          InputLabelProps={{ shrink: true, sx: { fontWeight: 400 } }}
           helperText={
             address && !addressTouched
               ? "Auto-filled from the project — edit if needed"
@@ -633,31 +644,14 @@ export default function ScheduleDeliveryDialog({
               {row.freeTyped ? (
                 // Free-typed line: a description (no catalog product). Carries to the
                 // DO as a plain line; a rider can never unit-bind to it.
-                <Stack sx={{ flex: 1 }} spacing={1}>
-                  <TextField
-                    size="small"
-                    label="Free-typed item"
-                    placeholder="e.g. 1 set 25 mm 5 core cable"
-                    value={row.description}
-                    onChange={(e) => setRow(i, { description: e.target.value })}
-                  />
-                  {/* No catalog product behind this line, so its class is set
-                      here. It decides how many photos the field must take. */}
-                  <TextField
-                    select
-                    size="small"
-                    label="Type"
-                    value={row.assetClass}
-                    onChange={(e) => setRow(i, { assetClass: normalizeAssetClass(e.target.value) })}
-                    sx={{ maxWidth: 180 }}
-                  >
-                    {ASSET_CLASS_OPTIONS.map((o) => (
-                      <MenuItem key={o.value} value={o.value}>
-                        {o.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                </Stack>
+                <TextField
+                  size="small"
+                  label="Free-typed item"
+                  placeholder="e.g. 1 set 25 mm 5 core cable"
+                  value={row.description}
+                  onChange={(e) => setRow(i, { description: e.target.value })}
+                  sx={{ flex: 1 }}
+                />
               ) : (
                 <Autocomplete<AssetOption, false, false, false>
                   sx={{ flex: 1 }}
@@ -676,6 +670,25 @@ export default function ScheduleDeliveryDialog({
                     <TextField {...params} label="Product" placeholder="Search by name or SKU" />
                   )}
                 />
+              )}
+              {/* Free-typed rows set their class here (no catalog product behind the
+                  line); it decides how many photos the field must take. On the SAME
+                  line as the description and qty. */}
+              {row.freeTyped && (
+                <TextField
+                  select
+                  size="small"
+                  label="Type"
+                  value={row.assetClass}
+                  onChange={(e) => setRow(i, { assetClass: normalizeAssetClass(e.target.value) })}
+                  sx={{ width: 140 }}
+                >
+                  {ASSET_CLASS_OPTIONS.map((o) => (
+                    <MenuItem key={o.value} value={o.value}>
+                      {o.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
               )}
               <TextField
                 label="Qty"
