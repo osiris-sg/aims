@@ -1,7 +1,7 @@
 # Off-hire and billing
 
 **Audience:** the developer building the invoicing layer.
-**Status:** written 2026-08-18. Every claim below was read out of the code on `main`, with file:line references so you can re-verify. Where I checked live data it was the PROD database (`ep-icy-moon`), read-only, and it is called out.
+**Status:** written 2026-08-18, updated the same day after the off-hire fixes landed (see the CHANGED markers). Every claim below was read out of the code on `main`, with file:line references so you can re-verify. Where I checked live data it was the PROD database (`ep-icy-moon`), read-only, and it is called out.
 
 This is the companion to `DO_COMPLETION_HANDOFF.md`. That document covers what happens when a rental **starts**. This one covers what happens when it **ends**, and what that does (and does not do) to billing.
 
@@ -15,7 +15,7 @@ Off-hire is a **switch, not a calculation**. It stamps a date, flips a status, a
 
 ## 1. Every path that off-hires a deployment
 
-There are **three** paths that end a rental commercially, and they do not behave the same way.
+There are **four** routes that end a rental commercially. They now share one rule (§1a), but they still differ in what else they touch.
 
 ### 1a. Office action on the deployment card
 
@@ -24,28 +24,34 @@ There are **three** paths that end a rental commercially, and they do not behave
 Body optionally carries `{ offHiredDate }`; omitted means "now".
 
 ```ts
-// projects.service.ts:966
-const updated = await this.updateDeployment(deploymentId, organizationId, {
-  offHiredDate: offHiredDate ?? new Date().toISOString(),
-  status: DeploymentStatus.OFF_HIRED,
-});
-// ...then, SEPARATELY:
-const linkedTemplates = await this.prisma.recurringInvoiceTemplate.findMany({
-  where: { organizationId, projectDeploymentId: deploymentId, isActive: true },
-  select: { id: true, name: true },
-});
-if (linkedTemplates.length > 0) {
-  await this.prisma.recurringInvoiceTemplate.updateMany({
-    where: { id: { in: linkedTemplates.map((t) => t.id) } },
-    data: { isActive: false },
+// projects.service.ts — offHireDeployment is now a delegate
+async offHireDeployment(deploymentId, organizationId, offHiredDate?) {
+  return this.updateDeployment(deploymentId, organizationId, {
+    offHiredDate: offHiredDate ?? new Date().toISOString(),
+    status: DeploymentStatus.OFF_HIRED,
   });
 }
-return { ...updated, deactivatedRecurringTemplates: linkedTemplates };
+
+// updateDeployment owns the whole rule, in ONE transaction:
+const endsRental = data.status === DeploymentStatus.OFF_HIRED || !!data.offHiredDate;
+return this.prisma.$transaction(async (tx) => {
+  const updated = await tx.projectDeployment.update({ /* status + offHiredDate */ });
+  const deactivatedRecurringTemplates = endsRental
+    ? await this.deactivateDeploymentSchedules(tx, deploymentId, organizationId)
+    : [];
+  if (endsRental) {
+    await tx.assignment.updateMany({
+      where: { projectDeploymentId: deploymentId, endDate: null },
+      data: { endDate: updated.offHiredDate ?? new Date() },
+    });
+  }
+  return { ...updated, deactivatedRecurringTemplates, assignmentsClosed };
+});
 ```
 
-**Sets:** `ProjectDeployment.offHiredDate`, `ProjectDeployment.status = OFF_HIRED`, and `isActive = false` on every linked active template.
+**Sets:** `ProjectDeployment.offHiredDate`, `status = OFF_HIRED`, `isActive = false` on every linked active template, and `endDate` on every open assignment.
 
-⚠️ **Not transactional.** These are two independent writes with no `$transaction`. If the template update fails after the deployment update succeeds, the deployment reads as off-hired while the schedule keeps billing. The caller gets the exception, but the half-applied state stands.
+✅ **CHANGED.** This is now one transaction, and the deactivation lives in a shared `deactivateDeploymentSchedules` helper that `updateDeployment` runs whenever a write ends a rental. `offHireDeployment` is a two-line delegate. The status change, the billing stop and the assignment closure commit together or not at all.
 
 ### 1b. Off-hire on return (automatic, at collection)
 
@@ -65,15 +71,20 @@ Guarded to `type=RENTAL` **and** `status=ACTIVE`, one-way.
 
 ```ts
 await this.prisma.$transaction(async (tx) => {
-  await tx.projectDeployment.update({ where: { id }, data: { type: DeploymentType.SALE } });
+  await tx.projectDeployment.update({
+    where: { id },
+    data: { type: DeploymentType.SALE, status: DeploymentStatus.OFF_HIRED, offHiredDate: new Date() },
+  });
   // units instock|reserved|rental -> sold
-  // linked active templates -> isActive: false
+  await this.deactivateDeploymentSchedules(tx, deploymentId, organizationId);
 });
 ```
 
-**Sets:** `type = SALE`, units to `sold`, templates deactivated. **Fully transactional**, unlike 1a.
+**Sets:** `type = SALE`, `status = OFF_HIRED`, `offHiredDate`, units to `sold`, templates deactivated. Fully transactional.
 
-⚠️ **It does NOT set `offHiredDate` and does NOT set `OFF_HIRED`.** A converted deployment stays `status = ACTIVE` with `type = SALE`. So "billing stopped" and "off-hired" are not the same set of rows. Any report that finds ended rentals by `status = OFF_HIRED` will miss every converted sale.
+✅ **CHANGED.** It now sets `status = OFF_HIRED` and `offHiredDate` inside the same transaction, and reuses the shared helper. A converted sale is findable as an ended rental like any other.
+
+⚠️ Knock-on that had to ship with it: closing the assignment (§1e) means the sold unit no longer has an OPEN assignment, so `priceInvoiceLinesFromAsset` cannot read `SALE` from it. Its intent lookup now falls back to the newest CLOSED assignment. Without that, a sold unit would price at its monthly rental rate instead of its sale price.
 
 ### 1d. The gap: the generic update endpoint
 
@@ -89,14 +100,20 @@ data: {
 }
 ```
 
-**This path touches no recurring templates at all.** Setting `status: "OFF_HIRED"` through it off-hires the deployment on paper while billing continues indefinitely. It is the one route that silently decouples the two.
+✅ **CHANGED. The back door is closed.** `updateDeployment` now runs the shared deactivation whenever `status === OFF_HIRED` or an `offHiredDate` is written, so this route behaves exactly like the dedicated one.
 
-| Path | offHiredDate | status | units | templates | atomic |
-|---|---|---|---|---|---|
-| office off-hire (1a) | ✅ | OFF_HIRED | untouched | deactivated | ❌ two writes |
-| off-hire on return (1b) | ✅ | OFF_HIRED | already flipped to instock by the caller | deactivated | ❌ + swallowed |
-| convert to sale (1c) | ❌ | stays ACTIVE | → sold | deactivated | ✅ |
-| generic update (1d) | ✅ if passed | as passed | untouched | ⚠️ **untouched** | n/a |
+| Path | offHiredDate | status | units | templates | assignments | atomic |
+|---|---|---|---|---|---|---|
+| office off-hire (1a) | ✅ | OFF_HIRED | untouched | deactivated | closed | ✅ |
+| off-hire on return (1b) | ✅ | OFF_HIRED | already instock | deactivated | closed | ✅ write, ⚠️ still swallowed by the caller |
+| convert to sale (1c) | ✅ | OFF_HIRED | → sold | deactivated | closed | ✅ |
+| generic update (1d) | ✅ if passed | as passed | untouched | deactivated when it ends a rental | closed | ✅ |
+
+### 1e. Assignment closure
+
+✅ **CHANGED.** Ending a rental now closes its open assignments (`Assignment.endDate` stamped with the same instant as `offHiredDate`). Previously they were left open, so an off-hired deployment still listed its units as on it and the unit still read as on a project.
+
+⚠️ **External contract note:** the water-sg projection (`public-api.service.ts:37`) reads the unit's OPEN assignment. A returned or sold unit now reports `deployedDate: null` and no deployment `type`, where it previously reported stale values. That is more truthful but it is a visible change to a consumer outside this repo.
 
 ---
 
@@ -116,11 +133,11 @@ where: { organizationId, projectDeploymentId: deploymentId, isActive: true }
 
 1. **A template with `projectDeploymentId = null`.** The column is nullable and the DTO field is optional, so a schedule created directly (rather than through "Confirm and make recurring") has no deployment link and is **invisible to off-hire forever**. This is the most likely real-world miss.
 2. **A template linked only by `projectId`.** The filter keys on `projectDeploymentId` alone. A project-level retainer covering the same units keeps running.
-3. **Off-hire via the generic update endpoint** (§1d) skips the deactivation entirely.
-4. **A partial return** never reaches the deactivation at all (§3).
-5. **The non-transactional gap in 1a/1b** can leave the deployment off-hired with templates still active.
+3. ~~Off-hire via the generic update endpoint~~ — **fixed** (§1d).
+4. **A partial return** never reaches the deactivation at all (§3). Still true, and now surfaced (below).
+5. ~~The non-transactional gap~~ — **fixed** (§1a).
 
-There is no reconciliation job that would later notice any of these.
+Items 1 and 2 remain live and nothing reconciles them. The audit query in §7 finds case 1.
 
 ---
 
@@ -157,6 +174,10 @@ await this.projectsService.offHireDeployment(depId, organizationId);
 Return 2 of 5 units and: the deployment stays `ACTIVE`, `offHiredDate` stays null, every linked template stays `isActive: true`, and the next cron run generates the **same invoice as last month**. The recurring template's `config.items` are a **fixed snapshot** captured when the schedule was created (§5); nothing recomputes them from what is still on hire. There is no per-unit proration and no partial credit.
 
 So a customer who returns most of a fleet keeps being billed the full monthly amount until the **last** unit comes back. That is the single most consequential billing behaviour in this document.
+
+✅ **CHANGED: it is now visible, but still not corrected.** A Finance Hub Action Queue detector (`detectPartiallyReturnedRentals`) raises a warning on `/portal/accounting` for any ACTIVE deployment with live schedules where some units are back and some are still out: "3 of 5 units returned, still billing in full". It links to the project.
+
+The amount is deliberately **not** auto-adjusted. A recurring template stores an opaque `config.items` snapshot with **no link from any line to a unit** (§5), so there is nothing to reduce against and any recomputation would be guesswork on money. Fixing it properly needs per-unit template granularity, which is filed separately and depends on assignment closure (§1e) as its signal.
 
 Two adjacent facts worth knowing:
 
@@ -280,8 +301,9 @@ ProjectDeployment
   ├─ .monthlyRate     negotiated rate, usually NULL, ignored by pricing
   │
   ├─ assignments[]    Assignment.endDate = null means "active"
-  │                     ⚠️ NOT closed by off-hire; can outlive the deployment
-  │                     └─ .inventoryId -> Inventory.status is the real liveness signal
+  │                     ✅ now closed when the rental ends, stamped with offHiredDate
+  │                     └─ .inventoryId -> Inventory.status is still the safest
+  │                        liveness signal (the last-unit guard uses it)
   │
   └─ RecurringInvoiceTemplate.projectDeploymentId  (nullable, the ONLY billing link)
        ├─ .isActive      the single switch off-hire flips
@@ -292,6 +314,6 @@ ProjectDeployment
 
 **Useful predicates**
 
-- Rentals that have genuinely ended: `status = 'OFF_HIRED' OR (type = 'SALE' AND ...)` — you must handle both, since convert-to-sale never sets OFF_HIRED.
+- Rentals that have genuinely ended: `status = 'OFF_HIRED'` now covers converted sales too.
 - Units genuinely out right now: `Inventory.status = 'rental'`, **not** `Assignment.endDate IS NULL`.
 - Schedules that off-hire can never stop: `RecurringInvoiceTemplate.isActive = true AND projectDeploymentId IS NULL`. Worth running as an audit.
