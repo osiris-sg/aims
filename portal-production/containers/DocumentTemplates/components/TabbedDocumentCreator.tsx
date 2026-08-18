@@ -63,6 +63,8 @@ import {
   Payment as PaymentIcon,
   CloudSync as CloudSyncIcon,
   NavigateBefore as NavigateBeforeIcon,
+  Undo as UndoIcon,
+  Redo as RedoIcon,
   NavigateNext as NavigateNextIcon,
   Inventory as InventoryIcon,
   Search as SearchIcon,
@@ -961,18 +963,69 @@ export default function TabbedDocumentCreator({
   // Save / Cancel / Delete — no prompt is shown if nothing was touched.
   const isDirtyRef = useRef(false);
   const markEdited = lock.markEdited;
+
+  // ── Undo / Redo (guru 2026-08-18: Google-Docs-style revert) ────────────
+  // Every REAL user edit (routed through the setFormData/setItems wrappers —
+  // auto-calc effects use the raw setters and are deliberately excluded)
+  // snapshots the state it is about to replace. Edits landing within 800ms
+  // collapse into one step so typing undoes as a chunk, not per keystroke.
+  const liveStateRef = useRef<{ formData: any; items: any[] }>({ formData: null, items: [] });
+  const undoHistoryRef = useRef<{ formData: any; items: any[] }[]>([]);
+  const redoHistoryRef = useRef<{ formData: any; items: any[] }[]>([]);
+  const lastSnapshotAtRef = useRef(0);
+  const [, setHistoryVersion] = useState(0); // re-render for button disabled states
+  const snap = (v: any) => JSON.parse(JSON.stringify(v ?? null));
+  const pushHistory = useCallback(() => {
+    const now = Date.now();
+    if (now - lastSnapshotAtRef.current < 800) return; // group rapid edits
+    lastSnapshotAtRef.current = now;
+    undoHistoryRef.current.push({ formData: snap(liveStateRef.current.formData), items: snap(liveStateRef.current.items) });
+    if (undoHistoryRef.current.length > 100) undoHistoryRef.current.shift();
+    redoHistoryRef.current = []; // a fresh edit invalidates the redo branch
+    setHistoryVersion((v) => v + 1);
+  }, []);
+  const applySnapshot = useCallback((snapVal: { formData: any; items: any[] }) => {
+    setFormDataState(snapVal.formData);
+    setItemsState(snapVal.items || []);
+    isDirtyRef.current = true;
+    setHasUnsavedChanges(true);
+    markEdited();
+    lastSnapshotAtRef.current = 0; // next edit always snapshots
+    setHistoryVersion((v) => v + 1);
+  }, [markEdited]);
+  const handleUndo = useCallback(() => {
+    const prev = undoHistoryRef.current.pop();
+    if (!prev) return;
+    redoHistoryRef.current.push({ formData: snap(liveStateRef.current.formData), items: snap(liveStateRef.current.items) });
+    applySnapshot(prev);
+  }, [applySnapshot]);
+  const handleRedo = useCallback(() => {
+    const next = redoHistoryRef.current.pop();
+    if (!next) return;
+    undoHistoryRef.current.push({ formData: snap(liveStateRef.current.formData), items: snap(liveStateRef.current.items) });
+    applySnapshot(next);
+  }, [applySnapshot]);
+
   const setFormData = useCallback((update: any) => {
+    pushHistory();
     isDirtyRef.current = true;
     setHasUnsavedChanges(true);
     markEdited(); // real edit → bump the lock's idle clock on next heartbeat
     setFormDataState(update);
-  }, [markEdited]);
+  }, [markEdited, pushHistory]);
   const setItems = useCallback((update: any) => {
+    pushHistory();
     isDirtyRef.current = true;
     setHasUnsavedChanges(true);
     markEdited();
     setItemsState(update);
-  }, [markEdited]);
+  }, [markEdited, pushHistory]);
+  // Mirror the committed state for the undo machinery. The wrappers run
+  // BEFORE React applies the update, so at push time this still holds the
+  // pre-edit values — exactly what a snapshot should capture.
+  useEffect(() => {
+    liveStateRef.current = { formData, items };
+  }, [formData, items]);
 
   // Terms drive the due date: "30 Days" → doc date + 30; "0 DAYS"/CASH/COD →
   // due on the doc date. Recomputes whenever terms or the document date change;
@@ -3166,6 +3219,19 @@ export default function TabbedDocumentCreator({
       toast.error("Cannot send — someone else is editing this document.");
       return;
     }
+    // Confirmed documents are final — nothing to save, and re-saving editor
+    // state over a locked doc is exactly what we must not do. Straight to
+    // the email dialog with the existing id.
+    if (isDocumentConfirmed) {
+      const idForSend = documentId || existingData?.id || "";
+      if (!idForSend) {
+        toast.error("This document has no ID — reload and try again.");
+        return;
+      }
+      setSendEmailDocId(idForSend);
+      setSendEmailDialogOpen(true);
+      return;
+    }
     try {
       const currentUserName = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || "SYS";
       const currentTimestamp = new Date().toISOString();
@@ -3431,6 +3497,26 @@ export default function TabbedDocumentCreator({
               </Tooltip>
             </>
           )}
+          {/* Undo / Redo — Google-Docs-style revert of in-editor edits
+              (line-item deletes, field changes) since the page was opened. */}
+          {!isTemplateEditMode && !isDocumentConfirmed && (
+            <>
+              <Tooltip title="Undo">
+                <span>
+                  <IconButton size="small" onClick={handleUndo} disabled={undoHistoryRef.current.length === 0}>
+                    <UndoIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title="Redo">
+                <span>
+                  <IconButton size="small" onClick={handleRedo} disabled={redoHistoryRef.current.length === 0}>
+                    <RedoIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </>
+          )}
           {!isTemplateEditMode && !isOfficialReceipt && (
             <Button
               size="small"
@@ -3612,10 +3698,10 @@ export default function TabbedDocumentCreator({
               Confirm Document
             </Button>
           )}
-          {/* Send Email button for invoices (draft or confirmed, not
-              pending_payment) and quotations (any status — no confirm step). */}
-          {documentStatus !== "pending_payment" &&
-           (documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || isQuotation) && (
+          {/* Send Email button for invoices and quotations — ANY status,
+              including confirmed/awaiting-payment (guru 2026-08-18: resending
+              a confirmed invoice must stay possible). */}
+          {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || isQuotation) && (
             <Button
               data-tour="editor-send-email"
               size="small"
