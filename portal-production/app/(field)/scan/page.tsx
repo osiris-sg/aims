@@ -8,7 +8,6 @@ import NfcIcon from "@mui/icons-material/Nfc";
 import KeyboardIcon from "@mui/icons-material/Keyboard";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import PrintIcon from "@mui/icons-material/Print";
-import EventIcon from "@mui/icons-material/Event";
 import { request } from "@/helpers/request";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useNfcScan } from "../hooks/useNfcScan";
@@ -35,28 +34,18 @@ export default function ScanLandingPage() {
   // Count of the rider's own unfinished runs — drives the "Deliveries in
   // progress (N)" badge below the primary scan action. 0 → nothing rendered.
   const [unfinishedCount, setUnfinishedCount] = useState(0);
-  // Count of ORG scheduled runs (not rider-scoped — none is assigned until a
-  // rider claims one by scanning a matching unit). Split by direction so
-  // deliveries and returns are labelled separately, not lumped as "deliveries".
-  const [scheduledDeliveries, setScheduledDeliveries] = useState(0);
-  const [scheduledReturns, setScheduledReturns] = useState(0);
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const token = await getToken();
         if (!token) return;
-        const [mine, sched] = await Promise.all([
-          request({ path: `/deliveries?mine=true&unfinished=true&limit=100`, method: "GET" }, {}, token),
-          request({ path: `/deliveries?status=scheduled&limit=100`, method: "GET" }, {}, token),
-        ]);
+        // Only the rider's own unfinished runs are counted now; the org-wide
+        // scheduled badges were view-only and have been removed, so their fetch
+        // goes with them rather than costing a round trip on field LTE.
+        const mine = await request({ path: `/deliveries?mine=true&unfinished=true&limit=100`, method: "GET" }, {}, token);
         if (cancelled) return;
         if (mine.success !== false) setUnfinishedCount(((mine.data ?? mine).docs ?? []).length);
-        if (sched.success !== false) {
-          const docs = ((sched.data ?? sched).docs ?? []) as Array<{ direction?: string }>;
-          setScheduledReturns(docs.filter((d) => d.direction === "RETURN").length);
-          setScheduledDeliveries(docs.filter((d) => d.direction !== "RETURN").length);
-        }
       } catch {
         // best-effort — the badges just stay hidden on failure
       }
@@ -195,31 +184,6 @@ export default function ScanLandingPage() {
           sx={{ minWidth: 260, py: 1.25, minHeight: 48, color: "text.secondary" }}
         >
           Deliveries in progress ({unfinishedCount})
-        </Button>
-      )}
-
-      {/* Scheduled runs waiting for a rider — org-wide (unassigned). Deliveries
-          and returns are labelled separately; tapping opens the read-only list. */}
-      {scheduledDeliveries > 0 && (
-        <Button
-          variant="text"
-          size="large"
-          onClick={() => router.push("/scan/deliveries/scheduled")}
-          startIcon={<EventIcon />}
-          sx={{ minWidth: 260, py: 1.25, minHeight: 48, color: "text.secondary" }}
-        >
-          Scheduled deliveries ({scheduledDeliveries})
-        </Button>
-      )}
-      {scheduledReturns > 0 && (
-        <Button
-          variant="text"
-          size="large"
-          onClick={() => router.push("/scan/deliveries/scheduled")}
-          startIcon={<EventIcon />}
-          sx={{ minWidth: 260, py: 1.25, minHeight: 48, color: "text.secondary" }}
-        >
-          Scheduled returns ({scheduledReturns})
         </Button>
       )}
 
