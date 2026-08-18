@@ -11,6 +11,7 @@ import { CreateMaintenanceReportDto } from './dto/create-maintenance-report.dto'
 import { SignMaintenanceReportDto } from './dto/sign-maintenance-report.dto';
 import { CreateLocationPingsDto } from './dto/location-ping.dto';
 import { buildServiceReportHtml } from './service-report-pdf';
+import { minPhotosForAssetClass } from 'src/common/asset-class';
 
 @Injectable()
 export class MaintenanceReportsService {
@@ -38,20 +39,34 @@ export class MaintenanceReportsService {
   async create(dto: CreateMaintenanceReportDto, organizationId: string, technicianUserId: string) {
     const asset = await this.prisma.asset.findFirst({
       where: { id: dto.assetId, organizationId },
-      select: { id: true },
+      // assetClass drives the condition-photo minimum below (OSI-81).
+      select: { id: true, assetClass: true },
     });
     if (!asset) throw new NotFoundException('Asset not found in this organization');
 
     const effectiveKind = dto.kind ?? 'SERVICE';
     const isRevampedServiceSubmission = effectiveKind === 'SERVICE' && !!dto.serviceData;
 
-    // Standalone-run start (delivery-first) REQUIRES a condition photo per
-    // unit — outbound state must be evidenced before the unit leaves. The
-    // DO-first arm (documentId) keeps photos optional, unchanged. NOTE: this
-    // validates the DTO — it runs BEFORE the U1 deliveryId stamping below, so
-    // a server-stamped DO-first MSR never trips the standalone photo rule.
-    if (effectiveKind === 'DO_START' && dto.deliveryId && !dto.documentId && !(dto.photos?.length)) {
-      throw new BadRequestException('A condition photo is required to start delivery for this unit');
+    // Standalone-run start (delivery-first) REQUIRES condition photos per unit —
+    // physical state must be evidenced before the unit moves. The DO-first arm
+    // (documentId) keeps photos optional, unchanged. NOTE: this validates the
+    // DTO — it runs BEFORE the U1 deliveryId stamping below, so a server-stamped
+    // DO-first MSR never trips the standalone photo rule.
+    //
+    // How many (OSI-81): equipment needs the guided set (4 angles), an accessory
+    // needs 1. The rule is DIRECTION-BLIND on purpose — a return is captured to
+    // the same standard as the outbound run so the two sets can be compared
+    // before and after the hire.
+    if (effectiveKind === 'DO_START' && dto.deliveryId && !dto.documentId) {
+      const photoCount = dto.photos?.length ?? 0;
+      const required = minPhotosForAssetClass(asset.assetClass);
+      if (photoCount < required) {
+        throw new BadRequestException(
+          required === 1
+            ? 'A condition photo of this unit is required to start.'
+            : `This unit is equipment, so it needs at least ${required} condition photos to start. Only ${photoCount} were provided.`,
+        );
+      }
     }
 
     // U1+items (flag-gated): every DO-first delivery gets a Delivery run with

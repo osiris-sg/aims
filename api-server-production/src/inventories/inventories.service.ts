@@ -218,7 +218,10 @@ export class InventoriesService {
         serialNumber: true,
         status: true,
         assetId: true,
-        asset: { select: { name: true, skuKey: true } },
+        // assetClass rides along so the field can pick the right capture flow
+        // (equipment = guided multi-angle, accessory = single shot) without a
+        // second round trip on LTE.
+        asset: { select: { name: true, skuKey: true, assetClass: true } },
       },
     });
     const hits = units.filter((u) => norm(u.sku) === wanted);
@@ -230,6 +233,7 @@ export class InventoriesService {
       assetId: u.assetId,
       assetName: u.asset?.name ?? null,
       skuKey: u.asset?.skuKey ?? null,
+      assetClass: u.asset?.assetClass ?? null,
     });
     const matches = (preferred.length ? preferred : hits).map(shape);
 
