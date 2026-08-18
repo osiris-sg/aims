@@ -42,6 +42,7 @@ type RunStatus = "scheduled" | "in_progress" | "delivered" | "completed" | "canc
 interface DeliveryRow {
   id: string;
   deliveryNumber: number;
+  direction?: "OUTBOUND" | "RETURN";
   status: RunStatus;
   riderName: string | null;
   siteAddress: string | null;
@@ -170,6 +171,13 @@ export default function DeliveriesQueuePage() {
             <TableHead>
               <TableRow>
                 <TableCell>#</TableCell>
+                {/* Type + linked document, immediately after the number, so the
+                    run reads at a glance without scanning to the far right. The
+                    direction chip is NOT redundant with the document chip: a
+                    return only gets its RDO at completion, so an in-flight
+                    return would otherwise show a bare dash exactly like an
+                    unlinked delivery. */}
+                <TableCell>Type / Linked DO</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Rider</TableCell>
                 <TableCell>Project / Customer / Site</TableCell>
@@ -177,7 +185,6 @@ export default function DeliveriesQueuePage() {
                 <TableCell>Scheduled</TableCell>
                 <TableCell>Started</TableCell>
                 <TableCell>Completed</TableCell>
-                <TableCell>Linked DO</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -192,24 +199,14 @@ export default function DeliveriesQueuePage() {
                   >
                     <TableCell sx={{ fontFamily: "monospace", fontWeight: 600 }}>#{r.deliveryNumber}</TableCell>
                     <TableCell>
-                      <Chip size="small" label={chip.label} color={chip.color} />
-                    </TableCell>
-                    <TableCell>{r.riderName ?? "—"}</TableCell>
-                    <TableCell>
-                      <Typography variant="body2" noWrap>
-                        {r.project?.name ?? r.customer?.name ?? r.siteAddress ?? "—"}
-                      </Typography>
-                      {r.project && r.customer && (
-                        <Typography variant="caption" color="text.secondary" noWrap display="block">
-                          {r.customer.name}
-                        </Typography>
-                      )}
-                    </TableCell>
-                    <TableCell align="center">{r.items?.length ?? 0}</TableCell>
-                    <TableCell>{fmtDateTime(r.scheduledFor)}</TableCell>
-                    <TableCell>{fmtDateTime(r.startedAt)}</TableCell>
-                    <TableCell>{fmtDateTime(r.completedAt)}</TableCell>
-                    <TableCell>
+                      <Chip
+                        size="small"
+                        variant="filled"
+                        color={r.direction === "RETURN" ? "secondary" : "default"}
+                        label={r.direction === "RETURN" ? "Return" : "Delivery"}
+                        sx={{ mb: 0.5 }}
+                      />
+                      <Box />
                       {(() => {
                         const items = r.items ?? [];
                         const linked = items.filter((i) => i.documentId);
@@ -245,6 +242,24 @@ export default function DeliveriesQueuePage() {
                         );
                       })()}
                     </TableCell>
+                    <TableCell>
+                      <Chip size="small" label={chip.label} color={chip.color} />
+                    </TableCell>
+                    <TableCell>{r.riderName ?? "—"}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2" noWrap>
+                        {r.project?.name ?? r.customer?.name ?? r.siteAddress ?? "—"}
+                      </Typography>
+                      {r.project && r.customer && (
+                        <Typography variant="caption" color="text.secondary" noWrap display="block">
+                          {r.customer.name}
+                        </Typography>
+                      )}
+                    </TableCell>
+                    <TableCell align="center">{r.items?.length ?? 0}</TableCell>
+                    <TableCell>{fmtDateTime(r.scheduledFor)}</TableCell>
+                    <TableCell>{fmtDateTime(r.startedAt)}</TableCell>
+                    <TableCell>{fmtDateTime(r.completedAt)}</TableCell>
                   </TableRow>
                 );
               })}
