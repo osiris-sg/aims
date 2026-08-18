@@ -24,6 +24,7 @@ import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import EventIcon from "@mui/icons-material/Event";
 import { request } from "@/helpers/request";
 import ScheduleDeliveryDialog from "./_components/ScheduleDeliveryDialog";
+import ScheduleReturnDialog from "./_components/ScheduleReturnDialog";
 
 /**
  * Office Deliveries queue (phase-1 layer 4; per-item linking 2026-08).
@@ -78,6 +79,7 @@ export default function DeliveriesQueuePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [returnOpen, setReturnOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -128,6 +130,9 @@ export default function DeliveriesQueuePage() {
           Deliveries
         </Typography>
         <Box sx={{ flex: 1 }} />
+        <Button variant="outlined" startIcon={<EventIcon />} onClick={() => setReturnOpen(true)}>
+          Schedule a return
+        </Button>
         <Button variant="contained" startIcon={<EventIcon />} onClick={() => setScheduleOpen(true)}>
           Schedule a delivery
         </Button>
@@ -263,6 +268,15 @@ export default function DeliveriesQueuePage() {
       <ScheduleDeliveryDialog
         open={scheduleOpen}
         onClose={() => setScheduleOpen(false)}
+        onCreated={() => {
+          setPage(0);
+          void load();
+        }}
+      />
+
+      <ScheduleReturnDialog
+        open={returnOpen}
+        onClose={() => setReturnOpen(false)}
         onCreated={() => {
           setPage(0);
           void load();

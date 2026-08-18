@@ -36,8 +36,10 @@ export default function ScanLandingPage() {
   // progress (N)" badge below the primary scan action. 0 → nothing rendered.
   const [unfinishedCount, setUnfinishedCount] = useState(0);
   // Count of ORG scheduled runs (not rider-scoped — none is assigned until a
-  // rider claims one by scanning a matching unit). Drives the "Scheduled" badge.
-  const [scheduledCount, setScheduledCount] = useState(0);
+  // rider claims one by scanning a matching unit). Split by direction so
+  // deliveries and returns are labelled separately, not lumped as "deliveries".
+  const [scheduledDeliveries, setScheduledDeliveries] = useState(0);
+  const [scheduledReturns, setScheduledReturns] = useState(0);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -50,7 +52,11 @@ export default function ScanLandingPage() {
         ]);
         if (cancelled) return;
         if (mine.success !== false) setUnfinishedCount(((mine.data ?? mine).docs ?? []).length);
-        if (sched.success !== false) setScheduledCount(((sched.data ?? sched).docs ?? []).length);
+        if (sched.success !== false) {
+          const docs = ((sched.data ?? sched).docs ?? []) as Array<{ direction?: string }>;
+          setScheduledReturns(docs.filter((d) => d.direction === "RETURN").length);
+          setScheduledDeliveries(docs.filter((d) => d.direction !== "RETURN").length);
+        }
       } catch {
         // best-effort — the badges just stay hidden on failure
       }
@@ -192,9 +198,9 @@ export default function ScanLandingPage() {
         </Button>
       )}
 
-      {/* Scheduled deliveries waiting for a rider — org-wide (unassigned). Scan a
-          matching unit to pick one up; tapping opens the read-only list. */}
-      {scheduledCount > 0 && (
+      {/* Scheduled runs waiting for a rider — org-wide (unassigned). Deliveries
+          and returns are labelled separately; tapping opens the read-only list. */}
+      {scheduledDeliveries > 0 && (
         <Button
           variant="text"
           size="large"
@@ -202,7 +208,18 @@ export default function ScanLandingPage() {
           startIcon={<EventIcon />}
           sx={{ minWidth: 260, py: 1.25, minHeight: 48, color: "text.secondary" }}
         >
-          Scheduled deliveries ({scheduledCount})
+          Scheduled deliveries ({scheduledDeliveries})
+        </Button>
+      )}
+      {scheduledReturns > 0 && (
+        <Button
+          variant="text"
+          size="large"
+          onClick={() => router.push("/scan/deliveries/scheduled")}
+          startIcon={<EventIcon />}
+          sx={{ minWidth: 260, py: 1.25, minHeight: 48, color: "text.secondary" }}
+        >
+          Scheduled returns ({scheduledReturns})
         </Button>
       )}
 

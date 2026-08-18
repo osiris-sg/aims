@@ -10,6 +10,7 @@ import { AddDeliveryItemDto } from './dto/add-delivery-item.dto';
 import { CreateDoFromDeliveryDto, LinkDeliveryDto } from './dto/link-delivery.dto';
 import { AckAllDto, AddItemPhotosDto, AssignDeliveryItemDto, SetDeploymentTypeDto, SkipInstallDto } from './dto/assign-delivery.dto';
 import { ScheduleDeliveryDto, ClaimScheduledDto } from './dto/schedule-delivery.dto';
+import { ScheduleReturnDto } from './dto/schedule-return.dto';
 
 interface ClerkRequest extends Request {
   user?: { id?: string };
@@ -44,6 +45,14 @@ export class DeliveriesController {
   @Permissions('documents:create-basic')
   createScheduled(@Body() dto: ScheduleDeliveryDto, @UserOrganization() org: { id: string }) {
     return this.service.createScheduled(dto, org.id);
+  }
+
+  // Office: pre-create a scheduled RETURN run for specific units. No document is
+  // created (RDO minted at completion only) and nothing is reserved.
+  @Post('scheduled-return')
+  @Permissions('documents:create-basic')
+  createScheduledReturn(@Body() dto: ScheduleReturnDto, @UserOrganization() org: { id: string }) {
+    return this.service.createScheduledReturn(dto, org.id);
   }
 
   // Field: a rider claims a scheduled run by scanning a matching unit — binds +
