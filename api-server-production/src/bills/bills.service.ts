@@ -870,6 +870,11 @@ export class BillsService {
   - "subtotal": number (excl tax)
   - "taxAmount": number
   - "totalAmount": number (subtotal + tax)
+"description" must be the line's COMPLETE text copied WORD-FOR-WORD from the
+document — keep every sub-line (model, serial numbers, rental periods, DO/PO
+references, locations) joined with \n newlines, in the original order. NEVER
+summarize, shorten, or paraphrase a description. Text that belongs to a line
+item stays in that line's description even if it spans many rows on the page.
 Use null when you can't read a field. Do not include any prose outside the JSON.
 Output STRICT JSON only — never emit the token undefined and never leave trailing commas.`;
 
@@ -883,7 +888,9 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 2048,
+      // Word-for-word descriptions on dense rental bills easily exceed the
+      // old 2048 budget, which silently truncated the JSON mid-line.
+      max_tokens: 8192,
       system,
       messages: [{ role: 'user', content }],
     });
