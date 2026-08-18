@@ -735,8 +735,8 @@ export default function StartDeliveryPage() {
         )}
       </Box>
 
-      {/* Return flow: damaged check + optional comment, before Confirm & Start
-          Return. Recorded only; a damaged unit still returns to instock. */}
+      {/* Return flow: damaged check + optional comment, before Start Return.
+          Recorded only; a damaged unit still returns to instock. */}
       {isReturn && (
         <Box sx={{ width: "100%", maxWidth: 360 }}>
           <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
