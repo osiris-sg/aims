@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
   Alert,
@@ -140,6 +140,9 @@ export default function ScheduleDeliveryDialog({
   const [customerInput, setCustomerInput] = useState("");
   const [customerSearching, setCustomerSearching] = useState(false);
   const [projectOptions, setProjectOptions] = useState<ProjectOption[]>([]);
+  // Customer id the project list was last loaded for. undefined until the
+  // effect below has run for this opening of the dialog.
+  const loadedForCustomerRef = useRef<string | null | undefined>(undefined);
   const [project, setProject] = useState<ProjectOption | null>(null);
   // OSI-84 — the chosen project's contact people (as ids). Loaded when a project
   // is picked; edits are persisted straight to the project (PUT), since the
@@ -167,6 +170,9 @@ export default function ScheduleDeliveryDialog({
     setCustomerInput("");
     setAssetInput("");
     setQuotations([]);
+    // Re-arm the customer-change guard below: on a fresh open, the first run of
+    // that effect must NOT be treated as a customer change.
+    loadedForCustomerRef.current = undefined;
     if (editRun) {
       // Edit mode: prefill from the still-scheduled run + its draft DO.
       setRows(
@@ -270,8 +276,19 @@ export default function ScheduleDeliveryDialog({
   }, [customerInput, open, getToken]);
 
   // Load projects for the chosen customer (now carries the site-office address).
+  //
+  // Only a genuine customer CHANGE clears the picked project. This used to call
+  // setProject(null) unconditionally, which fired once on open and wiped the
+  // edit-mode prefill: the prefill set customer AND project, the customer
+  // change woke this effect, and the project was gone before the user saw the
+  // form. undefined = this effect has not run since the dialog opened.
   useEffect(() => {
-    setProject(null);
+    const previousCustomerId = loadedForCustomerRef.current;
+    const nextCustomerId = customer?.id ?? null;
+    if (previousCustomerId !== undefined && previousCustomerId !== nextCustomerId) {
+      setProject(null);
+    }
+    loadedForCustomerRef.current = nextCustomerId;
     setProjectOptions([]);
     if (!customer) return;
     let cancelled = false;
