@@ -47,4 +47,11 @@ export class CreateProjectDto {
   @ValidateNested({ each: true })
   @Type(() => AssignmentDto)
   assignments: AssignmentDto[];
+
+  // OSI-84 — CustomerContact ids to attach to the project (from the customer's
+  // contact list; free-typed ones are created as CustomerContacts first).
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  contactIds?: string[];
 }

@@ -37,6 +37,8 @@ const projectSchema = z.object({
   endDate: z.date({ required_error: "End date is required" }),
   status: z.string().min(1, "Status is required"),
   assignments: z.array(assignmentSchema).optional(),
+  // OSI-84 — CustomerContact ids attached to the project.
+  contactIds: z.array(z.string()).optional(),
 });
 
 // export type AssetFormData = z.infer<typeof assetSchema>;
@@ -77,6 +79,7 @@ export const useAddProjectFormHandler = () => {
       endDate: new Date(),
       status: "pending",
       assignments: [],
+      contactIds: [],
     },
   });
 
@@ -163,6 +166,11 @@ export const useAddProjectFormHandler = () => {
                 endDate: assignment.endDate ? new Date(assignment.endDate) : null,
                 status: assignment.status || "reserved",
               }))
+            : [],
+          // OSI-84 — prefill attached contacts (getProjectById returns them as
+          // { customerContact } links).
+          contactIds: Array.isArray(response.data.contacts)
+            ? response.data.contacts.map((c: any) => c.customerContact?.id).filter(Boolean)
             : [],
         });
       }

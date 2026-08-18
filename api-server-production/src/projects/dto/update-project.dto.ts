@@ -49,4 +49,11 @@ export class UpdateProjectDto {
   @Type(() => UpdateAssignmentDto)
   @IsOptional()
   assignments?: UpdateAssignmentDto[];
+
+  // OSI-84 — replace the project's attached CustomerContact set (omit to leave
+  // the existing links untouched).
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  contactIds?: string[];
 }

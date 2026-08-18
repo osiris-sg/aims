@@ -262,6 +262,15 @@ export class ProjectsService {
         where: { id, organizationId },
         include: {
           customer: { select: { id: true, name: true, customerCode: true } },
+          // OSI-84 — attached contact people (from the customer's contact list).
+          contacts: {
+            orderBy: { createdAt: 'asc' },
+            include: {
+              customerContact: {
+                select: { id: true, name: true, email: true, phone: true, designation: true, isPrimary: true },
+              },
+            },
+          },
           siteOffice: {
             select: { id: true, name: true, address: true, customer: true },
           },
@@ -1192,6 +1201,11 @@ export class ProjectsService {
           });
         }
       }
+      // OSI-84 — attach the chosen contact people (validated against the
+      // project's customer inside setProjectContacts).
+      if (createProjectDto.contactIds?.length) {
+        await this.setProjectContacts(project.id, organizationId, createProjectDto.contactIds);
+      }
       return project;
     } catch (error) {
       console.error('Error while creating project:', error);
@@ -1205,7 +1219,9 @@ export class ProjectsService {
 
   async updateProject(id: string, updateProjectDto: UpdateProjectDto, organizationId: string) {
     try {
-      const { assignments, ...updateData } = updateProjectDto;
+      // contactIds pulled out so it never reaches the Prisma scalar update (it's
+      // applied via setProjectContacts below). `undefined` = leave links as-is.
+      const { assignments, contactIds, ...updateData } = updateProjectDto;
 
       // Check if project exists
       const existingProject = await this.prisma.project.findFirst({
@@ -1267,10 +1283,78 @@ export class ProjectsService {
         }
       }
 
+      // OSI-84 — replace the project's contact set only when contactIds is sent.
+      if (contactIds !== undefined) {
+        await this.setProjectContacts(id, organizationId, contactIds);
+      }
+
       return project;
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
+  }
+
+  // OSI-84 — the project's attached contact people (flattened to the
+  // CustomerContact records, ordered by attach time). Powers the form prefill
+  // and the eventual "email every contact after a DO completes" fan-out.
+  async getProjectContacts(projectId: string, organizationId: string) {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, organizationId },
+      select: { id: true },
+    });
+    if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
+    const links = await this.prisma.projectContact.findMany({
+      where: { projectId },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        customerContact: {
+          select: { id: true, name: true, email: true, phone: true, designation: true, isPrimary: true },
+        },
+      },
+    });
+    return links.map((l) => l.customerContact);
+  }
+
+  // OSI-84 — replace the project's contact set with contactIds. Each id must be
+  // a CustomerContact of THIS org and (when the project has a customer) of that
+  // same customer, so another customer's people can never be linked. Unknown /
+  // cross-customer ids are dropped rather than throwing (the picker only offers
+  // valid ones; this just hard-guards the write).
+  async setProjectContacts(projectId: string, organizationId: string, contactIds: string[]) {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, organizationId },
+      select: { id: true, customerId: true },
+    });
+    if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
+
+    const ids = [...new Set((contactIds || []).filter(Boolean))];
+    let validIds: string[] = [];
+    if (ids.length) {
+      const contacts = await this.prisma.customerContact.findMany({
+        where: {
+          id: { in: ids },
+          customer: { organizationId },
+          ...(project.customerId ? { customerId: project.customerId } : {}),
+        },
+        select: { id: true },
+      });
+      validIds = contacts.map((c) => c.id);
+    }
+
+    // Replace the set atomically (simplest correct semantics for a small list).
+    await this.prisma.$transaction([
+      this.prisma.projectContact.deleteMany({ where: { projectId } }),
+      ...(validIds.length
+        ? [
+            this.prisma.projectContact.createMany({
+              data: validIds.map((customerContactId) => ({ projectId, customerContactId })),
+              skipDuplicates: true,
+            }),
+          ]
+        : []),
+    ]);
+
+    return this.getProjectContacts(projectId, organizationId);
   }
 
   async deleteProject(id: string, organizationId: string) {

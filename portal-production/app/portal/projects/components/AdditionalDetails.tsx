@@ -7,9 +7,12 @@ import useGetAssets from "../hooks/useGetAssets"; // Adjust import path if neede
 import useGetInventoryByAsset from "../hooks/useGetInventoryByAsset";
 import DateRangePicker from "@/form-components/FormDateRangePicker";
 import FormDatePicker from "@/form-components/FormDatePicker";
+import ProjectContactPicker from "./ProjectContactPicker";
 
 export default function AdditionalDetails() {
-  const { control, setValue, getValues } = useFormContext();
+  const { control, setValue, getValues, watch } = useFormContext();
+  const customerId = watch("customerId") as string | undefined;
+  const contactIds = (watch("contactIds") as string[] | undefined) ?? [];
   const [selectedAsset, setSelectedAsset] = useState("");
   const [selectedItem, setSelectedItem] = useState("");
   const [selectedItems, setSelectedItems] = useState<any[]>([]);
@@ -164,6 +167,14 @@ export default function AdditionalDetails() {
 
   return (
     <Stack spacing={3}>
+      {/* OSI-84 — contact people for this project (from the customer's list). */}
+      <ProjectContactPicker
+        customerId={customerId ?? null}
+        value={contactIds}
+        onChange={(ids) => setValue("contactIds", ids, { shouldDirty: true })}
+        label="Project contacts"
+      />
+
       <FormControl fullWidth>
         <InputLabel>Asset</InputLabel>
         <Select value={selectedAsset} label="Asset" onChange={handleAssetChange}>

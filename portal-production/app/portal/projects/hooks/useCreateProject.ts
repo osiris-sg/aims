@@ -18,6 +18,7 @@ interface CreateProjectData {
     endDate?: Date;
     status?: string;
   }[];
+  contactIds?: string[];
 }
 
 export const useCreateProject = () => {
@@ -46,6 +47,7 @@ export const useCreateProject = () => {
         endDate: data.endDate.toISOString(),
         status: data.status,
         assignments: data.assignments,
+        contactIds: data.contactIds ?? [],
       };
 
       console.log("Request Body:", requestBody);

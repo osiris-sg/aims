@@ -19,6 +19,7 @@ interface UpdateProjectData {
     endDate?: Date;
     status?: string;
   }[];
+  contactIds?: string[];
 }
 
 export const useUpdateProject = () => {
@@ -46,6 +47,7 @@ export const useUpdateProject = () => {
         endDate: data.endDate.toISOString(),
         status: data.status,
         assignments: data.assignments,
+        ...(data.contactIds !== undefined ? { contactIds: data.contactIds } : {}),
       };
 
       console.log("Request Body:", requestBody);

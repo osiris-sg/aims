@@ -29,6 +29,7 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import RequestQuoteIcon from "@mui/icons-material/RequestQuote";
 import { request } from "@/helpers/request";
+import ProjectContactPicker, { ContactLite } from "@/app/portal/projects/components/ProjectContactPicker";
 import { useOrganization } from "@hooks/useOrganization";
 import ExtractQuotationDialog from "@/containers/DocumentTemplates/components/ExtractQuotationDialog";
 
@@ -126,6 +127,10 @@ export default function ScheduleDeliveryDialog({
   const [customerSearching, setCustomerSearching] = useState(false);
   const [projectOptions, setProjectOptions] = useState<ProjectOption[]>([]);
   const [project, setProject] = useState<ProjectOption | null>(null);
+  // OSI-84 — the chosen project's contact people (as ids). Loaded when a project
+  // is picked; edits are persisted straight to the project (PUT), since the
+  // project already exists here.
+  const [projectContactIds, setProjectContactIds] = useState<string[]>([]);
 
   // Quotation extraction (opened after a customer is chosen).
   const [quoteOpen, setQuoteOpen] = useState(false);
@@ -243,6 +248,46 @@ export default function ScheduleDeliveryDialog({
       cancelled = true;
     };
   }, [customer, getToken]);
+
+  // OSI-84 — load the chosen project's attached contacts (clear when none).
+  useEffect(() => {
+    if (!project) {
+      setProjectContactIds([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request({ path: `/projects/${project.id}/contacts`, method: "GET" }, {}, token);
+        const list = (res?.data ?? res) as ContactLite[];
+        if (!cancelled) setProjectContactIds(Array.isArray(list) ? list.map((c) => c.id) : []);
+      } catch {
+        if (!cancelled) setProjectContactIds([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [project, getToken]);
+
+  // Persist the project's contact set (this project already exists, so save now).
+  const saveProjectContacts = async (ids: string[]) => {
+    setProjectContactIds(ids);
+    if (!project) return;
+    try {
+      const token = await getToken();
+      if (!token) return;
+      await request(
+        { path: `/projects/${project.id}/contacts`, method: "PUT" },
+        { contactIds: ids },
+        token,
+      );
+    } catch {
+      /* non-blocking: the picker keeps the selection; a later save can retry */
+    }
+  };
 
   // Auto-fill the delivery address from the PROJECT NAME — for this fleet a
   // project's name IS its site address (e.g. "Tuas Avenue 8"). Freely editable
@@ -517,6 +562,18 @@ export default function ScheduleDeliveryDialog({
           )}
           sx={{ mb: 2 }}
         />
+
+        {/* OSI-84 — contact people for this project (saved to the project). */}
+        {project && (
+          <Box sx={{ mb: 2 }}>
+            <ProjectContactPicker
+              customerId={customer?.id ?? null}
+              value={projectContactIds}
+              onChange={(ids) => void saveProjectContacts(ids)}
+              label="Project contacts"
+            />
+          </Box>
+        )}
 
         {/* 3) ADDRESS (auto-filled from the project; freely editable → DO "Deliver To").
             When auto-filled, render the text as clearly-present, editable content

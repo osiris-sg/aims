@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post, Body, Delete, HttpException, HttpStatus, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Put, Body, Delete, HttpException, HttpStatus, Req, UseGuards } from '@nestjs/common';
 import { ProjectsService } from './projects.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { GetProjectDto } from './dto/get-project.dto';
@@ -28,6 +28,29 @@ export class ProjectsController {
     }
     return this.projectsService.getProjectById(id, organizationId);
   }
+  // OSI-84 — a project's attached contact people (from the customer's list).
+  @Get(':id/contacts')
+  @Permissions('projects:read-one')
+  async getProjectContacts(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.projectsService.getProjectContacts(id, organizationId);
+  }
+
+  // Replace the project's contact set. contactIds are CustomerContact ids;
+  // free-typed new people are created via POST /customers/:id/contacts first.
+  @Put(':id/contacts')
+  @Permissions('projects:update')
+  async setProjectContacts(
+    @Param('id') id: string,
+    @Body() body: { contactIds: string[] },
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.projectsService.setProjectContacts(id, organizationId, body?.contactIds ?? []);
+  }
+
   @Post()
   @Permissions('projects:read')
   async getInventories(@Body() getProjectDto: GetProjectDto, @Req() req: RequestWithOrganization) {

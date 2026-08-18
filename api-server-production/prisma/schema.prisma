@@ -705,6 +705,7 @@ model Project {
   documents        Document[]
   deployments      ProjectDeployment[]
   deliveries       Delivery[]
+  contacts         ProjectContact[]
   organization     Organization?       @relation(fields: [organizationId], references: [id])
   siteOffice       SiteOffice?         @relation("SiteOfficeProjects", fields: [siteOfficeId], references: [id])
   customer         Customer?           @relation("CustomerProjects", fields: [customerId], references: [id])
@@ -834,7 +835,31 @@ model CustomerContact {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // Projects this contact is attached to (OSI-84). A free-typed new contact is
+  // saved here as a real CustomerContact first, then linked, so the person stays
+  // a single source of truth reusable across projects.
+  projectLinks ProjectContact[]
+
   @@index([customerId])
+}
+
+// OSI-84 — many contact people per project, each chosen from the project
+// customer's CustomerContact list. Join table (not embedded) so the eventual
+// "email every contact after a DO completes" step can fan out over the rows and
+// always reach a live person record (edit once, reflected everywhere).
+model ProjectContact {
+  id                String   @id @default(uuid()) @db.Uuid
+  projectId         String   @db.Uuid
+  customerContactId String   @db.Uuid
+  createdAt         DateTime @default(now())
+
+  project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  customerContact CustomerContact @relation(fields: [customerContactId], references: [id], onDelete: Cascade)
+
+  // A contact is attached to a project at most once.
+  @@unique([projectId, customerContactId])
+  @@index([projectId])
+  @@index([customerContactId])
 }
 
 model AuditLog {
