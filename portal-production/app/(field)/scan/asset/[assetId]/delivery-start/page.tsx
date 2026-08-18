@@ -109,6 +109,34 @@ export default function StartDeliveryPage() {
   // to the same standard as the outbound run so the two sets can be compared
   // before and after the hire.
   const requiredPhotos = minPhotosForAssetClass(assetClass);
+  // Return flow: the unit's original outbound condition photos (signed URLs) for
+  // the "Delivered condition" comparison strip, plus the damaged flag + comment.
+  const [outboundPhotos, setOutboundPhotos] = useState<string[]>([]);
+  const [damaged, setDamaged] = useState<boolean | null>(null);
+  const [damageComment, setDamageComment] = useState("");
+  // Pull the outbound condition photos once, only on a return with a known unit.
+  useEffect(() => {
+    if (!isReturn || !inventoryId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request(
+          { path: `/maintenance-reports/unit/${encodeURIComponent(inventoryId)}/outbound-photos`, method: "GET" },
+          {},
+          token,
+        );
+        const data = res?.data ?? res;
+        if (!cancelled && Array.isArray(data?.photos)) setOutboundPhotos(data.photos);
+      } catch {
+        // Non-fatal: no comparison strip, the return still proceeds.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isReturn, inventoryId, getToken]);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -300,6 +328,14 @@ export default function StartDeliveryPage() {
           ...(standalone && deliveryId ? { deliveryId } : { documentId: doId }),
           ...(technicianName ? { technicianName } : {}),
           ...(photos.length ? { photos: photos.map((p) => p.key) } : {}),
+          // Return flow: record the damaged flag (recorded only) + optional
+          // comment. Damaged returns still go to instock exactly as today.
+          ...(isReturn
+            ? {
+                damaged: damaged === true,
+                ...(damageComment.trim() ? { serviceData: { returnComment: damageComment.trim() } } : {}),
+              }
+            : {}),
         },
         token,
       );
@@ -555,6 +591,30 @@ export default function StartDeliveryPage() {
         </Box>
       ) : null}
 
+      {/* Return flow: the unit's original outbound condition photos, so the rider
+          can compare before capturing the return condition below. */}
+      {isReturn && outboundPhotos.length > 0 && (
+        <Box sx={{ width: "100%", maxWidth: 360 }}>
+          <Typography variant="subtitle2" sx={{ mb: 0.25 }}>
+            Delivered condition (for comparison)
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+            How this unit looked when it went out. Capture the return condition below.
+          </Typography>
+          <Stack direction="row" spacing={1} sx={{ overflowX: "auto", pb: 1 }}>
+            {outboundPhotos.map((src, i) => (
+              <Box
+                key={i}
+                component="img"
+                src={src}
+                alt=""
+                sx={{ width: 84, height: 84, flexShrink: 0, borderRadius: 1, objectFit: "cover", border: "1px solid", borderColor: "divider" }}
+              />
+            ))}
+          </Stack>
+        </Box>
+      )}
+
       <Box sx={{ width: "100%", maxWidth: 360 }}>
         {standalone && requiredPhotos > 1 ? (
           // Equipment going out: walk the named angles instead of a free-form
@@ -579,6 +639,46 @@ export default function StartDeliveryPage() {
         )}
       </Box>
 
+      {/* Return flow: damaged check + optional comment, before Confirm & Start
+          Return. Recorded only; a damaged unit still returns to instock. */}
+      {isReturn && (
+        <Box sx={{ width: "100%", maxWidth: 360 }}>
+          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+            Damaged?
+          </Typography>
+          <Stack direction="row" spacing={1}>
+            <Button
+              variant={damaged === true ? "contained" : "outlined"}
+              color={damaged === true ? "error" : "primary"}
+              onClick={() => setDamaged(true)}
+              fullWidth
+              sx={{ minHeight: 44 }}
+            >
+              Yes
+            </Button>
+            <Button
+              variant={damaged === false ? "contained" : "outlined"}
+              onClick={() => setDamaged(false)}
+              fullWidth
+              sx={{ minHeight: 44 }}
+            >
+              No
+            </Button>
+          </Stack>
+          <TextField
+            label="Comment (optional)"
+            placeholder="Note any damage or condition details"
+            value={damageComment}
+            onChange={(e) => setDamageComment(e.target.value)}
+            fullWidth
+            multiline
+            minRows={2}
+            size="small"
+            sx={{ mt: 1.5 }}
+          />
+        </Box>
+      )}
+
       {error && <Alert severity="error" sx={{ width: "100%", maxWidth: 360 }}>{error}</Alert>}
 
       <Stack direction="row" spacing={2} sx={{ mt: 2, width: "100%", maxWidth: 360 }}>
@@ -594,7 +694,7 @@ export default function StartDeliveryPage() {
         <Button
           variant="contained"
           onClick={confirm}
-          disabled={submitting || contextLoading || uploading || (!standalone && !doId)}
+          disabled={submitting || contextLoading || uploading || (!standalone && !doId) || (isReturn && damaged === null)}
           fullWidth
           sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
         >
