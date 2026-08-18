@@ -1,7 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { Capacitor } from "@capacitor/core";
+import React from "react";
 import {
   Alert,
   Box,
@@ -16,13 +15,9 @@ import {
 import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
 import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
 import DeleteIcon from "@mui/icons-material/Delete";
-import { hasNativeCamera, captureNativePhotos } from "@/app/(field)/lib/nativeCamera";
-import { compressImageBlob } from "@/app/(field)/lib/imageCompress";
+import { usePhotoUploader, type CapturedPhoto } from "./usePhotoUploader";
 
-export interface CapturedPhoto {
-  key: string;
-  previewUrl: string;
-}
+export type { CapturedPhoto };
 
 interface Props {
   /** Section label, e.g. "Proof of delivery" / "Proof of installation". */
@@ -48,6 +43,10 @@ interface Props {
  * upload (via the injected `upload` prop) → preview grid with per-photo delete.
  * No auth inside — mirrors the exact field UI extracted from do/[doId] and
  * install/[doId] so the field and guest flows render/behave identically.
+ *
+ * This is the FREE-FORM grid: any number of photos, no prompted order. Equipment
+ * condition capture at delivery start uses GuidedPhotoCapture instead, which
+ * walks named angles; the capture plumbing is shared via usePhotoUploader.
  */
 export default function PhotoCaptureField({
   label,
@@ -58,72 +57,15 @@ export default function PhotoCaptureField({
   onUploadingChange,
   disabled,
 }: Props) {
-  const [uploading, setUploading] = useState(false);
-  // Native camera availability: null = still checking / web (use <input>),
-  // true = native shell with a camera sensor (prefer Take photo),
-  // false = native shell WITHOUT a camera (show the guard + gallery only).
-  const isNative = Capacitor.isNativePlatform();
-  const [nativeCam, setNativeCam] = useState<boolean | null>(null);
-  const [camMsg, setCamMsg] = useState<string | null>(null);
+  const { uploading, isNative, nativeCam, camMsg, setCamMsg, ingestFiles, takeNativePhotos } =
+    usePhotoUploader({ upload, onError, onUploadingChange });
 
-  useEffect(() => {
-    if (!isNative) return;
-    let cancelled = false;
-    void hasNativeCamera().then((ok) => {
-      if (!cancelled) setNativeCam(ok);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [isNative]);
-
-  const setUploadingFlag = (v: boolean) => {
-    setUploading(v);
-    onUploadingChange?.(v);
-  };
-
-  // Upload each file, appending to the set (preserves multi-photo). EVERY source
-  // is compressed — the native Sunmi camera ignores takePhoto's resize and hands
-  // back raw 8 MP / 3–4 MB frames, so we can't trust it to have downsized.
-  // compressImageBlob does the decode+encode off the main thread to avoid the
-  // per-photo UI stall that previously motivated skipping this on native shots.
-  const ingestFiles = async (files: File[]) => {
-    if (files.length === 0) return;
-    onError?.("");
-    setUploadingFlag(true);
-    try {
-      const newPhotos: CapturedPhoto[] = [];
-      for (const file of files) {
-        const blob = await compressImageBlob(file);
-        const key = await upload(blob);
-        if (key) {
-          newPhotos.push({ key, previewUrl: URL.createObjectURL(blob) });
-        }
-      }
-      onChange([...photos, ...newPhotos]);
-    } catch (e: any) {
-      onError?.(e?.message ?? "Upload failed");
-    } finally {
-      setUploadingFlag(false);
-    }
+  const append = (captured: CapturedPhoto[]) => {
+    if (captured.length > 0) onChange([...photos, ...captured]);
   };
 
   const handleFiles = (files: FileList | null) => {
-    if (files) void ingestFiles(Array.from(files));
-  };
-
-  // Native "Take photos" — the camera auto-reopens after each shot so the rider
-  // captures several in a row (backing out of the camera finishes). A real
-  // failure before any capture flips to the gallery-only guard.
-  const handleTakePhoto = async () => {
-    setCamMsg(null);
-    try {
-      const files = await captureNativePhotos();
-      if (files.length) await ingestFiles(files);
-    } catch {
-      setNativeCam(false);
-      setCamMsg("Camera unavailable — choose an existing photo below.");
-    }
+    if (files) void ingestFiles(Array.from(files)).then(append);
   };
 
   const removePhoto = (index: number) => {
@@ -203,7 +145,7 @@ export default function PhotoCaptureField({
               <Button
                 variant="contained"
                 startIcon={<PhotoCameraIcon />}
-                onClick={() => void handleTakePhoto()}
+                onClick={() => void takeNativePhotos().then(append)}
                 disabled={uploading || disabled || nativeCam === null}
                 fullWidth
               >

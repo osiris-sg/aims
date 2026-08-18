@@ -40,6 +40,8 @@ import EditNoteIcon from "@mui/icons-material/EditNote";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
+import GuidedPhotoCapture from "@/components/delivery/GuidedPhotoCapture";
+import { minPhotosForAssetClass } from "@/helpers/assetClass";
 import SignaturePadField, { SignaturePadHandle } from "@/components/delivery/SignaturePadField";
 import { capturePosition } from "@/helpers/geolocation";
 import { useNfcScan } from "../../../hooks/useNfcScan";
@@ -76,6 +78,9 @@ interface RunItem {
   document: { id: string; name: string | null } | null;
   inventory: { id: string; sku: string; serialNumber: string | null; status: string } | null;
   asset: { id: string; name: string; skuKey: string } | null;
+  // Resolved Equipment/Accessory for this line (backend pre-resolves the
+  // free-typed / catalog fallback chain). Drives the condition-photo minimum.
+  effectiveAssetClass?: string | null;
 }
 
 interface Run {
@@ -100,6 +105,7 @@ interface ResolveMatch {
   sku: string;
   assetName?: string | null;
   skuKey?: string | null;
+  assetClass?: string | null;
 }
 
 const STATUS_CHIP: Record<ItemStatus, { label: string; color: "default" | "warning" | "info" | "success" }> = {
@@ -147,7 +153,15 @@ export default function DeliveryBasketPage() {
   // mode 'add' = new unit (add + start); 'start' = existing not_delivered item
   // (Fix B start only); 'photos' = append condition photos to an already-started
   // unit's DO_START (no new report).
-  const [pending, setPending] = useState<{ mode: "add" | "start" | "photos"; assetId: string; inventoryId: string; sku?: string } | null>(null);
+  const [pending, setPending] = useState<{
+    mode: "add" | "start" | "photos";
+    assetId: string;
+    inventoryId: string;
+    sku?: string;
+    // Equipment/Accessory for the unit being captured. Sets how many photos
+    // this step demands; unknown falls back to Equipment (the stricter rule).
+    assetClass?: string | null;
+  } | null>(null);
   const [pendingPhotos, setPendingPhotos] = useState<CapturedPhoto[]>([]);
   const [photoUploading, setPhotoUploading] = useState(false);
   // "Acknowledge all" — one signature + photo + GPS applied to every delivering unit.
@@ -216,30 +230,57 @@ export default function DeliveryBasketPage() {
 
   // A resolved unit parks in the mandatory photo step (NFC + manual + Fix B
   // all funnel here). The item is only added/started AFTER the photo confirm.
-  const requestAdd = useCallback((assetId: string, inventoryId: string, sku?: string) => {
-    setPendingPhotos([]);
-    setPending({ mode: "add", assetId, inventoryId, sku });
-  }, []);
+  const requestAdd = useCallback(
+    (assetId: string, inventoryId: string, sku?: string, assetClass?: string | null) => {
+      setPendingPhotos([]);
+      setPending({ mode: "add", assetId, inventoryId, sku, assetClass });
+    },
+    [],
+  );
 
   const requestStart = useCallback((it: RunItem) => {
     if (!it.inventoryId) return;
     setPendingPhotos([]);
-    setPending({ mode: "start", assetId: it.assetId, inventoryId: it.inventoryId, sku: it.inventory?.sku });
+    setPending({
+      mode: "start",
+      assetId: it.assetId,
+      inventoryId: it.inventoryId,
+      sku: it.inventory?.sku,
+      assetClass: it.effectiveAssetClass,
+    });
   }, []);
 
   // Append more condition photos to an already-started unit's DO_START.
   const requestPhotos = useCallback((it: RunItem) => {
     if (!it.inventoryId) return;
     setPendingPhotos([]);
-    setPending({ mode: "photos", assetId: it.assetId, inventoryId: it.inventoryId, sku: it.inventory?.sku });
+    setPending({
+      mode: "photos",
+      assetId: it.assetId,
+      inventoryId: it.inventoryId,
+      sku: it.inventory?.sku,
+      assetClass: it.effectiveAssetClass,
+    });
   }, []);
+
+  // How many condition photos this step demands (OSI-81). Equipment gets the
+  // guided set, an accessory keeps one, and the rule is the same on a return as
+  // on the way out so the two sets can be compared before and after the hire.
+  // 'photos' mode is an append to an already started unit, so it only needs the
+  // one it is adding.
+  const requiredPhotos =
+    !pending || pending.mode === "photos" ? 1 : minPhotosForAssetClass(pending.assetClass);
 
   // Photo confirmed → add (mode 'add') then DO_START; or (mode 'photos') append
   // to the existing DO_START without creating a new report.
   const confirmPending = useCallback(async () => {
     if (!pending) return;
-    if (pendingPhotos.length === 0) {
-      setActionMsg("Take at least one photo of the unit.");
+    if (pendingPhotos.length < requiredPhotos) {
+      setActionMsg(
+        requiredPhotos === 1
+          ? "Take at least one photo of the unit."
+          : `This unit is equipment, so it needs ${requiredPhotos} photos before it can be moved. ${pendingPhotos.length} so far.`,
+      );
       return;
     }
     setBusy(true);
@@ -284,7 +325,7 @@ export default function DeliveryBasketPage() {
     } finally {
       setBusy(false);
     }
-  }, [pending, pendingPhotos, deliveryId, getToken, load, startUnit]);
+  }, [pending, pendingPhotos, requiredPhotos, deliveryId, getToken, load, startUnit]);
 
   // #3 fallback: rider decides installation isn't needed from the basket.
   const skipInstall = useCallback(
@@ -362,7 +403,7 @@ export default function DeliveryBasketPage() {
           return;
         }
         // Park the unit in the mandatory photo step (adds + starts on confirm).
-        requestAdd(assetId, inventoryId, payload?.inventory?.sku);
+        requestAdd(assetId, inventoryId, payload?.inventory?.sku, payload?.asset?.assetClass);
         return;
       } catch (e: any) {
         const status = e?.response?.status ?? e?.status;
@@ -394,7 +435,7 @@ export default function DeliveryBasketPage() {
       } else if (matches.length === 1) {
         setManualOpen(false);
         setSerial("");
-        requestAdd(matches[0].assetId, matches[0].inventoryId, matches[0].sku);
+        requestAdd(matches[0].assetId, matches[0].inventoryId, matches[0].sku, matches[0].assetClass);
       } else {
         setCandidates(matches); // pick list inside the dialog
       }
@@ -932,23 +973,38 @@ export default function DeliveryBasketPage() {
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
             {pending?.mode === "photos"
               ? "Add more condition photos for this unit."
-              : "Take at least one photo of the unit's condition before it goes out."}
+              : requiredPhotos > 1
+                ? `This unit is equipment, so it needs ${requiredPhotos} condition photos before it can be moved.`
+                : "Take at least one photo of the unit's condition before it is moved."}
           </Typography>
-          <PhotoCaptureField
-            label={pending?.mode === "photos" ? "Additional photos" : "Condition photos (required)"}
-            photos={pendingPhotos}
-            onChange={setPendingPhotos}
-            upload={uploadDoStart}
-            onError={(m) => setActionMsg(m || null)}
-            onUploadingChange={setPhotoUploading}
-          />
+          {requiredPhotos > 1 ? (
+            // Equipment going out: walk the named angles instead of a free-form
+            // picker, so the office gets a comparable set for every unit.
+            <GuidedPhotoCapture
+              photos={pendingPhotos}
+              onChange={setPendingPhotos}
+              upload={uploadDoStart}
+              minPhotos={requiredPhotos}
+              onError={(m) => setActionMsg(m || null)}
+              onUploadingChange={setPhotoUploading}
+            />
+          ) : (
+            <PhotoCaptureField
+              label={pending?.mode === "photos" ? "Additional photos" : "Condition photos (required)"}
+              photos={pendingPhotos}
+              onChange={setPendingPhotos}
+              upload={uploadDoStart}
+              onError={(m) => setActionMsg(m || null)}
+              onUploadingChange={setPhotoUploading}
+            />
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setPending(null)} disabled={busy}>Cancel</Button>
           <Button
             variant="contained"
             onClick={confirmPending}
-            disabled={busy || photoUploading || pendingPhotos.length === 0}
+            disabled={busy || photoUploading || pendingPhotos.length < requiredPhotos}
           >
             {busy ? (
               <CircularProgress size={18} />

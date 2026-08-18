@@ -20,6 +20,8 @@ interface ProjectOption {
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
+import GuidedPhotoCapture from "@/components/delivery/GuidedPhotoCapture";
+import { minPhotosForAssetClass } from "@/helpers/assetClass";
 import { useBackgroundLocationContext } from "../../../../context/BackgroundLocationContext";
 
 /**
@@ -99,14 +101,20 @@ export default function StartDeliveryPage() {
   const [doId, setDoId] = useState<string | null>(null);
   const [doName, setDoName] = useState<string | null>(null);
   const [contextLoading, setContextLoading] = useState(true);
+  // Equipment/Accessory for this asset — sets the condition-photo minimum.
+  // Unknown falls back to Equipment, the stricter of the two.
+  const [assetClass, setAssetClass] = useState<string | null>(null);
+  // Condition-photo minimum (OSI-81): equipment gets the guided set, an
+  // accessory keeps one. Direction-blind on purpose — a collection is captured
+  // to the same standard as the outbound run so the two sets can be compared
+  // before and after the hire.
+  const requiredPhotos = minPhotosForAssetClass(assetClass);
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Standalone runs have no DO to resolve — skip the context re-fetch.
-      if (standalone) {
-        setContextLoading(false);
-        return;
-      }
+      // Standalone runs have no DO to resolve, but they DO need the asset's
+      // class to know how many condition photos to demand — so the fetch runs
+      // either way and only the DO half is skipped below.
       try {
         const token = await getToken();
         if (!token) return;
@@ -118,7 +126,8 @@ export default function StartDeliveryPage() {
         );
         if (cancelled) return;
         const data = res.data ?? res;
-        if (data?.latestDeliveryOrder?.id) {
+        if (data?.asset?.assetClass) setAssetClass(data.asset.assetClass);
+        if (!standalone && data?.latestDeliveryOrder?.id) {
           setDoId(data.latestDeliveryOrder.id);
           setDoName(data.latestDeliveryOrder.name ?? null);
         }
@@ -234,10 +243,14 @@ export default function StartDeliveryPage() {
       setError("Standalone delivery needs a specific scanned unit.");
       return;
     }
-    // Standalone runs REQUIRE a condition photo per unit — the outbound state
+    // Standalone runs REQUIRE condition photos per unit — the outbound state
     // must be evidenced before the unit leaves (backend enforces this too).
-    if (standalone && photos.length === 0) {
-      setError("A condition photo of the unit is required before starting delivery.");
+    if (standalone && photos.length < requiredPhotos) {
+      setError(
+        requiredPhotos === 1
+          ? `A condition photo of the unit is required before starting this ${verb.toLowerCase()}.`
+          : `This unit is equipment, so it needs ${requiredPhotos} condition photos before starting this ${verb.toLowerCase()}. ${photos.length} so far.`,
+      );
       return;
     }
     setSubmitting(true);
@@ -543,14 +556,27 @@ export default function StartDeliveryPage() {
       ) : null}
 
       <Box sx={{ width: "100%", maxWidth: 360 }}>
-        <PhotoCaptureField
-          label={standalone ? "Condition photos (required)" : "Condition photos (optional)"}
-          photos={photos}
-          onChange={setPhotos}
-          upload={uploadDoStart}
-          onError={(m) => setError(m || null)}
-          onUploadingChange={setUploading}
-        />
+        {standalone && requiredPhotos > 1 ? (
+          // Equipment going out: walk the named angles instead of a free-form
+          // picker, so the office gets a comparable set for every unit.
+          <GuidedPhotoCapture
+            photos={photos}
+            onChange={setPhotos}
+            upload={uploadDoStart}
+            minPhotos={requiredPhotos}
+            onError={(m) => setError(m || null)}
+            onUploadingChange={setUploading}
+          />
+        ) : (
+          <PhotoCaptureField
+            label={standalone ? "Condition photos (required)" : "Condition photos (optional)"}
+            photos={photos}
+            onChange={setPhotos}
+            upload={uploadDoStart}
+            onError={(m) => setError(m || null)}
+            onUploadingChange={setUploading}
+          />
+        )}
       </Box>
 
       {error && <Alert severity="error" sx={{ width: "100%", maxWidth: 360 }}>{error}</Alert>}
