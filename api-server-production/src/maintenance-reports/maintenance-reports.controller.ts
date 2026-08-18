@@ -154,6 +154,19 @@ export class MaintenanceReportsController {
   }
 
   /**
+   * Return flow: the unit's original OUTBOUND condition photos (signed URLs) so a
+   * rider collecting it can compare before/after on the return capture screen.
+   */
+  @Get('unit/:inventoryId/outbound-photos')
+  @Permissions('field-scan:access')
+  getOutboundConditionPhotos(
+    @Param('inventoryId') inventoryId: string,
+    @UserOrganization() org: { id: string },
+  ) {
+    return this.service.getOutboundConditionPhotos(inventoryId, org.id);
+  }
+
+  /**
    * Field-accessible read-only delivery-order view. Aggregates the DO config,
    * its proof-of-delivery reports, the resolved template variant, and the field
    * config in one org-scoped response so the field "View DO" page doesn't need

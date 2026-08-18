@@ -1966,6 +1966,10 @@ model MaintenanceServiceReport {
   // times, tech signature key, etc.). Schemaless on purpose — see the field
   // PWA's submit handler for the canonical shape.
   serviceData       Json?
+  // Return flow: the rider flagged this unit as damaged at collection. RECORDED
+  // ONLY today (no behaviour hangs off it: a damaged unit still returns to
+  // instock). The free-text comment lives in serviceData.returnComment.
+  damaged           Boolean?
   // Set by the field tech at submit time. When false, the report is auto-
   // emailed to the customer (PDF attached) and the loop closes. When true,
   // an Invoice document must be created from the office before customer

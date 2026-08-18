@@ -1,7 +1,8 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
-import { Prisma, MaintenanceReportKind, DeliveryStatus, DeliveryRunStatus, InventoryStatus, ItemType } from '@prisma/client';
+import { Prisma, MaintenanceReportKind, DeliveryStatus, DeliveryRunStatus, DeliveryDirection, InventoryStatus, ItemType } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
+import { S3Service } from 'src/common/services/s3.service';
 import { WaterSgService, WaterSgCreateSiteResult } from 'src/common/services/water-sg.service';
 import { EmailService } from '../email/email.service';
 import { DocumentsService } from '../documents/documents.service';
@@ -43,7 +44,38 @@ export class MaintenanceReportsService {
     private readonly documentTemplatesService: DocumentTemplatesService,
     private readonly waterSg: WaterSgService,
     private readonly deliveriesService: DeliveriesService,
+    private readonly s3Service: S3Service,
   ) {}
+
+  /**
+   * Return flow: the unit's ORIGINAL outbound condition photos, so a rider
+   * collecting it can compare before/after. Resolves the latest DO_START report
+   * for this unit that is NOT on a RETURN run (standalone outbound has a
+   * deliveryId; DO-first outbound has documentId only), and signs its S3 keys.
+   * field-scan gated; org-scoped. Returns an empty list when there are none.
+   */
+  async getOutboundConditionPhotos(
+    inventoryId: string,
+    organizationId: string,
+  ): Promise<{ photos: string[]; capturedAt: Date | null; technicianName: string | null }> {
+    const report = await this.prisma.maintenanceServiceReport.findFirst({
+      where: {
+        organizationId,
+        inventoryId,
+        kind: MaintenanceReportKind.DO_START,
+        // Exclude the unit's OWN return-run DO_START; keep outbound rows only.
+        // A DO-first outbound row has no delivery (deliveryId null) — keep it too.
+        OR: [{ deliveryId: null }, { delivery: { is: { direction: { not: DeliveryDirection.RETURN } } } }],
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { photos: true, createdAt: true, technicianName: true },
+    });
+    if (!report || report.photos.length === 0) {
+      return { photos: [], capturedAt: null, technicianName: null };
+    }
+    const signed = await Promise.all(report.photos.map((key) => this.s3Service.getSignedUrl(key)));
+    return { photos: signed, capturedAt: report.createdAt, technicianName: report.technicianName };
+  }
 
   /** U1+items org gate — features.enableUnifiedRuns on OrganizationUIConfig (default OFF). */
   private async unifiedRunsEnabled(organizationId: string): Promise<boolean> {
@@ -148,6 +180,8 @@ export class MaintenanceReportsService {
       ...(typeof dto.longitude === 'number' ? { longitude: dto.longitude } : {}),
       ...(dto.locationLabel ? { locationLabel: dto.locationLabel } : {}),
       ...(dto.serviceData ? { serviceData: dto.serviceData as Prisma.InputJsonValue } : {}),
+      // Return flow: damaged flag (recorded only). The comment sits in serviceData.
+      ...(typeof dto.damaged === 'boolean' ? { damaged: dto.damaged } : {}),
       // Inline sign-off path: when the client signature arrives in the create
       // payload (revamped 5-page form), finalize the row in one write.
       ...(dto.signature

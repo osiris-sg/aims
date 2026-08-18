@@ -72,6 +72,13 @@ export class CreateMaintenanceReportDto {
   @IsObject()
   serviceData?: Record<string, any>;
 
+  // Return flow: the rider flagged this unit as damaged at collection. Recorded
+  // only (no behaviour hangs off it). The free-text note rides in serviceData.returnComment.
+  @ApiPropertyOptional({ description: 'Return flow: rider flagged the unit damaged at collection (recorded only).' })
+  @IsOptional()
+  @IsBoolean()
+  damaged?: boolean;
+
   // Optional inline sign-off — when present, the row is created already
   // completed (no separate /sign call). Used by the revamped SERVICE flow.
   @ApiPropertyOptional({ description: 'Client signature (S3 key or base64) — finalizes the report on create.' })
