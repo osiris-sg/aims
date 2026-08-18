@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
-import { Prisma, MaintenanceReportKind, DeliveryStatus, InventoryStatus, ItemType } from '@prisma/client';
+import { Prisma, MaintenanceReportKind, DeliveryStatus, DeliveryRunStatus, InventoryStatus, ItemType } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
 import { WaterSgService, WaterSgCreateSiteResult } from 'src/common/services/water-sg.service';
@@ -16,6 +16,24 @@ import { minPhotosForAssetClass } from 'src/common/asset-class';
 @Injectable()
 export class MaintenanceReportsService {
   private readonly logger = new Logger(MaintenanceReportsService.name);
+
+  /**
+   * Run statuses that make a Delivery Order "owned" by that run, and therefore
+   * un-resolvable from a cold scan by a unit that is not already on it.
+   *
+   * scheduled   — office declared it, no rider yet.
+   * in_progress — a rider claimed it and is working it.
+   * delivered   — every unit handed over, install outstanding.
+   *
+   * `completed` and `cancelled` are deliberately EXCLUDED: those runs are over,
+   * so their DO should behave like any other document for a fresh scan rather
+   * than being permanently unscannable.
+   */
+  private static readonly RUN_OWNED_DO_STATUSES: DeliveryRunStatus[] = [
+    DeliveryRunStatus.scheduled,
+    DeliveryRunStatus.in_progress,
+    DeliveryRunStatus.delivered,
+  ];
 
   constructor(
     private readonly prisma: PrismaService,
@@ -887,23 +905,40 @@ export class MaintenanceReportsService {
     // filter, WITHOUT any report-state exclusion (an acked / installed DO is
     // intentionally still selected so we read its real stage, not skip it).
     //
-    // EXCEPTION (2026-08): exclude the draft DO born-linked to a `scheduled`
-    // run. Those DOs carry asset-level (unbound) slots that match ANY unit of
-    // the asset, so a scan would otherwise resolve them and route the rider
-    // DO-first — claiming the scheduled run by DO resolution BEFORE they pick a
-    // project, which defeats the post-assign merge. Excluding them makes the
-    // rider start ad-hoc → assign → tryMergeIntoScheduledRun. The exclusion is
-    // status-scoped: once the run is claimed (scheduled → in_progress at merge)
-    // its items are no longer on a `scheduled` run, so the DO resolves normally
-    // again for the rest of the flow. A genuine DO-first DO (no delivery items,
-    // or items on an in_progress run) is unaffected — `none` holds vacuously.
+    // RUN-OWNED DOs ARE NOT SCANNABLE COLD (2026-08, corrected).
+    //
+    // A DO born-linked to a delivery RUN carries asset-level (unbound) slots
+    // that match ANY unit of the asset. Resolving one from a cold /scan routes
+    // the rider DO-first and claims the run before they have picked a project,
+    // defeating the post-assign merge.
+    //
+    // The first cut of this excluded only `scheduled` runs, on the theory that a
+    // claimed run no longer needed protecting. That was wrong: the moment the
+    // run flips to in_progress, a scan of a DIFFERENT unit resolves its DO again
+    // and offers "Start delivery" for someone else's run. The rule is about
+    // MEMBERSHIP, not run status: a run-owned DO may only be offered to a unit
+    // that is ALREADY on that run. Filling a declared slot happens from inside
+    // the basket ("Scan another"), never by scanning cold.
+    //
+    // Genuine DO-first is untouched: a manually created DO has no delivery items
+    // at all, so the first arm holds vacuously and it resolves as before.
     const resolvedDoItem = await this.prisma.documentItem.findFirst({
       where: {
         ...itemFilter,
         document: {
           organizationId,
           type: 'DELIVERY_ORDER',
-          deliveryItems: { none: { delivery: { status: 'scheduled' } } },
+          OR: [
+            // (a) Not owned by a live run — a real DO-first document.
+            {
+              deliveryItems: {
+                none: { delivery: { status: { in: MaintenanceReportsService.RUN_OWNED_DO_STATUSES } } },
+              },
+            },
+            // (b) Owned by a run, but THIS unit is already on it, so the rider
+            // is continuing their own delivery rather than claiming a new one.
+            ...(inventoryId ? [{ deliveryItems: { some: { inventoryId } } }] : []),
+          ],
         },
       },
       orderBy: { document: { createdAt: 'desc' } },
