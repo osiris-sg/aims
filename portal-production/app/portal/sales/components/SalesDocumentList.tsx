@@ -218,12 +218,16 @@ export default function SalesDocumentList({
       accessorKey: "createdAt",
       header: "Created Date",
       nowrap: true,
+      // Fixed-width date/chip columns — flexible width goes to the name and
+      // customer columns instead (guru 2026-08-18).
+      pxWidth: 130,
       cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
     },
     {
       accessorKey: "status",
       header: "Status",
       nowrap: true,
+      pxWidth: 150,
       cell: ({ row }: any) => <StatusChip status={row.original.status} />,
     },
     ...additionalColumns,
