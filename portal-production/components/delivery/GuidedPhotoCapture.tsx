@@ -68,33 +68,35 @@ export default function GuidedPhotoCapture({
   onUploadingChange,
   disabled,
 }: Props) {
-  const { uploading, isNative, nativeCam, camMsg, setCamMsg, ingestFiles, takeNativePhotoOnce } =
+  const { uploading, captureMode, camMsg, setCamMsg, ingestFiles, takeNativePhotoOnce } =
     usePhotoUploader({ upload, onError, onUploadingChange });
-  // Which slot the rider is filling. Slots past STEPS.length are extra angles.
-  const [stepIndex, setStepIndex] = useState(0);
 
-  // Total slots to walk: the named angles, plus however many extras the minimum
-  // still demands (the equipment minimum equals the named angles, so no extras).
+  // STRICTLY SEQUENTIAL: the angle being asked for is derived from how many
+  // photos exist, so there is no separate cursor to drift out of sync. Deleting
+  // a photo shortens the list and therefore steps the prompt back to that angle
+  // on its own.
   const totalSlots = Math.max(STEPS.length, minPhotos);
+  const stepIndex = Math.min(photos.length, totalSlots - 1);
   const current = STEPS[stepIndex];
   const currentLabel = current?.label ?? `Additional angle ${stepIndex - STEPS.length + 1}`;
   const currentHint =
     current?.hint ?? "Any angle that shows the unit's condition, for example a serial plate or existing damage.";
   const done = photos.length >= minPhotos;
 
-  const append = async (captured: CapturedPhoto[]) => {
+  const append = (captured: CapturedPhoto[]) => {
     if (captured.length === 0) return;
     onChange([...photos, ...captured]);
-    setStepIndex((i) => Math.min(i + captured.length, Math.max(totalSlots - 1, i + captured.length)));
   };
 
+  // One shot per step: only ever take the FIRST file so a multi-select cannot
+  // skip past an angle the rider has not actually photographed.
   const handleFiles = (files: FileList | null) => {
-    if (files) void ingestFiles(Array.from(files)).then(append);
+    const one = files && files[0] ? [files[0]] : [];
+    if (one.length) void ingestFiles(one).then(append);
   };
 
   const removePhoto = (index: number) => {
     onChange(photos.filter((_, i) => i !== index));
-    setStepIndex((i) => Math.max(0, i - 1));
   };
 
   return (
@@ -110,22 +112,22 @@ export default function GuidedPhotoCapture({
         This is equipment, so it needs a set of angles before it leaves.
       </Typography>
 
-      {/* Slot strip: what is captured, what is next, what is still empty. */}
-      <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
-        {Array.from({ length: totalSlots }, (_, i) => {
-          const filled = i < photos.length;
-          const isCurrent = !done && i === photos.length;
-          return (
-            <Chip
-              key={i}
-              size="small"
-              label={STEPS[i]?.label ?? `Extra ${i - STEPS.length + 1}`}
-              color={filled ? "success" : isCurrent ? "primary" : "default"}
-              variant={filled || isCurrent ? "filled" : "outlined"}
-            />
-          );
-        })}
-      </Stack>
+      {/* ONE angle at a time. The full set is deliberately NOT listed: the
+          rider is asked for a single named shot, takes it, and the prompt
+          advances. */}
+      {!done && (
+        <Box sx={{ mb: 1.5, p: 1.5, borderRadius: 1, bgcolor: "action.hover" }}>
+          <Typography variant="overline" color="text.secondary" sx={{ display: "block", lineHeight: 1.4 }}>
+            Photo {photos.length + 1} of {minPhotos}
+          </Typography>
+          <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.3 }}>
+            {currentLabel}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {currentHint}
+          </Typography>
+        </Box>
+      )}
 
       {photos.length > 0 && (
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
@@ -172,59 +174,50 @@ export default function GuidedPhotoCapture({
         </Alert>
       )}
 
-      {done ? (
+      {done && (
         <Alert severity="success" sx={{ mb: 1 }}>
           All {minPhotos} photos captured. Add more below if this unit needs them.
         </Alert>
-      ) : (
-        <Box sx={{ mb: 1 }}>
-          <Typography variant="body2" fontWeight={600}>
-            Next: {currentLabel}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {currentHint}
-          </Typography>
-        </Box>
       )}
 
-      {!isNative ? (
-        // Web: the browser's capture input (camera on mobile web, chooser on
-        // desktop). One shot at a time so the rider stays on the prompted angle.
-        <Button
-          component="label"
-          variant={done ? "outlined" : "contained"}
-          startIcon={<PhotoCameraIcon />}
-          disabled={uploading || disabled}
-          fullWidth
-        >
-          {done ? "Add another photo" : `Take ${currentLabel.toLowerCase()} photo`}
-          <input type="file" accept="image/*" capture="environment" hidden onChange={(e) => handleFiles(e.target.files)} />
-        </Button>
-      ) : (
-        <Stack spacing={1}>
-          {nativeCam !== false && (
-            <Button
-              variant={done ? "outlined" : "contained"}
-              startIcon={<PhotoCameraIcon />}
-              onClick={() => void takeNativePhotoOnce().then(append)}
-              disabled={uploading || disabled || nativeCam === null}
-              fullWidth
-            >
-              {done ? "Add another photo" : `Take ${currentLabel.toLowerCase()} photo`}
-            </Button>
-          )}
+      <Stack spacing={1}>
+        {captureMode === "inapp" ? (
+          // Native shell, in-app CameraX: the Sunmi's only working path.
           <Button
-            component="label"
-            variant="outlined"
-            startIcon={<AddPhotoAlternateIcon />}
+            variant={done ? "outlined" : "contained"}
+            startIcon={<PhotoCameraIcon />}
+            onClick={() => void takeNativePhotoOnce().then(append)}
             disabled={uploading || disabled}
             fullWidth
           >
-            Choose from gallery
-            <input type="file" accept="image/*" multiple hidden onChange={(e) => handleFiles(e.target.files)} />
+            {done ? "Add another photo" : `Take ${currentLabel.toLowerCase()} photo`}
           </Button>
-        </Stack>
-      )}
+        ) : (
+          // Web, or a native shell whose in-app camera failed: the device
+          // camera via <input capture>. One shot so the rider stays on the
+          // prompted angle.
+          <Button
+            component="label"
+            variant={done ? "outlined" : "contained"}
+            startIcon={<PhotoCameraIcon />}
+            disabled={uploading || disabled}
+            fullWidth
+          >
+            {done ? "Add another photo" : `Take ${currentLabel.toLowerCase()} photo`}
+            <input type="file" accept="image/*" capture="environment" hidden onChange={(e) => handleFiles(e.target.files)} />
+          </Button>
+        )}
+        <Button
+          component="label"
+          variant="outlined"
+          startIcon={<AddPhotoAlternateIcon />}
+          disabled={uploading || disabled}
+          fullWidth
+        >
+          Choose from gallery
+          <input type="file" accept="image/*" hidden onChange={(e) => handleFiles(e.target.files)} />
+        </Button>
+      </Stack>
     </Box>
   );
 }

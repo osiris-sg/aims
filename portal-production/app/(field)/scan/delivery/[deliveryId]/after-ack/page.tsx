@@ -213,9 +213,10 @@ export default function AfterAckPage() {
         // so the item's deliveryStatus is the deepest resolvable point.
         const itemStatus = (it as { deliveryStatus?: string } | undefined)?.deliveryStatus;
         if (itemStatus === "completed") {
-          // Fully done → the run-level done/print screen (it reads the signed
-          // signature straight off the MSR; the client `signature` is gone).
-          router.replace(`/scan/deliveries/finished/${deliveryId}`);
+          // Fully done → back to the run basket. No result interstitial; the
+          // run-level screen (with reprint) stays reachable from Finished
+          // deliveries.
+          router.replace(`/scan/delivery/${deliveryId}`);
           return;
         }
         if (itemStatus === "not_installed") {
