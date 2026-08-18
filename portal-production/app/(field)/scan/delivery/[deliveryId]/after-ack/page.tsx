@@ -115,6 +115,13 @@ export default function AfterAckPage() {
   // Receipt data retained from the mount fetch (no new requests) + printing UI.
   const [runMeta, setRunMeta] = useState<{ deliveryNumber: number | null; siteAddress: string | null }>({ deliveryNumber: null, siteAddress: null });
   const [ackGps, setAckGps] = useState<{ latitude: number; longitude: number } | null>(null);
+  // FAN-OUT (bulk "Deliver all"): the rider runs this ONE flow for a lead unit
+  // and the same proof is applied to every other unit still delivering. No
+  // separate bulk screen: same capture, same install prompt, same signature.
+  const applyToAll = search?.get("applyToAll") === "1";
+  // The lead's ack photos, forwarded to the other units so their DO_ACK rows
+  // carry the same evidence.
+  const [ackPhotos, setAckPhotos] = useState<string[]>([]);
   const [printerDialogOpen, setPrinterDialogOpen] = useState(false);
   const [bondedDevices, setBondedDevices] = useState<SavedPrinter[] | null>(null);
   const [printing, setPrinting] = useState(false);
@@ -198,6 +205,7 @@ export default function AfterAckPage() {
         if (ackRow?.latitude != null && ackRow?.longitude != null) {
           setAckGps({ latitude: ackRow.latitude, longitude: ackRow.longitude });
         }
+        if (Array.isArray(ackRow?.photos)) setAckPhotos(ackRow.photos as string[]);
         if (!msrId) {
           router.replace(
             `/scan/delivery/${deliveryId}/ack?assetId=${encodeURIComponent(assetId)}${
@@ -496,6 +504,30 @@ export default function AfterAckPage() {
         if (res?.success === false) throw new Error(res?.message ?? "Could not record the installation");
       }
 
+      // FAN-OUT: apply the SAME proof to every other unit still delivering.
+      // Deliberately last, and deliberately after the lead is signed: signing
+      // moved the lead to not_installed, and acknowledgeAll only acts on items
+      // still `delivering`, so the lead is excluded and cannot get a second
+      // DO_ACK. The backend already fans signature, photos, GPS and the install
+      // choice across the rest, so there is nothing bulk-specific on the client.
+      if (applyToAll) {
+        const res = await request(
+          { path: `/deliveries/${deliveryId}/ack-all`, method: "POST" },
+          {
+            signature,
+            ...(name ? { recipientName: name } : {}),
+            ...(ackPhotos.length ? { photos: ackPhotos } : {}),
+            ...(ackGps ? { latitude: ackGps.latitude, longitude: ackGps.longitude } : {}),
+            installNeeded: installChoice === "yes",
+            ...(installPhotos.length ? { installPhotos: installPhotos.map((p) => p.key) } : {}),
+          },
+          token,
+        );
+        if (res?.success === false) {
+          throw new Error(res?.message ?? "The lead unit was completed but the others could not be");
+        }
+      }
+
       // Ack is signed — the delivery leg is over; stop background tracking
       // (same semantics as the old sign page, fire-and-forget).
       void bgLocation.stop();
@@ -559,9 +591,12 @@ export default function AfterAckPage() {
     return (
       <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5, alignItems: "center", textAlign: "center" }}>
         <CheckCircleIcon sx={{ fontSize: 96, color: "success.main", mt: 6 }} />
-        <Typography variant="h5" fontWeight={700}>Delivery confirmed</Typography>
+        <Typography variant="h5" fontWeight={700}>
+          {applyToAll ? "All deliveries confirmed" : "Delivery confirmed"}
+        </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 360 }}>
-          Delivery signed{installChoice === "no" ? " — installation not needed" : " and installation recorded"}.
+          {applyToAll ? "Every unit still out on this run was signed with the same proof" : "Delivery signed"}
+          {installChoice === "no" ? ", installation not needed" : " and installation recorded"}.
         </Typography>
         {/* Bluetooth receipt printing — native shell only (Classic SPP; Web
             Bluetooth is BLE-only and can never reach a 58mm SPP printer). */}
