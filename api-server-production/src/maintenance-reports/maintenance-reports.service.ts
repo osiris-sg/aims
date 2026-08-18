@@ -57,7 +57,12 @@ export class MaintenanceReportsService {
   async getOutboundConditionPhotos(
     inventoryId: string,
     organizationId: string,
-  ): Promise<{ photos: string[]; capturedAt: Date | null; technicianName: string | null }> {
+  ): Promise<{
+    photos: string[];
+    angles: string[];
+    capturedAt: Date | null;
+    technicianName: string | null;
+  }> {
     const report = await this.prisma.maintenanceServiceReport.findFirst({
       where: {
         organizationId,
@@ -68,13 +73,18 @@ export class MaintenanceReportsService {
         OR: [{ deliveryId: null }, { delivery: { is: { direction: { not: DeliveryDirection.RETURN } } } }],
       },
       orderBy: { createdAt: 'desc' },
-      select: { photos: true, createdAt: true, technicianName: true },
+      select: { photos: true, createdAt: true, technicianName: true, serviceData: true },
     });
     if (!report || report.photos.length === 0) {
-      return { photos: [], capturedAt: null, technicianName: null };
+      return { photos: [], angles: [], capturedAt: null, technicianName: null };
     }
     const signed = await Promise.all(report.photos.map((key) => this.s3Service.getSignedUrl(key)));
-    return { photos: signed, capturedAt: report.createdAt, technicianName: report.technicianName };
+    // Angle labels ride in serviceData.photoAngles, parallel to photos (same
+    // order/length). Absent for units captured before angle-labelling shipped —
+    // return [] so the client falls back to index-pairing + the full strip.
+    const rawAngles = ((report.serviceData as any)?.photoAngles);
+    const angles = Array.isArray(rawAngles) ? rawAngles.map((a) => String(a ?? '')) : [];
+    return { photos: signed, angles, capturedAt: report.createdAt, technicianName: report.technicianName };
   }
 
   /** U1+items org gate — features.enableUnifiedRuns on OrganizationUIConfig (default OFF). */
@@ -179,7 +189,18 @@ export class MaintenanceReportsService {
       ...(typeof dto.latitude === 'number' ? { latitude: dto.latitude } : {}),
       ...(typeof dto.longitude === 'number' ? { longitude: dto.longitude } : {}),
       ...(dto.locationLabel ? { locationLabel: dto.locationLabel } : {}),
-      ...(dto.serviceData ? { serviceData: dto.serviceData as Prisma.InputJsonValue } : {}),
+      // serviceData + the per-photo angle labels (parallel to the flat `photos`
+      // array, same order/length). photos stays a plain String[] for the office
+      // proof panel / DO / receipt; angles ride alongside so returns can pair by
+      // angle. Guided capture fills these; free-form leaves "".
+      ...(dto.serviceData || dto.angles?.length
+        ? {
+            serviceData: {
+              ...(dto.serviceData ?? {}),
+              ...(dto.angles?.length ? { photoAngles: dto.angles } : {}),
+            } as Prisma.InputJsonValue,
+          }
+        : {}),
       // Return flow: damaged flag (recorded only). The comment sits in serviceData.
       ...(typeof dto.damaged === 'boolean' ? { damaged: dto.damaged } : {}),
       // Inline sign-off path: when the client signature arrives in the create

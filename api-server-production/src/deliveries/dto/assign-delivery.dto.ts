@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsIn, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
 
 /**
  * Field action: assign an acknowledged unit to a project from INSIDE the
@@ -96,4 +96,19 @@ export class AckAllDto {
   @IsOptional()
   @IsString()
   technicianName?: string;
+
+  @ApiProperty({
+    required: false,
+    description:
+      'Unified bulk flow: the rider chose to install. Each OUTBOUND unit is installed (not skipped) and gets a DO_INSTALL report carrying installPhotos. Ignored for returns.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  installNeeded?: boolean;
+
+  @ApiProperty({ required: false, description: 'S3 keys of the shared install photo(s), replicated onto each unit.', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  installPhotos?: string[];
 }

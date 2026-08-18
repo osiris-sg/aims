@@ -8,6 +8,12 @@ import { compressImageBlob } from "@/app/(field)/lib/imageCompress";
 export interface CapturedPhoto {
   key: string;
   previewUrl: string;
+  /**
+   * Angle label ("front"/"back"/"left"/"right"/"top", or "" for a free-form /
+   * extra shot). Stamped positionally by GuidedPhotoCapture and submitted parallel
+   * to the flat photos[] so returns can pair by angle. Absent for free-form captures.
+   */
+  angle?: string;
 }
 
 interface Options {

@@ -155,6 +155,17 @@ export default function AssetActionChooser() {
   const invQuery = inventory ? `?inventoryId=${encodeURIComponent(inventory.id)}` : "";
   const doRef = resolvedDeliveryOrder?.name ?? resolvedDeliveryOrder?.id ?? "";
 
+  // (#1) Once a unit's delivery is finished there is nothing to act on, so the
+  // "Completed" morphing card is pure noise — hide it. The DO/standalone stage
+  // resolves to "completed" for the scanned unit. Other cards (Start Return,
+  // service report, etc.) still render, so the chooser is never blank.
+  const deliveryCompleted =
+    deliveryStage === "completed" || data.standaloneDelivery?.stage === "completed";
+  // Hide the "Items on this delivery" list only when EVERY item is done —
+  // pending siblings still need showing.
+  const itemsAllCompleted =
+    deliveryItems.length > 0 && deliveryItems.every((r) => r.deliveryStatus === "completed");
+
   // (OSI-85) The "add this unit to your open run" path was removed from the
   // scanner — a fresh scan always starts a NEW delivery. Adding a unit to an
   // existing run happens from inside that run's basket / Deliveries in progress.
@@ -322,19 +333,18 @@ export default function AssetActionChooser() {
           only inside the delivery flow, at the after-ack step. */}
 
       {/* Single morphing delivery card: Start Delivery → Acknowledge Delivery →
-          Complete Installation → Completed, driven by deliveryStage. */}
-      <Card variant="outlined">
-        {deliveryCard.onClick ? (
-          <CardActionArea onClick={deliveryCard.onClick}>{deliveryCardInner}</CardActionArea>
-        ) : deliveryStage === "completed" ? (
-          // Completed: non-interactive but full-colour (not greyed) so it reads
-          // as a positive done state.
-          deliveryCardInner
-        ) : (
-          // No actionable DO: disabled / greyed.
-          <CardActionArea disabled>{deliveryCardInner}</CardActionArea>
-        )}
-      </Card>
+          Complete Installation → Completed, driven by deliveryStage. Hidden once
+          the delivery is completed (#1) — nothing to act on. */}
+      {!deliveryCompleted && (
+        <Card variant="outlined">
+          {deliveryCard.onClick ? (
+            <CardActionArea onClick={deliveryCard.onClick}>{deliveryCardInner}</CardActionArea>
+          ) : (
+            // No actionable DO: disabled / greyed.
+            <CardActionArea disabled>{deliveryCardInner}</CardActionArea>
+          )}
+        </Card>
+      )}
 
       {/* Reverse delivery: collect a rental unit back to stock. Same field flow
           (photo/GPS → collect-ack), no assign/install. */}
@@ -363,8 +373,8 @@ export default function AssetActionChooser() {
           one row per item on the resolved DO, each with a status chip + the
           action available from ITS OWN status, acting on ITS OWN unit id. Hidden
           when getScanContext returns no deliveryItems (legacy/non-DO) → the card
-          above remains the fallback. */}
-      {deliveryItems.length > 0 && (
+          above remains the fallback, and (#1) when every item is completed. */}
+      {deliveryItems.length > 0 && !itemsAllCompleted && (
         <Box>
           <Typography variant="subtitle1" fontWeight={600} sx={{ mt: 2, mb: 1 }}>
             Items on this delivery ({deliveryItems.length})

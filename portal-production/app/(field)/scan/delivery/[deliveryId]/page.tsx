@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useAuth, useUser } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 import {
   Alert,
   Box,
@@ -36,14 +36,13 @@ import KeyboardIcon from "@mui/icons-material/Keyboard";
 import HandymanIcon from "@mui/icons-material/Handyman";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import AddAPhotoIcon from "@mui/icons-material/AddAPhoto";
+import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import EditNoteIcon from "@mui/icons-material/EditNote";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
 import GuidedPhotoCapture from "@/components/delivery/GuidedPhotoCapture";
 import { minPhotosForAssetClass } from "@/helpers/assetClass";
-import SignaturePadField, { SignaturePadHandle } from "@/components/delivery/SignaturePadField";
-import { capturePosition } from "@/helpers/geolocation";
 import { useNfcScan } from "../../../hooks/useNfcScan";
 
 /**
@@ -164,13 +163,8 @@ export default function DeliveryBasketPage() {
   } | null>(null);
   const [pendingPhotos, setPendingPhotos] = useState<CapturedPhoto[]>([]);
   const [photoUploading, setPhotoUploading] = useState(false);
-  // "Acknowledge all" — one signature + photo + GPS applied to every delivering unit.
-  const { user } = useUser();
-  const [ackAllOpen, setAckAllOpen] = useState(false);
-  const [ackPhotos, setAckPhotos] = useState<CapturedPhoto[]>([]);
-  const [ackRecipient, setAckRecipient] = useState("");
-  const [ackBusy, setAckBusy] = useState(false);
-  const ackSigRef = useRef<SignaturePadHandle>(null);
+  // Bulk delivery/return ("Deliver all" / "Complete all deliveries") now runs on
+  // the dedicated /complete page (#3b) — one capture flow fanned across units.
   // Guards double-handling the same NFC read (uid persists until next startScan)
   const handledUidRef = useRef<string | null>(null);
 
@@ -525,58 +519,10 @@ export default function DeliveryBasketPage() {
   // hand-over; the backend enforces the same split in addItem.
   const canFillScheduledSlot = run.status === "in_progress";
 
-  // Units mid-delivery (DO_START fired, not yet acknowledged) — the ones
-  // "Acknowledge all" covers in one signature/photo/GPS pass.
+  // Units mid-delivery (DO_START fired, not yet acknowledged) — the ones the
+  // bulk "Deliver all" / "Complete all deliveries" flow (/complete) covers in one
+  // signature/photo/GPS pass.
   const deliveringUnits = run.items.filter((it) => it.inventoryId && it.deliveryStatus === "delivering");
-
-  const submitAckAll = async () => {
-    const sig = ackSigRef.current?.toDataUrl?.() || "";
-    if (!sig) {
-      setActionMsg("Capture the customer's signature first.");
-      return;
-    }
-    setAckBusy(true);
-    setActionMsg(null);
-    try {
-      const token = await getToken();
-      if (!token) throw new Error("Not signed in");
-      const gps = await capturePosition().catch(() => null);
-      const technicianName =
-        user?.fullName ?? user?.firstName ?? user?.username ?? user?.primaryEmailAddress?.emailAddress ?? undefined;
-      const res = await request(
-        { path: `/deliveries/${deliveryId}/ack-all`, method: "POST" },
-        {
-          signature: sig,
-          ...(ackRecipient.trim() ? { recipientName: ackRecipient.trim() } : {}),
-          ...(ackPhotos.length ? { photos: ackPhotos.map((p) => p.key) } : {}),
-          ...(gps ? { latitude: gps.latitude, longitude: gps.longitude } : {}),
-          ...(technicianName ? { technicianName } : {}),
-        },
-        token,
-      );
-      if (res?.success === false) throw new Error(res?.message ?? "Deliver all failed");
-      const n = (res?.data ?? res)?.acknowledged ?? 0;
-      setAckAllOpen(false);
-      setAckPhotos([]);
-      setAckRecipient("");
-      if (run.direction === "RETURN") {
-        // Returns stay in the basket (a collection has no DO/receipt hand-off).
-        setActionMsg(`Collected ${n} unit${n === 1 ? "" : "s"} ✓`);
-        await load();
-      } else {
-        // Deliver all signs + skip-installs every unit → the run completes and
-        // its DO auto-creates. No result interstitial: stay in the basket, which
-        // now shows the completed state. The run-level screen (with reprint) is
-        // still reachable from Finished deliveries.
-        setActionMsg(`Delivered ${n} unit${n === 1 ? "" : "s"} ✓`);
-        await load();
-      }
-    } catch (e: any) {
-      setActionMsg(e?.message ?? "Deliver all failed");
-    } finally {
-      setAckBusy(false);
-    }
-  };
 
   // Unbound office-scheduled slots (assetId set, no unit yet) = a merged
   // scheduled run's remaining quantity. Render them as a per-asset "remaining to
@@ -655,14 +601,13 @@ export default function DeliveryBasketPage() {
             size="small"
             variant="contained"
             startIcon={<LocalShippingIcon />}
-            onClick={() => {
-              setAckPhotos([]);
-              setAckRecipient("");
-              setAckAllOpen(true);
-            }}
-            disabled={busy || ackBusy}
+            // #3b: run the SAME single-item capture flow (photos → install →
+            // signature) once on a dedicated page, then fan the proof across every
+            // delivering unit via ack-all. Replaces the cramped in-basket dialog.
+            onClick={() => router.push(`/scan/delivery/${run.id}/complete`)}
+            disabled={busy}
           >
-            {run.direction === "RETURN" ? `Confirm return (${deliveringUnits.length})` : `Deliver all (${deliveringUnits.length})`}
+            {run.direction === "RETURN" ? `Complete all deliveries (${deliveringUnits.length})` : `Deliver all (${deliveringUnits.length})`}
           </Button>
         )}
       </Stack>
@@ -727,6 +672,24 @@ export default function DeliveryBasketPage() {
                         sx={{ minHeight: 40 }}
                       >
                         {hasDraftAck(it) ? "Continue" : "End Delivery"}
+                      </Button>
+                    )}
+                    {/* #3a: per-unit End Return — the return twin of End Delivery.
+                        Runs the SAME single-item capture (photos + signature) on
+                        the complete page, scoped to this unit, then collects it. */}
+                    {it.deliveryStatus === "delivering" && run.direction === "RETURN" && it.inventoryId && (
+                      <Button
+                        size="small"
+                        variant="contained"
+                        startIcon={<AssignmentReturnIcon />}
+                        onClick={() =>
+                          router.push(
+                            `/scan/delivery/${run.id}/complete?inventoryId=${encodeURIComponent(it.inventoryId!)}`,
+                          )
+                        }
+                        sx={{ minHeight: 40 }}
+                      >
+                        End Return
                       </Button>
                     )}
                     {it.deliveryStatus === "not_installed" && (
@@ -1041,46 +1004,6 @@ export default function DeliveryBasketPage() {
             ) : (
               "Add & start delivery"
             )}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Acknowledge all — one signature + optional photo + GPS, applied to every
-          unit still delivering on the run. */}
-      <Dialog open={ackAllOpen} onClose={() => !ackBusy && setAckAllOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>{run.direction === "RETURN" ? "Confirm return" : "Deliver all"} ({deliveringUnits.length})</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            One signature (and optional photo) applies to all {deliveringUnits.length}{" "}
-            {run.direction === "RETURN"
-              ? "units being collected, they return to stock."
-              : "units currently out for delivery. They're marked delivered (no installation). A unit that needs installing uses its own End Delivery button instead."}
-          </Typography>
-          <TextField
-            fullWidth
-            size="small"
-            label="Received by (optional)"
-            value={ackRecipient}
-            onChange={(e) => setAckRecipient(e.target.value)}
-            sx={{ mb: 1.5 }}
-          />
-          <PhotoCaptureField
-            label="Proof photo (optional)"
-            photos={ackPhotos}
-            onChange={setAckPhotos}
-            upload={uploadDoStart}
-            onError={(m) => setActionMsg(m || null)}
-            onUploadingChange={setPhotoUploading}
-          />
-          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5, mb: 0.5 }}>
-            Customer signature
-          </Typography>
-          <SignaturePadField ref={ackSigRef} />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setAckAllOpen(false)} disabled={ackBusy}>Cancel</Button>
-          <Button variant="contained" onClick={submitAckAll} disabled={ackBusy || photoUploading}>
-            {ackBusy ? <CircularProgress size={18} /> : run.direction === "RETURN" ? `Confirm return (${deliveringUnits.length})` : `Deliver all (${deliveringUnits.length})`}
           </Button>
         </DialogActions>
       </Dialog>

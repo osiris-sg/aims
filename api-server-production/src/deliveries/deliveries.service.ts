@@ -2077,7 +2077,21 @@ export class DeliveriesService {
    */
   async acknowledgeAll(
     deliveryId: string,
-    dto: { signature?: string; recipientName?: string; photos?: string[]; latitude?: number; longitude?: number; technicianName?: string },
+    dto: {
+      signature?: string;
+      recipientName?: string;
+      photos?: string[];
+      latitude?: number;
+      longitude?: number;
+      technicianName?: string;
+      // Unified bulk flow (2026-08): the rider runs the SAME single-item proof
+      // once (photos + ack + optional install), then fans it across every
+      // delivering unit. When installNeeded is true, each OUTBOUND unit is
+      // installed (not skipped) and gets its own DO_INSTALL MSR carrying the
+      // shared install photos. Returns ignore install entirely.
+      installNeeded?: boolean;
+      installPhotos?: string[];
+    },
     organizationId: string,
     technicianUserId: string,
   ) {
@@ -2129,12 +2143,95 @@ export class DeliveriesService {
         updated = await this.collectReturnUnit(deliveryId, it.inventoryId!, organizationId);
       } else {
         updated = await this.advanceDeliveryItem(deliveryId, it.inventoryId!, 'ack', organizationId);
-        if (updated) await this.advanceDeliveryItem(deliveryId, it.inventoryId!, 'skip', organizationId);
+        if (updated) {
+          if (dto.installNeeded) {
+            // Unified bulk WITH install: not_installed → completed via 'install'
+            // (installSkipped stays false) + a DO_INSTALL MSR per unit carrying
+            // the shared install photos, mirroring the single-item install step.
+            await this.advanceDeliveryItem(deliveryId, it.inventoryId!, 'install', organizationId);
+            await this.prisma.maintenanceServiceReport.create({
+              data: {
+                organizationId,
+                technicianUserId,
+                assetId: it.assetId!,
+                inventoryId: it.inventoryId!,
+                deliveryId,
+                kind: 'DO_INSTALL',
+                status: 'completed',
+                description: 'Installed (bulk)',
+                ...(dto.installPhotos?.length ? { photos: dto.installPhotos } : {}),
+                ...(dto.signature ? { signature: dto.signature, signedAt: now } : {}),
+                ...(dto.recipientName ? { signedByName: dto.recipientName } : {}),
+                ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
+                ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
+                ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
+              },
+            });
+          } else {
+            await this.advanceDeliveryItem(deliveryId, it.inventoryId!, 'skip', organizationId);
+          }
+        }
       }
       if (updated) acknowledged++;
     }
     await this.recomputeRunStatus(deliveryId, organizationId);
     return { acknowledged, total: pending.length };
+  }
+
+  /**
+   * Collect ONE unit on a RETURN run with proof (#3a per-unit "End Return"):
+   * the return twin of the per-unit outbound ack. Writes a single DO_ACK MSR for
+   * this unit (signature + photos + GPS), collects it (delivering → completed,
+   * rental → instock, off-hire on last unit), then refolds the run. Returns skip
+   * install, so there is no install branch here. Idempotent: a unit already
+   * collected returns acknowledged:0.
+   */
+  async acknowledgeReturnUnit(
+    deliveryId: string,
+    inventoryId: string,
+    dto: { signature?: string; recipientName?: string; photos?: string[]; latitude?: number; longitude?: number; technicianName?: string },
+    organizationId: string,
+    technicianUserId: string,
+  ) {
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: { id: true, status: true, direction: true, items: { select: { inventoryId: true, assetId: true, deliveryStatus: true } } },
+    });
+    if (!run) throw new NotFoundException('Delivery not found');
+    if (run.status === 'cancelled') throw new BadRequestException('Cannot collect on a cancelled delivery');
+    if (run.direction !== DeliveryDirection.RETURN) {
+      throw new BadRequestException('This endpoint collects units on RETURN runs only');
+    }
+    const item = run.items.find(
+      (i) => i.inventoryId === inventoryId && i.assetId && i.deliveryStatus === DeliveryStatus.delivering,
+    );
+    if (!item) {
+      // Already collected / not started / not on this run — idempotent no-op.
+      return { acknowledged: 0 };
+    }
+
+    const now = new Date();
+    await this.prisma.maintenanceServiceReport.create({
+      data: {
+        organizationId,
+        technicianUserId,
+        assetId: item.assetId!,
+        inventoryId,
+        deliveryId,
+        kind: 'DO_ACK',
+        status: dto.signature ? 'completed' : 'draft',
+        description: 'Return collected',
+        ...(dto.signature ? { signature: dto.signature, signedAt: now } : {}),
+        ...(dto.recipientName ? { signedByName: dto.recipientName } : {}),
+        ...(dto.photos?.length ? { photos: dto.photos } : {}),
+        ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
+        ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
+        ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
+      },
+    });
+    const updated = await this.collectReturnUnit(deliveryId, inventoryId, organizationId);
+    await this.recomputeRunStatus(deliveryId, organizationId);
+    return { acknowledged: updated ? 1 : 0 };
   }
 
   /**

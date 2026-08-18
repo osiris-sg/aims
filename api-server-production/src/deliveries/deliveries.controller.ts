@@ -190,6 +190,22 @@ export class DeliveriesController {
     return this.service.acknowledgeAll(id, dto, org.id, riderUserId);
   }
 
+  // Field: collect ONE unit on a RETURN run with proof (per-unit "End Return").
+  // The return twin of the per-unit outbound ack — one DO_ACK MSR + collect.
+  @Post(':id/items/:inventoryId/collect-return')
+  @Permissions('maintenance-reports:create')
+  collectReturn(
+    @Param('id') id: string,
+    @Param('inventoryId') inventoryId: string,
+    @Body() dto: AckAllDto,
+    @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
+  ) {
+    const riderUserId = req.user?.id;
+    if (!riderUserId) throw new UnauthorizedException('Missing authenticated user');
+    return this.service.acknowledgeReturnUnit(id, inventoryId, dto, org.id, riderUserId);
+  }
+
   // Mark a FREE-TYPED item delivered (no unit to scan). Keyed by DeliveryItem.id;
   // the service rejects any row that carries an assetId/inventoryId.
   @Post(':id/items/:itemId/deliver')
