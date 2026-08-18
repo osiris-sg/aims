@@ -495,15 +495,23 @@ export default function DeliveryBasketPage() {
         },
         token,
       );
-      if (res?.success === false) throw new Error(res?.message ?? "Acknowledge all failed");
+      if (res?.success === false) throw new Error(res?.message ?? "Deliver all failed");
       const n = (res?.data ?? res)?.acknowledged ?? 0;
-      setActionMsg(`Acknowledged ${n} unit${n === 1 ? "" : "s"} ✓`);
       setAckAllOpen(false);
       setAckPhotos([]);
       setAckRecipient("");
-      await load();
+      if (run.direction === "RETURN") {
+        // Returns stay in the basket (a collection has no DO/receipt hand-off).
+        setActionMsg(`Collected ${n} unit${n === 1 ? "" : "s"} ✓`);
+        await load();
+      } else {
+        // Deliver all signs + skip-installs every unit → the run completes and
+        // its DO auto-creates. Converge on the SAME printable done screen as the
+        // per-unit flow instead of dropping back to the basket with no print.
+        router.push(`/scan/deliveries/finished/${deliveryId}`);
+      }
     } catch (e: any) {
-      setActionMsg(e?.message ?? "Acknowledge all failed");
+      setActionMsg(e?.message ?? "Deliver all failed");
     } finally {
       setAckBusy(false);
     }
@@ -577,10 +585,10 @@ export default function DeliveryBasketPage() {
           Items ({visibleItems.length})
         </Typography>
         {/* One signature/photo/GPS for every unit still delivering (per-unit
-            Acknowledge stays available below for partial deliveries). */}
-        {/* Stays available while ANY unit is still un-acknowledged (≥1) — not just
-            ≥2 — so the remaining units after a per-unit ack can still be done in
-            one pass. Free-typed lines aren't acked here; they use "Mark delivered". */}
+            Delivered stays available below for partial deliveries). */}
+        {/* Stays available while ANY unit is still out for delivery (≥1) so the
+            remaining units after a per-unit delivery can still be done in one
+            pass. Free-typed lines use "Mark delivered". */}
         {deliveringUnits.length >= 1 && (
           <Button
             size="small"
@@ -593,7 +601,7 @@ export default function DeliveryBasketPage() {
             }}
             disabled={busy || ackBusy}
           >
-            {run.direction === "RETURN" ? `Confirm return (${deliveringUnits.length})` : `Acknowledge remaining (${deliveringUnits.length})`}
+            {run.direction === "RETURN" ? `Confirm return (${deliveringUnits.length})` : `Deliver all (${deliveringUnits.length})`}
           </Button>
         )}
       </Stack>
@@ -657,7 +665,7 @@ export default function DeliveryBasketPage() {
                         onClick={() => router.push(hasDraftAck(it) ? afterAckHref(it) : ackHref(it))}
                         sx={{ minHeight: 40 }}
                       >
-                        {hasDraftAck(it) ? "Continue" : "Acknowledge"}
+                        {hasDraftAck(it) ? "Continue" : "Delivered"}
                       </Button>
                     )}
                     {it.deliveryStatus === "not_installed" && (
@@ -922,11 +930,13 @@ export default function DeliveryBasketPage() {
       {/* Acknowledge all — one signature + optional photo + GPS, applied to every
           unit still delivering on the run. */}
       <Dialog open={ackAllOpen} onClose={() => !ackBusy && setAckAllOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>{run.direction === "RETURN" ? "Confirm return" : "Acknowledge all"} ({deliveringUnits.length})</DialogTitle>
+        <DialogTitle>{run.direction === "RETURN" ? "Confirm return" : "Deliver all"} ({deliveringUnits.length})</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
             One signature (and optional photo) applies to all {deliveringUnits.length}{" "}
-            {run.direction === "RETURN" ? "units being collected — they return to stock." : "units currently out for delivery."}
+            {run.direction === "RETURN"
+              ? "units being collected — they return to stock."
+              : "units currently out for delivery. They're marked delivered (no installation). A unit that needs installing — use its own Delivered button instead."}
           </Typography>
           <TextField
             fullWidth
@@ -952,7 +962,7 @@ export default function DeliveryBasketPage() {
         <DialogActions>
           <Button onClick={() => setAckAllOpen(false)} disabled={ackBusy}>Cancel</Button>
           <Button variant="contained" onClick={submitAckAll} disabled={ackBusy || photoUploading}>
-            {ackBusy ? <CircularProgress size={18} /> : `Acknowledge ${deliveringUnits.length}`}
+            {ackBusy ? <CircularProgress size={18} /> : run.direction === "RETURN" ? `Confirm return (${deliveringUnits.length})` : `Deliver all (${deliveringUnits.length})`}
           </Button>
         </DialogActions>
       </Dialog>

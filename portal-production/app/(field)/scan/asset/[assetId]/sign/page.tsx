@@ -97,8 +97,10 @@ export default function SignPage() {
         return;
       }
       if (deliveryId && flowKind === "install") {
-        // Standalone install signed → back to the run's basket.
-        router.replace(`/scan/delivery/${deliveryId}`);
+        // Standalone install signed → the unit is completed; land on the
+        // run-level done/print screen (same printable receipt as the fresh
+        // after-ack flow), NOT back on the basket with no print.
+        router.replace(`/scan/deliveries/finished/${deliveryId}`);
         return;
       }
       const invQuery = inventoryId ? `?inventoryId=${encodeURIComponent(inventoryId)}` : "";
