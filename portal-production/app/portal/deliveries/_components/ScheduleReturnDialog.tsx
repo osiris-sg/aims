@@ -166,8 +166,9 @@ export default function ScheduleReturnDialog({
     };
   }, [customer, getToken]);
 
-  // Load the selected project's units currently out on rental (from its ACTIVE
-  // deployments). Reuses GET /projects/:id/deployments.
+  // Load the selected project's units currently out on rental. Reuses the
+  // generic GET /projects/:id/deployments, which returns deployments of EVERY
+  // status, so the ACTIVE-only narrowing is applied here rather than assumed.
   useEffect(() => {
     setUnits([]);
     setChecked(new Set());
@@ -185,6 +186,11 @@ export default function ScheduleReturnDialog({
         const rows: UnitRow[] = [];
         const seen = new Set<string>();
         for (const dep of deps) {
+          // Off-hired, completed and cancelled deployments are finished; their
+          // units are not out. The unit check below would exclude them anyway
+          // (they are back to instock), but this keeps the intent explicit
+          // rather than relying on that side effect.
+          if (dep?.status !== "ACTIVE") continue;
           for (const a of dep?.assignments ?? []) {
             const inv = a?.inventory;
             // Only units genuinely OUT on rental can be collected back.
