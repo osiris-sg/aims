@@ -28,6 +28,9 @@ export default function StandaloneDeliveryAckPage() {
   const deliveryId = params?.deliveryId as string;
   const assetId = search?.get("assetId") ?? "";
   const inventoryId = search?.get("inventoryId") ?? null;
+  // Carried through to after-ack: this capture is the LEAD of a bulk
+  // "Deliver all", so the proof gathered here fans across the run at confirm.
+  const applyToAll = search?.get("applyToAll") === "1";
   const [notes, setNotes] = useState("");
   const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -78,7 +81,7 @@ export default function StandaloneDeliveryAckPage() {
       const q = `assetId=${encodeURIComponent(assetId)}${
         inventoryId ? `&inventoryId=${encodeURIComponent(inventoryId)}` : ""
       }&ackMsrId=${encodeURIComponent(reportId)}`;
-      router.replace(`/scan/delivery/${deliveryId}/after-ack?${q}`);
+      router.replace(`/scan/delivery/${deliveryId}/after-ack?${q}${applyToAll ? "&applyToAll=1" : ""}`);
     } catch (e: any) {
       setError(e?.message ?? "Failed to save delivery");
     } finally {

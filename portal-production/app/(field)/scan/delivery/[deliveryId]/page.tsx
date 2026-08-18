@@ -164,7 +164,8 @@ export default function DeliveryBasketPage() {
   const [pendingPhotos, setPendingPhotos] = useState<CapturedPhoto[]>([]);
   const [photoUploading, setPhotoUploading] = useState(false);
   // Bulk delivery/return ("Deliver all" / "Complete all deliveries") now runs on
-  // the dedicated /complete page (#3b) — one capture flow fanned across units.
+  // the rider's own ack -> after-ack screens with applyToAll=1 (returns still
+  // use the dedicated /complete page, which is the only return-aware screen).
   // Guards double-handling the same NFC read (uid persists until next startScan)
   const handledUidRef = useRef<string | null>(null);
 
@@ -520,7 +521,7 @@ export default function DeliveryBasketPage() {
   const canFillScheduledSlot = run.status === "in_progress";
 
   // Units mid-delivery (DO_START fired, not yet acknowledged) — the ones the
-  // bulk "Deliver all" / "Complete all deliveries" flow (/complete) covers in one
+  // bulk "Deliver all" / "Complete all deliveries" flow covers in one
   // signature/photo/GPS pass.
   const deliveringUnits = run.items.filter((it) => it.inventoryId && it.deliveryStatus === "delivering");
 
@@ -601,10 +602,23 @@ export default function DeliveryBasketPage() {
             size="small"
             variant="contained"
             startIcon={<LocalShippingIcon />}
-            // #3b: run the SAME single-item capture flow (photos → install →
-            // signature) once on a dedicated page, then fan the proof across every
-            // delivering unit via ack-all. Replaces the cramped in-basket dialog.
-            onClick={() => router.push(`/scan/delivery/${run.id}/complete`)}
+            // Run the rider's OWN single-item screens for a lead unit, then fan
+            // that proof across the rest. Outbound reuses ack -> after-ack with
+            // applyToAll=1, so bulk and single are literally the same screens.
+            // RETURN still uses /complete: neither ack nor after-ack knows about
+            // returns (they prompt for installation and post DO_INSTALL), so
+            // routing collections through them would be wrong, not just ugly.
+            onClick={() => {
+              const lead = deliveringUnits[0];
+              if (run.direction === "RETURN" || !lead?.inventoryId) {
+                router.push(`/scan/delivery/${run.id}/complete`);
+                return;
+              }
+              const q = `assetId=${encodeURIComponent(lead.assetId)}&inventoryId=${encodeURIComponent(lead.inventoryId)}&applyToAll=1`;
+              router.push(
+                `/scan/delivery/${run.id}/${hasDraftAck(lead) ? "after-ack" : "ack"}?${q}`,
+              );
+            }}
             disabled={busy}
           >
             {run.direction === "RETURN" ? `Complete all deliveries (${deliveringUnits.length})` : `Deliver all (${deliveringUnits.length})`}
