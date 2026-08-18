@@ -575,7 +575,11 @@ export class ProjectsService {
           where: { endDate: null }, // active only — hide soft-closed (moved-away) units
           include: {
             asset: { select: { id: true, name: true, skuKey: true } },
-            inventory: { select: { id: true, sku: true } },
+            // status is load-bearing: the scheduled-return picker keeps only units
+            // genuinely OUT (`rental`). Without it the field is undefined on the
+            // client and its filter rejected every unit, so the form always read
+            // "no units out on rental". Matches every other deployment select here.
+            inventory: { select: { id: true, sku: true, status: true } },
           },
         },
         // Split _count by document type so invoice/document totals are accurate
