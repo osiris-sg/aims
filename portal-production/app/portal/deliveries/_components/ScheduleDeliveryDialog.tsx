@@ -99,6 +99,8 @@ export default function ScheduleDeliveryDialog({
   const [address, setAddress] = useState("");
   // Once the user edits the address, stop auto-overwriting it on project change.
   const [addressTouched, setAddressTouched] = useState(false);
+  // Machine location — free-text sub-location (tower/floor/unit) under the address.
+  const [machineLocation, setMachineLocation] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -130,6 +132,7 @@ export default function ScheduleDeliveryDialog({
       setPoNumber("");
       setAddress("");
       setAddressTouched(false);
+      setMachineLocation("");
       setError(null);
       setNote(null);
       setCustomer(null);
@@ -418,6 +421,7 @@ export default function ScheduleDeliveryDialog({
           ),
           ...(poNumber.trim() ? { poNumber: poNumber.trim() } : {}),
           ...(address.trim() ? { address: address.trim() } : {}),
+          ...(machineLocation.trim() ? { machineLocation: machineLocation.trim() } : {}),
           ...(customer ? { customerId: customer.id } : {}),
           ...(project ? { projectId: project.id } : {}),
         },
@@ -529,6 +533,20 @@ export default function ScheduleDeliveryDialog({
               ? { "& .MuiOutlinedInput-root": { backgroundColor: "action.hover" } }
               : {}),
           }}
+        />
+
+        {/* Machine location — free-text sub-location beneath the address (tower,
+            floor, unit). NOT a saved list; per-delivery detail. Lands on the DO's
+            config.machineLocation, rendered under "Deliver To". */}
+        <TextField
+          label="Machine location (optional)"
+          placeholder="Specific spot on site — tower, floor, unit"
+          value={machineLocation}
+          onChange={(e) => setMachineLocation(e.target.value)}
+          fullWidth
+          size="small"
+          helperText="More specific than the address — lands on the DO under Deliver To"
+          sx={{ mb: 2 }}
         />
 
         {/* 4) PRODUCTS */}

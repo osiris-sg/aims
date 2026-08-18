@@ -1969,6 +1969,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     {infoRow("Attention", data.attention?.name || data.documentInfo?.contactName || data.documentInfo?.contact || "", { boldValue: true })}
                     {infoRow("Mobile", data.attention?.phoneNumber || data.attention?.phone || data.documentInfo?.contactNumber || "", { boldValue: true })}
                     {infoRow("Delivery To", data.deliveryTo || "", { boldValue: true })}
+                    {/* Machine location — free-text sub-location under Deliver To; blank-hidden. */}
+                    {(data.machineLocation || data.documentInfo?.machineLocation)
+                      ? infoRow("Machine Location", data.machineLocation || data.documentInfo?.machineLocation, { boldValue: true })
+                      : null}
                     {/* Project — directly below Deliver To; blank-hidden. */}
                     {(data.projectName || data.documentInfo?.projectName || data.project?.name)
                       ? infoRow("Project", data.projectName || data.documentInfo?.projectName || data.project?.name, { boldValue: true })

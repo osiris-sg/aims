@@ -404,6 +404,8 @@ export class DeliveriesService {
         projectName: project.name,
         documentInfo: { projectName: project.name },
         ...(deliveryAddress ? { deliveryTo: deliveryAddress } : {}),
+        // Machine location — free-text sub-location, rendered under "Deliver To".
+        ...(dto.machineLocation?.trim() ? { machineLocation: dto.machineLocation.trim() } : {}),
         ...(customer
           ? {
               customerId: customer.id,
