@@ -119,7 +119,7 @@ export class AssetsService {
     // @@unique([skuKey, organizationId, deletedAt]) with deletedAt null.
     const exactSku = await this.prisma.asset.findFirst({
       where: { organizationId, deletedAt: null, skuKey },
-      select: { id: true, name: true, skuKey: true },
+      select: { id: true, name: true, skuKey: true, assetClass: true },
     });
     if (exactSku) {
       return { asset: exactSku, collision: true as const, matched: false as const };
@@ -134,7 +134,7 @@ export class AssetsService {
     const qSku = norm(skuKey);
     const candidates = await this.prisma.asset.findMany({
       where: { organizationId, deletedAt: null },
-      select: { id: true, name: true, skuKey: true },
+      select: { id: true, name: true, skuKey: true, assetClass: true },
     });
     const dup = candidates.find((a) => norm(a.name) === qName || norm(a.skuKey) === qSku);
     if (dup) {
@@ -163,8 +163,10 @@ export class AssetsService {
         organizationId,
         uom: 'PCS',
         isTracked: true,
+        // Tech's choice on the bind page; omitted → the column default.
+        ...(dto.assetClass ? { assetClass: dto.assetClass } : {}),
       },
-      select: { id: true, name: true, skuKey: true },
+      select: { id: true, name: true, skuKey: true, assetClass: true },
     });
     return { asset, collision: false as const, matched: false as const };
   }
@@ -446,7 +448,9 @@ export class AssetsService {
     }
     return this.prisma.asset.findMany({
       where,
-      select: { id: true, name: true, skuKey: true },
+      // assetClass rides along: the field decides how many photos to demand at
+      // tagging from it, so the picker must not make a second round trip.
+      select: { id: true, name: true, skuKey: true, assetClass: true },
       orderBy: { name: 'asc' },
       take: 50,
     });

@@ -6,6 +6,7 @@ import { useFormContext } from "react-hook-form";
 import { useAddCategoryHandler } from "../hooks/useAddCategoryHandler";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { UOM_OPTIONS } from "../hooks/useAddAssetFormHandler";
+import { ASSET_CLASS_OPTIONS } from "@/helpers/assetClass";
 
 export default function AssetCreation() {
   const { control, setValue } = useFormContext();
@@ -49,6 +50,18 @@ export default function AssetCreation() {
         label="Unit of Measure"
         menuTitle="Select UOM"
         menuItems={UOM_OPTIONS}
+        required
+      />
+
+      {/* Equipment vs Accessory. Sets how many photos the field must take when
+          a unit of this product is tagged: equipment needs a full set of
+          angles, an accessory needs one. */}
+      <FormSelect
+        control={control}
+        name="assetClass"
+        label="Type"
+        menuTitle="Select type"
+        menuItems={ASSET_CLASS_OPTIONS}
         required
       />
 

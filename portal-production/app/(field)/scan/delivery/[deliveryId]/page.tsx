@@ -20,8 +20,16 @@ import {
   ListItemText,
   Stack,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
+import {
+  ASSET_CLASS_OPTIONS,
+  DEFAULT_ASSET_CLASS,
+  normalizeAssetClass,
+  type AssetClass,
+} from "@/helpers/assetClass";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import NfcIcon from "@mui/icons-material/Nfc";
 import KeyboardIcon from "@mui/icons-material/Keyboard";
@@ -130,6 +138,9 @@ export default function DeliveryBasketPage() {
   const [freeOpen, setFreeOpen] = useState(false);
   const [freeDesc, setFreeDesc] = useState("");
   const [freeQty, setFreeQty] = useState("1");
+  // Equipment vs Accessory for the free-typed line. There is no asset to read
+  // the class from, so the rider picks it; defaults to Equipment.
+  const [freeClass, setFreeClass] = useState<AssetClass>(DEFAULT_ASSET_CLASS);
   // Mandatory condition-photo step: a resolved unit parks here until the
   // rider captures ≥1 photo. mode 'add' = new unit (add + start); mode
   // 'start' = existing not_delivered item (Fix B start only).
@@ -407,7 +418,7 @@ export default function DeliveryBasketPage() {
       if (!token) throw new Error("Not signed in");
       const res = await request(
         { path: `/deliveries/${deliveryId}/items`, method: "POST" },
-        { description, quantity },
+        { description, quantity, assetClass: freeClass },
         token,
       );
       if (res.success === false) throw new Error(res.message ?? "Could not add item");
@@ -415,6 +426,7 @@ export default function DeliveryBasketPage() {
       setFreeOpen(false);
       setFreeDesc("");
       setFreeQty("1");
+      setFreeClass(DEFAULT_ASSET_CLASS);
       await load();
     } catch (e: any) {
       setActionMsg(e?.message ?? "Could not add item");
@@ -876,6 +888,30 @@ export default function DeliveryBasketPage() {
             inputProps={{ min: 1 }}
             sx={{ mt: 1.5, maxWidth: 140 }}
           />
+          {/* No catalog asset behind this line, so the class is captured here.
+              It sets how many photos this item needs when it is tagged. */}
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 2, mb: 0.5 }}>
+            Type
+          </Typography>
+          <ToggleButtonGroup
+            value={freeClass}
+            exclusive
+            fullWidth
+            size="small"
+            color="primary"
+            disabled={busy}
+            onChange={(_, next) => {
+              // exclusive group returns null when re-clicking the active button;
+              // keep the current value so one option is always selected.
+              if (next) setFreeClass(normalizeAssetClass(next));
+            }}
+          >
+            {ASSET_CLASS_OPTIONS.map((o) => (
+              <ToggleButton key={o.value} value={o.value}>
+                {o.label}
+              </ToggleButton>
+            ))}
+          </ToggleButtonGroup>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setFreeOpen(false)} disabled={busy}>Cancel</Button>

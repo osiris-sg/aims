@@ -30,6 +30,12 @@ import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import { capturePosition } from "@/helpers/geolocation";
 import { hasNativeCamera, captureNativePhoto } from "../../lib/nativeCamera";
+import {
+  ASSET_CLASS_OPTIONS,
+  DEFAULT_ASSET_CLASS,
+  normalizeAssetClass,
+  type AssetClass,
+} from "@/helpers/assetClass";
 import { compressImageDataUrl } from "../../lib/imageCompress";
 import { useNfcScan } from "../../hooks/useNfcScan";
 
@@ -37,6 +43,8 @@ interface AssetOption {
   id: string;
   name: string;
   skuKey: string;
+  // Equipment or Accessory — decides how many photos tagging demands.
+  assetClass?: AssetClass;
 }
 
 // One inline child-asset section (SIDS → TSS, Sim Card, …). The tech types the
@@ -109,6 +117,9 @@ export default function BindTagPage() {
   const [createAssetOpen, setCreateAssetOpen] = useState(false);
   const [newAssetName, setNewAssetName] = useState("");
   const [newAssetSkuKey, setNewAssetSkuKey] = useState("");
+  // Equipment vs Accessory for a field-created product. Defaults to Equipment,
+  // the stricter photo rule, so an unconsidered choice never under-documents.
+  const [newAssetClass, setNewAssetClass] = useState<AssetClass>(DEFAULT_ASSET_CLASS);
   const [assetSkuKeyEdited, setAssetSkuKeyEdited] = useState(false);
   const [creatingAsset, setCreatingAsset] = useState(false);
   const [createAssetError, setCreateAssetError] = useState<string | null>(null);
@@ -300,6 +311,7 @@ export default function BindTagPage() {
     const seed = searchInput.trim();
     setNewAssetName(seed);
     setNewAssetSkuKey(suggestSkuKey(seed));
+    setNewAssetClass(DEFAULT_ASSET_CLASS);
     setAssetSkuKeyEdited(false);
     setCreateAssetError(null);
     setCreateAssetOpen(true);
@@ -320,7 +332,7 @@ export default function BindTagPage() {
       if (!token) throw new Error("Not signed in");
       const res = await request(
         { path: "/assets/create-basic", method: "POST" },
-        { name, skuKey },
+        { name, skuKey, assetClass: newAssetClass },
         token,
       );
       if (res?.success === false) {
@@ -338,7 +350,12 @@ export default function BindTagPage() {
       }
       const asset = data?.asset;
       if (!asset?.id) throw new Error("Unexpected response from server.");
-      const option: AssetOption = { id: asset.id, name: asset.name, skuKey: asset.skuKey };
+      const option: AssetOption = {
+        id: asset.id,
+        name: asset.name,
+        skuKey: asset.skuKey,
+        assetClass: normalizeAssetClass(asset.assetClass),
+      };
       // Surface it in the options + lock it in as the selection, then continue.
       setAssetOptions((prev) => [option, ...prev.filter((o) => o.id !== option.id)]);
       setSelectedAsset(option);
@@ -1324,6 +1341,34 @@ export default function BindTagPage() {
             disabled={creatingAsset}
             helperText="A unique code for this product."
           />
+          {/* Equipment needs a full set of photos when a unit is tagged; an
+              accessory needs one. Defaults to Equipment. Toggle rather than a
+              select so it stays a big tap target in the field. */}
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 2, mb: 0.5 }}>
+            Type
+          </Typography>
+          <ToggleButtonGroup
+            value={newAssetClass}
+            exclusive
+            fullWidth
+            size="small"
+            color="primary"
+            disabled={creatingAsset}
+            onChange={(_, next) => {
+              // exclusive group returns null when re-clicking the active button;
+              // keep the current value so one option is always selected.
+              if (next) setNewAssetClass(normalizeAssetClass(next));
+            }}
+          >
+            {ASSET_CLASS_OPTIONS.map((o) => (
+              <ToggleButton key={o.value} value={o.value}>
+                {o.label}
+              </ToggleButton>
+            ))}
+          </ToggleButtonGroup>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+            Equipment needs a full set of photos when tagged. Accessory needs one.
+          </Typography>
           {createAssetError && <Alert severity="error" sx={{ mt: 1.5 }}>{createAssetError}</Alert>}
         </DialogContent>
         <DialogActions>

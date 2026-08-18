@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { DeliveryDirection, DeliveryStatus, DeploymentStatus, DeploymentType, InventoryStatus, Prisma } from '@prisma/client';
+import { AssetClass, DeliveryDirection, DeliveryStatus, DeploymentStatus, DeploymentType, InventoryStatus, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
 import { isUnconfirmedDoc } from 'src/common/doc-status';
+import { resolveLineAssetClass } from 'src/common/asset-class';
 import { DocumentsService } from '../documents/documents.service';
 import { ProjectsService } from '../projects/projects.service';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
@@ -348,6 +349,9 @@ export class DeliveriesService {
                 inventoryId: null, // asset-only — bound when a rider scans a unit
                 quantity: it.quantity,
                 description: lineDescription(it),
+                // Only a free-typed line stores its own class; a catalog line
+                // reads it off the asset, so leave that null.
+                assetClass: it.assetId ? null : it.assetClass ?? AssetClass.EQUIPMENT,
               })),
             },
           },
@@ -644,6 +648,9 @@ export class DeliveriesService {
           inventoryId: null,
           description,
           quantity,
+          // Free-typed lines carry their OWN class (there is no asset to read it
+          // from). Omitted → EQUIPMENT, the stricter photo rule.
+          assetClass: dto.assetClass ?? AssetClass.EQUIPMENT,
           ...(documentId ? { documentId } : {}),
         },
       });
@@ -779,7 +786,7 @@ export class DeliveriesService {
             select: { id: true, sku: true, serialNumber: true, status: true },
           })
         : Promise.resolve([]),
-      this.prisma.asset.findMany({ where: { id: { in: assetIds } }, select: { id: true, name: true, skuKey: true } }),
+      this.prisma.asset.findMany({ where: { id: { in: assetIds } }, select: { id: true, name: true, skuKey: true, assetClass: true } }),
       // Active ProjectDeployment per unit (endDate=null assignment) — drives the
       // office RENTAL/SALE toggle. Null-deployment units can't be set to SALE
       // (nothing to write to) until they're assigned to a project.
@@ -856,6 +863,13 @@ export class DeliveriesService {
         // Active ProjectDeployment for the RENTAL/SALE toggle (null → unassigned,
         // SALE disabled). Type mirrors ProjectDeployment.type.
         deployment: i.inventoryId ? deploymentByInv.get(i.inventoryId) ?? null : null,
+        // Resolved Equipment/Accessory for THIS line: the line's own class when
+        // free-typed, else the asset's, else EQUIPMENT. Pre-resolved server-side
+        // so the field never has to reimplement the fallback chain.
+        effectiveAssetClass: resolveLineAssetClass(
+          i.assetClass,
+          i.assetId ? assetById.get(i.assetId)?.assetClass ?? null : null,
+        ),
       })),
       reports,
     };

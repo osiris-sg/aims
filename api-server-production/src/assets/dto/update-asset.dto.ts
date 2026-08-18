@@ -1,6 +1,7 @@
 import { PartialType } from '@nestjs/mapped-types';
 import { CreateAssetDto, CustomPriceDto, UOM_OPTIONS } from './create-asset.dto';
-import { IsNotEmpty, IsString, IsOptional, IsUUID, IsBoolean, IsInt, IsNumber, Min, IsIn, IsArray, ValidateNested } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsUUID, IsBoolean, IsInt, IsNumber, Min, IsIn, IsArray, ValidateNested, IsEnum } from 'class-validator';
+import { AssetClass } from '@prisma/client';
 import { Type } from 'class-transformer';
 
 export class UpdateAssetDto extends PartialType(CreateAssetDto) {
@@ -59,6 +60,11 @@ export class UpdateAssetDto extends PartialType(CreateAssetDto) {
   @IsOptional()
   @Min(0)
   points?: number;
+
+  // Equipment vs Accessory — sets the minimum photos required at tagging.
+  @IsEnum(AssetClass)
+  @IsOptional()
+  assetClass?: AssetClass;
 
   // Tracking mode toggle
   @IsBoolean()

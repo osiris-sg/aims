@@ -12,6 +12,14 @@ datasource db {
   extensions = [pg_trgm]
 }
 
+/// Equipment vs Accessory. Drives the minimum number of photos required when a
+/// unit is tagged in the field (see minPhotosForAssetClass in
+/// src/common/asset-class.ts). Every pre-existing asset is EQUIPMENT.
+enum AssetClass {
+  EQUIPMENT
+  ACCESSORY
+}
+
 model Organization {
   id                       String                     @id @default(uuid())
   name                     String                     @unique
@@ -134,6 +142,9 @@ model Asset {
   parentAssetId          String?                    @db.Uuid
   // Unit of Measure (e.g., PCS, EA, SET, BOX, KG, etc.)
   uom                    String                     @default("PCS")
+  // Equipment vs Accessory. Non-null with a default so the ADD COLUMN backfills
+  // every existing row to EQUIPMENT in one statement (no separate backfill).
+  assetClass             AssetClass                 @default(EQUIPMENT)
   // Tracking mode: true = individual inventory items with SKUs, false = simple quantity
   isTracked              Boolean                    @default(true)
   // When true AND parentAssetId is set: creating a unit of the parent asset
@@ -2356,6 +2367,9 @@ model DeliveryItem {
   inventoryId    String?        @db.Uuid
   description    String?
   quantity       Int            @default(1)
+  // Class for a FREE-TYPED line only (no assetId to read it from). NULL on
+  // catalog-backed lines — those resolve the class through their Asset.
+  assetClass     AssetClass?
   // Same per-item lifecycle as DocumentItem.deliveryStatus (shared enum):
   // not_delivered → delivering → not_installed → completed.
   deliveryStatus DeliveryStatus @default(not_delivered)

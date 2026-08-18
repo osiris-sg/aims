@@ -1,4 +1,5 @@
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { AssetClass } from '@prisma/client';
 
 /**
  * Field-flow top-level asset creation (bind page): when a scanned nameplate
@@ -16,4 +17,10 @@ export class CreateBasicAssetDto {
   @IsString()
   @IsNotEmpty()
   skuKey: string;
+
+  // Equipment vs Accessory, chosen by the tech when they create the product
+  // from the field. Omitted → EQUIPMENT (the stricter photo rule).
+  @IsEnum(AssetClass)
+  @IsOptional()
+  assetClass?: AssetClass;
 }

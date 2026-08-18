@@ -14,10 +14,17 @@ import {
   DialogTitle,
   Divider,
   IconButton,
+  MenuItem,
   Stack,
   TextField,
   Typography,
 } from "@mui/material";
+import {
+  ASSET_CLASS_OPTIONS,
+  DEFAULT_ASSET_CLASS,
+  normalizeAssetClass,
+  type AssetClass,
+} from "@/helpers/assetClass";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import RequestQuoteIcon from "@mui/icons-material/RequestQuote";
@@ -41,7 +48,9 @@ interface ProjectOption { id: string; name: string }
 // quantity is a RAW STRING so the field is freely typeable; clamped on blur/submit.
 // A row is EITHER a catalog product (asset set) OR free-typed (asset null +
 // description). quantity is shared.
-interface Row { asset: AssetOption | null; description: string; freeTyped: boolean; quantity: string }
+// assetClass applies to free-typed rows only — a catalog row reads its class
+// off the picked asset.
+interface Row { asset: AssetOption | null; description: string; freeTyped: boolean; quantity: string; assetClass: AssetClass }
 
 // Quotation descriptions are rich text (the editor stores HTML like
 // "<b>100-Ton Excavator</b><div><i>Note: …</i></div>"). Convert to plain text
@@ -90,7 +99,7 @@ export default function ScheduleDeliveryDialog({
   const { getToken } = useAuth();
   const { organization } = useOrganization();
 
-  const [rows, setRows] = useState<Row[]>([{ asset: null, description: "", freeTyped: false, quantity: "1" }]);
+  const [rows, setRows] = useState<Row[]>([{ asset: null, description: "", freeTyped: false, quantity: "1", assetClass: DEFAULT_ASSET_CLASS }]);
   // Date + time are held separately so BOTH are independently settable (a single
   // datetime-local left the time portion effectively uneditable for the office).
   const [scheduleDate, setScheduleDate] = useState("");
@@ -126,7 +135,7 @@ export default function ScheduleDeliveryDialog({
   // Reset on (re)open.
   useEffect(() => {
     if (open) {
-      setRows([{ asset: null, description: "", freeTyped: false, quantity: "1" }]);
+      setRows([{ asset: null, description: "", freeTyped: false, quantity: "1", assetClass: DEFAULT_ASSET_CLASS }]);
       setScheduleDate("");
       setScheduleTime("09:00");
       setPoNumber("");
@@ -362,7 +371,7 @@ export default function ScheduleDeliveryDialog({
           const cleanText = htmlToText(it?.description);
           // Nothing matched → FREE-TYPED with PLAIN-TEXT description, so no line is
           // silently dropped and no raw HTML leaks into the field.
-          const freeRow: Row = { asset: null, description: cleanText, freeTyped: true, quantity: qty };
+          const freeRow: Row = { asset: null, description: cleanText, freeTyped: true, quantity: qty, assetClass: DEFAULT_ASSET_CLASS };
           if (!token) return freeRow;
           // 1. PRIMARY — itemCode → exact skuKey (the reliable catalog key).
           const itemCode = String(it?.itemCode || "").trim();
@@ -370,24 +379,24 @@ export default function ScheduleDeliveryDialog({
             const hit = (await searchAssets(itemCode)).find(
               (a) => (a.skuKey || "").toLowerCase() === itemCode.toLowerCase(),
             );
-            if (hit) return { asset: hit, description: "", freeTyped: false, quantity: qty };
+            if (hit) return { asset: hit, description: "", freeTyped: false, quantity: qty, assetClass: DEFAULT_ASSET_CLASS };
           }
           // 2. FALLBACK — inventoryItemId (asset id), if the role can read it.
           const invId = String(it?.inventoryItemId || "").trim();
           if (invId) {
             const byId = await assetById(invId);
-            if (byId) return { asset: byId, description: "", freeTyped: false, quantity: qty };
+            if (byId) return { asset: byId, description: "", freeTyped: false, quantity: qty, assetClass: DEFAULT_ASSET_CLASS };
           }
           // 3. LAST RESORT — HTML-stripped fuzzy text (first line only).
           const firstLine = cleanText.split("\n")[0] || "";
           if (firstLine) {
             const arr = await searchAssets(firstLine);
-            if (arr[0]) return { asset: arr[0], description: "", freeTyped: false, quantity: qty };
+            if (arr[0]) return { asset: arr[0], description: "", freeTyped: false, quantity: qty, assetClass: DEFAULT_ASSET_CLASS };
           }
           return freeRow;
         }),
       );
-      const finalRows = resolved.length ? resolved : [{ asset: null, description: "", freeTyped: false, quantity: "1" }];
+      const finalRows = resolved.length ? resolved : [{ asset: null, description: "", freeTyped: false, quantity: "1", assetClass: DEFAULT_ASSET_CLASS }];
       setRows(finalRows);
       const matched = finalRows.filter((r) => !r.freeTyped).length;
       // Honest summary: matched count + SEPARATELY whether project/PO were filled.
@@ -420,7 +429,11 @@ export default function ScheduleDeliveryDialog({
           scheduledFor,
           items: validRows.map((r) =>
             r.freeTyped
-              ? { description: r.description.trim(), quantity: Math.max(1, parseInt(r.quantity, 10) || 1) }
+              ? {
+                  description: r.description.trim(),
+                  quantity: Math.max(1, parseInt(r.quantity, 10) || 1),
+                  assetClass: r.assetClass,
+                }
               : { assetId: r.asset!.id, quantity: Math.max(1, parseInt(r.quantity, 10) || 1) },
           ),
           ...(poNumber.trim() ? { poNumber: poNumber.trim() } : {}),
@@ -563,14 +576,31 @@ export default function ScheduleDeliveryDialog({
               {row.freeTyped ? (
                 // Free-typed line: a description (no catalog product). Carries to the
                 // DO as a plain line; a rider can never unit-bind to it.
-                <TextField
-                  sx={{ flex: 1 }}
-                  size="small"
-                  label="Free-typed item"
-                  placeholder="e.g. 1 set 25 mm 5 core cable"
-                  value={row.description}
-                  onChange={(e) => setRow(i, { description: e.target.value })}
-                />
+                <Stack sx={{ flex: 1 }} spacing={1}>
+                  <TextField
+                    size="small"
+                    label="Free-typed item"
+                    placeholder="e.g. 1 set 25 mm 5 core cable"
+                    value={row.description}
+                    onChange={(e) => setRow(i, { description: e.target.value })}
+                  />
+                  {/* No catalog product behind this line, so its class is set
+                      here. It decides how many photos the field must take. */}
+                  <TextField
+                    select
+                    size="small"
+                    label="Type"
+                    value={row.assetClass}
+                    onChange={(e) => setRow(i, { assetClass: normalizeAssetClass(e.target.value) })}
+                    sx={{ maxWidth: 180 }}
+                  >
+                    {ASSET_CLASS_OPTIONS.map((o) => (
+                      <MenuItem key={o.value} value={o.value}>
+                        {o.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                </Stack>
               ) : (
                 <Autocomplete<AssetOption, false, false, false>
                   sx={{ flex: 1 }}
@@ -612,10 +642,10 @@ export default function ScheduleDeliveryDialog({
           ))}
         </Stack>
         <Stack direction="row" spacing={1}>
-          <Button size="small" startIcon={<AddIcon />} onClick={() => setRows((rs) => [...rs, { asset: null, description: "", freeTyped: false, quantity: "1" }])}>
+          <Button size="small" startIcon={<AddIcon />} onClick={() => setRows((rs) => [...rs, { asset: null, description: "", freeTyped: false, quantity: "1", assetClass: DEFAULT_ASSET_CLASS }])}>
             Add product
           </Button>
-          <Button size="small" startIcon={<AddIcon />} onClick={() => setRows((rs) => [...rs, { asset: null, description: "", freeTyped: true, quantity: "1" }])}>
+          <Button size="small" startIcon={<AddIcon />} onClick={() => setRows((rs) => [...rs, { asset: null, description: "", freeTyped: true, quantity: "1", assetClass: DEFAULT_ASSET_CLASS }])}>
             Free type item
           </Button>
         </Stack>
