@@ -464,6 +464,9 @@ export default function TabbedDocumentCreator({
     documentType === "QO1" ||
     documentType === "QO2" ||
     documentType === "QT";
+  // Component-scope invoice flag so the header project picker (appendRow) can
+  // cover invoices too. (Inner callbacks keep their own local copies.)
+  const isInvoiceTypeDoc = documentType === "INVOICE" || documentType === "TI" || documentType === "TI2";
 
   // Biofuel org gate — drives the Biofuel-only quotation header fields
   // (editable Sale person / Mobile, defaulting to Eugene Lee / 9818 9200).
@@ -1171,10 +1174,10 @@ export default function TabbedDocumentCreator({
   // flow (Save as Draft, Confirm, etc.). No-op when the picker value matches
   // what's already persisted; skipped for doc types without the picker and
   // for unsaved (no documentId) drafts — those persist via the normal
-  // document update flow when the doc is first created. Quotations and
-  // delivery orders carry the picker (link-project endpoint allows both).
+  // document update flow when the doc is first created. QUOTATION, DELIVERY_ORDER
+  // and INVOICE all carry the picker; the link-project endpoint accepts any type.
   const persistProjectLinkIfChanged = useCallback(async () => {
-    if (!isQuotation && !isDeliveryOrder) return;
+    if (!isQuotation && !isDeliveryOrder && !isInvoiceTypeDoc) return;
     const docId = documentId || existingData?.id;
     if (!docId) return;
     const desired = formData.projectId || null;
@@ -1197,7 +1200,7 @@ export default function TabbedDocumentCreator({
       console.error("link-project PATCH failed:", err);
       toast.error("Failed to save project link");
     }
-  }, [isQuotation, isDeliveryOrder, documentId, existingData?.id, formData.projectId, getToken]);
+  }, [isQuotation, isDeliveryOrder, isInvoiceTypeDoc, documentId, existingData?.id, formData.projectId, getToken]);
 
   // Reset the dirty flag whenever a different document is loaded.
   useEffect(() => {
@@ -4103,22 +4106,29 @@ export default function TabbedDocumentCreator({
                     }
                     appendRow={
                       // Project picker as the LAST header row, styled like the
-                      // rest. Quotations (optional) + delivery orders (required
-                      // before confirm — enforced on the Confirm button). Gated
-                      // behind enableQuotationProjectLink; only rendered after a
-                      // customer is picked (a disabled picker here used to block
-                      // Customer Code clicks via an MUI Autocomplete-portal
-                      // interaction).
-                      (isQuotation || isDeliveryOrder) && isQuotationProjectLinkEnabled && formData.customer?.id && tab.tabId === "general"
+                      // rest. QUOTATION (optional) + DELIVERY_ORDER (required
+                      // before confirm) + INVOICE, gated behind
+                      // enableQuotationProjectLink. This replaces the legacy
+                      // "Additional Details" project picker (see the DEAD marker
+                      // in the !templateFieldConfig branch below), which no longer
+                      // rendered after the dynamic-field-config restyle and left
+                      // invoices with no picker at all.
+                      //
+                      // Rendered ALWAYS for eligible types (not hidden until a
+                      // customer is picked) so the field stays legible. With no
+                      // customer we show a plain DISABLED TextField with a hint,
+                      // NOT a disabled Autocomplete: a disabled Autocomplete's
+                      // portal used to swallow Customer Code clicks.
+                      (isQuotation || isDeliveryOrder || isInvoiceTypeDoc) && isQuotationProjectLinkEnabled && tab.tabId === "general"
                         ? {
                             label: isDeliveryOrder ? "Project *" : "Project",
-                            content: (
+                            content: formData.customer?.id ? (
                               <>
                                 <Autocomplete
                                   size="small"
                                   sx={{ flex: 1, maxWidth: 420 }}
                                   options={effectiveProjects.filter((p: any) => !p.customerId || p.customerId === formData.customer.id)}
-                                  getOptionLabel={(option: any) => option?.projectNumber ? `${option.projectNumber} — ${option.name}` : (option?.name ?? "")}
+                                  getOptionLabel={(option: any) => option?.projectNumber ? `${option.projectNumber} - ${option.name}` : (option?.name ?? "")}
                                   value={effectiveProjects.find((p: any) => p.id === formData.projectId) || null}
                                   onChange={(_, newValue: any) => handleProjectLinkChange(newValue?.id || "")}
                                   noOptionsText="No projects for this customer"
@@ -4130,7 +4140,7 @@ export default function TabbedDocumentCreator({
                                       sx={{
                                         ...headerInputSx,
                                         // Autocomplete wraps the input in its own padded
-                                        // root — flatten it to match the 28px boxed fields.
+                                        // root; flatten it to match the 28px boxed fields.
                                         "& .MuiAutocomplete-inputRoot": { paddingTop: 0, paddingBottom: 0, paddingLeft: "2px" },
                                       }}
                                     />
@@ -4149,6 +4159,14 @@ export default function TabbedDocumentCreator({
                                   Create new project
                                 </Button>
                               </>
+                            ) : (
+                              <TextField
+                                size="small"
+                                disabled
+                                value=""
+                                placeholder="Select a customer first"
+                                sx={{ ...headerInputSx, flex: 1, maxWidth: 420 }}
+                              />
                             ),
                           }
                         : undefined
@@ -4408,8 +4426,17 @@ export default function TabbedDocumentCreator({
                     </Typography>
                     <Divider sx={{ mb: 0.5 }} />
                     <Grid container spacing={0.5}>
-                      {/* Project - for DO and TI */}
-                      {(documentType === "DO" || documentType === "TI") && (
+                      {/* DEAD CODE - DO NOT REVIVE. This legacy "Additional
+                          Details" project picker (Picker B) lives inside the
+                          `!templateFieldConfig` branch, which NEVER renders now
+                          that getTemplateFormFields() always returns a field
+                          config (the dynamic-tab restyle, f942d64). The live
+                          project picker for DO / TI(INVOICE) / QUOTATION is the
+                          header appendRow above (Picker A), gated behind
+                          enableQuotationProjectLink. Kept here only so this whole
+                          legacy branch stays a faithful copy; do not "restore" it
+                          to fix a missing project field - fix Picker A instead. */}
+                      {false && (documentType === "DO" || documentType === "TI") && (
                         <Grid item xs={12} md={6}>
                           <Autocomplete
                             options={projects.filter((p) => !formData.customer.id || !p.customerId || p.customerId === formData.customer.id)}
