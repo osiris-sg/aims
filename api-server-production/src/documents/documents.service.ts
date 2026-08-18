@@ -4562,16 +4562,41 @@ export class DocumentsService {
       ? await this.prisma.inventory.findMany({ where: { id: { in: unitIds } }, select: { id: true, assetId: true } })
       : [];
     const unitAsset = new Map(units.map((u) => [u.id, u.assetId]));
+    // Commercial intent per unit, read off its deployment. The OPEN assignment
+    // wins; a CLOSED one is the fallback, newest first.
+    //
+    // The fallback is load-bearing since off-hire began closing assignments:
+    // convert-to-sale now off-hires, which closes the sold unit's assignment,
+    // and an open-only lookup would find nothing and silently fall back to the
+    // RENTAL default. That would price a sold unit at its monthly rental rate
+    // instead of its sale price (on the ZZTEST asset, 500 instead of 5000).
+    // Reading Inventory.status === 'sold' would also work, but it conflates
+    // stock state with commercial intent and says nothing about a unit that is
+    // back in stock, so the deployment stays the single source of truth.
     const deploys = unitIds.length
       ? await this.prisma.assignment.findMany({
-          where: { inventoryId: { in: unitIds }, endDate: null, projectDeploymentId: { not: null } },
+          where: { inventoryId: { in: unitIds }, projectDeploymentId: { not: null } },
           orderBy: { startDate: 'desc' },
-          select: { inventoryId: true, projectDeployment: { select: { type: true } } },
+          select: {
+            inventoryId: true,
+            endDate: true,
+            projectDeployment: { select: { type: true } },
+          },
         })
       : [];
     const unitDeploy = new Map<string, string>();
+    // Pass 1: open assignments (today's behaviour, unchanged).
     for (const a of deploys) {
-      if (a.inventoryId && a.projectDeployment && !unitDeploy.has(a.inventoryId)) unitDeploy.set(a.inventoryId, a.projectDeployment.type);
+      if (a.endDate) continue;
+      if (a.inventoryId && a.projectDeployment && !unitDeploy.has(a.inventoryId)) {
+        unitDeploy.set(a.inventoryId, a.projectDeployment.type);
+      }
+    }
+    // Pass 2: newest closed assignment, only for units with no open one.
+    for (const a of deploys) {
+      if (a.inventoryId && a.projectDeployment && !unitDeploy.has(a.inventoryId)) {
+        unitDeploy.set(a.inventoryId, a.projectDeployment.type);
+      }
     }
     const assetIds = [
       ...new Set(items.map((i) => i.assetId || (i.inventoryItemId ? unitAsset.get(i.inventoryItemId) : null)).filter((v): v is string => !!v)),

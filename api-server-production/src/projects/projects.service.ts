@@ -1003,7 +1003,22 @@ export class ProjectsService {
       const deactivatedRecurringTemplates = endsRental
         ? await this.deactivateDeploymentSchedules(tx, deploymentId, organizationId)
         : [];
-      return { ...updated, deactivatedRecurringTemplates };
+      // A rental that has ended has no units on hire, so its assignments close
+      // with it. They used to be left open, which drifted "active assignment"
+      // apart from "live rental": an off-hired deployment still listed its
+      // units as on it, and the unit still read as on a project.
+      //
+      // Stamped with the SAME instant as the end date so the two agree.
+      let assignmentsClosed = 0;
+      if (endsRental) {
+        const closedAt = updated.offHiredDate ?? new Date();
+        const res = await tx.assignment.updateMany({
+          where: { projectDeploymentId: deploymentId, endDate: null },
+          data: { endDate: closedAt },
+        });
+        assignmentsClosed = res.count;
+      }
+      return { ...updated, deactivatedRecurringTemplates, assignmentsClosed };
     });
   }
 
