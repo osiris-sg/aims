@@ -42,6 +42,7 @@ export class AnomaliesService {
       this.detectMissingTax(organizationId),
       this.detectUnusualJournalAmounts(organizationId),
       this.detectStaleUnpostedJournals(organizationId, now),
+      this.detectPartiallyReturnedRentals(organizationId),
     ]);
 
     const findings: AnomalyFinding[] = [];
@@ -299,6 +300,67 @@ export class AnomaliesService {
   // --------- 5. Stale unposted journals ---------
   // Drafts more than 7 days old should either be posted or voided. The
   // hub already counts draft entries; this adds an alert when they're stale.
+  // --------- 6. Partial returns still billing in full ---------
+  // A deployment only off-hires when its LAST unit comes back, so returning 3
+  // of 5 stops nothing: the deployment stays ACTIVE, its recurring schedules
+  // stay active, and the customer keeps being billed for all 5.
+  //
+  // We deliberately do NOT auto-adjust the amount. A recurring template stores
+  // an opaque config.items snapshot with no link from any line to a unit, so
+  // there is nothing to reduce against; recomputing it would be guesswork on
+  // money. This raises it for a human instead, which is the honest fix until
+  // per-unit template granularity exists (see the deployment-granularity
+  // ticket).
+  //
+  // Self-clearing: it is recomputed on every hub load, so it disappears once
+  // the last unit returns or the office adjusts the schedule.
+  private async detectPartiallyReturnedRentals(organizationId: string): Promise<AnomalyFinding[]> {
+    // Only deployments that are still billing: ACTIVE with >=1 live schedule.
+    const templates = await this.prisma.recurringInvoiceTemplate.findMany({
+      where: { organizationId, isActive: true, projectDeploymentId: { not: null } },
+      select: { projectDeploymentId: true },
+    });
+    const depIds = [...new Set(templates.map((t) => t.projectDeploymentId!).filter(Boolean))];
+    if (depIds.length === 0) return [];
+
+    const deployments = await this.prisma.projectDeployment.findMany({
+      where: { id: { in: depIds }, organizationId, status: 'ACTIVE' },
+      select: {
+        id: true,
+        deploymentNumber: true,
+        projectId: true,
+        project: { select: { name: true } },
+        assignments: {
+          where: { endDate: null, inventoryId: { not: null } },
+          select: { inventory: { select: { status: true } } },
+        },
+      },
+    });
+
+    const findings: AnomalyFinding[] = [];
+    for (const d of deployments) {
+      const units = d.assignments.filter((a) => a.inventory);
+      if (units.length < 2) continue; // a single-unit deployment cannot be partial
+      const stillOut = units.filter((a) => a.inventory!.status === 'rental').length;
+      const returned = units.length - stillOut;
+      // Partial = some back, some still out. All back means off-hire should
+      // have fired (a different problem), none back is a normal live rental.
+      if (returned === 0 || stillOut === 0) continue;
+      findings.push({
+        severity: 'warning',
+        title: `${returned} of ${units.length} units returned, still billing in full`,
+        detail:
+          `${d.project?.name ?? 'Project'} deployment ${d.deploymentNumber ?? ''}`.trim() +
+          `: ${stillOut} unit${stillOut === 1 ? '' : 's'} still on hire. The recurring schedule ` +
+          'was not reduced, so the next invoice bills for all ' +
+          `${units.length}. Adjust the schedule to match what is still out.`,
+        count: returned,
+        link: d.projectId ? `/portal/projects/${d.projectId}` : '/portal/projects',
+      });
+    }
+    return findings;
+  }
+
   private async detectStaleUnpostedJournals(
     organizationId: string,
     now: Date,
