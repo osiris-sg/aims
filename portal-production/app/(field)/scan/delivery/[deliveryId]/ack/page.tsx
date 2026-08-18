@@ -80,7 +80,7 @@ export default function StandaloneDeliveryAckPage() {
       }&ackMsrId=${encodeURIComponent(reportId)}`;
       router.replace(`/scan/delivery/${deliveryId}/after-ack?${q}`);
     } catch (e: any) {
-      setError(e?.message ?? "Failed to save acknowledgement");
+      setError(e?.message ?? "Failed to save delivery");
     } finally {
       setSubmitting(false);
     }
@@ -88,7 +88,7 @@ export default function StandaloneDeliveryAckPage() {
 
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 3 }}>
-      <Typography variant="h6" fontWeight={700}>Acknowledge Delivery</Typography>
+      <Typography variant="h6" fontWeight={700}>Confirm delivery</Typography>
       <Typography variant="body2" color="text.secondary">
         Record the drop-off — the customer signs once at the end of the flow.
       </Typography>

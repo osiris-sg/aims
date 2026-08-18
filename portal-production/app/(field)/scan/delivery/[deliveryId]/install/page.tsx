@@ -73,7 +73,7 @@ export default function StandaloneInstallPage() {
         `/scan/asset/${assetId}/sign?reportId=${reportId}&kind=install&deliveryId=${encodeURIComponent(deliveryId)}${invQuery}`,
       );
     } catch (e: any) {
-      setError(e?.message ?? "Failed to save acknowledgement");
+      setError(e?.message ?? "Failed to save installation");
     } finally {
       setSubmitting(false);
     }

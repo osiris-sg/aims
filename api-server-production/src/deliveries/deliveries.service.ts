@@ -1748,13 +1748,13 @@ export class DeliveriesService {
       select: { id: true, status: true, direction: true, items: { select: { inventoryId: true, assetId: true, deliveryStatus: true } } },
     });
     if (!run) throw new NotFoundException('Delivery not found');
-    if (run.status === 'cancelled') throw new BadRequestException('Cannot acknowledge on a cancelled delivery');
+    if (run.status === 'cancelled') throw new BadRequestException('Cannot deliver on a cancelled delivery');
     const isReturn = run.direction === DeliveryDirection.RETURN;
     // Only units mid-flow (started, not yet acknowledged/collected) with a unit.
     const pending = run.items.filter(
       (i) => i.inventoryId && i.assetId && i.deliveryStatus === DeliveryStatus.delivering,
     );
-    if (pending.length === 0) throw new BadRequestException('No units are awaiting acknowledgement on this run');
+    if (pending.length === 0) throw new BadRequestException('No units are awaiting delivery on this run');
 
     const now = new Date();
     let acknowledged = 0;
@@ -1780,11 +1780,19 @@ export class DeliveriesService {
         },
       });
       // RETURN: collect (delivering → completed, SKIP install), flip rental →
-      // instock, and off-hire the deployment (last-unit guard). OUTBOUND: the
-      // normal ack (delivering → not_installed) — install/sign still follow.
-      const updated = isReturn
-        ? await this.collectReturnUnit(deliveryId, it.inventoryId!, organizationId)
-        : await this.advanceDeliveryItem(deliveryId, it.inventoryId!, 'ack', organizationId);
+      // instock, and off-hire the deployment (last-unit guard). OUTBOUND bulk
+      // "Deliver all" = a signed hand-off with NO per-unit installation: ack
+      // (delivering → not_installed) THEN skip-install (→ completed), so every
+      // unit COMPLETES and the run's completion hook auto-creates the DO + draft
+      // invoice — the same end state as the per-unit "No install" path. A unit
+      // that genuinely needs installing uses the per-unit flow instead.
+      let updated: unknown;
+      if (isReturn) {
+        updated = await this.collectReturnUnit(deliveryId, it.inventoryId!, organizationId);
+      } else {
+        updated = await this.advanceDeliveryItem(deliveryId, it.inventoryId!, 'ack', organizationId);
+        if (updated) await this.advanceDeliveryItem(deliveryId, it.inventoryId!, 'skip', organizationId);
+      }
       if (updated) acknowledged++;
     }
     await this.recomputeRunStatus(deliveryId, organizationId);

@@ -347,7 +347,7 @@ export default function FinishedDeliveryDetailPage() {
 
       {!ack && (
         <Alert severity="info">
-          No signed acknowledgement is stored for this run — the reprint will show the items without a signature.
+          No signed delivery is stored for this run — the reprint will show the items without a signature.
         </Alert>
       )}
 

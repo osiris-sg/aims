@@ -207,8 +207,32 @@ export default function AfterAckPage() {
           return;
         }
         setAckMsrId(msrId);
-        // Resume step: active assignment already exists → install prompt
-        // (back to assign stays available for re-edit).
+
+        // ── RESUME (server-derived): route to where the rider REALLY left off,
+        // never assume "install". install/sign/review are unsaved client state,
+        // so the item's deliveryStatus is the deepest resolvable point.
+        const itemStatus = (it as { deliveryStatus?: string } | undefined)?.deliveryStatus;
+        if (itemStatus === "completed") {
+          // Fully done → the run-level done/print screen (it reads the signed
+          // signature straight off the MSR; the client `signature` is gone).
+          router.replace(`/scan/deliveries/finished/${deliveryId}`);
+          return;
+        }
+        if (itemStatus === "not_installed") {
+          // Ack already SIGNED, installation pending → the install page. NEVER
+          // the after-ack install PROMPT — its Confirm re-signs the (already
+          // signed) ack. Reached e.g. by a Deliver-all straggler or a deep link.
+          router.replace(
+            `/scan/delivery/${deliveryId}/install?assetId=${encodeURIComponent(assetId)}${
+              inventoryId ? `&inventoryId=${encodeURIComponent(inventoryId)}` : ""
+            }`,
+          );
+          return;
+        }
+        // Otherwise the unit is `delivering` with a draft (unsigned) ack — the
+        // post-ack sequence resumes at the install prompt. Feed the review
+        // summary from the existing active assignment when present.
+        setStep("install");
         if (assetId && inventoryId) {
           try {
             const ctx = await request(
@@ -218,12 +242,11 @@ export default function AfterAckPage() {
             );
             const active = (ctx.data ?? ctx)?.activeAssignment;
             if (!cancelled && active) {
-              setStep("install");
               // Feed the review summary on resume (no doAssign this session).
               setAssignedSummary({ customer: null, project: active.project?.name ?? "(assigned)" });
             }
           } catch {
-            // Non-fatal — start at assign.
+            // Non-fatal.
           }
         }
       } catch {
@@ -445,7 +468,7 @@ export default function AfterAckPage() {
         { signature, signedByName: name },
         token,
       );
-      if (signRes?.success === false) throw new Error(signRes?.message ?? "Failed to sign acknowledgement");
+      if (signRes?.success === false) throw new Error(signRes?.message ?? "Failed to sign delivery");
 
       if (installChoice === "no") {
         const res = await request(
@@ -537,7 +560,7 @@ export default function AfterAckPage() {
         <CheckCircleIcon sx={{ fontSize: 96, color: "success.main", mt: 6 }} />
         <Typography variant="h5" fontWeight={700}>Delivery confirmed</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 360 }}>
-          Acknowledgement signed{installChoice === "no" ? " — installation not needed" : " and installation recorded"}.
+          Delivery signed{installChoice === "no" ? " — installation not needed" : " and installation recorded"}.
         </Typography>
         {/* Bluetooth receipt printing — native shell only (Classic SPP; Web
             Bluetooth is BLE-only and can never reach a 58mm SPP printer). */}
