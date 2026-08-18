@@ -268,15 +268,49 @@ export default function DocumentListView({
     },
     // "Associated Item" dropped from all document lists (2026-07-13, guru).
     {
+      // Gross total from the config blob — same candidate order as the AR
+      // invoice list's getInvoiceTotal (guru 2026-08-18: show the amount).
+      accessorKey: "amount",
+      header: "Amount",
+      enableSorting: false, // JSON-derived (config), not server-sortable
+      nowrap: true,
+      align: "right",
+      pxWidth: 130,
+      cell: ({ row }: any) => {
+        const cfg: any = row.original.config || {};
+        const candidates = [cfg?.summary?.grandTotal, cfg?.nettTotal, cfg?.grandTotal, cfg?.total, cfg?.summary?.total];
+        let total = 0;
+        for (const c of candidates) {
+          const n = parseFloat(c);
+          if (!isNaN(n) && n > 0) { total = n; break; }
+        }
+        if (!total && Array.isArray(cfg.items)) {
+          total = cfg.items.reduce((sum: number, it: any) => {
+            const amt = parseFloat(it.amount) || parseFloat(it.quantity) * parseFloat(it.unitPrice) || 0;
+            return sum + amt;
+          }, 0);
+        }
+        return total ? (
+          <Box sx={{ fontVariantNumeric: "tabular-nums" }}>
+            {total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </Box>
+        ) : "—";
+      },
+    },
+    {
       accessorKey: "status",
       header: "Status",
       nowrap: true,
+      // Fixed-width chip/date columns: the flexible width goes to Customer
+      // and Reference instead (guru 2026-08-18).
+      pxWidth: 150,
       cell: ({ row }: any) => <StatusChip status={row.original.status} />,
     },
     {
       accessorKey: "createdAt",
       header: "Created",
       nowrap: true,
+      pxWidth: 120,
       cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
     },
     {
