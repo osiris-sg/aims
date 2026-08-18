@@ -42,7 +42,11 @@ export class EmailService {
     } else {
       this.resend = new Resend(apiKey);
     }
-    this.fromEmail = this.configService.get<string>('RESEND_FROM_EMAIL') || 'invoices@aspireapp.com';
+    const rawFrom = this.configService.get<string>('RESEND_FROM_EMAIL') || 'invoices@aspireapp.com';
+    // Friendly sender name — inboxes show "AIMS", not the bare mailbox name
+    // like "admin" (guru 2026-08-18). An env value that already carries a
+    // display name ("Name <addr>") is respected as-is.
+    this.fromEmail = rawFrom.includes('<') ? rawFrom : `AIMS <${rawFrom}>`;
     this.adminEmail = this.configService.get<string>('ADMIN_EMAIL') || 'admin@osiris.sg';
   }
 
