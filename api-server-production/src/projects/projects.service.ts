@@ -935,6 +935,35 @@ export class ProjectsService {
     };
   }
 
+  /**
+   * Stop every ACTIVE recurring schedule chained to this deployment, and report
+   * what was stopped so the UI can say so.
+   *
+   * Extracted rather than having callers reach for offHireDeployment: that
+   * method DELEGATES to updateDeployment, so calling it from there would
+   * recurse. This is the one place the rule lives.
+   *
+   * Caller must pass a transaction client when it has one, so the status change
+   * and the billing stop commit together.
+   */
+  private async deactivateDeploymentSchedules(
+    tx: Prisma.TransactionClient,
+    deploymentId: string,
+    organizationId: string,
+  ) {
+    const linked = await tx.recurringInvoiceTemplate.findMany({
+      where: { organizationId, projectDeploymentId: deploymentId, isActive: true },
+      select: { id: true, name: true },
+    });
+    if (linked.length > 0) {
+      await tx.recurringInvoiceTemplate.updateMany({
+        where: { id: { in: linked.map((t) => t.id) } },
+        data: { isActive: false },
+      });
+    }
+    return linked;
+  }
+
   async updateDeployment(
     deploymentId: string,
     organizationId: string,
@@ -951,39 +980,43 @@ export class ProjectsService {
     });
     if (!existing) throw new HttpException('Deployment not found', HttpStatus.NOT_FOUND);
 
-    return this.prisma.projectDeployment.update({
-      where: { id: deploymentId },
-      data: {
-        description: data.description,
-        monthlyRate: data.monthlyRate,
-        notes: data.notes,
-        offHiredDate: data.offHiredDate ? new Date(data.offHiredDate) : undefined,
-        status: data.status ? (data.status as DeploymentStatus) : undefined,
-      },
+    // ENDING A RENTAL STOPS ITS BILLING, whichever field expressed the end.
+    // This endpoint used to be a back door: it accepts offHiredDate and status
+    // directly, so a deployment could be marked OFF_HIRED here while its
+    // recurring schedules kept invoicing. The rule now lives with the write.
+    const endsRental =
+      data.status === DeploymentStatus.OFF_HIRED || !!data.offHiredDate;
+
+    // One transaction so the status change and the billing stop cannot land
+    // half-applied (previously two independent writes).
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.projectDeployment.update({
+        where: { id: deploymentId },
+        data: {
+          description: data.description,
+          monthlyRate: data.monthlyRate,
+          notes: data.notes,
+          offHiredDate: data.offHiredDate ? new Date(data.offHiredDate) : undefined,
+          status: data.status ? (data.status as DeploymentStatus) : undefined,
+        },
+      });
+      const deactivatedRecurringTemplates = endsRental
+        ? await this.deactivateDeploymentSchedules(tx, deploymentId, organizationId)
+        : [];
+      return { ...updated, deactivatedRecurringTemplates };
     });
   }
 
+  /**
+   * Off-hire = end the rental now. Delegates to updateDeployment, which owns
+   * both the status change and the billing stop, so every route that ends a
+   * rental behaves identically.
+   */
   async offHireDeployment(deploymentId: string, organizationId: string, offHiredDate?: string) {
-    const updated = await this.updateDeployment(deploymentId, organizationId, {
+    return this.updateDeployment(deploymentId, organizationId, {
       offHiredDate: offHiredDate ?? new Date().toISOString(),
       status: DeploymentStatus.OFF_HIRED,
     });
-
-    // Off-hire ends the rental — stop any recurring invoice templates chained
-    // to this deployment so billing doesn't continue past the hire period.
-    // Surfaced to the caller so the UI can toast what was paused.
-    const linkedTemplates = await this.prisma.recurringInvoiceTemplate.findMany({
-      where: { organizationId, projectDeploymentId: deploymentId, isActive: true },
-      select: { id: true, name: true },
-    });
-    if (linkedTemplates.length > 0) {
-      await this.prisma.recurringInvoiceTemplate.updateMany({
-        where: { id: { in: linkedTemplates.map((t) => t.id) } },
-        data: { isActive: false },
-      });
-    }
-
-    return { ...updated, deactivatedRecurringTemplates: linkedTemplates };
   }
 
   /**
@@ -1023,15 +1056,18 @@ export class ProjectsService {
     });
     const inventoryIds = assignments.map((a) => a.inventoryId!).filter(Boolean);
 
-    const linkedTemplates = await this.prisma.recurringInvoiceTemplate.findMany({
-      where: { organizationId, projectDeploymentId: deploymentId, isActive: true },
-      select: { id: true, name: true },
-    });
-
     const result = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.projectDeployment.update({
         where: { id: deploymentId },
-        data: { type: DeploymentType.SALE },
+        data: {
+          type: DeploymentType.SALE,
+          // A conversion ENDS the rental, so record it like any other ending.
+          // Previously only `type` moved, leaving the row ACTIVE with no
+          // offHiredDate, so every status-based report of ended rentals missed
+          // converted sales entirely.
+          status: DeploymentStatus.OFF_HIRED,
+          offHiredDate: new Date(),
+        },
       });
       let unitsFlipped = 0;
       if (inventoryIds.length) {
@@ -1047,20 +1083,16 @@ export class ProjectsService {
         });
         unitsFlipped = flip.count;
       }
-      if (linkedTemplates.length) {
-        await tx.recurringInvoiceTemplate.updateMany({
-          where: { id: { in: linkedTemplates.map((t) => t.id) } },
-          data: { isActive: false },
-        });
-      }
-      return { updated, unitsFlipped };
+      // Same shared rule as every other rental ending.
+      const linkedTemplates = await this.deactivateDeploymentSchedules(tx, deploymentId, organizationId);
+      return { updated, unitsFlipped, linkedTemplates };
     });
 
     return {
       ...result.updated,
       unitsFlipped: result.unitsFlipped,
       inventoryIds,
-      deactivatedRecurringTemplates: linkedTemplates,
+      deactivatedRecurringTemplates: result.linkedTemplates,
     };
   }
 
