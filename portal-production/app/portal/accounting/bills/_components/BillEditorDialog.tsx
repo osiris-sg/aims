@@ -1041,14 +1041,19 @@ export default function BillEditorDialog({
               {lines.map((l, i) => (
                 <TableRow key={l.uid}>
                   <TableCell sx={{ color: "text.secondary" }}>{i + 1}</TableCell>
-                  <TableCell>
+                  <TableCell sx={{ verticalAlign: "top" }}>
+                    {/* Word-for-word extracted descriptions are multi-line —
+                        grow to 8 rows, then scroll inside the field. */}
                     <TextField
                       size="small"
                       fullWidth
+                      multiline
+                      maxRows={8}
                       placeholder="Line description"
                       value={l.description}
                       onChange={(e) => setLine(l.uid, { description: e.target.value })}
                       disabled={isReadOnly}
+                      sx={{ "& .MuiInputBase-root": { alignItems: "flex-start" } }}
                     />
                   </TableCell>
                   <TableCell>
