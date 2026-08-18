@@ -518,6 +518,12 @@ export default function DeliveryBasketPage() {
     (it) => it.deliveryStatus === "not_installed" || it.deliveryStatus === "completed",
   );
   const canAdd = run.status === "in_progress" && !anyAcknowledged;
+  // Filling an office-scheduled slot is NOT an addition — the office already
+  // declared those units, so slot 3 of 5 must stay loadable after slots 1 and 2
+  // are acknowledged. Only the run being finished closes it. The generic add
+  // controls below stay on `canAdd`, so ad-hoc units still lock at first
+  // hand-over; the backend enforces the same split in addItem.
+  const canFillScheduledSlot = run.status === "in_progress";
 
   // Units mid-delivery (DO_START fired, not yet acknowledged) — the ones
   // "Acknowledge all" covers in one signature/photo/GPS pass.
@@ -787,7 +793,7 @@ export default function DeliveryBasketPage() {
                     </Box>
                     <Chip size="small" color="warning" label={`${s.remaining} to load`} />
                   </Stack>
-                  {canAdd && (
+                  {canFillScheduledSlot && s.remaining > 0 && (
                     <Button
                       size="small"
                       variant="contained"

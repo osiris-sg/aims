@@ -766,6 +766,13 @@ export default function TabbedDocumentCreator({
     },
     billTo: existingData?.billTo || "",
     deliveryTo: existingData?.deliveryTo || "",
+    // Project + machine location on the DO header. Both live in config only (no
+    // form field writes them: the office scheduler and the delivery-completion
+    // DO builder set them server-side), so like `orderType` above they must be
+    // carried explicitly or formData drops them and the preview renders a blank
+    // row. This is the same failure the orderType comment further down records.
+    projectName: existingData?.projectName || existingData?.documentInfo?.projectName || "",
+    machineLocation: existingData?.machineLocation || existingData?.documentInfo?.machineLocation || "",
     // Top-level attention (contact person / number / email) — initialised from
     // the saved config.attention so it ROUND-TRIPS through reload + confirm.
     // The transformer already persists AND rehydrates config.attention; this

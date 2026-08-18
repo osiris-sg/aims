@@ -626,11 +626,30 @@ export class DeliveriesService {
       throw new BadRequestException(`Cannot add items to a ${delivery.status} delivery`);
     }
 
+    // Once ANY unit on this run has been handed over, the run is closed to
+    // genuinely NEW units — that is the deliberate ad-hoc lock. It is NOT closed
+    // to the office's own declared quantity: an unfilled scheduled slot is not an
+    // addition, so filling slot 3 of 5 stays legal after slots 1 and 2 are
+    // acknowledged. The client hides the generic add controls on the same rule;
+    // this guard is what makes it real against a stale or replayed client.
+    const acknowledgedCount = await this.prisma.deliveryItem.count({
+      where: {
+        deliveryId,
+        deliveryStatus: { in: [DeliveryStatus.not_installed, DeliveryStatus.completed] },
+      },
+    });
+    const anyAcknowledged = acknowledgedCount > 0;
+
     // FREE-TYPED line: no assetId → a description-only record, no catalog lookup,
     // no reservation, no unit. Resolved to a real asset/unit office-side later.
     if (!dto.assetId) {
       const description = dto.description?.trim();
       if (!description) throw new BadRequestException('A description is required for a free-typed item');
+      if (anyAcknowledged) {
+        throw new BadRequestException(
+          'This delivery has already been handed over, so new items cannot be added to it.',
+        );
+      }
       const quantity = dto.quantity ?? 1;
       // If this run is DO-linked (scheduled / merged), a field-added free-typed
       // line must ALSO reach the DO — mirror the schedule path: born-link the item
@@ -670,19 +689,33 @@ export class DeliveriesService {
     });
     if (!asset) throw new NotFoundException('Asset not found in this organization');
 
+    // SLOT-AWARE (2026-08): an OPEN office-scheduled slot for the same asset
+    // (inventoryId null — a scheduled run's remaining quantity) means this unit
+    // FILLS a declared slot rather than being a new addition. Looked up BEFORE
+    // the reservation so it can serve the post-ack guard too, and so a rejected
+    // add never leaves a unit reserved.
+    const openSlot = dto.inventoryId
+      ? await this.prisma.deliveryItem.findFirst({
+          where: { deliveryId, assetId: dto.assetId, inventoryId: null, quantity: { gte: 1 } },
+          orderBy: { id: 'asc' }, // DeliveryItem has no createdAt — id is a stable order
+          select: { id: true, quantity: true, documentId: true, description: true },
+        })
+      : null;
+
+    // Post-hand-over, only a declared slot may still be filled. Anything else
+    // (a brand-new unit, an asset-only line) is an addition and is refused.
+    if (anyAcknowledged && !openSlot) {
+      throw new BadRequestException(
+        'This delivery has already been handed over, so new units cannot be added. Only the units the office scheduled can still be loaded.',
+      );
+    }
+
     if (dto.inventoryId) {
       await this.reserveUnit(dto.inventoryId, organizationId, delivery.deliveryNumber);
 
-      // SLOT-AWARE (2026-08): if this run carries an OPEN office-scheduled slot
-      // for the same asset (inventoryId null — a merged scheduled run's remaining
-      // quantity), BIND this unit into that slot from the basket rather than
-      // creating a parallel item. Keeps the run's scheduled count honest and
-      // inherits the slot's DO link so completion still routes to commit-only.
-      const openSlot = await this.prisma.deliveryItem.findFirst({
-        where: { deliveryId, assetId: dto.assetId, inventoryId: null, quantity: { gte: 1 } },
-        orderBy: { id: 'asc' }, // DeliveryItem has no createdAt — id is a stable order
-        select: { id: true, quantity: true, documentId: true, description: true },
-      });
+      // BIND this unit into the open slot rather than creating a parallel item.
+      // Keeps the run's scheduled count honest and inherits the slot's DO link
+      // so completion still routes to commit-only.
       if (openSlot) {
         let bound;
         try {
@@ -1378,7 +1411,9 @@ export class DeliveriesService {
   ) {
     const delivery = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },
-      include: { items: true, customer: true },
+      // project rides along so the DO can carry its NAME (the template renders
+      // config.projectName; Document.projectId alone never reaches the preview).
+      include: { items: true, customer: true, project: { select: { id: true, name: true } } },
     });
     if (!delivery) throw new NotFoundException('Delivery not found');
     if (delivery.status === 'cancelled') throw new BadRequestException('Cannot create a DO for a cancelled delivery');
@@ -1507,6 +1542,13 @@ export class DeliveriesService {
       }),
       ...(delivery.siteAddress ? { deliveryTo: delivery.siteAddress } : {}),
       ...(attention ? { attention } : {}),
+      // Project NAME on the config, both flat and under documentInfo, exactly as
+      // createScheduled writes it. Document.projectId is set below but the DO
+      // template renders from config.projectName, so a completion-created DO
+      // showed a blank Project row without this.
+      ...(delivery.project?.name
+        ? { projectName: delivery.project.name, documentInfo: { projectName: delivery.project.name } }
+        : {}),
       ...(delivery.customer
         ? {
             customerId: delivery.customer.id,
