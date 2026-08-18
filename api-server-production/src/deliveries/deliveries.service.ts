@@ -416,7 +416,19 @@ export class DeliveriesService {
             }
           : {}),
       };
-      const doc = await this.documentsService.createBasicDocument(templateId, 'DELIVERY_ORDER', organizationId, doConfig, dto.projectId);
+      // OSI-83: a scheduled DRAFT must NOT consume a real DO number — mint a
+      // per-org placeholder (DO-PENDING-NN); the real number is claimed when the
+      // office confirms the DO. Max-of-existing so it survives arbitrary padding.
+      const pendings = await this.prisma.document.findMany({
+        where: { organizationId, name: { startsWith: 'DO-PENDING-' } },
+        select: { name: true },
+      });
+      const maxPending = pendings.reduce((mx, d) => {
+        const mm = d.name?.match(/-(\d+)$/);
+        return mm ? Math.max(mx, parseInt(mm[1], 10)) : mx;
+      }, 0);
+      const placeholderName = `DO-PENDING-${String(maxPending + 1).padStart(2, '0')}`;
+      const doc = await this.documentsService.createBasicDocument(templateId, 'DELIVERY_ORDER', organizationId, doConfig, dto.projectId, undefined, placeholderName);
       documentId = doc.id;
       await this.prisma.deliveryItem.updateMany({ where: { deliveryId: run.id }, data: { documentId: doc.id } });
     } catch (err: any) {

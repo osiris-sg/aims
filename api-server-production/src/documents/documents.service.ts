@@ -933,6 +933,28 @@ export class DocumentsService {
         typeof editedDocNumber === 'string' && editedDocNumber.trim() ? editedDocNumber.trim() : undefined;
       const nameToWrite = trimmedDocNumber ?? dto.name;
 
+      // OSI-83: a scheduled DRAFT DO carries a DO-PENDING-NN placeholder and never
+      // consumed a real number. The FIRST time it confirms, claim the real
+      // sequence NOW so the run display, auto-invoice, and print show the real DO
+      // number. (Computed locally — `becomingConfirmed` below is defined after
+      // this update.)
+      const doConfirmingNow = dto.status === 'confirmed' && existingDocument.status !== 'confirmed';
+      let confirmedDoName: string | undefined;
+      if (
+        doConfirmingNow &&
+        existingDocument.type === 'DELIVERY_ORDER' &&
+        typeof existingDocument.name === 'string' &&
+        existingDocument.name.startsWith('DO-PENDING-')
+      ) {
+        confirmedDoName = await this.generateSequentialDocumentName(
+          organizationId,
+          existingDocument.type,
+          existingDocument.documentTemplateId,
+          configAsPlainObject,
+          new Date(),
+        );
+      }
+
       // Update the document itself with config only
       const updatedDocument = await this.prisma.document.update({
         where: {
@@ -944,7 +966,9 @@ export class DocumentsService {
           type: dto.type,
           // Update document status if provided
           status: dto.status, // DocumentStatus enum
-          name: nameToWrite, // Custom doc number wins; otherwise honour dto.name
+          // A confirming placeholder DO claims its real number here; otherwise a
+          // custom doc number wins, else honour dto.name.
+          name: confirmedDoName ?? nameToWrite,
           // Link to project if projectId exists in config
           projectId: projectId || undefined,
           // Bump the optimistic-concurrency counter on every successful save so
@@ -1813,6 +1837,55 @@ export class DocumentsService {
       return createdDocument;
     });
   }
+  /**
+   * Compute the next sequential document "number" (= Document.name) for a type,
+   * using the SAME scheme as createBasicDocument: the org's custom
+   * DocumentNumberFormat variant when one exists (claims its serial), else the
+   * legacy prefix+serial from the max existing name. Used to claim a REAL number
+   * for a placeholder-named draft at confirm (OSI-83).
+   */
+  private async generateSequentialDocumentName(
+    organizationId: string,
+    type: string,
+    documentTemplateId: string,
+    config: any,
+    now: Date,
+  ): Promise<string> {
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { customDocumentTypes: true },
+    });
+    const documentTemplate = await this.prisma.documentTemplate.findUnique({
+      where: { id: documentTemplateId },
+      select: { templateVariant: true },
+    });
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const customTypes = organization?.customDocumentTypes as Record<string, string> | null;
+    const documentPrefix = documentTemplate?.templateVariant || customTypes?.[type] || type;
+    const namePrefix = `${documentPrefix}${year}${month}-`;
+    const existingDocs = await this.prisma.document.findMany({
+      where: { organizationId, documentTemplateId, name: { startsWith: namePrefix }, baseDocumentId: null },
+      select: { name: true },
+      orderBy: { name: 'desc' },
+      take: 1,
+    });
+    let nextSerial = 1;
+    if (existingDocs.length > 0) {
+      const match = existingDocs[0].name.match(/-(\d+)$/);
+      if (match) nextSerial = parseInt(match[1], 10) + 1;
+    }
+    let name = `${namePrefix}${String(nextSerial).padStart(3, '0')}`;
+    try {
+      const numberFormatId = (config as any)?.numberFormatId ?? null;
+      const custom = await this.documentNumbering.generateNumber(organizationId, type, numberFormatId, now);
+      if (custom) name = custom;
+    } catch (e: any) {
+      console.warn('[numbering] custom format failed, using legacy name:', e?.message);
+    }
+    return name;
+  }
+
   async createBasicDocument(
     documentTemplateId: string,
     type: string,
@@ -1820,6 +1893,7 @@ export class DocumentsService {
     config: any = {},
     projectId?: string,
     actor?: DocumentActor,
+    nameOverride?: string,
   ) {
     try {
       console.log('Creating basic document with template ID:', documentTemplateId, 'Type:', type, 'Organization ID:', organizationId, 'Config:', config, 'ProjectId:', projectId);
@@ -1907,16 +1981,21 @@ export class DocumentsService {
       const serial = String(nextSerial).padStart(3, '0');
       let name = `${namePrefix}${serial}`;
 
-      // Customisable per-type numbering (DocumentNumberFormat variants). When the
-      // org has a format for this type — or the create picker passed a chosen
-      // variant id in config.numberFormatId — it overrides the legacy scheme and
-      // claims that variant's own serial. Falls back to `name` above otherwise.
-      try {
-        const numberFormatId = (config as any)?.numberFormatId ?? null;
-        const custom = await this.documentNumbering.generateNumber(organizationId, type, numberFormatId, now);
-        if (custom) name = custom;
-      } catch (e: any) {
-        console.warn('[numbering] custom format failed, using legacy name:', e?.message);
+      // A scheduled DRAFT passes a placeholder (e.g. DO-PENDING-01) via
+      // nameOverride and SKIPS the real sequence — the number is claimed at
+      // confirm (OSI-83). Everything else takes the next number NOW: the
+      // customisable per-type format (DocumentNumberFormat variant) if the org
+      // has one — or config.numberFormatId — else the legacy serial above.
+      if (nameOverride) {
+        name = nameOverride;
+      } else {
+        try {
+          const numberFormatId = (config as any)?.numberFormatId ?? null;
+          const custom = await this.documentNumbering.generateNumber(organizationId, type, numberFormatId, now);
+          if (custom) name = custom;
+        } catch (e: any) {
+          console.warn('[numbering] custom format failed, using legacy name:', e?.message);
+        }
       }
 
       // Seed initial config with organization defaults so they persist even if user doesn't save the form
@@ -2001,8 +2080,9 @@ export class DocumentsService {
       // auto-generated serial when no custom value was passed.
       const initialDocNumber =
         (initialConfig as any)?.documentNumber ?? (initialConfig as any)?.documentInfo?.documentNumber;
-      const initialName =
-        typeof initialDocNumber === 'string' && initialDocNumber.trim()
+      const initialName = nameOverride
+        ? nameOverride
+        : typeof initialDocNumber === 'string' && initialDocNumber.trim()
           ? initialDocNumber.trim()
           : name;
 
@@ -4367,9 +4447,23 @@ export class DocumentsService {
       deliverable.every((i) => i.deliveryStatus === DeliveryStatus.completed);
     if (!allDone) return null;
 
+    // OSI-83: a scheduled DO reaches its terminal state HERE (placeholder →
+    // delivered_installed) without ever passing through the manual 'confirmed'
+    // path — so claim its real number NOW, BEFORE the invoice below snapshots
+    // the source DO number (else the invoice would capture "DO-PENDING-NN").
+    // Idempotent: the prefix guard means a DO already numbered is untouched.
+    const doc = await this.prisma.document.findUnique({
+      where: { id: documentId },
+      select: { name: true, type: true, documentTemplateId: true, config: true },
+    });
+    const realName =
+      doc && typeof doc.name === 'string' && doc.name.startsWith('DO-PENDING-')
+        ? await this.generateSequentialDocumentName(organizationId, doc.type, doc.documentTemplateId, doc.config, new Date())
+        : undefined;
+
     await this.prisma.document.update({
       where: { id: documentId },
-      data: { status: DocumentStatus.delivered_installed },
+      data: { status: DocumentStatus.delivered_installed, ...(realName ? { name: realName } : {}) },
     });
 
     return this.createInvoiceFromDeliveryOrder(documentId, organizationId);
