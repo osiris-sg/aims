@@ -4039,14 +4039,18 @@ export default function TabbedDocumentCreator({
               </Box>
             </Box>
 
-            {/* Main Tabs - Dynamic rendering based on template config */}
-            <Box sx={{ borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+            {/* Main Tabs - Dynamic rendering based on template config.
+                Right side hosts the Hide/Show fields toggle (re-added — guru
+                2026-08-18; the button was lost in the compact-layout rework
+                while its Collapse machinery survived). */}
+            <Box sx={{ borderBottom: 1, borderColor: "divider", bgcolor: "background.paper", display: "flex", alignItems: "center" }}>
               {isLoadingFieldConfig ? (
-                <Box sx={{ p: 2, textAlign: 'center' }}>
+                <Box sx={{ p: 2, textAlign: 'center', flex: 1 }}>
                   <CircularProgress size={20} />
                 </Box>
               ) : (
-                <Tabs value={mainTabValue} onChange={handleMainTabChange} sx={{ minHeight: 36, "& .MuiTab-root": { minHeight: 36, py: 0 } }}>
+                <>
+                <Tabs value={mainTabValue} onChange={handleMainTabChange} sx={{ minHeight: 36, flex: 1, "& .MuiTab-root": { minHeight: 36, py: 0 } }}>
                   {templateFieldConfig?.tabs.map((tab) => (
                     <Tab key={tab.tabId} label={tab.tabLabel} />
                   ))}
@@ -4055,6 +4059,15 @@ export default function TabbedDocumentCreator({
                     <Tab label={documentType === "RDO" ? "Return Info" : "Delivery Address"} />
                   )}
                 </Tabs>
+                <Button
+                  size="small"
+                  onClick={() => setIsFieldsCollapsed((prev) => !prev)}
+                  endIcon={isFieldsCollapsed ? <UnfoldMoreIcon /> : <UnfoldLessIcon />}
+                  sx={{ mr: 1, height: 26, py: 0, px: 1, minWidth: 0, fontSize: "0.75rem", textTransform: "none", lineHeight: 1, flexShrink: 0, color: "text.secondary" }}
+                >
+                  {isFieldsCollapsed ? "Show fields" : "Hide fields"}
+                </Button>
+                </>
               )}
             </Box>
 
