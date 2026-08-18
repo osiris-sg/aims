@@ -112,6 +112,10 @@ export default function StartDeliveryPage() {
   // Return flow: the unit's original outbound condition photos (signed URLs) for
   // the "Delivered condition" comparison strip, plus the damaged flag + comment.
   const [outboundPhotos, setOutboundPhotos] = useState<string[]>([]);
+  // Parallel angle labels for the outbound photos (empty for units captured
+  // before angle-labelling shipped) — drives per-angle pairing in the return
+  // comparison. #2.
+  const [outboundAngles, setOutboundAngles] = useState<string[]>([]);
   const [damaged, setDamaged] = useState<boolean | null>(null);
   const [damageComment, setDamageComment] = useState("");
   // Pull the outbound condition photos once, only on a return with a known unit.
@@ -128,7 +132,10 @@ export default function StartDeliveryPage() {
           token,
         );
         const data = res?.data ?? res;
-        if (!cancelled && Array.isArray(data?.photos)) setOutboundPhotos(data.photos);
+        if (!cancelled && Array.isArray(data?.photos)) {
+          setOutboundPhotos(data.photos);
+          setOutboundAngles(Array.isArray(data?.angles) ? data.angles : []);
+        }
       } catch {
         // Non-fatal: no comparison strip, the return still proceeds.
       }
@@ -328,6 +335,12 @@ export default function StartDeliveryPage() {
           ...(standalone && deliveryId ? { deliveryId } : { documentId: doId }),
           ...(technicianName ? { technicianName } : {}),
           ...(photos.length ? { photos: photos.map((p) => p.key) } : {}),
+          // Per-photo angle labels, parallel to photos[] (guided capture stamps
+          // them; free-form leaves ""). Stored in serviceData.photoAngles so a
+          // later return can pair each collection shot with its outbound angle.
+          ...(photos.some((p) => p.angle)
+            ? { angles: photos.map((p) => p.angle ?? "") }
+            : {}),
           // Return flow: record the damaged flag (recorded only) + optional
           // comment. Damaged returns still go to instock exactly as today.
           ...(isReturn
@@ -592,8 +605,10 @@ export default function StartDeliveryPage() {
       ) : null}
 
       {/* Return flow: the unit's original outbound condition photos, so the rider
-          can compare before capturing the return condition below. */}
-      {isReturn && outboundPhotos.length > 0 && (
+          can compare before capturing the return condition below. For EQUIPMENT
+          (guided) returns the comparison is per-angle inside GuidedPhotoCapture,
+          so this static strip is shown only for the accessory (free-form) path. */}
+      {isReturn && !(standalone && requiredPhotos > 1) && outboundPhotos.length > 0 && (
         <Box sx={{ width: "100%", maxWidth: 360 }}>
           <Typography variant="subtitle2" sx={{ mb: 0.25 }}>
             Delivered condition (for comparison)
@@ -626,6 +641,7 @@ export default function StartDeliveryPage() {
             minPhotos={requiredPhotos}
             onError={(m) => setError(m || null)}
             onUploadingChange={setUploading}
+            comparison={isReturn ? { photos: outboundPhotos, angles: outboundAngles } : undefined}
           />
         ) : (
           <PhotoCaptureField

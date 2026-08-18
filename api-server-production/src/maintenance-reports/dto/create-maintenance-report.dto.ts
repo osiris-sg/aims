@@ -16,6 +16,16 @@ export class CreateMaintenanceReportDto {
   @IsString()
   description!: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Per-photo angle labels, parallel to `photos` (same order/length). Guided capture sends front/back/left/right/top; free-form leaves "". Stored in serviceData.photoAngles alongside the flat photos array.',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  angles?: string[];
+
   @ApiPropertyOptional({ description: 'S3 keys of proof-of-service photos.' })
   @IsOptional()
   @IsArray()

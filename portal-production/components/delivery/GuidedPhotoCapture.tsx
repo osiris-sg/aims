@@ -35,6 +35,16 @@ const STEPS = [
   { key: "top", label: "Top", hint: "Shoot from above so the top surface is visible." },
 ] as const;
 
+/** Ordered angle KEYS for the guided set — used to pair returns by angle. */
+export const PHOTO_ANGLE_KEYS: readonly string[] = STEPS.map((s) => s.key);
+
+/** Human label for a stored angle key (front → Front); "" / extra → "". */
+export function angleLabel(key: string | undefined): string {
+  if (!key) return "";
+  const step = STEPS.find((s) => s.key === key);
+  return step ? step.label : "";
+}
+
 interface Props {
   /** Controlled list of captured (uploaded) photos. */
   photos: CapturedPhoto[];
@@ -46,6 +56,14 @@ interface Props {
   onError?: (message: string) => void;
   onUploadingChange?: (uploading: boolean) => void;
   disabled?: boolean;
+  /**
+   * Return flow (#2): the unit's OUTBOUND condition photos + parallel angle
+   * labels. When set, capture becomes strictly one-angle-at-a-time WITH a review
+   * step — after each shot the rider sees it beside the matching outbound angle,
+   * then advances. Angle-matched when `angles` line up; otherwise index-paired
+   * with the full outbound strip and a "not a guaranteed angle match" caption.
+   */
+  comparison?: { photos: string[]; angles: string[] };
 }
 
 /**
@@ -67,9 +85,33 @@ export default function GuidedPhotoCapture({
   onError,
   onUploadingChange,
   disabled,
+  comparison,
 }: Props) {
   const { uploading, captureMode, camMsg, setCamMsg, ingestFiles, takeNativePhotoOnce } =
     usePhotoUploader({ upload, onError, onUploadingChange });
+
+  // Comparison (return) mode: after each capture the rider reviews the shot
+  // beside its outbound angle before advancing. `reviewing` gates that step.
+  const comparisonMode = !!comparison;
+  const [reviewing, setReviewing] = useState(false);
+  // Does the outbound set carry angle labels? (Units captured before angle-
+  // labelling shipped won't — then we fall back to index pairing + full strip.)
+  const outboundHasAngles = !!comparison?.angles?.some((a) => a);
+
+  // The outbound reference photo for the unit's angle at position `idx`:
+  // angle-matched when labels exist, else the same index (best-effort).
+  const outboundFor = (
+    idx: number,
+  ): { src: string; matched: boolean } | null => {
+    if (!comparison) return null;
+    const key = STEPS[idx]?.key;
+    if (outboundHasAngles && key) {
+      const at = comparison.angles.findIndex((a) => a === key);
+      if (at >= 0 && comparison.photos[at]) return { src: comparison.photos[at], matched: true };
+    }
+    if (comparison.photos[idx]) return { src: comparison.photos[idx], matched: false };
+    return null;
+  };
 
   // STRICTLY SEQUENTIAL: the angle being asked for is derived from how many
   // photos exist, so there is no separate cursor to drift out of sync. Deleting
@@ -83,10 +125,26 @@ export default function GuidedPhotoCapture({
     current?.hint ?? "Any angle that shows the unit's condition, for example a serial plate or existing damage.";
   const done = photos.length >= minPhotos;
 
+  // Re-stamp every photo's angle by its CURRENT position so the stored labels
+  // always match the thumbnail captions below (which read STEPS[idx]). Positional
+  // is exactly right for this strictly-sequential capture; deleting a photo
+  // shifts the rest and re-labels them here on the next onChange.
+  const withAngles = (list: CapturedPhoto[]): CapturedPhoto[] =>
+    list.map((p, idx) => ({ ...p, angle: STEPS[idx]?.key ?? "" }));
+
   const append = (captured: CapturedPhoto[]) => {
     if (captured.length === 0) return;
-    onChange([...photos, ...captured]);
+    onChange(withAngles([...photos, ...captured]));
+    // Return mode: drop into the side-by-side review of the shot just taken.
+    if (comparisonMode) setReviewing(true);
   };
+
+  // Review controls (comparison mode only).
+  const retakeLast = () => {
+    onChange(withAngles(photos.slice(0, -1)));
+    setReviewing(false);
+  };
+  const advanceReview = () => setReviewing(false);
 
   // One shot per step: only ever take the FIRST file so a multi-select cannot
   // skip past an angle the rider has not actually photographed.
@@ -96,7 +154,7 @@ export default function GuidedPhotoCapture({
   };
 
   const removePhoto = (index: number) => {
-    onChange(photos.filter((_, i) => i !== index));
+    onChange(withAngles(photos.filter((_, i) => i !== index)));
   };
 
   return (
@@ -109,13 +167,16 @@ export default function GuidedPhotoCapture({
         {done && <CheckCircleIcon color="success" fontSize="small" />}
       </Stack>
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
-        This is equipment, so it needs a set of angles before it leaves.
+        {comparisonMode
+          ? "Capture each angle, then compare it to how the unit went out."
+          : "This is equipment, so it needs a set of angles before it leaves."}
       </Typography>
 
       {/* ONE angle at a time. The full set is deliberately NOT listed: the
           rider is asked for a single named shot, takes it, and the prompt
-          advances. */}
-      {!done && (
+          advances. In comparison mode the outbound reference for THIS angle
+          sits beside the prompt so the rider frames the same shot. */}
+      {!done && !(comparisonMode && reviewing) && (
         <Box sx={{ mb: 1.5, p: 1.5, borderRadius: 1, bgcolor: "action.hover" }}>
           <Typography variant="overline" color="text.secondary" sx={{ display: "block", lineHeight: 1.4 }}>
             Photo {photos.length + 1} of {minPhotos}
@@ -126,8 +187,110 @@ export default function GuidedPhotoCapture({
           <Typography variant="body2" color="text.secondary">
             {currentHint}
           </Typography>
+          {comparisonMode && (() => {
+            const ref = outboundFor(stepIndex);
+            if (!ref) return null;
+            return (
+              <Box sx={{ mt: 1.5 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                  {ref.matched ? `Outbound ${currentLabel}` : "Outbound (angle not guaranteed)"}
+                </Typography>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={ref.src}
+                  alt=""
+                  style={{ width: 120, height: 120, borderRadius: 4, objectFit: "cover" }}
+                />
+              </Box>
+            );
+          })()}
         </Box>
       )}
+
+      {/* Comparison review: the shot just taken beside the outbound same angle. */}
+      {comparisonMode && reviewing && photos.length > 0 && (() => {
+        const idx = photos.length - 1;
+        const ref = outboundFor(idx);
+        const label = STEPS[idx]?.label ?? `Extra ${idx - STEPS.length + 1}`;
+        const last = photos[idx];
+        const isLastAngle = photos.length >= minPhotos;
+        return (
+          <Box sx={{ mb: 2, p: 1.5, borderRadius: 1, bgcolor: "action.hover" }}>
+            <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.3, mb: 1 }}>
+              {label}: compare
+            </Typography>
+            <Stack direction="row" spacing={1.5}>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                  {ref ? (ref.matched ? "Outbound" : "Outbound (angle not guaranteed)") : "No outbound photo"}
+                </Typography>
+                {ref ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={ref.src}
+                    alt=""
+                    style={{ width: "100%", aspectRatio: "1 / 1", borderRadius: 4, objectFit: "cover" }}
+                  />
+                ) : (
+                  <Box
+                    sx={{
+                      width: "100%",
+                      aspectRatio: "1 / 1",
+                      borderRadius: 1,
+                      bgcolor: "action.disabledBackground",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Typography variant="caption" color="text.secondary">None on file</Typography>
+                  </Box>
+                )}
+              </Box>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                  Returning now
+                </Typography>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={last.previewUrl}
+                  alt=""
+                  style={{ width: "100%", aspectRatio: "1 / 1", borderRadius: 4, objectFit: "cover" }}
+                />
+              </Box>
+            </Stack>
+            {/* Legacy outbound (no angle labels): the paired shot is a best-effort
+                index match, so also show the whole outbound set for the rider to
+                eyeball the right angle. */}
+            {!outboundHasAngles && comparison && comparison.photos.length > 0 && (
+              <Box sx={{ mt: 1.5 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                  Full outbound set (not a guaranteed angle match)
+                </Typography>
+                <Stack direction="row" spacing={1} sx={{ overflowX: "auto", pb: 1 }}>
+                  {comparison.photos.map((src, i) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      key={i}
+                      src={src}
+                      alt=""
+                      style={{ width: 64, height: 64, flexShrink: 0, borderRadius: 4, objectFit: "cover" }}
+                    />
+                  ))}
+                </Stack>
+              </Box>
+            )}
+            <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
+              <Button variant="outlined" onClick={retakeLast} disabled={uploading || disabled} fullWidth>
+                Retake
+              </Button>
+              <Button variant="contained" onClick={advanceReview} disabled={uploading || disabled} fullWidth>
+                {isLastAngle ? "Done" : "Next angle"}
+              </Button>
+            </Stack>
+          </Box>
+        );
+      })()}
 
       {photos.length > 0 && (
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
@@ -174,12 +337,15 @@ export default function GuidedPhotoCapture({
         </Alert>
       )}
 
-      {done && (
+      {done && !(comparisonMode && reviewing) && (
         <Alert severity="success" sx={{ mb: 1 }}>
           All {minPhotos} photos captured. Add more below if this unit needs them.
         </Alert>
       )}
 
+      {/* Capture buttons hidden during the comparison review (Retake / Next own
+          that step). */}
+      {!(comparisonMode && reviewing) && (
       <Stack spacing={1}>
         {captureMode === "inapp" ? (
           // Native shell, in-app CameraX: the Sunmi's only working path.
@@ -218,6 +384,7 @@ export default function GuidedPhotoCapture({
           <input type="file" accept="image/*" hidden onChange={(e) => handleFiles(e.target.files)} />
         </Button>
       </Stack>
+      )}
     </Box>
   );
 }
