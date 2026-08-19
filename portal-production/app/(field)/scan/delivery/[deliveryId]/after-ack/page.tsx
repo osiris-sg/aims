@@ -88,7 +88,14 @@ export default function AfterAckPage() {
   // install prompt. The "assign" step below is retained only as dead code / a
   // resume fallback and is never entered in the new flow (the start-time assign
   // means an active assignment always exists by ack time).
-  const [step, setStep] = useState<"assign" | "install" | "sign" | "review" | "done">("install");
+  const [step, setStep] = useState<"assign" | "photos" | "install" | "sign" | "review" | "done">("install");
+  // RETURN runs share these screens (2026-08): the install prompt is suppressed,
+  // the capture step is optional extra return-condition photos with the
+  // delivered set alongside for comparison, and confirm collects the unit back
+  // instead of recording an installation.
+  const [isReturn, setIsReturn] = useState(false);
+  const [returnPhotos, setReturnPhotos] = useState<CapturedPhoto[]>([]);
+  const [outboundPhotos, setOutboundPhotos] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   // Client-carried flow state: {ackMsrId, installChoice, installPhotos,
@@ -190,6 +197,26 @@ export default function AfterAckPage() {
         );
         // Receipt data — already in this payload, just retained.
         setRunMeta({ deliveryNumber: run?.deliveryNumber ?? null, siteAddress: run?.siteAddress ?? null });
+        const runIsReturn = run?.direction === "RETURN";
+        setIsReturn(runIsReturn);
+        if (runIsReturn) {
+          // A return has no ack MSR to resolve and no installation to prompt:
+          // straight to the optional capture step, then the signature.
+          setStep("photos");
+          setResolving(false);
+          try {
+            const ob = await request(
+              { path: `/maintenance-reports/unit/${encodeURIComponent(inventoryId ?? "")}/outbound-photos`, method: "GET" },
+              {},
+              token,
+            );
+            const data = ob?.data ?? ob;
+            if (!cancelled && Array.isArray(data?.photos)) setOutboundPhotos(data.photos as string[]);
+          } catch {
+            /* comparison is a nicety; never block the collection */
+          }
+          return;
+        }
         // Resolve the ack MSR (query param wins; else the unit's DO_ACK from
         // the run's reports — draft preferred, signed accepted for old-flow
         // stragglers). None at all → the unit isn't acked: back to ack.
@@ -459,7 +486,8 @@ export default function AfterAckPage() {
   // COMMIT (from the review step) — reads the CAPTURED signature; the pad is
   // unmounted by now. Handler chain unchanged from the pre-review flow.
   const doConfirm = async () => {
-    if (!ackMsrId || !inventoryId) return;
+    // A return has no ack MSR: the collection call below is self-contained.
+    if (!inventoryId || (!isReturn && !ackMsrId)) return;
     if (!signature) {
       setError("Customer signature is required");
       setStep("sign");
@@ -471,6 +499,28 @@ export default function AfterAckPage() {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const name = signedByName.trim() || undefined;
+
+      // RETURN: one call does the whole collection (MSR + stock flip + off-hire
+      // via the last-unit guard). There is no ack MSR to sign and no
+      // installation to record, so it short-circuits the outbound path below.
+      if (isReturn) {
+        const body = {
+          signature,
+          ...(name ? { recipientName: name } : {}),
+          ...(returnPhotos.length ? { photos: returnPhotos.map((p) => p.key) } : {}),
+        };
+        const res = applyToAll
+          ? await request({ path: `/deliveries/${deliveryId}/ack-all`, method: "POST" }, body, token)
+          : await request(
+              { path: `/deliveries/${deliveryId}/items/${encodeURIComponent(inventoryId ?? "")}/collect-return`, method: "POST" },
+              body,
+              token,
+            );
+        if (res?.success === false) throw new Error(res?.message ?? "Could not collect this return");
+        void bgLocation.stop();
+        setStep("done");
+        return;
+      }
 
       const signRes = await request(
         { path: `/maintenance-reports/${ackMsrId}/sign`, method: "POST" },
@@ -592,11 +642,25 @@ export default function AfterAckPage() {
       <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5, alignItems: "center", textAlign: "center" }}>
         <CheckCircleIcon sx={{ fontSize: 96, color: "success.main", mt: 6 }} />
         <Typography variant="h5" fontWeight={700}>
-          {applyToAll ? "All deliveries confirmed" : "Delivery confirmed"}
+          {isReturn
+            ? applyToAll
+              ? "All returns collected"
+              : "Return collected"
+            : applyToAll
+              ? "All deliveries confirmed"
+              : "Delivery confirmed"}
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 360 }}>
-          {applyToAll ? "Every unit still out on this run was signed with the same proof" : "Delivery signed"}
-          {installChoice === "no" ? ", installation not needed" : " and installation recorded"}.
+          {isReturn ? (
+            applyToAll
+              ? "Every unit still out on this run was collected back to stock with the same proof."
+              : "Unit collected back to stock."
+          ) : (
+            <>
+              {applyToAll ? "Every unit still out on this run was signed with the same proof" : "Delivery signed"}
+              {installChoice === "no" ? ", installation not needed" : " and installation recorded"}.
+            </>
+          )}
         </Typography>
         {/* Bluetooth receipt printing — native shell only (Classic SPP; Web
             Bluetooth is BLE-only and can never reach a 58mm SPP printer). */}
@@ -694,13 +758,15 @@ export default function AfterAckPage() {
     return (
       <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
         <Stack direction="row" spacing={1} alignItems="center">
-          <Button startIcon={<ArrowBackIcon />} size="small" onClick={() => setStep("install")} disabled={working} sx={{ color: "text.secondary" }}>
+          <Button startIcon={<ArrowBackIcon />} size="small" onClick={() => setStep(isReturn ? "photos" : "install")} disabled={working} sx={{ color: "text.secondary" }}>
             Back
           </Button>
         </Stack>
         <Typography variant="h6" fontWeight={700}>Customer signature</Typography>
         <Typography variant="body2" color="text.secondary">
-          One signature confirms the delivery{installChoice === "yes" ? " and the installation" : ""}.
+          {isReturn
+            ? "One signature confirms the collection."
+            : `One signature confirms the delivery${installChoice === "yes" ? " and the installation" : ""}.`}{" "}
           You&apos;ll review everything before it&apos;s committed.
         </Typography>
 
@@ -791,6 +857,74 @@ export default function AfterAckPage() {
 
         <Button variant="contained" onClick={doConfirm} disabled={working} fullWidth sx={{ ...FIELD_BUTTON_SX, mt: 1 }}>
           {working ? <CircularProgress size={20} color="inherit" /> : "Confirm and Print DO"}
+        </Button>
+      </Box>
+    );
+  }
+
+  // RETURN capture: optional extra condition photos, with the delivered set
+  // alongside so the rider can see what changed. The required set was already
+  // taken at Start Return; this is the last look before signing.
+  if (step === "photos") {
+    return (
+      <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Button
+            startIcon={<ArrowBackIcon />}
+            size="small"
+            onClick={() => router.replace(`/scan/delivery/${deliveryId}`)}
+            disabled={working}
+            sx={{ color: "text.secondary" }}
+          >
+            Back
+          </Button>
+        </Stack>
+        <Typography variant="h6" fontWeight={700}>Return condition</Typography>
+        <Typography variant="body2" color="text.secondary">
+          Add any extra photos of how the unit came back. Optional.
+        </Typography>
+
+        {outboundPhotos.length > 0 && (
+          <Box>
+            <Typography variant="subtitle2" sx={{ mb: 0.25 }}>
+              Delivered condition (for comparison)
+            </Typography>
+            <Stack direction="row" spacing={1} sx={{ overflowX: "auto", pb: 1 }}>
+              {outboundPhotos.map((src, i) => (
+                <Box
+                  key={i}
+                  component="img"
+                  src={src}
+                  alt=""
+                  sx={{ width: 84, height: 84, flexShrink: 0, borderRadius: 1, objectFit: "cover", border: "1px solid", borderColor: "divider" }}
+                />
+              ))}
+            </Stack>
+          </Box>
+        )}
+
+        <PhotoCaptureField
+          label="Return condition photos (optional)"
+          photos={returnPhotos}
+          onChange={setReturnPhotos}
+          upload={uploadDoInstall}
+          onError={(m) => setError(m || null)}
+          onUploadingChange={setWorking}
+        />
+
+        {error && <Alert severity="error">{error}</Alert>}
+
+        <Button
+          variant="contained"
+          onClick={() => {
+            setError(null);
+            setStep("sign");
+          }}
+          disabled={working}
+          fullWidth
+          sx={{ py: 1.5, fontSize: "1rem", minHeight: 48 }}
+        >
+          Next
         </Button>
       </Box>
     );

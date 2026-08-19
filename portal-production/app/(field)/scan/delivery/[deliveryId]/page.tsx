@@ -164,8 +164,8 @@ export default function DeliveryBasketPage() {
   const [pendingPhotos, setPendingPhotos] = useState<CapturedPhoto[]>([]);
   const [photoUploading, setPhotoUploading] = useState(false);
   // Bulk delivery/return ("Deliver all" / "Complete all deliveries") now runs on
-  // the rider's own ack -> after-ack screens with applyToAll=1 (returns still
-  // use the dedicated /complete page, which is the only return-aware screen).
+  // the rider's own ack -> after-ack screens with applyToAll=1. Returns enter
+  // after-ack directly (their photos were taken at Start Return).
   // Guards double-handling the same NFC read (uid persists until next startScan)
   const handledUidRef = useRef<string | null>(null);
 
@@ -605,19 +605,15 @@ export default function DeliveryBasketPage() {
             // Run the rider's OWN single-item screens for a lead unit, then fan
             // that proof across the rest. Outbound reuses ack -> after-ack with
             // applyToAll=1, so bulk and single are literally the same screens.
-            // RETURN still uses /complete: neither ack nor after-ack knows about
-            // returns (they prompt for installation and post DO_INSTALL), so
-            // routing collections through them would be wrong, not just ugly.
             onClick={() => {
               const lead = deliveringUnits[0];
-              if (run.direction === "RETURN" || !lead?.inventoryId) {
-                router.push(`/scan/delivery/${run.id}/complete`);
-                return;
-              }
+              if (!lead?.inventoryId) return;
               const q = `assetId=${encodeURIComponent(lead.assetId)}&inventoryId=${encodeURIComponent(lead.inventoryId)}&applyToAll=1`;
-              router.push(
-                `/scan/delivery/${run.id}/${hasDraftAck(lead) ? "after-ack" : "ack"}?${q}`,
-              );
+              // Returns skip the ack capture (their photos were taken at Start
+              // Return) and enter after-ack directly, which now suppresses the
+              // install prompt and collects instead.
+              const entry = run.direction === "RETURN" || hasDraftAck(lead) ? "after-ack" : "ack";
+              router.push(`/scan/delivery/${run.id}/${entry}?${q}`);
             }}
             disabled={busy}
           >
@@ -698,7 +694,7 @@ export default function DeliveryBasketPage() {
                         startIcon={<AssignmentReturnIcon />}
                         onClick={() =>
                           router.push(
-                            `/scan/delivery/${run.id}/complete?inventoryId=${encodeURIComponent(it.inventoryId!)}`,
+                            `/scan/delivery/${run.id}/after-ack?assetId=${encodeURIComponent(it.assetId)}&inventoryId=${encodeURIComponent(it.inventoryId!)}`,
                           )
                         }
                         sx={{ minHeight: 40 }}

@@ -29,7 +29,7 @@ import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import { capturePosition } from "@/helpers/geolocation";
-import { hasNativeCamera, captureNativePhoto } from "../../lib/nativeCamera";
+import { canUseInAppCamera, captureNativePhoto } from "../../lib/nativeCamera";
 import {
   ASSET_CLASS_OPTIONS,
   DEFAULT_ASSET_CLASS,
@@ -584,7 +584,7 @@ export default function BindTagPage() {
   // "Scan Equipment Label" tap: in-app camera on native (works with no external
   // camera app); fall back to the file input on web / no camera.
   const onPickPhoto = async () => {
-    if (await hasNativeCamera()) {
+    if (canUseInAppCamera()) {
       try {
         const file = await captureNativePhoto();
         if (file) processPhotoFile(file);

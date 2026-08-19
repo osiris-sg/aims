@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
-import { hasNativeCamera, captureNativePhoto } from "@/app/(field)/lib/nativeCamera";
+import { canUseInAppCamera, captureNativePhoto } from "@/app/(field)/lib/nativeCamera";
 import {
   Alert,
   Box,
@@ -235,7 +235,7 @@ export default function SubmitPage() {
 
   // Native in-app camera (fast, no external app); else the capture <input>.
   const onTakePhoto = async () => {
-    if (await hasNativeCamera()) {
+    if (canUseInAppCamera()) {
       try {
         const f = await captureNativePhoto();
         if (f) await addFile(f, true);
