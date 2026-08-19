@@ -101,6 +101,8 @@ export class DeliveriesController {
     @Query('status') status?: string,
     @Query('mine') mine?: string,
     @Query('unfinished') unfinished?: string,
+    // Office only: opt IN to seeing drafts. Riders never pass this.
+    @Query('includeDrafts') includeDrafts?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
@@ -112,6 +114,7 @@ export class DeliveriesController {
       mine: isMine,
       riderUserId: isMine ? req.user?.id : undefined,
       unfinished: unfinished === 'true' || unfinished === '1',
+      includeDrafts: includeDrafts === 'true' || includeDrafts === '1',
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
     });

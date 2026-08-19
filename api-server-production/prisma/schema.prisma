@@ -2362,6 +2362,13 @@ model Delivery {
   // recorded live in the field. A run with scheduledFor set + status `scheduled`
   // is waiting for a rider to pick it up.
   scheduledFor   DateTime?
+  // Office DRAFT: a partly-filled schedule the office can come back to. A draft
+  // is NOT a real scheduled run — it is excluded from every rider-facing query,
+  // from claim/merge/fold/cancel, and it mints NO Delivery Order. The DO is
+  // created only when the draft is promoted to a real schedule. Boolean rather
+  // than a DeliveryRunStatus value on purpose: adding an enum value means
+  // ALTER TYPE ADD VALUE, which has stopped backend deploys before.
+  isDraft        Boolean           @default(false)
   // LEGACY run-level link — FROZEN (per-item linking, 2026-08): new code
   // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
   // for zero-downtime deploys (Render db-pushes on deploy while old code may

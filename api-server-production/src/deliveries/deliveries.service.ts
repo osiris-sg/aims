@@ -19,6 +19,9 @@ const RANK: Record<DeliveryStatus, number> = {
   [DeliveryStatus.completed]: 3,
 };
 
+/** Thrown to skip DO creation for a draft; caught by the same best-effort catch. */
+class SkipDraftDo extends Error {}
+
 @Injectable()
 export class DeliveriesService {
   private readonly logger = new Logger(DeliveriesService.name);
@@ -343,22 +346,30 @@ export class DeliveriesService {
   }
 
   async createScheduled(dto: ScheduleDeliveryDto, organizationId: string) {
-    if (!dto.items?.length) throw new BadRequestException('At least one item is required');
+    // A DRAFT is a partly-filled schedule the office can come back to. Saved
+    // with whatever exists, however little, and NOT a real scheduled run:
+    // excluded from every rider-facing query and from claim / merge / fold /
+    // cancel, and it mints NO Delivery Order. The DO is created when the draft
+    // is PROMOTED to a real schedule (updateScheduled).
+    const isDraft = dto.isDraft === true;
+    if (!isDraft && !dto.items?.length) throw new BadRequestException('At least one item is required');
     // projectId is REQUIRED (post-assign matching keys on it). Validate it up
     // front and derive the customer from the project when the office didn't send
     // one — the scheduled run must carry BOTH so the draft DO gets a customer and
     // the rider's project pick can later resolve back to this run.
-    const project = await this.prisma.project.findFirst({
-      where: { id: dto.projectId, organizationId },
-      select: { id: true, name: true, customerId: true },
-    });
-    if (!project) throw new NotFoundException('Project not found in this organization');
-    const customerId = dto.customerId ?? project.customerId ?? undefined;
+    const project = dto.projectId
+      ? await this.prisma.project.findFirst({
+          where: { id: dto.projectId, organizationId },
+          select: { id: true, name: true, customerId: true },
+        })
+      : null;
+    if (!project && !isDraft) throw new NotFoundException('Project not found in this organization');
+    const customerId = dto.customerId ?? project?.customerId ?? undefined;
     // Delivery address: what the office typed (dto.address) wins; else default to
     // the project NAME (for this fleet the project name IS its site address).
     // Lands on the DO's Deliver To.
-    const deliveryAddress = (dto.address?.trim() || project.name || '').trim();
-    const assetIds = [...new Set(dto.items.map((i) => i.assetId).filter((v): v is string => !!v))];
+    const deliveryAddress = (dto.address?.trim() || project?.name || '').trim();
+    const assetIds = [...new Set((dto.items ?? []).map((i) => i.assetId).filter((v): v is string => !!v))];
     const assets = await this.prisma.asset.findMany({
       where: { id: { in: assetIds }, organizationId, deletedAt: null },
       select: { id: true, name: true, skuKey: true },
@@ -391,12 +402,13 @@ export class DeliveriesService {
             status: 'scheduled',
             riderUserId: null,
             riderName: null,
-            scheduledFor: new Date(dto.scheduledFor),
-            projectId: dto.projectId,
+            isDraft,
+            scheduledFor: dto.scheduledFor ? new Date(dto.scheduledFor) : null,
+            projectId: dto.projectId ?? null,
             customerId,
             ...(deliveryAddress ? { siteAddress: deliveryAddress } : {}),
             items: {
-              create: dto.items.map((it) => ({
+              create: (dto.items ?? []).map((it) => ({
                 assetId: it.assetId ?? null, // null = free-typed (never unit-bound)
                 inventoryId: null, // asset-only — bound when a rider scans a unit
                 quantity: it.quantity,
@@ -422,7 +434,12 @@ export class DeliveriesService {
     //    than creating a new one. Best-effort: if DO creation fails the run stays
     //    unlinked and the Stage-2 completion auto-create is the fallback.
     let documentId: string | undefined;
+    // NO DO FOR A DRAFT. A draft is not a commitment: minting a Delivery Order
+    // for one would leave an orphan document behind every abandoned draft, and
+    // would consume a DO-PENDING placeholder number for a run that may never
+    // happen. The DO is created at PROMOTION instead (updateScheduled).
     try {
+      if (isDraft) throw new SkipDraftDo();
       const templateId = await this.resolveDeliveryOrderTemplateId(organizationId);
       const customer = customerId
         ? await this.prisma.customer.findFirst({
@@ -455,7 +472,10 @@ export class DeliveriesService {
       documentId = doc.id;
       await this.prisma.deliveryItem.updateMany({ where: { deliveryId: run.id }, data: { documentId: doc.id } });
     } catch (err: any) {
-      this.logger.error(`createScheduled: draft DO creation failed for delivery ${run.id}: ${err?.message}`, err?.stack);
+      // A draft deliberately skipped the DO; that is not a failure.
+      if (!(err instanceof SkipDraftDo)) {
+        this.logger.error(`createScheduled: draft DO creation failed for delivery ${run.id}: ${err?.message}`, err?.stack);
+      }
     }
 
     return { ...run, documentId };
@@ -482,22 +502,28 @@ export class DeliveriesService {
     if (run.direction === DeliveryDirection.RETURN) {
       throw new BadRequestException('This endpoint edits scheduled deliveries, not returns.');
     }
-    if (!dto.items?.length) throw new BadRequestException('At least one item is required');
+    // PROMOTION: saving a COMPLETE form with isDraft absent/false turns a draft
+    // into a real scheduled run, which is also the moment its DO is minted (a
+    // draft has none). Saving an incomplete form again just keeps it a draft.
+    const willBeDraft = dto.isDraft === true;
+    if (!willBeDraft && !dto.items?.length) throw new BadRequestException('At least one item is required');
 
-    const project = await this.prisma.project.findFirst({
-      where: { id: dto.projectId, organizationId },
-      select: { id: true, name: true, customerId: true },
-    });
-    if (!project) throw new NotFoundException('Project not found in this organization');
-    const customerId = dto.customerId ?? project.customerId ?? undefined;
-    const deliveryAddress = (dto.address?.trim() || project.name || '').trim();
-    const assetIds = [...new Set(dto.items.map((i) => i.assetId).filter((v): v is string => !!v))];
+    const project = dto.projectId
+      ? await this.prisma.project.findFirst({
+          where: { id: dto.projectId, organizationId },
+          select: { id: true, name: true, customerId: true },
+        })
+      : null;
+    if (!project && !willBeDraft) throw new NotFoundException('Project not found in this organization');
+    const customerId = dto.customerId ?? project?.customerId ?? undefined;
+    const deliveryAddress = (dto.address?.trim() || project?.name || '').trim();
+    const assetIds = [...new Set((dto.items ?? []).map((i) => i.assetId).filter((v): v is string => !!v))];
     const assets = await this.prisma.asset.findMany({
       where: { id: { in: assetIds }, organizationId, deletedAt: null },
       select: { id: true, name: true, skuKey: true },
     });
     const assetById = new Map(assets.map((a) => [a.id, a]));
-    for (const it of dto.items) {
+    for (const it of dto.items ?? []) {
       if (it.assetId && !assetById.has(it.assetId)) throw new NotFoundException(`Asset ${it.assetId} not found in this organization`);
       if (!it.assetId && !it.description?.trim()) throw new BadRequestException('A free-typed item needs a description');
     }
@@ -509,7 +535,7 @@ export class DeliveriesService {
     await this.prisma.$transaction(async (tx) => {
       await tx.deliveryItem.deleteMany({ where: { deliveryId: id } });
       await tx.deliveryItem.createMany({
-        data: dto.items.map((it) => ({
+        data: (dto.items ?? []).map((it) => ({
           deliveryId: id,
           assetId: it.assetId ?? null,
           inventoryId: null,
@@ -522,13 +548,55 @@ export class DeliveriesService {
       await tx.delivery.update({
         where: { id },
         data: {
-          scheduledFor: new Date(dto.scheduledFor),
-          projectId: dto.projectId,
+          isDraft: willBeDraft,
+          scheduledFor: dto.scheduledFor ? new Date(dto.scheduledFor) : null,
+          projectId: dto.projectId ?? null,
           customerId,
           siteAddress: deliveryAddress || null,
         },
       });
     });
+
+    // PROMOTION MINT: a draft carries no DO, so the first save that makes it a
+    // real schedule is what creates one. Same placeholder-numbered draft DO the
+    // create path would have made, just deferred until the office commits.
+    if (!willBeDraft && !documentId) {
+      try {
+        const templateId = await this.resolveDeliveryOrderTemplateId(organizationId);
+        const customer = customerId
+          ? await this.prisma.customer.findFirst({
+              where: { id: customerId, organizationId },
+              select: { id: true, name: true, customerCode: true, address: true, email: true },
+            })
+          : null;
+        const doConfig = this.buildScheduledDoConfig({
+          items: dto.items ?? [],
+          assetById,
+          projectName: project?.name ?? '',
+          deliveryAddress,
+          poNumber: dto.poNumber,
+          machineLocation: dto.machineLocation,
+          customer: customer
+            ? { id: customer.id, name: customer.name, customerCode: customer.customerCode, address: customer.address, email: customer.email }
+            : null,
+        });
+        const pending = await this.prisma.document.findMany({
+          where: { organizationId, name: { startsWith: 'DO-PENDING-' } },
+          select: { name: true },
+        });
+        const maxPending = pending.reduce((mx, d) => {
+          const mm = d.name?.match(/-(\d+)$/);
+          return mm ? Math.max(mx, parseInt(mm[1], 10)) : mx;
+        }, 0);
+        const placeholderName = `DO-PENDING-${String(maxPending + 1).padStart(2, '0')}`;
+        const doc = await this.documentsService.createBasicDocument(
+          templateId, 'DELIVERY_ORDER', organizationId, doConfig, dto.projectId, undefined, placeholderName,
+        );
+        await this.prisma.deliveryItem.updateMany({ where: { deliveryId: id }, data: { documentId: doc.id } });
+      } catch (err: any) {
+        this.logger.error(`updateScheduled: DO mint on promotion failed for delivery ${id}: ${err?.message}`, err?.stack);
+      }
+    }
 
     // Regenerate the born-linked draft DO from the new form (merge over the DO's
     // existing config so logo/stamp/template layout survive). Best-effort.
@@ -600,7 +668,7 @@ export class DeliveriesService {
     const already = await this.prisma.deliveryItem.findMany({
       where: {
         inventoryId: { in: inventoryIds },
-        delivery: { organizationId, direction: DeliveryDirection.RETURN, status: 'scheduled' },
+        delivery: { organizationId, direction: DeliveryDirection.RETURN, status: 'scheduled', isDraft: false },
       },
       select: { inventoryId: true },
     });
@@ -696,6 +764,10 @@ export class DeliveriesService {
     if (!run) throw new NotFoundException('Delivery not found');
     if (run.status !== 'scheduled') {
       throw new BadRequestException(`Delivery #${run.deliveryNumber} is not scheduled (status: ${run.status})`);
+    }
+    // A draft is an unfinished office note, not work: never claimable.
+    if (run.isDraft) {
+      throw new BadRequestException(`Delivery #${run.deliveryNumber} is still a draft and cannot be started`);
     }
     const slot = run.items.find((i) => i.assetId === dto.assetId && !i.inventoryId);
     if (!slot) {
@@ -797,6 +869,7 @@ export class DeliveriesService {
             organizationId,
             direction: DeliveryDirection.RETURN,
             status: { in: ['scheduled', 'in_progress'] },
+            isDraft: false,
           },
         },
         select: { deliveryId: true, delivery: { select: { status: true } } },
@@ -1229,6 +1302,9 @@ export class DeliveriesService {
       mine?: boolean;
       riderUserId?: string;
       unfinished?: boolean;
+      // Office only. Drafts are invisible everywhere by default so no rider
+      // query can ever surface one.
+      includeDrafts?: boolean;
     } = {},
   ) {
     const page = Math.max(1, opts.page ?? 1);
@@ -1237,6 +1313,10 @@ export class DeliveriesService {
     // no DO. Cancelled runs drop out of the queue view (their items will never
     // be linked) unless the caller asked for them by status explicitly.
     const where: Prisma.DeliveryWhereInput = {
+      // DRAFTS ARE HIDDEN BY DEFAULT. Every rider-facing read goes through here,
+      // so this one line keeps drafts out of the scheduled list, the resume
+      // view and the unlinked queue at once.
+      ...(opts.includeDrafts ? {} : { isDraft: false }),
       organizationId,
       ...(opts.mine && opts.riderUserId ? { riderUserId: opts.riderUserId } : {}),
       ...(opts.unlinked ? { items: { some: { documentId: null } } } : {}),
@@ -1987,7 +2067,7 @@ export class DeliveriesService {
       where: {
         assetId: item.assetId,
         inventoryId: null,
-        delivery: { organizationId, status: 'scheduled', projectId },
+        delivery: { organizationId, status: 'scheduled', projectId, isDraft: false },
       },
       orderBy: { delivery: { scheduledFor: 'asc' } }, // two matches → oldest first
       select: {
@@ -2488,6 +2568,11 @@ export class DeliveriesService {
     // (guarded below).
     if (delivery.status !== 'in_progress' && delivery.status !== 'scheduled') {
       throw new BadRequestException(`Only scheduled or in_progress deliveries can be cancelled (status: ${delivery.status})`);
+    }
+    // A draft reserved nothing and minted no DO, so there is nothing for this
+    // unwinding path to do. Discarding a draft is a plain delete, not a cancel.
+    if (delivery.isDraft) {
+      throw new BadRequestException('This is a draft. Discard it instead of cancelling.');
     }
 
     // Scheduled runs: asset-only, nothing reserved/delivered, born-linked to
