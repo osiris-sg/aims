@@ -822,6 +822,9 @@ export class DocumentTemplatesService {
             description: 'Website Development - E-commerce Platform',
             quantity: 1,
             unitPrice: 15000,
+            // salePrice demonstrates the two-rate quotation's second money column
+            // (Sales Unit Rates S$); a distinct value from the rental unitPrice.
+            salePrice: 180000,
             tax: 9,
             amount: 15000,
           },
@@ -830,6 +833,7 @@ export class DocumentTemplatesService {
             description: 'Mobile App Development - iOS & Android',
             quantity: 1,
             unitPrice: 25000,
+            salePrice: 300000,
             tax: 9,
             amount: 25000,
           },
@@ -838,6 +842,7 @@ export class DocumentTemplatesService {
             description: 'Annual Maintenance & Support',
             quantity: 1,
             unitPrice: 8000,
+            salePrice: 96000,
             tax: 9,
             amount: 8000,
           },
