@@ -868,6 +868,10 @@ export class DocumentsService {
         'sourceDocumentId',
         'sourceDocumentNumber',
         'sourceDocumentType',
+        // Public "Click to pay" token minted at email-send time. A bare save
+        // wiping it killed every previously-emailed pay link with "invalid or
+        // expired" (guru 2026-08-19).
+        'payToken',
       ];
       for (const k of trackingKeys) {
         if (
