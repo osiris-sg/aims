@@ -209,6 +209,19 @@ export class DeliveriesController {
     return this.service.acknowledgeReturnUnit(id, inventoryId, dto, org.id, riderUserId);
   }
 
+  // Field: pass an item over during the walk-through and move to the next one.
+  // Keyed by DeliveryItem.id so an unfilled slot or a free-typed line (neither
+  // has a unit) is skippable too. Stamps skippedAt only — see skipItem().
+  @Post(':id/items/:itemId/skip')
+  @Permissions('maintenance-reports:create')
+  skipItem(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @UserOrganization() org: { id: string },
+  ) {
+    return this.service.skipItem(id, itemId, org.id);
+  }
+
   // Mark a FREE-TYPED item delivered (no unit to scan). Keyed by DeliveryItem.id;
   // the service rejects any row that carries an assetId/inventoryId.
   @Post(':id/items/:itemId/deliver')

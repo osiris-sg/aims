@@ -460,15 +460,28 @@ export class DeliveriesService {
             customerId,
             ...(deliveryAddress ? { siteAddress: deliveryAddress } : {}),
             items: {
-              create: (dto.items ?? []).map((it) => ({
-                assetId: it.assetId ?? null, // null = free-typed (never unit-bound)
-                inventoryId: null, // asset-only — bound when a rider scans a unit
-                quantity: it.quantity,
-                description: lineDescription(it),
-                // Only a free-typed line stores its own class; a catalog line
-                // reads it off the asset, so leave that null.
-                assetClass: it.assetId ? null : it.assetClass ?? AssetClass.EQUIPMENT,
-              })),
+              // A qty-N catalog line becomes N qty-1 SLOTS, so every position the
+              // rider walks is a real row that can carry its own status and
+              // skippedAt. This also matches what the draft DO already does with
+              // its lines, so DeliveryItem and the DO config finally agree.
+              // Free-typed lines have no unit to bind and stay a single row.
+              create: (dto.items ?? []).flatMap((it, lineIdx) => {
+                const base = {
+                  assetId: it.assetId ?? null, // null = free-typed (never unit-bound)
+                  inventoryId: null as string | null, // bound when a rider scans a unit
+                  description: lineDescription(it),
+                  // Only a free-typed line stores its own class; a catalog line
+                  // reads it off the asset, so leave that null.
+                  assetClass: it.assetId ? null : it.assetClass ?? AssetClass.EQUIPMENT,
+                };
+                if (!it.assetId) return [{ ...base, quantity: it.quantity, sortOrder: lineIdx * 100 }];
+                return Array.from({ length: Math.max(1, it.quantity) }, (_, n) => ({
+                  ...base,
+                  quantity: 1,
+                  // Gaps of 100 leave room to insert without renumbering.
+                  sortOrder: lineIdx * 100 + n,
+                }));
+              }),
             },
           },
           include: { items: true },
@@ -588,16 +601,25 @@ export class DeliveriesService {
     // Swap the item set (scheduled = nothing bound) + update the run's fields.
     await this.prisma.$transaction(async (tx) => {
       await tx.deliveryItem.deleteMany({ where: { deliveryId: id } });
+      // Same qty-N -> N qty-1 slot expansion as createScheduled: the rider walks
+      // one row per unit, so editing a run must not collapse them back.
       await tx.deliveryItem.createMany({
-        data: (dto.items ?? []).map((it) => ({
-          deliveryId: id,
-          assetId: it.assetId ?? null,
-          inventoryId: null,
-          quantity: it.quantity,
-          description: lineDescription(it),
-          assetClass: it.assetId ? null : it.assetClass ?? AssetClass.EQUIPMENT,
-          ...(documentId ? { documentId } : {}),
-        })),
+        data: (dto.items ?? []).flatMap((it, lineIdx) => {
+          const base = {
+            deliveryId: id,
+            assetId: it.assetId ?? null,
+            inventoryId: null,
+            description: lineDescription(it),
+            assetClass: it.assetId ? null : it.assetClass ?? AssetClass.EQUIPMENT,
+            ...(documentId ? { documentId } : {}),
+          };
+          if (!it.assetId) return [{ ...base, quantity: it.quantity, sortOrder: lineIdx * 100 }];
+          return Array.from({ length: Math.max(1, it.quantity) }, (_, n) => ({
+            ...base,
+            quantity: 1,
+            sortOrder: lineIdx * 100 + n,
+          }));
+        }),
       });
       await tx.delivery.update({
         where: { id },
@@ -779,13 +801,16 @@ export class DeliveriesService {
             projectId: sharedProjectId,
             ...(dto.notes?.trim() ? { notes: dto.notes.trim() } : {}),
             items: {
-              create: inventoryIds.map((id) => {
+              // Returns are already one unit per row; stamp the walk order so the
+              // rider steps through them in the order the office picked them.
+              create: inventoryIds.map((id, idx) => {
                 const u = unitById.get(id)!;
                 return {
                   assetId: u.assetId,
                   inventoryId: id,
                   quantity: 1,
                   description: u.asset?.name ?? u.sku ?? 'Unit',
+                  sortOrder: idx * 100,
                 };
               }),
             },
@@ -1017,6 +1042,21 @@ export class DeliveriesService {
     return delivery;
   }
 
+  /**
+   * Walk position for a row APPENDED to a run after scheduling (a field add).
+   * Lands after everything the office declared so the rider's own additions come
+   * last in the walk instead of jumping the queue. Rows predating sortOrder sit
+   * at 0, so this still returns a sane 100 for them.
+   */
+  private async nextSortOrder(deliveryId: string): Promise<number> {
+    const last = await this.prisma.deliveryItem.findFirst({
+      where: { deliveryId },
+      orderBy: { sortOrder: 'desc' },
+      select: { sortOrder: true },
+    });
+    return (last?.sortOrder ?? 0) + 100;
+  }
+
   async addItem(deliveryId: string, dto: AddDeliveryItemDto, organizationId: string) {
     const delivery = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },
@@ -1068,6 +1108,7 @@ export class DeliveriesService {
           inventoryId: null,
           description,
           quantity,
+          sortOrder: await this.nextSortOrder(deliveryId),
           // Free-typed lines carry their OWN class (there is no asset to read it
           // from). Omitted → EQUIPMENT, the stricter photo rule.
           assetClass: dto.assetClass ?? AssetClass.EQUIPMENT,
@@ -1098,8 +1139,13 @@ export class DeliveriesService {
     const openSlot = dto.inventoryId
       ? await this.prisma.deliveryItem.findFirst({
           where: { deliveryId, assetId: dto.assetId, inventoryId: null, quantity: { gte: 1 } },
-          orderBy: { id: 'asc' }, // DeliveryItem has no createdAt — id is a stable order
-          select: { id: true, quantity: true, documentId: true, description: true },
+          // Fill the EARLIEST open slot in walk order, so a scan lands on the
+          // position the rider is actually standing at. SKIPPED slots sort last:
+          // without that, the next scan would silently refill the slot just
+          // passed over and skipping would achieve nothing. (id is the tiebreak
+          // for rows predating sortOrder, which all sit at 0.)
+          orderBy: [{ skippedAt: { sort: 'asc', nulls: 'first' } }, { sortOrder: 'asc' }, { id: 'asc' }],
+          select: { id: true, quantity: true, documentId: true, description: true, sortOrder: true },
         })
       : null;
 
@@ -1133,6 +1179,10 @@ export class DeliveriesService {
                   description: openSlot.description ?? asset.name,
                   quantity: 1,
                   documentId: openSlot.documentId,
+                  // The bound row TAKES the slot's place in the walk (it is that
+                  // slot, made concrete), so it inherits the position rather than
+                  // appending. Only reachable for legacy qty>1 slots.
+                  sortOrder: openSlot.sortOrder,
                 },
               });
             }
@@ -1173,6 +1223,7 @@ export class DeliveriesService {
           inventoryId: dto.inventoryId,
           description: dto.description ?? asset.name,
           quantity: dto.quantity ?? 1,
+          sortOrder: await this.nextSortOrder(deliveryId),
         },
       });
     } catch (err) {
@@ -1201,7 +1252,12 @@ export class DeliveriesService {
     const delivery = await this.prisma.delivery.findFirst({
       where: { id, organizationId },
       include: {
-        items: { include: { document: { select: { id: true, name: true, type: true, status: true } } } },
+        // Walk order. Rows created before sortOrder existed all sit at 0, so id
+        // is the tiebreak that keeps their order stable rather than arbitrary.
+        items: {
+          include: { document: { select: { id: true, name: true, type: true, status: true } } },
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+        },
         // Current drop target — prefills the in-flow assignment picker.
         project: { select: { id: true, name: true } },
         customer: { select: { id: true, name: true } },
@@ -1497,7 +1553,10 @@ export class DeliveriesService {
     const now = new Date();
     const data: Prisma.DeliveryItemUpdateInput =
       action === 'start'
-        ? { deliveryStatus: DeliveryStatus.delivering, deliveringAt: now }
+        ? // Starting CLEARS a skip: the rider came back to it, so it belongs in
+          // Delivering, not Skipped. One place, because 'start' is the only door
+          // into delivering.
+          { deliveryStatus: DeliveryStatus.delivering, deliveringAt: now, skippedAt: null }
         : action === 'ack'
           ? { deliveryStatus: DeliveryStatus.not_installed, deliveredAt: now }
           : action === 'install'
@@ -2533,6 +2592,45 @@ export class DeliveriesService {
   }
 
   /**
+   * WALK-THROUGH SKIP: the rider consciously passes an item over and moves to
+   * the next one. Keyed by DeliveryItem.id, not inventoryId, because an unfilled
+   * scheduled slot has no unit yet and a free-typed line never will — both are
+   * skippable positions in the walk.
+   *
+   * Only stamps `skippedAt`; deliveryStatus stays `not_delivered`. That is the
+   * whole point of a separate column: `not_delivered` alone cannot tell "passed
+   * over" from "not reached yet", and the basket's Delivering / Skipped split
+   * needs exactly that distinction. Nothing is stocked, flipped or proven — a
+   * skip is a navigation decision, and the item stays fully startable later.
+   */
+  async skipItem(deliveryId: string, itemId: string, organizationId: string) {
+    const delivery = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: { id: true, status: true },
+    });
+    if (!delivery) throw new NotFoundException('Delivery not found');
+    if (delivery.status === 'cancelled') throw new BadRequestException('Cannot skip items on a cancelled delivery');
+
+    const item = await this.prisma.deliveryItem.findFirst({
+      where: { id: itemId, deliveryId },
+      select: { id: true, deliveryStatus: true, skippedAt: true },
+    });
+    if (!item) throw new NotFoundException('Item is not on this delivery');
+    // Only something not yet begun can be passed over. Once it is delivering or
+    // beyond, the rider is committed to it and must finish or cancel the run.
+    if (item.deliveryStatus !== DeliveryStatus.not_delivered) {
+      throw new BadRequestException('This item has already been started, so it can no longer be skipped');
+    }
+    // Idempotent: a replayed tap is not an error.
+    if (item.skippedAt) return item;
+
+    return this.prisma.deliveryItem.update({
+      where: { id: item.id },
+      data: { skippedAt: new Date() },
+    });
+  }
+
+  /**
    * Mark a FREE-TYPED item delivered. Free-typed lines (assetId AND inventoryId
    * both null) have no unit to scan, so they can't ride the MSR-driven unit
    * machine (advanceDeliveryItem, keyed by inventoryId). Instead the rider taps
@@ -2572,7 +2670,8 @@ export class DeliveriesService {
 
     await this.prisma.deliveryItem.update({
       where: { id: item.id },
-      data: { deliveryStatus: DeliveryStatus.completed, completedAt: new Date() },
+      // skippedAt cleared for the same reason as 'start': the rider came back.
+      data: { deliveryStatus: DeliveryStatus.completed, completedAt: new Date(), skippedAt: null },
     });
     await this.recomputeRunStatus(deliveryId, organizationId);
     return this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
