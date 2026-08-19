@@ -1,17 +1,17 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Autocomplete, Chip, CircularProgress, TextField } from "@mui/material";
+import { Autocomplete, Chip, CircularProgress, TextField, createFilterOptions } from "@mui/material";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 
 /**
- * OSI-84 contact-people picker. Multi-select of the chosen customer's existing
- * CustomerContact list, with free-typing a new name that is saved back to that
- * customer (POST /customers/:id/contacts) and then selected. Controlled by the
- * parent via `value` / `onChange` (the full contact objects, so the parent can
- * read ids for the project link and names for display). Gated on a customer:
- * with no customerId it renders disabled with a hint.
+ * OSI-84 contact-people picker. Multi-select DROPDOWN of the chosen customer's
+ * existing CustomerContact list. Typing a name that isn't on file surfaces an
+ * inline "Add '<name>'" option in the same dropdown (no type-then-Enter): picking
+ * it saves the contact back to that customer (POST /customers/:id/contacts) and
+ * selects it. Controlled by the parent via `value` (ids) / `onChange`. Gated on a
+ * customer: with no customerId it renders disabled with a hint.
  */
 
 export interface ContactLite {
@@ -33,6 +33,11 @@ interface Props {
   label?: string;
 }
 
+// An in-dropdown "Add '<name>'" row — a synthetic option that is not a real
+// contact until picked. `__isAdd` distinguishes it in onChange/getOptionLabel.
+type Option = ContactLite & { __isAdd?: boolean };
+const filter = createFilterOptions<Option>();
+
 export default function ProjectContactPicker({ customerId, value, onChange, disabled, label }: Props) {
   const { getToken } = useAuth();
   const [options, setOptions] = useState<ContactLite[]>([]);
@@ -42,7 +47,7 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
 
   // Selected objects for the Autocomplete, resolved from ids against the loaded
   // customer contact list.
-  const selected = options.filter((o) => value.includes(o.id));
+  const selected: Option[] = options.filter((o) => value.includes(o.id));
 
   // Load the customer's contact list (the customer detail already includes it).
   useEffect(() => {
@@ -99,41 +104,51 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
   };
 
   return (
-    <Autocomplete
+    <Autocomplete<Option, true, false, false>
       multiple
-      freeSolo
       disabled={disabled || !customerId}
       loading={loading}
-      options={options}
+      options={options as Option[]}
       value={selected}
-      getOptionLabel={(o) =>
-        typeof o === "string" ? o : `${o.name}${o.designation ? ` (${o.designation})` : ""}`
-      }
-      isOptionEqualToValue={(a, b) => (a as ContactLite).id === (b as ContactLite).id}
+      getOptionLabel={(o) => (o.__isAdd ? `Add "${o.name}"` : `${o.name}${o.designation ? ` (${o.designation})` : ""}`)}
+      isOptionEqualToValue={(a, b) => a.id === b.id}
       filterSelectedOptions
+      // Surface an inline "Add '<name>'" row when the typed text matches no
+      // existing contact — the clean-dropdown replacement for type-then-Enter.
+      filterOptions={(opts, params) => {
+        const filtered = filter(opts, params);
+        const input = params.inputValue.trim();
+        if (input && !opts.some((o) => o.name.toLowerCase() === input.toLowerCase())) {
+          filtered.push({ id: `__add__:${input}`, name: input, __isAdd: true });
+        }
+        return filtered;
+      }}
       onChange={(_, newValue) => {
-        // freeSolo mixes picked ContactLite objects with any typed-in strings.
-        const pickedIds = newValue.filter((v): v is ContactLite => typeof v !== "string").map((c) => c.id);
-        const typed = newValue.filter((v): v is string => typeof v === "string");
-        onChange(pickedIds);
-        if (typed.length) void createContact(typed[typed.length - 1]);
+        // Picking the synthetic "Add" row creates the contact (which appends the
+        // real id via onChange); it never enters the selection itself.
+        const add = newValue.find((v) => v.__isAdd);
+        if (add) {
+          void createContact(add.name);
+          return;
+        }
+        onChange(newValue.map((c) => c.id));
       }}
       renderTags={(vals, getTagProps) =>
         vals.map((v, i) => {
           const { key, ...chipProps } = getTagProps({ index: i });
-          return <Chip key={typeof v === "string" ? v : v.id} label={typeof v === "string" ? v : v.name} {...chipProps} />;
+          return <Chip key={v.id} label={v.name} {...chipProps} />;
         })
       }
       renderInput={(params) => (
         <TextField
           {...params}
           label={label ?? "Contact people"}
-          placeholder={customerId ? "Pick or type a name" : "Choose a customer first"}
+          placeholder={customerId ? "Pick a contact, or type to add" : "Choose a customer first"}
           error={!!error}
           helperText={
             error ??
             (customerId
-              ? "Type a new name and press Enter to add them to this customer."
+              ? "Pick from the list, or type a new name and choose Add."
               : "Pick a customer first, then choose or add contact people.")
           }
           InputProps={{
