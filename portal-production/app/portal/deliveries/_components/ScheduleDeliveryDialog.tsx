@@ -583,21 +583,27 @@ export default function ScheduleDeliveryDialog({
     }
   };
 
-  const submit = async () => {
-    if (!canSubmit) return;
+  const submit = async (asDraft = false) => {
+    // A DRAFT saves whatever has been entered, however little. Only a real
+    // schedule needs the full set.
+    if (!asDraft && !canSubmit) return;
     setSubmitting(true);
     setError(null);
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       // Combine the separate date + time into one local datetime → ISO.
-      const scheduledFor = new Date(`${scheduleDate}T${scheduleTime}`).toISOString();
+      // A draft may have no date yet, so only build one when there is a date.
+      const scheduledFor = scheduleDate
+        ? new Date(`${scheduleDate}T${scheduleTime || "09:00"}`).toISOString()
+        : undefined;
       const res = await request(
         editRun
           ? { path: `/deliveries/scheduled/${editRun.id}`, method: "PATCH" }
           : { path: "/deliveries/scheduled", method: "POST" },
         {
-          scheduledFor,
+          ...(asDraft ? { isDraft: true } : {}),
+          ...(scheduledFor ? { scheduledFor } : {}),
           items: validRows.map((r) =>
             r.freeTyped
               ? {
@@ -615,7 +621,7 @@ export default function ScheduleDeliveryDialog({
         },
         token,
       );
-      if (res?.success === false) throw new Error(res?.message ?? "Failed to schedule delivery");
+      if (res?.success === false) throw new Error(res?.message ?? (asDraft ? "Failed to save the draft" : "Failed to schedule delivery"));
       onCreated();
       onClose();
     } catch (e: any) {
@@ -630,12 +636,12 @@ export default function ScheduleDeliveryDialog({
     <Dialog
       open={open}
       onClose={() => {
-        // Click-outside / Escape SAVES a complete form and creates the draft
-        // (only Cancel discards). An incomplete form can't save, so instead of
-        // silently no-oping we say what's missing. Always a visible result.
+        // Click-outside / Escape SAVES. A complete form becomes a real schedule;
+        // an incomplete one is saved as a DRAFT to come back to, however little
+        // was entered. An unfinished schedule is not an error. Only Cancel
+        // discards.
         if (submitting) return;
-        if (canSubmit) void submit();
-        else setError("Pick a date, project and at least one product to save. Press Cancel to discard.");
+        void submit(!canSubmit);
       }}
       fullWidth
       maxWidth="sm"
@@ -912,7 +918,7 @@ export default function ScheduleDeliveryDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={submitting}>Cancel</Button>
-        <Button variant="contained" onClick={submit} disabled={!canSubmit}>
+        <Button variant="contained" onClick={() => void submit(false)} disabled={!canSubmit}>
           {submitting ? <CircularProgress size={18} /> : editRun ? "Save changes" : "Schedule"}
         </Button>
       </DialogActions>

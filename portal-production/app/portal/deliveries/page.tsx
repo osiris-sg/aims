@@ -43,6 +43,7 @@ interface DeliveryRow {
   id: string;
   deliveryNumber: number;
   direction?: "OUTBOUND" | "RETURN";
+  isDraft?: boolean;
   status: RunStatus;
   riderName: string | null;
   siteAddress: string | null;
@@ -88,7 +89,8 @@ export default function DeliveriesQueuePage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const qs = `?page=${page + 1}&limit=${limit}`;
+      // Office view opts IN to drafts; every rider-facing read leaves them out.
+      const qs = `?page=${page + 1}&limit=${limit}&includeDrafts=true`;
       const res = await request({ path: `/deliveries${qs}`, method: "GET" }, {}, token);
       if (res.success === false) throw new Error(res.message ?? "Failed to load deliveries");
       const data = res.data ?? res;
@@ -189,7 +191,11 @@ export default function DeliveriesQueuePage() {
             </TableHead>
             <TableBody>
               {rows.map((r) => {
-                const chip = STATUS_CHIP[r.status] ?? { label: r.status, color: "default" as const };
+                // A draft is not a live schedule: no rider can see or claim it,
+                // and it has no DO yet, so it must not read as "Scheduled".
+                const chip = r.isDraft
+                  ? { label: "Draft", color: "default" as const }
+                  : STATUS_CHIP[r.status] ?? { label: r.status, color: "default" as const };
                 return (
                   <TableRow
                     key={r.id}

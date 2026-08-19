@@ -26,6 +26,26 @@ export class CreateMaintenanceReportDto {
   @IsString({ each: true })
   angles?: string[];
 
+  @ApiPropertyOptional({
+    description:
+      'Per-photo damage flags, parallel to `photos` (same order/length). Stored in serviceData.photoDamaged beside photoAngles; the scalar `damaged` column is derived from it.',
+    type: [Boolean],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsBoolean({ each: true })
+  photoDamaged?: boolean[];
+
+  @ApiPropertyOptional({
+    description:
+      'Per-photo damage comments, parallel to `photos` (same order/length), "" where none. Stored in serviceData.photoComments.',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  photoComments?: string[];
+
   @ApiPropertyOptional({ description: 'S3 keys of proof-of-service photos.' })
   @IsOptional()
   @IsArray()

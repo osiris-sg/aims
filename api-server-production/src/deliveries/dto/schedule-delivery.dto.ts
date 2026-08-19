@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayNotEmpty,
   IsArray,
+  IsBoolean,
   IsEnum,
   IsInt,
   IsISO8601,
@@ -10,6 +11,7 @@ import {
   IsString,
   IsUUID,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { AssetClass } from '@prisma/client';
@@ -53,16 +55,22 @@ export class ScheduleDeliveryItemDto {
  * scheduledFor is the target date/time.
  */
 export class ScheduleDeliveryDto {
-  @ApiProperty({ description: 'Target delivery date/time (ISO-8601).' })
+  @ApiProperty({
+    required: false,
+    description:
+      'Target delivery date/time (ISO-8601). REQUIRED for a real schedule; optional when isDraft, since a draft is by definition unfinished.',
+  })
+  @ValidateIf((o) => !o.isDraft)
   @IsISO8601()
-  scheduledFor!: string;
+  scheduledFor?: string;
 
-  @ApiProperty({ type: [ScheduleDeliveryItemDto] })
+  @ApiProperty({ type: [ScheduleDeliveryItemDto], required: false })
   @IsArray()
+  @ValidateIf((o) => !o.isDraft)
   @ArrayNotEmpty()
   @ValidateNested({ each: true })
   @Type(() => ScheduleDeliveryItemDto)
-  items!: ScheduleDeliveryItemDto[];
+  items?: ScheduleDeliveryItemDto[];
 
   @ApiProperty({ required: false, description: 'Optional drop customer (UUID). Derived from the project when omitted.' })
   @IsOptional()
@@ -70,11 +78,22 @@ export class ScheduleDeliveryDto {
   customerId?: string;
 
   @ApiProperty({
+    required: false,
     description:
-      'Project (UUID) — REQUIRED. The rider\'s project assignment at start-delivery is what resolves which scheduled run they are fulfilling (post-assign matching), so a scheduled run must carry a project from birth.',
+      'Project (UUID). REQUIRED for a real schedule (the rider is matched back to the run by the project they assign in the field), optional when isDraft.',
   })
+  @ValidateIf((o) => !o.isDraft)
   @IsUUID()
-  projectId!: string;
+  projectId?: string;
+
+  @ApiProperty({
+    required: false,
+    description:
+      'Save as an office DRAFT: whatever has been entered so far, however little. A draft is invisible to riders and mints no Delivery Order.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  isDraft?: boolean;
 
   @ApiProperty({ required: false, description: "Customer PO number — lands on the draft DO's config.poNo (\"Your PO No.\")." })
   @IsOptional()

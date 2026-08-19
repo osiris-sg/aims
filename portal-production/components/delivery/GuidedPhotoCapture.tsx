@@ -9,6 +9,7 @@ import {
   CircularProgress,
   IconButton,
   Stack,
+  TextField,
   Typography,
 } from "@mui/material";
 import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
@@ -64,6 +65,17 @@ interface Props {
    * with the full outbound strip and a "not a guaranteed angle match" caption.
    */
   comparison?: { photos: string[]; angles: string[] };
+  /**
+   * Per-photo damage (returns). When set, each shot is followed by a
+   * "Damaged?" answer plus an optional comment before the rider advances, so
+   * five angles produce five answers. Parallel arrays to `photos`, mirroring
+   * how the angle labels travel; photos[] itself is never reshaped.
+   */
+  damage?: {
+    flags: boolean[];
+    comments: string[];
+    onChange: (flags: boolean[], comments: string[]) => void;
+  };
 }
 
 /**
@@ -86,6 +98,7 @@ export default function GuidedPhotoCapture({
   onUploadingChange,
   disabled,
   comparison,
+  damage,
 }: Props) {
   const { uploading, captureMode, camMsg, setCamMsg, ingestFiles, takeNativePhotoOnce } =
     usePhotoUploader({ upload, onError, onUploadingChange });
@@ -135,8 +148,28 @@ export default function GuidedPhotoCapture({
   const append = (captured: CapturedPhoto[]) => {
     if (captured.length === 0) return;
     onChange(withAngles([...photos, ...captured]));
+    // Grow the damage arrays in step so index N always describes photo N.
+    if (damage) {
+      damage.onChange(
+        [...damage.flags, ...captured.map(() => false)],
+        [...damage.comments, ...captured.map(() => "")],
+      );
+    }
     // Return mode: drop into the side-by-side review of the shot just taken.
     if (comparisonMode) setReviewing(true);
+  };
+
+  // The answer for the shot under review (always the last one taken).
+  const lastIndex = photos.length - 1;
+  const lastDamaged = damage?.flags[lastIndex] ?? false;
+  const lastComment = damage?.comments[lastIndex] ?? "";
+  const setLastDamage = (flag: boolean, comment: string) => {
+    if (!damage || lastIndex < 0) return;
+    const flags = [...damage.flags];
+    const comments = [...damage.comments];
+    flags[lastIndex] = flag;
+    comments[lastIndex] = comment;
+    damage.onChange(flags, comments);
   };
 
   // Review controls (comparison mode only).
@@ -155,6 +188,13 @@ export default function GuidedPhotoCapture({
 
   const removePhoto = (index: number) => {
     onChange(withAngles(photos.filter((_, i) => i !== index)));
+    // Drop the matching answer so the arrays stay index-aligned with photos[].
+    if (damage) {
+      damage.onChange(
+        damage.flags.filter((_, i) => i !== index),
+        damage.comments.filter((_, i) => i !== index),
+      );
+    }
   };
 
   return (
@@ -278,6 +318,46 @@ export default function GuidedPhotoCapture({
                     />
                   ))}
                 </Stack>
+              </Box>
+            )}
+            {damage && (
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                  Damaged?
+                </Typography>
+                <Stack direction="row" spacing={1}>
+                  <Button
+                    variant={lastDamaged ? "contained" : "outlined"}
+                    color={lastDamaged ? "error" : "primary"}
+                    onClick={() => setLastDamage(true, lastComment)}
+                    disabled={uploading || disabled}
+                    fullWidth
+                    sx={{ minHeight: 44 }}
+                  >
+                    Yes
+                  </Button>
+                  <Button
+                    variant={!lastDamaged ? "contained" : "outlined"}
+                    onClick={() => setLastDamage(false, lastComment)}
+                    disabled={uploading || disabled}
+                    fullWidth
+                    sx={{ minHeight: 44 }}
+                  >
+                    No
+                  </Button>
+                </Stack>
+                <TextField
+                  label="Comment (optional)"
+                  placeholder="Note anything visible on this angle"
+                  value={lastComment}
+                  onChange={(e) => setLastDamage(lastDamaged, e.target.value)}
+                  disabled={uploading || disabled}
+                  fullWidth
+                  multiline
+                  minRows={2}
+                  size="small"
+                  sx={{ mt: 1.5 }}
+                />
               </Box>
             )}
             <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
