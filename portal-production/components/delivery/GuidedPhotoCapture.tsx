@@ -21,19 +21,19 @@ import { usePhotoUploader, type CapturedPhoto } from "./usePhotoUploader";
 export type { CapturedPhoto };
 
 /**
- * The angles an equipment unit is walked through, in order (5 for equipment:
- * Front, Back, Left, Right, Top). These match the equipment minimum, so every
- * named slot is required; anything past them is an extra angle the rider chooses.
- *
- * DEFERRED (not built): an example reference photo per angle to show the
- * operator what "good" looks like. Tracked on OSI-81.
+ * The angles an equipment unit is walked through, in WALK-AROUND order (5 for
+ * equipment: Front, Left, Back, Right, Top — a continuous loop around the unit
+ * rather than front/back/side hopping). These match the equipment minimum, so
+ * every named slot is required; anything past them is an extra angle the rider
+ * chooses. Each has an `example` placeholder image (public/guide-angles) shown
+ * under the prompt — swap those files for real reference photos anytime.
  */
 const STEPS = [
-  { key: "front", label: "Front", hint: "Face the unit head on, whole unit in frame." },
-  { key: "back", label: "Back", hint: "Walk around and shoot the rear panel." },
-  { key: "left", label: "Left", hint: "Shoot the left side square on." },
-  { key: "right", label: "Right", hint: "Shoot the right side square on." },
-  { key: "top", label: "Top", hint: "Shoot from above so the top surface is visible." },
+  { key: "front", label: "Front", hint: "Face the unit head on, whole unit in frame.", example: "/guide-angles/front.svg" },
+  { key: "left", label: "Left", hint: "Step to the left side and shoot it square on.", example: "/guide-angles/left.svg" },
+  { key: "back", label: "Back", hint: "Walk around and shoot the rear panel.", example: "/guide-angles/back.svg" },
+  { key: "right", label: "Right", hint: "Step to the right side and shoot it square on.", example: "/guide-angles/right.svg" },
+  { key: "top", label: "Top", hint: "Shoot from above so the top surface is visible.", example: "/guide-angles/top.svg" },
 ] as const;
 
 /** Ordered angle KEYS for the guided set — used to pair returns by angle. */
@@ -244,6 +244,33 @@ export default function GuidedPhotoCapture({
               </Box>
             );
           })()}
+        </Box>
+      )}
+
+      {/* (#4b) Large example photo for the current angle — sits directly under
+          the "Photo N of M" prompt and above the Take/Choose buttons, so the
+          rider frames the same shot. Outbound only: in return/comparison mode the
+          real delivered photo shown above is the reference. Static placeholders
+          live in public/guide-angles; swap them for real photos anytime. */}
+      {!done && !comparisonMode && current?.example && (
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+            Example — {currentLabel}
+          </Typography>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={current.example}
+            alt={`${currentLabel} example`}
+            style={{
+              display: "block",
+              width: "100%",
+              maxWidth: 360,
+              aspectRatio: "4 / 3",
+              objectFit: "cover",
+              borderRadius: 8,
+              border: "1px solid rgba(0,0,0,0.12)",
+            }}
+          />
         </Box>
       )}
 

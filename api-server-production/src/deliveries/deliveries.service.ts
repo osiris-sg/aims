@@ -295,6 +295,54 @@ export class DeliveriesService {
   }
 
   /**
+   * Attention snapshot for a DO from the PROJECT's contacts (ProjectContact →
+   * CustomerContact, OSI-84). "First" = the contact flagged primary where one
+   * exists, else the earliest-attached (link createdAt asc). Returns the frozen
+   * `{ name, phoneNumber?, email? }` shape config.attention uses; undefined when
+   * the project has no contacts. Used by both the scheduled DO and the
+   * completion-created DO so the two derive attention identically.
+   */
+  private async projectFirstContactAttention(
+    projectId: string | null | undefined,
+    organizationId: string,
+  ): Promise<{ name: string; phoneNumber?: string; email?: string } | undefined> {
+    if (!projectId) return undefined;
+    const links = await this.prisma.projectContact.findMany({
+      where: { projectId, project: { is: { organizationId } } },
+      orderBy: { createdAt: 'asc' },
+      select: { customerContact: { select: { name: true, phone: true, email: true, isPrimary: true } } },
+    });
+    const contacts = links.map((l) => l.customerContact).filter((c): c is NonNullable<typeof c> => !!c?.name);
+    if (contacts.length === 0) return undefined;
+    const chosen = contacts.find((c) => c.isPrimary) ?? contacts[0];
+    return {
+      name: chosen.name,
+      ...(chosen.phone ? { phoneNumber: chosen.phone } : {}),
+      ...(chosen.email ? { email: chosen.email } : {}),
+    };
+  }
+
+  /**
+   * Resolve the Attention snapshot for a scheduled DO: the office dialog's value
+   * wins (item 2 — prefilled from the project's contacts but editable), else it
+   * is derived from the project's first contact. Trims and drops a blank name.
+   */
+  private async resolveScheduleAttention(
+    dto: ScheduleDeliveryDto,
+    organizationId: string,
+  ): Promise<{ name: string; phoneNumber?: string; email?: string } | undefined> {
+    const typed = dto.attention;
+    if (typed?.name?.trim()) {
+      return {
+        name: typed.name.trim(),
+        ...(typed.phoneNumber?.trim() ? { phoneNumber: typed.phoneNumber.trim() } : {}),
+        ...(typed.email?.trim() ? { email: typed.email.trim() } : {}),
+      };
+    }
+    return this.projectFirstContactAttention(dto.projectId, organizationId);
+  }
+
+  /**
    * Build the draft-DO config fragment for a scheduled delivery (items + header
    * fields). Shared by createScheduled and updateScheduled so the two never drift.
    * Catalog lines are EXPANDED to N x qty-1 asset slots (each unit binds its own
@@ -308,8 +356,11 @@ export class DeliveriesService {
     poNumber?: string;
     machineLocation?: string;
     customer: { id: string; name: string; customerCode: string | null; address: string | null; email: string | null } | null;
+    // Frozen per-document Attention snapshot (name/phone/email). From the office
+    // dialog when it sent one, else derived from the project's first contact.
+    attention?: { name: string; phoneNumber?: string; email?: string };
   }): Record<string, any> {
-    const { items, assetById, projectName, deliveryAddress, poNumber, machineLocation, customer } = params;
+    const { items, assetById, projectName, deliveryAddress, poNumber, machineLocation, customer, attention } = params;
     return {
       items: items.flatMap((it) => {
         if (!it.assetId) {
@@ -331,6 +382,7 @@ export class DeliveriesService {
       ...(poNumber ? { poNo: poNumber } : {}),
       projectName,
       documentInfo: { projectName },
+      ...(attention?.name ? { attention } : {}),
       ...(deliveryAddress ? { deliveryTo: deliveryAddress } : {}),
       ...(machineLocation?.trim() ? { machineLocation: machineLocation.trim() } : {}),
       ...(customer
@@ -447,6 +499,7 @@ export class DeliveriesService {
             select: { id: true, name: true, customerCode: true, email: true, phone: true, address: true },
           })
         : null;
+      const attention = await this.resolveScheduleAttention(dto, organizationId);
       const doConfig = this.buildScheduledDoConfig({
         items: dto.items,
         assetById,
@@ -455,6 +508,7 @@ export class DeliveriesService {
         poNumber: dto.poNumber,
         machineLocation: dto.machineLocation,
         customer,
+        attention,
       });
       // OSI-83: a scheduled DRAFT must NOT consume a real DO number — mint a
       // per-org placeholder (DO-PENDING-NN); the real number is claimed when the
@@ -557,6 +611,10 @@ export class DeliveriesService {
       });
     });
 
+    // Attention snapshot for whichever DO path runs below (dialog value wins,
+    // else the project's first contact) — resolved once for both mint + regen.
+    const scheduledAttention = await this.resolveScheduleAttention(dto, organizationId);
+
     // PROMOTION MINT: a draft carries no DO, so the first save that makes it a
     // real schedule is what creates one. Same placeholder-numbered draft DO the
     // create path would have made, just deferred until the office commits.
@@ -579,6 +637,7 @@ export class DeliveriesService {
           customer: customer
             ? { id: customer.id, name: customer.name, customerCode: customer.customerCode, address: customer.address, email: customer.email }
             : null,
+          attention: scheduledAttention,
         });
         const pending = await this.prisma.document.findMany({
           where: { organizationId, name: { startsWith: 'DO-PENDING-' } },
@@ -616,11 +675,15 @@ export class DeliveriesService {
           poNumber: dto.poNumber,
           machineLocation: dto.machineLocation,
           customer,
+          attention: scheduledAttention,
         });
         // On edit a CLEARED PO / machine location must actually clear on the DO
         // (a plain config merge would keep the old value), so set them explicitly.
         fragment.poNo = dto.poNumber?.trim() ? dto.poNumber.trim() : null;
         fragment.machineLocation = dto.machineLocation?.trim() ? dto.machineLocation.trim() : null;
+        // Same for Attention: set explicitly so a re-derived (or cleared) value
+        // replaces the old snapshot rather than merging under it.
+        fragment.attention = scheduledAttention ?? null;
         await this.documentsService.replaceScheduledDoConfig(documentId, organizationId, fragment, dto.projectId);
       } catch (err: any) {
         this.logger.error(`updateScheduled: draft DO regen failed for run ${id}: ${err?.message}`, err?.stack);
@@ -1213,6 +1276,9 @@ export class DeliveriesService {
     const runDocPoNo = runDocCfg?.poNo ?? null;
     // Machine location off the same DO config — powers the edit-scheduled prefill.
     const runDocMachineLocation = runDocCfg?.machineLocation ?? null;
+    // Attention snapshot off the same DO config — lets the edit-scheduled dialog
+    // rehydrate the frozen value so a manual edit survives a re-edit.
+    const runDocAttention = runDocCfg?.attention ?? null;
     // Draft invoice auto-created from that DO on run completion (sourceDocumentId
     // link) — powers the field "what happened" result panel. Null until the
     // completion wrapper has run (or for office-linked/DO-first runs).
@@ -1228,7 +1294,7 @@ export class DeliveriesService {
       : null;
     return {
       ...delivery,
-      document: runDoc ? { ...runDoc, poNo: runDocPoNo, machineLocation: runDocMachineLocation } : null,
+      document: runDoc ? { ...runDoc, poNo: runDocPoNo, machineLocation: runDocMachineLocation, attention: runDocAttention } : null,
       invoice,
       items: delivery.items.map((i) => ({
         ...i,
@@ -1834,21 +1900,26 @@ export class DeliveriesService {
       }
     }
 
-    // Attention / Mobile from the customer's PRIMARY contact (isPrimary=true).
-    // Only when a contact is explicitly flagged primary — never guess among
-    // several. Mobile prefers the contact's own phone, else the customer
-    // mainline. Name-without-phone sets Attention only (the DO header hides the
-    // blank Mobile row independently). Shape matches what the Biofuel DO header
-    // reads: config.attention.{name, phoneNumber}.
-    let attention: { name: string; phoneNumber?: string } | undefined;
-    if (delivery.customerId) {
+    // Attention / Mobile from the PROJECT's first contact (primary where one is
+    // flagged, else earliest-attached), widened to name/phone/email. Falls back
+    // to the customer's primary contact when the project has none (preserving
+    // prior behaviour). Mobile prefers the contact's own phone, else the customer
+    // mainline. Frozen onto config.attention (the DO header reads .name and
+    // .phoneNumber; .email rides along for downstream email flows).
+    let attention: { name: string; phoneNumber?: string; email?: string } | undefined =
+      await this.projectFirstContactAttention(delivery.projectId, organizationId);
+    if (!attention && delivery.customerId) {
       const primary = await this.prisma.customerContact.findFirst({
         where: { customerId: delivery.customerId, isPrimary: true },
-        select: { name: true, phone: true },
+        select: { name: true, phone: true, email: true },
       });
       if (primary?.name) {
         const phone = primary.phone || delivery.customer?.phone || undefined;
-        attention = { name: primary.name, ...(phone ? { phoneNumber: phone } : {}) };
+        attention = {
+          name: primary.name,
+          ...(phone ? { phoneNumber: phone } : {}),
+          ...(primary.email ? { email: primary.email } : {}),
+        };
       }
     }
 

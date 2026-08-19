@@ -74,7 +74,7 @@ interface RunDetail {
   project: { id: string; name: string } | null;
   customer: { id: string; name: string } | null;
   // Derived by the backend: the single distinct DO across linked items, else null.
-  document: { id: string; name: string | null; type: string; status: string; poNo?: string | null; machineLocation?: string | null } | null;
+  document: { id: string; name: string | null; type: string; status: string; poNo?: string | null; machineLocation?: string | null; attention?: { name?: string | null; phoneNumber?: string | null; email?: string | null } | null } | null;
   items: Array<{
     id: string;
     quantity: number;
@@ -709,7 +709,7 @@ export default function DeliveryDetailPage() {
           project: run.project,
           siteAddress: run.siteAddress,
           scheduledFor: run.scheduledFor,
-          document: run.document ? { poNo: run.document.poNo, machineLocation: run.document.machineLocation } : null,
+          document: run.document ? { poNo: run.document.poNo, machineLocation: run.document.machineLocation, attention: run.document.attention } : null,
           items: run.items.map((i) => ({ asset: i.asset, quantity: i.quantity, description: i.description, assetClass: i.assetClass })),
         }}
       />
