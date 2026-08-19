@@ -5068,7 +5068,7 @@ export default function TabbedDocumentCreator({
                                 <TableCell
                                   key={columnId}
                                   align={
-                                    columnId === "quantity" || columnId === "unitPrice" || columnId === "tax" || columnId === "receivedQty" ? "center" :
+                                    columnId === "quantity" || columnId === "unitPrice" || columnId === "salePrice" || columnId === "tax" || columnId === "receivedQty" ? "center" :
                                     columnId === "amount" ? "right" : "left"
                                   }
                                   sx={{
@@ -5082,6 +5082,7 @@ export default function TabbedDocumentCreator({
                                            columnId === "uom" ? "6%" :
                                            columnId === "quantity" ? "8%" :
                                            columnId === "unitPrice" ? "10%" :
+                                           columnId === "salePrice" ? "10%" :
                                            columnId === "tax" ? "8%" :
                                            columnId === "discount" ? "11%" :
                                            columnId === "amount" ? "10%" :
@@ -5403,6 +5404,21 @@ export default function TabbedDocumentCreator({
                                           </IconButton>
                                         )}
                                       </Box>
+                                    </TableCell>
+                                  );
+                                } else if (columnId === "salePrice") {
+                                  // Two-rate quotation: the sale-price money input
+                                  // beside the rental unitPrice. Persists to
+                                  // items[].salePrice; unitPrice stays the rental rate.
+                                  return (
+                                    <TableCell key={columnId} align="center">
+                                      <TextField
+                                        type="number"
+                                        value={item.salePrice ?? ""}
+                                        onChange={(e) => updateItem(item.id, "salePrice", e.target.value === "" ? undefined : parseFloat(e.target.value))}
+                                        size="small"
+                                        sx={{ width: 100 }}
+                                      />
                                     </TableCell>
                                   );
                                 } else if (columnId === "uom") {

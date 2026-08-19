@@ -3757,7 +3757,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     col === "tax" ? "Tax %" : col);
                 const alignFor = (col: string) =>
                   col === "quantity" ? "center" :
-                  col === "unitPrice" || col === "listPrice" || col === "amount" ? "right" : "left";
+                  col === "unitPrice" || col === "salePrice" || col === "listPrice" || col === "amount" ? "right" : "left";
                 const valueFor = (col: string, item: any, index: number) => {
                   switch (col) {
                     case "no": return index + 1; // auto-number S/No in the custom-column branch
@@ -3779,6 +3779,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                         ? (<Box sx={{ display: "flex", flexDirection: "column" }}>{item.fcus.map((f: any, i: number) => (<span key={i}>{f.qty ?? 1}</span>))}</Box>)
                         : (item.quantity?.toLocaleString() || "");
                     case "unitPrice": return item.unitPrice != null ? Number(item.unitPrice).toFixed(2) : "";
+                    // Two-rate quotation: the second money column (sale price
+                    // alongside the rental unitPrice). Formatted + right-aligned
+                    // exactly like unitPrice, never the raw item[col] fallthrough.
+                    case "salePrice": return item.salePrice != null && item.salePrice !== "" ? Number(item.salePrice).toFixed(2) : "";
                     case "amount": return (item.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                     case "discount": return item.discount != null ? `${item.discount}` : "";
                     case "tax": return item.tax != null ? `${item.tax}` : "";

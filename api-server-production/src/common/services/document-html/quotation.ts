@@ -36,7 +36,7 @@ const FALLBACK_LABELS: Record<string, string> = {
 };
 
 const alignFor = (col: string): string =>
-  col === 'quantity' ? 'center' : ['unitPrice', 'listPrice', 'amount'].includes(col) ? 'right' : 'left';
+  col === 'quantity' ? 'center' : ['unitPrice', 'salePrice', 'listPrice', 'amount'].includes(col) ? 'right' : 'left';
 
 export function renderQuotationBody(data: any, organization: any): string {
   const di = makeDi(data);
@@ -211,6 +211,11 @@ function configDrivenTable(data: any, items: any[]): string {
           : escapeHtml(item.quantity?.toLocaleString?.('en-US') ?? item.quantity ?? '');
       case 'unitPrice':
         return item.unitPrice == null ? '' : Number(item.unitPrice).toFixed(2);
+      // Two-rate quotation: the sale-price money column beside the rental
+      // unitPrice. Money-formatted + right-aligned (alignFor), not the raw
+      // item[col] default. Empty when the line has no sale price.
+      case 'salePrice':
+        return item.salePrice == null || item.salePrice === '' ? '' : Number(item.salePrice).toFixed(2);
       case 'amount':
         return money(item.amount);
       case 'discount':
