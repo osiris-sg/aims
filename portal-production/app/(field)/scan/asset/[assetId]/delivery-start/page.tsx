@@ -722,8 +722,8 @@ export default function StartDeliveryPage() {
         >
           {photos.length === 0
             ? standalone
-              ? `Take condition photos (${requiredPhotos} needed)`
-              : "Add condition photos (optional)"
+              ? "Take Photos"
+              : "Add Photos (optional)"
             : `Condition photos: ${photos.length} of ${requiredPhotos}`}
         </Button>
         {standalone && photos.length < requiredPhotos && (

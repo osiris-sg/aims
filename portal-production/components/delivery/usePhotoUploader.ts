@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Capacitor } from "@capacitor/core";
-import { captureNativePhoto, captureNativePhotos } from "@/app/(field)/lib/nativeCamera";
+import { canUseInAppCamera, captureNativePhoto, captureNativePhotos } from "@/app/(field)/lib/nativeCamera";
 import { compressImageBlob } from "@/app/(field)/lib/imageCompress";
 
 export interface CapturedPhoto {
@@ -60,7 +60,7 @@ export function usePhotoUploader({ upload, onError, onUploadingChange }: Options
   // throws" (permission denied, no sensor). That path still costs one tap, but
   // it is a genuine error rather than the guaranteed every-session miss the
   // outcome-only design produced.
-  const inAppSupported = isNative && Capacitor.isPluginAvailable('Camera');
+  const inAppSupported = canUseInAppCamera();
   const [inAppFailed, setInAppFailed] = useState(false);
   const captureMode: 'inapp' | 'input' = inAppSupported && !inAppFailed ? 'inapp' : 'input';
   const [camMsg, setCamMsg] = useState<string | null>(null);

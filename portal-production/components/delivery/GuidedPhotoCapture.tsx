@@ -193,7 +193,7 @@ export default function GuidedPhotoCapture({
             return (
               <Box sx={{ mt: 1.5 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-                  {ref.matched ? `Outbound ${currentLabel}` : "Outbound (angle not guaranteed)"}
+                  {ref.matched ? `Delivered ${currentLabel}` : "Delivered (angle not guaranteed)"}
                 </Typography>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -222,7 +222,7 @@ export default function GuidedPhotoCapture({
             <Stack direction="row" spacing={1.5}>
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-                  {ref ? (ref.matched ? "Outbound" : "Outbound (angle not guaranteed)") : "No outbound photo"}
+                  {ref ? (ref.matched ? "Delivered" : "Delivered (angle not guaranteed)") : "No delivered photo"}
                 </Typography>
                 {ref ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -249,7 +249,7 @@ export default function GuidedPhotoCapture({
               </Box>
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-                  Returning now
+                  Returning
                 </Typography>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img

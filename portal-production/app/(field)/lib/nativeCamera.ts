@@ -1,6 +1,6 @@
 "use client";
 
-import { Capacitor, registerPlugin } from "@capacitor/core";
+import { Capacitor } from "@capacitor/core";
 import { Camera } from "@capacitor/camera";
 
 /**
@@ -13,23 +13,26 @@ import { Camera } from "@capacitor/camera";
  * identically to the old <input capture> path — do not use it here.
  */
 
-interface DeviceCameraPlugin {
-  hasCamera(): Promise<{ value: boolean }>;
-}
-const DeviceCamera = registerPlugin<DeviceCameraPlugin>("DeviceCamera");
-
 /**
- * True only in the native shell AND when the device reports a physical camera
- * sensor (FEATURE_CAMERA_ANY). Web always false — the web build keeps its
- * <input capture> path. Any failure resolves false (treated as "no camera").
+ * Can the IN-APP CameraX capture actually run here?
+ *
+ * This is a PLUGIN REGISTRY check, not a hardware capability probe. It asks
+ * whether @capacitor/camera has a JS implementation registered for this
+ * platform, or the native bridge advertised it in PluginHeaders, which is
+ * exactly "does the installed APK carry the plugin". That is the question that
+ * matters: a build predating the plugin cannot run takePhoto no matter what
+ * sensors the device has.
+ *
+ * It replaces the old FEATURE_CAMERA_ANY probe (DeviceCamera.hasCamera), which
+ * guessed wrong twice: rugged devices like the Sunmi V3 under-report that
+ * feature even with a working sensor, so the probe hid the in-app camera and
+ * left only a gallery the Sunmi cannot populate.
+ *
+ * Synchronous, so callers can decide the capture path BEFORE the first tap
+ * rather than wasting one discovering it.
  */
-export async function hasNativeCamera(): Promise<boolean> {
-  if (!Capacitor.isNativePlatform()) return false;
-  try {
-    return (await DeviceCamera.hasCamera()).value;
-  } catch {
-    return false;
-  }
+export function canUseInAppCamera(): boolean {
+  return Capacitor.isNativePlatform() && Capacitor.isPluginAvailable("Camera");
 }
 
 // takePhoto needs the runtime CAMERA grant (declared in the manifest); request
