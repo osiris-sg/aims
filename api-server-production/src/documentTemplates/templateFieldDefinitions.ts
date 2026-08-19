@@ -1817,12 +1817,13 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
             fieldType: "text",
             required: false,
           },
-          {
-            fieldName: "deliveryAddress.attention",
-            displayLabel: "Attention",
-            fieldType: "text",
-            required: false,
-          },
+          // NOTE: deliveryAddress.attention deliberately removed. On quotations it
+          // aliased onto the SAME config.attention.name as the general-tab Contact
+          // Person trio, and its init-only value clobbered the typed contact person
+          // on save (the "quotation loses contact person on refresh" bug). It stored
+          // no independent data (0 of 54 Biofuel quotes had a separate delivery
+          // attention), so removing it loses nothing. Contact person lives on the
+          // General tab's Contact row.
         ],
       },
     ],

@@ -139,11 +139,18 @@ export function transformFormDataForBackend(
     'fromDONo', 'toDONo',
     // Delivery Order specific fields
     'issueBy', 'issuedBy', 'receivedBy', 'checkedBy', 'approvedBy',
-    // Quotation header salesperson contact (Biofuel editable Sale person /
-    // Mobile). Emitted from formData regardless of template field-defs so they
-    // round-trip (same additive pattern as the attention/contact fix); on load
-    // transformBackendDataForForm spreads them back via `...backendData`.
-    'salesPerson', 'salesMobile'
+    // Salesperson MOBILE (Biofuel editable). Emitted from formData regardless of
+    // template field-defs so it round-trips; on load transformBackendDataForForm
+    // spreads it back via `...backendData`.
+    //
+    // NOTE: 'salesPerson' is deliberately NOT here. With a field-config the Salesman
+    // picker writes formData.documentInfo.salesPerson, which the field-def loop
+    // already flattens to result.salesPerson — but the top-level formData.salesPerson
+    // it used to emit here is init-only (the picker never updates it), so emitting it
+    // OVERWROTE the correct code with a stale "" every save (the "salesman lost on
+    // refresh" bug). The fallback below still persists the top-level value for the
+    // `!templateFieldConfig` TextField path, which is the only reason it was needed.
+    'salesMobile'
   ];
 
   flatFields.forEach(field => {
@@ -152,12 +159,25 @@ export function transformFormDataForBackend(
     }
   });
 
+  // Fallback-only salesPerson: when there is NO template field-config, the field-def
+  // loop never runs, so the `!templateFieldConfig` Sales Person TextField (bound to
+  // top-level formData.salesPerson) has nothing else to persist it. Fill it in ONLY
+  // when the loop didn't already set result.salesPerson, so the field-config path
+  // (documentInfo.salesPerson → result.salesPerson) is never clobbered by the stale
+  // top-level value.
+  if (result.salesPerson === undefined && formData.salesPerson !== undefined) {
+    result.salesPerson = formData.salesPerson;
+  }
+
   // Persist the editable contact / "Attn To" fields (formData.attention) so they
-  // survive REGARDLESS of template field-defs. QO has no deliveryAddress.attention
-  // field-def, so without this the contact (name/phoneNumber/email) is dropped.
-  // For DO/RDO the deliveryAddress field-def block above already populated
-  // result.attention — spread that LAST so delivery-address behaviour is unchanged
-  // (it wins for name/phoneNumber); the contact only fills otherwise-empty gaps.
+  // survive REGARDLESS of template field-defs. QT (quotation) has NO
+  // deliveryAddress.attention field-def — it was REMOVED (it aliased onto this
+  // same config.attention.name and its stale, init-only value clobbered the typed
+  // contact person on every save: the "quotation loses contact person on refresh"
+  // bug). So result.attention is not pre-set for quotations and the typed values
+  // below win. For DO/RDO the deliveryAddress field-def block above already
+  // populated result.attention — spread that LAST so delivery-address behaviour is
+  // unchanged (it wins for name/phoneNumber); the contact only fills otherwise-empty gaps.
   if (formData.attention && typeof formData.attention === 'object') {
     result.attention = {
       name: formData.attention.name ?? '',
