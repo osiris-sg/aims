@@ -299,9 +299,13 @@ export class JournalAutoPostService {
         creditLines.push({ accountId: acctId, debit: 0, credit: toBase(amt), description: `Sales — ${invoiceNumber ?? ''}`.trim(), ...fxFields(amt) });
         posted = ROUND(posted + amt);
       }
-      // Any net not covered by a mapped account (unmapped lines / rounding) → Sales.
+      // Any net not covered by a mapped account (unmapped lines) → Sales.
+      // Cent-level drift (rounding order differences between the document's
+      // stored totals and its per-line amounts, e.g. 2183.87 × 17.50) is
+      // rolled into the largest mapped line instead — a 1¢ "Sales (unmapped)"
+      // plug line confused the accountant (JV-000038, 2026-08-19).
       const remainder = ROUND(net - posted);
-      if (Math.abs(remainder) > 0.005) {
+      if (Math.abs(remainder) > 0.02) {
         creditLines.push({
           accountId: sales.id,
           debit: remainder < 0 ? toBase(-remainder) : 0,
@@ -309,6 +313,9 @@ export class JournalAutoPostService {
           description: `Sales (unmapped) — ${invoiceNumber ?? ''}`.trim(),
           ...fxFields(Math.abs(remainder)),
         });
+      } else if (remainder !== 0 && creditLines.length > 0) {
+        const largest = creditLines.reduce((a, b) => (b.credit > a.credit ? b : a));
+        largest.credit = ROUND(largest.credit + toBase(remainder));
       }
     }
 
@@ -316,7 +323,19 @@ export class JournalAutoPostService {
       creditLines.push({ accountId: taxAccount.id, debit: 0, credit: toBase(tax), description: `Tax — ${invoiceNumber ?? ''}`.trim(), ...fxFields(tax) });
     }
 
-    const baseGross = ROUND(creditLines.reduce((s, l) => s + l.credit - l.debit, 0));
+    // The entry must land EXACTLY on the document's stored gross (nettTotal) —
+    // that's the figure on the printed invoice and in Xero. If the credit legs
+    // drift from it by a cent or two (net+tax rounded differently than the
+    // grand total), absorb the difference into the largest revenue credit.
+    let baseGross = ROUND(creditLines.reduce((s, l) => s + l.credit - l.debit, 0));
+    const targetGross = toBase(gross);
+    const grossDrift = ROUND(targetGross - baseGross);
+    if (grossDrift !== 0 && Math.abs(grossDrift) <= 0.02) {
+      const revenueLegs = creditLines.filter((l) => !taxAccount || l.accountId !== taxAccount.id);
+      const largest = (revenueLegs.length ? revenueLegs : creditLines).reduce((a, b) => (b.credit > a.credit ? b : a));
+      largest.credit = ROUND(largest.credit + grossDrift);
+      baseGross = targetGross;
+    }
     const lines: Line[] = [
       { accountId: debtor.id, debit: baseGross, credit: 0, description: `Invoice ${invoiceNumber ?? ''} — ${customerName ?? ''}`.trim(), ...fxFields(gross) },
       ...creditLines,
