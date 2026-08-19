@@ -38,6 +38,7 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import AddAPhotoIcon from "@mui/icons-material/AddAPhoto";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import EditNoteIcon from "@mui/icons-material/EditNote";
+import SkipNextIcon from "@mui/icons-material/SkipNext";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
@@ -73,6 +74,11 @@ interface RunItem {
   quantity: number;
   deliveryStatus: ItemStatus;
   installSkipped: boolean;
+  // Walk position (office order) and the conscious pass-over. skippedAt is what
+  // separates "the rider passed this" from "not reached yet" — both of which are
+  // deliveryStatus not_delivered.
+  sortOrder?: number;
+  skippedAt?: string | null;
   documentId: string | null;
   document: { id: string; name: string | null } | null;
   inventory: { id: string; sku: string; serialNumber: string | null; status: string } | null;
@@ -87,6 +93,9 @@ interface Run {
   deliveryNumber: number;
   direction?: "OUTBOUND" | "RETURN";
   status: "in_progress" | "delivered" | "completed" | "cancelled";
+  // Set = the office scheduled this run, which is what turns on the one-pass
+  // walk-through. An ad-hoc run (null) keeps the free-order basket behaviour.
+  scheduledFor?: string | null;
   riderName: string | null;
   siteAddress: string | null;
   startedAt: string;
@@ -161,6 +170,10 @@ export default function DeliveryBasketPage() {
     // this step demands; unknown falls back to Equipment (the stricter rule).
     assetClass?: string | null;
   } | null>(null);
+  // The rider stepped out of the walk-through to see the whole basket. Not
+  // persisted: a reload should put them back on the next item, which is where
+  // the run actually is.
+  const [walkDismissed, setWalkDismissed] = useState(false);
   const [pendingPhotos, setPendingPhotos] = useState<CapturedPhoto[]>([]);
   const [photoUploading, setPhotoUploading] = useState(false);
   // Bulk delivery/return ("Deliver all" / "Complete all deliveries") now runs on
@@ -373,6 +386,33 @@ export default function DeliveryBasketPage() {
     [deliveryId, getToken, load],
   );
 
+  // Walk-through: pass this item over and move to the next. Keyed by
+  // DeliveryItem.id so an unfilled slot or a free-typed line is skippable too.
+  // Nothing is delivered or proven — the item stays fully startable from the
+  // Skipped section afterwards.
+  const skipWalkItem = useCallback(
+    async (it: RunItem) => {
+      setBusy(true);
+      setActionMsg(null);
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const res = await request(
+          { path: `/deliveries/${deliveryId}/items/${it.id}/skip`, method: "POST" },
+          {},
+          token,
+        );
+        if (res.success === false) throw new Error(res.message ?? "Could not skip this item");
+        await load();
+      } catch (e: any) {
+        setActionMsg(e?.message ?? "Could not skip this item");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [deliveryId, getToken, load],
+  );
+
   // Inline NFC: observe scanned uid → resolve to a unit → add. The hook resets
   // uid on each startScan, and auto-stops after one read.
   useEffect(() => {
@@ -529,8 +569,35 @@ export default function DeliveryBasketPage() {
   // scheduled run's remaining quantity. Render them as a per-asset "remaining to
   // load" summary instead of dead per-slot cards; scanning a matching unit fills
   // the next slot (the backend's addItem is slot-aware).
-  const unboundSlots = run.items.filter((it) => it.assetId && !it.inventoryId);
-  const visibleItems = run.items.filter((it) => !(it.assetId && !it.inventoryId));
+  // SKIPPED: consciously passed over during the walk. Still not_delivered, so
+  // the bulk button (which acts on `delivering` units only) can never touch
+  // them — that separation is exactly why skippedAt exists. They keep their own
+  // Start button so the rider can come back to any of them.
+  const skippedItems = run.items.filter(
+    (it) => it.skippedAt && it.deliveryStatus === "not_delivered",
+  );
+  const isSkipped = (it: RunItem) => skippedItems.some((s) => s.id === it.id);
+
+  const unboundSlots = run.items.filter((it) => it.assetId && !it.inventoryId && !isSkipped(it));
+  const visibleItems = run.items.filter((it) => !(it.assetId && !it.inventoryId) && !isSkipped(it));
+
+  // ── one-pass walk-through (scheduled runs only) ──────────────────────────
+  // The office declared these items in order, so the rider is stepped through
+  // them one at a time instead of choosing from a list. The queue is DERIVED,
+  // not stored: starting or skipping an item removes it, so the walk advances
+  // by itself and survives a reload mid-run (it resumes at the same place).
+  // Ad-hoc runs have no declared order and keep the free-order basket.
+  const isScheduledRun = !!run.scheduledFor;
+  const walkQueue = run.items.filter(
+    (it) => it.deliveryStatus === "not_delivered" && !it.skippedAt,
+  );
+  const walkItem = walkQueue[0] ?? null;
+  const walkActive =
+    isScheduledRun && run.status === "in_progress" && !!walkItem && !walkDismissed;
+  // Position in the office's list, not in the remaining queue, so the counter
+  // doesn't jump around as items are skipped.
+  const walkPosition = walkItem ? run.items.findIndex((it) => it.id === walkItem.id) + 1 : 0;
+  const isReturnRun = run.direction === "RETURN";
   const scheduledSummary = (() => {
     if (unboundSlots.length === 0) return [] as Array<{ assetId: string; label: string; scheduled: number; delivered: number; remaining: number }>;
     const byAsset = new Map<string, { label: string; remaining: number; delivered: number }>();
@@ -588,12 +655,145 @@ export default function DeliveryBasketPage() {
       )}
       {nfc.error && <Alert severity="warning">{nfc.error}</Alert>}
 
+      {/* ── WALK-THROUGH (scheduled runs) ──────────────────────────────────
+          One item at a time, in the order the office entered them, so nothing
+          is missed and the rider never has to pick from a list while standing
+          at the vehicle. Every position is either handled or consciously
+          skipped; when the last one leaves the queue this card disappears and
+          the basket below is what remains. */}
+      {walkActive && walkItem && (
+        <Card variant="outlined" sx={{ borderColor: "primary.main", borderWidth: 2 }}>
+          <CardContent>
+            <Typography variant="overline" color="primary" fontWeight={700}>
+              Item {walkPosition} of {run.items.length}
+            </Typography>
+            <Typography variant="h6" fontWeight={700} sx={{ mt: 0.5 }}>
+              {walkItem.description || walkItem.asset?.name || walkItem.inventory?.sku || "Item"}
+            </Typography>
+            {walkItem.inventory?.sku && (
+              <Typography variant="body2" color="text.secondary">
+                {walkItem.inventory.sku}
+              </Typography>
+            )}
+            {!walkItem.inventoryId && walkItem.assetId && (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                Scan or key in the unit you are loading for this line.
+              </Typography>
+            )}
+
+            <Stack spacing={1} sx={{ mt: 2 }}>
+              {/* Free-typed line: nothing to scan, one tap completes it. */}
+              {!walkItem.inventoryId && !walkItem.assetId && (
+                <Button
+                  variant="contained"
+                  size="large"
+                  startIcon={<LocalShippingIcon />}
+                  onClick={() => markDelivered(walkItem)}
+                  disabled={busy}
+                  sx={{ py: 1.5, minHeight: 48 }}
+                >
+                  Mark delivered
+                </Button>
+              )}
+
+              {/* Unit already bound to this position (scheduled returns bind up
+                  front) — straight into the condition photos. */}
+              {walkItem.inventoryId && (
+                <Button
+                  variant="contained"
+                  size="large"
+                  startIcon={<PlayArrowIcon />}
+                  onClick={() => requestStart(walkItem)}
+                  disabled={busy}
+                  sx={{ py: 1.5, minHeight: 48 }}
+                >
+                  {isReturnRun ? "Start Return" : "Start Delivery"}
+                </Button>
+              )}
+
+              {/* Open slot: any matching unit is accepted, and the backend binds
+                  it to the earliest open slot for that asset. */}
+              {!walkItem.inventoryId && walkItem.assetId && (
+                <>
+                  {nfc.isSupported && (
+                    <Button
+                      variant={nfc.isScanning ? "outlined" : "contained"}
+                      size="large"
+                      startIcon={nfc.isScanning ? <CircularProgress size={18} /> : <NfcIcon />}
+                      onClick={() => (nfc.isScanning ? nfc.stopScan() : nfc.startScan())}
+                      disabled={busy}
+                      sx={{ py: 1.5, minHeight: 48 }}
+                    >
+                      {nfc.isScanning ? "Hold tag to phone… (tap to cancel)" : "Scan tag"}
+                    </Button>
+                  )}
+                  <Button
+                    variant={nfc.isSupported ? "outlined" : "contained"}
+                    size="large"
+                    startIcon={<KeyboardIcon />}
+                    onClick={() => {
+                      setManualOpen(true);
+                      setCandidates(null);
+                      setSerial("");
+                    }}
+                    disabled={busy}
+                    sx={{ py: 1.5, minHeight: 48 }}
+                  >
+                    Enter serial
+                  </Button>
+                </>
+              )}
+
+              <Button
+                variant="text"
+                size="large"
+                startIcon={<SkipNextIcon />}
+                onClick={() => skipWalkItem(walkItem)}
+                disabled={busy}
+                sx={{ minHeight: 48, color: "text.secondary" }}
+              >
+                Skip this item
+              </Button>
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
+
+      {walkActive && (
+        <Button
+          variant="text"
+          size="small"
+          onClick={() => setWalkDismissed(true)}
+          sx={{ color: "text.secondary", alignSelf: "center" }}
+        >
+          View all items
+        </Button>
+      )}
+
+      {/* Stepped out of the walk with positions still to visit — offer the way
+          back rather than stranding them in the basket. */}
+      {isScheduledRun && walkDismissed && walkItem && run.status === "in_progress" && (
+        <Button
+          variant="outlined"
+          startIcon={<PlayArrowIcon />}
+          onClick={() => setWalkDismissed(false)}
+          sx={{ alignSelf: "center" }}
+        >
+          Resume walk-through ({walkQueue.length} left)
+        </Button>
+      )}
+
+      {/* The basket is what the rider sees BETWEEN walk items and after the
+          last one; during a walk step it would just be a distraction. */}
+      {!walkActive && (
+      <>
       <Stack direction="row" alignItems="center" spacing={1}>
         <Typography variant="subtitle1" fontWeight={600} sx={{ flex: 1 }}>
-          Items ({visibleItems.length})
+          Delivering ({visibleItems.length})
         </Typography>
         {/* One signature/photo/GPS for every unit still delivering (per-unit
-            Delivered stays available below for partial deliveries). */}
+            Delivered stays available below for partial deliveries). Skipped
+            items are `not_delivered`, so this bulk pass cannot touch them. */}
         {/* Stays available while ANY unit is still out for delivery (≥1) so the
             remaining units after a per-unit delivery can still be done in one
             pass. Free-typed lines use "Mark delivered". */}
@@ -617,7 +817,7 @@ export default function DeliveryBasketPage() {
             }}
             disabled={busy}
           >
-            {run.direction === "RETURN" ? `Complete all deliveries (${deliveringUnits.length})` : `Deliver all (${deliveringUnits.length})`}
+            {isReturnRun ? `End all return (${deliveringUnits.length})` : `End all delivery (${deliveringUnits.length})`}
           </Button>
         )}
       </Stack>
@@ -750,6 +950,86 @@ export default function DeliveryBasketPage() {
         })}
       </Stack>
 
+      {/* ── SKIPPED ────────────────────────────────────────────────────────
+          Passed over during the walk. Deliberately its own section and NOT part
+          of the bulk pass above: the rider decided these are not going out with
+          the rest, so each one is picked up individually or left alone. */}
+      {skippedItems.length > 0 && (
+        <Box>
+          <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+            Skipped ({skippedItems.length})
+          </Typography>
+          <Stack spacing={1}>
+            {skippedItems.map((it) => (
+              <Card key={it.id} variant="outlined" sx={{ borderStyle: "dashed" }}>
+                <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <Box sx={{ minWidth: 0, flex: 1 }}>
+                      <Typography variant="body2" fontWeight={600} noWrap>
+                        {it.description || it.asset?.name || it.inventory?.sku || "Item"}
+                      </Typography>
+                      {it.inventory?.sku && (
+                        <Typography variant="caption" color="text.secondary" noWrap display="block">
+                          {it.inventory.sku}
+                        </Typography>
+                      )}
+                    </Box>
+                    <Chip size="small" label="Skipped" color="default" />
+                  </Stack>
+                  {run.status === "in_progress" && (
+                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
+                      {/* Free-typed: no unit, one tap finishes it. */}
+                      {!it.inventoryId && !it.assetId && (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          startIcon={<LocalShippingIcon />}
+                          onClick={() => markDelivered(it)}
+                          disabled={busy}
+                          sx={{ minHeight: 40 }}
+                        >
+                          Mark delivered
+                        </Button>
+                      )}
+                      {it.inventoryId && (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          startIcon={<PlayArrowIcon />}
+                          onClick={() => requestStart(it)}
+                          disabled={busy}
+                          sx={{ minHeight: 40 }}
+                        >
+                          {isReturnRun ? "Start Return" : "Start Delivery"}
+                        </Button>
+                      )}
+                      {/* Open slot: needs a unit before it can start, so the
+                          action is the scan rather than a Start button. */}
+                      {!it.inventoryId && it.assetId && (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          startIcon={<KeyboardIcon />}
+                          onClick={() => {
+                            setManualOpen(true);
+                            setCandidates(null);
+                            setSerial("");
+                          }}
+                          disabled={busy}
+                          sx={{ minHeight: 40 }}
+                        >
+                          Load a unit
+                        </Button>
+                      )}
+                    </Stack>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </Stack>
+        </Box>
+      )}
+
       {scheduledSummary.length > 0 && (
         <Box>
           <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
@@ -853,6 +1133,9 @@ export default function DeliveryBasketPage() {
             Use the scanner page instead
           </Button>
         </Stack>
+      )}
+
+      </>
       )}
 
       <Button

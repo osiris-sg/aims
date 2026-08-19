@@ -2408,7 +2408,15 @@ model DeliveryItem {
   assetClass     AssetClass?
   // Same per-item lifecycle as DocumentItem.deliveryStatus (shared enum):
   // not_delivered → delivering → not_installed → completed.
+  // Walk order. DeliveryItem has no createdAt and its id is a random uuid, so
+  // there was no way to step through a run's items in the order the office
+  // entered them. Written at schedule time; 0 for rows created before this.
+  sortOrder      Int            @default(0)
   deliveryStatus DeliveryStatus @default(not_delivered)
+  // Set when the rider CONSCIOUSLY passes an item over during the walk-through.
+  // Not inferable: `not_delivered` alone conflates "skipped" with "not reached
+  // yet", which the basket's Delivering / Skipped split has to tell apart.
+  skippedAt      DateTime?
   deliveringAt   DateTime?
   deliveredAt    DateTime?
   completedAt    DateTime?
