@@ -1,0 +1,499 @@
+[
+ {
+  "id": "5029f5bd-33bd-4784-aa4e-20bf3c482aff",
+  "name": "BI202608009",
+  "xeroInvoiceId": "682f8236-841c-4ba6-b940-3e2f167218c5",
+  "nett": 6540,
+  "itemsHash": "f69f41e8502525f8b7829ee505d29b1d"
+ },
+ {
+  "id": "775519e6-230d-4831-b479-7fed44d96b14",
+  "name": "BI202608010",
+  "xeroInvoiceId": "40ce8e68-37e2-4b7c-8572-7e32cbfe3d2b",
+  "nett": 5515.4,
+  "itemsHash": "a9832c001068a21f190e6d616edd87c2"
+ },
+ {
+  "id": "62f8d768-e7f3-4795-8692-186a40ecc030",
+  "name": "BI202608011",
+  "xeroInvoiceId": "f18dbe6e-d8d6-4f61-bf10-1ec884dc7c4c",
+  "nett": 4612.88,
+  "itemsHash": "b1ed52f6ed9fdf765e024225e1effda1"
+ },
+ {
+  "id": "218fb50d-8f46-48a6-9cb2-1cef19ec1b63",
+  "name": "BI202608012",
+  "xeroInvoiceId": "d2ac2a81-afec-4b80-85ba-47a2165a321c",
+  "nett": 4612.88,
+  "itemsHash": "2d5259ff839ee8ea0d54014e20c74d5f"
+ },
+ {
+  "id": "cbb3adac-fbf4-49a6-bbd8-200fa6f7faa9",
+  "name": "BI202608013",
+  "xeroInvoiceId": "87d3465e-5b26-489d-9184-c48dc7c70fa5",
+  "nett": 5816.24,
+  "itemsHash": "144e68fadf711db58dfea9be99988be3"
+ },
+ {
+  "id": "b3fb5341-128e-47fb-9030-93dd06584e7e",
+  "name": "BI202608014",
+  "xeroInvoiceId": "6cb577fd-9e8c-4cdf-a28f-68bf2c099fd7",
+  "nett": 5816.24,
+  "itemsHash": "65fe5af9a29367ba9795d59718e7f95b"
+ },
+ {
+  "id": "104ec0c1-849a-470e-8666-a46ead89bfd4",
+  "name": "BI202608015",
+  "xeroInvoiceId": "a211586d-fe60-420c-93af-3251829d1113",
+  "nett": 4112.57,
+  "itemsHash": "02186c8cca39f8271599bb373a9e15fd"
+ },
+ {
+  "id": "8d9e8e1b-d266-4b3f-8a74-eba6cdbe811d",
+  "name": "BI202608016",
+  "xeroInvoiceId": "b313451a-bec0-405c-bc56-d53b5057a85f",
+  "nett": 4612.88,
+  "itemsHash": "961820d27697aa4d4f5f335a316b2d2f"
+ },
+ {
+  "id": "cc772279-4a1d-4d29-8e12-df2c5fcfb687",
+  "name": "BI202608017",
+  "xeroInvoiceId": "cb4db5f0-270a-421d-9563-32750e880eb3",
+  "nett": 5816.24,
+  "itemsHash": "8400852dbae57445e93dddfef8cbcaed"
+ },
+ {
+  "id": "943a3281-3973-4f2a-9e10-9e693f98ef1b",
+  "name": "BI202608018",
+  "xeroInvoiceId": "3f4cc9e8-774f-46ff-8a78-d1c04977696a",
+  "nett": 8720,
+  "itemsHash": "4ae966581260872ac6acb428505ef2de"
+ },
+ {
+  "id": "40068ff5-e37d-4932-99c4-cc52931b84b6",
+  "name": "BI202608019",
+  "xeroInvoiceId": "871d9641-e9dd-40ae-8b85-2ba65674b9a7",
+  "nett": 8720,
+  "itemsHash": "cf60274a412539c3012c940cfde771e5"
+ },
+ {
+  "id": "d25cb3eb-cf2a-4636-a8cd-f2d7ab112982",
+  "name": "BI202608020",
+  "xeroInvoiceId": "4675ce9e-93ad-464c-b3c1-017bda571a70",
+  "nett": 2441.6,
+  "itemsHash": "2a17bd541bce14348465a8b8b967c812"
+ },
+ {
+  "id": "c63caffc-dbfc-4ade-be84-fbcdb91ae158",
+  "name": "BI202608021",
+  "xeroInvoiceId": "54eb696c-584f-405d-b32e-4612c44e1ab2",
+  "nett": 5014,
+  "itemsHash": "4973320806db22dbd90e1e5a636c4277"
+ },
+ {
+  "id": "0e7ad6b3-200a-425c-9974-c0ba7df3651e",
+  "name": "BI202608022",
+  "xeroInvoiceId": "bcf1e099-a2c3-4739-81f2-b65065a7e4ee",
+  "nett": 6104,
+  "itemsHash": "a249967e5c02f8fe9ce919ba0bc5e855"
+ },
+ {
+  "id": "0b07ce2b-e437-440f-9995-ca17b70f3c84",
+  "name": "BI202608023",
+  "xeroInvoiceId": "ab0c19ca-dbd9-44c5-88e9-6479396ce154",
+  "nett": 6104,
+  "itemsHash": "d20f7063026991d36733cc5d9e6be2fe"
+ },
+ {
+  "id": "0ff11beb-0bbe-4603-8651-d9a8b5db9150",
+  "name": "BI202608024",
+  "xeroInvoiceId": "873394c0-0e4e-47c9-88db-a86c4a410573",
+  "nett": 6104,
+  "itemsHash": "cb6f893c2feb0cbb47f605faab995b50"
+ },
+ {
+  "id": "77c12db4-a396-4d6b-84c6-363d55e1d91d",
+  "name": "BI202608025",
+  "xeroInvoiceId": "dff235f4-1386-447b-871b-d4a5b8ce1cca",
+  "nett": 6104,
+  "itemsHash": "199e272a423ee435b16eea887423e8cd"
+ },
+ {
+  "id": "145507ec-cc70-468e-9ddc-6efdc88dd13d",
+  "name": "BI202608026",
+  "xeroInvoiceId": "78e71d33-c58b-4d64-a03d-1ba1e4462758",
+  "nett": 6104,
+  "itemsHash": "5db6e6f5c5ce1ac5a2e39220510b065d"
+ },
+ {
+  "id": "bce35389-62f3-47ca-a537-7c036953c67f",
+  "name": "BI202608027",
+  "xeroInvoiceId": "fd446f05-6f1b-4118-90fb-3e2c53024fc6",
+  "nett": 6104,
+  "itemsHash": "5423b0c66d75b4cb2c176a400c692ca2"
+ },
+ {
+  "id": "c05d659a-ab64-4acd-8d1f-d3c9d8777fff",
+  "name": "BI202608028",
+  "xeroInvoiceId": "d146e607-e87a-4e36-a49b-67775e1d4691",
+  "nett": 1090,
+  "itemsHash": "5ca613bb69dede79fb8c095572fe1285"
+ },
+ {
+  "id": "b898368c-e530-4637-8190-c501fcadcc7e",
+  "name": "BI202608029",
+  "xeroInvoiceId": "93655e1a-4921-4cae-aabb-acc7405722f2",
+  "nett": 3815,
+  "itemsHash": "85991292a962b2ed97e007b651a922a4"
+ },
+ {
+  "id": "da0031ab-9603-4c1c-b043-5eb0e86dc08f",
+  "name": "BI202608030",
+  "xeroInvoiceId": "e6ed8dae-0c95-4745-babb-ec82b7866372",
+  "nett": 5777,
+  "itemsHash": "ddce9e7c6ad6063f20b72e9c0127722c"
+ },
+ {
+  "id": "fc80c9b0-3f99-46e6-9c56-de99db3495ca",
+  "name": "BI202608032",
+  "xeroInvoiceId": "e174f12e-40d0-49d7-821b-f1dfcfbe6786",
+  "nett": 5777,
+  "itemsHash": "fe3368cb63b69707205c748108a38a00"
+ },
+ {
+  "id": "7e833a89-8fed-4d64-b7dc-37f0bcf3b8be",
+  "name": "BI202608033",
+  "xeroInvoiceId": "d5122138-ad85-4c47-85b9-7603be386740",
+  "nett": 5777,
+  "itemsHash": "65f76c0528c636a2f2a3b3d8085b85cd"
+ },
+ {
+  "id": "c803c29a-9107-44fd-8e97-a00fc40a8f15",
+  "name": "BI202608034",
+  "xeroInvoiceId": "9512ee99-b0d6-4130-9e83-7b6acc2dd71c",
+  "nett": 5777,
+  "itemsHash": "0dc56e2d996cb6d1073bd460f66b5fe6"
+ },
+ {
+  "id": "f5f0c2ce-d806-4cdd-b087-47ef01d0e194",
+  "name": "BI202608036",
+  "xeroInvoiceId": "1ae851ea-d445-4d10-a1ec-741170f6608c",
+  "nett": 5777,
+  "itemsHash": "41d6cd4eb1e24d8df9a6b611ebe2930d"
+ },
+ {
+  "id": "e2dc53d6-6da9-4299-a75c-1bd408550376",
+  "name": "BI202608037",
+  "xeroInvoiceId": "60c53e9b-0f02-4453-8620-03401382279f",
+  "nett": 5777,
+  "itemsHash": "78a56c1a3a233604364b2a8e1bc4b2d7"
+ },
+ {
+  "id": "8e05dc5c-b5d2-40a0-8268-7c3059495c6d",
+  "name": "BI202608038",
+  "xeroInvoiceId": "a9c967f0-def8-4db2-b9f1-d200ae76e289",
+  "nett": 5777,
+  "itemsHash": "0324e8aeb7e8b4c252c3aa4011b55ab7"
+ },
+ {
+  "id": "482ecfaf-2ed6-4113-8695-3fdfd7e252c4",
+  "name": "BI202608039",
+  "xeroInvoiceId": "832d6720-55f3-4cb1-98fa-9485bdc91ba2",
+  "nett": 5777,
+  "itemsHash": "6c08c7b0cbdfadedc1eead852935c7ea"
+ },
+ {
+  "id": "48c3aba4-46ce-4485-89b8-467594b5e7a8",
+  "name": "BI202608040",
+  "xeroInvoiceId": "cea28e14-ad43-4e7b-9e9e-a145c9ca9a2f",
+  "nett": 5777,
+  "itemsHash": "74ff5547df3029421149166aa583f65d"
+ },
+ {
+  "id": "14cb5a84-b556-401c-9386-d89c51bb710c",
+  "name": "BI202608041",
+  "xeroInvoiceId": "5a01bae4-6979-4872-aaee-2b39c44037d3",
+  "nett": 7630,
+  "itemsHash": "e36033b568f05bc536c77da3ca902725"
+ },
+ {
+  "id": "b83097f5-20f9-4aed-84a2-1769171bfe3d",
+  "name": "BI202608042",
+  "xeroInvoiceId": "0572a4a6-70ca-4984-b5e0-cb044d155639",
+  "nett": 5450,
+  "itemsHash": "c6a6e1af91c103a1f0683313c6cc5650"
+ },
+ {
+  "id": "e97dc0e7-e6bb-4af3-ab8b-3a9bf088fc2a",
+  "name": "BI202608043",
+  "xeroInvoiceId": "1bdc41cc-ca10-4cd2-855d-2876b91326fd",
+  "nett": 2180,
+  "itemsHash": "c3c8b42da1521d58f73b875e5a85f84c"
+ },
+ {
+  "id": "c51ad40b-9d7c-443e-9ef7-46baa91773d6",
+  "name": "BI202608044",
+  "xeroInvoiceId": "c6ab063e-65df-4068-bbf2-9559c350f15a",
+  "nett": 8720,
+  "itemsHash": "193caa1b75421a20316f5ad3d6962079"
+ },
+ {
+  "id": "01a4f499-7126-49b5-b0cc-0e306fe8d2f5",
+  "name": "BI202608045",
+  "xeroInvoiceId": "1f0b169b-d9bf-41b4-b240-f77448afef1b",
+  "nett": 13080,
+  "itemsHash": "8d5c4973cee59137b08f9ff2c589409f"
+ },
+ {
+  "id": "eca951a9-7721-4466-b572-ba2ecd5f9d42",
+  "name": "BI202608046",
+  "xeroInvoiceId": "950cf4ef-aedb-4cfe-bfa4-df5e76f9c33c",
+  "nett": 54718,
+  "itemsHash": "27a5d010fea5fdc520d6d29f4387dfcd"
+ },
+ {
+  "id": "beaa5430-74e7-4e47-adcd-e9b986d5614c",
+  "name": "BI202608047",
+  "xeroInvoiceId": "f5980439-2c9d-4870-bbb8-481d9c3f7ab8",
+  "nett": 1798.5,
+  "itemsHash": "22a2e68ee36867051fb0c378d3772374"
+ },
+ {
+  "id": "fb480813-cbd9-4dd1-ae25-98a37b2fae79",
+  "name": "BI202608048",
+  "xeroInvoiceId": "8b3f8b18-358e-46eb-8877-12bec5ae13b0",
+  "nett": 1962,
+  "itemsHash": "2620441c4cdcde7f982ab0fe10f4dac1"
+ },
+ {
+  "id": "7689fd7b-9a0f-462a-9dc8-36d605c1de13",
+  "name": "BI202608049",
+  "xeroInvoiceId": "bc1c7504-79f3-49de-98af-162afb2540a1",
+  "nett": 1744,
+  "itemsHash": "82fcab531f8fd49e7b0cd3c6c609f7c2"
+ },
+ {
+  "id": "c7268f85-a34b-49c5-9ce4-bac5a04f69f5",
+  "name": "BI202608050",
+  "xeroInvoiceId": "f3d067f9-2c55-44be-8b0e-d4e8b708bc61",
+  "nett": 468.7,
+  "itemsHash": "238af037d0b3bc85714537b061668670"
+ },
+ {
+  "id": "f2cdcccf-9d42-406e-a7d1-5baad26c87a1",
+  "name": "BI202608055",
+  "xeroInvoiceId": "3075fa25-0640-4630-931d-84738c014899",
+  "nett": 443.04,
+  "itemsHash": "69f5178995489221f711cc918f139230"
+ },
+ {
+  "id": "04b8ded4-38ea-4021-ba3d-4ee53f3003f5",
+  "name": "BI202608062",
+  "xeroInvoiceId": "99f75ec8-737e-484d-9d77-23de0ca99457",
+  "nett": 763,
+  "itemsHash": "e31170546b3eb00e30b049592b56b9ee"
+ },
+ {
+  "id": "00833092-8fd9-4535-a919-0619a58cd098",
+  "name": "BI202608063",
+  "xeroInvoiceId": "395d6cd8-0644-4191-982a-dc7fec741201",
+  "nett": 1144.5,
+  "itemsHash": "2c5f905a9eb22b081350cbdb848cc1b8"
+ },
+ {
+  "id": "fb985299-5156-416a-8f84-08e387cc3763",
+  "name": "BI202608064",
+  "xeroInvoiceId": "2bf73a22-5429-4e58-bb32-92866bdce0c9",
+  "nett": 590.71,
+  "itemsHash": "3722be42762dcd0a0a294ef0a3c35e0f"
+ },
+ {
+  "id": "d8bec77b-6bf9-437c-9323-d5941e579e6f",
+  "name": "BI202608065",
+  "xeroInvoiceId": "094caf92-423b-4ff5-88e2-6cf7487edf0c",
+  "nett": 9873.29,
+  "itemsHash": "4f7354fa575448e76ac5c0959288df0a"
+ },
+ {
+  "id": "b1675846-9da2-4b91-b2f6-bde6b565ddbe",
+  "name": "BI202608066",
+  "xeroInvoiceId": "25578380-2df5-4dee-bbe7-262a89955de0",
+  "nett": 381.5,
+  "itemsHash": "deb9bd6f8cdcff3c02f8b1520fd151c1"
+ },
+ {
+  "id": "10876dda-209d-445f-bb3d-9f37c32b6179",
+  "name": "BI202608067",
+  "xeroInvoiceId": "da0d1c5b-09b4-4c59-ad1f-e3dc2bac3e57",
+  "nett": 6867,
+  "itemsHash": "e15affb0ef1dd28d57d5378c8d79c2c9"
+ },
+ {
+  "id": "cf53f4ce-f55b-4803-a31e-572ffcad6f3e",
+  "name": "BI202608068",
+  "xeroInvoiceId": "afb90e7f-4357-46ff-858b-71e77f7ac684",
+  "nett": 4905,
+  "itemsHash": "30a2a031628103e67c017709c665bb6a"
+ },
+ {
+  "id": "3556270a-ec81-4255-93e2-56695440bb0f",
+  "name": "BI202608069",
+  "xeroInvoiceId": "62df9a70-8f29-48c2-9069-6a17b257720d",
+  "nett": 4905,
+  "itemsHash": "b48aecae7f9fba270a66bc2c10473d94"
+ },
+ {
+  "id": "d49bcecf-3ae5-4a87-9679-12e6a6f86ebe",
+  "name": "BI202608070",
+  "xeroInvoiceId": "570bc353-4c87-4326-8dee-96d33365c407",
+  "nett": 327,
+  "itemsHash": "a6fad1a0f0e7320aaea2a08a7829e644"
+ },
+ {
+  "id": "26e4a68f-2505-451c-a38b-11be1ca81de5",
+  "name": "BI202608071",
+  "xeroInvoiceId": "27b70f7c-080b-4004-812c-a340826d1f58",
+  "nett": 3270,
+  "itemsHash": "4dc3dc29185e150ff460f33d1778a62b"
+ },
+ {
+  "id": "627272c0-e436-4bc2-a91d-f0d88bd9dcea",
+  "name": "BI202608072",
+  "xeroInvoiceId": "75410d70-affd-4ffd-bdfd-91893f88be3d",
+  "nett": 3270,
+  "itemsHash": "c771f6e9c7e6f8545d66ea0d56206d0b"
+ },
+ {
+  "id": "e3dcc8ae-b51f-4ced-ba50-29bef568a50f",
+  "name": "BI202608073",
+  "xeroInvoiceId": "40a19c91-24ee-455b-bdc4-3289ea404571",
+  "nett": 3270,
+  "itemsHash": "88b85564eb70263a90eeb56be12e9cf8"
+ },
+ {
+  "id": "557b7dbe-9d29-4acf-bfd0-9313ffba3b02",
+  "name": "BI202608074",
+  "xeroInvoiceId": "06ecd1a9-800b-4fab-974d-7101e4208976",
+  "nett": 545,
+  "itemsHash": "9e3a35583a4dda0d357bd5f429e41dc3"
+ },
+ {
+  "id": "cadf1f1a-edd1-4cea-83a4-e3c187fd2c81",
+  "name": "BI202608075",
+  "xeroInvoiceId": "87d13480-4d27-4670-af61-f3210f84ee77",
+  "nett": 1090,
+  "itemsHash": "66c5fd90d68e64a8ebe647cad6f1d740"
+ },
+ {
+  "id": "d763f55b-9a7e-449f-953c-c768241aace8",
+  "name": "BI202608076",
+  "xeroInvoiceId": "99a40610-405c-4305-83cc-ac693d56694d",
+  "nett": 1635,
+  "itemsHash": "2321107da03d952074456332c2d0ba90"
+ },
+ {
+  "id": "6db15eb8-a67c-4aab-a3e9-73b24fa291a2",
+  "name": "BI202608077",
+  "xeroInvoiceId": "d7e9c623-24ec-4930-a585-f16a8f36877a",
+  "nett": 9374,
+  "itemsHash": "abdc64c0635f73ce4f0ac532f8bbb342"
+ },
+ {
+  "id": "84dfcd04-750d-4d55-9449-23e1977b6497",
+  "name": "BI202608078",
+  "xeroInvoiceId": "fc45a06c-981f-4aeb-adf5-2b309b7c78a9",
+  "nett": 9374,
+  "itemsHash": "e500a7f30540e7f2021baa805f2db2be"
+ },
+ {
+  "id": "35fdfdf2-9d63-4c32-b8f3-73ed0993c85f",
+  "name": "BI202608079",
+  "xeroInvoiceId": "38afd1d0-0c94-4684-bf4a-470ac550a1d1",
+  "nett": 7194,
+  "itemsHash": "1316db5fa1fa081816cc274bd7e18b1f"
+ },
+ {
+  "id": "1af893d5-5637-45fc-9f81-a710cf20d108",
+  "name": "BI202608080",
+  "xeroInvoiceId": "a1fbda3f-e944-43ac-89a6-7d2a6f073740",
+  "nett": 7194,
+  "itemsHash": "bd156c9e1c15910c33934244999ae614"
+ },
+ {
+  "id": "3329d570-0820-4ab4-ae2c-54c32996c117",
+  "name": "BI202608081",
+  "xeroInvoiceId": "dd42f530-0122-4488-8683-38962a1e0138",
+  "nett": 1144.5,
+  "itemsHash": "d948a3d8c2c2bc658644a1683e1675dd"
+ },
+ {
+  "id": "f507ee3e-d8d5-43e0-826b-d3714d6233ed",
+  "name": "BI202608082",
+  "xeroInvoiceId": "a402e0ae-a184-434d-983a-aea8cfef5b3c",
+  "nett": 1907.5,
+  "itemsHash": "4640e1b6475846c9732d1f44fefba261"
+ },
+ {
+  "id": "4efdb381-e568-4665-8152-b2098c4e900e",
+  "name": "BI202608083",
+  "xeroInvoiceId": "1eb7c206-60b9-48f4-a6f2-436be63782af",
+  "nett": 763,
+  "itemsHash": "927b838ad7f39775723c9b1456844dae"
+ },
+ {
+  "id": "45b370a1-8569-402b-8627-6417eb4a890c",
+  "name": "BI202608084",
+  "xeroInvoiceId": "3502b39a-dc39-4e07-b5dd-d5008acc5a52",
+  "nett": 2452.5,
+  "itemsHash": "b3a52aec86273fb5ca3bd6a594265920"
+ },
+ {
+  "id": "1957ad60-bca2-43f0-a0c5-9d68223e0203",
+  "name": "BI202608085",
+  "xeroInvoiceId": "e665e040-b72e-49ca-b3ce-c60fce4f2d22",
+  "nett": 1308,
+  "itemsHash": "f09674e54befc9d354ae58e219258da7"
+ },
+ {
+  "id": "be2b2128-256b-40a0-9207-edea80d81cc3",
+  "name": "BI202608086",
+  "xeroInvoiceId": "46d44586-f718-4a4b-9850-a85a5da92080",
+  "nett": 1308,
+  "itemsHash": "3384b0a1414f00cf0b4af1c9a1293cf1"
+ },
+ {
+  "id": "03364684-8026-4656-8257-7bb7bcd374ad",
+  "name": "BI202608087",
+  "xeroInvoiceId": "e9c720ed-e2ce-49d5-9875-7e258d66d87a",
+  "nett": 1471.5,
+  "itemsHash": "0c91322948cd8f90172a214c567e0b01"
+ },
+ {
+  "id": "de7eda05-f54f-45a8-931d-aecefdeb659c",
+  "name": "BI202608088",
+  "xeroInvoiceId": "92154fcd-bf93-4683-8234-43bdfcaffa43",
+  "nett": 1526,
+  "itemsHash": "95a8d272a4519b4fddbffda50d2ea6e4"
+ },
+ {
+  "id": "eed4bd58-1569-4cfd-9395-4155d4f387a2",
+  "name": "BI202608089",
+  "xeroInvoiceId": "4a0d505a-3f9f-42e7-b525-c63af28d6a1f",
+  "nett": 2180,
+  "itemsHash": "79340354c807fc91a7b008e5ff0b39f7"
+ },
+ {
+  "id": "321b63ba-b2ca-4c95-b1e3-f7e123c09185",
+  "name": "BI202608090",
+  "xeroInvoiceId": "391dac4c-be0a-4bf4-9831-7ee58a4b4bd8",
+  "nett": 9810,
+  "itemsHash": "df9eaf90a4207f1e4ccced69da44ddbd"
+ },
+ {
+  "id": "ab1bbca2-a642-4cfd-8ab3-f8c387f55d7d",
+  "name": "BI202608091",
+  "xeroInvoiceId": "d4222096-8c02-4ee4-acc0-c29b684b4f90",
+  "nett": 8589.2,
+  "itemsHash": "090d4e4ace8edab5b79b8efe6427747f"
+ }
+]

@@ -83,11 +83,13 @@ export default function PublicPayPage() {
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "#f4f5f7", p: { xs: 1.5, md: 4 } }}>
-      <Box sx={{ maxWidth: 1500, mx: "auto", display: "grid", gridTemplateColumns: { xs: "1fr", md: "minmax(0, 1fr) 560px" }, gap: 3 }}>
+      {/* Full-width layout: the invoice gets every pixel the payment panel
+          doesn't need (guru 2026-08-19 — the preview was too small to read). */}
+      <Box sx={{ width: "100%", display: "grid", gridTemplateColumns: { xs: "1fr", md: "minmax(0, 1fr) minmax(420px, 520px)" }, gap: 3 }}>
         {/* Invoice PDF */}
         <Paper variant="outlined" sx={{ borderRadius: 2, overflow: "hidden", minHeight: { xs: 420, md: "88vh" }, bgcolor: "#2b2b2b" }}>
           {data.pdfUrl ? (
-            <iframe title="Invoice" src={`${data.pdfUrl}#toolbar=0`} style={{ width: "100%", height: "100%", minHeight: 420, border: 0 }} />
+            <iframe title="Invoice" src={`${data.pdfUrl}#toolbar=0&view=FitH`} style={{ width: "100%", height: "100%", minHeight: 420, border: 0 }} />
           ) : (
             <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "#fff" }}>
               <Typography variant="body2">Invoice preview unavailable</Typography>
