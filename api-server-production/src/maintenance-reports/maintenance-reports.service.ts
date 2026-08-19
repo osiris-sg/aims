@@ -193,16 +193,28 @@ export class MaintenanceReportsService {
       // array, same order/length). photos stays a plain String[] for the office
       // proof panel / DO / receipt; angles ride alongside so returns can pair by
       // angle. Guided capture fills these; free-form leaves "".
-      ...(dto.serviceData || dto.angles?.length
+      ...(dto.serviceData || dto.angles?.length || dto.photoDamaged?.length || dto.photoComments?.length
         ? {
             serviceData: {
               ...(dto.serviceData ?? {}),
               ...(dto.angles?.length ? { photoAngles: dto.angles } : {}),
+              // Per-photo damage rides in the SAME parallel-array shape as the
+              // angles rather than reshaping photos[], which the office panel,
+              // the DO and the receipt all read as a flat list of keys.
+              ...(dto.photoDamaged?.length ? { photoDamaged: dto.photoDamaged } : {}),
+              ...(dto.photoComments?.length ? { photoComments: dto.photoComments } : {}),
             } as Prisma.InputJsonValue,
           }
         : {}),
-      // Return flow: damaged flag (recorded only). The comment sits in serviceData.
-      ...(typeof dto.damaged === 'boolean' ? { damaged: dto.damaged } : {}),
+      // Return flow: the unit-level damaged flag stays a real column (the office
+      // panel reads it). When per-photo flags are sent it is DERIVED from them,
+      // so "any angle damaged" is what the column means; an explicit scalar is
+      // still honoured for callers that do not send the array.
+      ...(dto.photoDamaged?.length
+        ? { damaged: dto.photoDamaged.some(Boolean) }
+        : typeof dto.damaged === 'boolean'
+          ? { damaged: dto.damaged }
+          : {}),
       // Inline sign-off path: when the client signature arrives in the create
       // payload (revamped 5-page form), finalize the row in one write.
       ...(dto.signature

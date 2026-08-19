@@ -122,6 +122,11 @@ export default function StartDeliveryPage() {
   const [outboundAngles, setOutboundAngles] = useState<string[]>([]);
   const [damaged, setDamaged] = useState<boolean | null>(null);
   const [damageComment, setDamageComment] = useState("");
+  // Per-angle damage (returns, guided capture): parallel to photos[], one
+  // answer per shot. The unit-level flag above is still used by the accessory
+  // (free-form) path, which has no angles to ask about.
+  const [photoDamaged, setPhotoDamaged] = useState<boolean[]>([]);
+  const [photoComments, setPhotoComments] = useState<string[]>([]);
   // Pull the outbound condition photos once, only on a return with a known unit.
   useEffect(() => {
     if (!isReturn || !inventoryId) return;
@@ -348,10 +353,18 @@ export default function StartDeliveryPage() {
           // Return flow: record the damaged flag (recorded only) + optional
           // comment. Damaged returns still go to instock exactly as today.
           ...(isReturn
-            ? {
-                damaged: damaged === true,
-                ...(damageComment.trim() ? { serviceData: { returnComment: damageComment.trim() } } : {}),
-              }
+            ? photoDamaged.length
+              ? {
+                  // Guided return: one answer per angle. The server derives the
+                  // scalar `damaged` column from these, so it is not sent here.
+                  photoDamaged,
+                  photoComments,
+                }
+              : {
+                  // Free-form return (accessory): the single unit-level answer.
+                  damaged: damaged === true,
+                  ...(damageComment.trim() ? { serviceData: { returnComment: damageComment.trim() } } : {}),
+                }
             : {}),
         },
         token,
@@ -620,6 +633,18 @@ export default function StartDeliveryPage() {
             onError={(m) => setError(m || null)}
             onUploadingChange={setUploading}
             comparison={isReturn ? { photos: outboundPhotos, angles: outboundAngles } : undefined}
+            damage={
+              isReturn
+                ? {
+                    flags: photoDamaged,
+                    comments: photoComments,
+                    onChange: (flags, comments) => {
+                      setPhotoDamaged(flags);
+                      setPhotoComments(comments);
+                    },
+                  }
+                : undefined
+            }
           />
         ) : (
           <PhotoCaptureField
@@ -735,9 +760,11 @@ export default function StartDeliveryPage() {
         )}
       </Box>
 
-      {/* Return flow: damaged check + optional comment, before Start Return.
+      {/* Return flow: the unit-level damaged check, for the ACCESSORY (free-form)
+          path only. Guided returns ask per angle inside GuidedPhotoCapture, so
+          asking again here would be a second, contradictory answer.
           Recorded only; a damaged unit still returns to instock. */}
-      {isReturn && (
+      {isReturn && !(standalone && requiredPhotos > 1) && (
         <Box sx={{ width: "100%", maxWidth: 360 }}>
           <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
             Damaged?
@@ -790,7 +817,7 @@ export default function StartDeliveryPage() {
         <Button
           variant="contained"
           onClick={confirm}
-          disabled={submitting || contextLoading || uploading || (!standalone && !doId) || (isReturn && damaged === null)}
+          disabled={submitting || contextLoading || uploading || (!standalone && !doId) || (isReturn && !(standalone && requiredPhotos > 1) && damaged === null)}
           fullWidth
           sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
         >
