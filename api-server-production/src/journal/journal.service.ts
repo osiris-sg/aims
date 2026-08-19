@@ -328,8 +328,11 @@ export class JournalService {
         data: { status: 'VOID', voidedAt: new Date(), voidedBy: userId },
       });
 
-      // Create reversing entry only if it had been posted
-      if (entry.status === 'POSTED') {
+      // Create reversing entry only if it had been posted AND confirmed.
+      // Unconfirmed JEs aren't in the official books yet (two-layer model) —
+      // voiding one in place is enough; a reversal would just clutter the
+      // ledger with paired phantom entries (guru 2026-08-19).
+      if (entry.status === 'POSTED' && !(entry as any).isUnconfirmed) {
         const reverseNumber = await this.nextJournalNumber(organizationId);
         await tx.journalEntry.create({
           data: {

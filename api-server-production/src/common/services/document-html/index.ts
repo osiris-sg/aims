@@ -4,22 +4,25 @@
  * bot, public pay page, emailed documents) match what users see and print in
  * the portal.
  *
- * Ported so far: QUOTATION.
+ * Ported so far: QUOTATION, INVOICE (standard non-Biofuel layout).
  * Every other type returns null and the caller keeps using the legacy generic
  * layout — so nothing regresses while the remaining types are ported one by
- * one (INVOICE, DO, PO/PR, CN/DN, OR, SO, stock adjustments).
+ * one (DO, PO/PR, CN/DN, OR, SO, stock adjustments).
  */
 import { pageShell } from './shared';
 import { renderQuotationBody } from './quotation';
+import { renderInvoiceBody } from './invoice';
 
 const QUOTATION_TYPES = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'];
+const INVOICE_TYPES = ['INVOICE', 'TI', 'TI2'];
 
 /** Page margins for ported layouts — matches the portal's print geometry
  *  (@page margin 20mm 15mm) and applies to every page, unlike CSS padding. */
 export const PORTED_PDF_MARGIN = { top: '20mm', right: '15mm', bottom: '20mm', left: '15mm' };
 
 export function isPortedType(type: string): boolean {
-  return QUOTATION_TYPES.includes(String(type || '').toUpperCase());
+  const t = String(type || '').toUpperCase();
+  return QUOTATION_TYPES.includes(t) || INVOICE_TYPES.includes(t);
 }
 
 /**
@@ -30,6 +33,9 @@ export function renderDocumentHtml(type: string, data: any, organization?: any):
   const t = String(type || '').toUpperCase();
   if (QUOTATION_TYPES.includes(t)) {
     return pageShell(renderQuotationBody(data || {}, organization || data?.organization || data?.company || {}));
+  }
+  if (INVOICE_TYPES.includes(t)) {
+    return pageShell(renderInvoiceBody(data || {}, organization || data?.organization || data?.company || {}));
   }
   return null;
 }

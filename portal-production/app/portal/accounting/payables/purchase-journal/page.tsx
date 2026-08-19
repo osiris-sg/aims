@@ -167,7 +167,7 @@ export default function BillsPage() {
     catch (e: any) { toast.error(e?.message || "Reject failed"); }
   };
   const voidIt = async (b: Bill) => {
-    if (!confirm("Void this supplier invoice? Reversing JE will be created if it was posted.")) return;
+    if (!confirm("Void this supplier invoice? Its journal is voided too (a reversing JE is created only if it was already confirmed).")) return;
     try { await request(`/bills/${b.id}`, { method: "DELETE" }); toast.success("Voided"); load(); }
     catch (e: any) { toast.error(e?.message || "Void failed"); }
   };
