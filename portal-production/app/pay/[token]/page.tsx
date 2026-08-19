@@ -56,7 +56,7 @@ export default function PublicPayPage() {
 
   if (error) {
     return (
-      <Box sx={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", bgcolor: "#f4f5f7" }}>
+      <Box sx={{ minHeight: "100vh", width: "100%", flex: 1, display: "flex", alignItems: "center", justifyContent: "center", bgcolor: "#f4f5f7" }}>
         <Paper variant="outlined" sx={{ p: 4, borderRadius: 2 }}>
           <Typography>{error}</Typography>
         </Paper>
@@ -65,7 +65,7 @@ export default function PublicPayPage() {
   }
   if (!data) {
     return (
-      <Box sx={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", bgcolor: "#f4f5f7" }}>
+      <Box sx={{ minHeight: "100vh", width: "100%", flex: 1, display: "flex", alignItems: "center", justifyContent: "center", bgcolor: "#f4f5f7" }}>
         <CircularProgress />
       </Box>
     );
@@ -82,7 +82,9 @@ export default function PublicPayPage() {
     ) : null;
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: "#f4f5f7", p: { xs: 1.5, md: 4 } }}>
+    // width/flex: the site <body> is display:flex (ROOT_LAYOUT) — without
+    // stretching, this page shrinks to min-content and hugs the left edge.
+    <Box sx={{ minHeight: "100vh", width: "100%", flex: 1, bgcolor: "#f4f5f7", p: { xs: 1.5, md: 4 } }}>
       {/* Full-width layout: the invoice gets every pixel the payment panel
           doesn't need (guru 2026-08-19 — the preview was too small to read). */}
       <Box sx={{ width: "100%", display: "grid", gridTemplateColumns: { xs: "1fr", md: "minmax(0, 1fr) minmax(420px, 520px)" }, gap: 3 }}>
