@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
@@ -281,5 +281,14 @@ export class DeliveriesController {
   @Permissions('maintenance-reports:create')
   cancel(@Param('id') id: string, @UserOrganization() org: { id: string }) {
     return this.service.cancel(id, org.id);
+  }
+
+  // Hard-delete a draft/scheduled run only. The service re-checks status and the
+  // committed-nothing guards against live state, so a stale client cannot bypass
+  // them. Anything past scheduled must be cancelled, not deleted.
+  @Delete(':id')
+  @Permissions('maintenance-reports:create')
+  remove(@Param('id') id: string, @UserOrganization() org: { id: string }) {
+    return this.service.remove(id, org.id);
   }
 }

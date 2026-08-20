@@ -3062,4 +3062,83 @@ export class DeliveriesService {
       data: { status: 'cancelled' },
     });
   }
+
+  /**
+   * Hard-delete a run that has committed NOTHING: a draft or a scheduled run.
+   * Scoped tightly on purpose. Once a run reaches the field it can carry a real
+   * DO (deducted stock), an invoice, MSRs with photos + signatures, deployments
+   * and GL postings, and a delete must never silently orphan any of those. For
+   * anything past scheduled the answer is Cancel (a soft state), not delete.
+   *
+   * Every guard is re-checked against LIVE state inside this method, keyed only
+   * by id + organizationId, so a stale client (one that still thinks the run is
+   * a draft after a rider has started it) cannot bypass them: the re-read status
+   * is what decides, not anything the client sends.
+   */
+  async remove(deliveryId: string, organizationId: string) {
+    const delivery = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      include: { items: { select: { id: true, inventoryId: true, documentId: true } } },
+    });
+    if (!delivery) throw new NotFoundException('Delivery not found');
+
+    // A draft is `scheduled` + isDraft, so this single check covers both the
+    // draft and the scheduled cases and refuses everything else (in_progress,
+    // delivered, completed, cancelled) — those have committed something.
+    if (delivery.status !== 'scheduled') {
+      throw new BadRequestException(
+        `Only a draft or scheduled delivery can be deleted (status: ${delivery.status}). Cancel it instead.`,
+      );
+    }
+    // A bound unit means the run has been worked (scheduled runs are asset-only,
+    // inventoryId null). Never delete something a rider has scanned into.
+    if (delivery.items.some((i) => i.inventoryId)) {
+      throw new BadRequestException('This run has units bound to it and cannot be deleted. Cancel it instead.');
+    }
+    // A scheduled/draft run should carry no field reports; if it does, the run
+    // was worked and this is not a safe delete.
+    const msrCount = await this.prisma.maintenanceServiceReport.count({ where: { deliveryId } });
+    if (msrCount) {
+      throw new BadRequestException('This run has field reports attached and cannot be deleted. Cancel it instead.');
+    }
+
+    // The born-linked DO(s): must still be UNCONFIRMED (a confirmed DO has
+    // committed — deducted stock / raised an invoice). Deleted with the run.
+    const docIds = [...new Set(delivery.items.map((i) => i.documentId).filter((v): v is string => !!v))];
+    if (docIds.length) {
+      const docs = await this.prisma.document.findMany({
+        where: { id: { in: docIds }, organizationId },
+        select: { id: true, name: true, status: true },
+      });
+      const confirmed = docs.find((d) => !isUnconfirmedDoc(d.status));
+      if (confirmed) {
+        throw new BadRequestException(
+          `This run's Delivery Order ${confirmed.name ?? confirmed.id} has been confirmed and cannot be deleted. Cancel the run instead.`,
+        );
+      }
+      // Belt and braces: JournalEntry.sourceDocumentId is a plain column (no FK
+      // cascade), so a posted entry would be silently orphaned by the delete. A
+      // draft/scheduled DO must never have posted; if this ever fires the data
+      // is wrong and refusing is the right outcome.
+      const posted = await this.prisma.journalEntry.count({
+        where: { sourceDocumentId: { in: docIds }, status: 'POSTED' },
+      });
+      if (posted) {
+        throw new BadRequestException(
+          'This run has a document that has posted to the ledger and cannot be deleted. Void or reverse it first.',
+        );
+      }
+    }
+
+    // Delete the unconfirmed born-linked DO(s) first (their DocumentItems
+    // cascade; DeliveryItem.documentId is SetNull), then the run itself (its
+    // DeliveryItems cascade). One transaction so it commits whole or not at all.
+    await this.prisma.$transaction([
+      ...(docIds.length
+        ? [this.prisma.document.deleteMany({ where: { id: { in: docIds }, organizationId } })]
+        : []),
+      this.prisma.delivery.delete({ where: { id: deliveryId } }),
+    ]);
+    return { id: deliveryId, deleted: true };
+  }
 }
