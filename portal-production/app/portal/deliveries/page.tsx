@@ -9,6 +9,14 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  IconButton,
+  Menu,
+  MenuItem,
   Paper,
   Stack,
   Table,
@@ -22,6 +30,7 @@ import {
 } from "@mui/material";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import EventIcon from "@mui/icons-material/Event";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
 import { request } from "@/helpers/request";
 import ScheduleDeliveryDialog from "./_components/ScheduleDeliveryDialog";
 import ScheduleReturnDialog from "./_components/ScheduleReturnDialog";
@@ -71,6 +80,22 @@ const STATUS_CHIP: Record<RunStatus, { label: string; color: "warning" | "info" 
 const fmtDateTime = (d: string | null) =>
   d ? new Date(d).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
 
+// Which row actions apply. CANCEL is the soft unwind the backend allows for a
+// scheduled run, or an in_progress run that has delivered and linked nothing
+// (the backend re-checks and blocks otherwise; we surface that reason). DELETE
+// is the hard remove the backend scopes to draft/scheduled only (a draft is
+// scheduled + isDraft). A completed, delivered, or cancelled run matches
+// neither, so it offers no actions at all. These flags only decide what to
+// OFFER; the backend re-validates against live state on every call.
+const rowActions = (r: DeliveryRow) => {
+  const items = r.items ?? [];
+  const delivered = items.some((i) => i.deliveryStatus === "not_installed" || i.deliveryStatus === "completed");
+  const linked = items.some((i) => !!i.documentId);
+  const canCancel = !r.isDraft && (r.status === "scheduled" || (r.status === "in_progress" && !delivered && !linked));
+  const canDelete = r.status === "scheduled";
+  return { canCancel, canDelete };
+};
+
 export default function DeliveriesQueuePage() {
   const router = useRouter();
   const { getToken } = useAuth();
@@ -82,6 +107,10 @@ export default function DeliveriesQueuePage() {
   const [error, setError] = useState<string | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
+  const [menu, setMenu] = useState<{ anchor: HTMLElement; row: DeliveryRow } | null>(null);
+  const [confirm, setConfirm] = useState<{ action: "cancel" | "delete"; row: DeliveryRow } | null>(null);
+  const [acting, setActing] = useState(false);
+  const [actionMsg, setActionMsg] = useState<{ text: string; severity: "success" | "error" } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -125,6 +154,41 @@ export default function DeliveriesQueuePage() {
     [getToken, router],
   );
 
+  // Run the confirmed action. The backend re-validates against live state, so a
+  // refused action (a run that moved on since the list loaded) surfaces its
+  // reason here rather than failing silently.
+  const runAction = async () => {
+    if (!confirm) return;
+    const { action, row } = confirm;
+    setActing(true);
+    setActionMsg(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res =
+        action === "cancel"
+          ? await request({ path: `/deliveries/${row.id}/cancel`, method: "POST" }, {}, token)
+          : await request({ path: `/deliveries/${row.id}`, method: "DELETE" }, {}, token);
+      if (res?.success === false) throw new Error(res?.message ?? "Action failed");
+      const note = (res?.data ?? res)?.note as string | undefined;
+      setActionMsg({
+        text:
+          action === "cancel"
+            ? `Delivery #${row.deliveryNumber} cancelled.${note ? ` ${note}` : ""}`
+            : `Delivery #${row.deliveryNumber} deleted.`,
+        severity: "success",
+      });
+      setConfirm(null);
+      await load();
+    } catch (e: any) {
+      const m = e?.message;
+      setActionMsg({ text: (Array.isArray(m) ? m.join(". ") : m) || "The action could not be completed.", severity: "error" });
+      setConfirm(null);
+    } finally {
+      setActing(false);
+    }
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 0.5 }}>
@@ -156,6 +220,11 @@ export default function DeliveriesQueuePage() {
       )}
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {actionMsg && (
+        <Alert severity={actionMsg.severity} sx={{ mb: 2 }} onClose={() => setActionMsg(null)}>
+          {actionMsg.text}
+        </Alert>
+      )}
 
       {loading ? (
         <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
@@ -187,6 +256,7 @@ export default function DeliveriesQueuePage() {
                 <TableCell>Scheduled</TableCell>
                 <TableCell>Started</TableCell>
                 <TableCell>Completed</TableCell>
+                <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -266,6 +336,28 @@ export default function DeliveriesQueuePage() {
                     <TableCell>{fmtDateTime(r.scheduledFor)}</TableCell>
                     <TableCell>{fmtDateTime(r.startedAt)}</TableCell>
                     <TableCell>{fmtDateTime(r.completedAt)}</TableCell>
+                    <TableCell align="right" onClick={(e) => e.stopPropagation()}>
+                      {(() => {
+                        const { canCancel, canDelete } = rowActions(r);
+                        if (!canCancel && !canDelete) {
+                          // A committed run (delivered / completed / cancelled) offers
+                          // neither action.
+                          return <Typography variant="body2" color="text.secondary">—</Typography>;
+                        }
+                        return (
+                          <IconButton
+                            size="small"
+                            aria-label="Run actions"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMenu({ anchor: e.currentTarget, row: r });
+                            }}
+                          >
+                            <MoreVertIcon fontSize="small" />
+                          </IconButton>
+                        );
+                      })()}
+                    </TableCell>
                   </TableRow>
                 );
               })}
@@ -285,6 +377,59 @@ export default function DeliveriesQueuePage() {
           />
         </TableContainer>
       )}
+
+      <Menu anchorEl={menu?.anchor ?? null} open={!!menu} onClose={() => setMenu(null)}>
+        {menu && rowActions(menu.row).canCancel && (
+          <MenuItem
+            onClick={() => {
+              const row = menu.row;
+              setMenu(null);
+              setConfirm({ action: "cancel", row });
+            }}
+          >
+            Cancel delivery
+          </MenuItem>
+        )}
+        {menu && rowActions(menu.row).canDelete && (
+          <MenuItem
+            sx={{ color: "error.main" }}
+            onClick={() => {
+              const row = menu.row;
+              setMenu(null);
+              setConfirm({ action: "delete", row });
+            }}
+          >
+            Delete{menu.row.isDraft ? " draft" : ""}
+          </MenuItem>
+        )}
+      </Menu>
+
+      <Dialog open={!!confirm} onClose={() => !acting && setConfirm(null)}>
+        {confirm && (
+          <>
+            <DialogTitle>
+              {confirm.action === "cancel"
+                ? `Cancel delivery #${confirm.row.deliveryNumber}?`
+                : `Delete ${confirm.row.isDraft ? "draft" : "delivery"} #${confirm.row.deliveryNumber}?`}
+            </DialogTitle>
+            <DialogContent>
+              <DialogContentText>
+                {confirm.action === "cancel"
+                  ? "The run is marked cancelled and any reserved units are returned to stock. This cannot be undone."
+                  : "This permanently removes the run and its unconfirmed draft Delivery Order. It cannot be undone. A run that has delivered or linked anything cannot be deleted; cancel it instead."}
+              </DialogContentText>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setConfirm(null)} disabled={acting}>
+                Keep it
+              </Button>
+              <Button onClick={runAction} color="error" variant="contained" disabled={acting}>
+                {acting ? "Working…" : confirm.action === "cancel" ? "Cancel delivery" : "Delete"}
+              </Button>
+            </DialogActions>
+          </>
+        )}
+      </Dialog>
 
       <ScheduleDeliveryDialog
         open={scheduleOpen}
