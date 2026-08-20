@@ -363,7 +363,22 @@ export class DeliveriesService {
       ...(poNumber ? { poNo: poNumber } : {}),
       projectName,
       documentInfo: { projectName },
-      ...(attention?.name ? { attention } : {}),
+      // Contact person: the Biofuel DO template reads it from the top-level
+      // `contactName`/`contactNumber` keys (its field-config maps
+      // documentInfo.contactName -> config.contactName), the same shape an
+      // editor-created DO stores. Write those AS WELL AS `attention` (the clean
+      // preview and other doc types read attention.*), so the field-config form
+      // and the preview agree. Without contactName the picked contact lands only
+      // on attention and the template's Contact field renders blank.
+      // salesPerson and issueBy are deliberately left unset: a field-scheduled
+      // DO has no salesman and no issuer, and inventing values is worse than blank.
+      ...(attention?.name
+        ? {
+            attention,
+            contactName: attention.name,
+            ...(attention.phoneNumber ? { contactNumber: attention.phoneNumber } : {}),
+          }
+        : {}),
       ...(deliveryAddress ? { deliveryTo: deliveryAddress } : {}),
       ...(machineLocation?.trim() ? { machineLocation: machineLocation.trim() } : {}),
       ...(customer
@@ -2057,7 +2072,19 @@ export class DeliveriesService {
         };
       }),
       ...(delivery.siteAddress ? { deliveryTo: delivery.siteAddress } : {}),
-      ...(attention ? { attention } : {}),
+      // Contact person: write the top-level contactName/contactNumber the Biofuel
+      // DO template reads (field-config maps documentInfo.contactName ->
+      // config.contactName, the editor-created shape) AS WELL AS attention (clean
+      // preview + other doc types). attention alone leaves the template's Contact
+      // field blank. salesPerson/issueBy intentionally left unset (no meaningful
+      // salesman or issuer on a delivery-completed DO).
+      ...(attention
+        ? {
+            attention,
+            contactName: attention.name,
+            ...(attention.phoneNumber ? { contactNumber: attention.phoneNumber } : {}),
+          }
+        : {}),
       // Project NAME on the config, both flat and under documentInfo, exactly as
       // createScheduled writes it. Document.projectId is set below but the DO
       // template renders from config.projectName, so a completion-created DO
