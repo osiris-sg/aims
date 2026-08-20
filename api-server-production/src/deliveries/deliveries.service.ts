@@ -2288,20 +2288,57 @@ export class DeliveriesService {
   ) {
     const run = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },
-      select: { id: true, status: true, direction: true, items: { select: { inventoryId: true, assetId: true, deliveryStatus: true } } },
+      select: { id: true, status: true, direction: true, items: { select: { id: true, inventoryId: true, assetId: true, deliveryStatus: true } } },
     });
     if (!run) throw new NotFoundException('Delivery not found');
     if (run.status === 'cancelled') throw new BadRequestException('Cannot deliver on a cancelled delivery');
     const isReturn = run.direction === DeliveryDirection.RETURN;
-    // Only units mid-flow (started, not yet acknowledged/collected) with a unit.
+    // Every item mid-flow (started, not yet acknowledged/collected): unit-backed
+    // lines AND FREE-TYPED lines (a cable etc., inventoryId + assetId both null,
+    // which now run the full lifecycle). Excludes unfilled scheduled slots
+    // (assetId set, no unit) — those are never `delivering`.
     const pending = run.items.filter(
-      (i) => i.inventoryId && i.assetId && i.deliveryStatus === DeliveryStatus.delivering,
+      (i) =>
+        i.deliveryStatus === DeliveryStatus.delivering &&
+        (i.inventoryId != null || (i.inventoryId == null && i.assetId == null)),
     );
-    if (pending.length === 0) throw new BadRequestException('No units are awaiting delivery on this run');
+    if (pending.length === 0) throw new BadRequestException('No items are awaiting delivery on this run');
 
     const now = new Date();
     let acknowledged = 0;
     for (const it of pending) {
+      // FREE-TYPED line (no unit, no asset): write the SAME shared proof as a unit
+      // line into an asset-less DO_ACK MSR, so the office proof panel and the DO
+      // proof section render it alongside the units (both key on deliveryId/kind,
+      // never assetId). Advance to terminal `completed` by DeliveryItem.id (the
+      // { deliveryId, inventoryId } key is ambiguous with inventoryId null). No
+      // install step and no stock flip — a cable has neither.
+      if (it.inventoryId == null && it.assetId == null) {
+        await this.prisma.maintenanceServiceReport.create({
+          data: {
+            organizationId,
+            technicianUserId,
+            assetId: null,
+            inventoryId: null,
+            deliveryId,
+            kind: 'DO_ACK',
+            status: dto.signature ? 'completed' : 'draft',
+            description: isReturn ? 'Return collected (bulk)' : 'Delivery acknowledged (bulk)',
+            ...(dto.signature ? { signature: dto.signature, signedAt: now } : {}),
+            ...(dto.recipientName ? { signedByName: dto.recipientName } : {}),
+            ...(dto.photos?.length ? { photos: dto.photos } : {}),
+            ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
+            ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
+            ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
+          },
+        });
+        const upd = await this.prisma.deliveryItem.updateMany({
+          where: { id: it.id, deliveryId, deliveryStatus: DeliveryStatus.delivering },
+          data: { deliveryStatus: DeliveryStatus.completed, deliveredAt: now, completedAt: now, skippedAt: null },
+        });
+        if (upd.count) acknowledged++;
+        continue;
+      }
       // Reuse the DO_ACK MSR kind for returns too (no new enum value) — the run's
       // direction distinguishes a collection from a delivery hand-off.
       await this.prisma.maintenanceServiceReport.create({

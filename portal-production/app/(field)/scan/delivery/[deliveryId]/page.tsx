@@ -506,10 +506,6 @@ export default function DeliveryBasketPage() {
     );
   }
 
-  const ackHref = (it: RunItem) =>
-    `/scan/delivery/${run.id}/ack?assetId=${encodeURIComponent(it.assetId)}${it.inventoryId ? `&inventoryId=${encodeURIComponent(it.inventoryId)}` : ""}`;
-  const afterAckHref = (it: RunItem) =>
-    `/scan/delivery/${run.id}/after-ack?assetId=${encodeURIComponent(it.assetId)}${it.inventoryId ? `&inventoryId=${encodeURIComponent(it.inventoryId)}` : ""}`;
   const installHref = (it: RunItem) =>
     `/scan/delivery/${run.id}/install?assetId=${encodeURIComponent(it.assetId)}${it.inventoryId ? `&inventoryId=${encodeURIComponent(it.inventoryId)}` : ""}`;
   // Reordered flow resume: a delivering unit with an UNSIGNED DO_ACK is
@@ -538,10 +534,28 @@ export default function DeliveryBasketPage() {
   // hand-over; the backend enforces the same split in addItem.
   const canFillScheduledSlot = run.status === "in_progress";
 
-  // Units mid-delivery (DO_START fired, not yet acknowledged) — the ones the
-  // bulk "Deliver all" / "Complete all deliveries" flow covers in one
-  // signature/photo/GPS pass.
+  // Units mid-delivery (DO_START fired, not yet acknowledged) — the lead for the
+  // bulk end flow (its screens capture the one shared proof).
   const deliveringUnits = run.items.filter((it) => it.inventoryId && it.deliveryStatus === "delivering");
+  // EVERY item still delivering, unit-backed OR free-typed. The single "End
+  // Delivery" button covers all of them: a unit lead captures the shared proof
+  // and ack-all fans it across every delivering item (free-typed included).
+  const deliveringItems = run.items.filter((it) => it.deliveryStatus === "delivering");
+
+  // Bulk end: prefer a UNIT lead (its ack -> after-ack screens capture the shared
+  // proof, then ack-all fans it across every delivering item including free-typed
+  // lines). With only free-typed lines delivering, end via the free-item page.
+  const bulkEnd = () => {
+    const lead = deliveringUnits[0] ?? deliveringItems[0];
+    if (!lead) return;
+    if (lead.inventoryId) {
+      const q = `assetId=${encodeURIComponent(lead.assetId)}&inventoryId=${encodeURIComponent(lead.inventoryId)}&applyToAll=1`;
+      const entry = run.direction === "RETURN" || hasDraftAck(lead) ? "after-ack" : "ack";
+      router.push(`/scan/delivery/${run.id}/${entry}?${q}`);
+    } else {
+      router.push(`/scan/delivery/${run.id}/free-item/${lead.id}`);
+    }
+  };
 
   // Unbound office-scheduled slots (assetId set, no unit yet) = a merged
   // scheduled run's remaining quantity. Render them as a per-asset "remaining to
@@ -702,20 +716,30 @@ export default function DeliveryBasketPage() {
                   it to the earliest open slot for that asset. */}
               {!walkItem.inventoryId && walkItem.assetId && (
                 <>
-                  {nfc.isSupported && (
-                    <Button
-                      variant={nfc.isScanning ? "outlined" : "contained"}
-                      size="large"
-                      startIcon={nfc.isScanning ? <CircularProgress size={18} /> : <NfcIcon />}
-                      onClick={() => (nfc.isScanning ? nfc.stopScan() : nfc.startScan())}
-                      disabled={busy}
-                      sx={{ py: 1.5, minHeight: 48 }}
-                    >
-                      {nfc.isScanning ? "Hold tag to phone… (tap to cancel)" : "Scan tag"}
-                    </Button>
-                  )}
+                  {/* Scan ALWAYS renders (never gated on the async isSupported,
+                      which is undefined for a moment after the basket re-mounts).
+                      When NFC is unavailable or still resolving, it falls back to
+                      the manual serial dialog, so both options are always offered. */}
                   <Button
-                    variant={nfc.isSupported ? "outlined" : "contained"}
+                    variant={nfc.isScanning ? "outlined" : "contained"}
+                    size="large"
+                    startIcon={nfc.isScanning ? <CircularProgress size={18} /> : <NfcIcon />}
+                    onClick={() => {
+                      if (!nfc.isSupported) {
+                        setManualOpen(true);
+                        setCandidates(null);
+                        setSerial("");
+                        return;
+                      }
+                      nfc.isScanning ? nfc.stopScan() : nfc.startScan();
+                    }}
+                    disabled={busy}
+                    sx={{ py: 1.5, minHeight: 48 }}
+                  >
+                    {nfc.isScanning ? "Hold tag to phone… (tap to cancel)" : "Scan tag"}
+                  </Button>
+                  <Button
+                    variant="outlined"
                     size="large"
                     startIcon={<KeyboardIcon />}
                     onClick={() => {
@@ -774,40 +798,14 @@ export default function DeliveryBasketPage() {
           last one; during a walk step it would just be a distraction. */}
       {!walkActive && (
       <>
-      <Stack direction="row" alignItems="center" spacing={1}>
-        <Typography variant="subtitle1" fontWeight={600} sx={{ flex: 1 }}>
-          Delivering ({visibleItems.length})
-        </Typography>
-        {/* One signature/photo/GPS for every unit still delivering (per-unit
-            Delivered stays available below for partial deliveries). Skipped
-            items are `not_delivered`, so this bulk pass cannot touch them. */}
-        {/* Stays available while ANY unit is still out for delivery (≥1) so the
-            remaining units after a per-unit delivery can still be done in one
-            pass. Free-typed lines use "Mark delivered". */}
-        {deliveringUnits.length >= 1 && (
-          <Button
-            size="small"
-            variant="contained"
-            startIcon={<LocalShippingIcon />}
-            // Run the rider's OWN single-item screens for a lead unit, then fan
-            // that proof across the rest. Outbound reuses ack -> after-ack with
-            // applyToAll=1, so bulk and single are literally the same screens.
-            onClick={() => {
-              const lead = deliveringUnits[0];
-              if (!lead?.inventoryId) return;
-              const q = `assetId=${encodeURIComponent(lead.assetId)}&inventoryId=${encodeURIComponent(lead.inventoryId)}&applyToAll=1`;
-              // Returns skip the ack capture (their photos were taken at Start
-              // Return) and enter after-ack directly, which now suppresses the
-              // install prompt and collects instead.
-              const entry = run.direction === "RETURN" || hasDraftAck(lead) ? "after-ack" : "ack";
-              router.push(`/scan/delivery/${run.id}/${entry}?${q}`);
-            }}
-            disabled={busy}
-          >
-            {isReturnRun ? `End all return (${deliveringUnits.length})` : `End all delivery (${deliveringUnits.length})`}
-          </Button>
-        )}
-      </Stack>
+      {/* The whole Delivering section is one box: the items, then a single
+          "End Delivery" action at the bottom (inside the box) that covers every
+          item in it. Per-item End actions are removed; Start actions (for not-yet-
+          started items) stay per item. The Skipped section is separate. */}
+      <Box sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 1.5 }}>
+      <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+        Delivering ({visibleItems.length})
+      </Typography>
       <Stack spacing={1}>
         {visibleItems.map((it) => {
           const chip = STATUS_CHIP[it.deliveryStatus] ?? { label: it.deliveryStatus, color: "default" as const };
@@ -844,18 +842,9 @@ export default function DeliveryBasketPage() {
                         Start Delivery
                       </Button>
                     )}
-                    {!it.inventoryId && !it.assetId && it.deliveryStatus === "delivering" && run.status !== "cancelled" && (
-                      <Button
-                        size="small"
-                        variant="contained"
-                        startIcon={<LocalShippingIcon />}
-                        onClick={() => router.push(`/scan/delivery/${run.id}/free-item/${it.id}`)}
-                        disabled={busy}
-                        sx={{ minHeight: 40 }}
-                      >
-                        End Delivery
-                      </Button>
-                    )}
+                    {/* Delivering items (free-typed and unit) have NO per-item End
+                        action — the single "End Delivery" at the bottom of the box
+                        ends them all together. */}
                     {/* Fix B: not-yet-started items get their own Start action —
                         every item is independently actionable regardless of
                         scan order. */}
@@ -869,35 +858,6 @@ export default function DeliveryBasketPage() {
                         sx={{ minHeight: 40 }}
                       >
                         Start Delivery
-                      </Button>
-                    )}
-                    {it.deliveryStatus === "delivering" && run.direction !== "RETURN" && (
-                      <Button
-                        size="small"
-                        variant="contained"
-                        startIcon={<LocalShippingIcon />}
-                        onClick={() => router.push(hasDraftAck(it) ? afterAckHref(it) : ackHref(it))}
-                        sx={{ minHeight: 40 }}
-                      >
-                        {hasDraftAck(it) ? "Continue" : "End Delivery"}
-                      </Button>
-                    )}
-                    {/* #3a: per-unit End Return — the return twin of End Delivery.
-                        Runs the SAME single-item capture (photos + signature) on
-                        the complete page, scoped to this unit, then collects it. */}
-                    {it.deliveryStatus === "delivering" && run.direction === "RETURN" && it.inventoryId && (
-                      <Button
-                        size="small"
-                        variant="contained"
-                        startIcon={<AssignmentReturnIcon />}
-                        onClick={() =>
-                          router.push(
-                            `/scan/delivery/${run.id}/after-ack?assetId=${encodeURIComponent(it.assetId)}&inventoryId=${encodeURIComponent(it.inventoryId!)}`,
-                          )
-                        }
-                        sx={{ minHeight: 40 }}
-                      >
-                        End Return
                       </Button>
                     )}
                     {it.deliveryStatus === "not_installed" && (
@@ -947,6 +907,23 @@ export default function DeliveryBasketPage() {
           );
         })}
       </Stack>
+
+      {/* Single End action for the WHOLE box: a unit lead captures one signature/
+          photo/GPS and ack-all fans it across every delivering item (free-typed
+          included). Shown while anything is still delivering. */}
+      {deliveringItems.length >= 1 && (
+        <Button
+          fullWidth
+          variant="contained"
+          startIcon={isReturnRun ? <AssignmentReturnIcon /> : <LocalShippingIcon />}
+          onClick={bulkEnd}
+          disabled={busy}
+          sx={{ mt: 1.5, minHeight: 44 }}
+        >
+          {isReturnRun ? "End Return" : "End Delivery"}
+        </Button>
+      )}
+      </Box>
 
       {/* ── SKIPPED ────────────────────────────────────────────────────────
           Passed over during the walk. Deliberately its own section and NOT part
@@ -1090,19 +1067,26 @@ export default function DeliveryBasketPage() {
 
       {canAdd && (
         <Stack spacing={1.5}>
-          {/* Inline NFC — only when the platform supports it. */}
-          {nfc.isSupported && (
-            <Button
-              variant={nfc.isScanning ? "outlined" : "contained"}
-              size="large"
-              startIcon={nfc.isScanning ? <CircularProgress size={18} /> : <NfcIcon />}
-              onClick={() => (nfc.isScanning ? nfc.stopScan() : nfc.startScan())}
-              disabled={busy}
-              sx={{ py: 1.5, minHeight: 48 }}
-            >
-              {nfc.isScanning ? "Hold tag to phone… (tap to cancel)" : "Scan tag to add unit"}
-            </Button>
-          )}
+          {/* Scan ALWAYS renders (never gated on the async isSupported); it falls
+              back to the manual serial dialog when NFC is unavailable or still
+              resolving, so both options are always offered. */}
+          <Button
+            variant={nfc.isScanning ? "outlined" : "contained"}
+            size="large"
+            startIcon={nfc.isScanning ? <CircularProgress size={18} /> : <NfcIcon />}
+            onClick={() => {
+              if (!nfc.isSupported) {
+                setManualOpen(true);
+                setCandidates(null);
+                return;
+              }
+              nfc.isScanning ? nfc.stopScan() : nfc.startScan();
+            }}
+            disabled={busy}
+            sx={{ py: 1.5, minHeight: 48 }}
+          >
+            {nfc.isScanning ? "Hold tag to phone… (tap to cancel)" : "Scan tag to add unit"}
+          </Button>
           <Button
             variant="outlined"
             size="large"
