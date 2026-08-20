@@ -572,6 +572,12 @@ export default function DeliveryBasketPage() {
 
   const unboundSlots = run.items.filter((it) => it.assetId && !it.inventoryId && !isSkipped(it));
   const visibleItems = run.items.filter((it) => !(it.assetId && !it.inventoryId) && !isSkipped(it));
+  // A completed item is DONE — it must leave the Delivering box entirely, so the
+  // bulk "End Delivery" only ever sits over items still in flight. Completed
+  // units render read-only in their own section below (progress at a glance,
+  // no action that could invite a second pointless bulk end).
+  const inFlightItems = visibleItems.filter((it) => it.deliveryStatus !== "completed");
+  const completedItems = visibleItems.filter((it) => it.deliveryStatus === "completed");
 
   // ── one-pass walk-through (scheduled runs only) ──────────────────────────
   // The office declared these items in order, so the rider is stepped through
@@ -798,16 +804,20 @@ export default function DeliveryBasketPage() {
           last one; during a walk step it would just be a distraction. */}
       {!walkActive && (
       <>
-      {/* The whole Delivering section is one box: the items, then a single
-          "End Delivery" action at the bottom (inside the box) that covers every
-          item in it. Per-item End actions are removed; Start actions (for not-yet-
-          started items) stay per item. The Skipped section is separate. */}
+      {/* The whole Delivering section is one box: the items still in flight,
+          then a single "End Delivery" action at the bottom (inside the box) that
+          covers every item in it. Completed items are NOT here — they moved to
+          the Completed section below, so this box (and its End Delivery) only
+          ever covers active work. When nothing is in flight the box is not
+          rendered at all. Per-item End actions are removed; Start actions (for
+          not-yet-started items) stay per item. The Skipped section is separate. */}
+      {inFlightItems.length > 0 && (
       <Box sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 1.5 }}>
       <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
-        Delivering ({visibleItems.length})
+        Delivering ({inFlightItems.length})
       </Typography>
       <Stack spacing={1}>
-        {visibleItems.map((it) => {
+        {inFlightItems.map((it) => {
           const chip = STATUS_CHIP[it.deliveryStatus] ?? { label: it.deliveryStatus, color: "default" as const };
           return (
             <Card key={it.id} variant="outlined">
@@ -924,6 +934,42 @@ export default function DeliveryBasketPage() {
         </Button>
       )}
       </Box>
+      )}
+
+      {/* Completed — read-only. Done items live here, out of the Delivering box,
+          so the rider sees progress at a glance without any action that could
+          trigger a second End Delivery. No buttons by design. */}
+      {completedItems.length > 0 && (
+        <Box sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 1.5 }}>
+          <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+            Completed ({completedItems.length})
+          </Typography>
+          <Stack spacing={1}>
+            {completedItems.map((it) => {
+              const chip = STATUS_CHIP[it.deliveryStatus] ?? { label: it.deliveryStatus, color: "default" as const };
+              return (
+                <Card key={it.id} variant="outlined">
+                  <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
+                    <Stack direction="row" alignItems="center" spacing={1}>
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Typography variant="body2" fontWeight={600} noWrap>
+                          {it.description || it.asset?.name || it.inventory?.sku || "Item"}
+                        </Typography>
+                        {it.inventory?.sku && (
+                          <Typography variant="caption" color="text.secondary" noWrap display="block">
+                            {it.inventory.sku}
+                          </Typography>
+                        )}
+                      </Box>
+                      <Chip size="small" label={chip.label} color={chip.color} />
+                    </Stack>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </Stack>
+        </Box>
+      )}
 
       {/* ── SKIPPED ────────────────────────────────────────────────────────
           Passed over during the walk. Deliberately its own section and NOT part
