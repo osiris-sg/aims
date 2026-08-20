@@ -1922,7 +1922,12 @@ model RecurringInvoiceTemplate {
 model MaintenanceServiceReport {
   id                String                         @id @default(uuid()) @db.Uuid
   organizationId    String
-  assetId           String                         @db.Uuid
+  // Nullable: a FREE-TYPED delivery line (a cable etc.) has no asset, but still
+  // produces DO_START / DO_ACK proof MSRs tied to the run by deliveryId. Every
+  // asset-backed MSR still sets this. The three asset-scoped history reads
+  // (listByAsset, listByProject, getScanContext) intentionally exclude null-asset
+  // rows — a free-typed line has no asset history.
+  assetId           String?                        @db.Uuid
   // Optional link to a specific inventory unit (when isTracked assets have serials)
   inventoryId       String?                        @db.Uuid
   // Clerk user id of the technician who performed the work
@@ -1989,7 +1994,7 @@ model MaintenanceServiceReport {
   updatedAt         DateTime                       @updatedAt
 
   organization  Organization           @relation(fields: [organizationId], references: [id])
-  asset         Asset                  @relation(fields: [assetId], references: [id])
+  asset         Asset?                 @relation(fields: [assetId], references: [id])
   inventory     Inventory?             @relation(fields: [inventoryId], references: [id])
   // Background-tracked GPS pings collected during this delivery. Populated
   // only for kind=DO_START rows — DO_ACK and SERVICE rows have none.

@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { AssetClass, DeliveryDirection, DeliveryStatus, DeploymentStatus, DeploymentType, InventoryStatus, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
 import { isUnconfirmedDoc } from 'src/common/doc-status';
-import { resolveLineAssetClass } from 'src/common/asset-class';
+import { resolveLineAssetClass, minPhotosForAssetClass } from 'src/common/asset-class';
 import { DocumentsService } from '../documents/documents.service';
 import { ProjectsService } from '../projects/projects.service';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
@@ -2656,6 +2656,128 @@ export class DeliveriesService {
     });
     await this.recomputeRunStatus(deliveryId, organizationId);
     return this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
+  }
+
+  /**
+   * FREE-TYPED line — START (Route A): a description-only line (a cable etc.) has
+   * no asset and no unit, so it can't use the scan/asset delivery-start page or
+   * the inventoryId-keyed transitions. It still runs the FULL lifecycle: capture
+   * guided condition photos, write a DO_START proof MSR with assetId + inventoryId
+   * BOTH null (tied to the run by deliveryId, so both proof surfaces render it),
+   * and advance the item not_delivered -> delivering by DeliveryItem.id (the
+   * { deliveryId, inventoryId } key is ambiguous across free-typed rows). Photo
+   * gate reads the line's OWN assetClass (5 equipment / 1 accessory).
+   */
+  async startFreeTypedItem(
+    deliveryId: string,
+    itemId: string,
+    dto: { photos?: string[]; angles?: string[]; technicianName?: string; latitude?: number; longitude?: number },
+    organizationId: string,
+    technicianUserId: string,
+  ) {
+    const item = await this.loadFreeTypedItem(deliveryId, itemId, organizationId);
+    if (item.deliveryStatus !== DeliveryStatus.not_delivered) {
+      throw new BadRequestException('This line is not awaiting start');
+    }
+    const photos = (dto.photos ?? []).map((k) => String(k).trim()).filter(Boolean);
+    const required = minPhotosForAssetClass(item.assetClass);
+    if (photos.length < required) {
+      throw new BadRequestException(
+        required === 1
+          ? 'A condition photo of this item is required to start.'
+          : `This line is equipment, so it needs at least ${required} condition photos to start. Only ${photos.length} were provided.`,
+      );
+    }
+    await this.prisma.maintenanceServiceReport.create({
+      data: {
+        organizationId,
+        technicianUserId,
+        assetId: null,
+        inventoryId: null,
+        deliveryId,
+        kind: 'DO_START',
+        status: 'draft', // DO_START is unsigned proof, same as a unit's
+        description: `Delivery started: ${item.description ?? 'free-typed line'}`,
+        ...(photos.length ? { photos } : {}),
+        ...(dto.angles?.length ? { serviceData: { photoAngles: dto.angles } } : {}),
+        ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
+        ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
+        ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
+      },
+    });
+    // Advance by ITEM ID — never { deliveryId, inventoryId } (both null here).
+    await this.prisma.deliveryItem.update({
+      where: { id: item.id },
+      data: { deliveryStatus: DeliveryStatus.delivering, deliveringAt: new Date(), skippedAt: null },
+    });
+    return this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
+  }
+
+  /**
+   * FREE-TYPED line — END DELIVERY (Route A): capture the customer signature,
+   * write a signed DO_ACK proof MSR (asset-less, unit-less, tied to the run) and
+   * advance the item delivering -> completed by DeliveryItem.id. No install step
+   * (a free-typed line has nothing to install).
+   */
+  async endFreeTypedItem(
+    deliveryId: string,
+    itemId: string,
+    dto: { signature?: string; signedByName?: string; photos?: string[]; technicianName?: string; latitude?: number; longitude?: number },
+    organizationId: string,
+    technicianUserId: string,
+  ) {
+    const item = await this.loadFreeTypedItem(deliveryId, itemId, organizationId);
+    if (item.deliveryStatus !== DeliveryStatus.delivering) {
+      throw new BadRequestException('Start this line before ending its delivery');
+    }
+    if (!dto.signature) throw new BadRequestException('Customer signature is required');
+    const photos = (dto.photos ?? []).map((k) => String(k).trim()).filter(Boolean);
+    const now = new Date();
+    await this.prisma.maintenanceServiceReport.create({
+      data: {
+        organizationId,
+        technicianUserId,
+        assetId: null,
+        inventoryId: null,
+        deliveryId,
+        kind: 'DO_ACK',
+        status: 'completed',
+        description: `Delivery acknowledged: ${item.description ?? 'free-typed line'}`,
+        signature: dto.signature,
+        signedAt: now,
+        ...(dto.signedByName ? { signedByName: dto.signedByName } : {}),
+        ...(photos.length ? { photos } : {}),
+        ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
+        ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
+        ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
+      },
+    });
+    await this.prisma.deliveryItem.update({
+      where: { id: item.id },
+      data: { deliveryStatus: DeliveryStatus.completed, deliveredAt: now, completedAt: now, skippedAt: null },
+    });
+    await this.recomputeRunStatus(deliveryId, organizationId);
+    return this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
+  }
+
+  /** Shared guard/loader for the free-typed lifecycle: the line must exist on a
+   *  live run and be genuinely free-typed (no asset, no unit). */
+  private async loadFreeTypedItem(deliveryId: string, itemId: string, organizationId: string) {
+    const delivery = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: { id: true, status: true },
+    });
+    if (!delivery) throw new NotFoundException('Delivery not found');
+    if (delivery.status === 'cancelled') throw new BadRequestException('Cannot act on a cancelled delivery');
+    const item = await this.prisma.deliveryItem.findFirst({
+      where: { id: itemId, deliveryId },
+      select: { id: true, assetId: true, inventoryId: true, deliveryStatus: true, assetClass: true, description: true },
+    });
+    if (!item) throw new NotFoundException('Item is not on this delivery');
+    if (item.assetId !== null || item.inventoryId !== null) {
+      throw new BadRequestException('This flow is only for free-typed lines — scan the unit for a catalog line');
+    }
+    return item;
   }
 
   /**
