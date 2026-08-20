@@ -627,6 +627,12 @@ export default function ScheduleDeliveryDialog({
           ...(machineLocation.trim() ? { machineLocation: machineLocation.trim() } : {}),
           ...(customer ? { customerId: customer.id } : {}),
           ...(project ? { projectId: project.id } : {}),
+          // Send the picker's CURRENT selection so the backend persists it before
+          // deriving the DO's Attention. The pick-time PUT still fires for instant
+          // feedback, but this closes the race where the DO is built before that
+          // fire-and-forget save commits. Only with a project (the backend keys
+          // ProjectContact on it); untouched, this re-sends the loaded set.
+          ...(project ? { contactIds: projectContactIds } : {}),
         },
         token,
       );

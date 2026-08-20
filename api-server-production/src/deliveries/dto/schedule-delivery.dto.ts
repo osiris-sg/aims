@@ -88,6 +88,17 @@ export class ScheduleDeliveryDto {
 
   @ApiProperty({
     required: false,
+    type: [String],
+    description:
+      "The contact picker's current selection (CustomerContact UUIDs). Persisted onto the project (ProjectContact set) inside createScheduled BEFORE the DO's Attention is derived, so the picked contacts land on the DO on the FIRST save regardless of whether the pick-time PUT has committed. Omitted => the project's existing contacts are used unchanged.",
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('all', { each: true })
+  contactIds?: string[];
+
+  @ApiProperty({
+    required: false,
     description:
       'Save as an office DRAFT: whatever has been entered so far, however little. A draft is invisible to riders and mints no Delivery Order.',
   })
