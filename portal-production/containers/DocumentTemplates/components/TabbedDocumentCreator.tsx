@@ -456,6 +456,11 @@ export default function TabbedDocumentCreator({
   const isStockAdjustmentOut = documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_OUT";
   const isStockAdjustment = isStockAdjustmentIn || isStockAdjustmentOut;
   const isDeliveryOrder = documentType === "DO" || documentType === "DELIVERY_ORDER";
+  // Return Delivery Order. Documents genuinely carry the canonical
+  // RETURN_DELIVERY_ORDER type (not just the "RDO" variant), so every RDO-only
+  // render branch matches BOTH: the editor tracks reality rather than relying on
+  // the list to hand it a normalised variant.
+  const isRDO = documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER";
   // Official Receipt (legacy accounting UX): the receipt lives in this editor
   // like any document — its own field rows + the Offset Transactions grid in
   // place of the items table. Saves route to PUT /receipts (page onSave).
@@ -1390,7 +1395,7 @@ export default function TabbedDocumentCreator({
     const isStockAdjustmentOut = documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_OUT";
     const isStockAdjustment = isStockAdjustmentIn || isStockAdjustmentOut;
     const isPurchaseOrderType = documentType === "PO" || documentType === "PURCHASE_ORDER" || documentType === "QT" || documentType === "QUOTATION" || documentType === "QO" || documentType === "QO1" || documentType === "QO2";
-    const isDeliveryOrderType = documentType === "DO" || documentType === "DELIVERY_ORDER" || documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER";
+    const isDeliveryOrderType = documentType === "DO" || documentType === "DELIVERY_ORDER" || isRDO || documentType === "RETURN_DELIVERY_ORDER";
     const needsUom = isStockAdjustment || isPurchaseOrderType || isDeliveryOrderType;
     const needsDiscount = isStockAdjustment || isPurchaseOrderType;
     setItems([
@@ -1423,7 +1428,7 @@ export default function TabbedDocumentCreator({
     const isStockAdjustmentType = isStockAdjustmentIn || isStockAdjustmentOut;
     const isPurchaseOrderType = documentType === "PO" || documentType === "PURCHASE_ORDER" || documentType === "QT" || documentType === "QUOTATION" || documentType === "QO" || documentType === "QO1" || documentType === "QO2";
     const isPurchaseReturnType = documentType === "PR" || documentType === "PURCHASE_RETURN";
-    const isDeliveryOrderType = documentType === "DO" || documentType === "DELIVERY_ORDER" || documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER";
+    const isDeliveryOrderType = documentType === "DO" || documentType === "DELIVERY_ORDER" || isRDO || documentType === "RETURN_DELIVERY_ORDER";
     const isCreditDebitNoteType = documentType === "CN" || documentType === "CREDIT_NOTE" || documentType === "DN" || documentType === "DEBIT_NOTE";
     const needsUom = isStockAdjustmentType || isPurchaseOrderType || isPurchaseReturnType || isDeliveryOrderType || isCreditDebitNoteType;
     const needsDiscount = isStockAdjustmentType || isPurchaseOrderType || isPurchaseReturnType;
@@ -1531,7 +1536,7 @@ export default function TabbedDocumentCreator({
     const isStockAdjType = documentType === "SAI" || documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_IN" || documentType === "STOCK_ADJUSTMENT_OUT";
     const isPOType = documentType === "PO" || documentType === "PURCHASE_ORDER";
     const isPRType = documentType === "PR" || documentType === "PURCHASE_RETURN";
-    const isDOType = documentType === "DO" || documentType === "DELIVERY_ORDER" || documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER";
+    const isDOType = documentType === "DO" || documentType === "DELIVERY_ORDER" || isRDO || documentType === "RETURN_DELIVERY_ORDER";
     const isCDNType = documentType === "CN" || documentType === "CREDIT_NOTE" || documentType === "DN" || documentType === "DEBIT_NOTE";
     const needsUom = isStockAdjType || isPOType || isPRType || isDOType || isCDNType || isQuotationType;
     if (needsUom) {
@@ -2063,6 +2068,7 @@ export default function TabbedDocumentCreator({
       DO: "Delivery Order",
       DELIVERY_ORDER: "Delivery Order",
       RDO: "Return Delivery Order",
+      RETURN_DELIVERY_ORDER: "Return Delivery Order",
       TI: "Tax Invoice",
       TI2: "Tax Invoice",
       INVOICE: "Tax Invoice",
@@ -3030,9 +3036,9 @@ export default function TabbedDocumentCreator({
         title: "Document Fields",
         items: [
           ...(documentType === "TI" || documentType === "DO" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? [{ label: "Reference No", name: "referenceNo" }] : []),
-          ...(documentType === "DO" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" || documentType === "RDO" ? [{ label: "PO No", name: "poNo" }] : []),
+          ...(documentType === "DO" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" || isRDO ? [{ label: "PO No", name: "poNo" }] : []),
           ...(documentType === "DO" ? [{ label: "DO No", name: "doNo" }] : []),
-          ...(documentType === "RDO" ? [{ label: "Return Order No", name: "returnOrderNo" }] : []),
+          ...(isRDO ? [{ label: "Return Order No", name: "returnOrderNo" }] : []),
           ...(documentType === "DO" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? [{ label: "Delivery To", name: "deliveryTo" }] : []),
         ],
       },
@@ -4055,8 +4061,8 @@ export default function TabbedDocumentCreator({
                     <Tab key={tab.tabId} label={tab.tabLabel} />
                   ))}
                   {/* Legacy delivery address tab for specific document types - only when no dynamic template config */}
-                  {!templateFieldConfig && (documentType === "DO" || documentType === "RDO" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (
-                    <Tab label={documentType === "RDO" ? "Return Info" : "Delivery Address"} />
+                  {!templateFieldConfig && (documentType === "DO" || isRDO || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (
+                    <Tab label={isRDO ? "Return Info" : "Delivery Address"} />
                   )}
                 </Tabs>
                 <Button
@@ -4455,7 +4461,7 @@ export default function TabbedDocumentCreator({
                           </FormControl>
                         </Grid>
                       )}
-                      {documentType === "RDO" && (
+                      {isRDO && (
                         <Grid item xs={12} md={6}>
                           <TextField
                             fullWidth
@@ -4493,7 +4499,7 @@ export default function TabbedDocumentCreator({
                           />
                         </Grid>
                       )}
-                      {(documentType === "DO" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" || documentType === "RDO") && (
+                      {(documentType === "DO" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" || isRDO) && (
                         <Grid item xs={12} md={6}>
                           <TextField
                             fullWidth
@@ -4755,14 +4761,14 @@ export default function TabbedDocumentCreator({
 
 
           {/* DELIVERY ADDRESS TAB - Only for DO, RDO, and QO1 when no dynamic template config */}
-          {!templateFieldConfig && (documentType === "DO" || documentType === "RDO" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (
+          {!templateFieldConfig && (documentType === "DO" || isRDO || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (
             <TabPanel value={mainTabValue} index={2}>
               <Grid container spacing={0.5}>
                 <Grid item xs={12}>
                   <Card>
                     <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
                       <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25 }}>
-                        {documentType === "RDO" ? "Return Information" : "Delivery Information"}
+                        {isRDO ? "Return Information" : "Delivery Information"}
                       </Typography>
                       <Divider sx={{ mb: 0.5 }} />
                       <Grid container spacing={0.5}>
@@ -4844,7 +4850,7 @@ export default function TabbedDocumentCreator({
                         )}
 
                         {/* Collect From for RDO */}
-                        {documentType === "RDO" && (
+                        {isRDO && (
                           <Grid item xs={12}>
                             <TextField
                               fullWidth
@@ -4865,7 +4871,7 @@ export default function TabbedDocumentCreator({
                         <Grid item xs={12}>
                           <TextField
                             fullWidth
-                            label={documentType === "RDO" ? "Collection Address" : "Delivery Address"}
+                            label={isRDO ? "Collection Address" : "Delivery Address"}
                             value={formData.deliveryAddress.address}
                             onChange={(e) =>
                               setFormData({
@@ -4884,7 +4890,7 @@ export default function TabbedDocumentCreator({
                         <Grid item xs={12}>
                           <TextField
                             fullWidth
-                            label={documentType === "RDO" ? "Return Instructions" : "Delivery Instructions"}
+                            label={isRDO ? "Return Instructions" : "Delivery Instructions"}
                             value={formData.deliveryAddress.instructions}
                             onChange={(e) =>
                               setFormData({
@@ -5004,7 +5010,7 @@ export default function TabbedDocumentCreator({
                               const isStockAdjustment = isStockAdjustmentIn || isStockAdjustmentOut;
                               const isPurchaseOrderType = documentType === "PO" || documentType === "PURCHASE_ORDER" || documentType === "QT" || documentType === "QUOTATION" || documentType === "QO" || documentType === "QO1" || documentType === "QO2";
                               const isPurchaseReturnType = documentType === "PR" || documentType === "PURCHASE_RETURN";
-                              const isDeliveryOrderType = documentType === "DO" || documentType === "DELIVERY_ORDER" || documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER";
+                              const isDeliveryOrderType = documentType === "DO" || documentType === "DELIVERY_ORDER" || isRDO || documentType === "RETURN_DELIVERY_ORDER";
                               const isCreditDebitNote = documentType === "CN" || documentType === "CREDIT_NOTE" || documentType === "DN" || documentType === "DEBIT_NOTE";
                               // Allow the doc/template to override the default column layout
                               // (e.g. the FCU/CU Quotation variant uses location/taggedAsset/remarks).
@@ -5177,7 +5183,7 @@ export default function TabbedDocumentCreator({
                                 const isStockAdjustment = isStockAdjustmentIn || isStockAdjustmentOut;
                                 const isPurchaseOrderType = documentType === "PO" || documentType === "PURCHASE_ORDER" || documentType === "QT" || documentType === "QUOTATION" || documentType === "QO" || documentType === "QO1" || documentType === "QO2";
                                 const isPurchaseReturnType = documentType === "PR" || documentType === "PURCHASE_RETURN";
-                                const isDeliveryOrderType = documentType === "DO" || documentType === "DELIVERY_ORDER" || documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER";
+                                const isDeliveryOrderType = documentType === "DO" || documentType === "DELIVERY_ORDER" || isRDO || documentType === "RETURN_DELIVERY_ORDER";
                                 const isCreditDebitNote = documentType === "CN" || documentType === "CREDIT_NOTE" || documentType === "DN" || documentType === "DEBIT_NOTE";
                                 const configuredColumns = (existingData?.tableColumnOrder ?? existingData?.config?.tableColumnOrder) as string[] | undefined;
                                 const baseDefaultColumns = isInvoiceType

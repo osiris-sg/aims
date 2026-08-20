@@ -4305,7 +4305,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             </Box>
           )}
 
-          {data.documentInfo?.doNo && documentType === "RDO" && (
+          {data.documentInfo?.doNo && (documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER") && (
             <Box sx={{ mb: 1.5 }}>
               <Typography sx={{ fontSize: "0.8125rem", color: "#666", mb: 0.3 }}>
                 D.O. Number
@@ -4316,7 +4316,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             </Box>
           )}
 
-          {data.documentInfo?.returnOrderNo && documentType === "RDO" && (
+          {data.documentInfo?.returnOrderNo && (documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER") && (
             <Box sx={{ mb: 1.5 }}>
               <Typography sx={{ fontSize: "0.8125rem", color: "#666", mb: 0.3 }}>
                 Return Order Number
@@ -4355,7 +4355,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
       </Box>
 
       {/* Delivery Address if different and specified for DO/RDO */}
-      {(documentType === "DO" || documentType === "RDO") && data.deliveryAddress?.address && (
+      {(documentType === "DO" || (documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER")) && data.deliveryAddress?.address && (
         <Box sx={{ mb: 3 }}>
           <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>
             Delivery To:
@@ -4367,7 +4367,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
       )}
 
       {/* Collect From for RDO */}
-      {documentType === "RDO" && data.collectFrom && (
+      {(documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER") && data.collectFrom && (
         <Box sx={{ mb: 3 }}>
           <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>
             Collect From:
