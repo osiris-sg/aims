@@ -2237,11 +2237,15 @@ export class DeliveriesService {
         inventoryId: null,
         delivery: { organizationId, status: 'scheduled', projectId, isDraft: false },
       },
-      orderBy: { delivery: { scheduledFor: 'asc' } }, // two matches → oldest first
+      // Oldest scheduled run first; WITHIN it the lowest declared slot, so the
+      // merge fills front-to-back like claimScheduled/addItem do — the merged
+      // unit takes the earliest open position, not an arbitrary one.
+      orderBy: [{ delivery: { scheduledFor: 'asc' } }, { sortOrder: 'asc' }],
       select: {
         id: true,
         quantity: true,
         documentId: true,
+        sortOrder: true, // the declared walk position this merged unit must inherit
         delivery: { select: { id: true, deliveryNumber: true, riderName: true } },
       },
     });
@@ -2251,11 +2255,16 @@ export class DeliveriesService {
 
     await this.prisma.$transaction(async (tx) => {
       // 1) Reparent this unit's live item into the scheduled run, inheriting the
-      //    slot's DO link. Same row → deliveryStatus + deliveringAt come along.
-      //    Unique (deliveryId, inventoryId) is safe: the slot held no unit.
+      //    slot's DO link AND its declared walk position. Same row →
+      //    deliveryStatus + deliveringAt come along. Without sortOrder the item
+      //    keeps the ad-hoc create()'s default 0 and collides with the
+      //    slot-filled units (which copy slot.sortOrder), so the [sortOrder, id]
+      //    walk order falls back to an arbitrary UUID tiebreak and the "Item N
+      //    of M" counter inverts. Unique (deliveryId, inventoryId) is safe: the
+      //    slot held no unit.
       await tx.deliveryItem.update({
         where: { id: item.id },
-        data: { deliveryId: schedRunId, documentId: slot.documentId },
+        data: { deliveryId: schedRunId, documentId: slot.documentId, sortOrder: slot.sortOrder },
       });
       // 2) Consume the slot.
       if ((slot.quantity ?? 1) > 1) {
