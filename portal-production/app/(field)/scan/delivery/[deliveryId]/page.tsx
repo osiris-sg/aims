@@ -588,15 +588,22 @@ export default function DeliveryBasketPage() {
   // by itself and survives a reload mid-run (it resumes at the same place).
   // Ad-hoc runs have no declared order and keep the free-order basket.
   const isScheduledRun = !!run.scheduledFor;
-  const walkQueue = run.items.filter(
+  // The counter must read the office's DECLARED order (sortOrder), not the API's
+  // incoming array order or the shrinking remaining queue. Sort a local copy by
+  // [sortOrder, id] (same tiebreak the backend uses) so "Item N of M" is the
+  // item's fixed position in the full list even as earlier ones complete/skip.
+  const orderedItems = [...run.items].sort(
+    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
+  const walkQueue = orderedItems.filter(
     (it) => it.deliveryStatus === "not_delivered" && !it.skippedAt,
   );
   const walkItem = walkQueue[0] ?? null;
   const walkActive =
     isScheduledRun && run.status === "in_progress" && !!walkItem && !walkDismissed;
-  // Position in the office's list, not in the remaining queue, so the counter
-  // doesn't jump around as items are skipped.
-  const walkPosition = walkItem ? run.items.findIndex((it) => it.id === walkItem.id) + 1 : 0;
+  // Position in the office's full declared list, so the counter never jumps as
+  // items are handled or skipped.
+  const walkPosition = walkItem ? orderedItems.findIndex((it) => it.id === walkItem.id) + 1 : 0;
   const isReturnRun = run.direction === "RETURN";
   const scheduledSummary = (() => {
     if (unboundSlots.length === 0) return [] as Array<{ assetId: string; label: string; scheduled: number; delivered: number; remaining: number }>;

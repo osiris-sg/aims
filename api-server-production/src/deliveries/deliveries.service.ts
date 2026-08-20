@@ -322,25 +322,6 @@ export class DeliveriesService {
     };
   }
 
-  /**
-   * Resolve the Attention snapshot for a scheduled DO: the office dialog's value
-   * wins (item 2 — prefilled from the project's contacts but editable), else it
-   * is derived from the project's first contact. Trims and drops a blank name.
-   */
-  private async resolveScheduleAttention(
-    dto: ScheduleDeliveryDto,
-    organizationId: string,
-  ): Promise<{ name: string; phoneNumber?: string; email?: string } | undefined> {
-    const typed = dto.attention;
-    if (typed?.name?.trim()) {
-      return {
-        name: typed.name.trim(),
-        ...(typed.phoneNumber?.trim() ? { phoneNumber: typed.phoneNumber.trim() } : {}),
-        ...(typed.email?.trim() ? { email: typed.email.trim() } : {}),
-      };
-    }
-    return this.projectFirstContactAttention(dto.projectId, organizationId);
-  }
 
   /**
    * Build the draft-DO config fragment for a scheduled delivery (items + header
@@ -512,7 +493,7 @@ export class DeliveriesService {
             select: { id: true, name: true, customerCode: true, email: true, phone: true, address: true },
           })
         : null;
-      const attention = await this.resolveScheduleAttention(dto, organizationId);
+      const attention = await this.projectFirstContactAttention(dto.projectId, organizationId);
       const doConfig = this.buildScheduledDoConfig({
         items: dto.items,
         assetById,
@@ -635,7 +616,7 @@ export class DeliveriesService {
 
     // Attention snapshot for whichever DO path runs below (dialog value wins,
     // else the project's first contact) — resolved once for both mint + regen.
-    const scheduledAttention = await this.resolveScheduleAttention(dto, organizationId);
+    const scheduledAttention = await this.projectFirstContactAttention(dto.projectId, organizationId);
 
     // PROMOTION MINT: a draft carries no DO, so the first save that makes it a
     // real schedule is what creates one. Same placeholder-numbered draft DO the
@@ -847,7 +828,9 @@ export class DeliveriesService {
   ) {
     const run = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },
-      include: { items: true },
+      // Ordered so the FIRST open slot picked below is the lowest-sortOrder one —
+      // the rider fills the office's declared positions front-to-back.
+      include: { items: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
     });
     if (!run) throw new NotFoundException('Delivery not found');
     if (run.status !== 'scheduled') {
@@ -885,6 +868,7 @@ export class DeliveriesService {
             quantity: 1,
             description: slot.description,
             documentId: slot.documentId, // born-linked preserved
+            sortOrder: slot.sortOrder, // keep the slot's declared position (else it sorts to 0/front and the walk counter jumps)
           },
         });
       } else {
@@ -1332,9 +1316,6 @@ export class DeliveriesService {
     const runDocPoNo = runDocCfg?.poNo ?? null;
     // Machine location off the same DO config — powers the edit-scheduled prefill.
     const runDocMachineLocation = runDocCfg?.machineLocation ?? null;
-    // Attention snapshot off the same DO config — lets the edit-scheduled dialog
-    // rehydrate the frozen value so a manual edit survives a re-edit.
-    const runDocAttention = runDocCfg?.attention ?? null;
     // Draft invoice auto-created from that DO on run completion (sourceDocumentId
     // link) — powers the field "what happened" result panel. Null until the
     // completion wrapper has run (or for office-linked/DO-first runs).
@@ -1350,7 +1331,7 @@ export class DeliveriesService {
       : null;
     return {
       ...delivery,
-      document: runDoc ? { ...runDoc, poNo: runDocPoNo, machineLocation: runDocMachineLocation, attention: runDocAttention } : null,
+      document: runDoc ? { ...runDoc, poNo: runDocPoNo, machineLocation: runDocMachineLocation } : null,
       invoice,
       items: delivery.items.map((i) => ({
         ...i,

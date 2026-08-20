@@ -99,9 +99,6 @@ interface EditRun {
   document: {
     poNo?: string | null;
     machineLocation?: string | null;
-    // Frozen Attention snapshot, when the parent includes it. Absent → the
-    // dialog re-derives Attention from the project's contacts on edit.
-    attention?: { name?: string | null; phoneNumber?: string | null; email?: string | null } | null;
   } | null;
   items: Array<{ asset: { id: string; name: string; skuKey: string } | null; quantity: number; description: string | null; assetClass?: string | null }>;
 }
@@ -154,15 +151,9 @@ export default function ScheduleDeliveryDialog({
   // is picked; edits are persisted straight to the project (PUT), since the
   // project already exists here.
   const [projectContactIds, setProjectContactIds] = useState<string[]>([]);
-  // Attention snapshot for the draft DO (item 2). Prefilled from the project's
-  // FIRST contact when a project is chosen (primary-first, else creation order),
-  // then freely editable before saving — mirrors the DO editor's Attention.
-  const [attentionName, setAttentionName] = useState("");
-  const [attentionPhone, setAttentionPhone] = useState("");
-  const [attentionEmail, setAttentionEmail] = useState("");
-  // Guards the auto-prefill: repopulate only when the project actually changes,
-  // so a manual edit isn't clobbered by an incidental effect re-run.
-  const attnProjectRef = useRef<string | null>(null);
+  // The DO's Attention is derived server-side from the project's FIRST contact
+  // (primary-first, else earliest-attached) — the office picks contacts via the
+  // ProjectContactPicker below, no free-text snapshot here.
   // Inline create (customers:create-by-name / projects:create-by-name) so a new
   // customer or project can be minted without leaving the dialog.
   const [createCustomerOpen, setCreateCustomerOpen] = useState(false);
@@ -212,14 +203,6 @@ export default function ScheduleDeliveryDialog({
       setAddress(editRun.siteAddress ?? "");
       setAddressTouched(true); // keep the saved address; don't auto-overwrite on project load
       setMachineLocation(editRun.document?.machineLocation ?? "");
-      // Attention: keep the DO's frozen snapshot when the parent provided one
-      // (and block the contacts effect from re-deriving over it); otherwise leave
-      // it blank so the contacts effect prefills from the project.
-      const attn = editRun.document?.attention;
-      setAttentionName(attn?.name ?? "");
-      setAttentionPhone(attn?.phoneNumber ?? "");
-      setAttentionEmail(attn?.email ?? "");
-      attnProjectRef.current = attn?.name ? editRun.project?.id ?? null : null;
       setCustomer(editRun.customer ? { id: editRun.customer.id, name: editRun.customer.name, customerCode: editRun.customer.customerCode ?? null, address: null } : null);
       setProject(editRun.project ? { id: editRun.project.id, name: editRun.project.name } : null);
       return;
@@ -232,10 +215,6 @@ export default function ScheduleDeliveryDialog({
     setAddress("");
     setAddressTouched(false);
     setMachineLocation("");
-    setAttentionName("");
-    setAttentionPhone("");
-    setAttentionEmail("");
-    attnProjectRef.current = null;
     setCustomer(null);
     setProject(null);
   }, [open, editRun]);
@@ -343,16 +322,12 @@ export default function ScheduleDeliveryDialog({
     };
   }, [customer, getToken]);
 
-  // OSI-84 — load the chosen project's attached contacts (clear when none), and
-  // (item 2) prefill the Attention snapshot from the project's FIRST contact
-  // (primary-first, else creation order) whenever the project changes.
+  // OSI-84 — load the chosen project's attached contacts (clear when none). The
+  // DO's Attention is derived from the FIRST of these server-side, so the picker
+  // selection is the only contact input.
   useEffect(() => {
     if (!project) {
       setProjectContactIds([]);
-      setAttentionName("");
-      setAttentionPhone("");
-      setAttentionEmail("");
-      attnProjectRef.current = null;
       return;
     }
     let cancelled = false;
@@ -364,15 +339,6 @@ export default function ScheduleDeliveryDialog({
         const list = (res?.data ?? res) as ContactLite[];
         if (cancelled) return;
         setProjectContactIds(Array.isArray(list) ? list.map((c) => c.id) : []);
-        // Only (re)prefill when the project itself changed — never overwrite an
-        // edit the office already made for this same project.
-        if (attnProjectRef.current !== project.id) {
-          attnProjectRef.current = project.id;
-          const first = Array.isArray(list) ? list.find((c) => c.isPrimary) ?? list[0] : undefined;
-          setAttentionName(first?.name ?? "");
-          setAttentionPhone(first?.phone ?? "");
-          setAttentionEmail(first?.email ?? "");
-        }
       } catch {
         if (!cancelled) setProjectContactIds([]);
       }
@@ -659,15 +625,6 @@ export default function ScheduleDeliveryDialog({
           ...(poNumber.trim() ? { poNumber: poNumber.trim() } : {}),
           ...(address.trim() ? { address: address.trim() } : {}),
           ...(machineLocation.trim() ? { machineLocation: machineLocation.trim() } : {}),
-          ...(attentionName.trim()
-            ? {
-                attention: {
-                  name: attentionName.trim(),
-                  ...(attentionPhone.trim() ? { phoneNumber: attentionPhone.trim() } : {}),
-                  ...(attentionEmail.trim() ? { email: attentionEmail.trim() } : {}),
-                },
-              }
-            : {}),
           ...(customer ? { customerId: customer.id } : {}),
           ...(project ? { projectId: project.id } : {}),
         },
@@ -778,7 +735,8 @@ export default function ScheduleDeliveryDialog({
           </Button>
         )}
 
-        {/* OSI-84 — contact people for this project (saved to the project). */}
+        {/* OSI-84 — contact people for this project (saved to the project). The
+            DO's Attention uses the FIRST selected contact (primary-first). */}
         {project && (
           <Box sx={{ mb: 2 }}>
             <ProjectContactPicker
@@ -787,43 +745,9 @@ export default function ScheduleDeliveryDialog({
               onChange={(ids) => void saveProjectContacts(ids)}
               label="Project contacts"
             />
-          </Box>
-        )}
-
-        {/* Item 2 — Attention for the draft DO. Prefilled from the project's
-            first contact (primary-first) on selection, editable before saving;
-            frozen onto the DO's config.attention exactly like the DO editor. */}
-        {project && (
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.75 }}>
-              Attention (for the Delivery Order)
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+              The Delivery Order&apos;s Attention uses the first selected contact.
             </Typography>
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-              <TextField
-                label="Attention"
-                placeholder="Contact person"
-                size="small"
-                fullWidth
-                value={attentionName}
-                onChange={(e) => setAttentionName(e.target.value)}
-              />
-              <TextField
-                label="Mobile"
-                placeholder="Contact phone"
-                size="small"
-                fullWidth
-                value={attentionPhone}
-                onChange={(e) => setAttentionPhone(e.target.value)}
-              />
-              <TextField
-                label="Email"
-                placeholder="Contact email"
-                size="small"
-                fullWidth
-                value={attentionEmail}
-                onChange={(e) => setAttentionEmail(e.target.value)}
-              />
-            </Stack>
           </Box>
         )}
 
