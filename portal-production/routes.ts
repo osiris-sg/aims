@@ -26,6 +26,7 @@ export const ROUTES = {
   SALES_QUOTATIONS: "/portal/sales/quotations",
   SALES_SALES_ORDERS: "/portal/sales/sales-orders",
   SALES_DELIVERY_ORDERS: "/portal/sales/delivery-orders",
+  SALES_RETURN_DELIVERY_ORDERS: "/portal/sales/return-delivery-orders",
   SALES_INVOICES: "/portal/sales/invoices",
   SALES_DEBIT_NOTES: "/portal/sales/debit-notes",
   SALES_CREDIT_NOTES: "/portal/sales/credit-notes",

@@ -49,26 +49,6 @@ export class ScheduleDeliveryItemDto {
 }
 
 /**
- * Attention snapshot for the draft DO — name plus optional phone/email. Mirrors
- * config.attention so it round-trips through the DO editor.
- */
-export class ScheduleAttentionDto {
-  @ApiProperty({ description: 'Contact person the DO is addressed to.' })
-  @IsString()
-  name!: string;
-
-  @ApiProperty({ required: false, description: 'Contact phone (DO "Mobile" row).' })
-  @IsOptional()
-  @IsString()
-  phoneNumber?: string;
-
-  @ApiProperty({ required: false, description: 'Contact email (downstream email flows).' })
-  @IsOptional()
-  @IsString()
-  email?: string;
-}
-
-/**
  * Office action: pre-create a delivery run to be picked up in the field. Items
  * are ASSET-ONLY (no specific unit is earmarked, so nothing is reserved until a
  * rider scans a matching unit). Rider + customer/project may be filled at start;
@@ -137,17 +117,6 @@ export class ScheduleDeliveryDto {
   @IsOptional()
   @IsString()
   machineLocation?: string;
-
-  @ApiProperty({
-    required: false,
-    type: () => ScheduleAttentionDto,
-    description:
-      "Attention snapshot for the draft DO (name/phone/email). Prefilled in the UI from the project's first contact but editable; omitted → backend derives it from the project's contacts. Frozen onto config.attention.",
-  })
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => ScheduleAttentionDto)
-  attention?: ScheduleAttentionDto;
 }
 
 /**

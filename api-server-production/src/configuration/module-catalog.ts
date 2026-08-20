@@ -62,6 +62,7 @@ export const MODULE_CATALOG: CatalogModule[] = [
         { key: 'quotations', label: 'Quotation' },
         { key: 'sales-orders', label: 'Sales Order' },
         { key: 'delivery-orders', label: 'Delivery Order' },
+        { key: 'return-delivery-orders', label: 'Return Delivery Order' },
         { key: 'invoices', label: 'Invoice' },
         { key: 'debit-notes', label: 'Debit Note' },
         { key: 'credit-notes', label: 'Credit Note' },

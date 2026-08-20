@@ -2,6 +2,7 @@ import {
   RequestQuote as RequestQuoteIcon,
   ShoppingCart as ShoppingCartIcon,
   LocalShipping as LocalShippingIcon,
+  AssignmentReturn as AssignmentReturnIcon,
   Receipt as ReceiptIcon,
   RemoveCircle as RemoveCircleIcon,
   AddCircle as AddCircleIcon,
@@ -29,6 +30,13 @@ export const SALES_DOCUMENT_TYPES = {
     pluralLabel: "Delivery Orders",
     icon: LocalShippingIcon,
     createDocumentType: "DELIVERY_ORDER", // type field in DocumentTemplate table
+  },
+  RETURN_DELIVERY_ORDER: {
+    types: ["RETURN_DELIVERY_ORDER", "RDO"],
+    label: "Return Delivery Order",
+    pluralLabel: "Return Delivery Orders",
+    icon: AssignmentReturnIcon,
+    createDocumentType: "RETURN_DELIVERY_ORDER", // type field in DocumentTemplate table
   },
   INVOICE: {
     types: ["INVOICE", "TI", "TI2"],

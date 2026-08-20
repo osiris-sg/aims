@@ -112,3 +112,67 @@ export class AckAllDto {
   @IsString({ each: true })
   installPhotos?: string[];
 }
+
+/** Free-typed line START: guided condition photos (+ parallel angle labels) + GPS. */
+export class FreeTypedStartDto {
+  @ApiProperty({ required: false, description: 'S3 keys of the condition photos.', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  photos?: string[];
+
+  @ApiProperty({ required: false, description: 'Per-photo angle labels, parallel to photos.', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  angles?: string[];
+
+  @ApiProperty({ required: false, description: 'Rider display name for the report.' })
+  @IsOptional()
+  @IsString()
+  technicianName?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
+}
+
+/** Free-typed line END DELIVERY: customer signature (required) + optional photos + GPS. */
+export class FreeTypedEndDto {
+  @ApiProperty({ required: false, description: 'Customer signature (data URL / S3 key). Required to complete.' })
+  @IsOptional()
+  @IsString()
+  signature?: string;
+
+  @ApiProperty({ required: false, description: 'Recipient / signer name.' })
+  @IsOptional()
+  @IsString()
+  signedByName?: string;
+
+  @ApiProperty({ required: false, description: 'S3 keys of proof photos.', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  photos?: string[];
+
+  @ApiProperty({ required: false, description: 'Rider display name for the report.' })
+  @IsOptional()
+  @IsString()
+  technicianName?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
+}

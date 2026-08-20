@@ -360,31 +360,9 @@ export default function DeliveryBasketPage() {
     [deliveryId, getToken, load],
   );
 
-  // Mark a FREE-TYPED line delivered (no unit to scan). One tap → completed,
-  // keyed by DeliveryItem.id; the backend rejects any row carrying a unit.
-  const markDelivered = useCallback(
-    async (it: RunItem) => {
-      setBusy(true);
-      setActionMsg(null);
-      try {
-        const token = await getToken();
-        if (!token) throw new Error("Not signed in");
-        const res = await request(
-          { path: `/deliveries/${deliveryId}/items/${it.id}/deliver`, method: "POST" },
-          {},
-          token,
-        );
-        if (res.success === false) throw new Error(res.message ?? "Could not mark delivered");
-        setActionMsg(`"${it.description || "Item"}" delivered ✓`);
-        await load();
-      } catch (e: any) {
-        setActionMsg(e?.message ?? "Could not mark delivered");
-      } finally {
-        setBusy(false);
-      }
-    },
-    [deliveryId, getToken, load],
-  );
+  // Free-typed lines now run the full lifecycle (Start -> photos -> End -> sign)
+  // on /scan/delivery/[id]/free-item/[itemId]; the old one-tap "Mark delivered"
+  // (POST /items/:itemId/deliver) was removed here.
 
   // Walk-through: pass this item over and move to the next. Keyed by
   // DeliveryItem.id so an unfilled slot or a free-typed line is skippable too.
@@ -588,15 +566,22 @@ export default function DeliveryBasketPage() {
   // by itself and survives a reload mid-run (it resumes at the same place).
   // Ad-hoc runs have no declared order and keep the free-order basket.
   const isScheduledRun = !!run.scheduledFor;
-  const walkQueue = run.items.filter(
+  // The counter must read the office's DECLARED order (sortOrder), not the API's
+  // incoming array order or the shrinking remaining queue. Sort a local copy by
+  // [sortOrder, id] (same tiebreak the backend uses) so "Item N of M" is the
+  // item's fixed position in the full list even as earlier ones complete/skip.
+  const orderedItems = [...run.items].sort(
+    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
+  const walkQueue = orderedItems.filter(
     (it) => it.deliveryStatus === "not_delivered" && !it.skippedAt,
   );
   const walkItem = walkQueue[0] ?? null;
   const walkActive =
     isScheduledRun && run.status === "in_progress" && !!walkItem && !walkDismissed;
-  // Position in the office's list, not in the remaining queue, so the counter
-  // doesn't jump around as items are skipped.
-  const walkPosition = walkItem ? run.items.findIndex((it) => it.id === walkItem.id) + 1 : 0;
+  // Position in the office's full declared list, so the counter never jumps as
+  // items are handled or skipped.
+  const walkPosition = walkItem ? orderedItems.findIndex((it) => it.id === walkItem.id) + 1 : 0;
   const isReturnRun = run.direction === "RETURN";
   const scheduledSummary = (() => {
     if (unboundSlots.length === 0) return [] as Array<{ assetId: string; label: string; scheduled: number; delivered: number; remaining: number }>;
@@ -682,17 +667,19 @@ export default function DeliveryBasketPage() {
             )}
 
             <Stack spacing={1} sx={{ mt: 2 }}>
-              {/* Free-typed line: nothing to scan, one tap completes it. */}
+              {/* Free-typed line: no unit to scan, but it runs the full flow
+                  (guided photos -> Start, then signature -> End) on its own page,
+                  keyed by DeliveryItem.id. */}
               {!walkItem.inventoryId && !walkItem.assetId && (
                 <Button
                   variant="contained"
                   size="large"
                   startIcon={<LocalShippingIcon />}
-                  onClick={() => markDelivered(walkItem)}
+                  onClick={() => router.push(`/scan/delivery/${run.id}/free-item/${walkItem.id}`)}
                   disabled={busy}
                   sx={{ py: 1.5, minHeight: 48 }}
                 >
-                  Mark delivered
+                  Start Delivery
                 </Button>
               )}
 
@@ -842,20 +829,31 @@ export default function DeliveryBasketPage() {
                 </Stack>
                 {it.deliveryStatus !== "completed" && (
                   <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
-                    {/* Free-typed line (no unit to scan): one tap → completed.
-                        Full delivery participant — the run won't complete until
-                        it's marked. Available whenever the run is live, unlike
-                        the unit Start/Ack buttons that gate on inventoryId. */}
+                    {/* Free-typed line (no unit to scan) runs the full flow on its
+                        own page, keyed by DeliveryItem.id: Start (guided photos)
+                        then End (signature). Same lifecycle as a unit line. */}
                     {!it.inventoryId && !it.assetId && it.deliveryStatus === "not_delivered" && run.status !== "cancelled" && (
                       <Button
                         size="small"
                         variant="contained"
                         startIcon={<LocalShippingIcon />}
-                        onClick={() => markDelivered(it)}
+                        onClick={() => router.push(`/scan/delivery/${run.id}/free-item/${it.id}`)}
                         disabled={busy}
                         sx={{ minHeight: 40 }}
                       >
-                        Mark delivered
+                        Start Delivery
+                      </Button>
+                    )}
+                    {!it.inventoryId && !it.assetId && it.deliveryStatus === "delivering" && run.status !== "cancelled" && (
+                      <Button
+                        size="small"
+                        variant="contained"
+                        startIcon={<LocalShippingIcon />}
+                        onClick={() => router.push(`/scan/delivery/${run.id}/free-item/${it.id}`)}
+                        disabled={busy}
+                        sx={{ minHeight: 40 }}
+                      >
+                        End Delivery
                       </Button>
                     )}
                     {/* Fix B: not-yet-started items get their own Start action —
@@ -978,17 +976,22 @@ export default function DeliveryBasketPage() {
                   </Stack>
                   {run.status === "in_progress" && (
                     <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
-                      {/* Free-typed: no unit, one tap finishes it. */}
+                      {/* Free-typed: no unit; run the full flow (Start clears the
+                          skip and captures photos, then End signs). */}
                       {!it.inventoryId && !it.assetId && (
                         <Button
                           size="small"
                           variant="contained"
                           startIcon={<LocalShippingIcon />}
-                          onClick={() => markDelivered(it)}
+                          onClick={() =>
+                            router.push(
+                              `/scan/delivery/${run.id}/free-item/${it.id}`,
+                            )
+                          }
                           disabled={busy}
                           sx={{ minHeight: 40 }}
                         >
-                          Mark delivered
+                          {it.deliveryStatus === "delivering" ? "End Delivery" : "Start Delivery"}
                         </Button>
                       )}
                       {it.inventoryId && (

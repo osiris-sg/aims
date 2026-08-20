@@ -176,7 +176,7 @@ export default function DocumentSidebar() {
       DO: "/portal/sales/delivery-orders",
       QO: "/portal/sales/quotations",
       SO: "/portal/sales/sales-orders",
-      RDO: "/portal/sales/delivery-orders", // Use same route for now
+      RDO: "/portal/sales/return-delivery-orders",
       CN: "/portal/sales/credit-notes",
       DN: "/portal/sales/debit-notes",
       MSR: "/portal/sales/delivery-orders", // Use same route for now

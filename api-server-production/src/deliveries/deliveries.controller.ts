@@ -8,7 +8,7 @@ import { DeliveriesService } from './deliveries.service';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { AddDeliveryItemDto } from './dto/add-delivery-item.dto';
 import { CreateDoFromDeliveryDto, LinkDeliveryDto } from './dto/link-delivery.dto';
-import { AckAllDto, AddItemPhotosDto, AssignDeliveryItemDto, SetDeploymentTypeDto, SkipInstallDto } from './dto/assign-delivery.dto';
+import { AckAllDto, AddItemPhotosDto, AssignDeliveryItemDto, FreeTypedEndDto, FreeTypedStartDto, SetDeploymentTypeDto, SkipInstallDto } from './dto/assign-delivery.dto';
 import { ScheduleDeliveryDto, ClaimScheduledDto } from './dto/schedule-delivery.dto';
 import { ScheduleReturnDto } from './dto/schedule-return.dto';
 
@@ -232,6 +232,39 @@ export class DeliveriesController {
     @UserOrganization() org: { id: string },
   ) {
     return this.service.markFreeTypedDelivered(id, itemId, org.id);
+  }
+
+  // FREE-TYPED line — START DELIVERY (full flow, Route A). Guided condition photos
+  // + a DO_START proof MSR (asset-less), advances the line not_delivered ->
+  // delivering. Keyed by DeliveryItem.id (a free-typed line has no unit).
+  @Post(':id/items/:itemId/start')
+  @Permissions('maintenance-reports:create')
+  startFreeTypedItem(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() dto: FreeTypedStartDto,
+    @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
+  ) {
+    const riderUserId = req.user?.id;
+    if (!riderUserId) throw new UnauthorizedException('Missing authenticated user');
+    return this.service.startFreeTypedItem(id, itemId, dto, org.id, riderUserId);
+  }
+
+  // FREE-TYPED line — END DELIVERY (full flow). Customer signature + a DO_ACK proof
+  // MSR (asset-less), advances the line delivering -> completed.
+  @Post(':id/items/:itemId/end')
+  @Permissions('maintenance-reports:create')
+  endFreeTypedItem(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() dto: FreeTypedEndDto,
+    @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
+  ) {
+    const riderUserId = req.user?.id;
+    if (!riderUserId) throw new UnauthorizedException('Missing authenticated user');
+    return this.service.endFreeTypedItem(id, itemId, dto, org.id, riderUserId);
   }
 
   @Post(':id/items/photos')
