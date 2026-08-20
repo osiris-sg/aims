@@ -820,6 +820,46 @@ export class DeliveriesService {
    * unbound quantity stays claimable by the next scan. Several different assets:
    * each has its own item; a scan only matches the slot with the same assetId.
    */
+  /**
+   * Deploy a slot-bound unit onto the run's project — the SAME Assignment +
+   * ProjectDeployment the merge/assign path creates via fieldDeploy. Without
+   * this, a unit scanned directly into a scheduled slot (claimScheduled /
+   * addItem slot-fill) is delivered and acked but never assigned: it reads as
+   * rental with no deployment, invisible to the return picker and unbillable.
+   *
+   * deferStatusFlip: TRUE — the unit is still `reserved` on the truck; the
+   * reserved → rental/sold flip stays at ack (advanceDeliveryItem). Skipping it
+   * would flip the unit to rental while it is still being carried.
+   *
+   * No projectId (an ad-hoc run bound before any assign) or no assetId → there
+   * is nothing to deploy against, so skip — never create a deployment against
+   * nothing. fieldDeploy is idempotent (already_on_project short-circuit), so
+   * this is safe on a unit the merge path already deployed.
+   *
+   * Best-effort: the bind is already committed; a deploy hiccup must never fail
+   * a physical scan (the DO-bind calls beside the call sites are best-effort for
+   * the same reason).
+   */
+  private async deploySlotBoundUnit(
+    projectId: string | null | undefined,
+    organizationId: string,
+    unit: { inventoryId: string; assetId: string | null },
+  ): Promise<void> {
+    if (!projectId || !unit.assetId) return;
+    try {
+      await this.projectsService.fieldDeploy(projectId, organizationId, {
+        inventoryId: unit.inventoryId,
+        assetId: unit.assetId,
+        autoBind: false,
+        deferStatusFlip: true,
+      });
+    } catch (err: any) {
+      this.logger.warn(
+        `deploySlotBoundUnit: fieldDeploy failed for unit ${unit.inventoryId} on project ${projectId}: ${err?.message}`,
+      );
+    }
+  }
+
   async claimScheduled(
     deliveryId: string,
     dto: ClaimScheduledDto,
@@ -898,6 +938,14 @@ export class DeliveriesService {
         this.logger.warn(`claimScheduled: DO slot bind failed for unit ${dto.inventoryId}: ${err?.message}`);
       }
     }
+
+    // Deploy the slot-bound unit onto the run's project (Assignment +
+    // ProjectDeployment), the same as the merge/assign path — otherwise a unit
+    // scanned straight into a scheduled slot is delivered but never deployed.
+    await this.deploySlotBoundUnit(run.projectId, organizationId, {
+      inventoryId: dto.inventoryId,
+      assetId: dto.assetId,
+    });
 
     return { deliveryId, deliveryNumber: run.deliveryNumber, claimed: true };
   }
@@ -1044,7 +1092,9 @@ export class DeliveriesService {
   async addItem(deliveryId: string, dto: AddDeliveryItemDto, organizationId: string) {
     const delivery = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },
-      select: { id: true, status: true, deliveryNumber: true },
+      // projectId: needed to deploy a slot-bound unit onto the run's project
+      // (an ad-hoc run may have none — deploySlotBoundUnit skips in that case).
+      select: { id: true, status: true, deliveryNumber: true, projectId: true },
     });
     if (!delivery) throw new NotFoundException('Delivery not found');
     if (delivery.status !== 'in_progress') {
@@ -1196,6 +1246,13 @@ export class DeliveriesService {
             this.logger.warn(`addItem: DO slot bind failed for unit ${dto.inventoryId}: ${err?.message}`);
           }
         }
+        // Deploy the slot-bound unit onto the run's project (Assignment +
+        // ProjectDeployment), the same as the merge/assign path — otherwise a
+        // unit filled into a scheduled slot is delivered but never deployed.
+        await this.deploySlotBoundUnit(delivery.projectId, organizationId, {
+          inventoryId: dto.inventoryId,
+          assetId: dto.assetId,
+        });
         return bound;
       }
     }
