@@ -212,10 +212,10 @@ export default function GuidedPhotoCapture({
           : "This is equipment, so it needs a set of angles before it leaves."}
       </Typography>
 
-      {/* ONE angle at a time. The full set is deliberately NOT listed: the
-          rider is asked for a single named shot, takes it, and the prompt
-          advances. In comparison mode the outbound reference for THIS angle
-          sits beside the prompt so the rider frames the same shot. */}
+      {/* ONE angle at a time. The full set is deliberately NOT listed: the rider
+          is asked for a single named shot, takes it, and the prompt advances. The
+          prompt is identical outbound and on a return (angle + example only); the
+          delivered comparison appears in the review AFTER the shot, not here. */}
       {!done && !(comparisonMode && reviewing) && (
         <Box sx={{ mb: 1.5, p: 1.5, borderRadius: 1, bgcolor: "action.hover" }}>
           <Typography variant="overline" color="text.secondary" sx={{ display: "block", lineHeight: 1.4 }}>
@@ -227,35 +227,18 @@ export default function GuidedPhotoCapture({
           <Typography variant="body2" color="text.secondary">
             {currentHint}
           </Typography>
-          {comparisonMode && (() => {
-            const ref = outboundFor(stepIndex);
-            if (!ref) return null;
-            return (
-              <Box sx={{ mt: 1.5 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-                  {ref.matched ? `Delivered ${currentLabel}` : "Delivered (angle not guaranteed)"}
-                </Typography>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={ref.src}
-                  alt=""
-                  style={{ width: 120, height: 120, borderRadius: 4, objectFit: "cover" }}
-                />
-              </Box>
-            );
-          })()}
         </Box>
       )}
 
-      {/* (#4b) Large example photo for the current angle — sits directly under
-          the "Photo N of M" prompt and above the Take/Choose buttons, so the
-          rider frames the same shot. Outbound only: in return/comparison mode the
-          real delivered photo shown above is the reference. Static placeholders
-          live in public/guide-angles; swap them for real photos anytime. */}
-      {!done && !comparisonMode && current?.example && (
+      {/* (#4b) Large example photo for the current angle, directly under the
+          "Photo N of M" prompt and above the Take/Choose buttons, so the rider
+          frames the same shot. Shown for BOTH outbound and return capture (hidden
+          only during the return review, where the delivered comparison takes
+          over). Static placeholders live in public/guide-angles. */}
+      {!done && !(comparisonMode && reviewing) && current?.example && (
         <Box sx={{ mb: 2 }}>
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-            Example — {currentLabel}
+            Example: {currentLabel}
           </Typography>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
