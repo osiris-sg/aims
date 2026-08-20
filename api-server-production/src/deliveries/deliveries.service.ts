@@ -412,6 +412,14 @@ export class DeliveriesService {
         })
       : null;
     if (!project && !isDraft) throw new NotFoundException('Project not found in this organization');
+    // Persist the picker's contact selection onto the project BEFORE the DO's
+    // Attention is derived below (projectFirstContactAttention reads
+    // ProjectContact), so the picked contacts land on the DO on the FIRST save
+    // even if the dialog's fire-and-forget pick-time PUT hasn't committed (or
+    // silently failed). `undefined` contactIds => leave the project's links as-is.
+    if (dto.projectId && dto.contactIds !== undefined) {
+      await this.projectsService.setProjectContacts(dto.projectId, organizationId, dto.contactIds);
+    }
     const customerId = dto.customerId ?? project?.customerId ?? undefined;
     // Delivery address: what the office typed (dto.address) wins; else default to
     // the project NAME (for this fleet the project name IS its site address).
@@ -578,6 +586,11 @@ export class DeliveriesService {
         })
       : null;
     if (!project && !willBeDraft) throw new NotFoundException('Project not found in this organization');
+    // Persist the picker's selection before this path's DO Attention is derived
+    // (a draft promoted here mints its DO now), same as createScheduled.
+    if (dto.projectId && dto.contactIds !== undefined) {
+      await this.projectsService.setProjectContacts(dto.projectId, organizationId, dto.contactIds);
+    }
     const customerId = dto.customerId ?? project?.customerId ?? undefined;
     const deliveryAddress = (dto.address?.trim() || project?.name || '').trim();
     const assetIds = [...new Set((dto.items ?? []).map((i) => i.assetId).filter((v): v is string => !!v))];
