@@ -286,67 +286,47 @@ export default function GuidedPhotoCapture({
             <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.3, mb: 1 }}>
               {label}: compare
             </Typography>
-            <Stack direction="row" spacing={1.5}>
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-                  {ref ? (ref.matched ? "Delivered" : "Delivered (angle not guaranteed)") : "No delivered photo"}
-                </Typography>
-                {ref ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={ref.src}
-                    alt=""
-                    style={{ width: "100%", aspectRatio: "1 / 1", borderRadius: 4, objectFit: "cover" }}
-                  />
-                ) : (
-                  <Box
-                    sx={{
-                      width: "100%",
-                      aspectRatio: "1 / 1",
-                      borderRadius: 1,
-                      bgcolor: "action.disabledBackground",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Typography variant="caption" color="text.secondary">None on file</Typography>
-                  </Box>
-                )}
-              </Box>
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-                  Returning
-                </Typography>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
+            {/* Stacked comparison: the DELIVERED photo on top, the RETURNING one
+                directly below it, so the rider reads the same angle top-to-bottom.
+                Per-angle pairing is unchanged (angle-labelled units pair exactly;
+                older units fall back to index-pairing). */}
+            <Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                {ref ? (ref.matched ? "Delivered" : "Delivered (angle not guaranteed)") : "No delivered photo"}
+              </Typography>
+              {ref ? (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={last.previewUrl}
+                  src={ref.src}
                   alt=""
-                  style={{ width: "100%", aspectRatio: "1 / 1", borderRadius: 4, objectFit: "cover" }}
+                  style={{ display: "block", width: "100%", maxWidth: 260, aspectRatio: "1 / 1", borderRadius: 4, objectFit: "cover" }}
                 />
-              </Box>
-            </Stack>
-            {/* Legacy outbound (no angle labels): the paired shot is a best-effort
-                index match, so also show the whole outbound set for the rider to
-                eyeball the right angle. */}
-            {!outboundHasAngles && comparison && comparison.photos.length > 0 && (
-              <Box sx={{ mt: 1.5 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-                  Full outbound set (not a guaranteed angle match)
-                </Typography>
-                <Stack direction="row" spacing={1} sx={{ overflowX: "auto", pb: 1 }}>
-                  {comparison.photos.map((src, i) => (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      key={i}
-                      src={src}
-                      alt=""
-                      style={{ width: 64, height: 64, flexShrink: 0, borderRadius: 4, objectFit: "cover" }}
-                    />
-                  ))}
-                </Stack>
-              </Box>
-            )}
+              ) : (
+                <Box
+                  sx={{
+                    width: "100%",
+                    maxWidth: 260,
+                    aspectRatio: "1 / 1",
+                    borderRadius: 1,
+                    bgcolor: "action.disabledBackground",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Typography variant="caption" color="text.secondary">None on file</Typography>
+                </Box>
+              )}
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1, mb: 0.5 }}>
+                Returning
+              </Typography>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={last.previewUrl}
+                alt=""
+                style={{ display: "block", width: "100%", maxWidth: 260, aspectRatio: "1 / 1", borderRadius: 4, objectFit: "cover" }}
+              />
+            </Box>
             {damage && (
               <Box sx={{ mt: 2 }}>
                 <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
