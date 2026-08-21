@@ -671,29 +671,22 @@ export default function DeliveryBasketPage() {
   const orderedItems = [...run.items].sort(
     (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
-  // Remaining = every item not yet delivered: un-started (not_delivered),
-  // started-but-not-ended (delivering), AND previously SKIPPED (a skip is
-  // not_delivered + skippedAt). Including delivering resumes the walk over items
-  // in flight; including skips walks the rider BACK to anything passed over
-  // rather than making them hunt the basket. A skipped item stays RESOLVED for
-  // the signature gate (the Finalize card shows alongside), so this is an offer
-  // to revisit, not a block.
+  // The forward walk covers ONLY un-started, non-skipped items, and it
+  // TERMINATES: once every such item has been scanned (-> delivering) or skipped,
+  // walkQueue is empty and the walk ends, handing the rider to the basket. This
+  // is deliberate - including delivering/skipped items here made the walk cycle
+  // back onto unresolved items with no way to finish (a skipped item traps the
+  // rider). Instead: a started-but-not-ended item is ended from the basket's
+  // Delivering section (no signature), and a skipped item is revisited from the
+  // basket's Skipped section (Start). A skipped item does NOT resolve the run -
+  // it holds the run open (in_progress) - it is just picked up later, not by
+  // looping the walk.
   const walkQueue = orderedItems.filter(
-    (it) => it.deliveryStatus === "not_delivered" || it.deliveryStatus === "delivering",
+    (it) => it.deliveryStatus === "not_delivered" && !it.skippedAt,
   );
-  // Prefer the next NON-skipped item (un-started first, then started) so a fresh
-  // walk flows front-to-back and an in-session skip moves to the back of the
-  // queue; only when nothing but skips remain does a skipped item lead the walk.
-  const walkItem =
-    walkQueue.find((it) => !it.skippedAt && it.deliveryStatus === "not_delivered") ??
-    walkQueue.find((it) => !it.skippedAt && it.deliveryStatus === "delivering") ??
-    walkQueue.find((it) => it.skippedAt) ??
-    walkQueue[0] ??
-    null;
-  // Active while the run is in progress and has walkable items left. A SKIPPED
-  // item keeps the run in_progress (skip does not resolve it), so it stays in the
-  // walk here and the rider is walked back to it on resume. A `delivered` run has
-  // no walkable items left (all not_installed) - the Finalize card shows instead.
+  const walkItem = walkQueue[0] ?? null;
+  // Active while the run is in progress and un-started, unskipped items remain.
+  // When they are all scanned or skipped the walk ends and the basket takes over.
   const walkActive =
     isScheduledRun && run.status === "in_progress" && !!walkItem && !walkDismissed;
   // Position in the office's full declared list, so the counter never jumps as
