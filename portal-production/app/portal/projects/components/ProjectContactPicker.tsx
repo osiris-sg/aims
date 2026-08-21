@@ -209,13 +209,13 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
               <Box key={c.id} sx={{ p: 1, border: 1, borderColor: "divider", borderRadius: 1 }}>
                 <Grid container spacing={0.5}>
                   <Grid item xs={12} md={4}>
-                    <TextField label="Name" value={c.name || ""} size="small" fullWidth InputProps={{ readOnly: true }} variant="filled" />
+                    <TextField label="Name" value={c.name || ""} size="small" fullWidth InputProps={{ readOnly: true }} />
                   </Grid>
                   <Grid item xs={12} md={4}>
-                    <TextField label="Mobile" value={c.phone || ""} size="small" fullWidth InputProps={{ readOnly: true }} variant="filled" />
+                    <TextField label="Mobile" value={c.phone || ""} size="small" fullWidth InputProps={{ readOnly: true }} />
                   </Grid>
                   <Grid item xs={12} md={4}>
-                    <TextField label="Email" value={c.email || ""} size="small" fullWidth InputProps={{ readOnly: true }} variant="filled" />
+                    <TextField label="Email" value={c.email || ""} size="small" fullWidth InputProps={{ readOnly: true }} />
                   </Grid>
                 </Grid>
               </Box>
