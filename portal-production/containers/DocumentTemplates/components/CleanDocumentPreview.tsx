@@ -1852,7 +1852,12 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
   }
 
   // DO - Delivery Order Layout (same style as TI2)
-  if (documentType === "DO") {
+  if (documentType === "DO" || documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER") {
+    // RDO reuses the DO layout with two swaps: the title reads "RETURN DELIVERY
+    // ORDER", and the "Delivery To" label becomes "Delivery From" (a return comes
+    // FROM the site) with the same person/address value. Preview only for now -
+    // the server PDF renderer is not routed through here (OSI-87).
+    const isRdo = documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER";
     return (
       <Paper
         data-print-paper
@@ -1948,7 +1953,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               </Box>
 
               <Typography sx={{ textAlign: "right", fontSize: "0.9375rem", fontWeight: 700, mb: 1.5 }}>
-                DELIVERY ORDER
+                {isRdo ? "RETURN DELIVERY ORDER" : "DELIVERY ORDER"}
               </Typography>
 
               {/* Info block — customer details LEFT, document details RIGHT */}
@@ -1968,7 +1973,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   <Box sx={{ mt: 1.5 }}>
                     {infoRow("Attention", data.attention?.name || data.documentInfo?.contactName || data.documentInfo?.contact || "", { boldValue: true })}
                     {infoRow("Mobile", data.attention?.phoneNumber || data.attention?.phone || data.documentInfo?.contactNumber || "", { boldValue: true })}
-                    {infoRow("Delivery To", data.deliveryTo || "", { boldValue: true })}
+                    {infoRow(isRdo ? "Delivery From" : "Delivery To", data.deliveryTo || "", { boldValue: true })}
                     {/* Machine location — free-text sub-location under Deliver To; blank-hidden. */}
                     {(data.machineLocation || data.documentInfo?.machineLocation)
                       ? infoRow("Machine Location", data.machineLocation || data.documentInfo?.machineLocation, { boldValue: true })

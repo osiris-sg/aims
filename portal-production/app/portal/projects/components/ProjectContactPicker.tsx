@@ -1,16 +1,28 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Autocomplete, Chip, CircularProgress, TextField, createFilterOptions } from "@mui/material";
+import {
+  Autocomplete,
+  Box,
+  Button,
+  Chip,
+  CircularProgress,
+  Stack,
+  TextField,
+  Typography,
+  createFilterOptions,
+} from "@mui/material";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 
 /**
  * OSI-84 contact-people picker. Multi-select DROPDOWN of the chosen customer's
- * existing CustomerContact list. Typing a name that isn't on file surfaces an
- * inline "Add '<name>'" option in the same dropdown (no type-then-Enter): picking
- * it saves the contact back to that customer (POST /customers/:id/contacts) and
- * selects it. Controlled by the parent via `value` (ids) / `onChange`. Gated on a
+ * existing CustomerContact list. Contact DETAILS are visible and enterable:
+ * a new contact is added with editable name, mobile and email (all three POSTed
+ * to /customers/:id/contacts so they persist on the CustomerContact); a selected
+ * existing contact shows the same fields READ ONLY. Typing a name that isn't on
+ * file surfaces an inline "Add '<name>'" row that opens the new-contact form
+ * prefilled. Controlled by the parent via `value` (ids) / `onChange`. Gated on a
  * customer: with no customerId it renders disabled with a hint.
  */
 
@@ -45,6 +57,13 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // New-contact form (editable name/mobile/email). Opening it prefills the name
+  // from the inline "Add" row when that is how the rider got here.
+  const [addOpen, setAddOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newPhone, setNewPhone] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+
   // Selected objects for the Autocomplete, resolved from ids against the loaded
   // customer contact list.
   const selected: Option[] = options.filter((o) => value.includes(o.id));
@@ -76,10 +95,17 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
     };
   }, [customerId, getToken]);
 
-  // Free-typed name becomes a real CustomerContact on this customer, then gets
-  // selected so it persists and can be reused on other projects later.
-  const createContact = async (name: string) => {
-    const trimmed = name.trim();
+  const resetAddForm = () => {
+    setAddOpen(false);
+    setNewName("");
+    setNewPhone("");
+    setNewEmail("");
+  };
+
+  // The new contact (name + mobile + email) becomes a real CustomerContact on this
+  // customer, then gets selected so it persists and can be reused elsewhere later.
+  const createContact = async () => {
+    const trimmed = newName.trim();
     if (!trimmed || !customerId) return;
     setCreating(true);
     setError(null);
@@ -88,13 +114,18 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
       if (!token) throw new Error("Not signed in");
       const res = await request(
         { path: `/customers/${customerId}/contacts`, method: "POST" },
-        { name: trimmed },
+        {
+          name: trimmed,
+          ...(newPhone.trim() ? { phone: newPhone.trim() } : {}),
+          ...(newEmail.trim() ? { email: newEmail.trim() } : {}),
+        },
         token,
       );
       const created: ContactLite = res?.data ?? res;
       if (created?.id) {
         setOptions((prev) => [...prev, created]);
         onChange(value.includes(created.id) ? value : [...value, created.id]);
+        resetAddForm();
       }
     } catch (e: any) {
       setError(e?.message ?? "Could not add contact");
@@ -104,64 +135,112 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
   };
 
   return (
-    <Autocomplete<Option, true, false, false>
-      multiple
-      disabled={disabled || !customerId}
-      loading={loading}
-      options={options as Option[]}
-      value={selected}
-      getOptionLabel={(o) => (o.__isAdd ? `Add "${o.name}"` : `${o.name}${o.designation ? ` (${o.designation})` : ""}`)}
-      isOptionEqualToValue={(a, b) => a.id === b.id}
-      filterSelectedOptions
-      // Surface an inline "Add '<name>'" row when the typed text matches no
-      // existing contact — the clean-dropdown replacement for type-then-Enter.
-      filterOptions={(opts, params) => {
-        const filtered = filter(opts, params);
-        const input = params.inputValue.trim();
-        if (input && !opts.some((o) => o.name.toLowerCase() === input.toLowerCase())) {
-          filtered.push({ id: `__add__:${input}`, name: input, __isAdd: true });
-        }
-        return filtered;
-      }}
-      onChange={(_, newValue) => {
-        // Picking the synthetic "Add" row creates the contact (which appends the
-        // real id via onChange); it never enters the selection itself.
-        const add = newValue.find((v) => v.__isAdd);
-        if (add) {
-          void createContact(add.name);
-          return;
-        }
-        onChange(newValue.map((c) => c.id));
-      }}
-      renderTags={(vals, getTagProps) =>
-        vals.map((v, i) => {
-          const { key, ...chipProps } = getTagProps({ index: i });
-          return <Chip key={v.id} label={v.name} {...chipProps} />;
-        })
-      }
-      renderInput={(params) => (
-        <TextField
-          {...params}
-          label={label ?? "Contact people"}
-          placeholder={customerId ? "Pick a contact, or type to add" : "Choose a customer first"}
-          error={!!error}
-          helperText={
-            error ??
-            (customerId
-              ? "Pick from the list, or type a new name and choose Add."
-              : "Pick a customer first, then choose or add contact people.")
+    <Stack spacing={1.5}>
+      <Autocomplete<Option, true, false, false>
+        multiple
+        disabled={disabled || !customerId}
+        loading={loading}
+        options={options as Option[]}
+        value={selected}
+        getOptionLabel={(o) => (o.__isAdd ? `Add "${o.name}"` : `${o.name}${o.designation ? ` (${o.designation})` : ""}`)}
+        isOptionEqualToValue={(a, b) => a.id === b.id}
+        filterSelectedOptions
+        // Surface an inline "Add '<name>'" row when the typed text matches no
+        // existing contact — picking it OPENS the new-contact form prefilled so
+        // mobile and email can be entered before saving.
+        filterOptions={(opts, params) => {
+          const filtered = filter(opts, params);
+          const input = params.inputValue.trim();
+          if (input && !opts.some((o) => o.name.toLowerCase() === input.toLowerCase())) {
+            filtered.push({ id: `__add__:${input}`, name: input, __isAdd: true });
           }
-          InputProps={{
-            ...params.InputProps,
-            endAdornment: (
-              <>
-                {(loading || creating) && <CircularProgress size={16} />}
-                {params.InputProps.endAdornment}
-              </>
-            ),
-          }}
-        />
+          return filtered;
+        }}
+        onChange={(_, newValue) => {
+          const add = newValue.find((v) => v.__isAdd);
+          if (add) {
+            setNewName(add.name);
+            setAddOpen(true);
+            return;
+          }
+          onChange(newValue.map((c) => c.id));
+        }}
+        renderTags={(vals, getTagProps) =>
+          vals.map((v, i) => {
+            const { key, ...chipProps } = getTagProps({ index: i });
+            return <Chip key={v.id} label={v.name} {...chipProps} />;
+          })
+        }
+        renderInput={(params) => (
+          <TextField
+            {...params}
+            label={label ?? "Contact people"}
+            placeholder={customerId ? "Pick a contact, or type to add" : "Choose a customer first"}
+            error={!!error}
+            helperText={
+              error ??
+              (customerId
+                ? "Pick from the list, or type a new name and choose Add."
+                : "Pick a customer first, then choose or add contact people.")
+            }
+            InputProps={{
+              ...params.InputProps,
+              endAdornment: (
+                <>
+                  {(loading || creating) && <CircularProgress size={16} />}
+                  {params.InputProps.endAdornment}
+                </>
+              ),
+            }}
+          />
+        )}
+      />
+
+      {/* Selected contacts — details shown READ ONLY (they persist on the
+          CustomerContact; edit them from the customer's page). */}
+      {selected.length > 0 && (
+        <Box>
+          <Typography variant="caption" color="text.secondary">
+            Selected contact details
+          </Typography>
+          <Stack spacing={1} sx={{ mt: 0.5 }}>
+            {selected.map((c) => (
+              <Box key={c.id} sx={{ p: 1, border: 1, borderColor: "divider", borderRadius: 1 }}>
+                <TextField label="Name" value={c.name || ""} size="small" fullWidth InputProps={{ readOnly: true }} variant="filled" sx={{ mb: 1 }} />
+                <TextField label="Mobile" value={c.phone || ""} size="small" fullWidth InputProps={{ readOnly: true }} variant="filled" sx={{ mb: 1 }} />
+                <TextField label="Email" value={c.email || ""} size="small" fullWidth InputProps={{ readOnly: true }} variant="filled" />
+              </Box>
+            ))}
+          </Stack>
+        </Box>
       )}
-    />
+
+      {/* Add a new contact — editable name / mobile / email, all POSTed. */}
+      {customerId &&
+        (addOpen ? (
+          <Box sx={{ p: 1.5, border: 1, borderColor: "divider", borderRadius: 1 }}>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              New contact
+            </Typography>
+            <Stack spacing={1}>
+              <TextField label="Name" value={newName} onChange={(e) => setNewName(e.target.value)} size="small" fullWidth />
+              <TextField label="Mobile" value={newPhone} onChange={(e) => setNewPhone(e.target.value)} size="small" fullWidth />
+              <TextField label="Email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} size="small" fullWidth />
+              <Stack direction="row" spacing={1} justifyContent="flex-end">
+                <Button size="small" onClick={resetAddForm} disabled={creating}>
+                  Cancel
+                </Button>
+                <Button size="small" variant="contained" onClick={() => void createContact()} disabled={creating || !newName.trim()}>
+                  Add contact
+                </Button>
+              </Stack>
+            </Stack>
+          </Box>
+        ) : (
+          <Button size="small" onClick={() => setAddOpen(true)} sx={{ alignSelf: "flex-start" }}>
+            + Add a new contact
+          </Button>
+        ))}
+    </Stack>
   );
 }

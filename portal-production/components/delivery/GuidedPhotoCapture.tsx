@@ -7,6 +7,7 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Dialog,
   IconButton,
   Stack,
   TextField,
@@ -16,6 +17,7 @@ import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
 import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DeleteIcon from "@mui/icons-material/Delete";
+import CloseIcon from "@mui/icons-material/Close";
 import { usePhotoUploader, type CapturedPhoto } from "./usePhotoUploader";
 
 export type { CapturedPhoto };
@@ -107,6 +109,10 @@ export default function GuidedPhotoCapture({
   // beside its outbound angle before advancing. `reviewing` gates that step.
   const comparisonMode = !!comparison;
   const [reviewing, setReviewing] = useState(false);
+  // Fullscreen image viewer for the return comparison (Delivered / Returning),
+  // same fullscreen-Dialog pattern /submit uses: the black overflow-auto box lets
+  // the phone pinch-zoom the contained image.
+  const [viewerSrc, setViewerSrc] = useState<string | null>(null);
   // Does the outbound set carry angle labels? (Units captured before angle-
   // labelling shipped won't — then we fall back to index pairing + full strip.)
   const outboundHasAngles = !!comparison?.angles?.some((a) => a);
@@ -282,7 +288,8 @@ export default function GuidedPhotoCapture({
                 <img
                   src={ref.src}
                   alt=""
-                  style={{ display: "block", width: "100%", maxWidth: 260, aspectRatio: "1 / 1", borderRadius: 4, objectFit: "cover" }}
+                  onClick={() => setViewerSrc(ref.src)}
+                  style={{ display: "block", width: "100%", maxWidth: 260, aspectRatio: "1 / 1", borderRadius: 4, objectFit: "cover", cursor: "pointer" }}
                 />
               ) : (
                 <Box
@@ -307,7 +314,8 @@ export default function GuidedPhotoCapture({
               <img
                 src={last.previewUrl}
                 alt=""
-                style={{ display: "block", width: "100%", maxWidth: 260, aspectRatio: "1 / 1", borderRadius: 4, objectFit: "cover" }}
+                onClick={() => setViewerSrc(last.previewUrl)}
+                style={{ display: "block", width: "100%", maxWidth: 260, aspectRatio: "1 / 1", borderRadius: 4, objectFit: "cover", cursor: "pointer" }}
               />
             </Box>
             {damage && (
@@ -455,6 +463,23 @@ export default function GuidedPhotoCapture({
         </Button>
       </Stack>
       )}
+
+      {/* Fullscreen photo viewer (tap a comparison image). Same pattern /submit
+          uses: a black overflow-auto box holding the contained image, so the
+          phone can pinch-zoom it. */}
+      <Dialog open={!!viewerSrc} onClose={() => setViewerSrc(null)} fullScreen>
+        <Box sx={{ display: "flex", alignItems: "center", p: 1 }}>
+          <IconButton onClick={() => setViewerSrc(null)} aria-label="Close photo">
+            <CloseIcon />
+          </IconButton>
+        </Box>
+        {viewerSrc && (
+          <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", bgcolor: "common.black", overflow: "auto" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <Box component="img" src={viewerSrc} alt="" sx={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+          </Box>
+        )}
+      </Dialog>
     </Box>
   );
 }

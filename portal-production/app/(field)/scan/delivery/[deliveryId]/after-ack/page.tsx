@@ -94,7 +94,6 @@ export default function AfterAckPage() {
   // delivered set alongside for comparison, and confirm collects the unit back
   // instead of recording an installation.
   const [isReturn, setIsReturn] = useState(false);
-  const [returnPhotos, setReturnPhotos] = useState<CapturedPhoto[]>([]);
   const [outboundPhotos, setOutboundPhotos] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
@@ -507,7 +506,6 @@ export default function AfterAckPage() {
         const body = {
           signature,
           ...(name ? { recipientName: name } : {}),
-          ...(returnPhotos.length ? { photos: returnPhotos.map((p) => p.key) } : {}),
         };
         const res = applyToAll
           ? await request({ path: `/deliveries/${deliveryId}/ack-all`, method: "POST" }, body, token)
@@ -879,11 +877,6 @@ export default function AfterAckPage() {
             Back
           </Button>
         </Stack>
-        <Typography variant="h6" fontWeight={700}>Return condition</Typography>
-        <Typography variant="body2" color="text.secondary">
-          Add any extra photos of how the unit came back. Optional.
-        </Typography>
-
         {outboundPhotos.length > 0 && (
           <Box>
             <Typography variant="subtitle2" sx={{ mb: 0.25 }}>
@@ -902,15 +895,6 @@ export default function AfterAckPage() {
             </Stack>
           </Box>
         )}
-
-        <PhotoCaptureField
-          label="Return condition photos (optional)"
-          photos={returnPhotos}
-          onChange={setReturnPhotos}
-          upload={uploadDoInstall}
-          onError={(m) => setError(m || null)}
-          onUploadingChange={setWorking}
-        />
 
         {error && <Alert severity="error">{error}</Alert>}
 

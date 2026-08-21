@@ -277,7 +277,7 @@ export default function DeliveriesQueuePage() {
                     <TableCell>
                       <Chip
                         size="small"
-                        variant="filled"
+                        variant="outlined"
                         color={r.direction === "RETURN" ? "secondary" : "default"}
                         label={r.direction === "RETURN" ? "Return" : "Delivery"}
                         sx={{ mb: 0.5 }}
