@@ -1685,7 +1685,7 @@ export class DeliveriesService {
         status: true,
         direction: true,
         completedAt: true,
-        items: { select: { deliveryStatus: true, skippedAt: true } },
+        items: { select: { deliveryStatus: true } },
       },
     });
     // `scheduled` is guarded like `cancelled`: an unclaimed scheduled run must
@@ -1704,26 +1704,18 @@ export class DeliveriesService {
     // so a run isn't `completed` until they are too. Monotonic in practice: a
     // free-typed line is added only pre-ack (run still in_progress) and only ever
     // advances, so this never downgrades a run.
-    // A walk-SKIPPED item is a deliberate "not delivered this visit" and counts
-    // as RESOLVED (terminal) so it never blocks the run, though its DO line stays
-    // undelivered. Guard against an all-skipped run auto-completing: `completed`
-    // and `delivered` each require at least one GENUINELY delivered item, so a
-    // run where nothing was handed over stays in_progress (nothing to sign or
-    // commit). NOTE for a future Finish-anyway action: a skipped item is exactly
-    // why a run may complete with an undelivered line; that action would live here.
-    const resolvedRank = (i: { deliveryStatus: DeliveryStatus; skippedAt: Date | null }) =>
-      i.skippedAt ? RANK[DeliveryStatus.completed] : RANK[i.deliveryStatus];
-    const ranks = delivery.items.map(resolvedRank);
-    const anyReallyCompleted = delivery.items.some(
-      (i) => !i.skippedAt && i.deliveryStatus === DeliveryStatus.completed,
-    );
-    const anyReallyDelivered = delivery.items.some(
-      (i) => !i.skippedAt && RANK[i.deliveryStatus] >= RANK[DeliveryStatus.not_installed],
-    );
+    // A walk-SKIPPED item is "not now, come back to it" - it does NOT resolve the
+    // run. It sits at not_delivered (the lowest rank), so the fold below keeps the
+    // run in_progress until the rider returns and delivers it: no signature, no
+    // completion, no DO commit + invoice while any item is skipped or otherwise
+    // undelivered. NOTE for a future Finish-anyway action - a run whose skipped
+    // item never comes back would otherwise stay open forever; the deliberate
+    // "complete without the skipped line" override would live here.
+    const ranks = delivery.items.map((i) => RANK[i.deliveryStatus]);
     const target =
-      ranks.every((r) => r >= RANK[DeliveryStatus.completed]) && anyReallyCompleted
+      ranks.every((r) => r >= RANK[DeliveryStatus.completed])
         ? ('completed' as const)
-        : ranks.every((r) => r >= RANK[DeliveryStatus.not_installed]) && anyReallyDelivered
+        : ranks.every((r) => r >= RANK[DeliveryStatus.not_installed])
           ? ('delivered' as const)
           : ('in_progress' as const);
 
@@ -2591,11 +2583,12 @@ export class DeliveriesService {
     }
     if (!dto.signature) throw new BadRequestException('Customer signature is required');
     if (run.status === 'completed') throw new BadRequestException('This delivery is already finalized');
-    // `delivered` is the fold's "every item resolved, at least one delivered"
-    // state — the only point the signature is valid. in_progress => items still
-    // delivering or unresolved; the rider must deliver or skip them first.
+    // `delivered` is the fold's "every item delivered" state (all not_installed
+    // or completed) - the only point the signature is valid. A SKIPPED item holds
+    // the run at in_progress, so finalize is unreachable until the rider comes
+    // back and delivers it: the one signature never covers an unfinished run.
     if (run.status !== 'delivered') {
-      throw new BadRequestException('Deliver or skip every item on this run before capturing the signature');
+      throw new BadRequestException('Deliver every item on this run before capturing the signature');
     }
 
     const now = new Date();
