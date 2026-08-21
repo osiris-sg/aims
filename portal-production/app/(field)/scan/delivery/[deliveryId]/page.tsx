@@ -182,18 +182,27 @@ export default function DeliveryBasketPage() {
   // Guards double-handling the same NFC read (uid persists until next startScan)
   const handledUidRef = useRef<string | null>(null);
 
+  // Returns the freshly-loaded run so callers can branch on its new status (e.g.
+  // ending the last item flows straight into the signature when the run is now
+  // `delivered`). Null on failure / not signed in.
   const load = useCallback(async () => {
     try {
       const token = await getToken();
       if (!token) {
         setError("Not signed in");
-        return;
+        return null;
       }
       const res = await request({ path: `/deliveries/${deliveryId}`, method: "GET" }, {}, token);
-      if (res.success === false) setError(res.message ?? "Delivery not found");
-      else setRun(res.data ?? res);
+      if (res.success === false) {
+        setError(res.message ?? "Delivery not found");
+        return null;
+      }
+      const fresh = res.data ?? res;
+      setRun(fresh);
+      return fresh;
     } catch (e: any) {
       setError(e?.message ?? "Failed to load delivery");
+      return null;
     } finally {
       setLoading(false);
     }
@@ -270,6 +279,47 @@ export default function DeliveryBasketPage() {
       assetClass: it.effectiveAssetClass,
     });
   }, []);
+
+  // Mark ONE item delivered (per-item End Delivery, 2026-08 signature-at-end):
+  // advances delivering -> not_installed with NO signature. The single customer
+  // signature is captured later at Finalize, once every item is resolved. Units
+  // hit the per-unit deliver endpoint; a free-typed line ends by DeliveryItem.id.
+  const endItemDelivery = useCallback(
+    async (it: RunItem) => {
+      setBusy(true);
+      setActionMsg(null);
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const res = it.inventoryId
+          ? await request(
+              { path: `/deliveries/${deliveryId}/units/${encodeURIComponent(it.inventoryId)}/deliver`, method: "POST" },
+              {},
+              token,
+            )
+          : await request(
+              { path: `/deliveries/${deliveryId}/items/${encodeURIComponent(it.id)}/end`, method: "POST" },
+              {},
+              token,
+            );
+        if (res?.success === false) throw new Error(res?.message ?? "Could not mark this item delivered");
+        const fresh = await load();
+        // Ending the LAST unresolved item leaves the run `delivered` (everything
+        // completed or skipped) -> flow STRAIGHT into the one signature. If items
+        // remain the run is still in_progress, so we stay on the walk.
+        if (fresh && fresh.direction !== "RETURN" && fresh.status === "delivered") {
+          router.push(`/scan/delivery/${deliveryId}/finalize`);
+          return;
+        }
+        setActionMsg(it.inventory?.sku ? `${it.inventory.sku} delivered ✓` : "Marked delivered ✓");
+      } catch (e: any) {
+        setActionMsg(e?.message ?? "Could not mark this item delivered");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [deliveryId, getToken, load, router],
+  );
 
   // How many condition photos this step demands (OSI-81). Equipment gets the
   // guided set, an accessory keeps one, and the rule is the same on a return as
@@ -545,15 +595,43 @@ export default function DeliveryBasketPage() {
   // Bulk end: prefer a UNIT lead (its ack -> after-ack screens capture the shared
   // proof, then ack-all fans it across every delivering item including free-typed
   // lines). With only free-typed lines delivering, end via the free-item page.
-  const bulkEnd = () => {
-    const lead = deliveringUnits[0] ?? deliveringItems[0];
-    if (!lead) return;
-    if (lead.inventoryId) {
-      const q = `assetId=${encodeURIComponent(lead.assetId)}&inventoryId=${encodeURIComponent(lead.inventoryId)}&applyToAll=1`;
-      const entry = run.direction === "RETURN" || hasDraftAck(lead) ? "after-ack" : "ack";
-      router.push(`/scan/delivery/${run.id}/${entry}?${q}`);
-    } else {
-      router.push(`/scan/delivery/${run.id}/free-item/${lead.id}`);
+  const bulkEnd = async () => {
+    // RETURN runs are unchanged: they capture the signature at collection, so a
+    // unit lead still drives the after-ack proof flow that ack-all fans out.
+    if (run.direction === "RETURN") {
+      const lead = deliveringUnits[0] ?? deliveringItems[0];
+      if (!lead) return;
+      if (lead.inventoryId) {
+        const q = `assetId=${encodeURIComponent(lead.assetId)}&inventoryId=${encodeURIComponent(lead.inventoryId)}&applyToAll=1`;
+        const entry = hasDraftAck(lead) ? "after-ack" : "ack";
+        router.push(`/scan/delivery/${run.id}/${entry}?${q}`);
+      } else {
+        router.push(`/scan/delivery/${run.id}/free-item/${lead.id}`);
+      }
+      return;
+    }
+    // OUTBOUND (2026-08 signature-at-end): mark every delivering item delivered
+    // (delivering -> not_installed) with NO signature. ack-all writes an unsigned
+    // proof MSR per item. The single customer signature is captured later at
+    // Finalize, once every item on the run is resolved.
+    setBusy(true);
+    setActionMsg(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request({ path: `/deliveries/${run.id}/ack-all`, method: "POST" }, {}, token);
+      if (res?.success === false) throw new Error(res?.message ?? "Could not mark items delivered");
+      const fresh = await load();
+      // If this ended the last unresolved item(s), the run is now `delivered` ->
+      // go straight to the one signature; otherwise stay on the walk.
+      if (fresh && fresh.direction !== "RETURN" && fresh.status === "delivered") {
+        router.push(`/scan/delivery/${run.id}/finalize`);
+        return;
+      }
+    } catch (e: any) {
+      setActionMsg(e?.message ?? "Could not mark items delivered");
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -593,12 +671,33 @@ export default function DeliveryBasketPage() {
   const orderedItems = [...run.items].sort(
     (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
+  // Remaining = every item not yet delivered: un-started (not_delivered),
+  // started-but-not-ended (delivering), AND previously SKIPPED (a skip is
+  // not_delivered + skippedAt). Including delivering resumes the walk over items
+  // in flight; including skips walks the rider BACK to anything passed over
+  // rather than making them hunt the basket. A skipped item stays RESOLVED for
+  // the signature gate (the Finalize card shows alongside), so this is an offer
+  // to revisit, not a block.
   const walkQueue = orderedItems.filter(
-    (it) => it.deliveryStatus === "not_delivered" && !it.skippedAt,
+    (it) => it.deliveryStatus === "not_delivered" || it.deliveryStatus === "delivering",
   );
-  const walkItem = walkQueue[0] ?? null;
+  // Prefer the next NON-skipped item (un-started first, then started) so a fresh
+  // walk flows front-to-back and an in-session skip moves to the back of the
+  // queue; only when nothing but skips remain does a skipped item lead the walk.
+  const walkItem =
+    walkQueue.find((it) => !it.skippedAt && it.deliveryStatus === "not_delivered") ??
+    walkQueue.find((it) => !it.skippedAt && it.deliveryStatus === "delivering") ??
+    walkQueue.find((it) => it.skippedAt) ??
+    walkQueue[0] ??
+    null;
+  // Active while the run has walkable items left. `delivered` is included so a
+  // run whose only remaining items are skips can still walk the rider back to
+  // them; the Finalize card shows too, so they can sign instead.
   const walkActive =
-    isScheduledRun && run.status === "in_progress" && !!walkItem && !walkDismissed;
+    isScheduledRun &&
+    (run.status === "in_progress" || run.status === "delivered") &&
+    !!walkItem &&
+    !walkDismissed;
   // Position in the office's full declared list, so the counter never jumps as
   // items are handled or skipped.
   const walkPosition = walkItem ? orderedItems.findIndex((it) => it.id === walkItem.id) + 1 : 0;
@@ -660,6 +759,32 @@ export default function DeliveryBasketPage() {
       )}
       {nfc.error && <Alert severity="warning">{nfc.error}</Alert>}
 
+      {/* FINALIZE (outbound): the run has folded to `delivered`, meaning every
+          item is delivered or skipped. This is the ONLY point the single customer
+          signature is captured; it completes the run and fires the DO commit +
+          invoice. Returns are signed at collection, so this never shows for them. */}
+      {!isReturnRun && run.status === "delivered" && (
+        <Card variant="outlined" sx={{ borderColor: "success.main", borderWidth: 2 }}>
+          <CardContent>
+            <Typography variant="h6" fontWeight={700}>Ready to finish</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.5 }}>
+              Every item is delivered or skipped. Get the customer&apos;s signature to complete this delivery.
+            </Typography>
+            <Button
+              fullWidth
+              variant="contained"
+              color="success"
+              startIcon={<LocalShippingIcon />}
+              onClick={() => router.push(`/scan/delivery/${run.id}/finalize`)}
+              disabled={busy}
+              sx={{ minHeight: 48 }}
+            >
+              Get customer signature
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── WALK-THROUGH (scheduled runs) ──────────────────────────────────
           One item at a time, in the order the office entered them, so nothing
           is missed and the rider never has to pick from a list while standing
@@ -690,7 +815,7 @@ export default function DeliveryBasketPage() {
               {/* Free-typed line: no unit to scan, but it runs the full flow
                   (guided photos -> Start, then signature -> End) on its own page,
                   keyed by DeliveryItem.id. */}
-              {!walkItem.inventoryId && !walkItem.assetId && (
+              {!walkItem.inventoryId && !walkItem.assetId && walkItem.deliveryStatus === "not_delivered" && (
                 <Button
                   variant="contained"
                   size="large"
@@ -702,10 +827,26 @@ export default function DeliveryBasketPage() {
                   Start Delivery
                 </Button>
               )}
+              {/* Free-typed line already started -> End marks it delivered with no
+                  signature (captured at Finalize), by DeliveryItem.id. */}
+              {!walkItem.inventoryId && !walkItem.assetId && walkItem.deliveryStatus === "delivering" && (
+                <Button
+                  variant="contained"
+                  size="large"
+                  startIcon={<LocalShippingIcon />}
+                  onClick={() => endItemDelivery(walkItem)}
+                  disabled={busy}
+                  sx={{ py: 1.5, minHeight: 48 }}
+                >
+                  End Delivery
+                </Button>
+              )}
 
-              {/* Unit already bound to this position (scheduled returns bind up
-                  front) — straight into the condition photos. */}
-              {walkItem.inventoryId && (
+              {/* Unit bound to this position. not_delivered -> Start (condition
+                  photos). delivering -> End: outbound marks it delivered here with
+                  NO signature (the run's single signature is captured at Finalize);
+                  a return still ends through its per-unit collection flow. */}
+              {walkItem.inventoryId && walkItem.deliveryStatus !== "delivering" && (
                 <Button
                   variant="contained"
                   size="large"
@@ -716,6 +857,35 @@ export default function DeliveryBasketPage() {
                 >
                   {isReturnRun ? "Start Return" : "Start Delivery"}
                 </Button>
+              )}
+              {walkItem.inventoryId && walkItem.deliveryStatus === "delivering" && (
+                isReturnRun ? (
+                  <Button
+                    variant="contained"
+                    size="large"
+                    startIcon={<AssignmentReturnIcon />}
+                    onClick={() =>
+                      router.push(
+                        `/scan/delivery/${run.id}/after-ack?assetId=${encodeURIComponent(walkItem.assetId)}&inventoryId=${encodeURIComponent(walkItem.inventoryId!)}`,
+                      )
+                    }
+                    disabled={busy}
+                    sx={{ py: 1.5, minHeight: 48 }}
+                  >
+                    End Return
+                  </Button>
+                ) : (
+                  <Button
+                    variant="contained"
+                    size="large"
+                    startIcon={<LocalShippingIcon />}
+                    onClick={() => endItemDelivery(walkItem)}
+                    disabled={busy}
+                    sx={{ py: 1.5, minHeight: 48 }}
+                  >
+                    End Delivery
+                  </Button>
+                )
               )}
 
               {/* Open slot: any matching unit is accepted, and the backend binds
@@ -789,7 +959,7 @@ export default function DeliveryBasketPage() {
 
       {/* Stepped out of the walk with positions still to visit — offer the way
           back rather than stranding them in the basket. */}
-      {isScheduledRun && walkDismissed && walkItem && run.status === "in_progress" && (
+      {isScheduledRun && walkDismissed && walkItem && (run.status === "in_progress" || run.status === "delivered") && (
         <Button
           variant="outlined"
           startIcon={<PlayArrowIcon />}

@@ -68,10 +68,11 @@ export default function StandaloneInstallPage() {
       );
       const reportId = res.data?.id ?? res.id;
       if (!reportId) throw new Error("No report id returned");
-      const invQuery = inventoryId ? `&inventoryId=${encodeURIComponent(inventoryId)}` : "";
-      router.push(
-        `/scan/asset/${assetId}/sign?reportId=${reportId}&kind=install&deliveryId=${encodeURIComponent(deliveryId)}${invQuery}`,
-      );
+      // 2026-08 signature-at-end: install records an UNSIGNED DO_INSTALL proof and
+      // returns straight to the run. No per-item signature here - the item stays
+      // not_installed and the run's single finalize signature covers installation
+      // too, stamping this DO_INSTALL along with every delivery proof.
+      router.push(`/scan/delivery/${deliveryId}`);
     } catch (e: any) {
       setError(e?.message ?? "Failed to save installation");
     } finally {
@@ -114,7 +115,7 @@ export default function StandaloneInstallPage() {
           fullWidth
           sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
         >
-          {submitting ? (locating ? "Getting location…" : "Saving...") : "Continue to signature"}
+          {submitting ? (locating ? "Getting location…" : "Saving...") : "Save installation"}
         </Button>
       </Stack>
     </Box>
