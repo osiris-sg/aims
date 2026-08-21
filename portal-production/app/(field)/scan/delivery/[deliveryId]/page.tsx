@@ -690,14 +690,12 @@ export default function DeliveryBasketPage() {
     walkQueue.find((it) => it.skippedAt) ??
     walkQueue[0] ??
     null;
-  // Active while the run has walkable items left. `delivered` is included so a
-  // run whose only remaining items are skips can still walk the rider back to
-  // them; the Finalize card shows too, so they can sign instead.
+  // Active while the run is in progress and has walkable items left. A SKIPPED
+  // item keeps the run in_progress (skip does not resolve it), so it stays in the
+  // walk here and the rider is walked back to it on resume. A `delivered` run has
+  // no walkable items left (all not_installed) - the Finalize card shows instead.
   const walkActive =
-    isScheduledRun &&
-    (run.status === "in_progress" || run.status === "delivered") &&
-    !!walkItem &&
-    !walkDismissed;
+    isScheduledRun && run.status === "in_progress" && !!walkItem && !walkDismissed;
   // Position in the office's full declared list, so the counter never jumps as
   // items are handled or skipped.
   const walkPosition = walkItem ? orderedItems.findIndex((it) => it.id === walkItem.id) + 1 : 0;
@@ -959,7 +957,7 @@ export default function DeliveryBasketPage() {
 
       {/* Stepped out of the walk with positions still to visit — offer the way
           back rather than stranding them in the basket. */}
-      {isScheduledRun && walkDismissed && walkItem && (run.status === "in_progress" || run.status === "delivered") && (
+      {isScheduledRun && walkDismissed && walkItem && run.status === "in_progress" && (
         <Button
           variant="outlined"
           startIcon={<PlayArrowIcon />}
