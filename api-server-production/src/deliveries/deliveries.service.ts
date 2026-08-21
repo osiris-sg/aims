@@ -832,6 +832,50 @@ export class DeliveriesService {
       }
     }
     if (!run) throw new BadRequestException('Could not allocate a delivery number — please retry');
+
+    // Mirror the DO scheme (OSI-83): a scheduled return is born-linked to an
+    // RDO-PENDING-NN placeholder now; completeReturnRun claims the REAL RDO number
+    // on this same row at completion and refreshes its config, rather than minting
+    // a fresh document. Best-effort: a placeholder failure never blocks the run.
+    try {
+      const templateId = await this.resolveReturnDeliveryOrderTemplateId(organizationId);
+      const pendings = await this.prisma.document.findMany({
+        where: { organizationId, name: { startsWith: 'RDO-PENDING-' } },
+        select: { name: true },
+      });
+      const maxPending = pendings.reduce((mx, d) => {
+        const mm = d.name?.match(/-(\d+)$/);
+        return mm ? Math.max(mx, parseInt(mm[1], 10)) : mx;
+      }, 0);
+      const placeholderName = `RDO-PENDING-${String(maxPending + 1).padStart(2, '0')}`;
+      const config: Record<string, any> = {
+        items: run.items.map((it) => {
+          const u = it.inventoryId ? unitById.get(it.inventoryId) : null;
+          return {
+            description: it.description ?? u?.asset?.name ?? u?.sku ?? '',
+            quantity: it.quantity ?? 1,
+            unitPrice: 0,
+            amount: 0,
+            inventoryItemId: it.inventoryId,
+            ...(u?.sku ? { serialNumbers: [u.sku] } : {}),
+          };
+        }),
+        note: `Scheduled return of ${run.items.length} unit(s).`,
+      };
+      const doc = await this.documentsService.createBasicDocument(
+        templateId,
+        'RETURN_DELIVERY_ORDER',
+        organizationId,
+        config,
+        sharedProjectId ?? undefined,
+        undefined,
+        placeholderName,
+      );
+      await this.prisma.deliveryItem.updateMany({ where: { deliveryId: run.id }, data: { documentId: doc.id } });
+      run = await this.prisma.delivery.findUniqueOrThrow({ where: { id: run.id }, include: { items: true } });
+    } catch (err: any) {
+      this.logger.error(`createScheduledReturn: placeholder RDO creation failed for run ${run.id}: ${err?.message}`);
+    }
     return run;
   }
 
@@ -2767,7 +2811,6 @@ export class DeliveriesService {
         },
       });
       if (!run) return;
-      if (run.items.some((i) => i.documentId)) return; // already has a doc — idempotent
       const collected = run.items.filter((i) => i.inventoryId && i.assetId);
       if (collected.length === 0) return;
 
@@ -2798,6 +2841,19 @@ export class DeliveriesService {
         ...(run.customer ? { customerId: run.customer.id, customerName: run.customer.name, customer: { id: run.customer.id, name: run.customer.name } } : {}),
         note: `Return of ${collected.length} unit(s) collected on delivery run #${run.deliveryNumber}.`,
       };
+      // Scheduled return: the run is born-linked to an RDO-PENDING-NN placeholder
+      // (createScheduledReturn minted it, mirroring the DO scheme). Claim the real
+      // number ON that row and refresh its config with the actually-collected
+      // units, rather than minting a second RDO. Idempotent: a placeholder already
+      // numbered just re-updates config and claimPendingNumber is a no-op.
+      // Unscheduled return (no born link): create a fresh RDO as before.
+      const linkedDocId = run.items.map((i) => i.documentId).find((v): v is string => !!v);
+      if (linkedDocId) {
+        await this.prisma.document.update({ where: { id: linkedDocId }, data: { config } });
+        const claimed = await this.documentsService.claimPendingNumber(linkedDocId, organizationId);
+        this.logger.log(`Return run #${run.deliveryNumber}: claimed RDO ${claimed ?? linkedDocId} on the placeholder for ${collected.length} unit(s).`);
+        return;
+      }
       const doc = await this.documentsService.createBasicDocument(templateId, 'RETURN_DELIVERY_ORDER', organizationId, config, run.projectId ?? undefined);
       await this.prisma.deliveryItem.updateMany({ where: { deliveryId: run.id }, data: { documentId: doc.id } });
       this.logger.log(`Return run #${run.deliveryNumber}: created RDO ${doc.id} for ${collected.length} unit(s) (goods-only, no GL).`);

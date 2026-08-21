@@ -1842,6 +1842,34 @@ export class DocumentsService {
     });
   }
   /**
+   * Claim the REAL sequential number for a *-PENDING-NN placeholder document
+   * (DO / RDO) the first time it reaches its terminal state without a manual
+   * confirm. Mirrors the DO claim in maybeCompleteDeliveryOrderAndInvoice so a
+   * scheduled RDO renames from RDO-PENDING-NN to the real number at completion.
+   * IDEMPOTENT: a document already numbered (no PENDING suffix) is left as-is and
+   * its existing name returned. Returns null when the document is not found.
+   */
+  async claimPendingNumber(documentId: string, organizationId: string): Promise<string | null> {
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { name: true, type: true, documentTemplateId: true, config: true },
+    });
+    if (!doc) return null;
+    if (typeof doc.name === 'string' && /-PENDING-\d+$/.test(doc.name)) {
+      const realName = await this.generateSequentialDocumentName(
+        organizationId,
+        doc.type,
+        doc.documentTemplateId,
+        doc.config,
+        new Date(),
+      );
+      await this.prisma.document.update({ where: { id: documentId }, data: { name: realName } });
+      return realName;
+    }
+    return doc.name ?? null;
+  }
+
+  /**
    * Compute the next sequential document "number" (= Document.name) for a type,
    * using the SAME scheme as createBasicDocument: the org's custom
    * DocumentNumberFormat variant when one exists (claims its serial), else the
