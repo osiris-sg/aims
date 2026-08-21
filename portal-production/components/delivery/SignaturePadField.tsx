@@ -37,7 +37,10 @@ const SignaturePadField = forwardRef<SignaturePadHandle>(
           border: "1px dashed",
           borderColor: "divider",
           borderRadius: 1,
-          bgcolor: "background.paper",
+          // Signing surface is always white so the black pen is visible while
+          // drawing. "background.paper" resolves dark in dark mode, which hid
+          // the stroke; both the DO and RDO signatures share this component.
+          bgcolor: "common.white",
           touchAction: "none",
         }}
       >

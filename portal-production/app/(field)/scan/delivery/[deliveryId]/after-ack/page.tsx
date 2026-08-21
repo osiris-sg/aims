@@ -90,11 +90,9 @@ export default function AfterAckPage() {
   // means an active assignment always exists by ack time).
   const [step, setStep] = useState<"assign" | "photos" | "install" | "sign" | "review" | "done">("install");
   // RETURN runs share these screens (2026-08): the install prompt is suppressed,
-  // the capture step is optional extra return-condition photos with the
-  // delivered set alongside for comparison, and confirm collects the unit back
-  // instead of recording an installation.
+  // the capture step is the guided per-angle return capture, and confirm
+  // collects the unit back instead of recording an installation.
   const [isReturn, setIsReturn] = useState(false);
-  const [outboundPhotos, setOutboundPhotos] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   // Client-carried flow state: {ackMsrId, installChoice, installPhotos,
@@ -200,20 +198,9 @@ export default function AfterAckPage() {
         setIsReturn(runIsReturn);
         if (runIsReturn) {
           // A return has no ack MSR to resolve and no installation to prompt:
-          // straight to the optional capture step, then the signature.
+          // straight to the guided capture step, then the signature.
           setStep("photos");
           setResolving(false);
-          try {
-            const ob = await request(
-              { path: `/maintenance-reports/unit/${encodeURIComponent(inventoryId ?? "")}/outbound-photos`, method: "GET" },
-              {},
-              token,
-            );
-            const data = ob?.data ?? ob;
-            if (!cancelled && Array.isArray(data?.photos)) setOutboundPhotos(data.photos as string[]);
-          } catch {
-            /* comparison is a nicety; never block the collection */
-          }
           return;
         }
         // Resolve the ack MSR (query param wins; else the unit's DO_ACK from
@@ -877,25 +864,6 @@ export default function AfterAckPage() {
             Back
           </Button>
         </Stack>
-        {outboundPhotos.length > 0 && (
-          <Box>
-            <Typography variant="subtitle2" sx={{ mb: 0.25 }}>
-              Delivered condition (for comparison)
-            </Typography>
-            <Stack direction="row" spacing={1} sx={{ overflowX: "auto", pb: 1 }}>
-              {outboundPhotos.map((src, i) => (
-                <Box
-                  key={i}
-                  component="img"
-                  src={src}
-                  alt=""
-                  sx={{ width: 84, height: 84, flexShrink: 0, borderRadius: 1, objectFit: "cover", border: "1px solid", borderColor: "divider" }}
-                />
-              ))}
-            </Stack>
-          </Box>
-        )}
-
         {error && <Alert severity="error">{error}</Alert>}
 
         <Button

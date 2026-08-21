@@ -2980,7 +2980,23 @@ export class DeliveriesService {
       // Unscheduled return (no born link): create a fresh RDO as before.
       const linkedDocId = run.items.map((i) => i.documentId).find((v): v is string => !!v);
       if (linkedDocId) {
-        await this.prisma.document.update({ where: { id: linkedDocId }, data: { config } });
+        // MERGE, don't replace. The placeholder was minted via createBasicDocument
+        // at schedule time, which prefills org/template defaults (documentInfo,
+        // currency, stamp, logo, tableColumnOrder/columnLabels) plus the project's
+        // customer. A bare `data: { config }` replace dropped all of those, so the
+        // completed RDO rendered far sparser than the pending one. The completion
+        // `config` writes only items/deliveryTo/customer/note (NOT documentInfo),
+        // so a shallow spread preserves the prefilled block; the one nested key it
+        // does touch is `customer`, so deep-merge that to keep the prefill's richer
+        // fields (customerCode/address/email/phone/gstRegNo) under the fresh id/name.
+        const existing = await this.prisma.document.findUnique({ where: { id: linkedDocId }, select: { config: true } });
+        const prev = (existing?.config as any) ?? {};
+        const merged: Record<string, any> = {
+          ...prev,
+          ...config,
+          ...(config.customer ? { customer: { ...(prev.customer ?? {}), ...config.customer } } : {}),
+        };
+        await this.prisma.document.update({ where: { id: linkedDocId }, data: { config: merged } });
         const claimed = await this.documentsService.claimPendingNumber(linkedDocId, organizationId);
         this.logger.log(`Return run #${run.deliveryNumber}: claimed RDO ${claimed ?? linkedDocId} on the placeholder for ${collected.length} unit(s).`);
         return;
