@@ -777,6 +777,11 @@ model Assignment {
   assetId  String? @db.Uuid
   quantity Int?
 
+  // Mode C: description-only (free-typed) line — no unit, no asset. Holds the
+  // free-typed text (a cable etc.) so it can be deployed + returned without
+  // being resolved to a catalog asset. Null for unit/asset-mode assignments.
+  description String?
+
   // Source invoice (idempotency on asset-mode + audit trail)
   documentId String? @db.Uuid
 

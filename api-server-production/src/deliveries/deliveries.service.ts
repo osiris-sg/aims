@@ -2456,7 +2456,7 @@ export class DeliveriesService {
   ) {
     const run = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },
-      select: { id: true, status: true, direction: true, items: { select: { id: true, inventoryId: true, assetId: true, deliveryStatus: true } } },
+      select: { id: true, status: true, direction: true, projectId: true, items: { select: { id: true, inventoryId: true, assetId: true, deliveryStatus: true, description: true } } },
     });
     if (!run) throw new NotFoundException('Delivery not found');
     if (run.status === 'cancelled') throw new BadRequestException('Cannot deliver on a cancelled delivery');
@@ -2479,9 +2479,15 @@ export class DeliveriesService {
 
       // RETURN runs are UNCHANGED by the signature-at-end rework: a return is
       // signed at collection (per unit), not at a run-level finalize, so the
-      // shared proof + collect stays here. Free-typed lines never ride a return.
+      // shared proof + collect stays here.
       if (isReturn) {
-        if (isFreeTyped) continue;
+        if (isFreeTyped) {
+          // Description-only return line: no unit, no stock; collect by
+          // DeliveryItem.id and off-hire its deployment via the assignment.
+          const collected = await this.collectReturnFreeTyped(deliveryId, it.id, organizationId);
+          if (collected) acknowledged++;
+          continue;
+        }
         await this.prisma.maintenanceServiceReport.create({
           data: {
             organizationId,
@@ -2533,7 +2539,12 @@ export class DeliveriesService {
           where: { id: it.id, deliveryId, deliveryStatus: DeliveryStatus.delivering },
           data: { deliveryStatus: DeliveryStatus.not_installed, deliveredAt: now },
         });
-        if (upd.count) acknowledged++;
+        if (upd.count) {
+          acknowledged++;
+          // Deploy the delivered free-typed line onto the run's project (skips
+          // when the run has no project), mirroring how a unit line deploys.
+          await this.deployFreeTypedLine(run.projectId, it.description, organizationId);
+        }
       } else {
         // advanceDeliveryItem('ack') moves delivering -> not_installed and does
         // the reserved -> rental/sold hand-off flip (the unit is handed over now).
@@ -2768,6 +2779,87 @@ export class DeliveriesService {
       await this.projectsService.offHireDeployment(depId, organizationId);
     } catch (err: any) {
       this.logger.warn(`offHireDeploymentOnReturn failed for unit ${inventoryId}: ${err?.message}`);
+    }
+  }
+
+  /**
+   * Off-hire the deployment behind a description-only (free-typed) return line.
+   * The return keys on the LINE, not a unit, so the deployment is found via the
+   * active description-only Assignment on the run's project.
+   *
+   * ⚠️ DESCRIPTION-MATCHING CAVEAT: identical descriptions on ONE project match
+   * the FIRST active assignment (newest-first). Acceptable for now; a genuinely
+   * ambiguous case (two live free-typed lines with the same text on one project)
+   * should be disambiguated by whoever hits it - this note is where that goes.
+   *
+   * Last-line guard keyed on endDate (there is no inventory status to count for a
+   * description-only line): off-hire only when NO other active assignment remains
+   * on the deployment, so a partial return keeps billing for the rest.
+   */
+  private async offHireFreeTypedDeployment(projectId: string, description: string, organizationId: string) {
+    try {
+      const assignment = await this.prisma.assignment.findFirst({
+        where: { projectId, inventoryId: null, assetId: null, endDate: null, description, projectDeploymentId: { not: null } },
+        orderBy: { startDate: 'desc' },
+        select: { id: true, projectDeploymentId: true },
+      });
+      const depId = assignment?.projectDeploymentId;
+      if (!assignment || !depId) return;
+      // Close THIS line's assignment first, then decide off-hire on what remains.
+      await this.prisma.assignment.update({ where: { id: assignment.id }, data: { endDate: new Date() } });
+      const stillOut = await this.prisma.assignment.count({ where: { projectDeploymentId: depId, endDate: null } });
+      if (stillOut > 0) return; // partial return — keep billing for the rest
+      await this.projectsService.offHireDeployment(depId, organizationId);
+    } catch (err: any) {
+      this.logger.warn(`offHireFreeTypedDeployment failed for "${description}": ${err?.message}`);
+    }
+  }
+
+  /**
+   * Collect ONE description-only (free-typed) line on a RETURN run. Keyed on
+   * DeliveryItem.id (there is no unit to key on). Advances the line delivering ->
+   * completed with NO stock flip (no inventory), then off-hires its deployment via
+   * the description-only assignment so billing stops. Idempotent.
+   */
+  private async collectReturnFreeTyped(deliveryId: string, itemId: string, organizationId: string) {
+    const item = await this.prisma.deliveryItem.findFirst({
+      where: { deliveryId, id: itemId, assetId: null, inventoryId: null, deliveryStatus: DeliveryStatus.delivering },
+      select: { id: true, description: true },
+    });
+    if (!item) return null; // already collected / not eligible — idempotent
+    const run = await this.prisma.delivery.findFirst({ where: { id: deliveryId, organizationId }, select: { projectId: true } });
+    const now = new Date();
+    await this.prisma.deliveryItem.update({
+      where: { id: item.id },
+      data: { deliveryStatus: DeliveryStatus.completed, deliveredAt: now, completedAt: now },
+    });
+    // No stock flip — a description-only line has no inventory.
+    if (run?.projectId && item.description) {
+      await this.offHireFreeTypedDeployment(run.projectId, item.description, organizationId);
+    }
+    return this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
+  }
+
+  /**
+   * Deploy a DELIVERED free-typed line: create its description-only Assignment +
+   * ProjectDeployment via fieldDeploy, mirroring how a unit line is deployed at
+   * delivery. SAME guard as the unit path (deploySlotBoundUnit): no project on the
+   * run (an ad-hoc run delivered before any assign) means there is nothing to
+   * deploy against, so skip - never create a deployment against nothing. Empty
+   * text skips too. Best-effort: the delivery is already committed, so a deploy
+   * hiccup must never fail it.
+   */
+  private async deployFreeTypedLine(
+    projectId: string | null | undefined,
+    description: string | null | undefined,
+    organizationId: string,
+  ): Promise<void> {
+    const desc = (description ?? '').trim();
+    if (!projectId || !desc) return;
+    try {
+      await this.projectsService.fieldDeploy(projectId, organizationId, { description: desc });
+    } catch (err: any) {
+      this.logger.warn(`deployFreeTypedLine: fieldDeploy failed for "${desc}" on project ${projectId}: ${err?.message}`);
     }
   }
 
@@ -3060,6 +3152,16 @@ export class DeliveriesService {
       where: { id: item.id },
       data: { deliveryStatus: DeliveryStatus.not_installed, deliveredAt: now, skippedAt: null },
     });
+    // Deploy the delivered free-typed line onto the run's project (skips when the
+    // run has no project), mirroring how a unit line deploys at delivery. OUTBOUND
+    // only - a return line is collected/off-hired, never re-deployed.
+    const runMeta = await this.prisma.delivery.findUnique({
+      where: { id: deliveryId },
+      select: { projectId: true, direction: true },
+    });
+    if (runMeta?.direction !== DeliveryDirection.RETURN) {
+      await this.deployFreeTypedLine(runMeta?.projectId, item.description, organizationId);
+    }
     await this.recomputeRunStatus(deliveryId, organizationId);
     return this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
   }

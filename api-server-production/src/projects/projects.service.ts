@@ -672,8 +672,12 @@ export class ProjectsService {
     projectId: string,
     organizationId: string,
     body: {
-      inventoryId: string;
-      assetId: string;
+      inventoryId?: string;
+      assetId?: string;
+      // DESCRIPTION-ONLY (free-typed) mode: no unit, no asset. Deploys a
+      // free-typed line (a cable etc.) so it can be off-hired on return without
+      // being resolved to a catalog asset.
+      description?: string;
       type?: 'RENTAL' | 'SALE';
       autoBind?: boolean;
       // Assign-at-start (delivery flow): create the Assignment + ProjectDeployment
@@ -683,12 +687,57 @@ export class ProjectsService {
       deferStatusFlip?: boolean;
     },
   ) {
-    const { inventoryId, assetId, type } = body ?? ({} as any);
+    const { inventoryId, assetId, type, description } = body ?? ({} as any);
+    // Default to RENTAL for backward compatibility with callers that omit type.
+    const deploymentType = type === 'SALE' ? DeploymentType.SALE : DeploymentType.RENTAL;
+
+    // DESCRIPTION-ONLY DEPLOY (free-typed line): no unit, no asset, no stock flip.
+    // Create a ProjectDeployment + a description-only Assignment (null inventoryId
+    // AND assetId) so a free-typed line is deployable and later returnable.
+    if (!inventoryId && !assetId) {
+      const desc = (description ?? '').trim();
+      if (!desc) {
+        throw new HttpException('inventoryId + assetId, or a description, are required', HttpStatus.BAD_REQUEST);
+      }
+      const proj = await this.prisma.project.findFirst({ where: { id: projectId, organizationId }, select: { id: true } });
+      if (!proj) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
+      const at = new Date();
+      let ftResult: { status: 'added'; deployment: unknown } | null = null;
+      for (let attempt = 0; attempt < 3 && !ftResult; attempt++) {
+        try {
+          ftResult = await this.prisma.$transaction(async (tx) => {
+            const taken = await tx.projectDeployment.count({ where: { projectId } });
+            const deployment = await tx.projectDeployment.create({
+              data: {
+                projectId,
+                organizationId,
+                deploymentNumber: taken + 1,
+                type: deploymentType,
+                status: DeploymentStatus.ACTIVE,
+                deployedDate: at,
+                description: desc,
+              },
+            });
+            // Description-only Assignment: null inventoryId + assetId. The unique
+            // constraints hold (Postgres treats NULLs as distinct), so a plain
+            // create is safe and several free-typed lines can share a project.
+            await tx.assignment.create({
+              data: { projectId, projectDeploymentId: deployment.id, description: desc, startDate: at },
+            });
+            return { status: 'added' as const, deployment };
+          });
+        } catch (err) {
+          if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') continue;
+          throw err;
+        }
+      }
+      if (!ftResult) throw new HttpException('Could not allocate a deployment number after 3 attempts', HttpStatus.CONFLICT);
+      return { ...ftResult, projectId };
+    }
+
     if (!inventoryId || !assetId) {
       throw new HttpException('inventoryId and assetId are required', HttpStatus.BAD_REQUEST);
     }
-    // Default to RENTAL for backward compatibility with callers that omit type.
-    const deploymentType = type === 'SALE' ? DeploymentType.SALE : DeploymentType.RENTAL;
     const inventoryStatus = type === 'SALE' ? InventoryStatus.sold : InventoryStatus.rental;
 
     const project = await this.prisma.project.findFirst({
@@ -716,7 +765,7 @@ export class ProjectsService {
     // null, and DOs can be attached later from the office via
     // Document.projectDeploymentId. (The DO-driven Start/Ack/Install delivery
     // flow is unaffected; it works off manually-created DOs.)
-    const description = `${inventory.asset.name} - ${inventory.sku}`;
+    const unitDeployDescription = `${inventory.asset.name} - ${inventory.sku}`;
     const now = new Date();
 
     // Capture-then-bind: the tx result is held so the DO auto-bind (below) can
@@ -759,7 +808,7 @@ export class ProjectsService {
               type: deploymentType,
               status: DeploymentStatus.ACTIVE,
               deployedDate: now,
-              description,
+              description: unitDeployDescription,
             },
           });
 
