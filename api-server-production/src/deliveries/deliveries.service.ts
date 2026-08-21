@@ -1617,6 +1617,15 @@ export class DeliveriesService {
     }
 
     const now = new Date();
+    // Signature-gated completion (2026-08): an item's terminal-before-signature
+    // state is `not_installed`. 'install'/'skip' NO LONGER advance the item to
+    // `completed` — they only record the install decision (a DO_INSTALL MSR for
+    // install, the installSkipped flag for skip) and leave the item
+    // `not_installed`. The run's single end-of-run signature (finalizeRun) is
+    // what advances every delivered item not_installed -> completed, so the
+    // completion hook (DO commit + invoice) can never fire before the customer
+    // has signed. If this jumped to completed again the fold would complete the
+    // run early and commit + invoice with no signature on record.
     const data: Prisma.DeliveryItemUpdateInput =
       action === 'start'
         ? // Starting CLEARS a skip: the rider came back to it, so it belongs in
@@ -1625,10 +1634,12 @@ export class DeliveriesService {
           { deliveryStatus: DeliveryStatus.delivering, deliveringAt: now, skippedAt: null }
         : action === 'ack'
           ? { deliveryStatus: DeliveryStatus.not_installed, deliveredAt: now }
-          : action === 'install'
-            ? { deliveryStatus: DeliveryStatus.completed, completedAt: now }
-            : { deliveryStatus: DeliveryStatus.completed, installSkipped: true, completedAt: now };
-    await this.prisma.deliveryItem.update({ where: { id: target.id }, data });
+          : action === 'skip'
+            ? { installSkipped: true } // stays not_installed; finalize completes it
+            : {}; // 'install': stays not_installed; the DO_INSTALL MSR is the record
+    if (Object.keys(data).length) {
+      await this.prisma.deliveryItem.update({ where: { id: target.id }, data });
+    }
 
     // Hand-off flip (assign-at-start deferral): at ACK the unit has been handed
     // over, so flip reserved → rental/sold per its active ProjectDeployment.type
@@ -1674,7 +1685,7 @@ export class DeliveriesService {
         status: true,
         direction: true,
         completedAt: true,
-        items: { select: { deliveryStatus: true } },
+        items: { select: { deliveryStatus: true, skippedAt: true } },
       },
     });
     // `scheduled` is guarded like `cancelled`: an unclaimed scheduled run must
@@ -1693,11 +1704,26 @@ export class DeliveriesService {
     // so a run isn't `completed` until they are too. Monotonic in practice: a
     // free-typed line is added only pre-ack (run still in_progress) and only ever
     // advances, so this never downgrades a run.
-    const ranks = delivery.items.map((i) => RANK[i.deliveryStatus]);
+    // A walk-SKIPPED item is a deliberate "not delivered this visit" and counts
+    // as RESOLVED (terminal) so it never blocks the run, though its DO line stays
+    // undelivered. Guard against an all-skipped run auto-completing: `completed`
+    // and `delivered` each require at least one GENUINELY delivered item, so a
+    // run where nothing was handed over stays in_progress (nothing to sign or
+    // commit). NOTE for a future Finish-anyway action: a skipped item is exactly
+    // why a run may complete with an undelivered line; that action would live here.
+    const resolvedRank = (i: { deliveryStatus: DeliveryStatus; skippedAt: Date | null }) =>
+      i.skippedAt ? RANK[DeliveryStatus.completed] : RANK[i.deliveryStatus];
+    const ranks = delivery.items.map(resolvedRank);
+    const anyReallyCompleted = delivery.items.some(
+      (i) => !i.skippedAt && i.deliveryStatus === DeliveryStatus.completed,
+    );
+    const anyReallyDelivered = delivery.items.some(
+      (i) => !i.skippedAt && RANK[i.deliveryStatus] >= RANK[DeliveryStatus.not_installed],
+    );
     const target =
-      ranks.every((r) => r >= RANK[DeliveryStatus.completed])
+      ranks.every((r) => r >= RANK[DeliveryStatus.completed]) && anyReallyCompleted
         ? ('completed' as const)
-        : ranks.every((r) => r >= RANK[DeliveryStatus.not_installed])
+        : ranks.every((r) => r >= RANK[DeliveryStatus.not_installed]) && anyReallyDelivered
           ? ('delivered' as const)
           : ('in_progress' as const);
 
@@ -2413,23 +2439,23 @@ export class DeliveriesService {
     const now = new Date();
     let acknowledged = 0;
     for (const it of pending) {
-      // FREE-TYPED line (no unit, no asset): write the SAME shared proof as a unit
-      // line into an asset-less DO_ACK MSR, so the office proof panel and the DO
-      // proof section render it alongside the units (both key on deliveryId/kind,
-      // never assetId). Advance to terminal `completed` by DeliveryItem.id (the
-      // { deliveryId, inventoryId } key is ambiguous with inventoryId null). No
-      // install step and no stock flip — a cable has neither.
-      if (it.inventoryId == null && it.assetId == null) {
+      const isFreeTyped = it.inventoryId == null && it.assetId == null;
+
+      // RETURN runs are UNCHANGED by the signature-at-end rework: a return is
+      // signed at collection (per unit), not at a run-level finalize, so the
+      // shared proof + collect stays here. Free-typed lines never ride a return.
+      if (isReturn) {
+        if (isFreeTyped) continue;
         await this.prisma.maintenanceServiceReport.create({
           data: {
             organizationId,
             technicianUserId,
-            assetId: null,
-            inventoryId: null,
+            assetId: it.assetId!,
+            inventoryId: it.inventoryId!,
             deliveryId,
             kind: 'DO_ACK',
             status: dto.signature ? 'completed' : 'draft',
-            description: isReturn ? 'Return collected (bulk)' : 'Delivery acknowledged (bulk)',
+            description: 'Return collected (bulk)',
             ...(dto.signature ? { signature: dto.signature, signedAt: now } : {}),
             ...(dto.recipientName ? { signedByName: dto.recipientName } : {}),
             ...(dto.photos?.length ? { photos: dto.photos } : {}),
@@ -2438,78 +2464,160 @@ export class DeliveriesService {
             ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
           },
         });
-        const upd = await this.prisma.deliveryItem.updateMany({
-          where: { id: it.id, deliveryId, deliveryStatus: DeliveryStatus.delivering },
-          data: { deliveryStatus: DeliveryStatus.completed, deliveredAt: now, completedAt: now, skippedAt: null },
-        });
-        if (upd.count) acknowledged++;
+        const updated = await this.collectReturnUnit(deliveryId, it.inventoryId!, organizationId);
+        if (updated) acknowledged++;
         continue;
       }
-      // Reuse the DO_ACK MSR kind for returns too (no new enum value) — the run's
-      // direction distinguishes a collection from a delivery hand-off.
+
+      // OUTBOUND: MARK DELIVERED ONLY (2026-08 signature-at-end). Write an
+      // UNSIGNED per-item DO_ACK proof MSR (GPS only; NO acknowledgement photos -
+      // condition photos live solely on DO_START) and advance the item delivering
+      // -> not_installed. NO signature and NO install decision here: the run's
+      // single finalizeRun signature stamps every one of these MSRs and advances
+      // the items to completed, so the completion hook (DO commit + invoice)
+      // cannot fire before signing.
       await this.prisma.maintenanceServiceReport.create({
         data: {
           organizationId,
           technicianUserId,
-          assetId: it.assetId!,
-          inventoryId: it.inventoryId!,
+          assetId: it.assetId,
+          inventoryId: it.inventoryId,
           deliveryId,
           kind: 'DO_ACK',
-          status: dto.signature ? 'completed' : 'draft',
-          description: isReturn ? 'Return collected (bulk)' : 'Delivery acknowledged (bulk)',
-          ...(dto.signature ? { signature: dto.signature, signedAt: now } : {}),
-          ...(dto.recipientName ? { signedByName: dto.recipientName } : {}),
-          ...(dto.photos?.length ? { photos: dto.photos } : {}),
+          status: 'draft',
+          description: 'Delivery acknowledged (bulk)',
           ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
           ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
           ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
         },
       });
-      // RETURN: collect (delivering → completed, SKIP install), flip rental →
-      // instock, and off-hire the deployment (last-unit guard). OUTBOUND bulk
-      // "Deliver all" = a signed hand-off with NO per-unit installation: ack
-      // (delivering → not_installed) THEN skip-install (→ completed), so every
-      // unit COMPLETES and the run's completion hook auto-creates the DO + draft
-      // invoice — the same end state as the per-unit "No install" path. A unit
-      // that genuinely needs installing uses the per-unit flow instead.
-      let updated: unknown;
-      if (isReturn) {
-        updated = await this.collectReturnUnit(deliveryId, it.inventoryId!, organizationId);
+      if (isFreeTyped) {
+        // No unit machine for a free-typed line — advance by DeliveryItem.id.
+        const upd = await this.prisma.deliveryItem.updateMany({
+          where: { id: it.id, deliveryId, deliveryStatus: DeliveryStatus.delivering },
+          data: { deliveryStatus: DeliveryStatus.not_installed, deliveredAt: now },
+        });
+        if (upd.count) acknowledged++;
       } else {
-        updated = await this.advanceDeliveryItem(deliveryId, it.inventoryId!, 'ack', organizationId);
-        if (updated) {
-          if (dto.installNeeded) {
-            // Unified bulk WITH install: not_installed → completed via 'install'
-            // (installSkipped stays false) + a DO_INSTALL MSR per unit carrying
-            // the shared install photos, mirroring the single-item install step.
-            await this.advanceDeliveryItem(deliveryId, it.inventoryId!, 'install', organizationId);
-            await this.prisma.maintenanceServiceReport.create({
-              data: {
-                organizationId,
-                technicianUserId,
-                assetId: it.assetId!,
-                inventoryId: it.inventoryId!,
-                deliveryId,
-                kind: 'DO_INSTALL',
-                status: 'completed',
-                description: 'Installed (bulk)',
-                ...(dto.installPhotos?.length ? { photos: dto.installPhotos } : {}),
-                ...(dto.signature ? { signature: dto.signature, signedAt: now } : {}),
-                ...(dto.recipientName ? { signedByName: dto.recipientName } : {}),
-                ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
-                ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
-                ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
-              },
-            });
-          } else {
-            await this.advanceDeliveryItem(deliveryId, it.inventoryId!, 'skip', organizationId);
-          }
-        }
+        // advanceDeliveryItem('ack') moves delivering -> not_installed and does
+        // the reserved -> rental/sold hand-off flip (the unit is handed over now).
+        const updated = await this.advanceDeliveryItem(deliveryId, it.inventoryId!, 'ack', organizationId);
+        if (updated) acknowledged++;
       }
-      if (updated) acknowledged++;
     }
     await this.recomputeRunStatus(deliveryId, organizationId);
     return { acknowledged, total: pending.length };
+  }
+
+  /**
+   * MARK ONE UNIT DELIVERED (per-item "End Delivery", 2026-08 signature-at-end):
+   * the single-unit twin of the outbound acknowledgeAll. Writes an UNSIGNED
+   * DO_ACK proof MSR and advances the unit delivering -> not_installed (plus the
+   * reserved -> rental/sold hand-off flip). NO signature: the run's finalize
+   * signature stamps this MSR and completes the unit. A unit not currently
+   * delivering advances nothing and returns acknowledged:0.
+   */
+  async markUnitDelivered(
+    deliveryId: string,
+    inventoryId: string,
+    dto: { photos?: string[]; latitude?: number; longitude?: number; technicianName?: string },
+    organizationId: string,
+    technicianUserId: string,
+  ) {
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: {
+        id: true,
+        status: true,
+        direction: true,
+        items: { select: { inventoryId: true, assetId: true, deliveryStatus: true } },
+      },
+    });
+    if (!run) throw new NotFoundException('Delivery not found');
+    if (run.status === 'cancelled') throw new BadRequestException('Cannot deliver on a cancelled delivery');
+    if (run.direction === DeliveryDirection.RETURN) {
+      throw new BadRequestException('Use the return collection flow on a RETURN run');
+    }
+    const item = run.items.find(
+      (i) => i.inventoryId === inventoryId && i.deliveryStatus === DeliveryStatus.delivering,
+    );
+    if (!item) throw new BadRequestException('This unit is not awaiting delivery on this run');
+
+    // NO acknowledgement photos (2026-08): condition photos are captured ONLY at
+    // DO_START (the guided 5-angle set). The DO_ACK is a bare delivery-acknowledged
+    // proof carrying just GPS; its signature is stamped later at finalize.
+    await this.prisma.maintenanceServiceReport.create({
+      data: {
+        organizationId,
+        technicianUserId,
+        assetId: item.assetId!,
+        inventoryId,
+        deliveryId,
+        kind: 'DO_ACK',
+        status: 'draft',
+        description: 'Delivery acknowledged',
+        ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
+        ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
+        ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
+      },
+    });
+    const updated = await this.advanceDeliveryItem(deliveryId, inventoryId, 'ack', organizationId);
+    return { acknowledged: updated ? 1 : 0 };
+  }
+
+  /**
+   * FINALIZE the run with the SINGLE end-of-run customer signature (2026-08).
+   * Only reachable once EVERY item is resolved — delivered (not_installed) or
+   * walk-skipped — which is exactly when the fold has moved the run to
+   * `delivered`. Stamps the one signature across every per-item DO_ACK/DO_INSTALL
+   * proof MSR (written UNSIGNED as each item was delivered), advances every
+   * delivered item not_installed -> completed, then recomputes: the run folds to
+   * `completed` and the completion hook fires (DO commit + invoice) for the FIRST
+   * time, now with a signature on record. A walk-skipped item keeps its DO line
+   * undelivered (see recomputeRunStatus / the future Finish-anyway note).
+   */
+  async finalizeRun(
+    deliveryId: string,
+    dto: { signature?: string; recipientName?: string; latitude?: number; longitude?: number; technicianName?: string },
+    organizationId: string,
+  ) {
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: { id: true, status: true, direction: true },
+    });
+    if (!run) throw new NotFoundException('Delivery not found');
+    if (run.direction === DeliveryDirection.RETURN) {
+      throw new BadRequestException('Returns are signed at collection, not at run finalize');
+    }
+    if (!dto.signature) throw new BadRequestException('Customer signature is required');
+    if (run.status === 'completed') throw new BadRequestException('This delivery is already finalized');
+    // `delivered` is the fold's "every item resolved, at least one delivered"
+    // state — the only point the signature is valid. in_progress => items still
+    // delivering or unresolved; the rider must deliver or skip them first.
+    if (run.status !== 'delivered') {
+      throw new BadRequestException('Deliver or skip every item on this run before capturing the signature');
+    }
+
+    const now = new Date();
+    // One signature stamped across every still-unsigned proof MSR on the run.
+    await this.prisma.maintenanceServiceReport.updateMany({
+      where: { deliveryId, kind: { in: ['DO_ACK', 'DO_INSTALL'] }, status: { not: 'completed' } },
+      data: {
+        signature: dto.signature,
+        ...(dto.recipientName ? { signedByName: dto.recipientName } : {}),
+        signedAt: now,
+        status: 'completed',
+      },
+    });
+    // Complete every DELIVERED (not_installed) item. Skipped items stay skipped
+    // (not_delivered + skippedAt), so only genuinely delivered lines advance —
+    // the fold then reaches `completed` and fires the completion hook.
+    await this.prisma.deliveryItem.updateMany({
+      where: { deliveryId, deliveryStatus: DeliveryStatus.not_installed },
+      data: { deliveryStatus: DeliveryStatus.completed, completedAt: now },
+    });
+    await this.recomputeRunStatus(deliveryId, organizationId);
+    return this.prisma.delivery.findUnique({ where: { id: deliveryId } });
   }
 
   /**
@@ -2788,14 +2896,19 @@ export class DeliveriesService {
     if (item.assetId !== null || item.inventoryId !== null) {
       throw new BadRequestException('This action is only for free-typed items — scan the unit to deliver it');
     }
-    if (item.deliveryStatus === DeliveryStatus.completed) {
+    if (
+      item.deliveryStatus === DeliveryStatus.completed ||
+      item.deliveryStatus === DeliveryStatus.not_installed
+    ) {
       throw new BadRequestException('Item is already delivered');
     }
 
     await this.prisma.deliveryItem.update({
       where: { id: item.id },
-      // skippedAt cleared for the same reason as 'start': the rider came back.
-      data: { deliveryStatus: DeliveryStatus.completed, completedAt: new Date(), skippedAt: null },
+      // Delivered-but-not-yet-signed stops at not_installed (2026-08 signature-at-
+      // end); the run's finalize signature completes it. skippedAt cleared for the
+      // same reason as 'start': the rider came back.
+      data: { deliveryStatus: DeliveryStatus.not_installed, deliveredAt: new Date(), skippedAt: null },
     });
     await this.recomputeRunStatus(deliveryId, organizationId);
     return this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
@@ -2873,8 +2986,11 @@ export class DeliveriesService {
     if (item.deliveryStatus !== DeliveryStatus.delivering) {
       throw new BadRequestException('Start this line before ending its delivery');
     }
-    if (!dto.signature) throw new BadRequestException('Customer signature is required');
-    const photos = (dto.photos ?? []).map((k) => String(k).trim()).filter(Boolean);
+    // No signature and NO acknowledgement photos here (2026-08 signature-at-end):
+    // the line's condition photos were captured on start; End records a bare
+    // UNSIGNED DO_ACK proof (GPS only) and advances the line delivering ->
+    // not_installed. The run's single finalize signature stamps this MSR and
+    // completes the line, so nothing signs mid-run.
     const now = new Date();
     await this.prisma.maintenanceServiceReport.create({
       data: {
@@ -2884,12 +3000,8 @@ export class DeliveriesService {
         inventoryId: null,
         deliveryId,
         kind: 'DO_ACK',
-        status: 'completed',
+        status: 'draft',
         description: `Delivery acknowledged: ${item.description ?? 'free-typed line'}`,
-        signature: dto.signature,
-        signedAt: now,
-        ...(dto.signedByName ? { signedByName: dto.signedByName } : {}),
-        ...(photos.length ? { photos } : {}),
         ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
         ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
         ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
@@ -2897,7 +3009,7 @@ export class DeliveriesService {
     });
     await this.prisma.deliveryItem.update({
       where: { id: item.id },
-      data: { deliveryStatus: DeliveryStatus.completed, deliveredAt: now, completedAt: now, skippedAt: null },
+      data: { deliveryStatus: DeliveryStatus.not_installed, deliveredAt: now, skippedAt: null },
     });
     await this.recomputeRunStatus(deliveryId, organizationId);
     return this.prisma.deliveryItem.findUnique({ where: { id: item.id } });

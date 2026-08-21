@@ -193,6 +193,34 @@ export class DeliveriesController {
     return this.service.acknowledgeAll(id, dto, org.id, riderUserId);
   }
 
+  // Field: MARK ONE UNIT DELIVERED (per-item "End Delivery", signature-at-end).
+  // Writes an unsigned DO_ACK proof + advances the unit delivering -> not_installed.
+  // NO signature here: the run's single finalize signature stamps it. Distinct
+  // path from the free-typed :itemId/deliver (that one is keyed by DeliveryItem.id).
+  @Post(':id/units/:inventoryId/deliver')
+  @Permissions('maintenance-reports:create')
+  deliverUnit(
+    @Param('id') id: string,
+    @Param('inventoryId') inventoryId: string,
+    @Body() dto: AckAllDto,
+    @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
+  ) {
+    const riderUserId = req.user?.id;
+    if (!riderUserId) throw new UnauthorizedException('Missing authenticated user');
+    return this.service.markUnitDelivered(id, inventoryId, dto, org.id, riderUserId);
+  }
+
+  // Field: FINALIZE the run with the single end-of-run customer signature. Only
+  // valid once every item is delivered or skipped (run status `delivered`);
+  // stamps the one signature across the per-item proof MSRs, completes the run,
+  // and fires the DO commit + invoice. The signature moved here from per-item ack.
+  @Post(':id/finalize')
+  @Permissions('maintenance-reports:create')
+  finalize(@Param('id') id: string, @Body() dto: AckAllDto, @UserOrganization() org: { id: string }) {
+    return this.service.finalizeRun(id, dto, org.id);
+  }
+
   // Field: collect ONE unit on a RETURN run with proof (per-unit "End Return").
   // The return twin of the per-unit outbound ack — one DO_ACK MSR + collect.
   @Post(':id/items/:inventoryId/collect-return')
