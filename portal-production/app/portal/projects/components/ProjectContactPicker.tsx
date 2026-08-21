@@ -7,6 +7,7 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Grid,
   Stack,
   TextField,
   Typography,
@@ -206,9 +207,17 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
           <Stack spacing={1} sx={{ mt: 0.5 }}>
             {selected.map((c) => (
               <Box key={c.id} sx={{ p: 1, border: 1, borderColor: "divider", borderRadius: 1 }}>
-                <TextField label="Name" value={c.name || ""} size="small" fullWidth InputProps={{ readOnly: true }} variant="filled" sx={{ mb: 1 }} />
-                <TextField label="Mobile" value={c.phone || ""} size="small" fullWidth InputProps={{ readOnly: true }} variant="filled" sx={{ mb: 1 }} />
-                <TextField label="Email" value={c.email || ""} size="small" fullWidth InputProps={{ readOnly: true }} variant="filled" />
+                <Grid container spacing={0.5}>
+                  <Grid item xs={12} md={4}>
+                    <TextField label="Name" value={c.name || ""} size="small" fullWidth InputProps={{ readOnly: true }} variant="filled" />
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <TextField label="Mobile" value={c.phone || ""} size="small" fullWidth InputProps={{ readOnly: true }} variant="filled" />
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <TextField label="Email" value={c.email || ""} size="small" fullWidth InputProps={{ readOnly: true }} variant="filled" />
+                  </Grid>
+                </Grid>
               </Box>
             ))}
           </Stack>
@@ -222,18 +231,24 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
             <Typography variant="subtitle2" sx={{ mb: 1 }}>
               New contact
             </Typography>
-            <Stack spacing={1}>
-              <TextField label="Name" value={newName} onChange={(e) => setNewName(e.target.value)} size="small" fullWidth />
-              <TextField label="Mobile" value={newPhone} onChange={(e) => setNewPhone(e.target.value)} size="small" fullWidth />
-              <TextField label="Email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} size="small" fullWidth />
-              <Stack direction="row" spacing={1} justifyContent="flex-end">
-                <Button size="small" onClick={resetAddForm} disabled={creating}>
-                  Cancel
-                </Button>
-                <Button size="small" variant="contained" onClick={() => void createContact()} disabled={creating || !newName.trim()}>
-                  Add contact
-                </Button>
-              </Stack>
+            <Grid container spacing={0.5}>
+              <Grid item xs={12} md={4}>
+                <TextField label="Name" value={newName} onChange={(e) => setNewName(e.target.value)} size="small" fullWidth />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField label="Mobile" value={newPhone} onChange={(e) => setNewPhone(e.target.value)} size="small" fullWidth />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField label="Email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} size="small" fullWidth />
+              </Grid>
+            </Grid>
+            <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 1 }}>
+              <Button size="small" onClick={resetAddForm} disabled={creating}>
+                Cancel
+              </Button>
+              <Button size="small" variant="contained" onClick={() => void createContact()} disabled={creating || !newName.trim()}>
+                Add contact
+              </Button>
             </Stack>
           </Box>
         ) : (

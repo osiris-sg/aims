@@ -217,8 +217,15 @@ export class DeliveriesController {
   // and fires the DO commit + invoice. The signature moved here from per-item ack.
   @Post(':id/finalize')
   @Permissions('maintenance-reports:create')
-  finalize(@Param('id') id: string, @Body() dto: AckAllDto, @UserOrganization() org: { id: string }) {
-    return this.service.finalizeRun(id, dto, org.id);
+  finalize(
+    @Param('id') id: string,
+    @Body() dto: AckAllDto,
+    @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
+  ) {
+    const riderUserId = req.user?.id;
+    if (!riderUserId) throw new UnauthorizedException('Missing authenticated user');
+    return this.service.finalizeRun(id, dto, org.id, riderUserId);
   }
 
   // Field: collect ONE unit on a RETURN run with proof (per-unit "End Return").

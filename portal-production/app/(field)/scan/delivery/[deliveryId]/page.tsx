@@ -33,7 +33,6 @@ import {
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import NfcIcon from "@mui/icons-material/Nfc";
 import KeyboardIcon from "@mui/icons-material/Keyboard";
-import HandymanIcon from "@mui/icons-material/Handyman";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import AddAPhotoIcon from "@mui/icons-material/AddAPhoto";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
@@ -386,30 +385,6 @@ export default function DeliveryBasketPage() {
   }, [pending, pendingPhotos, requiredPhotos, deliveryId, getToken, load, startUnit]);
 
   // #3 fallback: rider decides installation isn't needed from the basket.
-  const skipInstall = useCallback(
-    async (it: RunItem) => {
-      if (!it.inventoryId) return;
-      setBusy(true);
-      setActionMsg(null);
-      try {
-        const token = await getToken();
-        if (!token) throw new Error("Not signed in");
-        const res = await request(
-          { path: `/deliveries/${deliveryId}/items/skip-install`, method: "POST" },
-          { inventoryId: it.inventoryId },
-          token,
-        );
-        if (res.success === false) throw new Error(res.message ?? "Could not skip installation");
-        await load();
-      } catch (e: any) {
-        setActionMsg(e?.message ?? "Could not skip installation");
-      } finally {
-        setBusy(false);
-      }
-    },
-    [deliveryId, getToken, load],
-  );
-
   // Free-typed lines now run the full lifecycle (Start -> photos -> End -> sign)
   // on /scan/delivery/[id]/free-item/[itemId]; the old one-tap "Mark delivered"
   // (POST /items/:itemId/deliver) was removed here.
@@ -556,8 +531,6 @@ export default function DeliveryBasketPage() {
     );
   }
 
-  const installHref = (it: RunItem) =>
-    `/scan/delivery/${run.id}/install?assetId=${encodeURIComponent(it.assetId)}${it.inventoryId ? `&inventoryId=${encodeURIComponent(it.inventoryId)}` : ""}`;
   // Reordered flow resume: a delivering unit with an UNSIGNED DO_ACK is
   // mid-flow (ack captured, signature pending) → Continue into after-ack.
   const hasDraftAck = (it: RunItem) =>
@@ -1031,30 +1004,11 @@ export default function DeliveryBasketPage() {
                         Start Delivery
                       </Button>
                     )}
-                    {it.deliveryStatus === "not_installed" && (
-                      <>
-                        <Button
-                          size="small"
-                          variant="contained"
-                          startIcon={<HandymanIcon />}
-                          onClick={() => router.push(installHref(it))}
-                          sx={{ minHeight: 40 }}
-                        >
-                          Complete installation
-                        </Button>
-                        {it.inventoryId && (
-                          <Button
-                            size="small"
-                            variant="text"
-                            onClick={() => skipInstall(it)}
-                            disabled={busy}
-                            sx={{ minHeight: 40, color: "text.secondary" }}
-                          >
-                            Install not needed
-                          </Button>
-                        )}
-                      </>
-                    )}
+                    {/* Per-item install actions removed (2026-08): installation is
+                        no longer per item. It is asked ONCE for the whole run at
+                        the end, in the finalize sequence (Installation needed? then
+                        signature). A delivered item just sits at not_installed
+                        until the run-level finalize completes it. */}
                     {/* Append more condition photos once the unit is out for
                         delivery — pushes onto the existing DO_START, never a new
                         report. Only for started (not_delivered has no DO_START yet). */}

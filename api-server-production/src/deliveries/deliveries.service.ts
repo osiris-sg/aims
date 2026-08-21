@@ -2625,8 +2625,20 @@ export class DeliveriesService {
    */
   async finalizeRun(
     deliveryId: string,
-    dto: { signature?: string; recipientName?: string; latitude?: number; longitude?: number; technicianName?: string },
+    dto: {
+      signature?: string;
+      recipientName?: string;
+      latitude?: number;
+      longitude?: number;
+      technicianName?: string;
+      // Run-level installation (2026-08): asked ONCE at finalize for the whole
+      // run. installNeeded true -> one asset-less DO_INSTALL with these shared
+      // photos; false -> no installation recorded.
+      installNeeded?: boolean;
+      installPhotos?: string[];
+    },
     organizationId: string,
+    technicianUserId: string,
   ) {
     const run = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },
@@ -2647,6 +2659,33 @@ export class DeliveriesService {
     }
 
     const now = new Date();
+    // ONE run-level DO_INSTALL for the WHOLE run: installation is asked once at
+    // finalize, not per unit. "Yes" writes a single ASSET-LESS DO_INSTALL
+    // (deliveryId + kind, no unit) carrying the shared install photos + the
+    // signature - the office proof panel renders it as one row and the DO's Proof
+    // of Delivery finds it by kind. "No" writes nothing (no install performed).
+    if (dto.installNeeded) {
+      const photos = (dto.installPhotos ?? []).map((k) => String(k).trim()).filter(Boolean);
+      await this.prisma.maintenanceServiceReport.create({
+        data: {
+          organizationId,
+          technicianUserId,
+          assetId: null,
+          inventoryId: null,
+          deliveryId,
+          kind: 'DO_INSTALL',
+          status: 'completed',
+          description: 'Installed (run)',
+          signature: dto.signature,
+          signedAt: now,
+          ...(dto.recipientName ? { signedByName: dto.recipientName } : {}),
+          ...(photos.length ? { photos } : {}),
+          ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
+          ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
+          ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
+        },
+      });
+    }
     // One signature stamped across every still-unsigned proof MSR on the run.
     await this.prisma.maintenanceServiceReport.updateMany({
       where: { deliveryId, kind: { in: ['DO_ACK', 'DO_INSTALL'] }, status: { not: 'completed' } },
