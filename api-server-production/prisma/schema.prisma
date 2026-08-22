@@ -2293,6 +2293,9 @@ model WhatsAppAgentConfig {
   autoSendGuidance String?
   // General tone/behaviour instructions appended to the system prompt.
   aiGuidance       String?
+  // Owner/advisor number (digits incl. country code) that receives internal
+  // notifications — e.g. a confirmation whenever a scheduled message goes out.
+  ownerNotifyNumber String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
