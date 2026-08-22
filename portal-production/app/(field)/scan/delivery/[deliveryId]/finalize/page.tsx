@@ -69,10 +69,10 @@ export default function FinalizeDeliveryPage() {
         token,
       );
       if (res?.success === false) throw new Error(res?.message ?? "Could not finalize the delivery");
-      // The run is complete: go straight back to the scan home (natural exit).
-      // No result/summary screen; the receipt is reprintable from the finished
-      // list ("Reprint a delivery" on scan home) for 7 days if needed.
-      router.replace("/scan");
+      // The run is complete: land on the "Delivery completed" screen
+      // (confirmation + Print DO + Back to scan). Print DO matters here: it is
+      // the rider's chance to print at hand-off.
+      router.replace(`/scan/deliveries/finished/${deliveryId}`);
     } catch (e: any) {
       setError(e?.message ?? "Could not finalize the delivery");
       setWorking(false);

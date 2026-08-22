@@ -7,14 +7,11 @@ import {
   Alert,
   Box,
   Button,
-  Card,
-  CardContent,
   CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
-  Divider,
   List,
   ListItemButton,
   ListItemText,
@@ -25,8 +22,6 @@ import {
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import PrintIcon from "@mui/icons-material/Print";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import WarningAmberIcon from "@mui/icons-material/WarningAmber";
-import Inventory2Icon from "@mui/icons-material/Inventory2";
 import { request } from "@/helpers/request";
 import {
   isPrinterAvailable,
@@ -40,12 +35,16 @@ import {
 } from "../../../../lib/btPrinter";
 
 /**
- * Finished-delivery detail + REPRINT (field). Read-only view of one of the
- * rider's completed runs, reached from /scan/deliveries/finished. The REPRINT
- * button rebuilds the exact same itemised run receipt as the live after-ack
- * flow (buildDeliveryReceipt) — full manifest, one signature at the bottom —
- * from data already stored on the run (items + the DO_ACK proof MSR). No new
- * signature is captured; this reprints what was signed at hand-off.
+ * "Delivery completed" final screen (field). Reached both as the LANDING right
+ * after a run completes (finalize / standalone install-sign redirect here) and
+ * from the reprint list (/scan/deliveries/finished). Deliberately minimal:
+ * a completion confirmation, the Print DO action, and the way back to scan.
+ *
+ * Print rebuilds the itemised delivery receipt (buildDeliveryReceipt) from data
+ * already stored on the RUN (items + the DO_ACK proof MSR) — one signature at
+ * the bottom, the original hand-off date. No new signature is captured. The run
+ * is still fetched in full below; the print reads that object, not the screen,
+ * so trimming the visible summary does not change what the printer receives.
  */
 
 const FIELD_BUTTON_SX = { py: 1.5, fontSize: "1rem", minHeight: 48 } as const;
@@ -81,11 +80,6 @@ interface Run {
   reports: Report[];
   project: { id: string; name: string } | null;
   customer: { id: string; name: string } | null;
-  // Auto-created on completion (standalone runs): the real DO and the draft
-  // invoice fired off it. Absent for office-linked/DO-first runs or if the
-  // completion wrapper hasn't run.
-  document?: { id: string; name: string | null; status: string } | null;
-  invoice?: { id: string; name: string | null; status: string } | null;
 }
 
 // Unit-based → "SKU — Asset name"; free-typed → description; else "Item".
@@ -128,7 +122,8 @@ export default function FinishedDeliveryDetailPage() {
   }, [getToken, deliveryId]);
 
   // The hand-off proof: latest DO_ACK MSR carrying a signature. That row's
-  // signedByName is the recipient; its lat/long the GPS at hand-off.
+  // signedByName is the recipient; its lat/long the GPS at hand-off. Feeds the
+  // printed receipt (signature + recipient + GPS).
   const ack = useMemo(() => {
     if (!run) return null;
     const acks = run.reports.filter((r) => r.kind === "DO_ACK" && r.signature);
@@ -139,15 +134,10 @@ export default function FinishedDeliveryDetailPage() {
   }, [run]);
 
   // Installation happened if any real unit was installed (completed & not
-  // skip-installed). Free-typed / skipped items don't flip this on.
+  // skip-installed). Free-typed / skipped items don't flip this on. Printed on
+  // the receipt.
   const installNeeded = useMemo(
     () => !!run?.items.some((i) => i.deliveryStatus === "completed" && !i.installSkipped),
-    [run],
-  );
-
-  // Unit-backed lines that reached `completed` — the stock committed to the DO.
-  const committedUnits = useMemo(
-    () => run?.items.filter((i) => i.inventory && i.deliveryStatus === "completed").length ?? 0,
     [run],
   );
 
@@ -176,7 +166,7 @@ export default function FinishedDeliveryDetailPage() {
           project: run.project?.name ?? null,
           siteAddress: run.siteAddress,
           gps: ack?.latitude != null && ack?.longitude != null ? { latitude: ack.latitude, longitude: ack.longitude } : null,
-          // Reprint keeps the original hand-off date, not today's.
+          // Keep the original hand-off date, not today's.
           dateLabel: new Date(ack?.signedAt ?? run.completedAt ?? run.createdAt).toLocaleString("en-GB", {
             day: "2-digit",
             month: "short",
@@ -191,7 +181,7 @@ export default function FinishedDeliveryDetailPage() {
         await printBytes(bytes, target);
         setPrintMsg({ ok: true, text: `Printed on ${target.name}` });
       } catch (e: any) {
-        setPrintMsg({ ok: false, text: e?.message ?? "Print failed — check the printer is on and in range" });
+        setPrintMsg({ ok: false, text: e?.message ?? "Print failed. Check the printer is on and in range." });
       } finally {
         setPrinting(false);
       }
@@ -211,147 +201,33 @@ export default function FinishedDeliveryDetailPage() {
     return (
       <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
         <Alert severity="error">{error ?? "Delivery not found"}</Alert>
-        <Button startIcon={<ArrowBackIcon />} onClick={() => router.replace("/scan/deliveries/finished")}>
-          Back to finished deliveries
+        <Button startIcon={<ArrowBackIcon />} onClick={() => router.replace("/scan")}>
+          Back to scan
         </Button>
       </Box>
     );
   }
 
-  const dateLabel = new Date(run.completedAt ?? run.createdAt).toLocaleString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
-      <Stack direction="row" alignItems="center" spacing={1}>
-        <Button
-          startIcon={<ArrowBackIcon />}
-          size="small"
-          onClick={() => router.replace("/scan/deliveries/finished")}
-          sx={{ color: "text.secondary" }}
-        >
-          Back
-        </Button>
-      </Stack>
-
-      <Stack direction="row" alignItems="baseline" spacing={1}>
-        <Typography variant="h6" fontWeight={700} sx={{ fontFamily: "monospace" }}>
+      {/* Confirmation only — no summary of what was created. */}
+      <Stack alignItems="center" spacing={1} sx={{ py: 2 }}>
+        <CheckCircleIcon color="success" sx={{ fontSize: 56 }} />
+        <Typography variant="h5" fontWeight={800}>
+          Delivery completed
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ fontFamily: "monospace" }}>
           Delivery #{run.deliveryNumber}
         </Typography>
       </Stack>
 
-      {/* "What happened" result panel — what completing this run produced:
-          the auto-created DO, the draft invoice (needs office pricing), and the
-          stock committed. Failures show as warnings so the rider knows the
-          office needs to finish it. Shown once the run is completed. */}
-      {(run.status === "completed" || run.document || run.invoice) && (
-        <Card variant="outlined" sx={{ borderColor: "success.main", borderWidth: 1.5 }}>
-          <CardContent sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-            <Typography variant="subtitle2" fontWeight={700}>
-              What happened
-            </Typography>
-
-            {run.document ? (
-              <Stack direction="row" spacing={1} alignItems="flex-start">
-                <CheckCircleIcon color="success" fontSize="small" sx={{ mt: 0.2 }} />
-                <Typography variant="body2">
-                  Delivery Order <b>{run.document.name ?? run.document.id}</b> created
-                </Typography>
-              </Stack>
-            ) : (
-              <Stack direction="row" spacing={1} alignItems="flex-start">
-                <WarningAmberIcon color="warning" fontSize="small" sx={{ mt: 0.2 }} />
-                <Typography variant="body2">
-                  Delivery Order not created yet — the office will create it.
-                </Typography>
-              </Stack>
-            )}
-
-            {run.invoice ? (
-              <Stack direction="row" spacing={1} alignItems="flex-start">
-                <CheckCircleIcon color="success" fontSize="small" sx={{ mt: 0.2 }} />
-                <Typography variant="body2">
-                  Invoice <b>{run.invoice.name ?? run.invoice.id}</b> created — <i>draft — review pricing</i>
-                </Typography>
-              </Stack>
-            ) : run.document ? (
-              <Stack direction="row" spacing={1} alignItems="flex-start">
-                <WarningAmberIcon color="warning" fontSize="small" sx={{ mt: 0.2 }} />
-                <Typography variant="body2">Invoice not created — the office will invoice this DO.</Typography>
-              </Stack>
-            ) : null}
-
-            <Stack direction="row" spacing={1} alignItems="flex-start">
-              <Inventory2Icon color="action" fontSize="small" sx={{ mt: 0.2 }} />
-              <Typography variant="body2">
-                Stock committed: <b>{committedUnits}</b> unit{committedUnits === 1 ? "" : "s"}
-              </Typography>
-            </Stack>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card variant="outlined">
-        <CardContent sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
-          {run.customer?.name && (
-            <Typography variant="body2">
-              <b>Customer:</b> {run.customer.name}
-            </Typography>
-          )}
-          {run.project?.name && (
-            <Typography variant="body2">
-              <b>Project:</b> {run.project.name}
-            </Typography>
-          )}
-          {run.siteAddress && (
-            <Typography variant="body2">
-              <b>Site:</b> {run.siteAddress}
-            </Typography>
-          )}
-          <Typography variant="body2">
-            <b>Completed:</b> {dateLabel}
-          </Typography>
-          <Typography variant="body2">
-            <b>Installation:</b> {installNeeded ? "completed" : "not required"}
-          </Typography>
-          {ack?.signedByName && (
-            <Typography variant="body2">
-              <b>Received by:</b> {ack.signedByName}
-            </Typography>
-          )}
-        </CardContent>
-      </Card>
-
-      <Typography variant="subtitle2" color="text.secondary">
-        Items ({run.items.length})
-      </Typography>
-      <Card variant="outlined">
-        <CardContent sx={{ py: 1 }}>
-          <Stack divider={<Divider flexItem />} spacing={0.5}>
-            {run.items.map((i) => (
-              <Box key={i.id} sx={{ py: 0.75 }}>
-                <Typography variant="body2" fontWeight={600}>
-                  {itemLabel(i)}
-                  {i.quantity && i.quantity > 1 ? ` ×${i.quantity}` : ""}
-                </Typography>
-              </Box>
-            ))}
-          </Stack>
-        </CardContent>
-      </Card>
-
       {!ack && (
         <Alert severity="info">
-          No signed delivery is stored for this run — the reprint will show the items without a signature.
+          No signed delivery is stored for this run. The printout will show the items without a signature.
         </Alert>
       )}
 
-      {/* REPRINT — native shell only (Classic SPP; Web Bluetooth can't reach a
+      {/* Print DO — native shell only (Classic SPP; Web Bluetooth can't reach a
           58mm SPP printer), same gate as the live after-ack flow. */}
       {isPrinterAvailable() ? (
         <Button
@@ -362,13 +238,13 @@ export default function FinishedDeliveryDetailPage() {
           fullWidth
           sx={FIELD_BUTTON_SX}
         >
-          {printing ? "Printing…" : "Reprint receipt"}
+          {printing ? "Printing…" : "Print DO"}
         </Button>
       ) : (
         <Tooltip title="Printing needs the AIMS Field app (Bluetooth printer support)">
           <span style={{ width: "100%" }}>
             <Button variant="contained" startIcon={<PrintIcon />} disabled fullWidth sx={FIELD_BUTTON_SX}>
-              Reprint receipt
+              Print DO
             </Button>
           </span>
         </Tooltip>
@@ -389,6 +265,16 @@ export default function FinishedDeliveryDetailPage() {
           {printMsg.text}
         </Alert>
       )}
+
+      <Button
+        variant="outlined"
+        startIcon={<ArrowBackIcon />}
+        onClick={() => router.replace("/scan")}
+        fullWidth
+        sx={FIELD_BUTTON_SX}
+      >
+        Back to scan
+      </Button>
 
       {/* First-print device picker: bonded devices only; pairing lives in
           Android Settings. Remembered per phone in localStorage. */}

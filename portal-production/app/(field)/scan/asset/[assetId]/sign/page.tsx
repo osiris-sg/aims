@@ -97,10 +97,10 @@ export default function SignPage() {
         return;
       }
       if (deliveryId && flowKind === "install") {
-        // Standalone install signed → the unit is completed; go straight back to
-        // the scan home (natural exit, no result/summary screen). The receipt is
-        // reprintable from the finished list ("Reprint a delivery" on scan home).
-        router.replace("/scan");
+        // Standalone install signed → the unit is completed; land on the
+        // "Delivery completed" screen (confirmation + Print DO + Back to scan),
+        // so the rider can print the DO at hand-off.
+        router.replace(`/scan/deliveries/finished/${deliveryId}`);
         return;
       }
       const invQuery = inventoryId ? `?inventoryId=${encodeURIComponent(inventoryId)}` : "";
