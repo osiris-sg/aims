@@ -320,35 +320,6 @@ export default function DeliveryBasketPage() {
     [deliveryId, getToken, load, router],
   );
 
-  // Scan-less START for a description-only (free-typed) RETURN line: no unit to
-  // scan and no condition photos on a return, so this just advances the line to
-  // `delivering` (POST /items/:id/start, which waives the photo gate for returns).
-  // It then collects via the shared End Return (bulkEnd), reaching the existing
-  // collectReturnFreeTyped off-hire path.
-  const startReturnFreeTyped = useCallback(
-    async (it: RunItem) => {
-      setBusy(true);
-      setActionMsg(null);
-      try {
-        const token = await getToken();
-        if (!token) throw new Error("Not signed in");
-        const res = await request(
-          { path: `/deliveries/${deliveryId}/items/${encodeURIComponent(it.id)}/start`, method: "POST" },
-          {},
-          token,
-        );
-        if (res?.success === false) throw new Error(res?.message ?? "Could not start the return");
-        await load();
-        setActionMsg("Return started ✓");
-      } catch (e: any) {
-        setActionMsg(e?.message ?? "Could not start the return");
-      } finally {
-        setBusy(false);
-      }
-    },
-    [deliveryId, getToken, load],
-  );
-
   // How many condition photos this step demands (OSI-81). Equipment gets the
   // guided set, an accessory keeps one, and the rule is the same on a return as
   // on the way out so the two sets can be compared before and after the hire.
@@ -715,9 +686,20 @@ export default function DeliveryBasketPage() {
   // When they are all scanned or skipped the walk ends and the basket takes over.
   const walkActive =
     isScheduledRun && run.status === "in_progress" && !!walkItem && !walkDismissed;
-  // Position in the office's full declared list, so the counter never jumps as
-  // items are handled or skipped.
-  const walkPosition = walkItem ? orderedItems.findIndex((it) => it.id === walkItem.id) + 1 : 0;
+  // Counter position within the full item list. OUTBOUND fills slots in walk
+  // order, so the walkItem's fixed declared position (its index in the ordered
+  // list) already reads 1..N as the rider advances. RETURN items are unit-bound,
+  // so the rider can start units out of declared order; then the lowest-unstarted
+  // item's declared position sticks (e.g. "1 of 4" after starting a later unit).
+  // For returns, count PROGRESS instead — how many of the full list are already
+  // resolved (out of walkQueue), + 1 — so the counter advances in any scan order.
+  // OUTBOUND keeps its exact formula (it fills in order, so progress == declared),
+  // leaving the outbound counter byte-identical.
+  const walkPosition = walkItem
+    ? run.direction === "RETURN"
+      ? run.items.length - walkQueue.length + 1
+      : orderedItems.findIndex((it) => it.id === walkItem.id) + 1
+    : 0;
   const isReturnRun = run.direction === "RETURN";
   const scheduledSummary = (() => {
     if (unboundSlots.length === 0) return [] as Array<{ assetId: string; label: string; scheduled: number; delivered: number; remaining: number }>;
@@ -829,34 +811,21 @@ export default function DeliveryBasketPage() {
             )}
 
             <Stack spacing={1} sx={{ mt: 2 }}>
-              {/* Free-typed line: no unit to scan. OUTBOUND runs the full flow
-                  (guided photos -> Start, then signature -> End) on its own page.
-                  RETURN is SCAN-LESS: Start Return advances it to delivering with
-                  no photos, then End Return (below) collects + off-hires it. */}
+              {/* Free-typed line: no unit to scan, so it runs its lifecycle on its
+                  own page (guided condition photos -> Start). RETURN mirrors
+                  OUTBOUND here (same guided capture, class-based minimum); only the
+                  End differs (a return is collected, not signed for). */}
               {!walkItem.inventoryId && !walkItem.assetId && walkItem.deliveryStatus === "not_delivered" && (
-                isReturnRun ? (
-                  <Button
-                    variant="contained"
-                    size="large"
-                    startIcon={<AssignmentReturnIcon />}
-                    onClick={() => startReturnFreeTyped(walkItem)}
-                    disabled={busy}
-                    sx={{ py: 1.5, minHeight: 48 }}
-                  >
-                    Start Return
-                  </Button>
-                ) : (
-                  <Button
-                    variant="contained"
-                    size="large"
-                    startIcon={<LocalShippingIcon />}
-                    onClick={() => router.push(`/scan/delivery/${run.id}/free-item/${walkItem.id}`)}
-                    disabled={busy}
-                    sx={{ py: 1.5, minHeight: 48 }}
-                  >
-                    Start Delivery
-                  </Button>
-                )
+                <Button
+                  variant="contained"
+                  size="large"
+                  startIcon={isReturnRun ? <AssignmentReturnIcon /> : <LocalShippingIcon />}
+                  onClick={() => router.push(`/scan/delivery/${run.id}/free-item/${walkItem.id}`)}
+                  disabled={busy}
+                  sx={{ py: 1.5, minHeight: 48 }}
+                >
+                  {isReturnRun ? "Start Return" : "Start Delivery"}
+                </Button>
               )}
               {/* Free-typed line already started -> End marks it delivered with no
                   signature (captured at Finalize), by DeliveryItem.id. */}
@@ -1181,38 +1150,31 @@ export default function DeliveryBasketPage() {
                   </Stack>
                   {run.status === "in_progress" && (
                     <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
-                      {/* Free-typed: no unit. OUTBOUND runs the full flow (Start
-                          clears the skip and captures photos, then End signs).
-                          RETURN is scan-less: Start Return advances it (no photos),
-                          then End Return collects it from the Delivering box. */}
+                      {/* Free-typed: no unit; runs its full flow on its own page
+                          (Start clears the skip + captures guided photos, then End).
+                          RETURN mirrors OUTBOUND (same page, same photo capture);
+                          only the End differs (collected, not signed). */}
                       {!it.inventoryId && !it.assetId && (
-                        isReturnRun ? (
-                          <Button
-                            size="small"
-                            variant="contained"
-                            startIcon={<AssignmentReturnIcon />}
-                            onClick={() => startReturnFreeTyped(it)}
-                            disabled={busy}
-                            sx={{ minHeight: 40 }}
-                          >
-                            Start Return
-                          </Button>
-                        ) : (
-                          <Button
-                            size="small"
-                            variant="contained"
-                            startIcon={<LocalShippingIcon />}
-                            onClick={() =>
-                              router.push(
-                                `/scan/delivery/${run.id}/free-item/${it.id}`,
-                              )
-                            }
-                            disabled={busy}
-                            sx={{ minHeight: 40 }}
-                          >
-                            {it.deliveryStatus === "delivering" ? "End Delivery" : "Start Delivery"}
-                          </Button>
-                        )
+                        <Button
+                          size="small"
+                          variant="contained"
+                          startIcon={isReturnRun ? <AssignmentReturnIcon /> : <LocalShippingIcon />}
+                          onClick={() =>
+                            router.push(
+                              `/scan/delivery/${run.id}/free-item/${it.id}`,
+                            )
+                          }
+                          disabled={busy}
+                          sx={{ minHeight: 40 }}
+                        >
+                          {it.deliveryStatus === "delivering"
+                            ? isReturnRun
+                              ? "End Return"
+                              : "End Delivery"
+                            : isReturnRun
+                              ? "Start Return"
+                              : "Start Delivery"}
+                        </Button>
                       )}
                       {it.inventoryId && (
                         <Button

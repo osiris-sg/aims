@@ -51,6 +51,7 @@ export default function FreeTypedItemFlowPage() {
   const itemId = params?.itemId as string;
 
   const [item, setItem] = useState<Item | null>(null);
+  const [isReturn, setIsReturn] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -76,6 +77,7 @@ export default function FreeTypedItemFlowPage() {
         const found = (run?.items ?? []).find((i: Item) => i.id === itemId) ?? null;
         if (!found) throw new Error("Item is not on this delivery");
         if (found.assetId || found.inventoryId) throw new Error("This screen is only for free-typed lines");
+        setIsReturn(run?.direction === "RETURN");
         setItem(found);
       } catch (e: any) {
         if (!cancelled) setLoadError(e?.message ?? "Could not load the item");
@@ -135,7 +137,9 @@ export default function FreeTypedItemFlowPage() {
   const submitEnd = async () => {
     setError(null);
     const sig = sigRef.current && !sigRef.current.isEmpty() ? sigRef.current.toDataUrl() : "";
-    if (!sig) {
+    // A RETURN line is COLLECTED, not signed for (mirrors a unit return): no
+    // customer signature. OUTBOUND still requires the signature at End.
+    if (!isReturn && !sig) {
       setError("Customer signature is required.");
       return;
     }
@@ -147,7 +151,7 @@ export default function FreeTypedItemFlowPage() {
       const res = await request(
         { path: `/deliveries/${deliveryId}/items/${itemId}/end`, method: "POST" },
         {
-          signature: sig,
+          ...(isReturn ? {} : { signature: sig }),
           ...(recipient.trim() ? { signedByName: recipient.trim() } : {}),
           ...(photos.length ? { photos: photos.map((p) => p.key) } : {}),
           ...(technicianName ? { technicianName } : {}),
@@ -155,10 +159,10 @@ export default function FreeTypedItemFlowPage() {
         },
         token,
       );
-      if (res?.success === false) throw new Error(res?.message ?? "Could not end delivery");
+      if (res?.success === false) throw new Error(res?.message ?? (isReturn ? "Could not collect the item" : "Could not end delivery"));
       setDone(true);
     } catch (e: any) {
-      setError(e?.message ?? "Could not end delivery");
+      setError(e?.message ?? (isReturn ? "Could not collect the item" : "Could not end delivery"));
       setSubmitting(false);
     }
   };
@@ -184,10 +188,10 @@ export default function FreeTypedItemFlowPage() {
     return (
       <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5, alignItems: "center", textAlign: "center" }}>
         <CheckCircleIcon sx={{ fontSize: 96, color: "success.main", mt: 6 }} />
-        <Typography variant="h5" fontWeight={700}>Delivered</Typography>
+        <Typography variant="h5" fontWeight={700}>{isReturn ? "Collected" : "Delivered"}</Typography>
         <Typography variant="body2" color="text.secondary">{item.description || "Item"} is done.</Typography>
         <Button variant="contained" onClick={backToBasket} fullWidth sx={{ maxWidth: 360, py: 1.5, minHeight: 48, mt: 2 }}>
-          Back to delivery
+          {isReturn ? "Back to return" : "Back to delivery"}
         </Button>
       </Box>
     );
@@ -205,7 +209,9 @@ export default function FreeTypedItemFlowPage() {
       </Stack>
 
       <Box>
-        <Typography variant="h6" fontWeight={700}>{isStart ? "Start Delivery" : "End Delivery"}</Typography>
+        <Typography variant="h6" fontWeight={700}>
+          {isStart ? (isReturn ? "Start Return" : "Start Delivery") : isReturn ? "End Return" : "End Delivery"}
+        </Typography>
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5, flexWrap: "wrap" }}>
           <Typography variant="body2" color="text.secondary">{label}</Typography>
           <Chip size="small" label={requiredPhotos === 1 ? "Accessory" : "Equipment"} />
@@ -241,7 +247,25 @@ export default function FreeTypedItemFlowPage() {
             fullWidth
             sx={{ py: 1.5, minHeight: 48 }}
           >
-            {submitting ? <CircularProgress size={20} color="inherit" /> : "Confirm and Start Delivery"}
+            {submitting ? <CircularProgress size={20} color="inherit" /> : isReturn ? "Confirm and Start Return" : "Confirm and Start Delivery"}
+          </Button>
+        </>
+      ) : isReturn ? (
+        <>
+          {/* RETURN collect: no signature (mirrors a unit return, which is
+              collected without a per-line signature). */}
+          <Typography variant="body2" color="text.secondary">
+            Collect this item back. No signature is needed for a return line.
+          </Typography>
+          {error && <Alert severity="error">{error}</Alert>}
+          <Button
+            variant="contained"
+            onClick={submitEnd}
+            disabled={submitting || uploading}
+            fullWidth
+            sx={{ py: 1.5, minHeight: 48 }}
+          >
+            {submitting ? <CircularProgress size={20} color="inherit" /> : "End Return"}
           </Button>
         </>
       ) : (

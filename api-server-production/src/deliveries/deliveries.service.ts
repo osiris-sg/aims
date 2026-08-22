@@ -3185,13 +3185,14 @@ export class DeliveriesService {
     if (item.deliveryStatus !== DeliveryStatus.not_delivered) {
       throw new BadRequestException('This line is not awaiting start');
     }
-    // RETURN runs start SCAN-LESS: a description-only line being collected back
-    // has no outbound condition photos to take, so the photo minimum is waived.
-    // OUTBOUND keeps its condition-photo gate.
+    // Free-typed lines take condition photos on a RETURN too (mirroring outbound):
+    // the class-based minimum from the line's stored assetClass (5 for equipment,
+    // 1 for accessory). The start stays SCAN-LESS - there is no unit to scan, the
+    // line just needs its photos, exactly like the outbound free-typed start.
     const runDir = await this.prisma.delivery.findUnique({ where: { id: deliveryId }, select: { direction: true } });
     const isReturn = runDir?.direction === DeliveryDirection.RETURN;
     const photos = (dto.photos ?? []).map((k) => String(k).trim()).filter(Boolean);
-    const required = isReturn ? 0 : minPhotosForAssetClass(item.assetClass);
+    const required = minPhotosForAssetClass(item.assetClass);
     if (photos.length < required) {
       throw new BadRequestException(
         required === 1
