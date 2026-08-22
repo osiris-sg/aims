@@ -32,4 +32,8 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // the trigger in maintenance-reports.service.sign(). Default OFF; enabled
   // per-org (Biofuel) — no other org gets it.
   enableWaterSgSites: false,
+  // Activity Log tab on the Audit page (ActionLog table — every API action
+  // with typed actors; non-human actors show as "System creation"). Capture
+  // is always-on server-side; this flag gates the viewer UI per org.
+  enableActionLog: false,
 };

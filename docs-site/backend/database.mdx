@@ -17,7 +17,8 @@ description: "The Prisma schema, model map, and multi-tenancy pattern"
 | `OrganizationModule` | Per-org module enablement + config |
 | `OrganizationUIConfig` | Per-org UI config — its `features` JSON is the **feature-flag store** |
 | `CustomField` / `CustomFieldValue` | Per-org per-entity custom fields |
-| `AuditLog` | Action log (also backs per-document history with `resource='document'`) |
+| `AuditLog` | Legacy action log (also backs per-document history with `resource='document'`) |
+| `ActionLog` | User-action log — every API request via a global interceptor; typed actors (`USER`/`API_KEY`/`GUEST`/`SYSTEM` = "System creation"), effective org, action/resource, status, duration, IP. Viewer: Audit page → Activity Log tab (`enableActionLog` flag) |
 | `ApiKey` | External `/v1` keys (SHA-256 hash, prefix, scopes, autoPost) |
 
 ### Assets / inventory / projects

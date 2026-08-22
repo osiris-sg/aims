@@ -2567,3 +2567,39 @@ model OperatorSession {
 
   @@unique([channel, channelUserId])
 }
+
+// ── User Action Log (2026-08-21) ─────────────────────────────────────────────
+// Captures every API interaction with a typed actor. Written fire-and-forget
+// by ActionLogInterceptor (global APP_INTERCEPTOR) + explicit system writers.
+// actorType USER = Clerk user; API_KEY = /v1 integrator; GUEST = token-holder
+// on public pages; SYSTEM = crons/webhooks — displayed as "System creation".
+// Deliberately no FKs so rows outlive users/orgs/resources.
+model ActionLog {
+  id             String   @id @default(uuid())
+  actorType      String // USER | API_KEY | GUEST | SYSTEM
+  actorId        String // Clerk userId | ApiKey id | token hint | system:<job>
+  actorName      String? // "First Last" | key name | "System creation"
+  actorEmail     String?
+  organizationId String? // effective org (after X-Active-Org-Id override)
+  homeOrgId      String? // admin's membership org when viewing-as another org
+  channel        String? // portal | v1 | public | webhook | cron | operator
+  method         String? // HTTP verb (null for non-HTTP system events)
+  path           String? // URL path without query string
+  action         String // VIEW | CREATE | UPDATE | DELETE | domain verb
+  resource       String
+  resourceId     String?
+  statusCode     Int?
+  durationMs     Int?
+  ipAddress      String?
+  userAgent      String?
+  details        Json? // { query?, body? (summarised), error?, note? }
+  status         String   @default("SUCCESS") // SUCCESS | FAILURE
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([actorType, createdAt])
+  @@index([resource, resourceId])
+  @@index([organizationId, action, createdAt])
+  @@index([createdAt])
+}

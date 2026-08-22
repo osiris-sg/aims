@@ -73,6 +73,10 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // credit notes). Keys are managed in the admin org "API Keys" tab; a key only
   // exists if an admin minted one, so this flag is the product-level switch.
   enableExternalApi: false,
+  // Activity Log tab on the Audit page: full user-action log (every API call,
+  // typed actors — USER / API_KEY / GUEST / "System creation"). Server-side
+  // capture is always-on; this flag only gates the viewer tab per org.
+  enableActionLog: false,
   // NOTE: the "AIMS Guide" assistant (bottom-right bubble) is deliberately
   // NOT flagged — it's global for every org (guru, 2026-08-03).
 };

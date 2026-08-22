@@ -7,7 +7,7 @@ import { AssetsModule } from './assets/assets.module';
 import { CategoriesModule } from './categories/categories.module';
 import { ClerkClientProvider } from './providers/clerk-client.provider';
 import { AuthModule } from './auth/auth.module';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ClerkAuthGuard } from './auth/clerk-auth.guard';
 import { InventoriesModule } from './inventories/inventories.module';
 import { CustomersModule } from './customers/customers.module';
@@ -66,6 +66,8 @@ import { ApiV1Module } from './api-v1/api-v1.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
 import { OperatorModule } from './operator/operator.module';
 import { GuideModule } from './guide/guide.module';
+import { ActionLogModule } from './action-log/action-log.module';
+import { ActionLogInterceptor } from './action-log/action-log.interceptor';
 
 @Module({
   imports: [
@@ -131,6 +133,7 @@ import { GuideModule } from './guide/guide.module';
     ApiV1Module,
     WhatsAppModule,
     OperatorModule,
+    ActionLogModule,
   ],
   controllers: [AppController],
   providers: [
@@ -140,6 +143,12 @@ import { GuideModule } from './guide/guide.module';
     {
       provide: APP_GUARD,
       useClass: ClerkAuthGuard,
+    },
+    {
+      // Global user-action capture — runs after the guard, so req.user /
+      // req.userOrganization / req.apiKey are populated. Fire-and-forget.
+      provide: APP_INTERCEPTOR,
+      useClass: ActionLogInterceptor,
     },
   ],
 })
