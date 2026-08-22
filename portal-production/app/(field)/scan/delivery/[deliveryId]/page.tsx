@@ -320,6 +320,35 @@ export default function DeliveryBasketPage() {
     [deliveryId, getToken, load, router],
   );
 
+  // Scan-less START for a description-only (free-typed) RETURN line: no unit to
+  // scan and no condition photos on a return, so this just advances the line to
+  // `delivering` (POST /items/:id/start, which waives the photo gate for returns).
+  // It then collects via the shared End Return (bulkEnd), reaching the existing
+  // collectReturnFreeTyped off-hire path.
+  const startReturnFreeTyped = useCallback(
+    async (it: RunItem) => {
+      setBusy(true);
+      setActionMsg(null);
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const res = await request(
+          { path: `/deliveries/${deliveryId}/items/${encodeURIComponent(it.id)}/start`, method: "POST" },
+          {},
+          token,
+        );
+        if (res?.success === false) throw new Error(res?.message ?? "Could not start the return");
+        await load();
+        setActionMsg("Return started ✓");
+      } catch (e: any) {
+        setActionMsg(e?.message ?? "Could not start the return");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [deliveryId, getToken, load],
+  );
+
   // How many condition photos this step demands (OSI-81). Equipment gets the
   // guided set, an accessory keeps one, and the rule is the same on a return as
   // on the way out so the two sets can be compared before and after the hire.
@@ -572,14 +601,38 @@ export default function DeliveryBasketPage() {
     // RETURN runs are unchanged: they capture the signature at collection, so a
     // unit lead still drives the after-ack proof flow that ack-all fans out.
     if (run.direction === "RETURN") {
-      const lead = deliveringUnits[0] ?? deliveringItems[0];
-      if (!lead) return;
-      if (lead.inventoryId) {
-        const q = `assetId=${encodeURIComponent(lead.assetId)}&inventoryId=${encodeURIComponent(lead.inventoryId)}&applyToAll=1`;
-        const entry = hasDraftAck(lead) ? "after-ack" : "ack";
+      // Units first: a unit lead drives the after-ack proof flow (applyToAll fans
+      // the one signature across every delivering UNIT). Free-typed lines carry no
+      // unit and no signature, so they are collected directly here via /end (the
+      // return-aware endpoint -> collectReturnFreeTyped: completed + off-hire).
+      const unitLead = deliveringUnits[0];
+      if (unitLead && unitLead.inventoryId) {
+        const q = `assetId=${encodeURIComponent(unitLead.assetId)}&inventoryId=${encodeURIComponent(unitLead.inventoryId)}&applyToAll=1`;
+        const entry = hasDraftAck(unitLead) ? "after-ack" : "ack";
         router.push(`/scan/delivery/${run.id}/${entry}?${q}`);
-      } else {
-        router.push(`/scan/delivery/${run.id}/free-item/${lead.id}`);
+        return;
+      }
+      const freeTyped = deliveringItems.filter((it) => !it.inventoryId && !it.assetId);
+      if (!freeTyped.length) return;
+      setBusy(true);
+      setActionMsg(null);
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        for (const it of freeTyped) {
+          const res = await request(
+            { path: `/deliveries/${run.id}/items/${encodeURIComponent(it.id)}/end`, method: "POST" },
+            {},
+            token,
+          );
+          if (res?.success === false) throw new Error(res?.message ?? "Could not collect this item");
+        }
+        await load();
+        setActionMsg("Collected ✓");
+      } catch (e: any) {
+        setActionMsg(e?.message ?? "Could not collect the item");
+      } finally {
+        setBusy(false);
       }
       return;
     }
@@ -776,20 +829,34 @@ export default function DeliveryBasketPage() {
             )}
 
             <Stack spacing={1} sx={{ mt: 2 }}>
-              {/* Free-typed line: no unit to scan, but it runs the full flow
-                  (guided photos -> Start, then signature -> End) on its own page,
-                  keyed by DeliveryItem.id. */}
+              {/* Free-typed line: no unit to scan. OUTBOUND runs the full flow
+                  (guided photos -> Start, then signature -> End) on its own page.
+                  RETURN is SCAN-LESS: Start Return advances it to delivering with
+                  no photos, then End Return (below) collects + off-hires it. */}
               {!walkItem.inventoryId && !walkItem.assetId && walkItem.deliveryStatus === "not_delivered" && (
-                <Button
-                  variant="contained"
-                  size="large"
-                  startIcon={<LocalShippingIcon />}
-                  onClick={() => router.push(`/scan/delivery/${run.id}/free-item/${walkItem.id}`)}
-                  disabled={busy}
-                  sx={{ py: 1.5, minHeight: 48 }}
-                >
-                  Start Delivery
-                </Button>
+                isReturnRun ? (
+                  <Button
+                    variant="contained"
+                    size="large"
+                    startIcon={<AssignmentReturnIcon />}
+                    onClick={() => startReturnFreeTyped(walkItem)}
+                    disabled={busy}
+                    sx={{ py: 1.5, minHeight: 48 }}
+                  >
+                    Start Return
+                  </Button>
+                ) : (
+                  <Button
+                    variant="contained"
+                    size="large"
+                    startIcon={<LocalShippingIcon />}
+                    onClick={() => router.push(`/scan/delivery/${run.id}/free-item/${walkItem.id}`)}
+                    disabled={busy}
+                    sx={{ py: 1.5, minHeight: 48 }}
+                  >
+                    Start Delivery
+                  </Button>
+                )
               )}
               {/* Free-typed line already started -> End marks it delivered with no
                   signature (captured at Finalize), by DeliveryItem.id. */}
@@ -1114,23 +1181,38 @@ export default function DeliveryBasketPage() {
                   </Stack>
                   {run.status === "in_progress" && (
                     <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
-                      {/* Free-typed: no unit; run the full flow (Start clears the
-                          skip and captures photos, then End signs). */}
+                      {/* Free-typed: no unit. OUTBOUND runs the full flow (Start
+                          clears the skip and captures photos, then End signs).
+                          RETURN is scan-less: Start Return advances it (no photos),
+                          then End Return collects it from the Delivering box. */}
                       {!it.inventoryId && !it.assetId && (
-                        <Button
-                          size="small"
-                          variant="contained"
-                          startIcon={<LocalShippingIcon />}
-                          onClick={() =>
-                            router.push(
-                              `/scan/delivery/${run.id}/free-item/${it.id}`,
-                            )
-                          }
-                          disabled={busy}
-                          sx={{ minHeight: 40 }}
-                        >
-                          {it.deliveryStatus === "delivering" ? "End Delivery" : "Start Delivery"}
-                        </Button>
+                        isReturnRun ? (
+                          <Button
+                            size="small"
+                            variant="contained"
+                            startIcon={<AssignmentReturnIcon />}
+                            onClick={() => startReturnFreeTyped(it)}
+                            disabled={busy}
+                            sx={{ minHeight: 40 }}
+                          >
+                            Start Return
+                          </Button>
+                        ) : (
+                          <Button
+                            size="small"
+                            variant="contained"
+                            startIcon={<LocalShippingIcon />}
+                            onClick={() =>
+                              router.push(
+                                `/scan/delivery/${run.id}/free-item/${it.id}`,
+                              )
+                            }
+                            disabled={busy}
+                            sx={{ minHeight: 40 }}
+                          >
+                            {it.deliveryStatus === "delivering" ? "End Delivery" : "Start Delivery"}
+                          </Button>
+                        )
                       )}
                       {it.inventoryId && (
                         <Button

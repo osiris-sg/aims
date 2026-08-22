@@ -733,14 +733,52 @@ export class DeliveriesService {
    * (per-project RDO splitting is deferred).
    */
   async createScheduledReturn(dto: ScheduleReturnDto, organizationId: string) {
-    const inventoryIds = [...new Set(dto.inventoryIds)];
-    if (!inventoryIds.length) throw new BadRequestException('At least one unit is required');
+    const inventoryIds = [...new Set(dto.inventoryIds ?? [])];
+    const deploymentIds = [...new Set(dto.deploymentIds ?? [])];
+    if (!inventoryIds.length && !deploymentIds.length) {
+      throw new BadRequestException('At least one line is required');
+    }
 
     const customer = await this.prisma.customer.findFirst({
       where: { id: dto.customerId, organizationId },
       select: { id: true },
     });
     if (!customer) throw new NotFoundException('Customer not found in this organization');
+
+    // Description-only (free-typed) return lines: each is an ACTIVE
+    // ProjectDeployment with a description and NO unit (its active assignment
+    // has null inventoryId AND assetId), on a project belonging to this
+    // customer. These have no inventory, so they ride deploymentIds, not
+    // inventoryIds — the picker's rental filter excludes them by construction.
+    const freeTypedDeployments: { id: string; projectId: string | null; description: string }[] = [];
+    if (deploymentIds.length) {
+      const deps = await this.prisma.projectDeployment.findMany({
+        where: {
+          id: { in: deploymentIds },
+          organizationId,
+          status: DeploymentStatus.ACTIVE,
+          project: { customerId: dto.customerId },
+        },
+        select: {
+          id: true,
+          projectId: true,
+          description: true,
+          assignments: { where: { endDate: null }, select: { inventoryId: true, assetId: true, description: true } },
+        },
+      });
+      if (deps.length !== deploymentIds.length) {
+        throw new NotFoundException('One or more return lines are not active deployments for this customer');
+      }
+      for (const d of deps) {
+        const descriptionOnly = d.assignments.length > 0 && d.assignments.every((a) => !a.inventoryId && !a.assetId);
+        if (!descriptionOnly) {
+          throw new BadRequestException('One or more selected lines carry a unit; collect those as units, not description-only lines');
+        }
+        const desc = (d.description ?? d.assignments.find((a) => a.description)?.description ?? '').trim();
+        if (!desc) throw new BadRequestException('A description-only line is missing its description');
+        freeTypedDeployments.push({ id: d.id, projectId: d.projectId, description: desc });
+      }
+    }
 
     // Units must be org-scoped AND currently on rental (only an out-on-rental unit
     // can be collected back).
@@ -781,7 +819,12 @@ export class DeliveriesService {
     for (const a of assignments) {
       if (a.inventoryId && !projectByUnit.has(a.inventoryId)) projectByUnit.set(a.inventoryId, a.projectId ?? null);
     }
-    const distinctProjects = [...new Set(inventoryIds.map((id) => projectByUnit.get(id) ?? null))];
+    const distinctProjects = [
+      ...new Set([
+        ...inventoryIds.map((id) => projectByUnit.get(id) ?? null),
+        ...freeTypedDeployments.map((d) => d.projectId ?? null),
+      ]),
+    ];
     const sharedProjectId = distinctProjects.length === 1 && distinctProjects[0] ? distinctProjects[0] : null;
 
     const unitById = new Map(units.map((u) => [u.id, u]));
@@ -810,18 +853,29 @@ export class DeliveriesService {
             projectId: sharedProjectId,
             ...(dto.notes?.trim() ? { notes: dto.notes.trim() } : {}),
             items: {
-              // Returns are already one unit per row; stamp the walk order so the
-              // rider steps through them in the order the office picked them.
-              create: inventoryIds.map((id, idx) => {
-                const u = unitById.get(id)!;
-                return {
-                  assetId: u.assetId,
-                  inventoryId: id,
+              // Returns are already one row per line; stamp the walk order so the
+              // rider steps through them in the order the office picked them. Unit
+              // lines first, then description-only (free-typed) lines, sortOrder
+              // continuing the sequence so the counter never collides.
+              create: [
+                ...inventoryIds.map((id, idx) => {
+                  const u = unitById.get(id)!;
+                  return {
+                    assetId: u.assetId,
+                    inventoryId: id,
+                    quantity: 1,
+                    description: u.asset?.name ?? u.sku ?? 'Unit',
+                    sortOrder: idx * 100,
+                  };
+                }),
+                ...freeTypedDeployments.map((d, j) => ({
+                  assetId: null,
+                  inventoryId: null,
                   quantity: 1,
-                  description: u.asset?.name ?? u.sku ?? 'Unit',
-                  sortOrder: idx * 100,
-                };
-              }),
+                  description: d.description,
+                  sortOrder: (inventoryIds.length + j) * 100,
+                })),
+              ],
             },
           },
           include: { items: true },
@@ -3131,8 +3185,13 @@ export class DeliveriesService {
     if (item.deliveryStatus !== DeliveryStatus.not_delivered) {
       throw new BadRequestException('This line is not awaiting start');
     }
+    // RETURN runs start SCAN-LESS: a description-only line being collected back
+    // has no outbound condition photos to take, so the photo minimum is waived.
+    // OUTBOUND keeps its condition-photo gate.
+    const runDir = await this.prisma.delivery.findUnique({ where: { id: deliveryId }, select: { direction: true } });
+    const isReturn = runDir?.direction === DeliveryDirection.RETURN;
     const photos = (dto.photos ?? []).map((k) => String(k).trim()).filter(Boolean);
-    const required = minPhotosForAssetClass(item.assetClass);
+    const required = isReturn ? 0 : minPhotosForAssetClass(item.assetClass);
     if (photos.length < required) {
       throw new BadRequestException(
         required === 1
@@ -3149,7 +3208,7 @@ export class DeliveriesService {
         deliveryId,
         kind: 'DO_START',
         status: 'draft', // DO_START is unsigned proof, same as a unit's
-        description: `Delivery started: ${item.description ?? 'free-typed line'}`,
+        description: `${isReturn ? 'Return started' : 'Delivery started'}: ${item.description ?? 'free-typed line'}`,
         ...(photos.length ? { photos } : {}),
         ...(dto.angles?.length ? { serviceData: { photoAngles: dto.angles } } : {}),
         ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
@@ -3181,6 +3240,17 @@ export class DeliveriesService {
     const item = await this.loadFreeTypedItem(deliveryId, itemId, organizationId);
     if (item.deliveryStatus !== DeliveryStatus.delivering) {
       throw new BadRequestException('Start this line before ending its delivery');
+    }
+    // RETURN: a description-only line is COLLECTED here, not delivered. Reuse the
+    // shared collect (delivering -> completed, no stock, off-hire the free-typed
+    // deployment by description). No DO_ACK, no signature, no deploy — the return
+    // twin of a unit's collect. This is what makes collectReturnFreeTyped
+    // reachable from a scheduled return's walk.
+    const dir = await this.prisma.delivery.findUnique({ where: { id: deliveryId }, select: { direction: true } });
+    if (dir?.direction === DeliveryDirection.RETURN) {
+      const collected = await this.collectReturnFreeTyped(deliveryId, item.id, organizationId);
+      await this.recomputeRunStatus(deliveryId, organizationId);
+      return collected ?? this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
     }
     // No signature and NO acknowledgement photos here (2026-08 signature-at-end):
     // the line's condition photos were captured on start; End records a bare

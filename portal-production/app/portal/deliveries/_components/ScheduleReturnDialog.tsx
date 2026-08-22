@@ -33,24 +33,24 @@ interface ProjectOption {
   id: string;
   name: string;
 }
-// A unit currently out on rental under the chosen project, available to collect.
-interface UnitRow {
-  inventoryId: string;
-  sku: string;
-  assetName: string;
-}
-// A unit added to the return basket (carries its project for the mixed-project note).
-interface BasketUnit extends UnitRow {
-  projectId: string;
-  projectName: string;
-}
+// A line the office can collect back: a unit out on rental, OR a description-only
+// (free-typed) deployment that has no unit at all. `key` is the stable id used
+// for selection/basket (inventoryId for units, deploymentId for free-typed).
+type ReturnLine =
+  | { kind: "unit"; key: string; inventoryId: string; sku: string; assetName: string }
+  | { kind: "freeTyped"; key: string; deploymentId: string; description: string };
+// A line added to the basket carries its project for the mixed-project note.
+type BasketLine = ReturnLine & { projectId: string; projectName: string };
+
+const lineLabel = (l: ReturnLine): string =>
+  l.kind === "unit" ? `${l.sku}${l.assetName ? ` · ${l.assetName}` : ""}` : l.description;
 
 /**
- * Office "Schedule a return" dialog. CUSTOMER -> PROJECT -> that project's units
- * currently out on rental (multi-select) -> add to a basket. Repeatable across
- * projects into ONE basket, then scheduled date + time. Submits the unit ids to
- * POST /deliveries/scheduled-return, which creates one scheduled RETURN run
- * (unit-bound items, no document, no reservation).
+ * Office "Schedule a return" dialog. CUSTOMER -> PROJECT -> that project's lines
+ * to collect (units out on rental AND description-only free-typed deployments)
+ * -> add to a basket. Repeatable across projects into ONE basket, then scheduled
+ * date + time. Submits unit ids and deployment ids to POST
+ * /deliveries/scheduled-return, which creates one scheduled RETURN run.
  */
 export default function ScheduleReturnDialog({
   open,
@@ -72,13 +72,13 @@ export default function ScheduleReturnDialog({
   const [project, setProject] = useState<ProjectOption | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(false);
 
-  // Units for the currently-selected project, and which are ticked.
-  const [units, setUnits] = useState<UnitRow[]>([]);
-  const [unitsLoading, setUnitsLoading] = useState(false);
+  // Lines for the currently-selected project, and which are ticked (by key).
+  const [lines, setLines] = useState<ReturnLine[]>([]);
+  const [linesLoading, setLinesLoading] = useState(false);
   const [checked, setChecked] = useState<Set<string>>(new Set());
 
   // The accumulating basket across projects.
-  const [basket, setBasket] = useState<BasketUnit[]>([]);
+  const [basket, setBasket] = useState<BasketLine[]>([]);
 
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleTime, setScheduleTime] = useState("09:00");
@@ -94,7 +94,7 @@ export default function ScheduleReturnDialog({
     setCustomerInput("");
     setProjectOptions([]);
     setProject(null);
-    setUnits([]);
+    setLines([]);
     setChecked(new Set());
     setBasket([]);
     setScheduleDate("");
@@ -138,7 +138,7 @@ export default function ScheduleReturnDialog({
   useEffect(() => {
     setProject(null);
     setProjectOptions([]);
-    setUnits([]);
+    setLines([]);
     setChecked(new Set());
     if (!customer) return;
     let cancelled = false;
@@ -166,16 +166,18 @@ export default function ScheduleReturnDialog({
     };
   }, [customer, getToken]);
 
-  // Load the selected project's units currently out on rental. Reuses the
-  // generic GET /projects/:id/deployments, which returns deployments of EVERY
-  // status, so the ACTIVE-only narrowing is applied here rather than assumed.
+  // Load the selected project's collectable lines. Reuses the generic
+  // GET /projects/:id/deployments (every status), narrowed here to ACTIVE
+  // deployments: a unit genuinely OUT on rental becomes a unit line; a
+  // description-only deployment (its active assignment has no inventory AND no
+  // asset) becomes a free-typed line shown by its description with no serial.
   useEffect(() => {
-    setUnits([]);
+    setLines([]);
     setChecked(new Set());
     if (!project) return;
     let cancelled = false;
     (async () => {
-      setUnitsLoading(true);
+      setLinesLoading(true);
       try {
         const token = await getToken();
         if (!token) return;
@@ -183,28 +185,32 @@ export default function ScheduleReturnDialog({
         if (cancelled) return;
         const data = res?.data ?? res;
         const deps: any[] = Array.isArray(data) ? data : data?.deployments ?? [];
-        const rows: UnitRow[] = [];
-        const seen = new Set<string>();
+        const rows: ReturnLine[] = [];
+        const seenUnits = new Set<string>();
         for (const dep of deps) {
-          // Off-hired, completed and cancelled deployments are finished; their
-          // units are not out. The unit check below would exclude them anyway
-          // (they are back to instock), but this keeps the intent explicit
-          // rather than relying on that side effect.
           if (dep?.status !== "ACTIVE") continue;
-          for (const a of dep?.assignments ?? []) {
+          const assignments: any[] = dep?.assignments ?? [];
+          // Unit lines: any active assignment whose unit is genuinely out on rental.
+          for (const a of assignments) {
             const inv = a?.inventory;
-            // Only units genuinely OUT on rental can be collected back.
-            if (inv?.id && inv.status === "rental" && !seen.has(inv.id)) {
-              seen.add(inv.id);
-              rows.push({ inventoryId: inv.id, sku: inv.sku ?? inv.id, assetName: a?.asset?.name ?? "" });
+            if (inv?.id && inv.status === "rental" && !seenUnits.has(inv.id)) {
+              seenUnits.add(inv.id);
+              rows.push({ kind: "unit", key: inv.id, inventoryId: inv.id, sku: inv.sku ?? inv.id, assetName: a?.asset?.name ?? "" });
             }
           }
+          // Free-typed line: a description-only deployment (no unit, no asset on
+          // any active assignment) with a description. Shown with no serial.
+          const descriptionOnly = assignments.length > 0 && assignments.every((a) => !a?.inventory?.id && !a?.asset?.id);
+          const description = String(dep?.description ?? "").trim();
+          if (descriptionOnly && description) {
+            rows.push({ kind: "freeTyped", key: dep.id, deploymentId: dep.id, description });
+          }
         }
-        setUnits(rows);
+        setLines(rows);
       } catch {
         /* non-fatal */
       } finally {
-        if (!cancelled) setUnitsLoading(false);
+        if (!cancelled) setLinesLoading(false);
       }
     })();
     return () => {
@@ -212,29 +218,29 @@ export default function ScheduleReturnDialog({
     };
   }, [project, getToken]);
 
-  const basketIds = useMemo(() => new Set(basket.map((b) => b.inventoryId)), [basket]);
-  // Units not already in the basket (a unit can only be returned once).
-  const selectableUnits = units.filter((u) => !basketIds.has(u.inventoryId));
+  const basketKeys = useMemo(() => new Set(basket.map((b) => b.key)), [basket]);
+  // Lines not already in the basket (a line can only be returned once).
+  const selectableLines = lines.filter((l) => !basketKeys.has(l.key));
 
-  const toggle = (id: string) => {
+  const toggle = (key: string) => {
     setChecked((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
 
   const addChecked = () => {
     if (!project || checked.size === 0) return;
-    const toAdd = units
-      .filter((u) => checked.has(u.inventoryId) && !basketIds.has(u.inventoryId))
-      .map((u) => ({ ...u, projectId: project.id, projectName: project.name }));
+    const toAdd = lines
+      .filter((l) => checked.has(l.key) && !basketKeys.has(l.key))
+      .map((l) => ({ ...l, projectId: project.id, projectName: project.name }));
     setBasket((prev) => [...prev, ...toAdd]);
     setChecked(new Set());
   };
 
-  const removeFromBasket = (id: string) => setBasket((prev) => prev.filter((b) => b.inventoryId !== id));
+  const removeFromBasket = (key: string) => setBasket((prev) => prev.filter((b) => b.key !== key));
 
   // Projects represented in the basket — drives the mixed-project note.
   const basketProjects = useMemo(() => new Set(basket.map((b) => b.projectId)), [basket]);
@@ -249,12 +255,17 @@ export default function ScheduleReturnDialog({
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const scheduledFor = new Date(`${scheduleDate}T${scheduleTime}`).toISOString();
+      const inventoryIds = basket.filter((b): b is BasketLine & { kind: "unit" } => b.kind === "unit").map((b) => b.inventoryId);
+      const deploymentIds = basket
+        .filter((b): b is BasketLine & { kind: "freeTyped" } => b.kind === "freeTyped")
+        .map((b) => b.deploymentId);
       const res = await request(
         { path: "/deliveries/scheduled-return", method: "POST" },
         {
           scheduledFor,
           customerId: customer.id,
-          inventoryIds: basket.map((b) => b.inventoryId),
+          ...(inventoryIds.length ? { inventoryIds } : {}),
+          ...(deploymentIds.length ? { deploymentIds } : {}),
           ...(notes.trim() ? { notes: notes.trim() } : {}),
         },
         token,
@@ -278,7 +289,7 @@ export default function ScheduleReturnDialog({
         // (only Cancel discards). Incomplete → say what's missing, never silent.
         if (submitting) return;
         if (canSubmit) void submit();
-        else setError("Pick a customer, add at least one unit and set a date to save. Press Cancel to discard.");
+        else setError("Pick a customer, add at least one line and set a date to save. Press Cancel to discard.");
       }}
       fullWidth
       maxWidth="sm"
@@ -302,9 +313,9 @@ export default function ScheduleReturnDialog({
           sx={{ mb: 2 }}
         />
 
-        {/* 2) PROJECT + its units */}
+        {/* 2) PROJECT + its lines */}
         <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
-          Add units by project
+          Add items by project
         </Typography>
         <Autocomplete
           options={projectOptions}
@@ -322,27 +333,22 @@ export default function ScheduleReturnDialog({
 
         {project && (
           <Box sx={{ mb: 2 }}>
-            {unitsLoading ? (
+            {linesLoading ? (
               <Box sx={{ display: "flex", justifyContent: "center", py: 2 }}>
                 <CircularProgress size={22} />
               </Box>
-            ) : selectableUnits.length === 0 ? (
+            ) : selectableLines.length === 0 ? (
               <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
-                No units out on rental for this project{units.length ? " (all already in the basket)" : ""}.
+                Nothing out to collect for this project{lines.length ? " (all already in the basket)" : ""}.
               </Typography>
             ) : (
               <>
                 <Stack sx={{ maxHeight: 200, overflowY: "auto", border: "1px solid", borderColor: "divider", borderRadius: 1, px: 1, py: 0.5 }}>
-                  {selectableUnits.map((u) => (
+                  {selectableLines.map((l) => (
                     <FormControlLabel
-                      key={u.inventoryId}
-                      control={<Checkbox size="small" checked={checked.has(u.inventoryId)} onChange={() => toggle(u.inventoryId)} />}
-                      label={
-                        <Typography variant="body2">
-                          {u.sku}
-                          {u.assetName ? ` · ${u.assetName}` : ""}
-                        </Typography>
-                      }
+                      key={l.key}
+                      control={<Checkbox size="small" checked={checked.has(l.key)} onChange={() => toggle(l.key)} />}
+                      label={<Typography variant="body2">{lineLabel(l)}</Typography>}
                     />
                   ))}
                 </Stack>
@@ -360,22 +366,21 @@ export default function ScheduleReturnDialog({
             <Divider sx={{ mb: 1 }} />
             <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
               <Typography variant="subtitle2" fontWeight={700}>
-                Units to collect ({basket.length})
+                Items to collect ({basket.length})
               </Typography>
               {basketProjects.size > 1 && <Chip size="small" color="warning" variant="outlined" label="Mixed projects" />}
             </Stack>
             <Stack spacing={0.25} sx={{ mb: 2 }}>
               {basket.map((b) => (
-                <Stack key={b.inventoryId} direction="row" alignItems="center" spacing={1}>
+                <Stack key={b.key} direction="row" alignItems="center" spacing={1}>
                   <Typography variant="body2" sx={{ flex: 1, minWidth: 0 }} noWrap>
-                    {b.sku}
-                    {b.assetName ? ` · ${b.assetName}` : ""}
+                    {lineLabel(b)}
                     <Typography component="span" variant="caption" color="text.secondary">
                       {" "}
                       · {b.projectName}
                     </Typography>
                   </Typography>
-                  <IconButton size="small" onClick={() => removeFromBasket(b.inventoryId)} aria-label="remove">
+                  <IconButton size="small" onClick={() => removeFromBasket(b.key)} aria-label="remove">
                     <DeleteOutlineIcon fontSize="small" />
                   </IconButton>
                 </Stack>
@@ -383,7 +388,7 @@ export default function ScheduleReturnDialog({
             </Stack>
             {basketProjects.size > 1 && (
               <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 2 }}>
-                Units span more than one project, so the run is not tied to a single project. It still collects every unit; per-project split is done later.
+                Items span more than one project, so the run is not tied to a single project. It still collects everything; per-project split is done later.
               </Typography>
             )}
           </>

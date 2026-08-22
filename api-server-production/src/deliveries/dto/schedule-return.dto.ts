@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { ArrayNotEmpty, IsArray, IsISO8601, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsArray, IsISO8601, IsOptional, IsString, IsUUID } from 'class-validator';
 
 /**
  * Office action: pre-create a scheduled RETURN run to collect specific units
@@ -19,12 +19,24 @@ export class ScheduleReturnDto {
 
   @ApiProperty({
     type: [String],
-    description: 'Units to collect (inventory UUIDs). Each must be org-scoped and currently on rental.',
+    required: false,
+    description: 'Units to collect (inventory UUIDs). Each must be org-scoped and currently on rental. Optional if deploymentIds are given.',
   })
+  @IsOptional()
   @IsArray()
-  @ArrayNotEmpty()
   @IsUUID('4', { each: true })
-  inventoryIds!: string[];
+  inventoryIds?: string[];
+
+  @ApiProperty({
+    type: [String],
+    required: false,
+    description:
+      'Description-only deployments to collect (ProjectDeployment UUIDs of free-typed lines with no unit). At least one of inventoryIds or deploymentIds is required.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  deploymentIds?: string[];
 
   @ApiProperty({ required: false, description: 'Optional office note for the collection.' })
   @IsOptional()

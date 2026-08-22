@@ -88,7 +88,7 @@ export default function AfterAckPage() {
   // install prompt. The "assign" step below is retained only as dead code / a
   // resume fallback and is never entered in the new flow (the start-time assign
   // means an active assignment always exists by ack time).
-  const [step, setStep] = useState<"assign" | "photos" | "install" | "sign" | "review" | "done">("install");
+  const [step, setStep] = useState<"assign" | "install" | "sign" | "review" | "done">("install");
   // RETURN runs share these screens (2026-08): the install prompt is suppressed,
   // the capture step is the guided per-angle return capture, and confirm
   // collects the unit back instead of recording an installation.
@@ -197,9 +197,10 @@ export default function AfterAckPage() {
         const runIsReturn = run?.direction === "RETURN";
         setIsReturn(runIsReturn);
         if (runIsReturn) {
-          // A return has no ack MSR to resolve and no installation to prompt:
-          // straight to the guided capture step, then the signature.
-          setStep("photos");
+          // A return has no ack MSR to resolve, no installation to prompt, and no
+          // ack-photo step (return condition photos were removed): straight to the
+          // signature. The old empty "photos" pass-through screen is gone.
+          setStep("sign");
           setResolving(false);
           return;
         }
@@ -743,7 +744,7 @@ export default function AfterAckPage() {
     return (
       <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
         <Stack direction="row" spacing={1} alignItems="center">
-          <Button startIcon={<ArrowBackIcon />} size="small" onClick={() => setStep(isReturn ? "photos" : "install")} disabled={working} sx={{ color: "text.secondary" }}>
+          <Button startIcon={<ArrowBackIcon />} size="small" onClick={() => (isReturn ? router.replace(`/scan/delivery/${deliveryId}`) : setStep("install"))} disabled={working} sx={{ color: "text.secondary" }}>
             Back
           </Button>
         </Stack>
@@ -850,37 +851,6 @@ export default function AfterAckPage() {
   // RETURN capture: optional extra condition photos, with the delivered set
   // alongside so the rider can see what changed. The required set was already
   // taken at Start Return; this is the last look before signing.
-  if (step === "photos") {
-    return (
-      <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Button
-            startIcon={<ArrowBackIcon />}
-            size="small"
-            onClick={() => router.replace(`/scan/delivery/${deliveryId}`)}
-            disabled={working}
-            sx={{ color: "text.secondary" }}
-          >
-            Back
-          </Button>
-        </Stack>
-        {error && <Alert severity="error">{error}</Alert>}
-
-        <Button
-          variant="contained"
-          onClick={() => {
-            setError(null);
-            setStep("sign");
-          }}
-          disabled={working}
-          fullWidth
-          sx={{ py: 1.5, fontSize: "1rem", minHeight: 48 }}
-        >
-          Next
-        </Button>
-      </Box>
-    );
-  }
 
   if (step === "install") {
     return (
