@@ -2281,18 +2281,18 @@ model WhatsAppQnA {
 }
 
 model WhatsAppAgentConfig {
-  id               String  @id @default(uuid())
-  organizationId   String  @unique
+  id                String  @id @default(uuid())
+  organizationId    String  @unique
   // Master switch: run the agent on inbound messages at all.
-  enabled          Boolean @default(false)
+  enabled           Boolean @default(false)
   // Whether the AI may send replies without human review (only when it also
   // judges the message to be inside autoSendGuidance and is confident).
-  autoSendEnabled  Boolean @default(false)
+  autoSendEnabled   Boolean @default(false)
   // Plain-text description of the KINDS of messages the AI may answer on its
   // own, e.g. "opening hours, price list questions, delivery status".
-  autoSendGuidance String?
+  autoSendGuidance  String?
   // General tone/behaviour instructions appended to the system prompt.
-  aiGuidance       String?
+  aiGuidance        String?
   // Owner/advisor number (digits incl. country code) that receives internal
   // notifications — e.g. a confirmation whenever a scheduled message goes out.
   ownerNotifyNumber String?
@@ -2605,4 +2605,37 @@ model ActionLog {
   @@index([resource, resourceId])
   @@index([organizationId, action, createdAt])
   @@index([createdAt])
+}
+
+/// An appointment the PA captured from a WhatsApp group message (usually the
+/// advisor posting details and tagging the PA). The PA reminds the client in
+/// that same group ahead of the date. Messages are free-form and parsed by AI,
+/// so the advisor can write them however he likes.
+model WhatsAppAppointment {
+  id             String  @id @default(uuid())
+  organizationId String
+  groupId        String // group the appointment was posted in, and where the reminder goes
+  groupName      String?
+
+  startsAt  DateTime // resolved appointment date/time
+  timeText  String? // as written, e.g. "3pm (Tentatively)"
+  topic     String?
+  venue     String?
+  tentative Boolean  @default(false)
+
+  clientName String? // who the reminder greets
+
+  // 3 days before at 09:00 local, or the next morning when it is sooner.
+  remindAt       DateTime
+  reminderStatus String    @default("PENDING") // PENDING | SENT | CANCELLED | FAILED
+  remindedAt     DateTime?
+  error          String?
+
+  sourceMessage String? // original text, so a mis-parse can be audited
+  createdBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([organizationId, groupId])
+  @@index([reminderStatus, remindAt])
 }

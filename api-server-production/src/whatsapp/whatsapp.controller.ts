@@ -234,6 +234,62 @@ export class WhatsAppController {
     return this.service.groupAgentReply(body.organizationId, body.groupId, body.from || '', body.body);
   }
 
+  /** Shared-secret check for every bridge endpoint. */
+  private assertBridgeToken(req: RequestWithOrganization) {
+    const expected = this.configService.get<string>('WHATSAPP.GROUP_BRIDGE_TOKEN');
+    const got = (req.headers['x-group-bridge-token'] as string) || '';
+    if (!expected || got !== expected) throw new UnauthorizedException('Invalid group bridge token');
+  }
+
+  @Public()
+  @Post('group-appointment')
+  @ApiOperation({ summary: 'Group bridge: capture an appointment the advisor posted (X-Group-Bridge-Token gated)' })
+  async groupAppointment(
+    @Req() req: RequestWithOrganization,
+    @Body()
+    body: {
+      organizationId: string;
+      groupId: string;
+      groupName?: string;
+      body: string;
+      clientName?: string;
+      createdBy?: string;
+    },
+  ) {
+    this.assertBridgeToken(req);
+    if (!body?.organizationId) throw new BadRequestException('organizationId is required');
+    return this.service.captureGroupAppointment({
+      organizationId: body.organizationId,
+      groupId: body.groupId,
+      groupName: body.groupName,
+      body: body.body,
+      clientName: body.clientName,
+      createdBy: body.createdBy,
+    });
+  }
+
+  @Public()
+  @Get('group-reminders/due')
+  @ApiOperation({ summary: 'Group bridge: appointment reminders now due to post (X-Group-Bridge-Token gated)' })
+  async dueGroupReminders(@Req() req: RequestWithOrganization, @Query('organizationId') organizationId: string) {
+    this.assertBridgeToken(req);
+    if (!organizationId) throw new BadRequestException('organizationId is required');
+    return this.service.dueGroupReminders(organizationId);
+  }
+
+  @Public()
+  @Post('group-reminders/:id/sent')
+  @ApiOperation({ summary: 'Group bridge: mark a reminder posted (or failed) (X-Group-Bridge-Token gated)' })
+  async markReminderSent(
+    @Req() req: RequestWithOrganization,
+    @Param('id') id: string,
+    @Body() body: { organizationId: string; error?: string },
+  ) {
+    this.assertBridgeToken(req);
+    if (!body?.organizationId) throw new BadRequestException('organizationId is required');
+    return this.service.markReminderSent(body.organizationId, id, body.error);
+  }
+
   // ── Meta webhook (public — Meta's servers call this, not our users) ────────
 
   // Verification handshake. Uses @Res because Meta must receive the bare

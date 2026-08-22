@@ -54,6 +54,8 @@ const MIN_REPLY_GAP_MS = Number(process.env.MIN_REPLY_GAP_MS || 4000); // gentle
 // Delay before sending a template Q&A reply, so a human can answer first and
 // the PA feels less robotic. Intro replies are NOT delayed. Default 5 min.
 const REPLY_DELAY_MS = Number(process.env.REPLY_DELAY_MS || 5 * 60 * 1000);
+// How often to check AIMS for appointment reminders that have come due.
+const REMINDER_POLL_MS = Number(process.env.REMINDER_POLL_MS || 5 * 60 * 1000);
 
 // Extra numbers to treat as "staff" (never the client) — e.g. Denzel's own
 // number — so the intro never greets them. Comma-separated digits in .env.
@@ -112,25 +114,46 @@ Feel free to reach out to me here or in the group anytime and I'll be happy to h
 // client. Returns a best-known name, or null if it can't be determined.
 async function resolveClientName(chatId, senderId) {
   try {
-    const chat = await client.getChatById(chatId);
-    const parts = chat.participants || chat.groupMetadata?.participants || [];
     const botDigits = (client.info?.wid?.user || '').replace(/\D/g, '');
     const senderDigits = (senderId || '').replace(/\D/g, '').replace(/@.*/, '');
-    const excluded = new Set([botDigits, senderDigits, ...STAFF_NUMBERS]);
+    const excluded = [botDigits, senderDigits, ...STAFF_NUMBERS].filter(Boolean);
 
-    const candidates = parts
-      .map((p) => (p.id?._serialized || p.id?.user || '').toString())
-      .map((s) => ({ serialized: s, digits: s.replace(/\D/g, '').replace(/@.*/, '') }))
-      .filter((p) => p.digits && !excluded.has(p.digits));
-    if (!candidates.length) return null;
+    // Read participants and their display names straight from WhatsApp's own
+    // collections. The library's getChatById()/getContactById() both throw on
+    // this build (its Chat/Contact serializers are broken against the current
+    // WhatsApp Web), but the underlying models are intact.
+    const name = await client.pupPage.evaluate(
+      (id, excludedDigits) => {
+        const wid = window.require('WAWebWidFactory').createWid(id);
+        const collections = window.require('WAWebCollections');
+        const chat = collections.Chat.get(wid);
+        const parts = chat?.groupMetadata?.participants;
+        const list = parts?.getModelsArray?.() || parts?.models || parts || [];
 
-    const target = candidates[0];
-    const contact = await client.getContactById(
-      target.serialized.includes('@') ? target.serialized : `${target.digits}@c.us`,
+        const isExcluded = (digits) =>
+          !digits || excludedDigits.some((e) => digits === e || digits.endsWith(e) || e.endsWith(digits));
+
+        for (const p of list) {
+          const serialized = String(p?.id?._serialized || p?.id || '');
+          const digits = serialized.replace(/\D/g, '');
+          if (isExcluded(digits)) continue;
+          // Prefer the saved contact name, then whatever they call themselves.
+          const c = collections.Contact?.get(p.id) || null;
+          const label =
+            c?.name || c?.formattedName || c?.pushname || c?.verifiedName || c?.notifyName || null;
+          if (label) return label;
+        }
+        return null;
+      },
+      chatId,
+      excluded,
     );
-    const name = contact.pushname || contact.name || contact.shortName || null;
-    // Use only a first name if it's a full name, to keep the greeting warm.
-    return name ? name.split(' ')[0] : null;
+
+    // A first name keeps the greeting warm; skip anything that looks like a
+    // bare phone number rather than a real name.
+    if (!name) return null;
+    const first = String(name).trim().split(/\s+/)[0];
+    return /^[+\d]/.test(first) ? null : first;
   } catch (e) {
     console.warn('   ⚠️ could not resolve client name:', e && e.message ? e.message : e);
     return null;
@@ -203,6 +226,10 @@ client.on('ready', () => {
   // Prove whether group titles are readable from the in-page Store (the
   // library's own getChat() is broken on this build).
   probeGroupTitles();
+  // Appointment reminders are posted INTO groups, which only this linked device
+  // can do, so the bridge polls AIMS for ones that have come due.
+  deliverDueReminders();
+  setInterval(deliverDueReminders, REMINDER_POLL_MS);
   // One-shot: preview a notification format on the real device without waiting
   // for the triggering event. Set DEMO_NOTIFY to the message body.
   if (process.env.DEMO_NOTIFY) {
@@ -231,6 +258,12 @@ async function probeGroupTitles() {
     });
     console.log(`🔎 chat probe: ${diag.total} chats, ${diag.groups} groups${diag.err ? ' | err ' + diag.err : ''}`);
     diag.sample.forEach((g) => console.log(`   • ${g.title || '(no title)'}  [${g.id}]`));
+    // Confirm participant/contact name resolution works too (it powers the
+    // intro greeting and appointment reminders).
+    for (const gid of ALLOWED_GROUPS.length ? ALLOWED_GROUPS : diag.sample.slice(0, 1).map((g) => g.id)) {
+      const who = await resolveClientName(gid, '');
+      console.log(`   name probe [${gid}] -> ${who || '(unresolved)'}`);
+    }
   } catch (e) {
     console.log(`🔎 store probe failed: ${e && e.message ? e.message : e}`);
   }
@@ -247,6 +280,106 @@ async function askAgent(groupId, from, body) {
   if (!res.ok) throw new Error(json?.message || `agent ${res.status}`);
   // API wraps responses as { success, data } — unwrap if present.
   return json?.data ?? json;
+}
+
+/** Shared helper for the token-gated bridge endpoints. */
+async function callBridgeApi(path, { method = 'POST', body, query } = {}) {
+  const qs = query ? '?' + new URLSearchParams(query).toString() : '';
+  const res = await fetch(`${API_BASE}${path}${qs}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', 'X-Group-Bridge-Token': BRIDGE_TOKEN },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || `${path} ${res.status}`);
+  return json?.data ?? json;
+}
+
+/**
+ * Cheap pre-filter for appointment posts. Running every staff message through
+ * the AI extractor would be wasteful, so we only bother when the text smells
+ * like a booking: a date-ish token plus a scheduling word.
+ */
+function looksLikeAppointment(text) {
+  const t = String(text || '');
+  if (t.length < 12) return false;
+  const hasDate =
+    /\b\d{1,2}\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(t) ||
+    /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}/i.test(t) ||
+    /\b\d{1,2}[\/-]\d{1,2}([\/-]\d{2,4})?\b/.test(t) ||
+    /\b(today|tomorrow|tmr|next (mon|tue|wed|thu|fri|sat|sun))/i.test(t);
+  const hasSchedulingWord = /(date|time|venue|appointment|appt|meet|meeting|session|zoom|call)\b/i.test(t);
+  return hasDate && hasSchedulingWord;
+}
+
+/** Ask AIMS to parse and store an appointment the advisor just posted. */
+async function captureAppointment(msg, chatId, group, clientName) {
+  try {
+    const appt = await callBridgeApi('/whatsapp/group-appointment', {
+      body: {
+        organizationId: ORG_ID,
+        groupId: chatId,
+        groupName: group?.name,
+        body: msg.body,
+        clientName,
+        createdBy: (msg.author || '').split('@')[0],
+      },
+    });
+    if (!appt?.id) return false; // not an appointment after all
+    const when = new Date(appt.startsAt).toLocaleString('en-GB', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: 'Asia/Singapore',
+    });
+    const remind = new Date(appt.remindAt).toLocaleString('en-GB', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      timeZone: 'Asia/Singapore',
+    });
+    console.log(`   📅 appointment ${appt.updated ? 'updated' : 'captured'} ${appt.id} (${when})`);
+    await dmDenzel(
+      `📅 ${appt.updated ? 'Updated' : 'Noted'}: ${appt.topic || 'appointment'}${appt.venue ? ` at ${appt.venue}` : ''}\n` +
+        `${when}${appt.tentative ? ' (tentative)' : ''}\n` +
+        `Chat: ${group?.name || chatId}\n\n` +
+        `I'll remind ${clientName || 'them'} in the group on ${remind} 🙏`,
+    );
+    return true;
+  } catch (e) {
+    console.error('   ✖ appointment capture failed:', e && e.message ? e.message : e);
+    return false;
+  }
+}
+
+/** Post any reminders that have come due into their groups. */
+async function deliverDueReminders() {
+  try {
+    const due = await callBridgeApi('/whatsapp/group-reminders/due', {
+      method: 'GET',
+      query: { organizationId: ORG_ID },
+    });
+    if (!Array.isArray(due) || !due.length) return;
+    for (const r of due) {
+      // Respect the same allowlist that gates replies.
+      if (ALLOWED_GROUPS.length && !ALLOWED_GROUPS.includes(r.groupId)) continue;
+      try {
+        await client.sendMessage(r.groupId, r.message);
+        await callBridgeApi(`/whatsapp/group-reminders/${r.id}/sent`, { body: { organizationId: ORG_ID } });
+        console.log(`   🔔 reminder posted for ${r.id} in ${r.groupId}`);
+      } catch (e) {
+        const err = e && e.message ? e.message : String(e);
+        console.error(`   ✖ reminder ${r.id} failed:`, err);
+        await callBridgeApi(`/whatsapp/group-reminders/${r.id}/sent`, {
+          body: { organizationId: ORG_ID, error: err },
+        }).catch(() => {});
+      }
+    }
+  } catch (e) {
+    console.error('reminder poll failed:', e && e.message ? e.message : e);
+  }
 }
 
 // Digit-forms of every id mentioned in the message (handles @lid and @c.us).
@@ -402,6 +535,16 @@ client.on('message_create', async (msg) => {
     // for a templated answer (the agent's template gate decides whether to
     // reply at all). Staff messages are only acted on when they summon the PA
     // explicitly or send the intro.
+    // Staff posting a booking: capture it and remind the client later. This is
+    // checked before the summon gate because the advisor may just drop the
+    // details in without tagging the PA.
+    if (isStaff && !isIntro && looksLikeAppointment(msg.body)) {
+      const group = await groupInfo(msg, chatId);
+      const clientName = await resolveClientName(chatId, msg.author);
+      const captured = await captureAppointment(msg, chatId, group, clientName);
+      if (captured) return;
+    }
+
     if (!isIntro && !summoned && isStaff) {
       console.log('   ⤷ ignored: staff message, not a summon');
       return;

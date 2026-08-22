@@ -679,6 +679,150 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
    * log the outbound, and hand the text back for the bridge to send in-group.
    * `from` is the sender's number (used for per-customer context when known).
    */
+  // ── Group appointments (captured from what the advisor posts in a group) ───
+
+  /** 09:00 Singapore time on the given day, as a UTC Date. */
+  private nineAmSgt(day: Date): Date {
+    const d = new Date(day);
+    d.setUTCHours(1, 0, 0, 0); // 09:00 SGT == 01:00 UTC
+    return d;
+  }
+
+  /**
+   * When to remind: three days before the appointment at 9am. If that moment
+   * has already passed (the advisor booked it late, or it is only days away),
+   * remind the next morning instead so the client still hears from us.
+   */
+  private computeRemindAt(startsAt: Date): Date {
+    const threeDaysBefore = this.nineAmSgt(new Date(startsAt.getTime() - 3 * 24 * 60 * 60 * 1000));
+    if (threeDaysBefore.getTime() > Date.now()) return threeDaysBefore;
+    const tomorrow = this.nineAmSgt(new Date(Date.now() + 24 * 60 * 60 * 1000));
+    // Never schedule a reminder after the appointment itself.
+    return tomorrow.getTime() < startsAt.getTime() ? tomorrow : new Date(Date.now() + 60_000);
+  }
+
+  /**
+   * Parse an appointment out of a group message and store it (or update the one
+   * it supersedes). Returns null when the message was not an appointment, so
+   * the bridge stays silent on ordinary chatter.
+   */
+  async captureGroupAppointment(args: {
+    organizationId: string;
+    groupId: string;
+    groupName?: string | null;
+    body: string;
+    clientName?: string | null;
+    createdBy?: string | null;
+  }) {
+    const { organizationId, groupId, body } = args;
+    if (!groupId || !body?.trim()) throw new BadRequestException('groupId and body are required');
+
+    // Give the model the appointments we already hold for this chat so a
+    // reschedule updates one instead of creating a duplicate.
+    const pending = await this.prisma.whatsAppAppointment.findMany({
+      where: { organizationId, groupId, reminderStatus: 'PENDING' },
+      orderBy: { startsAt: 'asc' },
+      select: { id: true, startsAt: true, topic: true },
+    });
+
+    const parsed = await this.agent.extractAppointment(
+      body,
+      new Date().toISOString(),
+      pending.map((p) => ({ id: p.id, startsAt: p.startsAt.toISOString(), topic: p.topic })),
+    );
+    if (!parsed?.isAppointment || !parsed.date) return null;
+
+    // Times are written in Singapore local time; store the UTC instant.
+    const startsAt = new Date(`${parsed.date}T${parsed.time || '09:00'}:00+08:00`);
+    if (Number.isNaN(startsAt.getTime())) return null;
+
+    const data = {
+      organizationId,
+      groupId,
+      groupName: args.groupName || null,
+      startsAt,
+      timeText: parsed.timeText,
+      topic: parsed.topic,
+      venue: parsed.venue,
+      tentative: parsed.tentative,
+      clientName: args.clientName || null,
+      remindAt: this.computeRemindAt(startsAt),
+      reminderStatus: 'PENDING',
+      remindedAt: null,
+      error: null,
+      sourceMessage: body.slice(0, 2000),
+      createdBy: args.createdBy || null,
+    };
+
+    const updatesExisting = parsed.updatesId && pending.some((p) => p.id === parsed.updatesId);
+    const row = updatesExisting
+      ? await this.prisma.whatsAppAppointment.update({ where: { id: parsed.updatesId }, data })
+      : await this.prisma.whatsAppAppointment.create({ data });
+
+    this.logger.log(
+      `${updatesExisting ? 'Updated' : 'Captured'} appointment ${row.id} for ${groupId} at ${startsAt.toISOString()}`,
+    );
+    return { ...row, updated: !!updatesExisting };
+  }
+
+  /** Reminders now due. The bridge posts these into their groups. */
+  async dueGroupReminders(organizationId: string) {
+    const rows = await this.prisma.whatsAppAppointment.findMany({
+      where: { organizationId, reminderStatus: 'PENDING', remindAt: { lte: new Date() } },
+      orderBy: { remindAt: 'asc' },
+      take: 20,
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      groupId: r.groupId,
+      message: this.buildReminderText(r),
+      startsAt: r.startsAt,
+    }));
+  }
+
+  /** The client-facing reminder, following the advisor's agreed wording. */
+  private buildReminderText(a: {
+    clientName: string | null;
+    startsAt: Date;
+    timeText: string | null;
+    topic: string | null;
+    venue: string | null;
+  }): string {
+    const date = a.startsAt.toLocaleDateString('en-GB', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      timeZone: 'Asia/Singapore',
+    });
+    const time =
+      a.timeText ||
+      a.startsAt.toLocaleTimeString('en-GB', {
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZone: 'Asia/Singapore',
+      });
+    const topic = a.topic ? `, to go through ${a.topic}` : '';
+    const venue = a.venue ? ` at ${a.venue}` : '';
+    return (
+      `Hello ${a.clientName || 'there'}! 😊\n\n` +
+      `Just a little reminder that Denzel has set aside ${date} at ${time} for you${topic}${venue}. ` +
+      `He's looking forward to seeing you!\n\n` +
+      `If anything comes up on your end, just let me know and I'll happily move things around for you 🙏`
+    );
+  }
+
+  /** Called by the bridge once it has posted (or failed to post) a reminder. */
+  async markReminderSent(organizationId: string, id: string, error?: string | null) {
+    const row = await this.prisma.whatsAppAppointment.findFirst({ where: { id, organizationId } });
+    if (!row) throw new NotFoundException('Appointment not found');
+    return this.prisma.whatsAppAppointment.update({
+      where: { id },
+      data: error
+        ? { reminderStatus: 'FAILED', error: error.slice(0, 500) }
+        : { reminderStatus: 'SENT', remindedAt: new Date(), error: null },
+    });
+  }
+
   async groupAgentReply(organizationId: string, groupId: string, from: string, body: string) {
     if (!groupId?.trim()) throw new BadRequestException('groupId is required');
     if (!body?.trim()) throw new BadRequestException('body is required');

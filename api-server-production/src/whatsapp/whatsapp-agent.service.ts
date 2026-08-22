@@ -364,4 +364,75 @@ export class WhatsAppAgentService {
     });
     return { dismissed: true };
   }
+
+  /**
+   * Parse a free-form appointment message posted in a group (the advisor writes
+   * it however he likes, e.g. "Date: 26 June 2026 / Time: 3pm (Tentatively) /
+   * Venue: ..."). Returns structured details, or null when the message is not
+   * an appointment at all. `existing` lets the model recognise that a follow-up
+   * message is a CHANGE to an appointment already captured rather than a new
+   * one, which is what keeps a reschedule from creating duplicates.
+   */
+  async extractAppointment(
+    text: string,
+    nowIso: string,
+    existing: Array<{ id: string; startsAt: string; topic: string | null }> = [],
+  ): Promise<{
+    isAppointment: boolean;
+    updatesId: string | null;
+    date: string | null;
+    time: string | null;
+    timeText: string | null;
+    topic: string | null;
+    venue: string | null;
+    tentative: boolean;
+  } | null> {
+    if (!this.anthropic) throw new BadRequestException('AI agent is not configured (missing ANTHROPIC_API_KEY)');
+
+    const system = [
+      'You extract appointment details from WhatsApp messages sent by a financial adviser to his assistant.',
+      `The current date/time is ${nowIso} (Asia/Singapore).`,
+      'An APPOINTMENT message states a specific meeting: it has a date, and usually a time and/or venue.',
+      'Chit-chat, questions, product info and general discussion are NOT appointments.',
+      existing.length
+        ? `Appointments already captured for this chat:\n${existing
+            .map((e) => `- id=${e.id} starts=${e.startsAt} topic=${e.topic || 'n/a'}`)
+            .join('\n')}\nIf the new message CHANGES one of these (a reschedule, a corrected time or venue), set updatesId to that id. Only treat it as new when it is clearly a different meeting.`
+        : 'No appointments have been captured for this chat yet.',
+      'Resolve relative dates ("next Tuesday", "tmr") against the current date. Interpret a bare year-less date as the next occurrence.',
+      'Respond ONLY with JSON: {"isAppointment": boolean, "updatesId": string|null, "date": "YYYY-MM-DD"|null, "time": "HH:MM"|null, "timeText": string|null, "topic": string|null, "venue": string|null, "tentative": boolean}.',
+      'time is 24-hour. timeText preserves how it was written (e.g. "3pm (Tentatively)"). tentative is true if the message hedges the date/time/venue. topic is the meeting subject in a few words. Use null for anything absent.',
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+
+    const resp = await this.anthropic.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 600,
+      system,
+      messages: [{ role: 'user', content: text }],
+    });
+    const raw = resp.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('');
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try {
+      const j = JSON.parse(match[0]);
+      if (!j?.isAppointment || !j?.date) return { ...j, isAppointment: false } as any;
+      return {
+        isAppointment: true,
+        updatesId: j.updatesId || null,
+        date: String(j.date),
+        time: j.time ? String(j.time) : null,
+        timeText: j.timeText ? String(j.timeText) : null,
+        topic: j.topic ? String(j.topic) : null,
+        venue: j.venue ? String(j.venue) : null,
+        tentative: !!j.tentative,
+      };
+    } catch {
+      return null;
+    }
+  }
 }

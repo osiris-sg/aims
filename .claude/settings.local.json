@@ -67,5 +67,8 @@
       "Bash(cp -rn /Users/guru/wa-group-prototype/node_modules ./node_modules)",
       "Bash(python3 *)"
     ]
+  },
+  "worktree": {
+    "bgIsolation": "none"
   }
 }
