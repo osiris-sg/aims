@@ -533,6 +533,37 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /**
+   * Tell the org's owner/advisor that a scheduled message just went out, and to
+   * whom — so they aren't surprised by a client replying to something they
+   * didn't personally send. Best-effort: never let this break the schedule.
+   * Note this uses the Cloud API, so it only lands if the owner's own 24h
+   * window is open (they've messaged the business number recently).
+   */
+  private async notifyOwnerOfScheduledSend(organizationId: string, to: string, body: string) {
+    const config = await this.prisma.whatsAppAgentConfig.findUnique({
+      where: { organizationId },
+      select: { ownerNotifyNumber: true },
+    });
+    const owner = (config?.ownerNotifyNumber || '').replace(/\D/g, '');
+    if (!owner || owner === to.replace(/\D/g, '')) return; // unset, or would notify the recipient
+    const name = await this.bestKnownName(organizationId, to);
+    await this.sendText(organizationId, {
+      to: owner,
+      body: `✅ Scheduled message sent to ${name ? `${name} (${to})` : to}:\n\n"${body.slice(0, 300)}"`,
+    });
+  }
+
+  /** Best display name we hold for a number: phone book > WhatsApp profile. */
+  private async bestKnownName(organizationId: string, waId: string): Promise<string | null> {
+    const digits = waId.replace(/\D/g, '');
+    const contact = await this.prisma.whatsAppContact.findUnique({
+      where: { organizationId_waId: { organizationId, waId: digits } },
+      select: { appContactName: true, profileName: true },
+    });
+    return contact?.appContactName || contact?.profileName || null;
+  }
+
   /** Advance a date by one recurrence step; null once the series should end. */
   private nextOccurrence(from: Date, recurrence: string, recurEvery: number | null): Date | null {
     const d = new Date(from);
@@ -608,6 +639,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
               ? { status: 'PENDING', scheduledAt: next, sentMessageId: sent.id, error: null, recurCount: { increment: 1 } }
               : { status: 'SENT', sentMessageId: sent.id, error: null, recurCount: { increment: 1 } },
           });
+          // Keep the owner in the loop: confirm to them what just went out, and
+          // to whom. Best-effort — a failed notification must never affect the
+          // scheduled message itself.
+          await this.notifyOwnerOfScheduledSend(msg.organizationId, msg.to, msg.body).catch(() => undefined);
           this.logger.log(
             `Scheduled message ${msg.id} sent to ${msg.to}${next ? ` — next ${next.toISOString()}` : ''}`,
           );

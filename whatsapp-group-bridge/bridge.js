@@ -69,6 +69,34 @@ const ALLOWED_GROUPS = (process.env.ALLOWED_GROUPS || '')
   .map((s) => s.trim())
   .filter(Boolean);
 
+// Who receives internal PA notifications (handoff alerts, scheduled-send
+// reports). Comma-separated so Denzel and anyone else who should be kept in
+// the loop both get them.
+const DENZEL_NUMBERS = (process.env.DENZEL_NUMBER || '')
+  .split(',')
+  .map((s) => s.replace(/\D/g, ''))
+  .filter(Boolean);
+
+// Friendly labels and invite links per group id, supplied by config because
+// this whatsapp-web.js build cannot construct Chat objects against the current
+// WhatsApp Web (both msg.getChat() and getChatById() throw), so the group's
+// name and invite code are unreachable through the library.
+//   GROUP_LABELS=<id>=<Name>,<id>=<Name>
+//   GROUP_LINKS=<id>=<https://chat.whatsapp.com/...>
+function parseMap(raw) {
+  const out = {};
+  for (const entry of String(raw || '').split(',')) {
+    const i = entry.indexOf('=');
+    if (i <= 0) continue;
+    const key = entry.slice(0, i).trim();
+    const val = entry.slice(i + 1).trim();
+    if (key && val) out[key] = val;
+  }
+  return out;
+}
+const GROUP_LABELS = parseMap(process.env.GROUP_LABELS);
+const GROUP_LINKS = parseMap(process.env.GROUP_LINKS);
+
 // Fixed PA intro. {name} is filled with the client's name, resolved from the
 // group (the participant who is neither the PA nor whoever asked for the intro).
 const INTRO_TEMPLATE = `Hi {name}! 😊
@@ -122,8 +150,25 @@ let lastReplyAt = 0;
 // on hosts where puppeteer's bundled build isn't present (the Docker image).
 const SESSION_DIR = process.env.SESSION_DIR || './.wwebjs_auth';
 clearChromiumLocks(SESSION_DIR); // remove stale locks before Chromium launches
+
+// WhatsApp Web ships breaking changes faster than whatsapp-web.js can follow.
+// When the live build outruns the library, the library's Store injection fails
+// and every chat/contact/group lookup dies (getChat() throws, window.Store is
+// undefined) even though messages still flow. Pinning the web build to a known
+// snapshot restores those APIs. Set WA_WEB_VERSION to a version from
+// https://github.com/wppconnect-team/wa-version (html/<version>.html).
+const WA_WEB_VERSION = process.env.WA_WEB_VERSION;
+const webVersionCache = WA_WEB_VERSION
+  ? {
+      type: 'remote',
+      remotePath: `https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/${WA_WEB_VERSION}.html`,
+    }
+  : undefined;
+if (WA_WEB_VERSION) console.log(`📌 pinning WhatsApp Web to ${WA_WEB_VERSION}`);
+
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: SESSION_DIR }),
+  ...(webVersionCache ? { webVersionCache } : {}),
   puppeteer: {
     headless: true,
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
@@ -155,7 +200,41 @@ client.on('ready', () => {
     `✅ Group bridge live — linked as +${me} ${name ? '(' + name + ')' : ''}` +
       `${lid ? ' [lid ' + lid + ']' : ''} for org ${ORG_ID}. Trigger: @mention or ${TRIGGER}`,
   );
+  // Prove whether group titles are readable from the in-page Store (the
+  // library's own getChat() is broken on this build).
+  probeGroupTitles();
+  // One-shot: preview a notification format on the real device without waiting
+  // for the triggering event. Set DEMO_NOTIFY to the message body.
+  if (process.env.DEMO_NOTIFY) {
+    dmDenzel(process.env.DEMO_NOTIFY).then(() => console.log('   (demo notification sent)'));
+  }
 });
+
+async function probeGroupTitles() {
+  try {
+    const diag = await client.pupPage.evaluate(() => {
+      const out = { total: 0, groups: 0, sample: [] };
+      try {
+        const coll = window.require('WAWebCollections').Chat;
+        const models = coll.getModelsArray?.() || coll.models || [];
+        out.total = models.length;
+        const groups = models.filter((c) => String(c?.id?._serialized || '').endsWith('@g.us'));
+        out.groups = groups.length;
+        out.sample = groups.slice(0, 5).map((c) => ({
+          id: c.id._serialized,
+          title: c.formattedTitle || c.name || c.subject || c.groupMetadata?.subject || null,
+        }));
+      } catch (e) {
+        out.err = String(e && e.message ? e.message : e);
+      }
+      return out;
+    });
+    console.log(`🔎 chat probe: ${diag.total} chats, ${diag.groups} groups${diag.err ? ' | err ' + diag.err : ''}`);
+    diag.sample.forEach((g) => console.log(`   • ${g.title || '(no title)'}  [${g.id}]`));
+  } catch (e) {
+    console.log(`🔎 store probe failed: ${e && e.message ? e.message : e}`);
+  }
+}
 client.on('disconnected', (r) => console.warn('⚠️ disconnected:', r));
 
 async function askAgent(groupId, from, body) {
@@ -197,13 +276,116 @@ function nameFromIntro(body) {
   return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
 }
 
+/** Phrases the PA uses when it has handed something to Denzel. When a reply
+ *  contains one, Denzel gets a heads-up DM — the client was just promised he'd
+ *  follow up, so that promise can't depend on him happening to read the group. */
+const DENZEL_HANDOFF = /(let me get denzel|denzel will|denzel would|denzel to confirm|denzel's attention|check with denzel|come back to you|denzel sends)/i;
+
+function needsDenzel(reply) {
+  return DENZEL_HANDOFF.test(reply || '');
+}
+
+/** Resolve a friendly group name and, when possible, a tappable invite link so
+ *  Denzel can jump straight into the conversation instead of hunting for it.
+ *  getInviteCode only works when the PA is a group admin, so the link is
+ *  best-effort and the name alone is a fine fallback. */
+/**
+ * Read a group's title straight from WhatsApp Web's in-page Store.
+ * whatsapp-web.js 1.34.7 cannot build Chat objects against the current web
+ * build (getChat() throws), but the Store itself is still populated, so this
+ * works where the library's own API does not, and needs no per-group config.
+ */
+async function storeGroupTitle(chatId) {
+  try {
+    return await client.pupPage.evaluate((id) => {
+      // Read the RAW chat straight from WhatsApp's collection. The library's
+      // Chat model serializer (WWebJS.getChatModel) is what throws on this
+      // build, so we deliberately skip it and take the title off the model.
+      const wid = window.require('WAWebWidFactory').createWid(id);
+      const c = window.require('WAWebCollections').Chat.get(wid);
+      if (!c) return null;
+      return c.formattedTitle || c.name || c.subject || c.groupMetadata?.subject || null;
+    }, chatId);
+  } catch (e) {
+    console.log(`   ⤷ title lookup failed: ${e && e.message ? e.message : e}`);
+    return null;
+  }
+}
+
+/** Invite link via WhatsApp's own module (needs the PA to be a group admin). */
+async function storeGroupInviteLink(chatId) {
+  try {
+    const code = await client.pupPage.evaluate(async (id) => {
+      const wid = window.require('WAWebWidFactory').createWid(id);
+      const mod =
+        window.require('WAWebGroupInviteJob') ||
+        window.require('WAWebGroupQueryJob') ||
+        null;
+      const fn = mod?.queryGroupInviteCode || mod?.sendQueryGroupInviteCode;
+      if (!fn) return null;
+      const res = await fn(wid);
+      return typeof res === 'string' ? res : res?.code || null;
+    }, chatId);
+    return code ? `https://chat.whatsapp.com/${code}` : null;
+  } catch (e) {
+    console.log(`   ⤷ invite link unavailable: ${e && e.message ? e.message : e}`);
+    return null;
+  }
+}
+
+async function groupInfo(msg, chatId) {
+  // Config wins when present (lets an operator override any title), then the
+  // in-page Store, which scales to every group without per-group setup.
+  // Config overrides win; otherwise read live from WhatsApp so this scales to
+  // every group with no per-group setup.
+  const info = { name: GROUP_LABELS[chatId] || null, link: GROUP_LINKS[chatId] || null };
+  if (!info.name) info.name = await storeGroupTitle(chatId);
+  if (!info.link) info.link = await storeGroupInviteLink(chatId);
+  if (!info.name) info.name = chatId;
+  return info;
+}
+
+/** DM Denzel. Uses the linked device, so unlike the Cloud API this is NOT
+ *  restricted by WhatsApp's 24-hour customer-service window. */
+async function dmDenzel(text) {
+  if (!DENZEL_NUMBERS.length) {
+    console.log('   ⤷ DENZEL_NUMBER not set, skipping notification');
+    return;
+  }
+  // Send to each recipient independently so one bad number cannot stop the rest.
+  for (const number of DENZEL_NUMBERS) {
+    try {
+      await client.sendMessage(`${number}@c.us`, text);
+      console.log(`   📨 notified ${number}`);
+    } catch (e) {
+      console.error(`   ✖ notification to ${number} failed:`, e && e.message ? e.message : e);
+    }
+  }
+}
+
+async function notifyDenzel(group, clientMsg, reply) {
+  const where = group.link ? `${group.name}\n👉 ${group.link}` : group.name;
+  await dmDenzel(
+    `🔔 Heads up, a client needs you.\n\n` +
+      `Chat: ${where}\n\n` +
+      `They said:\n"${String(clientMsg || '').slice(0, 200)}"\n\n` +
+      `I replied:\n"${String(reply || '').slice(0, 250)}"\n\n` +
+      `Please follow up with them personally 🙏`,
+  );
+}
+
 client.on('message_create', async (msg) => {
   try {
     const chatId = msg.from;
     if (!(typeof chatId === 'string' && chatId.endsWith('@g.us'))) return; // GROUPS ONLY
     if (ALLOWED_GROUPS.length && !ALLOWED_GROUPS.includes(chatId)) return; // only allowlisted groups
     const from = (msg.author || msg.from || '').split('@')[0];
-    const who = from + (msg.fromMe ? ' (linked phone)' : '');
+    const senderDigits = from.replace(/\D/g, '');
+    // Staff = the PA's own phone, or any configured STAFF_NUMBERS (Denzel).
+    // Everyone else in the group is a client whose messages the PA answers.
+    const isStaff =
+      !!msg.fromMe || STAFF_NUMBERS.some((s) => s && senderDigits && (senderDigits.includes(s) || s.includes(senderDigits)));
+    const who = from + (msg.fromMe ? ' (linked phone)' : isStaff ? ' (staff)' : ' (client)');
     const mentions = mentionedDigits(msg);
     console.log(`👥 [${chatId}] ${who}: ${msg.body}${mentions.length ? '  «mentions ' + mentions.join(',') + '»' : ''}`);
 
@@ -213,10 +395,17 @@ client.on('message_create', async (msg) => {
     // WhatsApp masks numbers as LIDs, also accept ANY @mention paired with the
     // "this is <name>" phrase (that shape is unambiguously an intro to the PA).
     const isIntro = introName && (mentioned || mentions.length > 0 || TRIGGER.test(msg.body || ''));
-    // General summon (for template Q&A): @mention of us, or the legacy @pa text.
+    // Explicit summon: @mention of us, or the legacy @pa text.
     const summoned = mentioned || TRIGGER.test(msg.body || '');
 
-    if (!isIntro && !summoned) return;
+    // A CLIENT never has to tag the PA — every message they send is considered
+    // for a templated answer (the agent's template gate decides whether to
+    // reply at all). Staff messages are only acted on when they summon the PA
+    // explicitly or send the intro.
+    if (!isIntro && !summoned && isStaff) {
+      console.log('   ⤷ ignored: staff message, not a summon');
+      return;
+    }
 
     if (Date.now() - lastReplyAt < MIN_REPLY_GAP_MS) {
       console.log('   ⏳ throttled (too soon since last reply)');
@@ -241,11 +430,15 @@ client.on('message_create', async (msg) => {
     // Template Q&A replies are delayed (human-first). Fire-and-forget timer.
     const mins = Math.round(REPLY_DELAY_MS / 60000);
     console.log(`   ⏲  reply scheduled in ${mins}m: ${reply.slice(0, 70)}…`);
+    const group = await groupInfo(msg, chatId);
     setTimeout(async () => {
       try {
         await client.sendMessage(chatId, reply);
         lastReplyAt = Date.now();
         console.log(`   🤖 delayed reply sent: ${reply.slice(0, 70)}…`);
+        // If the PA just promised that Denzel would follow up, tell Denzel —
+        // otherwise the promise silently depends on him reading the group.
+        if (needsDenzel(reply)) await notifyDenzel(group, msg.body, reply);
       } catch (e) {
         console.error('   ✖ delayed send failed:', e && e.message ? e.message : e);
       }
