@@ -619,9 +619,13 @@ export class ProjectsService {
     });
     if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
 
-    // Auto-number per project: count existing deployments and use count+1.
-    // The unique constraint (projectId, deploymentNumber) is the correctness
-    // backstop for concurrent creates — catch P2002 and retry up to 3 times.
+    // Auto-number per project: MAX(deploymentNumber)+1, NOT count+1. count+1
+    // assumes numbers are gapless, so any deletion (or a free-typed deployment
+    // that outlives its unit-linked siblings) leaves max>count and count+1
+    // targets an existing number forever. The unique constraint
+    // (projectId, deploymentNumber) is the correctness backstop for concurrent
+    // creates — catch P2002 and retry up to 3 times; max+1 recomputes HIGHER
+    // after a racing commit, so the retry actually makes progress.
     const baseData = {
       projectId,
       organizationId,
@@ -635,10 +639,14 @@ export class ProjectsService {
     };
 
     for (let attempt = 0; attempt < 3; attempt++) {
-      const taken = await this.prisma.projectDeployment.count({ where: { projectId } });
+      const agg = await this.prisma.projectDeployment.aggregate({
+        where: { projectId },
+        _max: { deploymentNumber: true },
+      });
+      const next = (agg._max.deploymentNumber ?? 0) + 1;
       try {
         return await this.prisma.projectDeployment.create({
-          data: { ...baseData, deploymentNumber: taken + 1 },
+          data: { ...baseData, deploymentNumber: next },
         });
       } catch (err) {
         if (
@@ -706,12 +714,16 @@ export class ProjectsService {
       for (let attempt = 0; attempt < 3 && !ftResult; attempt++) {
         try {
           ftResult = await this.prisma.$transaction(async (tx) => {
-            const taken = await tx.projectDeployment.count({ where: { projectId } });
+            const agg = await tx.projectDeployment.aggregate({
+              where: { projectId },
+              _max: { deploymentNumber: true },
+            });
+            const next = (agg._max.deploymentNumber ?? 0) + 1;
             const deployment = await tx.projectDeployment.create({
               data: {
                 projectId,
                 organizationId,
-                deploymentNumber: taken + 1,
+                deploymentNumber: next,
                 type: deploymentType,
                 status: DeploymentStatus.ACTIVE,
                 deployedDate: at,
@@ -798,13 +810,18 @@ export class ProjectsService {
             });
           }
 
-          // Deployment — auto-numbered per project (count + 1).
-          const taken = await tx.projectDeployment.count({ where: { projectId } });
+          // Deployment — auto-numbered per project (MAX(deploymentNumber) + 1,
+          // not count+1: gaps from deletions must not re-target an existing number).
+          const agg = await tx.projectDeployment.aggregate({
+            where: { projectId },
+            _max: { deploymentNumber: true },
+          });
+          const next = (agg._max.deploymentNumber ?? 0) + 1;
           const deployment = await tx.projectDeployment.create({
             data: {
               projectId,
               organizationId,
-              deploymentNumber: taken + 1,
+              deploymentNumber: next,
               type: deploymentType,
               status: DeploymentStatus.ACTIVE,
               deployedDate: now,
@@ -840,7 +857,7 @@ export class ProjectsService {
           return { status: active.length ? ('moved' as const) : ('added' as const), deployment };
         });
       } catch (err) {
-        // Unique race on deploymentNumber (count+1 per project) — recompute + retry.
+        // Unique race on deploymentNumber (max+1 per project) — recompute + retry.
         if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
           continue;
         }
