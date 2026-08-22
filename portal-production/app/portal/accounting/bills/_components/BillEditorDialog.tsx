@@ -119,6 +119,7 @@ export default function BillEditorDialog({
   onSaved,
   batchFiles,
   onRefresh,
+  kind: kindProp,
 }: {
   open: boolean;
   editing: any | null;
@@ -129,10 +130,16 @@ export default function BillEditorDialog({
   batchFiles?: File[] | null;
   // List refresh that does NOT close the dialog (used after each batch save).
   onRefresh?: () => void;
+  // SIN = supplier invoice (default); SPR = supplier purchase return
+  // (supplier credit/debit note) — posts the mirrored journal.
+  kind?: "SIN" | "SPR";
 }) {
   const { request } = useAccountingApi();
   const { getToken } = useAuth();
   const { isXeroDocSyncEnabled } = useOrganizationFeatures();
+  // Editing keeps the bill's stored kind; new entries take the chooser's pick.
+  const kind: "SIN" | "SPR" = (editing ? editing.kind : kindProp) === "SPR" ? "SPR" : "SIN";
+  const kindLabel = kind === "SPR" ? "Supplier Purchase Return" : "Supplier Invoice";
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [saving, setSaving] = useState(false);
@@ -664,6 +671,7 @@ export default function BillEditorDialog({
         supplierId,
         billNumber: billNumber.trim(),
         billDate,
+        kind,
         dueDate: dueDate || undefined,
         reference: reference.trim() || undefined,
         description: description || undefined,
@@ -684,11 +692,11 @@ export default function BillEditorDialog({
       if (editing) {
         await request(`/bills/${editing.id}`, { method: "PATCH", body: JSON.stringify(body) });
         billId = editing.id;
-        toast.success("Supplier invoice updated");
+        toast.success(`${kindLabel} updated`);
       } else {
         const created: any = await request("/bills", { method: "POST", body: JSON.stringify(body) });
         billId = created?.id;
-        toast.success("Supplier invoice saved — posted as unconfirmed");
+        toast.success(`${kindLabel} saved — posted as unconfirmed`);
       }
       // Persist attachments after we have the bill id. Sends the full list
       // so the backend can dedupe; harmless if no new files were added.
@@ -746,6 +754,7 @@ export default function BillEditorDialog({
         method: "POST",
         body: JSON.stringify({
           billNumber: billNumber.trim(),
+          kind,
           taxAmount: amountsAre === "NO_TAX" ? 0 : parseFloat(taxAmount) || 0,
           totalAmount,
           amountsAre,
@@ -782,7 +791,7 @@ export default function BillEditorDialog({
         <Stack direction="row" alignItems="center" justifyContent="space-between">
           <Stack direction="row" gap={1.5} alignItems="center">
             <Typography variant="h6" sx={{ fontWeight: 700 }}>
-              {editing ? `Supplier Invoice — ${editing.billNumber}` : batch ? `New Supplier Invoices — ${batchIdx + 1} of ${batch.length}` : "New Supplier Invoice"}
+              {editing ? `${kindLabel} — ${editing.billNumber}` : batch ? `New Supplier Invoices — ${batchIdx + 1} of ${batch.length}` : `New ${kindLabel} (${kind})`}
             </Typography>
             {batch && (
               <>

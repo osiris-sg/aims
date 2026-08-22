@@ -134,6 +134,7 @@ export class BillsService {
       status: billStatus,
       reference: c.reference || c.xeroReference || null,
       description: c.description || null,
+      kind: c.kind === 'SPR' ? 'SPR' : 'SIN',
       subtotal,
       taxAmount,
       totalAmount,
@@ -249,6 +250,9 @@ export class BillsService {
       taxCode?: string;
       gstPercent?: number;
       amountsAre?: 'EXCLUSIVE' | 'INCLUSIVE' | 'NO_TAX';
+      // SIN = supplier invoice (default); SPR = supplier purchase return
+      // (covers supplier credit/debit notes) — GL posts reversed.
+      kind?: 'SIN' | 'SPR';
       sourcePoId?: string;
       inboundChannel?: 'MANUAL' | 'UPLOAD' | 'EMAIL' | 'FROM_PO';
       inboundMeta?: any;
@@ -306,6 +310,7 @@ export class BillsService {
       lines: dto.lines,
       items: dto.lines, // mirror — readers vary
       billStatus,
+      kind: dto.kind === 'SPR' ? 'SPR' : 'SIN',
       sourcePoId: dto.sourcePoId || null,
       inboundChannel: dto.inboundChannel || 'MANUAL',
       inboundMeta: dto.inboundMeta || null,
@@ -361,6 +366,7 @@ export class BillsService {
     if (dto.dueDate !== undefined) config.dueDate = dto.dueDate || null;
     if (dto.reference !== undefined) config.reference = dto.reference;
     if (dto.description !== undefined) config.description = dto.description;
+    if (dto.kind !== undefined) config.kind = dto.kind === 'SPR' ? 'SPR' : 'SIN';
     if (dto.amountsAre !== undefined) config.amountsAre = dto.amountsAre;
     if (dto.taxCode !== undefined || dto.gstPercent !== undefined || dto.amountsAre !== undefined) {
       config.documentInfo = {
@@ -552,16 +558,21 @@ export class BillsService {
     }
     lines.push({ accountId: creditor.id, debit: 0, credit: bill.totalAmount, description: `Bill ${bill.billNumber}` });
 
+    // Supplier Purchase Return (SPR — supplier credit/debit note): the exact
+    // mirror of a supplier invoice. Dr Trade Payables / Cr expenses + input tax.
+    const isReturn = (bill as any).kind === 'SPR';
+    const finalLines = isReturn ? lines.map((l) => ({ ...l, debit: l.credit, credit: l.debit })) : lines;
+
     const entry = await this.journal.create(
       organizationId,
       {
         entryDate: new Date(bill.billDate).toISOString(),
         type: 'BILL' as any,
-        // Supplier Invoice = SIN (doc-type prefix plan).
-        reference: refWith('SIN', bill.billNumber),
-        description: `Bill from supplier (id=${bill.supplierId})`,
+        // Supplier Invoice = SIN / Supplier Purchase Return = SPR (doc-type prefix plan).
+        reference: refWith(isReturn ? 'SPR' : 'SIN', bill.billNumber),
+        description: isReturn ? `Purchase return to supplier (id=${bill.supplierId})` : `Bill from supplier (id=${bill.supplierId})`,
         sourceDocumentId: id,
-        lines,
+        lines: finalLines,
       },
       userId,
       opts.confirmed ? { confirmedSource: true } : undefined,
@@ -727,6 +738,18 @@ export class BillsService {
     const balanced = totalDebit === totalCredit;
     if (!balanced) {
       warnings.push(`Entry is out of balance: Dr ${totalDebit.toFixed(2)} vs Cr ${totalCredit.toFixed(2)}. Check that line amounts + tax equal the bill total.`);
+    }
+
+    // Supplier Purchase Return (SPR): the journal is the exact mirror —
+    // Dr Trade Payables / Cr expenses + input tax. Same accounts, flipped legs.
+    if ((dto as any).kind === 'SPR') {
+      return {
+        lines: outLines.map((l) => ({ ...l, debit: l.credit, credit: l.debit })),
+        totalDebit: totalCredit,
+        totalCredit: totalDebit,
+        balanced,
+        warnings,
+      };
     }
 
     return { lines: outLines, totalDebit, totalCredit, balanced, warnings };

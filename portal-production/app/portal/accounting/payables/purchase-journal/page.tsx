@@ -5,7 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   Box,
   Chip,
+  Dialog,
+  DialogContent,
+  DialogTitle,
   IconButton,
+  ListItemButton,
+  ListItemText,
   Paper,
   Stack,
   Tab,
@@ -13,6 +18,8 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
+import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import CheckIcon from "@mui/icons-material/Check";
 import ClearIcon from "@mui/icons-material/Clear";
 import VisibilityIcon from "@mui/icons-material/Visibility";
@@ -76,6 +83,9 @@ export default function BillsPage() {
   const [filters, setFilters] = useState<any>({});
 
   const [editorOpen, setEditorOpen] = useState(false);
+  // New-entry chooser: Supplier Invoice (SIN) vs Supplier Purchase Return (SPR).
+  const [kindPickerOpen, setKindPickerOpen] = useState(false);
+  const [newKind, setNewKind] = useState<"SIN" | "SPR">("SIN");
   // Bulk upload: expanded files handed to BillEditorDialog's batch mode
   // (first bill shown while the rest extract in the background).
   const [batchFiles, setBatchFiles] = useState<File[] | null>(null);
@@ -103,6 +113,7 @@ export default function BillsPage() {
   useEffect(() => {
     if (searchParams.get("new") === "1") {
       setEditing(null);
+      setNewKind("SIN");
       setEditorOpen(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -136,11 +147,15 @@ export default function BillsPage() {
 
   const totals = useMemo(() => {
     return visible.reduce(
-      (s, b) => ({
-        total: s.total + b.totalAmount,
-        outstanding:
-          s.outstanding + (b.status === "POSTED" ? Math.max(0, b.totalAmount - (b.amountPaid || 0)) : 0),
-      }),
+      (s, b) => {
+        // SPR (purchase return) reduces payables — subtract it from both cards.
+        const sign = (b as any).kind === "SPR" ? -1 : 1;
+        return {
+          total: s.total + sign * b.totalAmount,
+          outstanding:
+            s.outstanding + (b.status === "POSTED" ? sign * Math.max(0, b.totalAmount - (b.amountPaid || 0)) : 0),
+        };
+      },
       { total: 0, outstanding: 0 },
     );
   }, [visible]);
@@ -182,6 +197,11 @@ export default function BillsPage() {
         return (
           <Box sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
             {b.billNumber}
+            {(b as any).kind === "SPR" && (
+              <Tooltip title="Supplier Purchase Return (supplier credit/debit note) — posts reversed">
+                <Chip size="small" label="SPR" color="secondary" variant="outlined" sx={{ ml: 0.5, height: 16, fontSize: "0.6rem", "& .MuiChip-label": { px: 0.5 } }} />
+              </Tooltip>
+            )}
             {b.matchStatus && b.matchStatus !== "MATCHED" && (
               <Tooltip title={`3-way match: ${b.matchStatus}`}>
                 <Chip size="small" label="!" color="warning" sx={{ ml: 0.5, height: 14, fontSize: "0.55rem", "& .MuiChip-label": { px: 0.5 } }} />
@@ -289,7 +309,7 @@ export default function BillsPage() {
                 <Tooltip title="Reject"><IconButton size="small" sx={{ color: "error.main" }} onClick={() => reject(b)}><ClearIcon fontSize="small" /></IconButton></Tooltip>
               </>
             )}
-            {(b.status === "POSTED" || b.status === "PAID") && outstanding > 0 && (
+            {(b.status === "POSTED" || b.status === "PAID") && outstanding > 0 && (b as any).kind !== "SPR" && (
               <Tooltip title="Record payment">
                 <IconButton size="small" sx={{ color: "primary.main" }} onClick={() => { setPayingBill(b); setPaymentOpen(true); }}>
                   <PaymentIcon fontSize="small" />
@@ -359,8 +379,8 @@ export default function BillsPage() {
         data={paged}
         tableName="Purchase Journal"
         subTitle="Supplier invoices (purchase journal) — save posts to GL as unconfirmed; confirm from the Posting Queue"
-        buttonName="New Supplier Invoice"
-        onAddClick={() => { setEditing(null); setEditorOpen(true); }}
+        buttonName="New Purchase Entry"
+        onAddClick={() => setKindPickerOpen(true)}
         actionButtons={[
           <Button key="upload-bills" data-tour="bills-upload" variant="outlined" startIcon={<CloudUploadIcon />} onClick={() => uploadInputRef.current?.click()}>
             Upload Supplier Invoices
@@ -394,14 +414,45 @@ export default function BillsPage() {
           e.target.value = "";
           if (!files.length) return;
           setEditing(null);
+          setNewKind("SIN"); // uploads are always supplier invoices
           setBatchFiles(files);
           setEditorOpen(true);
         }}
       />
 
+      {/* New-entry chooser (guru 2026-08-21): this page carries both supplier
+          invoices (SIN) and supplier credit/debit notes as purchase returns
+          (SPR) — the create button asks which one. */}
+      <Dialog open={kindPickerOpen} onClose={() => setKindPickerOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>New Purchase Entry</DialogTitle>
+        <DialogContent sx={{ pb: 2.5 }}>
+          <ListItemButton
+            sx={{ border: 1, borderColor: "divider", borderRadius: 1.5, mb: 1 }}
+            onClick={() => { setKindPickerOpen(false); setEditing(null); setNewKind("SIN"); setEditorOpen(true); }}
+          >
+            <ReceiptLongIcon sx={{ mr: 1.5, color: "primary.main" }} />
+            <ListItemText
+              primary="Supplier Invoice (SIN)"
+              secondary="A bill from a supplier — posts Dr expense / Cr Trade Payables"
+            />
+          </ListItemButton>
+          <ListItemButton
+            sx={{ border: 1, borderColor: "divider", borderRadius: 1.5 }}
+            onClick={() => { setKindPickerOpen(false); setEditing(null); setNewKind("SPR"); setEditorOpen(true); }}
+          >
+            <AssignmentReturnIcon sx={{ mr: 1.5, color: "secondary.main" }} />
+            <ListItemText
+              primary="Supplier Purchase Return (SPR)"
+              secondary="Supplier credit/debit note — posts reversed, reduces payables"
+            />
+          </ListItemButton>
+        </DialogContent>
+      </Dialog>
+
       <BillEditorDialog
         open={editorOpen}
         editing={editing}
+        kind={newKind}
         batchFiles={batchFiles}
         onClose={() => { setEditorOpen(false); setBatchFiles(null); }}
         onSaved={() => { setEditorOpen(false); setBatchFiles(null); load(); }}

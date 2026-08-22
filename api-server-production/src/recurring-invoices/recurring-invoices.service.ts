@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma.service';
 import { DocumentsService } from '../documents/documents.service';
+import { ActionLogService } from '../action-log/action-log.service';
 
 export type Frequency = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
 
@@ -79,6 +80,7 @@ export class RecurringInvoicesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly documents: DocumentsService,
+    private readonly actionLog: ActionLogService,
   ) {}
 
   // ---------- CRUD ----------
@@ -293,6 +295,12 @@ ${org?.name || ''}`;
           const r: any = await this.runDue(d.organizationId);
           const n = Array.isArray(r?.generated) ? r.generated.length : r?.generatedCount ?? '?';
           this.logger.log(`[cron] runDue org=${d.organizationId} generated=${n}`);
+          if (typeof n === 'number' ? n > 0 : true) {
+            this.actionLog.system('recurring-invoices', 'CREATE', 'documents', {
+              organizationId: d.organizationId,
+              details: { note: `Recurring invoice run generated ${n} invoice(s)`, generated: Array.isArray(r?.generated) ? r.generated : undefined },
+            });
+          }
         } catch (e: any) {
           this.logger.error(`[cron] runDue failed org=${d.organizationId}: ${e?.message || e}`);
         }

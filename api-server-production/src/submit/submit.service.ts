@@ -6,6 +6,7 @@ import { S3Service } from '../common/services/s3.service';
 import { DocumentExtractionService, DocumentType } from '../document-extraction/document-extraction.service';
 import { DocumentsService } from '../documents/documents.service';
 import { BillsService } from '../bills/bills.service';
+import { ActionLogService } from '../action-log/action-log.service';
 
 const MAX_ATTEMPTS = 3;
 const STUCK_MS = 10 * 60 * 1000; // reclaim PROCESSING rows idle longer than this
@@ -34,6 +35,7 @@ export class SubmitService {
     private readonly extraction: DocumentExtractionService,
     private readonly documents: DocumentsService,
     private readonly bills: BillsService,
+    private readonly actionLog: ActionLogService,
   ) {}
 
   // ── Leg A: intake ─────────────────────────────────────────────────────────
@@ -198,6 +200,12 @@ export class SubmitService {
       await this.prisma.submitJob.update({
         where: { id: job.id },
         data: { status: 'DONE', documentId, reason: null, sequenceWarning: sequenceWarning ?? undefined },
+      });
+      // System creation: the worker (not the submitter) created the draft.
+      this.actionLog.system('submit-worker', 'CREATE', 'documents', {
+        organizationId: job.organizationId,
+        resourceId: documentId,
+        details: { note: `Draft ${job.docType} created from field upload`, submitJobId: job.id, submittedBy: job.createdByUserId },
       });
     } catch (e: any) {
       const msg = String(e?.message ?? e).slice(0, 500);
