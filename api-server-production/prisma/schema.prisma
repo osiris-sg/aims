@@ -665,6 +665,29 @@ model UserRole {
   @@unique([userId, roleId, organizationId])
 }
 
+// Persistent in-app notifications for the portal header bell. Per-user fan-out
+// (one row per recipient) so read state is per user. Plain-UUID columns, no FK
+// relations (mirrors DeliveryItem) so this is a purely additive CREATE TABLE.
+// `kind` is a STRING, deliberately NOT a Prisma enum: a new kind (RDO_READY,
+// SUBMISSION_FAILED, ...) must never require ALTER TYPE ADD VALUE, which has
+// blocked prod deploys. Idempotent via @@unique(userId, kind, entityId).
+model Notification {
+  id             String    @id @default(uuid())
+  organizationId String
+  userId         String // recipient
+  kind           String // 'DO_READY' | 'INVOICE_DRAFT' | future kinds
+  title          String
+  body           String?
+  entityType     String? // 'document' | future
+  entityId       String? // e.g. documentId to open on click
+  linkUrl        String? // precomputed portal route
+  readAt         DateTime? // null = unread
+  createdAt      DateTime  @default(now())
+
+  @@unique([userId, kind, entityId])
+  @@index([userId, organizationId, readAt])
+}
+
 model UserOrganization {
   id             String       @id @default(uuid())
   userId         String

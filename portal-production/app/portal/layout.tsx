@@ -15,6 +15,7 @@ import { useAuth } from "@clerk/nextjs";
 import FieldOnlyGuard from "./components/FieldOnlyGuard";
 import OrgSwitcher from "@/components/OrgSwitcher";
 import ViewingAsBanner from "@/components/ViewingAsBanner";
+import NotificationBell from "@/components/NotificationBell";
 import GuideAssistant from "./components/GuideAssistant/GuideAssistant";
 
 interface Props {
@@ -79,6 +80,24 @@ export default function Layout(props: Props) {
               }}
             >
               <PortalChrome isDocumentPage={isDocumentPage} />
+
+              {/* Desktop notification bell (top-right). No desktop top bar
+                  exists, so this is fixed to the viewport corner. Hidden on the
+                  viewport-locked document editor pages so it never overlaps the
+                  editor chrome; mobile gets its bell inside AppNavbar. */}
+              {!isDocumentPage && (
+                <Box
+                  sx={{
+                    position: "fixed",
+                    top: 8,
+                    right: 12,
+                    zIndex: (t) => t.zIndex.appBar + 1,
+                    display: { xs: "none", md: "block" },
+                  }}
+                >
+                  <NotificationBell />
+                </Box>
+              )}
 
               <Box
                 sx={{

@@ -8,6 +8,7 @@ import Typography from "@mui/material/Typography";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
 import { Avatar, IconButton } from "@mui/material";
 import MobileSideBar from "./Sidebar/MobileSidebar";
+import NotificationBell from "./NotificationBell";
 
 const Toolbar = styled(MuiToolbar)({
   width: "100%",
@@ -69,6 +70,7 @@ export default function AppNavbar() {
               AIMS
             </Typography>
           </Stack>
+          <NotificationBell iconColor="#FFFFFF" sx={{ color: "#FFFFFF" }} />
           <IconButton aria-label="menu" onClick={() => toggleDrawer(true)}>
             <MenuRoundedIcon sx={{ color: "#FFFFFF" }} />
           </IconButton>

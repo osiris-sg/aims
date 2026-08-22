@@ -42,6 +42,7 @@ import { AccountingModule } from './accounting/accounting.module';
 import { JournalModule } from './journal/journal.module';
 import { MaintenanceReportsModule } from './maintenance-reports/maintenance-reports.module';
 import { DeliveriesModule } from './deliveries/deliveries.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { AskModule } from './ask/ask.module';
 import { AnomaliesModule } from './anomalies/anomalies.module';
 import { CloseModule } from './close/close.module';
@@ -105,6 +106,7 @@ import { GuideModule } from './guide/guide.module';
     JournalModule,
     MaintenanceReportsModule,
     DeliveriesModule,
+    NotificationsModule,
     AskModule,
     DocumentAssistantModule,
     GuideModule,

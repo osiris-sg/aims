@@ -18,6 +18,7 @@ import { SendInvoiceEmailDto } from '../email/dto/send-invoice-email.dto';
 import { S3Service } from 'src/common/services/s3.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
 import { AuditService } from 'src/common/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import * as moment from 'moment';
 import { isPortedType, PORTED_PDF_MARGIN } from '../common/services/document-html';
 
@@ -44,6 +45,7 @@ export class DocumentsService {
     private documentNumbering: DocumentNumberingService,
     private auditService: AuditService,
     private accountMemory: AccountMemoryService,
+    private notifications: NotificationsService,
   ) {}
 
   /**
@@ -4516,6 +4518,22 @@ export class DocumentsService {
       data: { status: DocumentStatus.delivered_installed, ...(realName ? { name: realName } : {}) },
     });
 
+    // Notify the office that a DO is ready (best-effort; idempotent via the
+    // Notification unique index, so a re-run does not re-bell). NEVER awaited in
+    // a way that could fail completion: emit() swallows all errors internally.
+    const doName = realName ?? doc?.name ?? null;
+    await this.notifications.emit({
+      organizationId,
+      kind: 'DO_READY',
+      title: 'Delivery Order ready',
+      body: doName ? `${doName} is ready to review.` : 'A delivery order is ready to review.',
+      entityType: 'document',
+      entityId: documentId,
+      linkUrl: doc?.documentTemplateId
+        ? `/portal/documents/${doc.type}/${doc.documentTemplateId}/${documentId}`
+        : null,
+    });
+
     return this.createInvoiceFromDeliveryOrder(documentId, organizationId);
   }
 
@@ -4572,6 +4590,21 @@ export class DocumentsService {
       doDoc.projectId ?? undefined,
     );
     console.log(`🧾 DO→INVOICE: created invoice ${invoice.id} from DO ${documentId}`);
+
+    // Notify the office that a draft invoice was created on completion. Only
+    // reached in the NEW-creation branch (the idempotency guard above returns
+    // early when an invoice already exists), so a re-run never double-notifies.
+    // Best-effort: emit() never throws, so it cannot roll back the invoice.
+    await this.notifications.emit({
+      organizationId,
+      kind: 'INVOICE_DRAFT',
+      title: 'Draft invoice created',
+      body: invoice.name ? `${invoice.name} is ready to price and confirm.` : 'A draft invoice is ready to price and confirm.',
+      entityType: 'document',
+      entityId: invoice.id,
+      linkUrl: `/portal/documents/${invoice.type ?? 'INVOICE'}/${templateId}/${invoice.id}`,
+    });
+
     return invoice;
   }
 

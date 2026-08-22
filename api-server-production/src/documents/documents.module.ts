@@ -10,9 +10,10 @@ import { OrdersModule } from '../orders/orders.module';
 import { DocumentTemplatesModule } from '../documentTemplates/documentTemplates.module';
 import { AccountMemoryModule } from '../account-memory/account-memory.module';
 import { DocumentNumberingModule } from '../document-numbering/document-numbering.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [CommonModule, PriceHistoryModule, EmailModule, JournalModule, OrdersModule, DocumentTemplatesModule, DocumentNumberingModule, AccountMemoryModule],
+  imports: [CommonModule, PriceHistoryModule, EmailModule, JournalModule, OrdersModule, DocumentTemplatesModule, DocumentNumberingModule, AccountMemoryModule, NotificationsModule],
   controllers: [DocumentsController],
   providers: [DocumentsService, PrismaService],
   // Exported so MaintenanceReportsModule can call createBasicDocument when
