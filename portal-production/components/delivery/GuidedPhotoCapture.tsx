@@ -31,11 +31,11 @@ export type { CapturedPhoto };
  * under the prompt — swap those files for real reference photos anytime.
  */
 const STEPS = [
-  { key: "front", label: "Front", hint: "Face the unit head on, whole unit in frame.", example: "/guide-angles/front.svg" },
-  { key: "left", label: "Left", hint: "Step to the left side and shoot it square on.", example: "/guide-angles/left.svg" },
-  { key: "back", label: "Back", hint: "Walk around and shoot the rear panel.", example: "/guide-angles/back.svg" },
-  { key: "right", label: "Right", hint: "Step to the right side and shoot it square on.", example: "/guide-angles/right.svg" },
-  { key: "top", label: "Top", hint: "Shoot from above so the top surface is visible.", example: "/guide-angles/top.svg" },
+  { key: "front", label: "Front", hint: "Face the unit head on, whole unit in frame.", example: "/guide-angles/front.jpeg" },
+  { key: "left", label: "Left", hint: "Step to the left side and shoot it square on.", example: "/guide-angles/left.jpeg" },
+  { key: "back", label: "Back", hint: "Walk around and shoot the rear panel.", example: "/guide-angles/back.jpeg" },
+  { key: "right", label: "Right", hint: "Step to the right side and shoot it square on.", example: "/guide-angles/right.jpeg" },
+  { key: "top", label: "Top", hint: "Shoot from above so the top surface is visible.", example: "/guide-angles/top.jpeg" },
 ] as const;
 
 /** Ordered angle KEYS for the guided set — used to pair returns by angle. */
