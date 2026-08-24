@@ -215,7 +215,7 @@ export default function CleanDocumentPreview(props: CleanDocumentPreviewProps) {
  * cannot alter non-delivery line displays. Merged qty/amount are summed so
  * totals are preserved.
  */
-function groupDeliveryLines(raw: any[]): any[] {
+function groupDeliveryLines(raw: any[], isReturn = false): any[] {
   if (!Array.isArray(raw) || raw.length === 0) return raw;
   const out: any[] = [];
   let i = 0;
@@ -241,9 +241,11 @@ function groupDeliveryLines(raw: any[]): any[] {
     const amount = run.reduce((s, r) => s + (Number(r.amount) || 0), 0);
     const name = run[0].description || "";
     const model = run[0].skuKey || "";
-    // Verb reflects the units' commercial intent (ProjectDeployment.type). Any
-    // SALE in the group shows "Sale of…"; otherwise "Rental of…" (the default).
-    const verb = run.some((r) => r.deploymentType === "SALE") ? "Sale" : "Rental";
+    // Verb: a RETURN document is a collection, so it reads "Return of…". On an
+    // outbound delivery the verb reflects the units' commercial intent
+    // (ProjectDeployment.type) — any SALE in the group shows "Sale of…",
+    // otherwise "Rental of…" (the default).
+    const verb = isReturn ? "Return" : run.some((r) => r.deploymentType === "SALE") ? "Sale" : "Rental";
     // Year only when EVERY unit in the group carries a year AND they all agree —
     // otherwise omit the row (no data source populates it yet).
     const years = run.map((r) => r.year).filter((y) => y != null);
@@ -295,10 +297,12 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
     return titles[documentType] || titles[documentType?.toUpperCase()] || "DOCUMENT";
   };
 
-  // Calculate totals. Delivery-created DOs arrive as one line per unit; group
-  // consecutive same-asset lines into the office's "Rental of N units / Model /
-  // S/No." block for display (non-delivery docs pass through unchanged).
-  const items = groupDeliveryLines(data.items || []);
+  // Calculate totals. Delivery-created DOs (and RDOs) arrive as one line per
+  // unit; group consecutive same-asset lines into the office's "Rental/Return of
+  // N units / Model / S/No." block for display (non-delivery docs pass through
+  // unchanged). A return reads "Return of…" (see groupDeliveryLines).
+  const isReturnDoc = documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER";
+  const items = groupDeliveryLines(data.items || [], isReturnDoc);
   const subtotal = items.reduce((acc: number, item: any) => acc + (item.amount || 0), 0);
   const totalTax = items.reduce(
     (acc: number, item: any) => acc + (item.amount || 0) * ((item.tax || 0) / 100),

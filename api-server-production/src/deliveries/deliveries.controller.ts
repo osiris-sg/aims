@@ -228,6 +228,21 @@ export class DeliveriesController {
     return this.service.finalizeRun(id, dto, org.id, riderUserId);
   }
 
+  // Field: ONE signature at the END of a RETURN run (no install step). Reached
+  // once every unit is collected; stamps every return proof + fires the RDO.
+  @Post(':id/finalize-return')
+  @Permissions('maintenance-reports:create')
+  finalizeReturn(
+    @Param('id') id: string,
+    @Body() dto: AckAllDto,
+    @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
+  ) {
+    const riderUserId = req.user?.id;
+    if (!riderUserId) throw new UnauthorizedException('Missing authenticated user');
+    return this.service.finalizeReturn(id, dto, org.id);
+  }
+
   // Field: collect ONE unit on a RETURN run with proof (per-unit "End Return").
   // The return twin of the per-unit outbound ack — one DO_ACK MSR + collect.
   @Post(':id/items/:inventoryId/collect-return')

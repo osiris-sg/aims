@@ -648,6 +648,197 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
     ],
   },
 
+  // RDO - Return Delivery Order. A CLONE of the DO field set (a return mirrors
+  // the delivery it reverses, field for field) with two label swaps so the
+  // editor matches the preview: the number reads "Return Delivery Order No." and
+  // "Deliver to" reads "Delivery From" (a return comes FROM the site). Labelling
+  // a return's field "Deliver to" would invite the wrong value.
+  RDO: {
+    tabs: [
+      {
+        tabId: "general",
+        tabLabel: "General",
+        fields: [
+          {
+            fieldName: "documentInfo.documentNumber",
+            displayLabel: "Return Delivery Order No.",
+            fieldType: "text",
+            required: true,
+          },
+          {
+            fieldName: "documentInfo.date",
+            displayLabel: "Date",
+            fieldType: "date",
+            required: true,
+          },
+          {
+            fieldName: "customer",
+            displayLabel: "Customer code",
+            fieldType: "customer",
+            required: true,
+            dataSource: "customers",
+          },
+          {
+            fieldName: "documentInfo.salesPerson",
+            displayLabel: "Salesman code",
+            fieldType: "salesman",
+            required: false,
+            defaultValue: "",
+            dataSource: "salesmen",
+          },
+          {
+            fieldName: "documentInfo.poNo",
+            displayLabel: "P/O Number",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.issueBy",
+            displayLabel: "Issue By",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "billTo",
+            displayLabel: "Bill to",
+            fieldType: "textarea",
+            required: false,
+          },
+          {
+            fieldName: "deliveryTo",
+            displayLabel: "Delivery From",
+            fieldType: "textarea",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.contact",
+            displayLabel: "Contact",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.deliveryDate",
+            displayLabel: "Delivery Date",
+            fieldType: "date",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.deliveryTime",
+            displayLabel: "Delivery Time",
+            fieldType: "text",
+            required: false,
+            defaultValue: "",
+          },
+          {
+            fieldName: "documentInfo.paymentTerms",
+            displayLabel: "Terms",
+            fieldType: "text",
+            required: false,
+            defaultValue: "CASH",
+          },
+          {
+            fieldName: "documentInfo.rate",
+            displayLabel: "Rate",
+            fieldType: "number",
+            required: false,
+            defaultValue: 1.0,
+          },
+          {
+            fieldName: "documentInfo.currency",
+            displayLabel: "Currency",
+            fieldType: "select",
+            required: false,
+            defaultValue: "RP",
+            dataSource: "currencies",
+          },
+          {
+            fieldName: "documentInfo.grossTotal",
+            displayLabel: "Gross Total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.discountPercent",
+            displayLabel: "Disc %",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.discountAmount",
+            displayLabel: "Discount Amount",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.subTotal",
+            displayLabel: "Sub-total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.taxApplicable",
+            displayLabel: "Tax",
+            fieldType: "select",
+            required: false,
+            defaultValue: "Y",
+            dataSource: "yesNo",
+          },
+          {
+            fieldName: "documentInfo.absorbTax",
+            displayLabel: "Tax Inclusive",
+            fieldType: "select",
+            required: false,
+            defaultValue: "N",
+            dataSource: "yesNo",
+          },
+          {
+            fieldName: "documentInfo.gstPercent",
+            displayLabel: "GST",
+            fieldType: "number",
+            required: false,
+            defaultValue: 7.0,
+          },
+          {
+            fieldName: "documentInfo.gstAmount",
+            displayLabel: "GST Amount",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+          {
+            fieldName: "documentInfo.nettTotal",
+            displayLabel: "Nett Total",
+            fieldType: "number",
+            required: false,
+            defaultValue: 0,
+          },
+        ],
+      },
+      {
+        tabId: "details",
+        tabLabel: "Details",
+        fields: [
+          {
+            fieldName: "documentInfo.referenceNo",
+            displayLabel: "Reference No",
+            fieldType: "text",
+            required: false,
+          },
+          {
+            fieldName: "documentInfo.remarks",
+            displayLabel: "Remarks",
+            fieldType: "textarea",
+            required: false,
+          },
+        ],
+      },
+    ],
+  },
+
   // SO - Sales Order
   SO: {
     tabs: [
@@ -1871,6 +2062,11 @@ const variantMap: Record<string, string> = {
   STOCK_ADJUSTMENT_OUT: "SAO",
   QUOTATION: "QT",
   QO: "QT",
+  // A return delivery order uses its OWN field set (RDO): the DO's fields with
+  // "Return Delivery Order No." and "Delivery From" labels. Both the type and the
+  // short variant map to it.
+  RETURN_DELIVERY_ORDER: "RDO",
+  RDO: "RDO",
 };
 
 /**

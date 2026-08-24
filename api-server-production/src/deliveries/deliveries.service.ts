@@ -324,6 +324,53 @@ export class DeliveriesService {
     };
   }
 
+  /**
+   * Header config for an RDO, mirroring what createDoFromDelivery puts on a DO so
+   * a return renders AND edits with the same header. `deliveryTo` becomes the
+   * preview's "Delivery From" (the site the units are collected from). Attention
+   * resolves from the project's first contact, falling back to the customer's
+   * primary. `documentInfo` carries the project name + date. Returned as a config
+   * fragment; the caller spreads it into the RDO config (and DEEP-merges
+   * documentInfo at completion so the tax block minted onto the pending survives).
+   */
+  private async buildReturnHeaderConfig(
+    opts: { projectId?: string | null; siteAddress?: string | null; customerId?: string | null; date: Date },
+    organizationId: string,
+  ): Promise<Record<string, any>> {
+    const { projectId, siteAddress, customerId, date } = opts;
+    let attention = await this.projectFirstContactAttention(projectId, organizationId);
+    if (!attention && customerId) {
+      const primary = await this.prisma.customerContact.findFirst({
+        where: { customerId, isPrimary: true },
+        select: { name: true, phone: true, email: true },
+      });
+      if (primary?.name) {
+        attention = {
+          name: primary.name,
+          ...(primary.phone ? { phoneNumber: primary.phone } : {}),
+          ...(primary.email ? { email: primary.email } : {}),
+        };
+      }
+    }
+    const project = projectId
+      ? await this.prisma.project.findFirst({ where: { id: projectId, organizationId }, select: { name: true } })
+      : null;
+    const documentInfo: Record<string, any> = { date: date.toISOString() };
+    if (project?.name) documentInfo.projectName = project.name;
+    if (attention?.name) {
+      documentInfo.contactName = attention.name;
+      if (attention.phoneNumber) documentInfo.contactNumber = attention.phoneNumber;
+    }
+    return {
+      ...(siteAddress ? { deliveryTo: siteAddress } : {}),
+      ...(project?.name ? { projectName: project.name } : {}),
+      ...(attention
+        ? { attention, contactName: attention.name, ...(attention.phoneNumber ? { contactNumber: attention.phoneNumber } : {}) }
+        : {}),
+      documentInfo,
+    };
+  }
+
 
   /**
    * Build the draft-DO config fragment for a scheduled delivery (items + header
@@ -848,6 +895,14 @@ export class DeliveriesService {
     ];
     const sharedProjectId = distinctProjects.length === 1 && distinctProjects[0] ? distinctProjects[0] : null;
 
+    // Site the units are collected FROM -> the run's siteAddress and the RDO's
+    // "Delivery From". Taken from the shared project's address, matching how a
+    // scheduled DO sources "Deliver To".
+    const projectForSite = sharedProjectId
+      ? await this.prisma.project.findFirst({ where: { id: sharedProjectId, organizationId }, select: { address: true } })
+      : null;
+    const returnSiteAddress = projectForSite?.address ?? null;
+
     const unitById = new Map(units.map((u) => [u.id, u]));
 
     // One Delivery (RETURN, scheduled) + one unit-bound item per unit. Per-org
@@ -872,6 +927,7 @@ export class DeliveriesService {
             scheduledFor: new Date(dto.scheduledFor),
             customerId: dto.customerId,
             projectId: sharedProjectId,
+            ...(returnSiteAddress ? { siteAddress: returnSiteAddress } : {}),
             ...(dto.notes?.trim() ? { notes: dto.notes.trim() } : {}),
             items: {
               // Returns are already one row per line; stamp the walk order so the
@@ -926,6 +982,13 @@ export class DeliveriesService {
         return mm ? Math.max(mx, parseInt(mm[1], 10)) : mx;
       }, 0);
       const placeholderName = `RDO-PENDING-${String(maxPending + 1).padStart(2, '0')}`;
+      // Header fields (deliveryTo/projectName/attention/date) so the pending RDO
+      // renders and edits with the DO's header from birth. createBasicDocument
+      // fills the tax block into this same documentInfo (empty-field-only).
+      const header = await this.buildReturnHeaderConfig(
+        { projectId: sharedProjectId, siteAddress: returnSiteAddress, customerId: dto.customerId, date: new Date(dto.scheduledFor) },
+        organizationId,
+      );
       const config: Record<string, any> = {
         items: run.items.map((it) => {
           const u = it.inventoryId ? unitById.get(it.inventoryId) : null;
@@ -939,6 +1002,7 @@ export class DeliveriesService {
           };
         }),
         note: `Scheduled return of ${run.items.length} unit(s).`,
+        ...header,
       };
       const doc = await this.documentsService.createBasicDocument(
         templateId,
@@ -2555,9 +2619,11 @@ export class DeliveriesService {
     for (const it of pending) {
       const isFreeTyped = it.inventoryId == null && it.assetId == null;
 
-      // RETURN runs are UNCHANGED by the signature-at-end rework: a return is
-      // signed at collection (per unit), not at a run-level finalize, so the
-      // shared proof + collect stays here.
+      // RETURN (2026-08 signature-at-end, mirroring outbound): COLLECT ONLY, no
+      // signature. Each unit gets a bare UNSIGNED DO_ACK proof and advances to
+      // not_installed (stock flip + off-hire happen in collectReturnUnit). The
+      // run's single finalizeReturn signature stamps every DO_ACK and completes
+      // the items, so nothing signs per collection.
       if (isReturn) {
         if (isFreeTyped) {
           // Description-only return line: no unit, no stock; collect by
@@ -2574,10 +2640,8 @@ export class DeliveriesService {
             inventoryId: it.inventoryId!,
             deliveryId,
             kind: 'DO_ACK',
-            status: dto.signature ? 'completed' : 'draft',
+            status: 'draft',
             description: 'Return collected (bulk)',
-            ...(dto.signature ? { signature: dto.signature, signedAt: now } : {}),
-            ...(dto.recipientName ? { signedByName: dto.recipientName } : {}),
             ...(dto.photos?.length ? { photos: dto.photos } : {}),
             ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
             ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
@@ -2786,6 +2850,56 @@ export class DeliveriesService {
   }
 
   /**
+   * RETURN FINALIZE (2026-08). The return twin of finalizeRun: ONE customer
+   * signature at the END of the whole collection, reached once every unit is
+   * collected (the run has folded to `delivered`). There is NO install step on a
+   * return. It stamps the signature across every unsigned return DO_ACK proof,
+   * completes each collected (not_installed) item, and the fold's completion hook
+   * then fires completeReturnRun (the RDO). A SKIPPED item holds the run at
+   * in_progress, so finalize is unreachable until the rider comes back for it.
+   */
+  async finalizeReturn(
+    deliveryId: string,
+    dto: { signature?: string; recipientName?: string; latitude?: number; longitude?: number; technicianName?: string },
+    organizationId: string,
+  ) {
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: { id: true, status: true, direction: true },
+    });
+    if (!run) throw new NotFoundException('Delivery not found');
+    if (run.direction !== DeliveryDirection.RETURN) {
+      throw new BadRequestException('Only return runs are finalized here');
+    }
+    if (!dto.signature) throw new BadRequestException('Customer signature is required');
+    if (run.status === 'completed') throw new BadRequestException('This return is already finalized');
+    if (run.status !== 'delivered') {
+      throw new BadRequestException('Collect every unit on this run before capturing the signature');
+    }
+
+    const now = new Date();
+    // One signature stamped across every still-unsigned return proof MSR.
+    await this.prisma.maintenanceServiceReport.updateMany({
+      where: { deliveryId, kind: 'DO_ACK', status: { not: 'completed' } },
+      data: {
+        signature: dto.signature,
+        ...(dto.recipientName ? { signedByName: dto.recipientName } : {}),
+        signedAt: now,
+        status: 'completed',
+      },
+    });
+    // Complete every COLLECTED (not_installed) item. Skipped items stay skipped,
+    // so only genuinely collected lines advance — the fold then reaches
+    // `completed` and fires completeReturnRun (the RDO).
+    await this.prisma.deliveryItem.updateMany({
+      where: { deliveryId, deliveryStatus: DeliveryStatus.not_installed },
+      data: { deliveryStatus: DeliveryStatus.completed, completedAt: now },
+    });
+    await this.recomputeRunStatus(deliveryId, organizationId);
+    return this.prisma.delivery.findUnique({ where: { id: deliveryId } });
+  }
+
+  /**
    * Collect ONE unit on a RETURN run with proof (#3a per-unit "End Return"):
    * the return twin of the per-unit outbound ack. Writes a single DO_ACK MSR for
    * this unit (signature + photos + GPS), collects it (delivering → completed,
@@ -2818,6 +2932,10 @@ export class DeliveriesService {
     }
 
     const now = new Date();
+    // UNSIGNED proof (2026-08 signature-at-end for returns): collecting a unit
+    // writes a bare DO_ACK (GPS/photos only, NO signature) and marks it collected
+    // (not_installed). The run's single finalizeReturn signature stamps this MSR
+    // and completes the item, so nothing signs per collection.
     await this.prisma.maintenanceServiceReport.create({
       data: {
         organizationId,
@@ -2826,10 +2944,8 @@ export class DeliveriesService {
         inventoryId,
         deliveryId,
         kind: 'DO_ACK',
-        status: dto.signature ? 'completed' : 'draft',
+        status: 'draft',
         description: 'Return collected',
-        ...(dto.signature ? { signature: dto.signature, signedAt: now } : {}),
-        ...(dto.recipientName ? { signedByName: dto.recipientName } : {}),
         ...(dto.photos?.length ? { photos: dto.photos } : {}),
         ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
         ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
@@ -2855,9 +2971,14 @@ export class DeliveriesService {
     });
     if (!item) return null; // already collected / not eligible — idempotent
     const now = new Date();
+    // COLLECTED, awaiting the run-level signature (2026-08 signature-at-end for
+    // returns, mirroring outbound). delivering -> not_installed, NOT completed:
+    // the single customer signature at finalizeReturn advances every collected
+    // item to completed. The physical collection still happens now (stock flip +
+    // off-hire below) — only the paperwork signature waits for the end.
     await this.prisma.deliveryItem.update({
       where: { id: item.id },
-      data: { deliveryStatus: DeliveryStatus.completed, deliveredAt: now, completedAt: now },
+      data: { deliveryStatus: DeliveryStatus.not_installed, deliveredAt: now },
     });
     // rental → instock (guarded so a re-run / non-rental is a no-op).
     await this.prisma.inventory.updateMany({
@@ -2946,9 +3067,11 @@ export class DeliveriesService {
     if (!item) return null; // already collected / not eligible — idempotent
     const run = await this.prisma.delivery.findFirst({ where: { id: deliveryId, organizationId }, select: { projectId: true } });
     const now = new Date();
+    // COLLECTED, awaiting the run signature (not_installed, not completed) —
+    // finalizeReturn completes it, mirroring the unit path.
     await this.prisma.deliveryItem.update({
       where: { id: item.id },
-      data: { deliveryStatus: DeliveryStatus.completed, deliveredAt: now, completedAt: now },
+      data: { deliveryStatus: DeliveryStatus.not_installed, deliveredAt: now },
     });
     // No stock flip — a description-only line has no inventory.
     if (run?.projectId && item.description) {
@@ -3044,11 +3167,18 @@ export class DeliveriesService {
           ...(u?.assetId ? { deliveryGroup: u.assetId } : {}),
         };
       });
+      // Header fields (deliveryTo/projectName/attention/date), mirroring the DO so
+      // the completed RDO keeps the DO header. documentInfo is DEEP-merged below so
+      // the pending's tax block survives.
+      const header = await this.buildReturnHeaderConfig(
+        { projectId: run.projectId, siteAddress: run.siteAddress, customerId: run.customer?.id, date: new Date() },
+        organizationId,
+      );
       const config: Record<string, any> = {
         items,
-        ...(run.siteAddress ? { deliveryTo: run.siteAddress } : {}),
         ...(run.customer ? { customerId: run.customer.id, customerName: run.customer.name, customer: { id: run.customer.id, name: run.customer.name } } : {}),
         note: `Return of ${collected.length} unit(s) collected on delivery run #${run.deliveryNumber}.`,
+        ...header,
       };
       // Scheduled return: the run is born-linked to an RDO-PENDING-NN placeholder
       // (createScheduledReturn minted it, mirroring the DO scheme). Claim the real
@@ -3073,6 +3203,10 @@ export class DeliveriesService {
           ...prev,
           ...config,
           ...(config.customer ? { customer: { ...(prev.customer ?? {}), ...config.customer } } : {}),
+          // documentInfo is nested: deep-merge so the completion header (date,
+          // projectName, contactName) lands WITHOUT dropping the pending's tax
+          // block (taxApplicable/absorbTax/gstPercent/currency) minted onto it.
+          ...(config.documentInfo ? { documentInfo: { ...(prev.documentInfo ?? {}), ...config.documentInfo } } : {}),
         };
         await this.prisma.document.update({ where: { id: linkedDocId }, data: { config: merged } });
         const claimed = await this.documentsService.claimPendingNumber(linkedDocId, organizationId);

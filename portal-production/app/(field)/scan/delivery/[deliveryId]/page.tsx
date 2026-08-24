@@ -331,6 +331,47 @@ export default function DeliveryBasketPage() {
     [deliveryId, getToken, fetchRun, router],
   );
 
+  // Collect ONE return item — NO signature (2026-08 signature-at-end for returns,
+  // mirroring outbound). Marks it collected (delivering -> not_installed) via the
+  // return-aware collect endpoint (unit: collect-return; free-typed: items/:id/end).
+  // Collecting the LAST outstanding item folds the run to `delivered` -> flow ONCE
+  // into the single return signature. fetchRun peeks WITHOUT committing, so the run
+  // page never flashes its post-collection state before navigating.
+  const endReturnItem = useCallback(
+    async (it: RunItem) => {
+      setBusy(true);
+      setActionMsg(null);
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const res = it.inventoryId
+          ? await request(
+              { path: `/deliveries/${deliveryId}/items/${encodeURIComponent(it.inventoryId)}/collect-return`, method: "POST" },
+              {},
+              token,
+            )
+          : await request(
+              { path: `/deliveries/${deliveryId}/items/${encodeURIComponent(it.id)}/end`, method: "POST" },
+              {},
+              token,
+            );
+        if (res?.success === false) throw new Error(res?.message ?? "Could not collect this item");
+        const fresh = await fetchRun();
+        if (fresh && fresh.direction === "RETURN" && fresh.status === "delivered") {
+          router.push(`/scan/delivery/${deliveryId}/finalize?return=1`);
+          return;
+        }
+        if (fresh) setRun(fresh);
+        setActionMsg(it.inventory?.sku ? `${it.inventory.sku} collected ✓` : "Collected ✓");
+      } catch (e: any) {
+        setActionMsg(e?.message ?? "Could not collect this item");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [deliveryId, getToken, fetchRun, router],
+  );
+
   // How many condition photos this step demands (OSI-81). Equipment gets the
   // guided set, an accessory keeps one, and the rule is the same on a return as
   // on the way out so the two sets can be compared before and after the hire.
@@ -542,14 +583,6 @@ export default function DeliveryBasketPage() {
     );
   }
 
-  // Reordered flow resume: a delivering unit with an UNSIGNED DO_ACK is
-  // mid-flow (ack captured, signature pending) → Continue into after-ack.
-  const hasDraftAck = (it: RunItem) =>
-    !!it.inventoryId &&
-    (run.reports ?? []).some(
-      (r) => r.kind === "DO_ACK" && r.status !== "completed" && r.inventoryId === it.inventoryId,
-    );
-
   // Adding is open only while the run is in progress AND nothing has been
   // handed over yet. "Handed over" = acknowledged, i.e. deliveryStatus
   // not_installed (delivered, awaiting install) or completed. We deliberately
@@ -568,48 +601,36 @@ export default function DeliveryBasketPage() {
   // hand-over; the backend enforces the same split in addItem.
   const canFillScheduledSlot = run.status === "in_progress";
 
-  // Units mid-delivery (DO_START fired, not yet acknowledged) — the lead for the
-  // bulk end flow (its screens capture the one shared proof).
-  const deliveringUnits = run.items.filter((it) => it.inventoryId && it.deliveryStatus === "delivering");
   // EVERY item still delivering, unit-backed OR free-typed. The single "End
-  // Delivery" button covers all of them: a unit lead captures the shared proof
-  // and ack-all fans it across every delivering item (free-typed included).
+  // Delivery" / "End Return" button covers all of them: ack-all fans across every
+  // delivering item (free-typed included).
   const deliveringItems = run.items.filter((it) => it.deliveryStatus === "delivering");
 
   // Bulk end: prefer a UNIT lead (its ack -> after-ack screens capture the shared
   // proof, then ack-all fans it across every delivering item including free-typed
   // lines). With only free-typed lines delivering, end via the free-item page.
   const bulkEnd = async () => {
-    // RETURN runs are unchanged: they capture the signature at collection, so a
-    // unit lead still drives the after-ack proof flow that ack-all fans out.
+    // RETURN (2026-08 signature-at-end, mirroring outbound): COLLECT every
+    // delivering item with NO signature — units via ack-all (unsigned DO_ACK +
+    // off-hire), free-typed via /end. The single customer signature is captured
+    // ONCE at the end (finalize?return=1), reached when the run folds to
+    // `delivered`. fetchRun peeks without committing so the page never flashes.
     if (run.direction === "RETURN") {
-      // Units first: a unit lead drives the after-ack proof flow (applyToAll fans
-      // the one signature across every delivering UNIT). Free-typed lines carry no
-      // unit and no signature, so they are collected directly here via /end (the
-      // return-aware endpoint -> collectReturnFreeTyped: completed + off-hire).
-      const unitLead = deliveringUnits[0];
-      if (unitLead && unitLead.inventoryId) {
-        const q = `assetId=${encodeURIComponent(unitLead.assetId)}&inventoryId=${encodeURIComponent(unitLead.inventoryId)}&applyToAll=1`;
-        const entry = hasDraftAck(unitLead) ? "after-ack" : "ack";
-        router.push(`/scan/delivery/${run.id}/${entry}?${q}`);
-        return;
-      }
-      const freeTyped = deliveringItems.filter((it) => !it.inventoryId && !it.assetId);
-      if (!freeTyped.length) return;
       setBusy(true);
       setActionMsg(null);
       try {
         const token = await getToken();
         if (!token) throw new Error("Not signed in");
-        for (const it of freeTyped) {
-          const res = await request(
-            { path: `/deliveries/${run.id}/items/${encodeURIComponent(it.id)}/end`, method: "POST" },
-            {},
-            token,
-          );
-          if (res?.success === false) throw new Error(res?.message ?? "Could not collect this item");
+        // One ack-all collects EVERY delivering return item unsigned — units and
+        // free-typed lines alike (the backend dispatcher handles both).
+        const res = await request({ path: `/deliveries/${run.id}/ack-all`, method: "POST" }, {}, token);
+        if (res?.success === false) throw new Error(res?.message ?? "Could not collect the items");
+        const fresh = await fetchRun();
+        if (fresh && fresh.direction === "RETURN" && fresh.status === "delivered") {
+          router.push(`/scan/delivery/${run.id}/finalize?return=1`);
+          return;
         }
-        await load();
+        if (fresh) setRun(fresh);
         setActionMsg("Collected ✓");
       } catch (e: any) {
         setActionMsg(e?.message ?? "Could not collect the item");
@@ -798,6 +819,31 @@ export default function DeliveryBasketPage() {
         </Card>
       )}
 
+      {/* RETURN fallback: the run is fully collected but unsigned — reached when a
+          rider backs out of the return signature, or collected the last item from
+          the free-item page. The single return signature is captured here. */}
+      {isReturnRun && run.status === "delivered" && (
+        <Card variant="outlined" sx={{ borderColor: "success.main", borderWidth: 2 }}>
+          <CardContent>
+            <Typography variant="h6" fontWeight={700}>Ready to finish</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.5 }}>
+              Every unit is collected or skipped. Get the customer&apos;s signature to complete this return.
+            </Typography>
+            <Button
+              fullWidth
+              variant="contained"
+              color="success"
+              startIcon={<AssignmentReturnIcon />}
+              onClick={() => router.push(`/scan/delivery/${run.id}/finalize?return=1`)}
+              disabled={busy}
+              sx={{ minHeight: 48 }}
+            >
+              Get customer signature
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── WALK-THROUGH (scheduled runs) ──────────────────────────────────
           One item at a time, in the order the office entered them, so nothing
           is missed and the rider never has to pick from a list while standing
@@ -878,11 +924,7 @@ export default function DeliveryBasketPage() {
                     variant="contained"
                     size="large"
                     startIcon={<AssignmentReturnIcon />}
-                    onClick={() =>
-                      router.push(
-                        `/scan/delivery/${run.id}/after-ack?assetId=${encodeURIComponent(walkItem.assetId)}&inventoryId=${encodeURIComponent(walkItem.inventoryId!)}`,
-                      )
-                    }
+                    onClick={() => endReturnItem(walkItem)}
                     disabled={busy}
                     sx={{ py: 1.5, minHeight: 48 }}
                   >

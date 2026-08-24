@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
   Alert,
@@ -19,20 +19,21 @@ import SignaturePadField, { SignaturePadHandle } from "@/components/delivery/Sig
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
 
 /**
- * RUN FINALIZE (2026-08). The ONE closing sequence for the whole delivery, reached
- * when the LAST outstanding item is ended (the run has folded to `delivered`).
- * Installation is asked ONCE for the whole run here (not per item), then the ONE
- * customer signature. POST /deliveries/:id/finalize records a single run-level
- * DO_INSTALL (when installed) with the shared photos, stamps the signature across
- * the per-item proof MSRs, completes the delivered items, and fires the DO + draft
- * invoice. Backing out returns to the run page, where the finalize card re-enters.
+ * RUN FINALIZE (2026-08). The ONE closing sequence for the whole run, reached when
+ * the LAST outstanding item is ended (the run has folded to `delivered`). OUTBOUND
+ * asks installation ONCE then the ONE customer signature (POST /finalize -> DO +
+ * draft invoice). A RETURN (?return=1) has NO install step: it goes straight to the
+ * ONE signature (POST /finalize-return -> stamps every return proof + the RDO).
+ * Backing out returns to the run page, where the finalize card re-enters.
  */
 export default function FinalizeDeliveryPage() {
   const router = useRouter();
   const { deliveryId } = useParams() as { deliveryId: string };
   const { getToken } = useAuth();
+  const isReturn = useSearchParams()?.get("return") === "1";
 
-  const [step, setStep] = useState<"install" | "sign">("install");
+  // A return has no install step, so it opens straight on the signature.
+  const [step, setStep] = useState<"install" | "sign">(isReturn ? "sign" : "install");
   const [installChoice, setInstallChoice] = useState<"yes" | "no" | null>(null);
   const [installPhotos, setInstallPhotos] = useState<CapturedPhoto[]>([]);
 
@@ -49,7 +50,7 @@ export default function FinalizeDeliveryPage() {
 
   const submit = async () => {
     if (!sigRef.current || sigRef.current.isEmpty()) {
-      setError("The customer needs to sign to complete the delivery.");
+      setError(isReturn ? "The customer needs to sign to complete the return." : "The customer needs to sign to complete the delivery.");
       return;
     }
     const signature = sigRef.current.toDataUrl();
@@ -58,23 +59,32 @@ export default function FinalizeDeliveryPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request(
-        { path: `/deliveries/${deliveryId}/finalize`, method: "POST" },
-        {
-          signature,
-          ...(signedByName.trim() ? { recipientName: signedByName.trim() } : {}),
-          installNeeded: installChoice === "yes",
-          ...(installChoice === "yes" && installPhotos.length ? { installPhotos: installPhotos.map((p) => p.key) } : {}),
-        },
-        token,
-      );
-      if (res?.success === false) throw new Error(res?.message ?? "Could not finalize the delivery");
-      // The run is complete: land on the "Delivery completed" screen
-      // (confirmation + Print DO + Back to scan). Print DO matters here: it is
-      // the rider's chance to print at hand-off.
-      router.replace(`/scan/deliveries/finished/${deliveryId}`);
+      const res = isReturn
+        ? await request(
+            { path: `/deliveries/${deliveryId}/finalize-return`, method: "POST" },
+            {
+              signature,
+              ...(signedByName.trim() ? { recipientName: signedByName.trim() } : {}),
+            },
+            token,
+          )
+        : await request(
+            { path: `/deliveries/${deliveryId}/finalize`, method: "POST" },
+            {
+              signature,
+              ...(signedByName.trim() ? { recipientName: signedByName.trim() } : {}),
+              installNeeded: installChoice === "yes",
+              ...(installChoice === "yes" && installPhotos.length ? { installPhotos: installPhotos.map((p) => p.key) } : {}),
+            },
+            token,
+          );
+      if (res?.success === false) throw new Error(res?.message ?? (isReturn ? "Could not finalize the return" : "Could not finalize the delivery"));
+      // A RETURN has no printable DO receipt to land on, so go straight back to
+      // the scan home. OUTBOUND lands on the "Delivery completed" screen
+      // (confirmation + Print DO), the rider's chance to print at hand-off.
+      router.replace(isReturn ? "/scan" : `/scan/deliveries/finished/${deliveryId}`);
     } catch (e: any) {
-      setError(e?.message ?? "Could not finalize the delivery");
+      setError(e?.message ?? (isReturn ? "Could not finalize the return" : "Could not finalize the delivery"));
       setWorking(false);
     }
   };
@@ -84,7 +94,7 @@ export default function FinalizeDeliveryPage() {
       <Stack direction="row" alignItems="center">
         <Button
           startIcon={<ArrowBackIcon />}
-          onClick={() => (step === "sign" ? setStep("install") : router.back())}
+          onClick={() => (step === "sign" && !isReturn ? setStep("install") : router.back())}
           disabled={working}
           color="inherit"
         >
@@ -154,8 +164,9 @@ export default function FinalizeDeliveryPage() {
             Customer signature
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            One signature covers the whole delivery. It completes the run and creates the Delivery Order and its
-            invoice.
+            {isReturn
+              ? "One signature covers the whole return. It completes the collection and creates the Return Delivery Order."
+              : "One signature covers the whole delivery. It completes the run and creates the Delivery Order and its invoice."}
           </Typography>
 
           <TextField
@@ -169,7 +180,7 @@ export default function FinalizeDeliveryPage() {
           <SignaturePadField ref={sigRef} />
 
           <Button fullWidth variant="contained" color="success" onClick={submit} disabled={working} sx={{ minHeight: 48 }}>
-            {working ? <CircularProgress size={22} /> : "Complete delivery"}
+            {working ? <CircularProgress size={22} /> : isReturn ? "Complete return" : "Complete delivery"}
           </Button>
         </>
       )}
