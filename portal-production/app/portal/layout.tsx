@@ -89,7 +89,10 @@ export default function Layout(props: Props) {
                 <Box
                   sx={{
                     position: "fixed",
-                    top: 8,
+                    // Sit just BELOW the right-aligned "Viewing as org" dropdown
+                    // row (OrgSwitcher, ~56px tall) so the bell stops overlapping
+                    // it and the page's own top-right controls.
+                    top: 64,
                     right: 12,
                     zIndex: (t) => t.zIndex.appBar + 1,
                     display: { xs: "none", md: "block" },

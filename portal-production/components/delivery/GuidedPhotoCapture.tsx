@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Box,
@@ -109,6 +109,18 @@ export default function GuidedPhotoCapture({
   // beside its outbound angle before advancing. `reviewing` gates that step.
   const comparisonMode = !!comparison;
   const [reviewing, setReviewing] = useState(false);
+  // Enter the review whenever a new photo ARRIVES, regardless of how it was
+  // captured (native camera, device-camera input, or gallery pick). Driving this
+  // off the photo count rather than off any one capture handler is what makes
+  // every source run the identical capture -> compare -> damage -> next sequence:
+  // no path can add a photo without the review that follows. Only an INCREASE
+  // triggers it, so Retake (which drops the last photo) and Next (which just
+  // leaves the review) never re-open it.
+  const prevPhotoCount = useRef(photos.length);
+  useEffect(() => {
+    if (comparisonMode && photos.length > prevPhotoCount.current) setReviewing(true);
+    prevPhotoCount.current = photos.length;
+  }, [photos.length, comparisonMode]);
   // Fullscreen image viewer for the return comparison (Delivered / Returning),
   // same fullscreen-Dialog pattern /submit uses: the black overflow-auto box lets
   // the phone pinch-zoom the contained image.
@@ -161,8 +173,8 @@ export default function GuidedPhotoCapture({
         [...damage.comments, ...captured.map(() => "")],
       );
     }
-    // Return mode: drop into the side-by-side review of the shot just taken.
-    if (comparisonMode) setReviewing(true);
+    // Review is entered by the photo-count effect above (fires for every capture
+    // source), not here, so the gallery path can never bypass it.
   };
 
   // The answer for the shot under review (always the last one taken).

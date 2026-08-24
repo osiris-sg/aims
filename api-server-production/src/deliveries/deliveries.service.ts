@@ -5,6 +5,7 @@ import { isUnconfirmedDoc } from 'src/common/doc-status';
 import { resolveLineAssetClass, minPhotosForAssetClass } from 'src/common/asset-class';
 import { DocumentsService } from '../documents/documents.service';
 import { ProjectsService } from '../projects/projects.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { AddDeliveryItemDto } from './dto/add-delivery-item.dto';
 import { ScheduleDeliveryDto, ClaimScheduledDto } from './dto/schedule-delivery.dto';
@@ -30,6 +31,7 @@ export class DeliveriesService {
     private readonly prisma: PrismaService,
     private readonly documentsService: DocumentsService,
     private readonly projectsService: ProjectsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // ── reservation ──────────────────────────────────────────────────────────
@@ -750,7 +752,7 @@ export class DeliveriesService {
     // has null inventoryId AND assetId), on a project belonging to this
     // customer. These have no inventory, so they ride deploymentIds, not
     // inventoryIds — the picker's rental filter excludes them by construction.
-    const freeTypedDeployments: { id: string; projectId: string | null; description: string }[] = [];
+    const freeTypedDeployments: { id: string; projectId: string | null; description: string; assetClass: AssetClass }[] = [];
     if (deploymentIds.length) {
       const deps = await this.prisma.projectDeployment.findMany({
         where: {
@@ -776,7 +778,26 @@ export class DeliveriesService {
         }
         const desc = (d.description ?? d.assignments.find((a) => a.description)?.description ?? '').trim();
         if (!desc) throw new BadRequestException('A description-only line is missing its description');
-        freeTypedDeployments.push({ id: d.id, projectId: d.projectId, description: desc });
+        freeTypedDeployments.push({ id: d.id, projectId: d.projectId, description: desc, assetClass: AssetClass.EQUIPMENT });
+      }
+      // Recover each free-typed line's class from the ORIGINAL outbound line so a
+      // returned accessory (a cable) asks for 1 photo, not 5. The class is not on
+      // the description-only deployment, so read it off the most recent outbound
+      // free-typed DeliveryItem with the same description on that project. Mirrors
+      // outbound (DeliveryItem.assetClass); defaults to EQUIPMENT when none found.
+      for (const ft of freeTypedDeployments) {
+        const src = await this.prisma.deliveryItem.findFirst({
+          where: {
+            assetId: null,
+            inventoryId: null,
+            description: ft.description,
+            assetClass: { not: null },
+            delivery: { is: { organizationId, direction: DeliveryDirection.OUTBOUND, ...(ft.projectId ? { projectId: ft.projectId } : {}) } },
+          },
+          orderBy: { delivery: { createdAt: 'desc' } },
+          select: { assetClass: true },
+        });
+        if (src?.assetClass) ft.assetClass = src.assetClass;
       }
     }
 
@@ -873,6 +894,9 @@ export class DeliveriesService {
                   inventoryId: null,
                   quantity: 1,
                   description: d.description,
+                  // Carry the line's class so the return capture asks for the same
+                  // photo count as outbound (1 for accessory, 5 for equipment).
+                  assetClass: d.assetClass,
                   sortOrder: (inventoryIds.length + j) * 100,
                 })),
               ],
@@ -3053,14 +3077,38 @@ export class DeliveriesService {
         await this.prisma.document.update({ where: { id: linkedDocId }, data: { config: merged } });
         const claimed = await this.documentsService.claimPendingNumber(linkedDocId, organizationId);
         this.logger.log(`Return run #${run.deliveryNumber}: claimed RDO ${claimed ?? linkedDocId} on the placeholder for ${collected.length} unit(s).`);
+        await this.emitRdoReady(linkedDocId, organizationId);
         return;
       }
       const doc = await this.documentsService.createBasicDocument(templateId, 'RETURN_DELIVERY_ORDER', organizationId, config, run.projectId ?? undefined);
       await this.prisma.deliveryItem.updateMany({ where: { deliveryId: run.id }, data: { documentId: doc.id } });
       this.logger.log(`Return run #${run.deliveryNumber}: created RDO ${doc.id} for ${collected.length} unit(s) (goods-only, no GL).`);
+      await this.emitRdoReady(doc.id, organizationId);
     } catch (err: any) {
       this.logger.error(`completeReturnRun failed for delivery ${deliveryId}: ${err?.message}`, err?.stack);
     }
+  }
+
+  /**
+   * Notify the office that a Return Delivery Order is ready, mirroring the
+   * DO_READY / INVOICE_DRAFT bells on the outbound completion path. Best-effort:
+   * NotificationsService.emit never throws, so a notification failure can never
+   * fail or roll back the return completion. Click-through opens the RDO.
+   */
+  private async emitRdoReady(documentId: string, organizationId: string) {
+    const doc = await this.prisma.document.findUnique({
+      where: { id: documentId },
+      select: { name: true, type: true, documentTemplateId: true },
+    });
+    await this.notifications.emit({
+      organizationId,
+      kind: 'RDO_READY',
+      title: 'Return Delivery Order ready',
+      body: doc?.name ? `${doc.name} is ready to review.` : 'A return delivery order is ready to review.',
+      entityType: 'document',
+      entityId: documentId,
+      linkUrl: doc?.documentTemplateId ? `/portal/documents/${doc.type}/${doc.documentTemplateId}/${documentId}` : null,
+    });
   }
 
   async skipInstall(deliveryId: string, inventoryId: string, organizationId: string) {
