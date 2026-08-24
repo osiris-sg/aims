@@ -3139,32 +3139,46 @@ export class DeliveriesService {
         select: {
           id: true, deliveryNumber: true, projectId: true, siteAddress: true,
           customer: { select: { id: true, name: true } },
-          items: { select: { assetId: true, inventoryId: true, description: true, quantity: true, documentId: true } },
+          items: { select: { assetId: true, inventoryId: true, description: true, quantity: true, documentId: true, deliveryStatus: true } },
         },
       });
       if (!run) return;
-      const collected = run.items.filter((i) => i.inventoryId && i.assetId);
+      // COLLECTED = items that actually came back (deliveryStatus completed),
+      // NOT "has a unit". This keeps SKIPPED lines off the RDO while including
+      // description-only (free-typed) lines that were collected — a free-typed
+      // line has inventoryId AND assetId null, so the old `inventoryId && assetId`
+      // filter silently dropped it (and a free-typed-only return minted no RDO at
+      // all). Mirrors createDoFromDelivery, which never filters lines out.
+      const collected = run.items.filter((i) => i.deliveryStatus === DeliveryStatus.completed);
       if (collected.length === 0) return;
 
       const templateId = await this.resolveReturnDeliveryOrderTemplateId(organizationId);
-      const invIds = collected.map((i) => i.inventoryId!) as string[];
-      const units = await this.prisma.inventory.findMany({
-        where: { id: { in: invIds } },
-        select: { id: true, sku: true, year: true, assetId: true, asset: { select: { skuKey: true, name: true } } },
-      });
+      const invIds = collected.map((i) => i.inventoryId).filter((v): v is string => !!v);
+      const units = invIds.length
+        ? await this.prisma.inventory.findMany({
+            where: { id: { in: invIds } },
+            select: { id: true, sku: true, year: true, assetId: true, asset: { select: { skuKey: true, name: true } } },
+          })
+        : [];
       const unitById = new Map(units.map((u) => [u.id, u]));
       const items = collected.map((i) => {
-        const u = unitById.get(i.inventoryId!);
+        const u = i.inventoryId ? unitById.get(i.inventoryId) : null;
         return {
           description: i.description ?? u?.asset?.name ?? u?.sku ?? '',
           quantity: i.quantity ?? 1,
           unitPrice: 0,
           amount: 0,
-          inventoryItemId: i.inventoryId,
-          ...(u?.sku ? { serialNumbers: [u.sku] } : {}),
-          ...(u?.asset?.skuKey ? { skuKey: u.asset.skuKey, itemCode: u.asset.skuKey } : {}),
-          ...(u?.year != null ? { year: u.year } : {}),
-          ...(u?.assetId ? { deliveryGroup: u.assetId } : {}),
+          // Unit-only fields are added ONLY for a unit line; a free-typed line
+          // stays a plain description row (like it does on the DO).
+          ...(i.inventoryId
+            ? {
+                inventoryItemId: i.inventoryId,
+                ...(u?.sku ? { serialNumbers: [u.sku] } : {}),
+                ...(u?.asset?.skuKey ? { skuKey: u.asset.skuKey, itemCode: u.asset.skuKey } : {}),
+                ...(u?.year != null ? { year: u.year } : {}),
+                ...(u?.assetId ? { deliveryGroup: u.assetId } : {}),
+              }
+            : {}),
         };
       });
       // Header fields (deliveryTo/projectName/attention/date), mirroring the DO so
