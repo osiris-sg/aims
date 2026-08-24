@@ -184,7 +184,12 @@ export default function DeliveryBasketPage() {
   // Returns the freshly-loaded run so callers can branch on its new status (e.g.
   // ending the last item flows straight into the signature when the run is now
   // `delivered`). Null on failure / not signed in.
-  const load = useCallback(async () => {
+  // Fetch the run WITHOUT committing it to state. Used when the next step is to
+  // navigate away (to finalize): committing a `delivered` run first would
+  // re-render this page into its sparse post-delivery state for a frame before
+  // the route changes — the "flash" the rider sees between End Delivery and the
+  // installation question. Peeking at status without setRun avoids that.
+  const fetchRun = useCallback(async (): Promise<Run | null> => {
     try {
       const token = await getToken();
       if (!token) {
@@ -196,16 +201,19 @@ export default function DeliveryBasketPage() {
         setError(res.message ?? "Delivery not found");
         return null;
       }
-      const fresh = res.data ?? res;
-      setRun(fresh);
-      return fresh;
+      return (res.data ?? res) as Run;
     } catch (e: any) {
       setError(e?.message ?? "Failed to load delivery");
       return null;
-    } finally {
-      setLoading(false);
     }
   }, [deliveryId, getToken]);
+
+  const load = useCallback(async () => {
+    const fresh = await fetchRun();
+    if (fresh) setRun(fresh);
+    setLoading(false);
+    return fresh;
+  }, [fetchRun]);
 
   useEffect(() => {
     void load();
@@ -302,14 +310,17 @@ export default function DeliveryBasketPage() {
               token,
             );
         if (res?.success === false) throw new Error(res?.message ?? "Could not mark this item delivered");
-        const fresh = await load();
-        // Ending the LAST unresolved item leaves the run `delivered` (everything
-        // completed or skipped) -> flow STRAIGHT into the one signature. If items
-        // remain the run is still in_progress, so we stay on the walk.
+        // Peek at the fresh status WITHOUT committing it. Ending the LAST
+        // unresolved item leaves the run `delivered` -> go STRAIGHT to the one
+        // signature; committing the delivered run first would flash this page's
+        // post-delivery state before the route changes. If items remain, commit
+        // and stay on the walk.
+        const fresh = await fetchRun();
         if (fresh && fresh.direction !== "RETURN" && fresh.status === "delivered") {
           router.push(`/scan/delivery/${deliveryId}/finalize`);
           return;
         }
+        if (fresh) setRun(fresh);
         setActionMsg(it.inventory?.sku ? `${it.inventory.sku} delivered ✓` : "Marked delivered ✓");
       } catch (e: any) {
         setActionMsg(e?.message ?? "Could not mark this item delivered");
@@ -317,7 +328,7 @@ export default function DeliveryBasketPage() {
         setBusy(false);
       }
     },
-    [deliveryId, getToken, load, router],
+    [deliveryId, getToken, fetchRun, router],
   );
 
   // How many condition photos this step demands (OSI-81). Equipment gets the
@@ -618,13 +629,16 @@ export default function DeliveryBasketPage() {
       if (!token) throw new Error("Not signed in");
       const res = await request({ path: `/deliveries/${run.id}/ack-all`, method: "POST" }, {}, token);
       if (res?.success === false) throw new Error(res?.message ?? "Could not mark items delivered");
-      const fresh = await load();
-      // If this ended the last unresolved item(s), the run is now `delivered` ->
-      // go straight to the one signature; otherwise stay on the walk.
+      // Peek without committing: if this ended the last unresolved item(s) the run
+      // is now `delivered` -> go straight to the one signature. Committing the
+      // delivered run first would flash this page's post-delivery state before the
+      // route changes. Otherwise commit and stay on the walk.
+      const fresh = await fetchRun();
       if (fresh && fresh.direction !== "RETURN" && fresh.status === "delivered") {
         router.push(`/scan/delivery/${run.id}/finalize`);
         return;
       }
+      if (fresh) setRun(fresh);
     } catch (e: any) {
       setActionMsg(e?.message ?? "Could not mark items delivered");
     } finally {

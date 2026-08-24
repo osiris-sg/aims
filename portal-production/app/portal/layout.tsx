@@ -81,27 +81,6 @@ export default function Layout(props: Props) {
             >
               <PortalChrome isDocumentPage={isDocumentPage} />
 
-              {/* Desktop notification bell (top-right). No desktop top bar
-                  exists, so this is fixed to the viewport corner. Hidden on the
-                  viewport-locked document editor pages so it never overlaps the
-                  editor chrome; mobile gets its bell inside AppNavbar. */}
-              {!isDocumentPage && (
-                <Box
-                  sx={{
-                    position: "fixed",
-                    // Sit just BELOW the right-aligned "Viewing as org" dropdown
-                    // row (OrgSwitcher, ~56px tall) so the bell stops overlapping
-                    // it and the page's own top-right controls.
-                    top: 64,
-                    right: 12,
-                    zIndex: (t) => t.zIndex.appBar + 1,
-                    display: { xs: "none", md: "block" },
-                  }}
-                >
-                  <NotificationBell />
-                </Box>
-              )}
-
               <Box
                 sx={{
                   flexGrow: 1,
@@ -122,11 +101,20 @@ export default function Layout(props: Props) {
               >
                 {/* Admin-only chrome — both components self-hide for non-admins. */}
                 <ViewingAsBanner />
-                {/* OrgSwitcher owns its own padded row and returns null for
-                    non-admins — no empty strip on any page. Hidden entirely on
-                    document pages (viewport-locked editor); admins switch org
-                    from list pages, ViewingAsBanner still shows everywhere. */}
-                {!isDocumentPage && <OrgSwitcher />}
+                {/* Top-right chrome row: the "Viewing as org" dropdown with the
+                    notification bell to its RIGHT (the org box shifts left to make
+                    room, so the two no longer overlap). OrgSwitcher returns null
+                    for non-admins, leaving just the bell right-aligned. Bell is
+                    desktop-only here; mobile has its own bell in AppNavbar. Hidden
+                    entirely on document pages (viewport-locked editor). */}
+                {!isDocumentPage && (
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.5, pr: 1.5 }}>
+                    <OrgSwitcher />
+                    <Box sx={{ display: { xs: "none", md: "inline-flex" } }}>
+                      <NotificationBell />
+                    </Box>
+                  </Box>
+                )}
                 {children}
               </Box>
               {/* AIMS Guide bubble (bottom-right) — global for every org. */}
