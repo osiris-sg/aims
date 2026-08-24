@@ -59,17 +59,32 @@ export class NotificationsService {
     }
   }
 
-  /** Office users of the org = holders of `documents:read` (field-tech lack it). */
+  /**
+   * Recipients for an org's notifications:
+   *  - Office users OF THE ORG: holders of `documents:read` (field-tech lack it).
+   *  - Global osirisadmins (any org): they oversee every org and view-as it, so
+   *    the row is written with THIS org's id and only surfaces in their bell while
+   *    they are viewing this org (the bell query filters by active org). Without
+   *    this, a global admin who has no membership in the org — e.g. admin@osiris.sg
+   *    completing a test delivery viewing-as the org — would never see the bell,
+   *    even though the org's own staff do. Per-user read state is preserved.
+   */
   private async resolveRecipients(organizationId: string): Promise<string[]> {
-    const rows = await this.prisma.userRole.findMany({
-      where: {
-        organizationId,
-        isActive: true,
-        role: { permissions: { some: { name: 'documents:read' } } },
-      },
-      select: { userId: true },
-    });
-    return [...new Set(rows.map((r) => r.userId))];
+    const [orgReaders, osirisAdmins] = await Promise.all([
+      this.prisma.userRole.findMany({
+        where: {
+          organizationId,
+          isActive: true,
+          role: { permissions: { some: { name: 'documents:read' } } },
+        },
+        select: { userId: true },
+      }),
+      this.prisma.userRole.findMany({
+        where: { isActive: true, role: { name: 'osirisadmin' } },
+        select: { userId: true },
+      }),
+    ]);
+    return [...new Set([...orgReaders, ...osirisAdmins].map((r) => r.userId))];
   }
 
   /** The caller's own notifications in the active org, newest first, + unread count. */
