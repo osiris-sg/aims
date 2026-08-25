@@ -35,5 +35,6 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // Activity Log tab on the Audit page (ActionLog table — every API action
   // with typed actors; non-human actors show as "System creation"). Capture
   // is always-on server-side; this flag gates the viewer UI per org.
-  enableActionLog: false,
+  // Default ON for every org, new and existing (guru, 2026-08-23).
+  enableActionLog: true,
 };

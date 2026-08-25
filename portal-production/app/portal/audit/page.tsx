@@ -5,14 +5,16 @@ import AuditLogs from "./components/AuditLogs";
 import ActivityLog from "./components/ActivityLog";
 import MainCard from "@/components/MainCard";
 import { Box, Tab, Tabs } from "@mui/material";
-import { useOrganizationFeatures } from "../hooks/useOrganizationFeatures";
+import { useOrganizationFeatures, FEATURE_FLAG_DEFAULTS } from "../hooks/useOrganizationFeatures";
 
 export default function Page() {
   const { features } = useOrganizationFeatures();
-  const actionLogEnabled = !!features?.enableActionLog;
+  // Default ON for every org (stored config only overrides when an admin
+  // explicitly switched it off).
+  const actionLogEnabled = features?.enableActionLog ?? FEATURE_FLAG_DEFAULTS.enableActionLog;
   const [tab, setTab] = useState(0);
 
-  // Flag off → legacy audit page unchanged.
+  // Explicitly switched off → legacy audit page unchanged.
   if (!actionLogEnabled) return <AuditLogs />;
 
   return (
