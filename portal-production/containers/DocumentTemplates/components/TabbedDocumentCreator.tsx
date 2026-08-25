@@ -5497,9 +5497,15 @@ export default function TabbedDocumentCreator({
                                     </TableCell>
                                   );
                                 } else if (columnId === "amount") {
+                                  // Text-only lines (no qty, no price) show a BLANK amount —
+                                  // rendering 0.00 on ref/annotation rows clutters the invoice.
+                                  const isTextLine =
+                                    (item.amount == null || item.amount === "") &&
+                                    (item.quantity == null || item.quantity === "") &&
+                                    (item.unitPrice == null || item.unitPrice === "");
                                   return (
                                     <TableCell key={columnId} align="right">
-                                      {(item.amount || 0).toFixed(2)}
+                                      {isTextLine ? "" : (item.amount || 0).toFixed(2)}
                                     </TableCell>
                                   );
                                 } else if (columnId === "taggedAsset") {

@@ -626,7 +626,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity?.toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "right" }}>{item.unitPrice?.toFixed(2)}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{(item.amount || 0).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null ? "" : Number(item.amount).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
 
@@ -936,7 +936,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity?.toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "right" }}>{item.unitPrice?.toFixed(2)}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{(item.amount || 0).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null ? "" : Number(item.amount).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
 
@@ -1558,7 +1558,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity?.toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "right" }}>{item.unitPrice?.toFixed(2)}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{(item.amount || 0).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null ? "" : Number(item.amount).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
 
@@ -2678,7 +2678,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity?.toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "right" }}>{item.unitPrice?.toFixed(2)}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{(item.amount || 0).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null ? "" : Number(item.amount).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
 
@@ -3032,7 +3032,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity?.toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.uom || ""}</TableCell>
                   <TableCell sx={{ textAlign: "right" }}>{item.unitPrice?.toFixed(4)}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{(item.amount || 0).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null ? "" : Number(item.amount).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
 
@@ -3307,7 +3307,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity?.toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.uom || ""}</TableCell>
                   <TableCell sx={{ textAlign: "right" }}>{item.unitPrice?.toFixed(4)}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{(item.amount || 0).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null ? "" : Number(item.amount).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
 
@@ -4428,7 +4428,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 <TableCell><DescriptionText text={item.description || ""} /></TableCell>
                 <TableCell align="center">{item.quantity}</TableCell>
                 <TableCell align="right">{item.unitPrice?.toFixed(2)}</TableCell>
-                <TableCell align="right">{(item.amount || 0).toFixed(2)}</TableCell>
+                <TableCell align="right">{item.amount == null ? "" : Number(item.amount).toFixed(2)}</TableCell>
               </TableRow>
             ))}
 
