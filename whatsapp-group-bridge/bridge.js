@@ -134,6 +134,10 @@ async function resolveClientName(chatId, senderId) {
           !digits || excludedDigits.some((e) => digits === e || digits.endsWith(e) || e.endsWith(digits));
 
         for (const p of list) {
+          // Never greet ourselves. The bot's own id in a group is a LID, which
+          // never matches the phone number in client.info, so rely on the
+          // participant's own isMe flag instead.
+          if (p?.isMe) continue;
           const serialized = String(p?.id?._serialized || p?.id || '');
           const digits = serialized.replace(/\D/g, '');
           if (isExcluded(digits)) continue;
