@@ -222,7 +222,7 @@ client.on('ready', () => {
   const me = client.info?.wid?.user || 'unknown';
   const name = client.info?.pushname || '';
   const lid = client.info?.lid?.user || client.info?.me?.lid?.user || '';
-  BOT_IDS = [me, lid].map((s) => (s || '').replace(/\D/g, '')).filter(Boolean);
+  BOT_IDS = [me, lid, process.env.BOT_LID].map((s) => (s || '').replace(/\D/g, '')).filter(Boolean);
   console.log(
     `✅ Group bridge live — linked as +${me} ${name ? '(' + name + ')' : ''}` +
       `${lid ? ' [lid ' + lid + ']' : ''} for org ${ORG_ID}. Trigger: @mention or ${TRIGGER}`,
@@ -240,6 +240,22 @@ client.on('ready', () => {
     dmDenzel(process.env.DEMO_NOTIFY).then(() => console.log('   (demo notification sent)'));
   }
 });
+
+/** Learn our own LID from a group's member list (client.info omits it here). */
+async function discoverBotLid(groupIds) {
+  for (const gid of groupIds) {
+    for (const m of await groupMembers(gid)) {
+      if (m.isMe) {
+        const digits = String(m.id).replace(/\D/g, '');
+        if (digits && !BOT_IDS.includes(digits)) {
+          BOT_IDS.push(digits);
+          console.log(`   🪪 own LID discovered: ${digits}`);
+        }
+        return;
+      }
+    }
+  }
+}
 
 async function probeGroupTitles() {
   try {
@@ -261,6 +277,8 @@ async function probeGroupTitles() {
       return out;
     });
     console.log(`🔎 chat probe: ${diag.total} chats, ${diag.groups} groups${diag.err ? ' | err ' + diag.err : ''}`);
+    // Needed before any mention of us can be recognised.
+    await discoverBotLid(diag.sample.map((g) => g.id));
     diag.sample.forEach((g) => console.log(`   • ${g.title || '(no title)'}  [${g.id}]`));
     // Confirm participant/contact name resolution works too (it powers the
     // intro greeting and appointment reminders).
@@ -566,7 +584,7 @@ client.on('message_create', async (msg) => {
     // Intro summon: our number is @mentioned + "this is <name>" — but because
     // WhatsApp masks numbers as LIDs, also accept ANY @mention paired with the
     // "this is <name>" phrase (that shape is unambiguously an intro to the PA).
-    const isIntro = introName && (mentioned || mentions.length > 0 || TRIGGER.test(msg.body || ''));
+    const isIntro = introName && (mentioned || TRIGGER.test(msg.body || ''));
     // Explicit summon: @mention of us, or the legacy @pa text.
     const summoned = mentioned || TRIGGER.test(msg.body || '');
 
