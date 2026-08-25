@@ -58,17 +58,6 @@ interface ChildRow {
   failed?: boolean; // a per-child bind failed on submit (parent stays bound)
 }
 
-interface CustomerOption {
-  id: string;
-  name: string;
-  customerCode: string | null;
-}
-
-interface ProjectOption {
-  id: string;
-  name: string;
-}
-
 type Step = "capture" | "review";
 
 const FIELD_BUTTON_SX = {
@@ -160,34 +149,9 @@ export default function BindTagPage() {
   >(undefined);
   const [locating, setLocating] = useState(false);
 
-  // Optional customer → project assignment. Both pickers are optional: the
-  // tech can bind a tag without touching them, but if a project is picked the
-  // new unit is assigned to it right after the bind succeeds.
-  const [customerOptions, setCustomerOptions] = useState<CustomerOption[]>([]);
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerOption | null>(null);
-  const [customerInput, setCustomerInput] = useState("");
-  const [customerSearching, setCustomerSearching] = useState(false);
-  const [projectOptions, setProjectOptions] = useState<ProjectOption[]>([]);
-  const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
-  const [projectsLoading, setProjectsLoading] = useState(false);
-  // Rental vs sale for the deployment created on bind. Only shown once a project
-  // is picked; defaults to RENTAL.
-  const [deploymentType, setDeploymentType] = useState<"RENTAL" | "SALE">("RENTAL");
-  // Tracks the last customer the project list was reset for, so a re-render that
-  // only changes getToken's identity doesn't clear the tech's project pick.
-  const prevCustomerRef = useRef<string | null>(null);
-
-  // Inline "+ Create Project" dialog — same minimal flow as the quotation
-  // editor's picker: name only, linked to the selected customer.
-  const [createProjectOpen, setCreateProjectOpen] = useState(false);
-  const [createProjectName, setCreateProjectName] = useState("");
-  const [creatingProject, setCreatingProject] = useState(false);
-
-  // Inline "+ Create Customer" — mirrors the after-ack picker: name only,
-  // posting to the narrow customers:create-by-name endpoint rider roles hold.
-  const [createCustomerOpen, setCreateCustomerOpen] = useState(false);
-  const [createCustomerName, setCreateCustomerName] = useState("");
-  const [creatingCustomer, setCreatingCustomer] = useState(false);
+  // Tagging registers the unit and NOTHING more (2026-08): the old optional
+  // customer/project assignment was removed — a newly tagged unit is left
+  // instock and unassigned, ready to be delivered through a scheduled run.
 
   // Set when the backend returns ALREADY_TAGGED: the matched unit already has a
   // different tag, so we ask the tech before overwriting (rebind orphans the
@@ -422,157 +386,6 @@ export default function BindTagPage() {
     };
   }, [searchInput, step, getToken]);
 
-  // Debounced customer search (300 ms tail), same shape as the asset search
-  // above. Empty query returns the first 20 customers so the picker is usable
-  // before the tech types.
-  useEffect(() => {
-    if (step !== "review") return;
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      setCustomerSearching(true);
-      try {
-        const token = await getToken();
-        if (!token) return;
-        const res = await request(
-          { path: "/customers", method: "POST" },
-          { page: 1, limit: 20, search: customerInput.trim() || undefined },
-          token,
-        );
-        if (cancelled) return;
-        const docs = res?.data?.docs;
-        setCustomerOptions(
-          Array.isArray(docs)
-            ? docs.map((c: any) => ({ id: c.id, name: c.name, customerCode: c.customerCode ?? null }))
-            : [],
-        );
-      } catch {
-        // Non-fatal — the whole section is optional; keep last results.
-      } finally {
-        if (!cancelled) setCustomerSearching(false);
-      }
-    }, 300);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [customerInput, step, getToken]);
-
-  // Load the selected customer's projects. The backend filters by customerId
-  // (both the direct FK and the legacy siteOffice→customer path), so no
-  // client-side filtering is needed; the Autocomplete narrows as the tech
-  // types. Clearing/changing the customer resets the project pick.
-  useEffect(() => {
-    // Only reset the project pick when the customer genuinely changes — not on
-    // every effect run. getToken stays in deps so the fetch uses a fresh token,
-    // but an unstable getToken identity must not wipe the tech's selection.
-    const currentCustomerId = selectedCustomer?.id ?? null;
-    if (currentCustomerId !== prevCustomerRef.current) {
-      setSelectedProject(null);
-      setProjectOptions([]);
-      prevCustomerRef.current = currentCustomerId;
-    }
-    if (!selectedCustomer) return;
-    let cancelled = false;
-    (async () => {
-      setProjectsLoading(true);
-      try {
-        const token = await getToken();
-        if (!token) return;
-        const res = await request(
-          { path: "/projects", method: "POST" },
-          { page: 1, limit: 50, filters: { customerId: selectedCustomer.id } },
-          token,
-        );
-        if (cancelled) return;
-        const docs = res?.data?.docs;
-        setProjectOptions(
-          Array.isArray(docs) ? docs.map((p: any) => ({ id: p.id, name: p.name })) : [],
-        );
-      } catch {
-        // Non-fatal — optional section.
-      } finally {
-        if (!cancelled) setProjectsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedCustomer, getToken]);
-
-  // "+ Create Customer" — mirrors the after-ack picker: seed the dialog with
-  // whatever the tech already typed (they only reach "no match" after typing
-  // the site's name), post to the narrow field endpoint, auto-select the row.
-  const openCreateCustomer = () => {
-    setCreateCustomerName(customerInput.trim());
-    setCreateCustomerOpen(true);
-  };
-
-  const handleCreateCustomer = async () => {
-    const trimmed = createCustomerName.trim();
-    if (!trimmed) return;
-    setCreatingCustomer(true);
-    try {
-      const token = await getToken();
-      if (!token) throw new Error("Not signed in");
-      // Narrow field-flow endpoint (customers:create-by-name — the permission
-      // rider roles hold; the full /customers/create is office-gated). Same
-      // service underneath; the server generates the customerCode.
-      const res = await request({ path: "/customers/create-by-name", method: "POST" }, { name: trimmed }, token);
-      const created = res?.data;
-      if (res?.success && created?.id) {
-        const option: CustomerOption = {
-          id: created.id,
-          name: created.name ?? trimmed,
-          customerCode: created.customerCode ?? null,
-        };
-        setCustomerOptions((prev) => [option, ...prev]);
-        setSelectedCustomer(option);
-        setCreateCustomerOpen(false);
-        setCreateCustomerName("");
-        toast.success("Customer created");
-      } else {
-        toast.error(res?.message ?? "Failed to create customer");
-      }
-    } catch (e: any) {
-      console.error("create customer failed:", e);
-      toast.error(e?.message ?? "Failed to create customer");
-    } finally {
-      setCreatingCustomer(false);
-    }
-  };
-
-  // "+ Create Project" — minimal create linked to the selected customer,
-  // mirroring the quotation editor's inline flow. Auto-selects the new row.
-  const handleCreateProject = async () => {
-    const trimmed = createProjectName.trim();
-    if (!trimmed || !selectedCustomer) return;
-    setCreatingProject(true);
-    try {
-      const token = await getToken();
-      if (!token) throw new Error("Not signed in");
-      const res = await request(
-        { path: "/projects/create-by-name", method: "POST" },
-        { name: trimmed, customerId: selectedCustomer.id },
-        token,
-      );
-      if (res?.success && res.data?.id) {
-        const created: ProjectOption = { id: res.data.id, name: res.data.name ?? trimmed };
-        setProjectOptions((prev) => [created, ...prev]);
-        setSelectedProject(created);
-        setCreateProjectOpen(false);
-        setCreateProjectName("");
-        toast.success("Project created");
-      } else {
-        toast.error(res?.message ?? "Failed to create project");
-      }
-    } catch (e: any) {
-      console.error("create project failed:", e);
-      toast.error(e?.message ?? "Failed to create project");
-    } finally {
-      setCreatingProject(false);
-    }
-  };
-
   // Read one nameplate File → compressed dataURL preview. ALL sources are
   // compressed: the native Sunmi camera ignores takePhoto's resize and returns
   // raw 8 MP frames, so there's nothing "already sized" to trust. compression
@@ -724,34 +537,10 @@ export default function BindTagPage() {
           ? `Tag bound to existing unit ${unitSku}`
           : `New unit ${unitSku} created and tagged`;
 
-      // Project deployment — best-effort. The backend enforces "one unit, one
-      // active project": it skips if already on the selected project, adds if on
-      // none, or soft-moves (closes the old assignment) if on another. We always
-      // call it and branch on the returned status; a failure never blocks the bind.
-      if (selectedProject) {
-        try {
-          const deployRes = await request(
-            { path: `/projects/${selectedProject.id}/field-deploy`, method: "POST" },
-            { inventoryId, assetId, type: deploymentType },
-            token,
-          );
-          if (deployRes?.success === false) {
-            throw new Error(deployRes?.message ?? "Deployment request failed");
-          }
-          const deployStatus = (deployRes?.data ?? deployRes)?.status;
-          const projName = selectedProject.name;
-          toast.success(successMsg);
-          if (deployStatus === "moved") toast.info(`Moved to ${projName}`);
-          else if (deployStatus === "already_on_project") toast.info(`Already on ${projName}`);
-          else toast.success(`Deployed to ${projName}`);
-        } catch (deployErr) {
-          console.error("field deploy failed (binding succeeded):", deployErr);
-          toast.success(successMsg);
-          toast.warning("Couldn't deploy to project — deploy it later from the portal.");
-        }
-      } else {
-        toast.success(successMsg);
-      }
+      // Tagging registers the unit and NOTHING more: no project/customer
+      // assignment here. The unit is left instock and unassigned, ready to be
+      // delivered through a scheduled run.
+      toast.success(successMsg);
       // ── INLINE CHILD TAGGING ──────────────────────────────────────────────
       // Ordering: the parent bind above completed and spawned the placeholders
       // (createAndBind's create path runs autoCreateChildUnits, returning them
@@ -1081,134 +870,6 @@ export default function BindTagPage() {
 
           <Divider sx={{ my: 1 }} />
 
-          {/* Explicit section header (not just the divider caption) so the
-              optional assignment block is unmissable on small screens even
-              before the pickers have any options loaded. */}
-          <Typography variant="subtitle2" fontWeight={700}>
-            Assign to Project (optional)
-          </Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ mt: -1.5 }}>
-            Pick a customer, then a project — the new item will be assigned to it.
-          </Typography>
-
-          <Autocomplete<CustomerOption, false, false, false>
-            options={customerOptions}
-            value={selectedCustomer}
-            onChange={(_, picked) => setSelectedCustomer(picked)}
-            onInputChange={(_, v, reason) => {
-              // Same guard as the asset picker: ignore MUI's post-selection
-              // "reset" so the formatted label doesn't pollute the query.
-              if (reason === "input") setCustomerInput(v);
-            }}
-            getOptionLabel={(o) => (o.customerCode ? `${o.name} · ${o.customerCode}` : o.name)}
-            isOptionEqualToValue={(a, b) => a.id === b.id}
-            loading={customerSearching}
-            // Server-side search drives the option list — disable the
-            // client-side filter so partial matches from the backend aren't
-            // re-filtered away against the formatted label.
-            filterOptions={(x) => x}
-            noOptionsText={
-              <Button size="small" startIcon={<AddIcon />} onClick={openCreateCustomer}>
-                Create customer
-              </Button>
-            }
-            renderOption={(props, option) => (
-              <li {...props} key={option.id}>
-                <Box>
-                  <Typography variant="body2" fontWeight={600}>{option.name}</Typography>
-                  {option.customerCode && (
-                    <Typography variant="caption" color="text.secondary">{option.customerCode}</Typography>
-                  )}
-                </Box>
-              </li>
-            )}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Customer (optional)"
-                placeholder="Search by name or code"
-                InputProps={{
-                  ...params.InputProps,
-                  endAdornment: (
-                    <>
-                      {customerSearching && <CircularProgress size={18} />}
-                      {params.InputProps.endAdornment}
-                    </>
-                  ),
-                }}
-              />
-            )}
-          />
-          {!selectedCustomer && (
-            <Button
-              size="small"
-              startIcon={<AddIcon />}
-              onClick={openCreateCustomer}
-              sx={{ alignSelf: "flex-start", textTransform: "none", mt: -1.5 }}
-            >
-              New customer
-            </Button>
-          )}
-
-          {selectedCustomer && (
-            <Stack direction="row" spacing={1} alignItems="flex-start">
-              <Autocomplete<ProjectOption, false, false, false>
-                sx={{ flexGrow: 1 }}
-                options={projectOptions}
-                value={selectedProject}
-                onChange={(_, picked) => setSelectedProject(picked)}
-                getOptionLabel={(o) => o.name}
-                isOptionEqualToValue={(a, b) => a.id === b.id}
-                loading={projectsLoading}
-                noOptionsText="No projects for this customer yet."
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Project (optional)"
-                    placeholder="Pick a project"
-                    InputProps={{
-                      ...params.InputProps,
-                      endAdornment: (
-                        <>
-                          {projectsLoading && <CircularProgress size={18} />}
-                          {params.InputProps.endAdornment}
-                        </>
-                      ),
-                    }}
-                  />
-                )}
-              />
-              <Button
-                variant="outlined"
-                onClick={() => setCreateProjectOpen(true)}
-                startIcon={<AddIcon />}
-                sx={{ whiteSpace: "nowrap", minHeight: 56 }}
-              >
-                Create
-              </Button>
-            </Stack>
-          )}
-
-          {selectedProject && (
-            <ToggleButtonGroup
-              value={deploymentType}
-              exclusive
-              fullWidth
-              size="small"
-              color="primary"
-              onChange={(_, next) => {
-                // exclusive group returns null when re-clicking the active button;
-                // keep the current value so one option is always selected.
-                if (next) setDeploymentType(next);
-              }}
-            >
-              <ToggleButton value="RENTAL">Rental</ToggleButton>
-              <ToggleButton value="SALE">Sale</ToggleButton>
-            </ToggleButtonGroup>
-          )}
-
-          <Divider sx={{ my: 1 }} />
-
           {/* Blocking-condition summary — names the field(s) stopping the
               disabled button so a greyed CTA is never a silent dead-end. The
               only submit blocker on this form is an unpicked Product (serial +
@@ -1375,98 +1036,6 @@ export default function BindTagPage() {
           <Button onClick={() => setCreateAssetOpen(false)} disabled={creatingAsset}>Cancel</Button>
           <Button variant="contained" onClick={handleCreateAsset} disabled={creatingAsset || !newAssetName.trim() || !newAssetSkuKey.trim()}>
             {creatingAsset ? <CircularProgress size={18} /> : "Create"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Create Customer dialog — mirrors the after-ack picker's inline flow:
-          name only, the server generates the customerCode. */}
-      <Dialog
-        open={createCustomerOpen}
-        onClose={() => (creatingCustomer ? null : setCreateCustomerOpen(false))}
-        fullWidth
-        maxWidth="xs"
-      >
-        <DialogTitle>Create Customer</DialogTitle>
-        <DialogContent>
-          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-            Name only — the office can fill in contact details later.
-          </Typography>
-          <TextField
-            autoFocus
-            fullWidth
-            size="small"
-            label="Customer Name"
-            value={createCustomerName}
-            onChange={(e) => setCreateCustomerName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !creatingCustomer) {
-                e.preventDefault();
-                handleCreateCustomer();
-              }
-            }}
-            disabled={creatingCustomer}
-            sx={{ mt: 1 }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCreateCustomerOpen(false)} disabled={creatingCustomer}>
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            onClick={handleCreateCustomer}
-            disabled={creatingCustomer || !createCustomerName.trim()}
-            startIcon={creatingCustomer ? <CircularProgress size={14} color="inherit" /> : <AddIcon />}
-          >
-            Create
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Create Project dialog — same minimal inline flow as the quotation
-          editor's "+ Create new project": name only, linked to the selected
-          customer, status defaults to pending. */}
-      <Dialog
-        open={createProjectOpen}
-        onClose={() => (creatingProject ? null : setCreateProjectOpen(false))}
-        fullWidth
-        maxWidth="xs"
-      >
-        <DialogTitle>Create Project</DialogTitle>
-        <DialogContent>
-          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-            For customer <strong>{selectedCustomer?.name}</strong>. Status defaults
-            to pending; the office can fill in the rest later.
-          </Typography>
-          <TextField
-            autoFocus
-            fullWidth
-            size="small"
-            label="Project Name"
-            value={createProjectName}
-            onChange={(e) => setCreateProjectName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !creatingProject) {
-                e.preventDefault();
-                handleCreateProject();
-              }
-            }}
-            disabled={creatingProject}
-            sx={{ mt: 1 }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCreateProjectOpen(false)} disabled={creatingProject}>
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            onClick={handleCreateProject}
-            disabled={creatingProject || !createProjectName.trim()}
-            startIcon={creatingProject ? <CircularProgress size={14} color="inherit" /> : <AddIcon />}
-          >
-            Create
           </Button>
         </DialogActions>
       </Dialog>
