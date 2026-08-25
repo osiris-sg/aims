@@ -369,13 +369,33 @@ export default function ScheduleDeliveryDialog({
     }
   };
 
+  // The exact value the auto-fill last wrote. A hand-edit makes `address` differ
+  // from this; auto-fill "owns" the field only while the two still match, so a
+  // genuinely typed address is never clobbered.
+  const autoFilledAddrRef = useRef("");
+  // Last project the auto-fill acted on — the ref-compare that detects a GENUINE
+  // project change (same pattern as loadedForCustomerRef), so switching to a
+  // different project re-fills the address rather than leaving the old one.
+  const prevProjectIdRef = useRef<string | null | undefined>(undefined);
+  const addressRef = useRef(address);
+  addressRef.current = address;
+
   // Auto-fill the delivery address from the PROJECT NAME — for this fleet a
-  // project's name IS its site address (e.g. "Tuas Avenue 8"). Freely editable
-  // afterwards; lands on the DO's "Deliver To".
+  // project's name IS its site address (e.g. "Tuas Avenue 8"). Re-fills on a real
+  // project change so a DIFFERENT project updates the address; but a hand-edited
+  // address (differs from the last auto-fill) SURVIVES the switch — typing is
+  // never silently discarded. Freely editable; lands on the DO's "Deliver To".
   useEffect(() => {
-    if (addressTouched) return;
-    setAddress(project?.name || "");
-  }, [project, addressTouched]);
+    const nextId = project?.id ?? null;
+    if (prevProjectIdRef.current === nextId) return; // not a genuine project change
+    prevProjectIdRef.current = nextId;
+    const current = addressRef.current;
+    if (current && current !== autoFilledAddrRef.current) return; // hand-edited: keep it
+    const filled = project?.name || "";
+    autoFilledAddrRef.current = filled;
+    setAddress(filled);
+    setAddressTouched(false); // it is an auto-fill again, not a hand-edit
+  }, [project]);
 
   const setRow = (i: number, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
