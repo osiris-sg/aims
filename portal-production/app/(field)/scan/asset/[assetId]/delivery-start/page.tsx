@@ -1,23 +1,26 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
-import { Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Stack, TextField, Typography } from "@mui/material";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
-import AddIcon from "@mui/icons-material/Add";
 import CameraAltIcon from "@mui/icons-material/CameraAlt";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import PlaceIcon from "@mui/icons-material/Place";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 
-interface CustomerOption {
+// One open scheduled run in the rider's picker. `matchesAsset` is false when the
+// run has no open slot for this unit's asset (an office typo) — the run is still
+// pickable so the rider is never locked out.
+interface ScheduledRunOption {
   id: string;
-  name: string;
-  customerCode: string | null;
-}
-
-interface ProjectOption {
-  id: string;
-  name: string;
+  deliveryNumber: number;
+  scheduledFor: string | null;
+  deliveryAddress: string;
+  customerName: string | null;
+  openSlotCount: number;
+  matchesAsset: boolean;
 }
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
@@ -65,31 +68,20 @@ export default function StartDeliveryPage() {
   const [uploading, setUploading] = useState(false);
 
   // Assign-at-start (2026-08): after DO_START, a standalone run parks in the
-  // ASSIGN phase — optional per-unit customer→project pick (a run can span
-  // projects). Assign or Skip, then land on the basket. fieldDeploy defers the
-  // status flip, so the unit stays reserved until ack.
+  // ASSIGN phase. The rider no longer picks a customer then a project — they
+  // pick one of the office's SCHEDULED DELIVERIES (by drop address). The chosen
+  // run supplies the project + customer, and the unit is merged into that run.
+  // fieldDeploy defers the status flip, so the unit stays reserved until ack.
   // "photos" is a full-screen step, not a cramped inline block: the guided
   // sequence needs the whole viewport on a phone. Mirrors how after-ack steps.
   const [phase, setPhase] = useState<"start" | "photos" | "assign">("start");
   const [runId, setRunId] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
-  const [customerOptions, setCustomerOptions] = useState<CustomerOption[]>([]);
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerOption | null>(null);
-  const [customerInput, setCustomerInput] = useState("");
-  const [customerSearching, setCustomerSearching] = useState(false);
-  const [projectOptions, setProjectOptions] = useState<ProjectOption[]>([]);
-  const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
-  const [projectsLoading, setProjectsLoading] = useState(false);
-  const prevCustomerRef = useRef<string | null>(null);
-  // Inline create (restored from after-ack — OSI-79): a rider can mint a new
-  // customer/project without leaving the assign step, via the narrow field
-  // permissions they already hold (customers:create-by-name / projects:create-by-name).
-  const [createCustomerOpen, setCreateCustomerOpen] = useState(false);
-  const [createCustomerName, setCreateCustomerName] = useState("");
-  const [creatingCustomer, setCreatingCustomer] = useState(false);
-  const [createProjectOpen, setCreateProjectOpen] = useState(false);
-  const [createProjectName, setCreateProjectName] = useState("");
-  const [creatingProject, setCreatingProject] = useState(false);
+  // Open scheduled runs to pick from, loaded when the assign phase opens.
+  const [scheduledRuns, setScheduledRuns] = useState<ScheduledRunOption[]>([]);
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [runsError, setRunsError] = useState<string | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
 
   // Clerk-auth'd upload closure for the shared PhotoCaptureField — the
   // component stays auth-agnostic; the token lives here (folder: do-start).
@@ -186,74 +178,43 @@ export default function StartDeliveryPage() {
     };
   }, [assetId, getToken, inventoryId, standalone]);
 
-  // Debounced customer search (assign phase only) — mirrors /scan/bind.
+  // Load the office's open scheduled deliveries when the assign phase opens.
+  // EVERY open run is listed (not just those with a slot for this asset): the
+  // list flags a mismatch but never hides a run, so an office typo can't lock
+  // the rider out. assetId drives the per-run `matchesAsset` flag.
   useEffect(() => {
     if (phase !== "assign") return;
     let cancelled = false;
-    const timer = setTimeout(async () => {
-      setCustomerSearching(true);
-      try {
-        const token = await getToken();
-        if (!token) return;
-        const res = await request(
-          { path: "/customers", method: "POST" },
-          { page: 1, limit: 20, search: customerInput.trim() || undefined },
-          token,
-        );
-        if (cancelled) return;
-        const docs = res?.data?.docs;
-        setCustomerOptions(
-          Array.isArray(docs) ? docs.map((c: any) => ({ id: c.id, name: c.name, customerCode: c.customerCode ?? null })) : [],
-        );
-      } catch {
-        /* optional section */
-      } finally {
-        if (!cancelled) setCustomerSearching(false);
-      }
-    }, 300);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [customerInput, phase, getToken]);
-
-  // Load the selected customer's projects. Changing customer resets the pick.
-  useEffect(() => {
-    const currentCustomerId = selectedCustomer?.id ?? null;
-    if (currentCustomerId !== prevCustomerRef.current) {
-      setSelectedProject(null);
-      setProjectOptions([]);
-      prevCustomerRef.current = currentCustomerId;
-    }
-    if (!selectedCustomer) return;
-    let cancelled = false;
     (async () => {
-      setProjectsLoading(true);
+      setRunsLoading(true);
+      setRunsError(null);
       try {
         const token = await getToken();
         if (!token) return;
         const res = await request(
-          { path: "/projects", method: "POST" },
-          { page: 1, limit: 50, filters: { customerId: selectedCustomer.id } },
+          { path: `/deliveries/scheduled-open?assetId=${encodeURIComponent(assetId)}`, method: "GET" },
+          {},
           token,
         );
         if (cancelled) return;
-        const docs = res?.data?.docs;
-        setProjectOptions(Array.isArray(docs) ? docs.map((p: any) => ({ id: p.id, name: p.name })) : []);
-      } catch {
-        /* optional */
+        const list = res?.data ?? res;
+        setScheduledRuns(Array.isArray(list) ? list : []);
+      } catch (e: any) {
+        if (!cancelled) setRunsError(e?.message ?? "Could not load scheduled deliveries");
       } finally {
-        if (!cancelled) setProjectsLoading(false);
+        if (!cancelled) setRunsLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [selectedCustomer, getToken]);
+  }, [phase, assetId, getToken]);
 
-  // Assign the started unit to the picked project (per-unit; deferred flip).
+  // Assign the started unit to the CHOSEN scheduled run (per-unit; deferred
+  // flip). The backend merges this ad-hoc run into the chosen run and returns
+  // the run to land on.
   const doAssign = async () => {
-    if (!runId || !inventoryId || !selectedProject || assigning) return;
+    if (!runId || !inventoryId || !selectedRunId || assigning) return;
     setAssigning(true);
     setError(null);
     try {
@@ -261,13 +222,13 @@ export default function StartDeliveryPage() {
       if (!token) throw new Error("Not signed in");
       const res = await request(
         { path: `/deliveries/${runId}/assign`, method: "POST" },
-        { projectId: selectedProject.id, inventoryId },
+        { scheduledRunId: selectedRunId, inventoryId },
         token,
       );
       if (res?.success === false) throw new Error(res?.message ?? "Assignment failed");
-      // The assign may have MERGED this unit into an office-scheduled run for the
-      // chosen project (move-and-discard) — THIS ad-hoc run can now be deleted.
-      // Land on the run the backend says is live (the scheduled run if merged).
+      // The assign MERGED this unit into the chosen scheduled run (move-and-
+      // discard) — THIS ad-hoc run is gone. Land on the run the backend says is
+      // live (the chosen scheduled run).
       const effectiveRunId = res?.data?.runId ?? res?.runId ?? runId;
       router.replace(`/scan/delivery/${effectiveRunId}`);
     } catch (e: any) {
@@ -407,184 +368,126 @@ export default function StartDeliveryPage() {
     }
   };
 
-  // Inline create-customer: seed the dialog with whatever was typed into the picker.
-  const openCreateCustomer = () => {
-    setCreateCustomerName(customerInput.trim());
-    setCreateCustomerOpen(true);
-  };
-
-  const handleCreateCustomer = async () => {
-    const trimmed = createCustomerName.trim();
-    if (!trimmed) return;
-    setCreatingCustomer(true);
-    try {
-      const token = await getToken();
-      if (!token) throw new Error("Not signed in");
-      // Narrow field endpoint (customers:create-by-name) — name only, server
-      // generates the code; the office create surface stays gated.
-      const res = await request({ path: "/customers/create-by-name", method: "POST" }, { name: trimmed }, token);
-      const created = res?.data;
-      if (res?.success && created?.id) {
-        const option: CustomerOption = { id: created.id, name: created.name ?? trimmed, customerCode: created.customerCode ?? null };
-        setCustomerOptions((prev) => [option, ...prev]);
-        setSelectedCustomer(option);
-        setCreateCustomerOpen(false);
-        setCreateCustomerName("");
-      } else {
-        setError(res?.message ?? "Failed to create customer");
-      }
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to create customer");
-    } finally {
-      setCreatingCustomer(false);
-    }
-  };
-
-  const handleCreateProject = async () => {
-    const trimmed = createProjectName.trim();
-    if (!trimmed || !selectedCustomer) return;
-    setCreatingProject(true);
-    try {
-      const token = await getToken();
-      if (!token) throw new Error("Not signed in");
-      const res = await request(
-        { path: "/projects/create-by-name", method: "POST" },
-        { name: trimmed, customerId: selectedCustomer.id },
-        token,
-      );
-      if (res?.success && res.data?.id) {
-        const created: ProjectOption = { id: res.data.id, name: res.data.name ?? trimmed };
-        setProjectOptions((prev) => [created, ...prev]);
-        setSelectedProject(created);
-        setCreateProjectOpen(false);
-        setCreateProjectName("");
-      } else {
-        setError(res?.message ?? "Failed to create project");
-      }
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to create project");
-    } finally {
-      setCreatingProject(false);
-    }
+  // Human date for a scheduled run ("Tue, 26 Aug"), or null when undated.
+  const formatScheduledFor = (iso: string | null): string | null => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
   };
 
   // ── ASSIGN phase (standalone, after DO_START) ───────────────────────────────
+  // The rider picks one of the office's SCHEDULED DELIVERIES (by drop address).
+  // Every open run is shown; a run with no slot for this unit's asset is flagged
+  // but still pickable, so an office typo can't strand the rider.
   if (phase === "assign") {
     return (
       <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5, alignItems: "center" }}>
         <LocalShippingIcon sx={{ fontSize: 64, color: "primary.main", mt: 2 }} />
         <Typography variant="h6" fontWeight={700} sx={{ textAlign: "center" }}>
-          Assign to project
+          Choose the delivery
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center", maxWidth: 360 }}>
-          Delivery started. Assign this unit to a customer&apos;s project to continue — the project is
-          what matches this run to a scheduled delivery. Both are required.
+          Delivery started. Pick the scheduled delivery this unit is going out on. The office schedules
+          these, and picking one assigns the unit to its project.
         </Typography>
 
         <Box sx={{ width: "100%", maxWidth: 360, display: "flex", flexDirection: "column", gap: 2 }}>
-          <Box>
-            <Autocomplete<CustomerOption, false, false, false>
-              options={customerOptions}
-              value={selectedCustomer}
-              onChange={(_, v) => setSelectedCustomer(v)}
-              onInputChange={(_, v) => setCustomerInput(v)}
-              getOptionLabel={(o) => o.name}
-              isOptionEqualToValue={(a, b) => a.id === b.id}
-              loading={customerSearching}
-              renderInput={(params) => <TextField {...params} label="Customer" placeholder="Search customer" required />}
-              noOptionsText={
-                <Button size="small" startIcon={<AddIcon />} onClick={openCreateCustomer}>
-                  Create customer
-                </Button>
-              }
-            />
-            {!selectedCustomer && (
-              <Button size="small" startIcon={<AddIcon />} onClick={openCreateCustomer} sx={{ textTransform: "none", mt: 0.5 }}>
-                New customer
+          {runsLoading ? (
+            <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+              <CircularProgress size={28} />
+            </Box>
+          ) : runsError ? (
+            <>
+              <Alert severity="error">{runsError}</Alert>
+              <Button variant="outlined" onClick={() => setPhase("assign")} fullWidth sx={{ minHeight: 44 }}>
+                Try again
               </Button>
-            )}
-          </Box>
-          <Box>
-            <Autocomplete<ProjectOption, false, false, false>
-              options={projectOptions}
-              value={selectedProject}
-              onChange={(_, v) => setSelectedProject(v)}
-              getOptionLabel={(o) => o.name}
-              isOptionEqualToValue={(a, b) => a.id === b.id}
-              loading={projectsLoading}
-              disabled={!selectedCustomer}
-              renderInput={(params) => (
-                <TextField {...params} label="Project" placeholder={selectedCustomer ? "Search project" : "Pick a customer first"} required error={!!selectedCustomer && !selectedProject} />
-              )}
-              noOptionsText={
-                <Button size="small" startIcon={<AddIcon />} onClick={() => setCreateProjectOpen(true)}>
-                  Create project
-                </Button>
-              }
-            />
-            {selectedCustomer && (
-              <Button size="small" startIcon={<AddIcon />} onClick={() => setCreateProjectOpen(true)} sx={{ textTransform: "none", mt: 0.5 }}>
-                New project for {selectedCustomer.name}
+            </>
+          ) : scheduledRuns.length === 0 ? (
+            // NO OPEN SCHEDULED RUN. There is no ad-hoc fallback anymore, so this
+            // must explain clearly that the office has to schedule a delivery
+            // first, and let the rider re-check once they have.
+            <Alert severity="info" icon={<LocalShippingIcon />}>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
+                No scheduled deliveries yet
+              </Typography>
+              <Typography variant="body2">
+                This unit is started and reserved, but there is no scheduled delivery to put it on. The
+                office needs to schedule one for this drop first. Once they have, tap Refresh to pick it.
+              </Typography>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => setPhase("assign")}
+                sx={{ mt: 1.5, minHeight: 40 }}
+                fullWidth
+              >
+                Refresh
               </Button>
-            )}
-          </Box>
+            </Alert>
+          ) : (
+            <Stack spacing={1.25}>
+              {scheduledRuns.map((run) => {
+                const selected = selectedRunId === run.id;
+                const when = formatScheduledFor(run.scheduledFor);
+                return (
+                  <Box
+                    key={run.id}
+                    onClick={() => setSelectedRunId(run.id)}
+                    role="button"
+                    sx={{
+                      p: 1.5,
+                      borderRadius: 2,
+                      cursor: "pointer",
+                      border: "2px solid",
+                      borderColor: selected ? "primary.main" : "divider",
+                      bgcolor: selected ? "action.selected" : "background.paper",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 0.5,
+                    }}
+                  >
+                    <Stack direction="row" spacing={1} alignItems="flex-start">
+                      <PlaceIcon fontSize="small" color={selected ? "primary" : "action"} sx={{ mt: 0.25 }} />
+                      <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+                        <Typography variant="body2" fontWeight={700} sx={{ wordBreak: "break-word" }}>
+                          {run.deliveryAddress}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                          {when ? `${when} · ` : ""}Delivery #{run.deliveryNumber}
+                          {run.customerName ? ` · ${run.customerName}` : ""}
+                        </Typography>
+                      </Box>
+                    </Stack>
+                    {!run.matchesAsset && (
+                      <Stack direction="row" spacing={0.75} alignItems="center" sx={{ pl: 0.25 }}>
+                        <WarningAmberIcon fontSize="small" color="warning" />
+                        <Typography variant="caption" color="warning.main">
+                          No matching item on this run. Your unit will be added as an extra.
+                        </Typography>
+                      </Stack>
+                    )}
+                  </Box>
+                );
+              })}
+            </Stack>
+          )}
 
           {error && <Alert severity="error">{error}</Alert>}
 
-          <Button
-            variant="contained"
-            onClick={doAssign}
-            disabled={assigning || !selectedProject}
-            fullWidth
-            sx={{ py: 1.5, fontSize: "1rem", minHeight: 48 }}
-          >
-            {assigning ? <CircularProgress size={20} color="inherit" /> : "Assign & continue"}
-          </Button>
+          {scheduledRuns.length > 0 && !runsLoading && (
+            <Button
+              variant="contained"
+              onClick={doAssign}
+              disabled={assigning || !selectedRunId}
+              fullWidth
+              sx={{ py: 1.5, fontSize: "1rem", minHeight: 48 }}
+            >
+              {assigning ? <CircularProgress size={20} color="inherit" /> : "Assign & continue"}
+            </Button>
+          )}
         </Box>
-
-        {/* Inline create-customer dialog (restored — OSI-79) */}
-        <Dialog open={createCustomerOpen} onClose={() => !creatingCustomer && setCreateCustomerOpen(false)} fullWidth maxWidth="xs">
-          <DialogTitle>New customer</DialogTitle>
-          <DialogContent>
-            <TextField
-              autoFocus
-              fullWidth
-              label="Customer name"
-              value={createCustomerName}
-              onChange={(e) => setCreateCustomerName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleCreateCustomer()}
-              sx={{ mt: 1 }}
-            />
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setCreateCustomerOpen(false)} disabled={creatingCustomer}>Cancel</Button>
-            <Button variant="contained" onClick={handleCreateCustomer} disabled={creatingCustomer || !createCustomerName.trim()}>
-              {creatingCustomer ? <CircularProgress size={18} /> : "Create"}
-            </Button>
-          </DialogActions>
-        </Dialog>
-
-        {/* Inline create-project dialog (restored — OSI-79) */}
-        <Dialog open={createProjectOpen} onClose={() => !creatingProject && setCreateProjectOpen(false)} fullWidth maxWidth="xs">
-          <DialogTitle>New project</DialogTitle>
-          <DialogContent>
-            <TextField
-              autoFocus
-              fullWidth
-              label="Project name"
-              value={createProjectName}
-              onChange={(e) => setCreateProjectName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleCreateProject()}
-              sx={{ mt: 1 }}
-            />
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setCreateProjectOpen(false)} disabled={creatingProject}>Cancel</Button>
-            <Button variant="contained" onClick={handleCreateProject} disabled={creatingProject || !createProjectName.trim()}>
-              {creatingProject ? <CircularProgress size={18} /> : "Create"}
-            </Button>
-          </DialogActions>
-        </Dialog>
       </Box>
     );
   }

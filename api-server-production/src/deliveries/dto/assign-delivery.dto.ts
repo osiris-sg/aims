@@ -12,9 +12,19 @@ import { IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsString, IsUUID } from
  * ProjectDeployment on the DO.
  */
 export class AssignDeliveryItemDto {
-  @ApiProperty({ description: 'Target project (UUID).' })
+  // The rider now picks a SCHEDULED RUN (by delivery address), not a project:
+  // the chosen run supplies the project + customer, and the unit is merged into
+  // THAT run (2026-08). The legacy projectId path is kept for the after-ack
+  // assign screen, which still assigns by project and discovers the run.
+  @ApiProperty({ required: false, description: 'Chosen scheduled run to merge this unit into (UUID). Supplies the project + customer.' })
+  @IsOptional()
   @IsUUID()
-  projectId!: string;
+  scheduledRunId?: string;
+
+  @ApiProperty({ required: false, description: 'Target project (UUID). Legacy path — supply this OR scheduledRunId.' })
+  @IsOptional()
+  @IsUUID()
+  projectId?: string;
 
   @ApiProperty({ description: 'The delivered unit being assigned (UUID).' })
   @IsUUID()

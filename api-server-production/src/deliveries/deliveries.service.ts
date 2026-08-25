@@ -2348,9 +2348,68 @@ export class DeliveriesService {
    * Also stamps the run's projectId/customerId (the "current drop target"
    * defaults the next item's picker + the create-DO prefill).
    */
+  /**
+   * Scheduled-run picker (2026-08): the rider's assign step lists EVERY open
+   * scheduled OUTBOUND run for the org, each shown by its delivery address, and
+   * picks one to fulfil. We deliberately DON'T filter to runs that have an open
+   * slot for this unit's asset: hiding a run where the office scheduled the
+   * wrong asset would lock the rider out over an upstream typo, and ad-hoc
+   * delivery is gone. Every run is listed and `matchesAsset` flags whether it
+   * has an open slot for THIS unit's asset, so the UI can note a mismatch
+   * without blocking the pick.
+   *
+   * Address fallback chain (never blank): siteAddress → project name → customer
+   * name → "Scheduled delivery #N". Empty means the office scheduled a run
+   * without an address AND without a project/customer, which non-draft runs
+   * cannot be — so the final fallback is only ever theoretical.
+   */
+  async listOpenScheduledForPicker(organizationId: string, assetId?: string) {
+    const runs = await this.prisma.delivery.findMany({
+      where: {
+        organizationId,
+        status: 'scheduled',
+        isDraft: false,
+        direction: DeliveryDirection.OUTBOUND,
+      },
+      // Soonest scheduled first; then by run number for a stable order.
+      orderBy: [{ scheduledFor: 'asc' }, { deliveryNumber: 'asc' }],
+      select: {
+        id: true,
+        deliveryNumber: true,
+        scheduledFor: true,
+        siteAddress: true,
+        project: { select: { name: true } },
+        customer: { select: { name: true } },
+        items: { select: { assetId: true, inventoryId: true } },
+      },
+    });
+    return runs.map((r) => {
+      // An OPEN slot is an asset-level line still waiting for a unit.
+      const openSlots = r.items.filter((i) => i.inventoryId === null && !!i.assetId);
+      const matchesAsset = assetId ? openSlots.some((i) => i.assetId === assetId) : false;
+      const deliveryAddress =
+        r.siteAddress?.trim() ||
+        r.project?.name?.trim() ||
+        r.customer?.name?.trim() ||
+        `Scheduled delivery #${r.deliveryNumber}`;
+      return {
+        id: r.id,
+        deliveryNumber: r.deliveryNumber,
+        scheduledFor: r.scheduledFor,
+        deliveryAddress,
+        customerName: r.customer?.name ?? null,
+        openSlotCount: openSlots.length,
+        // The UI shows every run but flags the ones with no open slot for this
+        // asset, so a rider can still pick one (surfacing the office's mismatch)
+        // rather than being locked out.
+        matchesAsset,
+      };
+    });
+  }
+
   async assignItem(
     deliveryId: string,
-    dto: { projectId: string; inventoryId: string },
+    dto: { projectId?: string; scheduledRunId?: string; inventoryId: string },
     organizationId: string,
   ) {
     const delivery = await this.prisma.delivery.findFirst({
@@ -2369,8 +2428,42 @@ export class DeliveriesService {
       throw new BadRequestException('Start the unit’s delivery before assigning');
     }
 
+    // Two ways in:
+    //   • scheduledRunId (the rider's picker) — the CHOSEN run supplies the
+    //     project + customer and the unit is merged into THAT specific run.
+    //   • projectId (legacy after-ack assign) — assign by project, then discover
+    //     which scheduled run (if any) the project resolves to.
+    if (!dto.scheduledRunId && !dto.projectId) {
+      throw new BadRequestException('Pick a scheduled delivery to assign this unit to');
+    }
+
+    // Resolve the target project. For the picker path it comes from the chosen
+    // scheduled run; for the legacy path it's supplied directly.
+    let projectId: string;
+    let chosenRun: { id: string; deliveryNumber: number } | null = null;
+    if (dto.scheduledRunId) {
+      const run = await this.prisma.delivery.findFirst({
+        where: { id: dto.scheduledRunId, organizationId },
+        select: { id: true, deliveryNumber: true, status: true, isDraft: true, direction: true, projectId: true },
+      });
+      if (!run) throw new NotFoundException('Scheduled delivery not found');
+      if (run.status !== 'scheduled' || run.isDraft) {
+        throw new BadRequestException('That delivery is no longer open to pick up');
+      }
+      if (run.direction === DeliveryDirection.RETURN) {
+        throw new BadRequestException('Cannot assign an outbound unit to a return run');
+      }
+      if (!run.projectId) {
+        throw new BadRequestException('That scheduled delivery has no project — the office must set one first');
+      }
+      projectId = run.projectId;
+      chosenRun = { id: run.id, deliveryNumber: run.deliveryNumber };
+    } else {
+      projectId = dto.projectId!;
+    }
+
     const project = await this.prisma.project.findFirst({
-      where: { id: dto.projectId, organizationId },
+      where: { id: projectId, organizationId },
       select: { id: true, customerId: true },
     });
     if (!project) throw new NotFoundException('Project not found in this organization');
@@ -2379,7 +2472,7 @@ export class DeliveriesService {
     // decision). deferStatusFlip: the unit is still on the truck (reserved) — the
     // Assignment + ProjectDeployment are created now, but the status flip to
     // rental/sold is deferred to the ack-time hand-off (advanceDeliveryItem).
-    const result = await this.projectsService.fieldDeploy(dto.projectId, organizationId, {
+    const result = await this.projectsService.fieldDeploy(projectId, organizationId, {
       inventoryId: dto.inventoryId,
       assetId: item.assetId,
       autoBind: false,
@@ -2391,23 +2484,36 @@ export class DeliveriesService {
       data: { projectId: project.id, customerId: project.customerId ?? null },
     });
 
-    // Post-assign scheduled-run matching (move-and-discard): the project the
-    // rider just picked is what resolves which office-scheduled run this unit
-    // fulfils — NOT the scan. If a match exists, the unit (item + DO_START proof
-    // + reservation) is MOVED into that run and this ad-hoc run is discarded;
-    // the client must then navigate to the returned runId. Best-effort: any
-    // failure leaves the successful assignment in place and the rider on THIS
-    // run (the safe no-match state).
+    // Move-and-discard: the unit (item + DO_START proof + reservation) is MOVED
+    // out of this throwaway ad-hoc run and into the scheduled run, then this run
+    // is discarded; the client navigates to the returned runId. Best-effort: any
+    // failure leaves the successful assignment in place and the rider on THIS run
+    // (the safe no-match state).
     let mergedInto: { deliveryId: string; deliveryNumber: number } | null = null;
     if (item.inventoryId && item.assetId) {
       try {
-        mergedInto = await this.tryMergeIntoScheduledRun(
-          deliveryId,
-          { id: item.id, assetId: item.assetId, inventoryId: item.inventoryId },
-          project.id,
-          organizationId,
-          { userId: delivery.riderUserId, name: delivery.riderName },
-        );
+        if (chosenRun) {
+          // Picker path: merge into the run the rider CHOSE. If that run has an
+          // open slot for this asset the unit fills it; if not (the office
+          // scheduled a different asset), the unit is appended as an extra line
+          // so the rider isn't locked out and the mismatch surfaces on the run.
+          mergedInto = await this.mergeIntoChosenScheduledRun(
+            deliveryId,
+            { id: item.id, assetId: item.assetId, inventoryId: item.inventoryId },
+            chosenRun.id,
+            organizationId,
+            { userId: delivery.riderUserId, name: delivery.riderName },
+          );
+        } else {
+          // Legacy path: discover a scheduled run for the picked project.
+          mergedInto = await this.tryMergeIntoScheduledRun(
+            deliveryId,
+            { id: item.id, assetId: item.assetId, inventoryId: item.inventoryId },
+            project.id,
+            organizationId,
+            { userId: delivery.riderUserId, name: delivery.riderName },
+          );
+        }
       } catch (err: any) {
         this.logger.error(
           `assignItem: scheduled-run merge failed for unit ${item.inventoryId} on run ${deliveryId}: ${err?.message}`,
@@ -2558,6 +2664,127 @@ export class DeliveriesService {
     }
 
     return { deliveryId: schedRunId, deliveryNumber: slot.delivery.deliveryNumber };
+  }
+
+  /**
+   * Picker-path merge (2026-08): move a just-started unit into the scheduled run
+   * the RIDER CHOSE (by delivery address), not one discovered by project. Same
+   * move-and-discard atomicity as tryMergeIntoScheduledRun, with one difference:
+   * the chosen run is honoured even when it has NO open slot for this unit's
+   * asset.
+   *
+   * ── Matching within the chosen run ──
+   *   • OPEN SLOT for this asset → fill it: the unit inherits the slot's DO link
+   *     + declared walk position, and the slot is consumed (exactly as the
+   *     discover path).
+   *   • NO open slot (the office scheduled a different asset — an upstream typo)
+   *     → APPEND the unit as an extra line at the END of the walk, carrying the
+   *     run's DO link (from any sibling item) so it still rides with the run's
+   *     Delivery Order. The rider isn't locked out; the extra unit shows in the
+   *     run basket and on the DO for the office to reconcile. bindUnitToUnbound-
+   *     DoSlot below is a no-op (no matching DO slot), and completion's stock
+   *     flip already happened per-unit at ack, so nothing is silently lost.
+   *
+   * Returns the chosen run (always merges); null only if the run vanished or is
+   * the same ad-hoc run (defensive — the caller already validated it).
+   */
+  private async mergeIntoChosenScheduledRun(
+    adhocRunId: string,
+    item: { id: string; assetId: string; inventoryId: string },
+    chosenRunId: string,
+    organizationId: string,
+    rider: { userId: string | null; name: string | null },
+  ): Promise<{ deliveryId: string; deliveryNumber: number } | null> {
+    if (chosenRunId === adhocRunId) return null; // never merge a run into itself
+    const chosen = await this.prisma.delivery.findFirst({
+      where: { id: chosenRunId, organizationId, status: 'scheduled', isDraft: false, direction: DeliveryDirection.OUTBOUND },
+      select: {
+        id: true,
+        deliveryNumber: true,
+        riderName: true,
+        items: {
+          select: { id: true, assetId: true, inventoryId: true, quantity: true, documentId: true, sortOrder: true },
+        },
+      },
+    });
+    if (!chosen) return null;
+
+    // An open slot for THIS asset, lowest declared position first (front-to-back
+    // fill, matching tryMergeIntoScheduledRun / claimScheduled / addItem).
+    const openSlots = chosen.items
+      .filter((i) => i.inventoryId === null && i.assetId === item.assetId)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    const slot = openSlots[0] ?? null;
+    // The run's DO link (all scheduled slots are born-linked to the same DO) so
+    // an appended off-schedule unit still rides with the run's Delivery Order.
+    const runDocumentId = chosen.items.find((i) => i.documentId)?.documentId ?? null;
+    // Append position: after every existing line (gap of 100, same as the office
+    // slot numbering) so the extra unit walks last and never collides.
+    const maxSortOrder = chosen.items.reduce((m, i) => Math.max(m, i.sortOrder ?? 0), 0);
+
+    await this.prisma.$transaction(async (tx) => {
+      if (slot) {
+        // Fill the matching slot: inherit its DO link + declared walk position.
+        await tx.deliveryItem.update({
+          where: { id: item.id },
+          data: { deliveryId: chosenRunId, documentId: slot.documentId, sortOrder: slot.sortOrder },
+        });
+        if ((slot.quantity ?? 1) > 1) {
+          await tx.deliveryItem.update({ where: { id: slot.id }, data: { quantity: (slot.quantity ?? 1) - 1 } });
+        } else {
+          await tx.deliveryItem.delete({ where: { id: slot.id } });
+        }
+      } else {
+        // No slot for this asset on the chosen run: append the unit as an extra
+        // line carrying the run's DO link, so the mismatch surfaces on the run.
+        await tx.deliveryItem.update({
+          where: { id: item.id },
+          data: { deliveryId: chosenRunId, documentId: runDocumentId, sortOrder: maxSortOrder + 100 },
+        });
+      }
+      // Move this unit's DO_START proof (GpsPings follow the MSR). Unit-scoped.
+      await tx.maintenanceServiceReport.updateMany({
+        where: { deliveryId: adhocRunId, inventoryId: item.inventoryId },
+        data: { deliveryId: chosenRunId },
+      });
+      // Claim the chosen run for this rider + start it.
+      await tx.delivery.update({
+        where: { id: chosenRunId },
+        data: {
+          status: 'in_progress',
+          startedAt: new Date(),
+          ...(rider.userId ? { riderUserId: rider.userId } : {}),
+          ...(chosen.riderName || !rider.name ? {} : { riderName: rider.name }),
+        },
+      });
+      // Discard the now-empty ad-hoc run (re-check items so a multi-unit ad-hoc
+      // run is never deleted out from under the rider).
+      const remaining = await tx.deliveryItem.count({ where: { deliveryId: adhocRunId } });
+      if (remaining === 0) await tx.delivery.delete({ where: { id: adhocRunId } });
+    });
+
+    // Serial-bind into the DO's asset slot (post-commit, best-effort). A no-op
+    // when the unit was appended off-schedule (no matching DO slot).
+    const bindDocumentId = slot?.documentId ?? runDocumentId;
+    if (bindDocumentId) {
+      try {
+        const unit = await this.prisma.inventory.findFirst({
+          where: { id: item.inventoryId, organizationId },
+          select: { id: true, sku: true },
+        });
+        if (unit) {
+          await this.documentsService.bindUnitToUnboundDoSlot(bindDocumentId, organizationId, {
+            id: item.inventoryId,
+            assetId: item.assetId,
+            sku: unit.sku,
+          });
+        }
+      } catch (err: any) {
+        this.logger.warn(`mergeIntoChosenScheduledRun: DO slot bind failed for unit ${item.inventoryId}: ${err?.message}`);
+      }
+    }
+
+    return { deliveryId: chosen.id, deliveryNumber: chosen.deliveryNumber };
   }
 
   /**

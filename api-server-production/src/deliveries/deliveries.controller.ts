@@ -120,6 +120,19 @@ export class DeliveriesController {
     });
   }
 
+  // Field: the rider's assign step lists EVERY open scheduled OUTBOUND run by
+  // delivery address to pick one. Declared BEFORE :id so "scheduled-open" is not
+  // captured as a delivery id. Optional assetId flags which runs have an open
+  // slot for this unit's asset (the list is never filtered by it).
+  @Get('scheduled-open')
+  @Permissions('maintenance-reports:read')
+  listScheduledOpen(
+    @UserOrganization() org: { id: string },
+    @Query('assetId') assetId?: string,
+  ) {
+    return this.service.listOpenScheduledForPicker(org.id, assetId);
+  }
+
   @Get(':id')
   @Permissions('maintenance-reports:read')
   findById(@Param('id') id: string, @UserOrganization() org: { id: string }) {
