@@ -2846,6 +2846,12 @@ export class DeliveriesService {
       data: { deliveryStatus: DeliveryStatus.completed, completedAt: now },
     });
     await this.recomputeRunStatus(deliveryId, organizationId);
+    // Auto-revoke any guest share link on this run: the run is finished, so the
+    // link must stop accepting anything (matches the guest resolveToken guard).
+    await this.prisma.deliveryShareLink.updateMany({
+      where: { deliveryId, revokedAt: null },
+      data: { revokedAt: now },
+    });
     return this.prisma.delivery.findUnique({ where: { id: deliveryId } });
   }
 

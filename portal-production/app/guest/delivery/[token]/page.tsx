@@ -1,17 +1,16 @@
 "use client";
 
 /**
- * Guest delivery surface — mirrors the authenticated field flow, but auth'd
- * ENTIRELY by the share-link token in the URL (no Clerk, no (field) layout).
- * Steps + captured proof match the field flow: Start Delivery → Acknowledge
- * Delivery (photos + GPS + recipient signature/name) → Complete Installation
- * (same). Reuses the shared PhotoCaptureField / SignaturePadField / capturePosition
- * components and drives the Phase-1 @Public token endpoints, which create/sign
- * the SAME MaintenanceServiceReports (so stock deduction + rental/sold flip fire
- * via the advanceDeliveryItem bridge exactly as the office flow). The request
- * helper omits Authorization when the token arg is undefined.
+ * Run-scoped guest delivery page (2026-08). An external driver, with only the
+ * tokenised URL (no login), can: see the run's items read-only, deliver each one
+ * with its condition photos (class-based minimum), then finalize ONCE with the
+ * install yes/no and the customer signature. Finalize routes through the run's
+ * finalizeRun, so the DO commits and the invoice fires atomically. No skip, no
+ * add, no edit, no cancel. Expired / revoked / completed / cancelled links each
+ * render a plain message rather than an error.
  */
-import React, { useCallback, useEffect, useRef, useState } from "react";
+
+import React, { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   Alert,
@@ -27,399 +26,350 @@ import {
 } from "@mui/material";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { request } from "@/helpers/request";
-import { capturePosition } from "@/helpers/geolocation";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
+import GuidedPhotoCapture from "@/components/delivery/GuidedPhotoCapture";
 import SignaturePadField, { SignaturePadHandle } from "@/components/delivery/SignaturePadField";
 
-type DeliveryItemStatus = "not_delivered" | "delivering" | "not_installed" | "completed";
-type ReportKind = "DO_START" | "DO_ACK" | "DO_INSTALL";
+type ItemStatus = "not_delivered" | "delivering" | "not_installed" | "completed";
+type State = "ok" | "expired" | "revoked" | "completed" | "cancelled" | "notfound";
 
-interface DeliveryItem {
+interface GuestItem {
   id: string;
-  itemId: string;
-  inventoryId: string | null;
-  itemType: string;
-  sku: string | null;
+  isFreeTyped: boolean;
   unitSku: string | null;
-  description: string | null;
-  quantity: number | null;
-  deliveryStatus: DeliveryItemStatus;
+  description: string;
+  quantity: number;
+  deliveryStatus: ItemStatus;
+  minPhotos: number;
+  canDeliver: boolean;
 }
 interface GuestView {
+  state: State;
+  deliveryNumber: number | null;
   documentNumber: string | null;
-  status: string | null;
   customerName: string;
-  deliveryItems: DeliveryItem[];
+  deliveryItems: GuestItem[];
 }
 
-const STATUS_CHIP: Record<
-  DeliveryItemStatus,
-  { label: string; color: "default" | "warning" | "info" | "success" }
-> = {
-  not_delivered: { label: "Not delivered", color: "default" },
-  delivering: { label: "Delivering", color: "warning" },
-  not_installed: { label: "Delivered (not installed)", color: "info" },
+const STATE_MSG: Record<Exclude<State, "ok">, { title: string; body: string; done?: boolean }> = {
+  expired: { title: "Link expired", body: "This delivery link has expired. Please ask the sender for a new one." },
+  revoked: { title: "Link no longer active", body: "This delivery link is no longer active." },
+  completed: { title: "Delivery complete", body: "This delivery is already complete. Nothing more to do here.", done: true },
+  cancelled: { title: "Delivery cancelled", body: "This delivery was cancelled." },
+  notfound: { title: "Link not found", body: "This delivery link was not found." },
+};
+
+const STATUS_CHIP: Record<ItemStatus, { label: string; color: "default" | "warning" | "info" | "success" }> = {
+  not_delivered: { label: "To deliver", color: "default" },
+  delivering: { label: "In progress", color: "warning" },
+  not_installed: { label: "Delivered", color: "info" },
   completed: { label: "Completed", color: "success" },
 };
 
-// Stage → the card's next action, derived from the item's OWN deliveryStatus —
-// the same per-item derivation as the field big card (Option-B stage fix).
-function stageAction(s: DeliveryItemStatus): { kind: ReportKind | null; label: string } {
-  switch (s) {
-    case "not_delivered":
-      return { kind: "DO_START", label: "Start Delivery" };
-    case "delivering":
-      return { kind: "DO_ACK", label: "Acknowledge Delivery" };
-    case "not_installed":
-      return { kind: "DO_INSTALL", label: "Complete Installation" };
-    default:
-      return { kind: null, label: "Completed" };
-  }
+function Centered({ children }: { children: React.ReactNode }) {
+  return <Box sx={{ minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center", p: 3 }}>{children}</Box>;
 }
 
-function Centered({ children }: { children: React.ReactNode }) {
+function StateScreen({ title, body, done }: { title: string; body: string; done?: boolean }) {
   return (
-    <Box sx={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", p: 3 }}>
-      {children}
-    </Box>
+    <Centered>
+      <Stack alignItems="center" spacing={2} sx={{ textAlign: "center", maxWidth: 380 }}>
+        {done ? <CheckCircleIcon color="success" sx={{ fontSize: 56 }} /> : <InfoOutlinedIcon color="action" sx={{ fontSize: 56 }} />}
+        <Typography variant="h6" fontWeight={800}>{title}</Typography>
+        <Typography variant="body2" color="text.secondary">{body}</Typography>
+      </Stack>
+    </Centered>
   );
 }
 
 export default function GuestDeliveryPage() {
-  const params = useParams();
-  const token = (params?.token as string) ?? "";
+  const { token } = useParams() as { token: string };
   const [view, setView] = useState<GuestView | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  // The item + step currently being acted on; null = item list.
-  const [active, setActive] = useState<{ item: DeliveryItem; kind: ReportKind } | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [active, setActive] = useState<GuestItem | null>(null);
+  const [finalizing, setFinalizing] = useState(false);
 
   const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
     try {
       const res: any = await request({ path: `/public/delivery/${token}`, method: "GET" }, {});
-      setView(res?.data ?? res);
+      setView((res?.data ?? res) as GuestView);
+      setLoadError(null);
     } catch (e: any) {
-      setError(
-        e?.response?.data?.message ||
-          e?.message ||
-          "This delivery link is invalid or has expired.",
-      );
+      setLoadError(e?.response?.data?.message || e?.message || "Could not load this delivery.");
     } finally {
       setLoading(false);
     }
   }, [token]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
-  if (loading) {
-    return (
-      <Centered>
-        <CircularProgress />
-      </Centered>
-    );
-  }
-  if (error || !view) {
-    return (
-      <Centered>
-        <Alert severity="error">{error ?? "Delivery not found"}</Alert>
-      </Centered>
-    );
+  const uploadGuestPhoto = async (blob: Blob): Promise<string | null> => {
+    const fd = new FormData();
+    fd.append("file", blob, "photo.jpg");
+    const res: any = await request({ path: `/public/delivery/${token}/photo`, method: "POST" }, fd, undefined, undefined, true, true);
+    return res?.Key ?? res?.data?.Key ?? null;
+  };
+
+  if (loading) return <Centered><CircularProgress /></Centered>;
+  if (loadError && !view) return <Centered><Alert severity="error">{loadError}</Alert></Centered>;
+  if (!view) return <Centered><Alert severity="error">Delivery not found.</Alert></Centered>;
+
+  if (view.state !== "ok") {
+    const m = STATE_MSG[view.state];
+    return <StateScreen title={m.title} body={m.body} done={m.done} />;
   }
 
   if (active) {
     return (
-      <StepScreen
+      <DeliverItemScreen
         token={token}
-        item={active.item}
-        kind={active.kind}
+        item={active}
+        upload={uploadGuestPhoto}
         onBack={() => setActive(null)}
-        onDone={() => {
-          setActive(null);
-          load();
-        }}
+        onDone={async () => { setActive(null); await load(); }}
       />
     );
   }
 
-  return (
-    <Box sx={{ minHeight: "100vh", bgcolor: "background.default", p: 2 }}>
-      <Typography variant="h6" fontWeight={700}>
-        Delivery {view.documentNumber || ""}
-      </Typography>
-      {view.customerName && (
-        <Typography variant="body2" color="text.secondary">
-          {view.customerName}
-        </Typography>
-      )}
+  if (finalizing) {
+    return (
+      <FinalizeScreen
+        token={token}
+        upload={uploadGuestPhoto}
+        onBack={() => setFinalizing(false)}
+        onDone={async () => { setFinalizing(false); await load(); }}
+      />
+    );
+  }
 
-      <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
-        Items on this delivery ({view.deliveryItems.length})
-      </Typography>
+  const toDeliver = view.deliveryItems.filter((i) => i.canDeliver);
+  const allDelivered = view.deliveryItems.length > 0 && toDeliver.length === 0;
+
+  return (
+    <Box sx={{ p: 3, maxWidth: 560, mx: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
+      <Box>
+        <Typography variant="h6" fontWeight={800}>Delivery #{view.deliveryNumber}</Typography>
+        <Typography variant="body2" color="text.secondary">
+          {view.documentNumber}{view.customerName ? ` · ${view.customerName}` : ""}
+        </Typography>
+      </Box>
 
       <Stack spacing={1.5}>
-        {view.deliveryItems.map((row) => {
-          const chip = STATUS_CHIP[row.deliveryStatus] ?? {
-            label: row.deliveryStatus,
-            color: "default" as const,
-          };
-          const action = stageAction(row.deliveryStatus);
+        {view.deliveryItems.map((it) => {
+          const chip = STATUS_CHIP[it.deliveryStatus];
           return (
-            <Card key={row.id} variant="outlined">
-              <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1 }}>
-                  <Box sx={{ minWidth: 0 }}>
-                    <Typography variant="body2" fontWeight={600} noWrap>
-                      {row.description || row.unitSku || "Item"}
-                    </Typography>
-                    {row.unitSku && (
-                      <Typography variant="caption" color="text.secondary" noWrap display="block">
-                        {row.unitSku}
-                      </Typography>
+            <Card key={it.id} variant="outlined">
+              <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography variant="body2" fontWeight={600} noWrap>{it.description}</Typography>
+                    {it.unitSku && (
+                      <Typography variant="caption" color="text.secondary" noWrap display="block">{it.unitSku}</Typography>
                     )}
                   </Box>
                   <Chip size="small" label={chip.label} color={chip.color} />
-                </Box>
-
-                {action.kind ? (
+                </Stack>
+                {it.canDeliver && (
                   <Button
                     fullWidth
                     variant="contained"
-                    sx={{ mt: 1.5 }}
-                    disabled={!row.inventoryId}
-                    onClick={() => setActive({ item: row, kind: action.kind! })}
+                    startIcon={<LocalShippingIcon />}
+                    onClick={() => setActive(it)}
+                    sx={{ mt: 1.5, minHeight: 44 }}
                   >
-                    {action.label}
+                    Deliver this item
                   </Button>
-                ) : (
-                  <Stack direction="row" spacing={0.5} sx={{ mt: 1, color: "success.main", alignItems: "center" }}>
-                    <CheckCircleIcon fontSize="small" />
-                    <Typography variant="body2">Delivered &amp; installed</Typography>
-                  </Stack>
                 )}
               </CardContent>
             </Card>
           );
         })}
       </Stack>
+
+      {allDelivered ? (
+        <Button fullWidth variant="contained" color="success" onClick={() => setFinalizing(true)} sx={{ minHeight: 48 }}>
+          Get customer signature
+        </Button>
+      ) : (
+        <Typography variant="caption" color="text.secondary" sx={{ textAlign: "center" }}>
+          Deliver every item, then capture the customer signature to finish.
+        </Typography>
+      )}
     </Box>
   );
 }
 
-/**
- * One step for one item. Start = a confirm screen (mirrors delivery-start).
- * Acknowledge / Complete = notes + photos + one-shot GPS + recipient name +
- * signature on a single screen (the field flow splits these across the do/
- * install page and the sign page; the guest surface combines them but captures
- * the identical proof and sequences create → sign the same way).
- */
-function StepScreen({
+function DeliverItemScreen({
   token,
   item,
-  kind,
+  upload,
   onBack,
   onDone,
 }: {
   token: string;
-  item: DeliveryItem;
-  kind: ReportKind;
+  item: GuestItem;
+  upload: (blob: Blob) => Promise<string | null>;
   onBack: () => void;
   onDone: () => void;
 }) {
-  const isStart = kind === "DO_START";
-  const title =
-    kind === "DO_START"
-      ? "Start Delivery"
-      : kind === "DO_ACK"
-        ? "Acknowledge Delivery"
-        : "Complete Installation";
-  const photoLabel = kind === "DO_INSTALL" ? "Proof of installation" : "Proof of delivery";
-  const itemLabel = item.description || item.unitSku || "Item";
-  const unitId = item.inventoryId ?? item.itemId;
-
-  const [notes, setNotes] = useState("");
-  const [name, setName] = useState("");
   const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [locating, setLocating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const sigRef = useRef<SignaturePadHandle>(null);
+  const guided = item.minPhotos > 1;
 
-  // Token-scoped photo upload — the SAME contract the field flow's uploadImage
-  // closure provides, but via the @Public /photo endpoint (no Clerk token).
-  const uploadGuestPhoto = async (blob: Blob): Promise<string | null> => {
-    const fd = new FormData();
-    fd.append("file", blob, "photo.jpg");
-    const res: any = await request(
-      { path: `/public/delivery/${token}/photo`, method: "POST" },
-      fd,
-      undefined,
-      undefined,
-      true,
-      true,
-    );
-    return res?.Key ?? res?.data?.Key ?? null;
-  };
-
-  const submitStart = async () => {
+  const submit = async () => {
     setError(null);
-    setSubmitting(true);
-    try {
-      await request(
-        { path: `/public/delivery/${token}/report`, method: "POST" },
-        { kind: "DO_START", inventoryId: unitId },
-      );
-      onDone();
-    } catch (e: any) {
-      setError(e?.response?.data?.message || e?.message || "Failed to start delivery");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const submitAckOrInstall = async () => {
-    if (!sigRef.current || sigRef.current.isEmpty()) {
-      setError("Signature is required");
+    if (photos.length < item.minPhotos) {
+      setError(item.minPhotos === 1 ? "A condition photo is required." : `This item needs ${item.minPhotos} condition photos.`);
       return;
     }
-    setError(null);
     setSubmitting(true);
     try {
-      const description =
-        notes.trim() || (kind === "DO_INSTALL" ? "Installation acknowledged" : "Delivery acknowledged");
-      // One-shot GPS at the acknowledgement/installation point (best-effort).
-      setLocating(true);
-      const coords = await capturePosition();
-      setLocating(false);
-      // create (notes + photos + GPS) THEN sign (signature + name) — mirrors the
-      // field do/install → sign split; the sign call bridges to advanceDeliveryItem.
-      const created: any = await request(
-        { path: `/public/delivery/${token}/report`, method: "POST" },
-        {
-          kind,
-          inventoryId: unitId,
-          description,
-          photos: photos.map((p) => p.key),
-          ...(coords ? { latitude: coords.latitude, longitude: coords.longitude } : {}),
-        },
+      const res: any = await request(
+        { path: `/public/delivery/${token}/items/${encodeURIComponent(item.id)}/deliver`, method: "POST" },
+        { photos: photos.map((p) => p.key) },
       );
-      const reportId = created?.id ?? created?.data?.id;
-      if (!reportId) throw new Error("No report id returned");
-      const signature = sigRef.current.toDataUrl();
-      await request(
-        { path: `/public/delivery/${token}/report/${reportId}/sign`, method: "POST" },
-        { signature, signedByName: name.trim() || undefined },
-      );
+      if (res?.success === false) throw new Error(res?.message ?? "Could not deliver this item");
       onDone();
     } catch (e: any) {
-      setError(e?.response?.data?.message || e?.message || "Failed to submit");
-    } finally {
+      setError(e?.response?.data?.message || e?.message || "Could not deliver this item");
       setSubmitting(false);
     }
   };
 
-  // START — confirm only (mirrors delivery-start; no proof captured at start).
-  if (isStart) {
-    return (
-      <Box sx={{ minHeight: "100vh", p: 3, display: "flex", flexDirection: "column", gap: 3, alignItems: "center" }}>
-        <LocalShippingIcon sx={{ fontSize: 80, color: "primary.main", mt: 4 }} />
-        <Typography variant="h6" fontWeight={700} textAlign="center">
-          Start Delivery
-        </Typography>
-        <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ maxWidth: 360 }}>
-          Confirm you&apos;re taking this item out for delivery.
-        </Typography>
-        <Box sx={{ p: 1.5, bgcolor: "action.hover", borderRadius: 1, minWidth: 280, textAlign: "center" }}>
-          <Typography variant="caption" color="text.secondary" display="block">
-            Item
-          </Typography>
-          <Typography variant="body2" fontWeight={600}>
-            {itemLabel}
-          </Typography>
-        </Box>
-        {error && (
-          <Alert severity="error" sx={{ width: "100%", maxWidth: 360 }}>
-            {error}
-          </Alert>
-        )}
-        <Stack direction="row" spacing={2} sx={{ mt: 2, width: "100%", maxWidth: 360 }}>
-          <Button variant="outlined" fullWidth onClick={onBack} disabled={submitting} sx={{ py: 1.5, minHeight: 48 }}>
-            Cancel
-          </Button>
-          <Button variant="contained" fullWidth onClick={submitStart} disabled={submitting} sx={{ py: 1.5, minHeight: 48 }}>
-            {submitting ? <CircularProgress size={20} color="inherit" /> : "Confirm & Start"}
-          </Button>
-        </Stack>
-      </Box>
-    );
-  }
-
-  // ACKNOWLEDGE / COMPLETE — notes + photos + recipient name + signature.
   return (
-    <Box sx={{ minHeight: "100vh", p: 3, display: "flex", flexDirection: "column", gap: 3 }}>
-      <Typography variant="h6" fontWeight={700}>
-        {title}
-      </Typography>
+    <Box sx={{ p: 3, maxWidth: 560, mx: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
+      <Typography variant="h6" fontWeight={800}>{item.description}</Typography>
       <Typography variant="body2" color="text.secondary">
-        {itemLabel}
+        Take {item.minPhotos === 1 ? "a condition photo" : `${item.minPhotos} condition photos`} of the item, then confirm delivery.
       </Typography>
 
-      <TextField
-        label="Notes (optional)"
-        placeholder="Any condition issues or remarks"
-        multiline
-        minRows={3}
-        fullWidth
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-      />
-
-      <PhotoCaptureField
-        label={photoLabel}
-        photos={photos}
-        onChange={setPhotos}
-        upload={uploadGuestPhoto}
-        onError={(m) => setError(m || null)}
-        onUploadingChange={setUploading}
-      />
-
-      <Box>
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>
-          Recipient signature
-        </Typography>
-        <TextField
-          label="Recipient name (optional)"
-          size="small"
-          fullWidth
-          sx={{ mb: 1 }}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
+      {guided ? (
+        <GuidedPhotoCapture
+          photos={photos}
+          onChange={setPhotos}
+          upload={upload}
+          minPhotos={item.minPhotos}
+          onError={(m) => setError(m || null)}
+          onUploadingChange={setUploading}
         />
-        <SignaturePadField ref={sigRef} />
-        <Button size="small" onClick={() => sigRef.current?.clear()} sx={{ mt: 0.5 }}>
-          Clear
-        </Button>
-      </Box>
+      ) : (
+        <PhotoCaptureField
+          label="Condition photo (required)"
+          photos={photos}
+          onChange={setPhotos}
+          upload={upload}
+          onError={(m) => setError(m || null)}
+          onUploadingChange={setUploading}
+        />
+      )}
 
       {error && <Alert severity="error">{error}</Alert>}
 
-      <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
-        <Button variant="outlined" fullWidth onClick={onBack} disabled={submitting}>
-          Back
-        </Button>
+      <Stack direction="row" spacing={1}>
+        <Button variant="outlined" fullWidth onClick={onBack} disabled={submitting} sx={{ minHeight: 48 }}>Back</Button>
         <Button
           variant="contained"
           fullWidth
-          onClick={submitAckOrInstall}
-          disabled={submitting || uploading}
-          sx={{ py: 1.5, minHeight: 48 }}
+          onClick={submit}
+          disabled={submitting || uploading || photos.length < item.minPhotos}
+          sx={{ minHeight: 48 }}
         >
-          {submitting ? (locating ? "Getting location…" : "Submitting…") : "Submit"}
+          {submitting ? <CircularProgress size={22} color="inherit" /> : "Confirm delivery"}
+        </Button>
+      </Stack>
+    </Box>
+  );
+}
+
+function FinalizeScreen({
+  token,
+  upload,
+  onBack,
+  onDone,
+}: {
+  token: string;
+  upload: (blob: Blob) => Promise<string | null>;
+  onBack: () => void;
+  onDone: () => void;
+}) {
+  const [installNeeded, setInstallNeeded] = useState<"yes" | "no" | null>(null);
+  const [installPhotos, setInstallPhotos] = useState<CapturedPhoto[]>([]);
+  const [signedByName, setSignedByName] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const sigRef = React.useRef<SignaturePadHandle>(null);
+
+  const submit = async () => {
+    setError(null);
+    if (installNeeded === null) {
+      setError("Please answer whether installation was needed.");
+      return;
+    }
+    if (!sigRef.current || sigRef.current.isEmpty()) {
+      setError("The customer needs to sign to complete the delivery.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res: any = await request(
+        { path: `/public/delivery/${token}/finalize`, method: "POST" },
+        {
+          signature: sigRef.current.toDataUrl(),
+          ...(signedByName.trim() ? { signedByName: signedByName.trim() } : {}),
+          installNeeded: installNeeded === "yes",
+          ...(installNeeded === "yes" && installPhotos.length ? { installPhotos: installPhotos.map((p) => p.key) } : {}),
+        },
+      );
+      if (res?.success === false) throw new Error(res?.message ?? "Could not finalize the delivery");
+      onDone();
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.message || "Could not finalize the delivery");
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Box sx={{ p: 3, maxWidth: 560, mx: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
+      <Typography variant="h6" fontWeight={800}>Finish delivery</Typography>
+
+      <Typography variant="subtitle2" fontWeight={700}>Installation needed?</Typography>
+      <Stack direction="row" spacing={1.5}>
+        <Button fullWidth variant={installNeeded === "yes" ? "contained" : "outlined"} onClick={() => setInstallNeeded("yes")} sx={{ minHeight: 48 }}>
+          Yes, installed
+        </Button>
+        <Button fullWidth variant={installNeeded === "no" ? "contained" : "outlined"} onClick={() => setInstallNeeded("no")} sx={{ minHeight: 48 }}>
+          No install needed
+        </Button>
+      </Stack>
+      {installNeeded === "yes" && (
+        <PhotoCaptureField
+          label="Installation photos (optional)"
+          photos={installPhotos}
+          onChange={setInstallPhotos}
+          upload={upload}
+          onError={(m) => setError(m || null)}
+          onUploadingChange={setUploading}
+        />
+      )}
+
+      <TextField label="Signed by (name)" value={signedByName} onChange={(e) => setSignedByName(e.target.value)} size="small" fullWidth />
+      <Typography variant="subtitle2">Customer signature</Typography>
+      <SignaturePadField ref={sigRef} />
+
+      {error && <Alert severity="error">{error}</Alert>}
+
+      <Stack direction="row" spacing={1}>
+        <Button variant="outlined" fullWidth onClick={onBack} disabled={submitting} sx={{ minHeight: 48 }}>Back</Button>
+        <Button variant="contained" color="success" fullWidth onClick={submit} disabled={submitting || uploading} sx={{ minHeight: 48 }}>
+          {submitting ? <CircularProgress size={22} color="inherit" /> : "Complete delivery"}
         </Button>
       </Stack>
     </Box>

@@ -295,6 +295,7 @@ export default function TabbedDocumentCreator({
   // copyable dialog after generation, independent of whether the auto-copy
   // (navigator.clipboard) succeeds. Null = dialog closed.
   const [shareLinkUrl, setShareLinkUrl] = useState<string | null>(null);
+  const [shareLinkExpires, setShareLinkExpires] = useState<string | null>(null);
   // Collapse the General/Details fields panel to give the Items table more space.
   const [isFieldsCollapsed, setIsFieldsCollapsed] = useState(false);
   // Items section tabs
@@ -2929,9 +2930,11 @@ export default function TabbedDocumentCreator({
     const id = existingData?.id || documentId;
     // 1) Generate the link. A failure HERE is the real backend error.
     let full = "";
+    let expiresAt: string | null = null;
     try {
       const res = await request({ path: `/documents/${id}/delivery-share-link`, method: "POST" }, {}, token);
       const body = res?.data ?? res;
+      expiresAt = body?.expiresAt ?? null;
       // Build an ABSOLUTE guest URL so the copied link is complete for
       // external recipients. The backend's body.url is only absolute
       // when PORTAL_URL is set (else it's a bare "/guest/..." path), and
@@ -2949,6 +2952,7 @@ export default function TabbedDocumentCreator({
     if (!full) { toast.error("Delivery link created but no URL was returned"); return; }
     // 2) Link exists → always surface it in a copyable dialog so it's
     //    usable regardless of the clipboard outcome.
+    setShareLinkExpires(expiresAt);
     setShareLinkUrl(full);
     // 3) Best-effort auto-copy in its OWN try/catch. A rejected
     //    clipboard write (user-activation lapses across the awaited
@@ -2961,6 +2965,21 @@ export default function TabbedDocumentCreator({
       }
     } catch {
       toast.info("Delivery link ready — copy it from the dialog");
+    }
+  };
+
+  const handleRevokeDeliveryLink = async () => {
+    if (!window.confirm("Revoke the guest delivery link? Anyone holding the current link will no longer be able to use it.")) return;
+    const authToken = await getToken();
+    if (!authToken) { toast.error("Authentication required"); return; }
+    const id = existingData?.id || documentId;
+    try {
+      await request({ path: `/documents/${id}/delivery-share-link/revoke`, method: "POST" }, {}, authToken);
+      setShareLinkUrl(null);
+      setShareLinkExpires(null);
+      toast.success("Delivery link revoked");
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || e?.message || "Failed to revoke delivery link");
     }
   };
 
@@ -3936,6 +3955,12 @@ export default function TabbedDocumentCreator({
               <MenuItem onClick={() => { closeMoreMenu(); handleShareDeliveryLink(); }}>
                 <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Share delivery link</ListItemText>
+              </MenuItem>
+            )}
+            {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (existingData?.id || documentId) && (
+              <MenuItem onClick={() => { closeMoreMenu(); handleRevokeDeliveryLink(); }}>
+                <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Revoke delivery link</ListItemText>
               </MenuItem>
             )}
             {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (existingData?.id || documentId) && (
@@ -6313,7 +6338,7 @@ export default function TabbedDocumentCreator({
         <DialogTitle>Guest delivery link</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            Anyone with this link can view and update this delivery order — no login required.
+            Send this to the driver. With this link and no login they can deliver the run and capture the customer signature. Revoke it any time.
           </Typography>
           <TextField
             value={shareLinkUrl ?? ""}
@@ -6322,8 +6347,14 @@ export default function TabbedDocumentCreator({
             InputProps={{ readOnly: true }}
             onFocus={(e) => e.target.select()}
           />
+          {shareLinkExpires && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+              Expires {new Date(shareLinkExpires).toLocaleString()}
+            </Typography>
+          )}
         </DialogContent>
         <DialogActions>
+          <Button color="error" onClick={handleRevokeDeliveryLink}>Revoke</Button>
           <Button onClick={() => setShareLinkUrl(null)}>Close</Button>
           <Button
             startIcon={<OpenInNewIcon />}

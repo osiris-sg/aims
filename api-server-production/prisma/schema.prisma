@@ -471,11 +471,17 @@ model DeliveryShareLink {
   token      String    @unique // unguessable, crypto-random
   documentId String    @db.Uuid
   document   Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  // Run-scoped guest link (2026-08): the token drives the DELIVERY RUN, not the
+  // DO in isolation. Nullable + additive so the column is a safe db push. The DO
+  // (documentId) is the run's born-linked draft, kept for the office generate.
+  deliveryId String?   @db.Uuid
+  delivery   Delivery? @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
   createdAt  DateTime  @default(now())
-  expiresAt  DateTime? // hook for later (not enforced yet)
-  revokedAt  DateTime? // hook for later (not enforced yet)
+  expiresAt  DateTime? // set at mint: a window around the run's scheduledFor
+  revokedAt  DateTime? // set on revoke, and auto-set when the run finalizes
 
   @@index([documentId])
+  @@index([deliveryId])
 }
 
 // Semantic memory for the AI Document Assistant. One row per Document; the
@@ -2421,6 +2427,7 @@ model Delivery {
   document     Document?                  @relation(fields: [documentId], references: [id], onDelete: SetNull)
   items        DeliveryItem[]
   reports      MaintenanceServiceReport[]
+  shareLinks   DeliveryShareLink[] // run-scoped guest delivery links
 
   @@unique([organizationId, deliveryNumber])
   @@index([documentId])
