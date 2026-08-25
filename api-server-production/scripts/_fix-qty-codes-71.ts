@@ -39,7 +39,7 @@ function codeFromDesc(desc: string): string | null {
     // pass 1: qty + direct codes
     for (const it of items) {
       const amt = Number(it.amount) || 0;
-      if (amt === 0 && Number(it.quantity) !== 1) { it.quantity = 1; dirty = true; }
+      // qty on text lines stays BLANK (guru 2026-08-25) — do not touch here.
       if (amt !== 0 && !it.itemCode) {
         const code = codeFromDesc(it.description) || tplCodeByGenId.get(d.id) || null;
         if (code) { it.itemCode = code; dirty = true; }

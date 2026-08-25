@@ -26,7 +26,11 @@ const ANNOT = /^\s*(\(?(our|your)\s+(do|qtn|po|ref|works|contract|sub-?contract|
       if (amt !== 0 && !it.itemCode) p.push(`priced line missing product code: "${desc.slice(0, 40)}"`);
       if (amt !== 0 && !it.accountCode) p.push(`priced line missing account code: "${desc.slice(0, 40)}"`);
       if (amt < 0 && (!it.accountCode || !it.itemCode)) p.push(`discount line missing codes`);
-      if (amt === 0 && Number(it.quantity) !== 1) p.push(`zero-amount line qty=${it.quantity}`);
+      // July convention: zero-amount lines are EITHER fully blank (annotations)
+      // OR bundled equipment with qty>0 / unit 0 / amount 0.
+      const equipStyle = Number(it.quantity) > 0 && !Number(it.unitPrice) && !Number(it.amount) && it.amount != null;
+      const blankStyle = it.quantity == null && it.unitPrice == null && it.amount == null;
+      if (amt === 0 && !equipStyle && !blankStyle) p.push(`zero-amount line neither blank nor equip-style (qty=${it.quantity} up=${it.unitPrice} amt=${it.amount})`);
       if (amt === 0 && ANNOT.test(desc) && it.revenueTag) p.push(`annotation line tagged "${it.revenueTag}"`);
       if (/<div|<br|<span|&nbsp/i.test(desc)) p.push(`HTML in description`);
     }
