@@ -50,10 +50,13 @@ type XeroContact = {
 
 function formatAddress(addresses?: XeroAddress[]): string | null {
   if (!addresses?.length) return null;
-  // Prefer street address over postal address.
-  const a = addresses.find((x) => x.AddressType === "STREET") || addresses[0];
-  const parts = [a.AddressLine1, a.AddressLine2, a.City, a.Region, a.PostalCode, a.Country].filter(Boolean);
-  return parts.length ? parts.join(", ") : null;
+  // Xero prints the POBOX entry as the invoice "Bill to"; contacts often carry
+  // an EMPTY STREET entry alongside it — never let an empty entry win.
+  const fmt = (a: XeroAddress) =>
+    [a.AddressLine1, a.AddressLine2, (a as any).AddressLine3, (a as any).AddressLine4, a.City, a.Region, a.PostalCode, a.Country].filter(Boolean).join(", ");
+  const nonEmpty = addresses.filter((x) => fmt(x));
+  const a = nonEmpty.find((x) => x.AddressType === "POBOX") || nonEmpty.find((x) => x.AddressType === "STREET") || nonEmpty[0];
+  return a ? fmt(a) : null;
 }
 
 function formatPhone(phones?: XeroPhone[]): string | null {
