@@ -263,6 +263,12 @@ async function probeGroupTitles() {
     for (const gid of ALLOWED_GROUPS.length ? ALLOWED_GROUPS : diag.sample.slice(0, 1).map((g) => g.id)) {
       const who = await resolveClientName(gid, '');
       console.log(`   name probe [${gid}] -> ${who || '(unresolved)'}`);
+      // List members with their LIDs. In groups WhatsApp identifies people by
+      // LID, not phone number, so STAFF_NUMBERS must hold LIDs to match — this
+      // is how we find the advisor's.
+      for (const m of await groupMembers(gid)) {
+        console.log(`      ${String(m.id).padEnd(22)} ${m.isMe ? '(this bot) ' : ''}${m.name || '(no name)'}`);
+      }
     }
   } catch (e) {
     console.log(`🔎 store probe failed: ${e && e.message ? e.message : e}`);
@@ -280,6 +286,35 @@ async function askAgent(groupId, from, body) {
   if (!res.ok) throw new Error(json?.message || `agent ${res.status}`);
   // API wraps responses as { success, data } — unwrap if present.
   return json?.data ?? json;
+}
+
+/**
+ * Every member of a group with their id and best-known display name. Groups
+ * identify people by LID rather than phone number, so this is how the advisor's
+ * LID is discovered for STAFF_NUMBERS.
+ */
+async function groupMembers(chatId) {
+  try {
+    return await client.pupPage.evaluate((id) => {
+      const wid = window.require('WAWebWidFactory').createWid(id);
+      const collections = window.require('WAWebCollections');
+      const chat = collections.Chat.get(wid);
+      const parts = chat?.groupMetadata?.participants;
+      const list = parts?.getModelsArray?.() || parts?.models || parts || [];
+      return list.map((p) => {
+        const serialized = String(p?.id?._serialized || p?.id || '');
+        const c = collections.Contact?.get(p.id) || null;
+        return {
+          id: serialized,
+          name: c?.name || c?.formattedName || c?.pushname || c?.verifiedName || null,
+          isMe: !!p?.isMe,
+        };
+      });
+    }, chatId);
+  } catch (e) {
+    console.log(`   ⤷ member list unavailable: ${e && e.message ? e.message : e}`);
+    return [];
+  }
 }
 
 /** Shared helper for the token-gated bridge endpoints. */
