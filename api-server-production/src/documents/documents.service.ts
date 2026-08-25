@@ -2907,13 +2907,32 @@ export class DocumentsService {
 
       const term = (opts.search || '').trim();
       if (term) {
-        and.push({
-          OR: [
-            { name: { contains: term, mode: 'insensitive' } },
-            { type: { contains: term, mode: 'insensitive' } },
-            { config: { path: ['customer', 'name'], string_contains: term } },
-          ],
-        });
+        // Customer + reference live in config JSON under several shapes
+        // (imported docs: customer.name / xeroReference; editor-born docs:
+        // customerName / referenceNo; documentInfo.referenceNo everywhere).
+        // JSON string_contains is case-SENSITIVE — probe common casings.
+        const variants = [
+          ...new Set([
+            term,
+            term.toLowerCase(),
+            term.toUpperCase(),
+            term.replace(/\b\w/g, (ch) => ch.toUpperCase()),
+          ]),
+        ];
+        const jsonPaths: string[][] = [
+          ['customer', 'name'],
+          ['customerName'],
+          ['reference'],
+          ['referenceNo'],
+          ['xeroReference'],
+          ['documentInfo', 'referenceNo'],
+        ];
+        const or: any[] = [
+          { name: { contains: term, mode: 'insensitive' } },
+          { type: { contains: term, mode: 'insensitive' } },
+        ];
+        for (const p of jsonPaths) for (const v of variants) or.push({ config: { path: p, string_contains: v } });
+        and.push({ OR: or });
       }
 
       if (and.length) where.AND = and;
