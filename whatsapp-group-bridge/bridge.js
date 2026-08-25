@@ -584,7 +584,10 @@ client.on('message_create', async (msg) => {
     // Intro summon: our number is @mentioned + "this is <name>" — but because
     // WhatsApp masks numbers as LIDs, also accept ANY @mention paired with the
     // "this is <name>" phrase (that shape is unambiguously an intro to the PA).
-    const isIntro = introName && (mentioned || TRIGGER.test(msg.body || ''));
+    // Intro requires a genuine @mention of the PA's own number. Text like
+    // "@pa" is not enough: the advisor tags real people constantly, and any
+    // looser rule made the PA introduce itself into client conversations.
+    const isIntro = introName && mentioned;
     // Explicit summon: @mention of us, or the legacy @pa text.
     const summoned = mentioned || TRIGGER.test(msg.body || '');
 
