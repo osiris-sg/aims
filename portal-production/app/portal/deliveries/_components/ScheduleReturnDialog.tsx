@@ -23,6 +23,10 @@ import {
 } from "@mui/material";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { request } from "@/helpers/request";
+import { DatePicker } from "@mui/x-date-pickers/DatePicker";
+import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+import dayjs from "dayjs";
 
 interface CustomerOption {
   id: string;
@@ -399,14 +403,19 @@ export default function ScheduleReturnDialog({
           Collection date and time
         </Typography>
         <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
-          <TextField
-            type="date"
-            size="small"
-            value={scheduleDate}
-            onChange={(e) => setScheduleDate(e.target.value)}
-            InputLabelProps={{ shrink: true }}
-            sx={{ flex: 1 }}
-          />
+          {/* MUI DatePicker (Popper) instead of a native date input: its calendar
+              flips above the field when there is no room below, so it stays fully
+              clickable even though this field sits at the bottom of the form. */}
+          <LocalizationProvider dateAdapter={AdapterDayjs}>
+            <DatePicker
+              label="Date"
+              value={scheduleDate ? dayjs(scheduleDate) : null}
+              onChange={(d) => setScheduleDate(d && d.isValid() ? d.format("YYYY-MM-DD") : "")}
+              slotProps={{
+                textField: { size: "small", InputLabelProps: { shrink: true }, sx: { flex: 1 } },
+              }}
+            />
+          </LocalizationProvider>
           <TextField
             type="time"
             size="small"

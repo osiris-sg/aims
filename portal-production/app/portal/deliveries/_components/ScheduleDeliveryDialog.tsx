@@ -32,6 +32,10 @@ import { request } from "@/helpers/request";
 import ProjectContactPicker, { ContactLite } from "@/app/portal/projects/components/ProjectContactPicker";
 import { useOrganization } from "@hooks/useOrganization";
 import ExtractQuotationDialog from "@/containers/DocumentTemplates/components/ExtractQuotationDialog";
+import { DatePicker } from "@mui/x-date-pickers/DatePicker";
+import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+import dayjs from "dayjs";
 
 /**
  * Office "Schedule a delivery" dialog. Field order (top→bottom): CUSTOMER →
@@ -909,16 +913,19 @@ export default function ScheduleDeliveryDialog({
           sx={{ mb: 2 }}
         />
         <Stack direction="row" spacing={1.5}>
-          <TextField
-            label="Date"
-            type="date"
-            value={scheduleDate}
-            onChange={(e) => setScheduleDate(e.target.value)}
-            fullWidth
-            size="small"
-            InputLabelProps={{ shrink: true }}
-            required
-          />
+          {/* MUI DatePicker (Popper) instead of a native date input: its calendar
+              flips above the field when there is no room below, so it stays fully
+              clickable even though this field sits low in the form. */}
+          <LocalizationProvider dateAdapter={AdapterDayjs}>
+            <DatePicker
+              label="Date"
+              value={scheduleDate ? dayjs(scheduleDate) : null}
+              onChange={(d) => setScheduleDate(d && d.isValid() ? d.format("YYYY-MM-DD") : "")}
+              slotProps={{
+                textField: { size: "small", fullWidth: true, required: true, InputLabelProps: { shrink: true } },
+              }}
+            />
+          </LocalizationProvider>
           <TextField
             label="Time"
             type="time"
