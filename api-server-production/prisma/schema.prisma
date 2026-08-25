@@ -484,6 +484,56 @@ model DeliveryShareLink {
   @@index([deliveryId])
 }
 
+// Customer Information collection (2026-08): the office mints an unguessable
+// token link for a chosen customer + project; the recipient fills in contact
+// people (split into DO and INVOICE groups) on a public page and submits.
+// STANDALONE by design — customerId/projectId are stored as PLAIN values (no
+// @relation, no FK into existing data) so the collected contacts can be
+// reconciled later however we decide; customerName/projectName are snapshots
+// taken at mint so the list + public page render without touching Customer or
+// Project. The only relation is to the sibling contacts table below.
+model CustomerInfoRequest {
+  id              String    @id @default(uuid())
+  organizationId  String
+  token           String    @unique // unguessable, crypto-random (randomBytes(32).base64url)
+  // Plain values for later reconciliation — NO @relation, NO FK.
+  customerId      String    @db.Uuid
+  projectId       String    @db.Uuid
+  customerName    String // snapshot at mint (read-only display on list + public page)
+  projectName     String // snapshot at mint
+  createdBy       String? // Clerk userId of the office minter
+  createdAt       DateTime  @default(now())
+  expiresAt       DateTime? // set at mint: now + 30 days
+  revokedAt       DateTime? // set on office revoke (bulk)
+  submittedAt     DateTime? // last submission time; null = awaiting response
+  submissionCount Int       @default(0) // bumped each (re)submit
+
+  contacts CustomerInfoContact[]
+
+  @@index([organizationId, createdAt])
+}
+
+// Collected contact people for a request. ONE table with a `group` column
+// ('DO' | 'INVOICE') rather than two tables. The FK is to the sibling request
+// ONLY (a new-table-to-new-table relation, not a link into existing data).
+// Resubmission soft-supersedes: on resubmit the current set gets supersededAt
+// stamped and a fresh set is inserted, so prior input is kept as evidence and
+// the "current" view is simply supersededAt IS NULL.
+model CustomerInfoContact {
+  id           String              @id @default(uuid())
+  requestId    String
+  request      CustomerInfoRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  group        String // 'DO' | 'INVOICE'
+  name         String
+  email        String?
+  phone        String?
+  sortOrder    Int                 @default(0)
+  createdAt    DateTime            @default(now())
+  supersededAt DateTime? // set when a later submission replaces this set
+
+  @@index([requestId])
+}
+
 // Semantic memory for the AI Document Assistant. One row per Document; the
 // embedding (OpenAI text-embedding-3-small, 1536 dims) is stored as a plain
 // double-precision array and ranked by cosine similarity in Node — no pgvector

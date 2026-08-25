@@ -17,6 +17,7 @@ export const ROUTES = {
   INVENTORY_STOCK_CARD: "/portal/inventory/stock-card",
 
   CUSTOMERS: "/portal/customers",
+  CUSTOMER_INFORMATION: "/portal/customer-information",
   SUPPLIERS: "/portal/suppliers",
 
   INVOICES: "/portal/invoices",

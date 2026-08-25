@@ -199,6 +199,19 @@ export const MODULE_CATALOG: CatalogModule[] = [
     },
   },
   {
+    // Customer Information collection (2026-08): office mints a public link per
+    // project; the customer fills in DO + Invoice contact people. Top-level, no
+    // subMenus. sortOrder 90 sits it at the bottom, just above the Admin Panel.
+    // defaultEnabled false (opt-in per catalog convention) — the per-org backfill
+    // creates enabled rows so it appears in every existing org's sidebar.
+    moduleCode: 'CUSTOMER_INFORMATION',
+    displayName: 'Customer Information',
+    icon: 'FolderCopy',
+    sortOrder: 90,
+    defaultEnabled: false,
+    config: { route: '/portal/customer-information' },
+  },
+  {
     moduleCode: 'ADMIN',
     displayName: 'Admin Panel',
     icon: 'AdminPanelSettings',
