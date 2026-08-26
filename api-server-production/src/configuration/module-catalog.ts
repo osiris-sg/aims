@@ -212,6 +212,17 @@ export const MODULE_CATALOG: CatalogModule[] = [
     config: { route: '/portal/customer-information' },
   },
   {
+    // Delivery-run queue (field DO flow). Was a hard-coded sidebar entry until
+    // 2026-08-25; promoted here so orgs that don't deliver (e.g. interior-design
+    // firms) can switch it off. Default ON so every existing org keeps it.
+    moduleCode: 'DELIVERIES',
+    displayName: 'Deliveries',
+    icon: 'LocalShipping',
+    sortOrder: 15,
+    defaultEnabled: true,
+    config: { route: '/portal/deliveries' },
+  },
+  {
     moduleCode: 'ADMIN',
     displayName: 'Admin Panel',
     icon: 'AdminPanelSettings',
