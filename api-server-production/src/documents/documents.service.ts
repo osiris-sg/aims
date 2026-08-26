@@ -593,12 +593,48 @@ export class DocumentsService {
               signedAt: true,
               technicianName: true,
               createdAt: true,
+              // assetId/inventoryId identify which unit each proof block is for,
+              // so the preview can label each photo set (a multi-unit run shows
+              // several sets). Names are resolved just below into subjectAsset/Sku.
+              assetId: true,
+              inventoryId: true,
             },
           },
         },
       });
 
       if (!document) return document;
+
+      // Resolve each proof MSR's subject (the asset name + unit sku) so the DO
+      // preview can print a bold label above each photo set. MSR carries plain
+      // assetId/inventoryId (no relations), so batch-resolve: units give the sku
+      // AND the assetId when the MSR's own assetId is null; assets give the name.
+      // Asset-less proof (run-level DO_INSTALL, free-typed line) resolves to null
+      // and the preview simply omits the label.
+      const proofReports: any[] = (document as any).maintenanceReports ?? [];
+      if (proofReports.length) {
+        const invIds = [...new Set(proofReports.map((r) => r.inventoryId).filter(Boolean))] as string[];
+        const units = invIds.length
+          ? await this.prisma.inventory.findMany({ where: { id: { in: invIds } }, select: { id: true, sku: true, assetId: true } })
+          : [];
+        const unitById = new Map(units.map((u) => [u.id, u]));
+        const assetIds = [
+          ...new Set([
+            ...proofReports.map((r) => r.assetId).filter(Boolean),
+            ...units.map((u) => u.assetId).filter(Boolean),
+          ]),
+        ] as string[];
+        const assets = assetIds.length
+          ? await this.prisma.asset.findMany({ where: { id: { in: assetIds } }, select: { id: true, name: true } })
+          : [];
+        const assetNameById = new Map(assets.map((a) => [a.id, a.name]));
+        for (const r of proofReports) {
+          const unit = r.inventoryId ? unitById.get(r.inventoryId) : null;
+          const assetId = r.assetId ?? unit?.assetId ?? null;
+          r.subjectAsset = assetId ? assetNameById.get(assetId) ?? null : null;
+          r.subjectSku = unit?.sku ?? null;
+        }
+      }
 
       // Fold the template + its field definitions into this response so opening a
       // document is ONE round-trip instead of three (was: GET doc → GET template →

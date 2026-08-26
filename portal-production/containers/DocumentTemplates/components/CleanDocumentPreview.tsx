@@ -115,6 +115,10 @@ interface FieldDeliveryReport {
   signedAt: string | null;
   technicianName: string | null;
   createdAt: string;
+  // Which unit this proof block is for, resolved server-side (getById). Asset
+  // name + unit sku; either can be null (asset-less proof shows no label).
+  subjectAsset?: string | null;
+  subjectSku?: string | null;
 }
 
 interface CleanDocumentPreviewProps {
@@ -2485,6 +2489,18 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     </Typography>
                   )}
                 </Box>
+
+                {/* Subject: which unit this photo set belongs to. A multi-unit
+                    run renders several proof blocks, so the asset name (and unit
+                    sku when known) labels each. Asset-less proof (run-level
+                    install, free-typed line) has no subject and shows no label. */}
+                {(report.subjectAsset || report.subjectSku) && (
+                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, mb: 1.5 }}>
+                    {report.subjectAsset && report.subjectSku
+                      ? `${report.subjectAsset} (${report.subjectSku})`
+                      : report.subjectAsset || report.subjectSku}
+                  </Typography>
+                )}
 
                 {/* Photos — 2-column grid, ~85mm wide each at A4 margins, fixed
                     4:3 aspect so the print engine doesn't fight the layout.
