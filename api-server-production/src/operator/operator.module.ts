@@ -18,6 +18,7 @@ import { OperatorService } from './operator.service';
 import { OperatorAuthService } from './operator-auth.service';
 import { OperatorToolsService } from './operator-tools.service';
 import { TelegramAdapter } from './adapters/telegram.adapter';
+import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
 
 /**
  * AIMS Operator — a chat agent (Telegram first, WhatsApp later) that executes
@@ -42,7 +43,7 @@ import { TelegramAdapter } from './adapters/telegram.adapter';
     ProjectsModule,
   ],
   controllers: [OperatorController],
-  providers: [OperatorService, OperatorAuthService, OperatorToolsService, TelegramAdapter, PrismaService],
-  exports: [OperatorService, OperatorAuthService],
+  providers: [OperatorService, OperatorAuthService, OperatorToolsService, TelegramAdapter, WhatsAppAdapter, PrismaService],
+  exports: [OperatorService, OperatorAuthService, WhatsAppAdapter],
 })
 export class OperatorModule {}

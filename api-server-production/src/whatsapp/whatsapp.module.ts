@@ -3,12 +3,14 @@ import { PrismaService } from '../common/prisma.service';
 import { WhatsAppAgentService } from './whatsapp-agent.service';
 import { WhatsAppController } from './whatsapp.controller';
 import { WhatsAppService } from './whatsapp.service';
+import { OperatorModule } from '../operator/operator.module';
 
 // WhatsApp Business Platform (Meta Cloud API) integration. Orgs connect their
 // own number via Embedded Signup (we are the Tech Provider app); the module
 // stores the per-org WABA/phone/token, receives inbound webhooks, and sends
 // template/text messages.
 @Module({
+  imports: [OperatorModule],
   controllers: [WhatsAppController],
   providers: [WhatsAppService, WhatsAppAgentService, PrismaService],
   exports: [WhatsAppService],

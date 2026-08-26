@@ -14,6 +14,9 @@ export interface InboundMessage {
   callbackData?: string;
   /** Provider id used to acknowledge a button tap (Telegram callback_query.id). */
   callbackId?: string;
+  /** WhatsApp only: the business phoneNumberId that received this message —
+   *  replies route back out through it. */
+  businessPhoneNumberId?: string;
 }
 
 export interface ChannelButton {
@@ -53,7 +56,7 @@ export interface OperatorContext {
 
 /** An action held awaiting the user's explicit confirmation. */
 export interface PendingAction {
-  kind: 'confirm_quotation' | 'confirm_invoice' | 'record_payment' | 'post_bill';
+  kind: 'confirm_quotation' | 'confirm_invoice' | 'record_payment' | 'post_bill' | 'email_document';
   documentId?: string;
   documentType?: string;
   summary: string;

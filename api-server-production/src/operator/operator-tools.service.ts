@@ -778,6 +778,53 @@ export class OperatorToolsService {
       },
 
       {
+        name: 'email_document',
+        description:
+          'Email an invoice or quotation (with its PDF attached) to one or more recipients. Only invoices and quotations can be emailed. This sends externally, so it is confirmed before sending.',
+        permissions: ['documents:send-email'],
+        input_schema: {
+          type: 'object',
+          properties: {
+            documentId: { type: 'string', description: 'Invoice/quotation id or number' },
+            to: { type: 'array', items: { type: 'string' }, description: 'Recipient email address(es)' },
+            cc: { type: 'array', items: { type: 'string' } },
+            subject: { type: 'string', description: 'Optional; a sensible default is used if omitted' },
+            message: { type: 'string', description: 'Optional email body; a sensible default is used if omitted' },
+          },
+          required: ['documentId', 'to'],
+        },
+        run: async (ctx, args) => {
+          const doc = await this.findDoc(ctx.organizationId, args.documentId);
+          if (!doc) return { result: { error: 'Document not found in this organization' } };
+          const t = String(doc.type).toUpperCase();
+          if (!['INVOICE', 'TI', 'TI2', 'QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(t)) {
+            return { result: { error: `Only invoices and quotations can be emailed. ${doc.name} is a ${doc.type}.` } };
+          }
+          const to = (Array.isArray(args.to) ? args.to : [args.to]).map((x: any) => String(x).trim()).filter(Boolean);
+          if (!to.length) return { result: { error: 'At least one recipient email is required.' } };
+          const cfg: any = doc.config || {};
+          const kind = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(t) ? 'Quotation' : 'Invoice';
+          return {
+            result: { needsConfirmation: true, documentNumber: doc.name, to },
+            pending: {
+              kind: 'email_document',
+              documentId: doc.id,
+              summary: `Email ${kind} ${doc.name} (${cfg.customerName || cfg.customer?.name || ''}) to ${to.join(', ')}`,
+              args: {
+                to,
+                cc: Array.isArray(args.cc) ? args.cc : undefined,
+                subject: args.subject ? cleanText(args.subject) : `${kind} ${doc.name} from ${ctx.organizationName}`,
+                message: args.message
+                  ? cleanText(args.message)
+                  : `Dear ${cfg.customerName || cfg.customer?.name || 'Customer'},\n\nPlease find attached ${kind.toLowerCase()} ${doc.name}.\n\nThank you.`,
+              },
+              createdAt: new Date().toISOString(),
+            },
+          };
+        },
+      },
+
+      {
         name: 'get_document',
         description: 'Fetch a document by its number (e.g. QO2026-001) or id, with its customer, totals and status.',
         permissions: ['documents:read'],
@@ -1024,6 +1071,18 @@ export class OperatorToolsService {
       await this.bills.post(ctx.organizationId, bill.id, ctx.actor.id);
       this.log(ctx, 'APPROVED', 'document', bill.id, bill.name, `Bill posted via Operator (${ctx.channel})`);
       return { ok: true, message: `✅ Bill ${bill.name} posted to the ledger.` };
+    }
+
+    if (pending.kind === 'email_document') {
+      const a = pending.args || {};
+      await this.documents.sendInvoiceEmail(
+        pending.documentId!,
+        { to: a.to, cc: a.cc, subject: a.subject, message: a.message } as any,
+        ctx.organizationId,
+        ctx.actor,
+      );
+      this.log(ctx, 'SENT', 'document', pending.documentId, undefined, `Emailed to ${(a.to || []).join(', ')} via Operator (${ctx.channel})`);
+      return { ok: true, message: `✅ Emailed to ${(a.to || []).join(', ')}.` };
     }
 
     if (pending.kind === 'confirm_invoice') {

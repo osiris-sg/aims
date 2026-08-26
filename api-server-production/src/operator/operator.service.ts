@@ -4,6 +4,7 @@ import { PrismaService } from '../common/prisma.service';
 import { OperatorAuthService } from './operator-auth.service';
 import { OperatorToolsService } from './operator-tools.service';
 import { TelegramAdapter } from './adapters/telegram.adapter';
+import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
 import {
   ChannelAdapter,
   InboundMessage,
@@ -54,6 +55,7 @@ const TOOL_STATUS: Record<string, string> = {
   sales_by_customer: '📊 Running sales by customer...',
   aged_payables: '📊 Running aged payables...',
   gst_report: '📊 Running the GST report...',
+  email_document: '📧 Preparing the email...',
 };
 
 @Injectable()
@@ -66,6 +68,7 @@ export class OperatorService {
     private readonly auth: OperatorAuthService,
     private readonly tools: OperatorToolsService,
     private readonly telegram: TelegramAdapter,
+    private readonly whatsapp: WhatsAppAdapter,
   ) {
     const key = process.env.ANTHROPIC_API_KEY;
     this.anthropic = key ? new Anthropic({ apiKey: key }) : null;
@@ -73,12 +76,18 @@ export class OperatorService {
 
   private adapterFor(channel: OperatorChannel): ChannelAdapter {
     if (channel === 'telegram') return this.telegram;
+    if (channel === 'whatsapp') return this.whatsapp;
     throw new Error(`No adapter for channel ${channel}`);
   }
 
   /** Entry point: one inbound chat message, end to end. */
   async handleInbound(msg: InboundMessage): Promise<void> {
     const adapter = this.adapterFor(msg.channel);
+    // WhatsApp replies route back out through the business number that received
+    // the inbound — prime the adapter before any send in this request.
+    if (msg.channel === 'whatsapp' && msg.businessPhoneNumberId) {
+      this.whatsapp.rememberContext(msg.chatId, msg.businessPhoneNumberId);
+    }
     if (msg.callbackId) await adapter.answerCallback?.(msg.callbackId).catch(() => null);
 
     const text = (msg.text || '').trim();
@@ -238,10 +247,18 @@ export class OperatorService {
         results.push({
           type: 'tool_result',
           tool_use_id: use.id,
-          content: JSON.stringify(outcome.result ?? {}).slice(0, 6000),
+          // Once a tool asks for confirmation, the SYSTEM shows the user a
+          // Confirm/Cancel button and executes on their tap. Tell the model to
+          // stop so it doesn't loop calling the tool or re-ask in its own words.
+          content: outcome.pending
+            ? 'A Confirm/Cancel button has been shown to the user. STOP now: do not call this tool again, do not ask for confirmation yourself, and do not say it is done. The system will finalize it when the user taps Confirm.'
+            : JSON.stringify(outcome.result ?? {}).slice(0, 6000),
         });
       }
       messages.push({ role: 'user', content: results });
+      // A confirmation is now pending — end the model loop and wait for the
+      // user's decision rather than letting the model reason further.
+      if (pendingFromTools) break;
       await showStatus('💭 Thinking...');
     }
 
@@ -308,7 +325,7 @@ export class OperatorService {
       `RULES:`,
       `1. NEVER invent a customer id, item id, price, or amount. Always resolve them with tools first (find_customer, find_item).`,
       `2. If a customer or item is ambiguous or missing, ask the user. Do not guess or silently pick the first match.`,
-      `3. Creating a DRAFT is safe. Finalising/confirming is NOT. After creating a document always call preview_document, then use confirm_document, which asks the user to confirm. Never claim something is confirmed unless a tool told you it was.`,
+      `3. Creating a DRAFT is safe. Finalising/confirming/posting/paying is NOT. To finalise anything you MUST call the matching confirm tool (confirm_document, confirm_invoice, post_bill, record_payment) — NEVER ask the user to confirm in your own words, and never simulate it. When such a tool responds that a Confirm button has been shown, STOP: say one short line like "Sent for your confirmation" and wait. Do NOT call the tool again and do NOT claim it is done — the system finalises it only when the user taps Confirm.`,
       `4. Amounts are in the organization's default currency unless stated otherwise.`,
       `5. Keep replies short and plain, because this is a chat app. No markdown tables, no headings. Use the document number when referring to a document.`,
       `6. If a tool returns an error, tell the user plainly what went wrong and what you need from them.`,

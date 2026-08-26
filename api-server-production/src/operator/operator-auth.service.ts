@@ -74,6 +74,17 @@ export class OperatorAuthService {
    * Returns `{ needsOrgChoice }` when the user belongs to several orgs and
    * hasn't picked one — the caller asks and then calls setOrganization().
    */
+  /** Cheap routing gate: does a linked operator identity exist for this sender?
+   *  Used by channels (e.g. WhatsApp) that must decide operator-vs-other before
+   *  running the full resolve(). */
+  async isLinked(channel: OperatorChannel, channelUserId: string): Promise<boolean> {
+    const id = await this.prisma.operatorIdentity.findUnique({
+      where: { channel_channelUserId: { channel, channelUserId } },
+      select: { id: true },
+    });
+    return !!id;
+  }
+
   async resolve(channel: OperatorChannel, channelUserId: string): Promise<ResolveResult> {
     const identity = await this.prisma.operatorIdentity.findUnique({
       where: { channel_channelUserId: { channel, channelUserId } },
@@ -95,11 +106,27 @@ export class OperatorAuthService {
     ]);
 
     const orgs = memberships.map((m) => m.organization).filter(Boolean) as Array<{ id: string; name: string }>;
-    if (!orgs.length) return { ok: false, reason: 'no-org' };
+
+    // osirisadmin is matched as a lowercase literal, same as ClerkAuthGuard.
+    const isOsirisAdmin = roles.some((r) => r.role?.name === 'osirisadmin');
 
     // Never rely on findFirst — pick explicitly (stored choice, or the only one).
     let chosen = identity.organizationId ? orgs.find((o) => o.id === identity.organizationId) : undefined;
+
+    // Global osirisadmin can operate in ANY org without a membership row, exactly
+    // like ClerkAuthGuard's cross-org bypass. Honour a stored target org even when
+    // it isn't among their memberships (e.g. the WhatsApp number wired to an org
+    // the admin doesn't formally belong to).
+    if (!chosen && isOsirisAdmin && identity.organizationId) {
+      const org = await this.prisma.organization.findUnique({
+        where: { id: identity.organizationId },
+        select: { id: true, name: true },
+      });
+      if (org) chosen = org;
+    }
+
     if (!chosen) {
+      if (!orgs.length) return { ok: false, reason: 'no-org' };
       if (orgs.length > 1) return { ok: false, reason: 'needs-org-choice', options: orgs };
       chosen = orgs[0];
       await this.prisma.operatorIdentity.update({
@@ -107,9 +134,6 @@ export class OperatorAuthService {
         data: { organizationId: chosen.id },
       });
     }
-
-    // osirisadmin is matched as a lowercase literal, same as ClerkAuthGuard.
-    const isOsirisAdmin = roles.some((r) => r.role?.name === 'osirisadmin');
     // Filter roles by the CHOSEN org (the guard filters by the membership org).
     const scopedRoles = roles
       .filter((r) => r.organizationId === chosen!.id && r.role)

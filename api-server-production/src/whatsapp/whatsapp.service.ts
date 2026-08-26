@@ -11,6 +11,8 @@ import { randomInt } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
 import { OnboardDto, SendTemplateDto, SendTextDto } from './dto/whatsapp.dto';
 import { WhatsAppAgentService } from './whatsapp-agent.service';
+import { OperatorService } from '../operator/operator.service';
+import { OperatorAuthService } from '../operator/operator-auth.service';
 
 // How often the scheduled-message loop scans for due messages.
 const SCHEDULER_TICK_MS = 60_000;
@@ -25,6 +27,8 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly agent: WhatsAppAgentService,
+    private readonly operator: OperatorService,
+    private readonly operatorAuth: OperatorAuthService,
   ) {}
 
   onModuleInit() {
@@ -1076,6 +1080,31 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
               },
             })
             .catch(() => null); // Unique waMessageId → webhook redelivery, already stored.
+
+          // Operator routing: if the sender is a linked AIMS staff member, this
+          // number is their command line — hand the message to the Operator
+          // (tool-use agent) and DO NOT run the CRM Q&A agent. Unknown senders
+          // (customers) fall through to the existing agent path untouched.
+          const from: string | undefined = message.from;
+          if (from && (await this.operatorAuth.isLinked('whatsapp', from))) {
+            const senderName = (value.contacts || []).find((c: any) => c?.wa_id === from)?.profile
+              ?.name;
+            this.operator
+              .handleInbound({
+                channel: 'whatsapp',
+                channelUserId: from,
+                chatId: from,
+                text: body || '',
+                displayName: senderName,
+                // A tapped Confirm/Cancel button carries its action in reply.id.
+                callbackData: message.interactive?.button_reply?.id,
+                businessPhoneNumberId: phoneNumberId,
+              })
+              .catch((e) =>
+                this.logger.error(`Operator failed on message ${message.id}: ${e.message}`),
+              );
+            continue;
+          }
 
           // Hand text messages to the AI agent (no-op unless enabled for the org).
           if (stored && body) {
