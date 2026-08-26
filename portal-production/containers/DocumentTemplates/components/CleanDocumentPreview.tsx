@@ -2486,6 +2486,17 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   )}
                 </Box>
 
+                {/* One-off manual annotation, gated to DO202608-0041 ONLY so no
+                    other DO is affected. Renders below the "Delivery Started"
+                    heading and above its photos. */}
+                {report.kind === "DO_START" &&
+                  (data?.documentInfo?.documentNumber === "DO202608-0041" ||
+                    data?.name === "DO202608-0041") && (
+                    <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, mb: 1.5 }}>
+                      LION500
+                    </Typography>
+                  )}
+
                 {/* Photos — 2-column grid, ~85mm wide each at A4 margins, fixed
                     4:3 aspect so the print engine doesn't fight the layout.
                     All kinds render their photos: DO_START carries the
