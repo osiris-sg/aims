@@ -259,7 +259,7 @@ async function discoverBotLid(groupIds) {
 
 async function probeGroupTitles() {
   try {
-    const diag = await client.pupPage.evaluate(() => {
+    const diag = await client.pupPage.evaluate((all) => {
       const out = { total: 0, groups: 0, sample: [] };
       try {
         const coll = window.require('WAWebCollections').Chat;
@@ -267,7 +267,7 @@ async function probeGroupTitles() {
         out.total = models.length;
         const groups = models.filter((c) => String(c?.id?._serialized || '').endsWith('@g.us'));
         out.groups = groups.length;
-        out.sample = groups.slice(0, 5).map((c) => ({
+        out.sample = (all ? groups : groups.slice(0, 5)).map((c) => ({
           id: c.id._serialized,
           title: c.formattedTitle || c.name || c.subject || c.groupMetadata?.subject || null,
         }));
@@ -275,7 +275,7 @@ async function probeGroupTitles() {
         out.err = String(e && e.message ? e.message : e);
       }
       return out;
-    });
+    }, !!process.env.LOG_ALL_GROUPS);
     console.log(`🔎 chat probe: ${diag.total} chats, ${diag.groups} groups${diag.err ? ' | err ' + diag.err : ''}`);
     // Needed before any mention of us can be recognised.
     await discoverBotLid(diag.sample.map((g) => g.id));
