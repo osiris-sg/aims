@@ -224,6 +224,36 @@ export default function CustomerInfoDetailPage() {
 
       <Divider sx={{ my: 2 }} />
 
+      {/* Purchase Order: opens the linked PO document (pre-selected or the one
+          the customer uploaded), or shows that none is on file yet. */}
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.5 }}>
+          Purchase Order
+        </Typography>
+        {detail.poDocumentId ? (
+          <Typography variant="body2">
+            {detail.poNumber || detail.poDocumentName || "PO"}{" "}
+            {detail.poTemplateId && detail.poDocumentType && (
+              <Button
+                size="small"
+                onClick={() =>
+                  router.push(`/portal/documents/${detail.poDocumentType}/${detail.poTemplateId}/${detail.poDocumentId}`)
+                }
+                sx={{ textTransform: "none" }}
+              >
+                Open document
+              </Button>
+            )}
+          </Typography>
+        ) : (
+          <Typography variant="body2" color="text.secondary">
+            No purchase order on file yet. If the link is still active, the customer is asked to upload one.
+          </Typography>
+        )}
+      </Box>
+
+      <Divider sx={{ my: 2 }} />
+
       <Stack spacing={3}>
         <ContactTable title="Delivery Order (DO) contacts" rows={detail.doContacts} />
         <ContactTable title="Invoice contacts" rows={detail.invoiceContacts} />

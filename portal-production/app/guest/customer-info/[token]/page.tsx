@@ -34,6 +34,11 @@ interface GuestView {
   customerName: string | null;
   projectName: string | null;
   submittedAt: string | null;
+  // PO: required when the office did not pre-select one. Provided flips true once
+  // the customer uploads (or the office pre-selected one).
+  poRequired: boolean;
+  poProvided: boolean;
+  poNumber: string | null;
   doContacts: Array<{ name: string; email: string | null; phone: string | null }>;
   invoiceContacts: Array<{ name: string; email: string | null; phone: string | null }>;
 }
@@ -153,6 +158,11 @@ export default function CustomerInfoCollectPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  // PO upload (only shown when the office did not pre-select one).
+  const [poFile, setPoFile] = useState<File | null>(null);
+  const [poReference, setPoReference] = useState("");
+  const [poUploading, setPoUploading] = useState(false);
+  const [poError, setPoError] = useState<string | null>(null);
 
   const toRows = (list: GuestView["doContacts"]): ContactRow[] =>
     list.length
@@ -185,11 +195,41 @@ export default function CustomerInfoCollectPage() {
       .map((r) => ({ name: r.name.trim(), email: r.email.trim(), phone: r.phone.trim() }))
       .filter((r) => r.name.length > 0);
 
+  const uploadPo = async () => {
+    if (!poFile) return;
+    setPoUploading(true);
+    setPoError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", poFile, poFile.name);
+      if (poReference.trim()) fd.append("poReference", poReference.trim());
+      const res: any = await request(
+        { path: `/public/customer-info/${token}/po`, method: "POST" },
+        fd,
+        undefined,
+        undefined,
+        true,
+        true,
+      );
+      if (res?.success === false) throw new Error(res?.message ?? "Could not upload.");
+      setPoFile(null);
+      await load(); // poProvided flips true
+    } catch (e: any) {
+      setPoError(e?.response?.data?.message || e?.message || "Could not upload the file.");
+    } finally {
+      setPoUploading(false);
+    }
+  };
+
   const submit = async () => {
     const doContacts = clean(doRows);
     const invoiceContacts = clean(invoiceRows);
     if (doContacts.length === 0 && invoiceContacts.length === 0) {
       setSubmitError("Add at least one contact person before submitting.");
+      return;
+    }
+    if (view?.poRequired && !view?.poProvided) {
+      setSubmitError("Please attach your Purchase Order before submitting.");
       return;
     }
     setSubmitting(true);
@@ -297,6 +337,51 @@ export default function CustomerInfoCollectPage() {
           disabled={submitting}
         />
 
+        {/* PO upload, only when the office did not pre-select one. */}
+        {view.poRequired && (
+          <>
+            <Divider sx={{ my: 3 }} />
+            <Typography variant="subtitle1" fontWeight={700}>
+              Purchase Order
+            </Typography>
+            {view.poProvided ? (
+              <Alert severity="success" sx={{ mt: 1 }}>
+                Purchase Order received{view.poNumber ? ` (${view.poNumber})` : ""}. You can replace it below if needed.
+              </Alert>
+            ) : (
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
+                Attach your Purchase Order (PDF, JPEG or PNG, up to 10 MB). This is required to submit.
+              </Typography>
+            )}
+            <Stack spacing={1.5} sx={{ mt: 1 }}>
+              <TextField
+                label="Your PO number (optional)"
+                value={poReference}
+                onChange={(e) => setPoReference(e.target.value)}
+                fullWidth
+                size="small"
+                disabled={poUploading}
+              />
+              <Button variant="outlined" component="label" disabled={poUploading}>
+                {poFile ? poFile.name : "Choose file"}
+                <input
+                  type="file"
+                  hidden
+                  accept="application/pdf,image/jpeg,image/png"
+                  onChange={(e) => {
+                    setPoError(null);
+                    setPoFile(e.target.files?.[0] ?? null);
+                  }}
+                />
+              </Button>
+              {poError && <Alert severity="error">{poError}</Alert>}
+              <Button variant="contained" onClick={uploadPo} disabled={poUploading || !poFile} sx={{ minHeight: 44 }}>
+                {poUploading ? <CircularProgress size={18} color="inherit" /> : view.poProvided ? "Replace PO" : "Upload PO"}
+              </Button>
+            </Stack>
+          </>
+        )}
+
         {submitError && (
           <Alert severity="error" sx={{ mt: 3 }}>
             {submitError}
@@ -306,7 +391,7 @@ export default function CustomerInfoCollectPage() {
         <Button
           variant="contained"
           onClick={submit}
-          disabled={submitting}
+          disabled={submitting || (view.poRequired && !view.poProvided)}
           fullWidth
           sx={{ mt: 3, py: 1.5, minHeight: 48 }}
         >

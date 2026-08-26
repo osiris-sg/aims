@@ -36,6 +36,11 @@ export interface CustomerInfoDetail {
   revokedAt: string | null;
   submittedAt: string | null;
   submissionCount: number;
+  poDocumentId: string | null;
+  poNumber: string | null;
+  poDocumentName: string | null;
+  poDocumentType: string | null;
+  poTemplateId: string | null;
   doContacts: CustomerInfoContact[];
   invoiceContacts: CustomerInfoContact[];
 }

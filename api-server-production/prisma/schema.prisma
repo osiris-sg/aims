@@ -508,6 +508,15 @@ model CustomerInfoRequest {
   submittedAt     DateTime? // last submission time; null = awaiting response
   submissionCount Int       @default(0) // bumped each (re)submit
 
+  // Purchase Order (2026-08): either the office pre-selected an existing PO
+  // document for the project, or the customer uploaded one on the public form
+  // (which creates a file-only PO document). Both end as a PO Document; this is
+  // a PLAIN pointer to it (no @relation, matching customerId/projectId), plus a
+  // display snapshot of its number. Null poDocumentId = no PO yet, so the public
+  // form requires the customer to upload one.
+  poDocumentId    String?   @db.Uuid
+  poNumber        String? // snapshot of the PO document's number, for display
+
   contacts CustomerInfoContact[]
 
   @@index([organizationId, createdAt])
