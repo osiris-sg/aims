@@ -2,6 +2,7 @@ import { BadRequestException, HttpException, HttpStatus, Injectable, Logger, Not
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
 import { JournalService } from '../journal/journal.service';
+import { AuditService } from '../common/audit.service';
 
 // ---------------------------------------------------------------------------
 // Bank reconciliation engine.
@@ -39,7 +40,21 @@ export class BankRecService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly journal: JournalService,
+    private readonly auditService: AuditService,
   ) {}
+
+  // Reconciliation actions are audit-trail material (guru 2026-08-27: a match
+  // left no trace in the audit log). Fire-and-forget — never blocks the action.
+  private logRec(organizationId: string, userId: string | undefined, action: string, resourceName: string, detail: string, resourceId?: string) {
+    void this.auditService
+      .logAction({ userId: userId || 'system', action, resource: 'bank-rec', resourceId, resourceName, organizationId, details: { detail } })
+      .catch(() => undefined);
+  }
+
+  private lineLabel(line: { description?: string | null; amount?: any; date?: Date | null }): string {
+    const amt = Number(line.amount ?? 0);
+    return `${(line.description || '').slice(0, 80)} (${amt.toFixed(2)})`;
+  }
 
   // List ChartOfAccount entries that look like bank/cash. Used by the UI's
   // account picker. Detection is delegated to JournalService.isCashOrBankAccount
@@ -163,6 +178,7 @@ export class BankRecService {
 
     // Kick off auto-match. Best-effort — caller can re-run via endpoint.
     await this.autoMatch(organizationId, imp.id);
+    this.logRec(organizationId, userId, 'IMPORT_CREATED', `CSV import (${parsed.length} lines)`, `Bank statement imported from CSV`, imp.id);
     return imp;
   }
 
@@ -200,6 +216,7 @@ export class BankRecService {
         .update({ where: { id: imp.id }, data: { status: 'FAILED', error: e?.message || 'Extraction failed' } })
         .catch(() => undefined);
     });
+    this.logRec(organizationId, userId, 'IMPORT_CREATED', args.filename || 'PDF import', 'Bank statement uploaded (PDF, extracting)', imp.id);
     return imp;
   }
 
@@ -528,6 +545,7 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
       batchMatched += 1;
     }
 
+    this.logRec(organizationId, undefined, 'AUTO_MATCH', `Import ${importId.slice(0, 8)}`, `Auto-match: ${matchedCount + batchMatched} of ${imp.lines.length} pending lines matched (${batchMatched} batch)`, importId);
     return { importId, matchedCount: matchedCount + batchMatched, batchMatched, totalPending: imp.lines.length };
   }
 
@@ -547,7 +565,7 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
     const taken = await this.takenJournalLineIds(organizationId);
     if (ids.some((id) => taken.has(id))) throw new BadRequestException('One of the journal lines is already matched to another statement line');
 
-    return this.prisma.bankStatementLine.update({
+    const updated = await this.prisma.bankStatementLine.update({
       where: { id: lineId },
       data: {
         status: 'MATCHED',
@@ -557,6 +575,8 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
         matches: { create: ids.map((journalLineId) => ({ organizationId, journalLineId, createdBy: userId })) },
       },
     });
+    this.logRec(organizationId, userId, 'MATCHED', this.lineLabel(line), `Statement line matched to ${ids.length} journal line${ids.length === 1 ? '' : 's'}`, lineId);
+    return updated;
   }
 
   // Human confirmation of an AI-suggested batch match.
@@ -564,26 +584,32 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
     const line = await this.prisma.bankStatementLine.findFirst({ where: { id: lineId, organizationId } });
     if (!line) throw new NotFoundException();
     if (line.status !== 'SUGGESTED') throw new BadRequestException(`Line is ${line.status} — only SUGGESTED lines need confirming`);
-    return this.prisma.bankStatementLine.update({
+    const updated = await this.prisma.bankStatementLine.update({
       where: { id: lineId },
       data: { status: 'MATCHED', matchedBy: userId, matchedAt: new Date() },
     });
+    this.logRec(organizationId, userId, 'MATCH_CONFIRMED', this.lineLabel(line), 'Suggested batch match confirmed', lineId);
+    return updated;
   }
 
-  async unmatch(organizationId: string, lineId: string) {
+  async unmatch(organizationId: string, lineId: string, userId?: string) {
     const line = await this.prisma.bankStatementLine.findFirst({ where: { id: lineId, organizationId } });
     if (!line) throw new NotFoundException();
     await this.prisma.bankStatementMatch.deleteMany({ where: { lineId, organizationId } });
-    return this.prisma.bankStatementLine.update({
+    const updated = await this.prisma.bankStatementLine.update({
       where: { id: lineId },
       data: { status: 'PENDING', matchedJournalLineId: null, matchedAt: null, matchedBy: null },
     });
+    this.logRec(organizationId, userId, 'UNMATCHED', this.lineLabel(line), `Match removed (was ${line.status})`, lineId);
+    return updated;
   }
 
-  async ignore(organizationId: string, lineId: string) {
+  async ignore(organizationId: string, lineId: string, userId?: string) {
     const line = await this.prisma.bankStatementLine.findFirst({ where: { id: lineId, organizationId } });
     if (!line) throw new NotFoundException();
-    return this.prisma.bankStatementLine.update({ where: { id: lineId }, data: { status: 'IGNORED' } });
+    const updated = await this.prisma.bankStatementLine.update({ where: { id: lineId }, data: { status: 'IGNORED' } });
+    this.logRec(organizationId, userId, 'IGNORED', this.lineLabel(line), 'Statement line ignored', lineId);
+    return updated;
   }
 
   // ---------- LLM suggest GL account for unmatched ----------
@@ -707,7 +733,7 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
       where: { journalEntryId: posted.id, accountId: line.bankAccountId },
     });
 
-    return this.prisma.bankStatementLine.update({
+    const updatedLine = await this.prisma.bankStatementLine.update({
       where: { id: lineId },
       data: {
         status: 'POSTED_NEW',
@@ -717,6 +743,8 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
         postedJournalEntryId: posted.id,
       },
     });
+    this.logRec(organizationId, userId, 'POSTED_NEW', this.lineLabel(line), `Posted as new entry ${posted.journalNumber} (contra ${contra.code})`, lineId);
+    return updatedLine;
   }
 
   // ---------- Reconciliation summary for one import ----------
@@ -1018,10 +1046,12 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
   async setEndingBalance(organizationId: string, importId: string, endingBalance: number | null) {
     const imp = await this.prisma.bankStatementImport.findFirst({ where: { id: importId, organizationId } });
     if (!imp) throw new NotFoundException();
-    return this.prisma.bankStatementImport.update({
+    const updated = await this.prisma.bankStatementImport.update({
       where: { id: importId },
       data: { endingBalance },
     });
+    this.logRec(organizationId, undefined, 'ENDING_BALANCE_SET', `Import ${importId.slice(0, 8)}`, endingBalance === null ? 'Ending balance cleared' : `Ending balance set to ${endingBalance.toFixed(2)}`, importId);
+    return updated;
   }
 
   async deleteImport(organizationId: string, importId: string) {
@@ -1036,7 +1066,9 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
         `Can't delete — ${posted} line(s) already created GL entries. Void those JEs first.`,
       );
     }
-    return this.prisma.bankStatementImport.delete({ where: { id: importId } });
+    const deleted = await this.prisma.bankStatementImport.delete({ where: { id: importId } });
+    this.logRec(organizationId, undefined, 'IMPORT_DELETED', imp.filename || `Import ${importId.slice(0, 8)}`, 'Bank statement import deleted', importId);
+    return deleted;
   }
 }
 

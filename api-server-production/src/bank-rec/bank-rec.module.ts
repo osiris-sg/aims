@@ -3,11 +3,12 @@ import { BankRecController } from './bank-rec.controller';
 import { BankRecService } from './bank-rec.service';
 import { JournalModule } from '../journal/journal.module';
 import { PrismaService } from '../common/prisma.service';
+import { AuditService } from '../common/audit.service';
 
 @Module({
   imports: [JournalModule],
   controllers: [BankRecController],
-  providers: [BankRecService, PrismaService],
+  providers: [BankRecService, PrismaService, AuditService],
   exports: [BankRecService],
 })
 export class BankRecModule {}

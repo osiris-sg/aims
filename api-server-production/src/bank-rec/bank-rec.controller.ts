@@ -122,13 +122,13 @@ export class BankRecController {
   @Post('lines/:lineId/unmatch')
   @Permissions('bankrec:create')
   unmatch(@Req() req: RequestWithOrganization, @Param('lineId') lineId: string) {
-    return this.service.unmatch(requireOrgId(req), lineId);
+    return this.service.unmatch(requireOrgId(req), lineId, req.auth?.userId);
   }
 
   @Post('lines/:lineId/ignore')
   @Permissions('bankrec:create')
   ignore(@Req() req: RequestWithOrganization, @Param('lineId') lineId: string) {
-    return this.service.ignore(requireOrgId(req), lineId);
+    return this.service.ignore(requireOrgId(req), lineId, req.auth?.userId);
   }
 
   @Post('lines/:lineId/suggest')
