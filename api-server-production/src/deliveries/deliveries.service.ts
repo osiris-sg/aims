@@ -2938,6 +2938,7 @@ export class DeliveriesService {
             assetId: it.assetId!,
             inventoryId: it.inventoryId!,
             deliveryId,
+            deliveryItemId: it.id, // ties this proof to its exact line
             kind: 'DO_ACK',
             status: 'draft',
             description: 'Return collected (bulk)',
@@ -2966,6 +2967,7 @@ export class DeliveriesService {
           assetId: it.assetId,
           inventoryId: it.inventoryId,
           deliveryId,
+          deliveryItemId: it.id, // ties this proof to its exact line
           kind: 'DO_ACK',
           status: 'draft',
           description: 'Delivery acknowledged (bulk)',
@@ -3018,7 +3020,7 @@ export class DeliveriesService {
         id: true,
         status: true,
         direction: true,
-        items: { select: { inventoryId: true, assetId: true, deliveryStatus: true } },
+        items: { select: { id: true, inventoryId: true, assetId: true, deliveryStatus: true } },
       },
     });
     if (!run) throw new NotFoundException('Delivery not found');
@@ -3041,6 +3043,7 @@ export class DeliveriesService {
         assetId: item.assetId!,
         inventoryId,
         deliveryId,
+        deliveryItemId: item.id, // ties this proof to its exact line
         kind: 'DO_ACK',
         status: 'draft',
         description: 'Delivery acknowledged',
@@ -3226,7 +3229,7 @@ export class DeliveriesService {
   ) {
     const run = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },
-      select: { id: true, status: true, direction: true, items: { select: { inventoryId: true, assetId: true, deliveryStatus: true } } },
+      select: { id: true, status: true, direction: true, items: { select: { id: true, inventoryId: true, assetId: true, deliveryStatus: true } } },
     });
     if (!run) throw new NotFoundException('Delivery not found');
     if (run.status === 'cancelled') throw new BadRequestException('Cannot collect on a cancelled delivery');
@@ -3253,6 +3256,7 @@ export class DeliveriesService {
         assetId: item.assetId!,
         inventoryId,
         deliveryId,
+        deliveryItemId: item.id, // ties this proof to its exact line
         kind: 'DO_ACK',
         status: 'draft',
         description: 'Return collected',
@@ -3713,6 +3717,7 @@ export class DeliveriesService {
         assetId: null,
         inventoryId: null,
         deliveryId,
+        deliveryItemId: item.id, // free-typed line: no unit, so THIS is the only exact tie
         kind: 'DO_START',
         status: 'draft', // DO_START is unsigned proof, same as a unit's
         description: `${isReturn ? 'Return started' : 'Delivery started'}: ${item.description ?? 'free-typed line'}`,
@@ -3772,6 +3777,7 @@ export class DeliveriesService {
         assetId: null,
         inventoryId: null,
         deliveryId,
+        deliveryItemId: item.id, // free-typed line: no unit, so THIS is the only exact tie
         kind: 'DO_ACK',
         status: 'draft',
         description: `Delivery acknowledged: ${item.description ?? 'free-typed line'}`,

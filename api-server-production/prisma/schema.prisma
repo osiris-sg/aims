@@ -2092,6 +2092,13 @@ model MaintenanceServiceReport {
   // standalone rows carry deliveryId; both may be set once linked.
   deliveryId        String?                        @db.Uuid
   delivery          Delivery?                      @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
+  // FK to the specific DeliveryItem (line) this proof belongs to (2026-08).
+  // Nullable — existing rows have no value and there is no backfill; run-level
+  // proof (DO_INSTALL) stays null because it belongs to no single line. Makes
+  // free-typed proof matchable to its exact line, which the description text
+  // alone cannot do when two lines carry the same text.
+  deliveryItemId    String?                        @db.Uuid
+  deliveryItem      DeliveryItem?                  @relation(fields: [deliveryItemId], references: [id], onDelete: SetNull)
   createdAt         DateTime                       @default(now())
   updatedAt         DateTime                       @updatedAt
 
@@ -2108,6 +2115,7 @@ model MaintenanceServiceReport {
   @@index([organizationId, kind, createdAt])
   @@index([documentId, kind])
   @@index([deliveryId, kind])
+  @@index([deliveryItemId])
   @@index([organizationId, reportNumber(sort: Desc)])
 }
 
@@ -2541,6 +2549,9 @@ model DeliveryItem {
   document       Document?      @relation(fields: [documentId], references: [id], onDelete: SetNull)
   // Deliberately NO deductedAt — stock deduction is the DO's job, performed
   // at link time through the existing DocumentItem claim.
+  // Proof MSRs (DO_START/DO_ACK) captured against THIS line — the inverse of
+  // MaintenanceServiceReport.deliveryItem. Run-level proof (DO_INSTALL) is not here.
+  proofReports   MaintenanceServiceReport[]
 
   @@unique([deliveryId, inventoryId]) // a unit can't be scanned twice into one run
   @@index([inventoryId])

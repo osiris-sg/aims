@@ -598,6 +598,10 @@ export class DocumentsService {
               // several sets). Names are resolved just below into subjectAsset/Sku.
               assetId: true,
               inventoryId: true,
+              // Exact line the proof belongs to — lets the template render photos
+              // inline under each item, including free-typed lines that assetId/
+              // inventoryId cannot disambiguate. Null for run-level proof.
+              deliveryItemId: true,
             },
           },
         },

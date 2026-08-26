@@ -166,6 +166,24 @@ export class MaintenanceReportsService {
       }
     }
 
+    // Tie unit-backed proof to its exact DeliveryItem line (2026-08). This is the
+    // field/guest DO_START (and inline-ack) path; the line is the unique
+    // (deliveryId, inventoryId) row. Free-typed + run-level proof are created in
+    // deliveries.service where item.id is already in scope, so they set it there.
+    // Best-effort — left null if it cannot be resolved.
+    let resolvedDeliveryItemId: string | null = null;
+    if (
+      dto.inventoryId &&
+      effectiveDeliveryId &&
+      (dto.kind === 'DO_START' || dto.kind === 'DO_ACK' || dto.kind === 'DO_INSTALL')
+    ) {
+      const line = await this.prisma.deliveryItem.findFirst({
+        where: { deliveryId: effectiveDeliveryId, inventoryId: dto.inventoryId },
+        select: { id: true },
+      });
+      resolvedDeliveryItemId = line?.id ?? null;
+    }
+
     const baseData: Prisma.MaintenanceServiceReportUncheckedCreateInput = {
       organizationId,
       assetId: dto.assetId,
@@ -184,6 +202,7 @@ export class MaintenanceReportsService {
       // server-stamped (U1+items DO-first, flag-gated above). Null for
       // SERVICE and for DO-first rows when the flag is off.
       ...(effectiveDeliveryId ? { deliveryId: effectiveDeliveryId } : {}),
+      ...(resolvedDeliveryItemId ? { deliveryItemId: resolvedDeliveryItemId } : {}),
       // Geolocation captured at submission. Submission proceeds even if these
       // are absent (browser denial / no signal); just write null.
       ...(typeof dto.latitude === 'number' ? { latitude: dto.latitude } : {}),
