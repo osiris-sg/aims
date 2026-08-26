@@ -1971,8 +1971,61 @@ export class DeliveriesService {
    * office-priced DO. Link-and-commit, NOT create-and-commit: no new DO is made.
    * Best-effort: failures are logged, never roll back the run's completion.
    */
+  /**
+   * Stamp documentId onto the run's DO_* proof MSRs from the BORN-LINK, so the
+   * DO preview/PDF (documents.getById joins maintenanceReports on documentId)
+   * finds the run's photos + signature. Mirrors what link() does for manually
+   * linked runs, but reads the DO from each item's born-linked documentId rather
+   * than a manual selection, so a born-linked scheduled run (which never calls
+   * link()) still surfaces its proof.
+   *
+   * Per-MSR mapping, because a run's items can sit on DIFFERENT DOs: a unit-backed
+   * proof MSR is stamped with ITS unit's DeliveryItem.documentId; an asset-less
+   * proof MSR (the run-level DO_INSTALL, or a free-typed DO_ACK with no unit) is
+   * stamped with the run's dominant linked DO. The documentId:null guard makes it
+   * exactly-once and never overwrites an already-linked MSR. Best-effort: logged,
+   * never throws (proof linking must not roll back a completed run).
+   */
+  private async stampProofMsrDocumentIds(deliveryId: string, organizationId: string) {
+    try {
+      const items = await this.prisma.deliveryItem.findMany({
+        where: { deliveryId, documentId: { not: null } },
+        select: { inventoryId: true, documentId: true },
+      });
+      if (!items.length) return; // unscheduled/unlinked run — nothing to stamp
+      const byUnit = new Map<string, string>();
+      const counts = new Map<string, number>();
+      for (const it of items) {
+        if (it.documentId) counts.set(it.documentId, (counts.get(it.documentId) ?? 0) + 1);
+        if (it.inventoryId && it.documentId) byUnit.set(it.inventoryId, it.documentId);
+      }
+      // Run-level fallback DO for asset-less proof: the run's most common DO.
+      const runDo = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+      // 1) Unit-backed proof -> that unit's born-linked DO.
+      for (const [inventoryId, documentId] of byUnit) {
+        await this.prisma.maintenanceServiceReport.updateMany({
+          where: { deliveryId, inventoryId, kind: { in: ['DO_START', 'DO_ACK', 'DO_INSTALL'] as any }, documentId: null },
+          data: { documentId },
+        });
+      }
+      // 2) Asset-less proof (inventoryId null: run-level DO_INSTALL / free-typed DO_ACK) -> run DO.
+      if (runDo) {
+        await this.prisma.maintenanceServiceReport.updateMany({
+          where: { deliveryId, inventoryId: null, kind: { in: ['DO_START', 'DO_ACK', 'DO_INSTALL'] as any }, documentId: null },
+          data: { documentId: runDo },
+        });
+      }
+    } catch (err: any) {
+      this.logger.error(`stampProofMsrDocumentIds failed for delivery ${deliveryId}: ${err?.message}`, err?.stack);
+    }
+  }
+
   private async commitScheduledRunOnCompletion(deliveryId: string, organizationId: string, documentId: string) {
     try {
+      // Link the run's proof MSRs onto their born-linked DO(s) so proof captured
+      // BEFORE the signature step (DO_START photos, per-unit DO_ACK) also surfaces
+      // on the DO. Idempotent (documentId:null guard); finalizeRun stamps too.
+      await this.stampProofMsrDocumentIds(deliveryId, organizationId);
       await this.documentsService.commitLinkedDeliveryItems(documentId, organizationId);
       await this.documentsService.maybeCompleteDeliveryOrderAndInvoice(documentId, organizationId);
       this.logger.log(`Delivery ${deliveryId}: completion committed pre-created DO ${documentId} + invoice`);
@@ -3084,6 +3137,11 @@ export class DeliveriesService {
         status: 'completed',
       },
     });
+    // Link the run's proof MSRs (photos + this signature) onto their born-linked
+    // DO(s) so the DO preview/PDF actually finds them. A born-linked scheduled
+    // run never passes through link() (the only other place MSR.documentId is
+    // stamped), so without this the signature never surfaces on the DO.
+    await this.stampProofMsrDocumentIds(deliveryId, organizationId);
     // Complete every DELIVERED (not_installed) item. Skipped items stay skipped
     // (not_delivered + skippedAt), so only genuinely delivered lines advance —
     // the fold then reaches `completed` and fires the completion hook.
