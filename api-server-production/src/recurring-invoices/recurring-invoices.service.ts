@@ -97,8 +97,87 @@ export class RecurringInvoicesService {
     return row;
   }
 
-  create(organizationId: string, dto: any, userId?: string) {
-    return this.prisma.recurringInvoiceTemplate.create({
+  // Reserved-slot assignment (guru 2026-08-27): slots are customer-alphabetical.
+  // A new template SLOTS INTO its customer's position — shifting later chains'
+  // slots +1 — ONLY while every invoice of the current month generated from
+  // these slots is still an unsent draft. Once any is sent/authorised the
+  // series is frozen: the new template appends at the end instead.
+  private slotOf(cfg: any): number | null {
+    const m = /\{MONTH NO\}(\d{3})$/.exec(String(cfg?.documentNumber || ''));
+    return m ? parseInt(m[1], 10) : null;
+  }
+
+  private async assignReservedSlot(organizationId: string, customerId: string, newId: string) {
+    const tpls = await this.prisma.recurringInvoiceTemplate.findMany({ where: { organizationId }, orderBy: { code: 'asc' } });
+    const slotted = tpls.filter((t) => t.id !== newId && this.slotOf(t.config));
+    if (!slotted.length) return; // no slot scheme in this org
+    const custIds = [...new Set(tpls.map((t) => t.customerId))];
+    const customers = await this.prisma.customer.findMany({ where: { id: { in: custIds } }, select: { id: true, name: true } });
+    const cname = new Map(customers.map((c) => [c.id, c.name || '']));
+    // Is the current month frozen? Any doc on a reserved number this month
+    // that is no longer an unsent draft locks the series.
+    const now = new Date();
+    const prefix = `BI${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const maxSlot = Math.max(...slotted.map((t) => this.slotOf(t.config)!));
+    const monthDocs = await this.prisma.document.findMany({
+      where: { organizationId, type: 'INVOICE', name: { startsWith: prefix } },
+      select: { name: true, status: true, config: true },
+    });
+    // POSITIONAL freeze (guru 2026-08-27): a sent invoice freezes only slots
+    // up to ITS number. Highest sent slot S → slots 1..S are immutable; the
+    // region after S can still re-deal. A new chain whose alphabetical
+    // position falls after S splices in; one that belongs inside 1..S can't —
+    // it appends at the end instead.
+    const nameRe = new RegExp('^' + prefix + '(\\d{3})$');
+    let highestSent = 0;
+    for (const d of monthDocs) {
+      const m = nameRe.exec(d.name || '');
+      if (!m) continue;
+      const slot = parseInt(m[1], 10);
+      if (slot > maxSlot) continue;
+      const xs = String((d.config as any)?.xeroStatus || '').toUpperCase();
+      const sent = !['draft', 'unconfirmed'].includes(String(d.status)) || ['AUTHORISED', 'PAID'].includes(xs) || Boolean((d.config as any)?.sentAt);
+      if (sent && slot > highestSent) highestSent = slot;
+    }
+    // alphabetical target order over all slotted templates + the new one
+    const all = tpls.filter((t) => t.id === newId || this.slotOf(t.config));
+    all.sort((a, b) => {
+      const ca = (cname.get(a.customerId) || '').toLowerCase();
+      const cb = (cname.get(b.customerId) || '').toLowerCase();
+      if (ca !== cb) return ca.localeCompare(cb);
+      const sa = this.slotOf(a.config) ?? 999;
+      const sb = this.slotOf(b.config) ?? 999;
+      return sa - sb;
+    });
+    const newPos = all.findIndex((t) => t.id === newId) + 1; // 1-based would-be slot
+    if (highestSent > 0 && newPos <= highestSent) {
+      await this.updateSlot(newId, maxSlot + 1);
+      this.logger.log(`[slots] insertion point ${newPos} inside frozen zone (sent up to ${highestSent}) — appended at ${maxSlot + 1}`);
+      return;
+    }
+    // splice: slots 1..highestSent untouched; re-deal highestSent+1..N over the
+    // unfrozen templates (alphabetical order), new one landing in its place.
+    const frozenIds = new Set(all.filter((t) => t.id !== newId && (this.slotOf(t.config) ?? 999) <= highestSent).map((t) => t.id));
+    let next = highestSent;
+    for (const t of all) {
+      if (frozenIds.has(t.id)) continue;
+      next++;
+      await this.updateSlot(t.id, next);
+    }
+    this.logger.log(`[slots] spliced at position ${newPos}; re-dealt slots ${highestSent + 1}..${next} (frozen: 1..${highestSent})`);
+  }
+
+  private async updateSlot(id: string, slot: number) {
+    const t = await this.prisma.recurringInvoiceTemplate.findUnique({ where: { id } });
+    if (!t) return;
+    const c: any = t.config || {};
+    const num = `BI{YEAR}{MONTH NO}${String(slot).padStart(3, '0')}`;
+    if (c.documentNumber === num) return;
+    await this.prisma.recurringInvoiceTemplate.update({ where: { id }, data: { config: { ...c, documentNumber: num } } });
+  }
+
+  async create(organizationId: string, dto: any, userId?: string) {
+    const row = await this.prisma.recurringInvoiceTemplate.create({
       data: {
         organizationId,
         name: dto.name,
@@ -119,6 +198,17 @@ export class RecurringInvoicesService {
         createdBy: userId ?? null,
       },
     });
+    // Auto-assign the next REC code + reserved number slot.
+    try {
+      if (!row.code) {
+        const count = await this.prisma.recurringInvoiceTemplate.count({ where: { organizationId } });
+        await this.prisma.recurringInvoiceTemplate.update({ where: { id: row.id }, data: { code: `REC-${String(count).padStart(3, '0')}` } });
+      }
+      await this.assignReservedSlot(organizationId, row.customerId, row.id);
+    } catch (e: any) {
+      this.logger.warn(`[slots] assignment failed (non-fatal): ${e?.message || e}`);
+    }
+    return this.prisma.recurringInvoiceTemplate.findUnique({ where: { id: row.id } });
   }
 
   async update(organizationId: string, id: string, dto: any) {
@@ -212,6 +302,12 @@ export class RecurringInvoicesService {
     config.gstAmount = gst;
     config.nettTotal = +(net + gst).toFixed(2);
 
+    // Reserved running number (guru 2026-08-27): templates carry
+    // config.documentNumber like "BI{YEAR}{MONTH NO}001" — resolveConfig has
+    // already turned it into e.g. "BI202609001", so each schedule owns the
+    // same slot in every month's series and the number is known BEFORE the
+    // run. Passed as nameOverride so createBasicDocument skips the sequence.
+    const reservedNumber = typeof config.documentNumber === 'string' && config.documentNumber.trim() ? config.documentNumber.trim() : undefined;
     const doc = await this.documents.createBasicDocument(
       template.documentTemplateId,
       'INVOICE',
@@ -220,6 +316,7 @@ export class RecurringInvoicesService {
       undefined,
       // Attribution for the document-history "Created" entry.
       { id: userId, name: 'Recurring invoices' },
+      reservedNumber,
     );
     // Chain the generated invoice onto the template's project/deployment so it
     // shows on the DeploymentCard and rolls into the project's billed totals.

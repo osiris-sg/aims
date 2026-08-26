@@ -648,10 +648,16 @@ export default function RecurringInvoicesView() {
                 ...(tplCfg.documentInfo || {}),
                 referenceNo: resolveText(form.reference || tplCfg.reference || "", previewDate, runNo),
                 currency: "SGD", gstPercent: 9,
+                paymentTerms: tplCfg.documentInfo?.paymentTerms || "30 DAYS",
               },
+              paymentTerms: tplCfg.paymentTerms || "30 DAYS",
               notes: resolveText(form.notes || "", previewDate, runNo),
             };
-            return <CleanDocumentPreview documentType="INVOICE" data={data} />;
+            // Reserved running number: templates carry a tokenized slot
+            // ("BI{YEAR}{MONTH NO}001") — resolve so the accountant sees the
+            // real number the run will use.
+            if (tplCfg.documentNumber) data.documentNumber = resolveText(tplCfg.documentNumber, previewDate, runNo);
+            return <CleanDocumentPreview documentType="INVOICE" data={data} organization={organization} />;
           })()}
         </DialogContent>
       </Dialog>
