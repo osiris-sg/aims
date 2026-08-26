@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Autocomplete, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
-  IconButton, MenuItem, Paper, Stack, Switch, Table, TableBody, TableCell, TableContainer,
+  IconButton, MenuItem, Paper, Stack, Switch, Table, TableBody, TableCell, TableContainer, TableSortLabel,
   TableHead, TableRow, TextField, Tooltip, Typography, alpha,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
@@ -146,6 +146,13 @@ export default function RecurringInvoicesView() {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  // Column sorting — same TableSortLabel mechanism as the shared components/Table.
+  const [sortCol, setSortCol] = useState<string>("code");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const requestSort = (col: string) => {
+    if (sortCol === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortCol(col); setSortDir("asc"); }
+  };
   const [editing, setEditing] = useState<Template | null>(null);
   const [form, setForm] = useState<any>(blank);
   const [saving, setSaving] = useState(false);
@@ -288,6 +295,27 @@ export default function RecurringInvoicesView() {
   }, [fromInvoiceId, request]);
 
   const custName = (id: string) => customers?.find((c: any) => c.id === id)?.name || "—";
+  const sortedItems = useMemo(() => {
+    const val = (t: any): any => {
+      switch (sortCol) {
+        case "code": return t.code || "";
+        case "name": return t.name || "";
+        case "customer": return custName(t.customerId);
+        case "frequency": return t.frequency || "";
+        case "nextRunDate": return t.nextRunDate || "";
+        case "autoSend": return t.autoSend ? 1 : 0;
+        case "isActive": return t.isActive ? 1 : 0;
+        default: return "";
+      }
+    };
+    const arr = [...(items || [])];
+    arr.sort((a, b) => {
+      const va = val(a), vb = val(b);
+      const cmp = typeof va === "number" ? va - vb : String(va).localeCompare(String(vb), undefined, { numeric: true });
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return arr;
+  }, [items, sortCol, sortDir, customers]);
   const previewDate = useMemo(() => (form.nextRunDate ? new Date(form.nextRunDate) : new Date()), [form.nextRunDate]);
 
   const openNew = () => { setEditing(null); setForm({ ...blank, nextRunDate: nowLocalInput() }); setOpen(true); };
@@ -403,18 +431,18 @@ export default function RecurringInvoicesView() {
           <Table size="small">
             <TableHead>
               <TableRow sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
-                <TableCell sx={{ fontWeight: 700 }}>ID</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Customer</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Every</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Next run</TableCell>
-                <TableCell sx={{ fontWeight: 700 }} align="center">Mode</TableCell>
-                <TableCell sx={{ fontWeight: 700 }} align="center">Active</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}><TableSortLabel active={sortCol === "code"} direction={sortCol === "code" ? sortDir : "asc"} onClick={() => requestSort("code")}>ID</TableSortLabel></TableCell>
+                <TableCell sx={{ fontWeight: 700 }}><TableSortLabel active={sortCol === "name"} direction={sortCol === "name" ? sortDir : "asc"} onClick={() => requestSort("name")}>Name</TableSortLabel></TableCell>
+                <TableCell sx={{ fontWeight: 700 }}><TableSortLabel active={sortCol === "customer"} direction={sortCol === "customer" ? sortDir : "asc"} onClick={() => requestSort("customer")}>Customer</TableSortLabel></TableCell>
+                <TableCell sx={{ fontWeight: 700 }}><TableSortLabel active={sortCol === "frequency"} direction={sortCol === "frequency" ? sortDir : "asc"} onClick={() => requestSort("frequency")}>Every</TableSortLabel></TableCell>
+                <TableCell sx={{ fontWeight: 700 }}><TableSortLabel active={sortCol === "nextRunDate"} direction={sortCol === "nextRunDate" ? sortDir : "asc"} onClick={() => requestSort("nextRunDate")}>Next run</TableSortLabel></TableCell>
+                <TableCell sx={{ fontWeight: 700 }} align="center"><TableSortLabel active={sortCol === "autoSend"} direction={sortCol === "autoSend" ? sortDir : "asc"} onClick={() => requestSort("autoSend")}>Mode</TableSortLabel></TableCell>
+                <TableCell sx={{ fontWeight: 700 }} align="center"><TableSortLabel active={sortCol === "isActive"} direction={sortCol === "isActive" ? sortDir : "asc"} onClick={() => requestSort("isActive")}>Active</TableSortLabel></TableCell>
                 <TableCell sx={{ fontWeight: 700 }} align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {items.map((t) => (
+              {sortedItems.map((t) => (
                 <TableRow key={t.id}>
                   <TableCell sx={{ whiteSpace: "nowrap" }}>
                     <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: "monospace" }}>{t.code || "—"}</Typography>
