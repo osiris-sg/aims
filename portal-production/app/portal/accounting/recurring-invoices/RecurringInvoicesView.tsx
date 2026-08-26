@@ -123,7 +123,7 @@ function tokenizeText(str: string, d: Date): string {
 type Row = { description: string; quantity: number; unitPrice: number; accountCode?: string };
 type Template = {
   id: string; name: string; customerId: string; frequency: string; nextRunDate: string;
-  endDate?: string | null; autoSend: boolean; isActive: boolean; lastRunAt?: string | null; lastRunDocumentId?: string | null; nextRunNo?: number;
+  endDate?: string | null; autoSend: boolean; isActive: boolean; lastRunAt?: string | null; lastRunDocumentId?: string | null; nextRunNo?: number; code?: string | null;
   documentTemplateId: string; numberFormatId?: string | null; config: any;
   projectId?: string | null; projectDeploymentId?: string | null; sourceDocumentId?: string | null;
 };
@@ -399,6 +399,7 @@ export default function RecurringInvoicesView() {
           <Table size="small">
             <TableHead>
               <TableRow sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
+                <TableCell sx={{ fontWeight: 700 }}>ID</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>Customer</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>Every</TableCell>
@@ -411,6 +412,9 @@ export default function RecurringInvoicesView() {
             <TableBody>
               {items.map((t) => (
                 <TableRow key={t.id}>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>
+                    <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: "monospace" }}>{t.code || "—"}</Typography>
+                  </TableCell>
                   <TableCell>
                     <Stack direction="row" alignItems="center" gap={0.75}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>{t.name}</Typography>

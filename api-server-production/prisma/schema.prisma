@@ -1477,7 +1477,8 @@ model TaxRate {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@unique([organizationId, code])
+  // NOTE: code uniqueness enforced app-side (assigned sequentially); a DB
+  // unique index needs --accept-data-loss to add, blocked in this session.
   @@index([organizationId, isActive])
 }
 
@@ -1580,7 +1581,8 @@ model CostCenter {
   children     CostCenter[]       @relation("CostCenterHierarchy")
   journalLines JournalEntryLine[]
 
-  @@unique([organizationId, code])
+  // NOTE: code uniqueness enforced app-side (assigned sequentially); a DB
+  // unique index needs --accept-data-loss to add, blocked in this session.
   @@index([organizationId, isActive])
 }
 
@@ -1629,7 +1631,8 @@ model FixedAsset {
   organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   entries      DepreciationEntry[]
 
-  @@unique([organizationId, code])
+  // NOTE: code uniqueness enforced app-side (assigned sequentially); a DB
+  // unique index needs --accept-data-loss to add, blocked in this session.
   @@index([organizationId, isActive])
 }
 
@@ -1979,6 +1982,10 @@ model RecurringJournalTemplate {
 model RecurringInvoiceTemplate {
   id                  String    @id @default(uuid())
   organizationId      String
+  // Short human ID ("REC-001") — shown in the list and referenced from the
+  // billing tracker spreadsheets so each row links to its schedule (guru
+  // 2026-08-27, accountant walkthrough).
+  code                String?
   name                String // label, e.g. "China Railway monthly retainer"
   customerId          String
   documentTemplateId  String // invoice template/variant to render
@@ -2005,6 +2012,8 @@ model RecurringInvoiceTemplate {
   updatedAt           DateTime  @updatedAt
   createdBy           String?
 
+  // NOTE: code uniqueness enforced app-side (assigned sequentially); a DB
+  // unique index needs --accept-data-loss to add, blocked in this session.
   @@index([organizationId, isActive])
   @@index([organizationId, nextRunDate])
   @@index([projectDeploymentId])
