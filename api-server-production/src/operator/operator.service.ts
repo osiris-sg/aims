@@ -57,6 +57,7 @@ const TOOL_STATUS: Record<string, string> = {
   gst_report: '📊 Running the GST report...',
   email_document: '📧 Preparing the email...',
   edit_document: '✏️ Editing the document...',
+  get_document_link: '🔗 Getting the link...',
 };
 
 @Injectable()

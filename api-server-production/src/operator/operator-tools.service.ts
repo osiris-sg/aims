@@ -490,6 +490,28 @@ export class OperatorToolsService {
       },
 
       {
+        name: 'get_document_link',
+        description:
+          'Return a direct link to open a document in the AIMS app (the full portal editor), so the user can view or edit it themselves in the UI. Use when the user asks for the app link / edit link, or wants to make a change that is easier to do in the app.',
+        permissions: ['documents:read'],
+        input_schema: {
+          type: 'object',
+          properties: { numberOrId: { type: 'string', description: 'Document number or id' } },
+          required: ['numberOrId'],
+        },
+        run: async (ctx, { numberOrId }) => {
+          const doc = await this.findDoc(ctx.organizationId, numberOrId);
+          if (!doc) return { result: { error: 'Document not found in this organization' } };
+          // The editor lives on the PORTAL (app.ai-ms.io), NOT APP_URL — that env
+          // points at the landing domain (ai-ms.io) in prod.
+          const base = (process.env.PORTAL_URL || 'https://app.ai-ms.io').replace(/\/+$/, '');
+          // Portal editor route: /portal/documents/{TYPE}/{templateId}/{documentId}
+          const url = `${base}/portal/documents/${doc.type}/${doc.documentTemplateId}/${doc.id}`;
+          return { result: { documentNumber: doc.name, type: doc.type, url } };
+        },
+      },
+
+      {
         name: 'edit_document',
         description:
           'Edit an EXISTING unconfirmed/draft document in place. For a SMALL wording change (e.g. "two (2)" to "one (1)"), use lineEdits with find/replaceWith so the rest of the text is preserved exactly — NEVER retype the whole description from memory. Use the `description` field only to rewrite a whole line. Also supports changing quantity/unitPrice, removing a line, adding lines, and notes/PO/reference. Totals recompute automatically. ALWAYS call get_document first to read the full current line text, then edit. Confirmed/posted documents need a revision in the app (the tool will say so).',
