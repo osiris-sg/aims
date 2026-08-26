@@ -970,7 +970,7 @@ export class DeliveriesService {
                   quantity: 1,
                   description: d.description,
                   // Carry the line's class so the return capture asks for the same
-                  // photo count as outbound (1 for accessory, 5 for equipment).
+                  // photo count as outbound (1 for accessory, 4 for equipment).
                   assetClass: d.assetClass,
                   sortOrder: (inventoryIds.length + j) * 100,
                 })),
@@ -3032,7 +3032,7 @@ export class DeliveriesService {
     if (!item) throw new BadRequestException('This unit is not awaiting delivery on this run');
 
     // NO acknowledgement photos (2026-08): condition photos are captured ONLY at
-    // DO_START (the guided 5-angle set). The DO_ACK is a bare delivery-acknowledged
+    // DO_START (the guided 4-angle set). The DO_ACK is a bare delivery-acknowledged
     // proof carrying just GPS; its signature is stamped later at finalize.
     await this.prisma.maintenanceServiceReport.create({
       data: {
@@ -3692,7 +3692,7 @@ export class DeliveriesService {
       throw new BadRequestException('This line is not awaiting start');
     }
     // Free-typed lines take condition photos on a RETURN too (mirroring outbound):
-    // the class-based minimum from the line's stored assetClass (5 for equipment,
+    // the class-based minimum from the line's stored assetClass (4 for equipment,
     // 1 for accessory). The start stays SCAN-LESS - there is no unit to scan, the
     // line just needs its photos, exactly like the outbound free-typed start.
     const runDir = await this.prisma.delivery.findUnique({ where: { id: deliveryId }, select: { direction: true } });

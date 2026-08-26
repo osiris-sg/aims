@@ -18,7 +18,7 @@ export class CreateMaintenanceReportDto {
 
   @ApiPropertyOptional({
     description:
-      'Per-photo angle labels, parallel to `photos` (same order/length). Guided capture sends front/back/left/right/top; free-form leaves "". Stored in serviceData.photoAngles alongside the flat photos array.',
+      'Per-photo angle labels, parallel to `photos` (same order/length). Guided capture sends front/back/left/right; free-form leaves "". Stored in serviceData.photoAngles alongside the flat photos array.',
     type: [String],
   })
   @IsOptional()

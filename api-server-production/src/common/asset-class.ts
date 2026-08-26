@@ -10,7 +10,7 @@ import { AssetClass } from '@prisma/client';
 
 /** Minimum photos required at tagging, per class. */
 export const MIN_PHOTOS_BY_ASSET_CLASS: Record<AssetClass, number> = {
-  EQUIPMENT: 5, // Front, Back, Left, Right, Top
+  EQUIPMENT: 4, // Front, Back, Left, Right
   ACCESSORY: 1,
 };
 

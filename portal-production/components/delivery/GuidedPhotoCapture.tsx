@@ -23,8 +23,8 @@ import { usePhotoUploader, type CapturedPhoto } from "./usePhotoUploader";
 export type { CapturedPhoto };
 
 /**
- * The angles an equipment unit is walked through, in WALK-AROUND order (5 for
- * equipment: Front, Left, Back, Right, Top — a continuous loop around the unit
+ * The angles an equipment unit is walked through, in WALK-AROUND order (4 for
+ * equipment: Front, Left, Back, Right — a continuous loop around the unit
  * rather than front/back/side hopping). These match the equipment minimum, so
  * every named slot is required; anything past them is an extra angle the rider
  * chooses. Each has an `example` placeholder image (public/guide-angles) shown
@@ -35,7 +35,6 @@ const STEPS = [
   { key: "left", label: "Left", hint: "Step to the left side and shoot it square on.", example: "/guide-angles/left.jpeg" },
   { key: "back", label: "Back", hint: "Walk around and shoot the rear panel.", example: "/guide-angles/back.jpeg" },
   { key: "right", label: "Right", hint: "Step to the right side and shoot it square on.", example: "/guide-angles/right.jpeg" },
-  { key: "top", label: "Top", hint: "Shoot from above so the top surface is visible.", example: "/guide-angles/top.jpeg" },
 ] as const;
 
 /** Ordered angle KEYS for the guided set — used to pair returns by angle. */
@@ -70,7 +69,7 @@ interface Props {
   /**
    * Per-photo damage (returns). When set, each shot is followed by a
    * "Damaged?" answer plus an optional comment before the rider advances, so
-   * five angles produce five answers. Parallel arrays to `photos`, mirroring
+   * four angles produce four answers. Parallel arrays to `photos`, mirroring
    * how the angle labels travel; photos[] itself is never reshaped.
    */
   damage?: {
@@ -81,7 +80,7 @@ interface Props {
 }
 
 /**
- * Guided condition capture for EQUIPMENT: front, back, left, right, top, then
+ * Guided condition capture for EQUIPMENT: front, back, left, right, then
  * any extra angles the minimum still needs. One shot per step rather than a
  * free-for-all picker, so the office gets a comparable set for every unit
  * instead of several photos of the same corner.
