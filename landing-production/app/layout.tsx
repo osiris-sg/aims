@@ -24,7 +24,15 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
-      <body>{children}</body>
+      <body>
+        {/* Apply the saved theme before first paint (no flash). System preference wins when nothing is saved. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var t=localStorage.getItem("aims-theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;}catch(e){}`,
+          }}
+        />
+        {children}
+      </body>
     </html>
   );
 }
