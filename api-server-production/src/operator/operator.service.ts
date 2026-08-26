@@ -56,6 +56,7 @@ const TOOL_STATUS: Record<string, string> = {
   aged_payables: '📊 Running aged payables...',
   gst_report: '📊 Running the GST report...',
   email_document: '📧 Preparing the email...',
+  edit_document: '✏️ Editing the document...',
 };
 
 @Injectable()

@@ -490,6 +490,153 @@ export class OperatorToolsService {
       },
 
       {
+        name: 'edit_document',
+        description:
+          'Edit an EXISTING unconfirmed/draft document in place — change a line\'s wording, quantity or unit price, remove a line, add new lines, or update notes/PO/reference. Totals are recomputed automatically. Use this instead of raising a fresh document when the user asks to "change", "edit", "reword", "fix" or "update" something on a document. First call get_document to see the numbered lines, then reference lines by their number. Confirmed/posted documents cannot be edited (they need a revision in the app) — the tool will say so.',
+        permissions: ['documents:update'],
+        input_schema: {
+          type: 'object',
+          properties: {
+            documentId: { type: 'string', description: 'Document number or id' },
+            lineEdits: {
+              type: 'array',
+              description: 'Edits to existing lines, referenced by 1-based line number (from get_document).',
+              items: {
+                type: 'object',
+                properties: {
+                  line: { type: 'integer', description: '1-based line number to edit' },
+                  description: { type: 'string' },
+                  quantity: { type: 'number' },
+                  unitPrice: { type: 'number' },
+                  remove: { type: 'boolean', description: 'true to delete this line' },
+                },
+                required: ['line'],
+              },
+            },
+            addLines: {
+              type: 'array',
+              description: 'New lines to append.',
+              items: {
+                type: 'object',
+                properties: {
+                  description: { type: 'string' },
+                  quantity: { type: 'number' },
+                  unitPrice: { type: 'number' },
+                  isService: { type: 'boolean' },
+                },
+                required: ['description', 'quantity', 'unitPrice'],
+              },
+            },
+            notes: { type: 'string' },
+            poNo: { type: 'string' },
+            referenceNo: { type: 'string' },
+          },
+          required: ['documentId'],
+        },
+        run: async (ctx, { documentId, lineEdits, addLines, notes, poNo, referenceNo }) => {
+          const doc = await this.findDoc(ctx.organizationId, documentId);
+          if (!doc) return { result: { error: 'Document not found in this organization' } };
+          const locked = ['confirmed', 'paid', 'pending_payment'];
+          if (locked.includes(String(doc.status))) {
+            return {
+              result: {
+                error: `${doc.name} is ${doc.status} and can't be edited. Confirmed documents need a revision (do that in the app).`,
+              },
+            };
+          }
+
+          const cfg: any = (doc.config as any) || {};
+          const items: any[] = Array.isArray(cfg.items) ? cfg.items.map((it: any) => ({ ...it })) : [];
+          const N = items.length;
+          const gstPercent = Number(cfg.gstPercent ?? 9) || 0;
+
+          // Apply edits to existing lines by 1-based number.
+          for (const e of lineEdits || []) {
+            const idx = Number(e.line) - 1;
+            if (idx < 0 || idx >= N || !items[idx]) {
+              return { result: { error: `Line ${e.line} is out of range. This document has ${N} line(s).` } };
+            }
+            if (e.remove) {
+              items[idx] = null;
+              continue;
+            }
+            const it = items[idx];
+            if (e.description != null) it.description = cleanText(String(e.description));
+            if (e.quantity != null) it.quantity = Number(e.quantity);
+            if (e.unitPrice != null) it.unitPrice = Number(e.unitPrice);
+            const disc = Number(it.discount) || 0;
+            it.amount = round2((Number(it.quantity) || 0) * (Number(it.unitPrice) || 0) * (1 - disc / 100));
+          }
+          let nextItems = items.filter(Boolean);
+
+          // Append any new lines.
+          for (const [i, a] of (addLines || []).entries()) {
+            const quantity = Number(a.quantity) || 0;
+            const unitPrice = Number(a.unitPrice) || 0;
+            nextItems.push({
+              id: Date.now() + i,
+              inventoryItemId: '',
+              isService: a.isService !== false, // typed-in lines default to service
+              itemCode: '',
+              description: cleanText(String(a.description || '')),
+              uom: a.isService === false ? 'PCS' : 'HR',
+              quantity,
+              unitPrice,
+              discount: 0,
+              amount: round2(quantity * unitPrice),
+              tax: gstPercent,
+              accountCode: null,
+            });
+          }
+
+          if (!nextItems.length) {
+            return { result: { error: 'That would remove every line. A document needs at least one line.' } };
+          }
+
+          // Recompute totals from the document's own tax settings.
+          const taxApplicable = cfg.taxApplicable === 'N' ? 'N' : 'Y';
+          const absorbTax = cfg.absorbTax === 'Y' ? 'Y' : 'N';
+          const grossTotal = round2(nextItems.reduce((s, it) => s + (Number(it.amount) || 0), 0));
+          const subTotal = grossTotal;
+          const gstAmount =
+            taxApplicable === 'N'
+              ? 0
+              : absorbTax === 'Y'
+                ? round2((subTotal * gstPercent) / (100 + gstPercent))
+                : round2((subTotal * gstPercent) / 100);
+          const nettTotal = absorbTax === 'Y' || taxApplicable === 'N' ? subTotal : round2(subTotal + gstAmount);
+          const totals = { subTotal, gstAmount, nettTotal, grossTotal, discountAmount: 0 };
+
+          const newCfg: any = {
+            ...cfg,
+            items: nextItems,
+            ...totals,
+            ...(notes != null ? { note: cleanText(String(notes)) } : {}),
+            ...(poNo != null ? { poNo: String(poNo) } : {}),
+            ...(referenceNo != null ? { referenceNo: String(referenceNo) } : {}),
+            documentInfo: { ...(cfg.documentInfo || {}), ...totals, items: nextItems },
+          };
+          await this.prisma.document.update({ where: { id: doc.id }, data: { config: newCfg } });
+          this.log(ctx, 'EDITED', 'document', doc.id, doc.name, `Edited via Operator (${ctx.channel})`);
+          return {
+            result: {
+              documentId: doc.id,
+              documentNumber: doc.name,
+              status: doc.status,
+              lines: nextItems.map((it, i) => ({
+                line: i + 1,
+                description: (it.description || '').slice(0, 60),
+                quantity: it.quantity,
+                unitPrice: it.unitPrice,
+                amount: it.amount,
+              })),
+              nettTotal,
+            },
+          };
+        },
+      },
+
+      {
         name: 'confirm_invoice',
         description:
           'Finalize an invoice. This deducts stock and POSTS THE DOUBLE-ENTRY JOURNAL to the ledger and is irreversible. Always requires the user to confirm.',
