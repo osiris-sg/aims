@@ -159,6 +159,55 @@ function f5(b: Buckets) {
   };
 }
 
+// ---------- 820 tie-out: classification layer vs ledger layer ----------
+// Box 6 − Box 7 for the period must equal the MOVEMENT on the GST control
+// account (820) in the AIMS GL — output tax credits it, input tax debits it.
+// A doc mis-stamped in a way that changes an F5 box WITHOUT changing journals
+// breaks this equality, which is exactly the drift the GL reconcile can't see.
+// IRAS settlements (paying/receiving a prior quarter's GST) hit 820 without
+// being part of this quarter's boxes — matched by narration and excluded.
+async function tieOut820(fa: ReturnType<typeof f5>): Promise<boolean> {
+  const acct = await prisma.chartOfAccount.findFirst({
+    where: { organizationId: BIOFUEL_ORG_ID, code: '820' },
+    select: { id: true, name: true },
+  });
+  if (!acct) { console.log('\n⚠ 820 tie-out SKIPPED — no account 820 in the chart.'); return true; }
+  const lines = await prisma.journalEntryLine.findMany({
+    where: {
+      accountId: acct.id,
+      journalEntry: {
+        organizationId: BIOFUEL_ORG_ID,
+        status: 'POSTED',
+        isUnconfirmed: false,
+        entryDate: { gte: FROM, lte: TO },
+      },
+    },
+    select: {
+      debit: true, credit: true, description: true,
+      journalEntry: { select: { journalNumber: true, reference: true, description: true, entryDate: true } },
+    },
+  });
+  const isSettlement = (l: any) =>
+    /IRAS|GST\s*(payment|paid|refund|F5|settle)/i.test(
+      [l.description, l.journalEntry?.reference, l.journalEntry?.description].filter(Boolean).join(' '),
+    );
+  let movement = 0, settled = 0;
+  const settRefs: string[] = [];
+  for (const l of lines) {
+    const amt = R((Number(l.credit) || 0) - (Number(l.debit) || 0));
+    if (isSettlement(l)) { settled = R(settled + amt); settRefs.push(`${l.journalEntry?.journalNumber} (${amt.toFixed(2)})`); }
+    else movement = R(movement + amt);
+  }
+  const expected = R(fa.box6_outputTax - fa.box7_inputTax);
+  const diff = R(movement - expected);
+  const ok = Math.abs(diff) <= 0.05;
+  console.log('\n820 tie-out (classification vs ledger):');
+  console.log(`  Box 6 − Box 7 (F5)          ${expected.toFixed(2).padStart(14)}`);
+  console.log(`  820 movement (Cr − Dr)      ${movement.toFixed(2).padStart(14)}${settRefs.length ? `   (excl. ${settRefs.length} IRAS settlement(s): ${settRefs.join(', ')})` : ''}`);
+  console.log(`  Δ                           ${diff.toFixed(2).padStart(14)}  ${ok ? '✓' : '✗ TIE-OUT BROKEN — a doc changed an F5 box without a matching journal (or vice versa)'}`);
+  return ok;
+}
+
 async function main() {
   console.log(`GST verification — Biofuel — period ${FROM.toISOString().slice(0, 10)} → ${TO.toISOString().slice(0, 10)}\n`);
   const tokens = await getXeroTokens(prisma, BIOFUEL_ORG_ID);
@@ -185,8 +234,9 @@ async function main() {
     const x = xero.taxByCode.get(c) || 0, a = aims.taxByCode.get(c) || 0;
     console.log(`  code ${c.padEnd(3)} tax: xero=${x.toFixed(2).padStart(12)}  aims=${a.toFixed(2).padStart(12)}  Δ=${R(x - a).toFixed(2)}${Math.abs(x - a) > 0.05 ? ' ✗ (doc-level vs line-level coding?)' : ' ✓'}`);
   }
-  console.log(drift ? '\n✗ F5 DRIFT — see boxes above.' : '\n✓ F5 BOXES MATCH XERO.');
-  process.exit(drift ? 1 : 0);
+  const tieOk = await tieOut820(fa);
+  console.log(drift ? '\n✗ F5 DRIFT — see boxes above.' : tieOk ? '\n✓ F5 BOXES MATCH XERO + 820 TIE-OUT HOLDS.' : '\n✗ 820 TIE-OUT BROKEN — see above.');
+  process.exit(drift || !tieOk ? 1 : 0);
 }
 
 main().catch((e) => { console.error('FATAL', e?.message || e); process.exit(2); }).finally(() => prisma.$disconnect());

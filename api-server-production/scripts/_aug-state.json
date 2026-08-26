@@ -1,0 +1,1518 @@
+[
+ {
+  "xeroNum": "BI202608002",
+  "xeroId": "c580fb7c-a16f-42cb-8589-7c40f4a8ff98",
+  "status": "AUTHORISED",
+  "cust": "Hock Lian Seng Infrastructure Pte Ltd",
+  "total": 1057.3,
+  "net": 970,
+  "date": "2026-08-01",
+  "ref": "BI202608002 (MBR-30)",
+  "ordinal": null,
+  "serials": [],
+  "doRef": "",
+  "prorate": false,
+  "aimsName": "BI202608002",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608003",
+  "xeroId": "bebca064-f118-4284-9d2b-239fabbe8a38",
+  "status": "AUTHORISED",
+  "cust": "Hock Lian Seng Infrastructure Pte Ltd",
+  "total": 1853,
+  "net": 1700,
+  "date": "2026-08-01",
+  "ref": "BI202608003 (MBR-20)",
+  "ordinal": null,
+  "serials": [],
+  "doRef": "",
+  "prorate": false,
+  "aimsName": "BI202608003",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608004",
+  "xeroId": "a42204fd-3839-4592-b3d5-da332d92a1ef",
+  "status": "AUTHORISED",
+  "cust": "China Railway 11 Bureau Group Corpn (Singapore Branch)",
+  "total": 10900,
+  "net": 10000,
+  "date": "2026-08-01",
+  "ref": "BI202608004 (4th mth J101 TOLQ 2xMBR50)",
+  "ordinal": 4,
+  "serials": [],
+  "doRef": "",
+  "prorate": false,
+  "aimsName": "BI202608004",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608005",
+  "xeroId": "cb87c8c0-b116-4c7c-9eb5-6de1a0b64706",
+  "status": "AUTHORISED",
+  "cust": "China Railway 11 Bureau Group Corpn (Singapore Branch)",
+  "total": 5232,
+  "net": 4800,
+  "date": "2026-08-01",
+  "ref": "BI202608005 (3rd mth J101 Site Office 2xMBR20)",
+  "ordinal": 3,
+  "serials": [],
+  "doRef": "",
+  "prorate": false,
+  "aimsName": "BI202608005",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608006",
+  "xeroId": "66f5e453-5bc8-4434-b541-a2a2b6326db7",
+  "status": "AUTHORISED",
+  "cust": "China Communications Construction Co Ltd (SG BR)",
+  "total": 1417,
+  "net": 1300,
+  "date": "2026-08-01",
+  "ref": "BI202608006 (15th mth CR205 Marsh Site - DO/HY2505-001 1xAF40)",
+  "ordinal": 15,
+  "serials": [
+   "AF40"
+  ],
+  "doRef": "HY2505-001",
+  "prorate": false,
+  "aimsName": "BI202608006",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608007",
+  "xeroId": "8010d620-8413-4daa-983d-0aea405f793c",
+  "status": "AUTHORISED",
+  "cust": "China Construction (South Pacific) Development Co Pte Ltd",
+  "total": 6540,
+  "net": 6000,
+  "date": "2026-08-01",
+  "ref": "BI202608007 (13th mth - Canberra DO/BT202508-001 1xLION375 MG20250079)",
+  "ordinal": 13,
+  "serials": [
+   "MG20250079"
+  ],
+  "doRef": "BT202508-001",
+  "prorate": false,
+  "aimsName": "BI202608007",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608008",
+  "xeroId": "78f24eca-5f6c-47bc-9d44-e9ccbd6640ff",
+  "status": "AUTHORISED",
+  "cust": "China Construction (South Pacific) Development Co Pte Ltd",
+  "total": 6540,
+  "net": 6000,
+  "date": "2026-08-01",
+  "ref": "BI202608008 (9th mth - Canberra DO202512-006 1xLION375 MG20250087)",
+  "ordinal": 9,
+  "serials": [
+   "MG20250087"
+  ],
+  "doRef": "202512-006",
+  "prorate": false,
+  "aimsName": "BI202608008",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608009",
+  "xeroId": "682f8236-841c-4ba6-b940-3e2f167218c5",
+  "status": "AUTHORISED",
+  "cust": "China Construction (South Pacific) Development Co Pte Ltd",
+  "total": 6540,
+  "net": 6000,
+  "date": "2026-08-01",
+  "ref": "BI202608009 (8th mth - Canberra DO202601-016 1xLION375 MG20250111)",
+  "ordinal": 8,
+  "serials": [
+   "MG20250111"
+  ],
+  "doRef": "202601-016",
+  "prorate": false,
+  "aimsName": "BI202608009",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608010",
+  "xeroId": "40ce8e68-37e2-4b7c-8572-7e32cbfe3d2b",
+  "status": "AUTHORISED",
+  "cust": "Capital Cranes Global Pte Ltd",
+  "total": 5515.4,
+  "net": 5060,
+  "date": "2026-08-01",
+  "ref": "BI202608010 (11th mth DE195 Site Office - DO202510-001 1xLION375 MG20250090 & 1xDG 30002729)",
+  "ordinal": 11,
+  "serials": [
+   "MG20250090"
+  ],
+  "doRef": "202510-001",
+  "prorate": false,
+  "aimsName": "BI202608010",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608011",
+  "xeroId": "f18dbe6e-d8d6-4f61-bf10-1ec884dc7c4c",
+  "status": "AUTHORISED",
+  "cust": "Capital Cranes Global Pte Ltd",
+  "total": 4612.88,
+  "net": 4232,
+  "date": "2026-08-01",
+  "ref": "BI202608011 (6th mth T5 Substructure Project - DO202603-007 1xLION375 MG20250110 & 1xDG 30001084)",
+  "ordinal": 6,
+  "serials": [
+   "MG20250110"
+  ],
+  "doRef": "202603-007",
+  "prorate": false,
+  "aimsName": "BI202608011",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608014",
+  "xeroId": "6cb577fd-9e8c-4cdf-a28f-68bf2c099fd7",
+  "status": "AUTHORISED",
+  "cust": "Capital Cranes Global Pte Ltd",
+  "total": 5816.24,
+  "net": 5336,
+  "date": "2026-08-01",
+  "ref": "BI202608014 (4th mth DE195 Site Office - DO202605-004 1xLION375 MG20260142 & 1xDG 30000285)",
+  "ordinal": 4,
+  "serials": [
+   "MG20260142"
+  ],
+  "doRef": "202605-004",
+  "prorate": false,
+  "aimsName": "BI202608014",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608013",
+  "xeroId": "87d3465e-5b26-489d-9184-c48dc7c70fa5",
+  "status": "AUTHORISED",
+  "cust": "Capital Cranes Global Pte Ltd",
+  "total": 5816.24,
+  "net": 5336,
+  "date": "2026-08-01",
+  "ref": "BI202608013 (5th mth DE195 Site Office - DO202604-011 1xLION375 MG20260144 & 1xDG 30001949)",
+  "ordinal": 5,
+  "serials": [
+   "MG20260144"
+  ],
+  "doRef": "202604-011",
+  "prorate": false,
+  "aimsName": "BI202608013",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608015",
+  "xeroId": "a211586d-fe60-420c-93af-3251829d1113",
+  "status": "AUTHORISED",
+  "cust": "Capital Cranes Global Pte Ltd",
+  "total": 3784.48,
+  "net": 3472,
+  "date": "2026-08-01",
+  "ref": "BI202608015 (4th mth DE195 Site Office - DO202605-005 1xLION135 MG20260150 & 2xCables)",
+  "ordinal": 4,
+  "serials": [
+   "MG20260153"
+  ],
+  "doRef": "202605-005",
+  "prorate": false,
+  "aimsName": "BI202608015",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608016",
+  "xeroId": "b313451a-bec0-405c-bc56-d53b5057a85f",
+  "status": "AUTHORISED",
+  "cust": "Capital Cranes Global Pte Ltd",
+  "total": 4612.88,
+  "net": 4232,
+  "date": "2026-08-01",
+  "ref": "BI202608016 (4th mth T5 Substructure Project - DO202605-013 1xLION375 MG20260126 & 1xDG 3988936)",
+  "ordinal": 4,
+  "serials": [
+   "MG20260126"
+  ],
+  "doRef": "202605-013",
+  "prorate": false,
+  "aimsName": "BI202608016",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608017",
+  "xeroId": "cb4db5f0-270a-421d-9563-32750e880eb3",
+  "status": "AUTHORISED",
+  "cust": "Capital Cranes Global Pte Ltd",
+  "total": 5816.24,
+  "net": 5336,
+  "date": "2026-08-01",
+  "ref": "BI202608017 (2nd mth DE195 Site Office - DO202606-014 1xLION375 MG20260135 & 1xDG 3997323)",
+  "ordinal": 2,
+  "serials": [
+   "MG20260135"
+  ],
+  "doRef": "202606-014",
+  "prorate": false,
+  "aimsName": "BI202608017",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608012",
+  "xeroId": "d2ac2a81-afec-4b80-85ba-47a2165a321c",
+  "status": "AUTHORISED",
+  "cust": "Capital Cranes Global Pte Ltd",
+  "total": 4612.88,
+  "net": 4232,
+  "date": "2026-08-01",
+  "ref": "BI202608012 (5th mth T5 Substructure Project - DO202604-005 1xLION375 MG20260128 & 1xDG 3995592)",
+  "ordinal": 5,
+  "serials": [
+   "MG20260128"
+  ],
+  "doRef": "202604-005",
+  "prorate": false,
+  "aimsName": "BI202608012",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608018",
+  "xeroId": "dc009dfc-643c-4301-bd3f-eedf61d16e6c",
+  "status": "AUTHORISED",
+  "cust": "Capital Cranes Global Pte Ltd",
+  "total": 5816.24,
+  "net": 5336,
+  "date": "2026-08-01",
+  "ref": "BI202608018 (2nd mth DE195 Site Office - DO202607-006 1xLION375 MG20260130 & 1xDG 30000271)",
+  "ordinal": 2,
+  "serials": [
+   "MG20260130"
+  ],
+  "doRef": "202607-006",
+  "prorate": false,
+  "aimsName": "BI202608018 (dc00)",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608019",
+  "xeroId": "3f4cc9e8-774f-46ff-8a78-d1c04977696a",
+  "status": "AUTHORISED",
+  "cust": "China Construction Realty Co. Pte Ltd",
+  "total": 8720,
+  "net": 8000,
+  "date": "2026-08-01",
+  "ref": "BI202608019 (17th mth Clementi - DO202504-005, DO202505-006 & DO202510-002 1xLION500 MG20250112 & 1xDG 3996492 )",
+  "ordinal": 17,
+  "serials": [
+   "MG20250112"
+  ],
+  "doRef": "202504-005",
+  "prorate": false,
+  "aimsName": "BI202608018",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608020",
+  "xeroId": "871d9641-e9dd-40ae-8b85-2ba65674b9a7",
+  "status": "AUTHORISED",
+  "cust": "China Construction Realty Co. Pte Ltd",
+  "total": 8720,
+  "net": 8000,
+  "date": "2026-08-01",
+  "ref": "BI202608020 (16th mth Clementi - DO202505-010 1xLION500 MG20250057 & 1xDG 3997332)",
+  "ordinal": 16,
+  "serials": [
+   "MG20250057"
+  ],
+  "doRef": "202505-010",
+  "prorate": false,
+  "aimsName": "BI202608019",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608023",
+  "xeroId": "bcf1e099-a2c3-4739-81f2-b65065a7e4ee",
+  "status": "AUTHORISED",
+  "cust": "Debenho (Pte) Ltd",
+  "total": 6104,
+  "net": 5600,
+  "date": "2026-08-01",
+  "ref": "BI202608023 (7th mth HDB Yishun N5C11 - DO202602-007 1xLION375 MG20250109, 1xDG 30000256)",
+  "ordinal": 7,
+  "serials": [
+   "MG20250109"
+  ],
+  "doRef": "202602-007",
+  "prorate": false,
+  "aimsName": "BI202608022",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608022",
+  "xeroId": "54eb696c-584f-405d-b32e-4612c44e1ab2",
+  "status": "AUTHORISED",
+  "cust": "Debenho (Pte) Ltd",
+  "total": 5014,
+  "net": 4600,
+  "date": "2026-08-01",
+  "ref": "BI202608022 (10th mth HDB Yishun N5C11 - DO202511-016 1xLION375 MG20250086, 1xDG 2311035)",
+  "ordinal": 10,
+  "serials": [
+   "MG20250086"
+  ],
+  "doRef": "202511-016",
+  "prorate": false,
+  "aimsName": "BI202608021",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608024",
+  "xeroId": "ab0c19ca-dbd9-44c5-88e9-6479396ce154",
+  "status": "AUTHORISED",
+  "cust": "Debenho (Pte) Ltd",
+  "total": 6104,
+  "net": 5600,
+  "date": "2026-08-01",
+  "ref": "BI202608024 (6th mth HDB Yishun N5C11 - DO202603-004 1xLION375 MG20260118, 1xDG 30002729)",
+  "ordinal": 6,
+  "serials": [
+   "MG20260118"
+  ],
+  "doRef": "202603-004",
+  "prorate": false,
+  "aimsName": "BI202608023",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608025",
+  "xeroId": "873394c0-0e4e-47c9-88db-a86c4a410573",
+  "status": "AUTHORISED",
+  "cust": "Debenho (Pte) Ltd",
+  "total": 6104,
+  "net": 5600,
+  "date": "2026-08-01",
+  "ref": "BI202608025 (5th mth HDB Yishun N5C11 - DO202604-007 1xLION375 MG20260133, 1xDG 3996496)",
+  "ordinal": 5,
+  "serials": [
+   "MG20260133"
+  ],
+  "doRef": "202604-007",
+  "prorate": false,
+  "aimsName": "BI202608024",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608026",
+  "xeroId": "dff235f4-1386-447b-871b-d4a5b8ce1cca",
+  "status": "AUTHORISED",
+  "cust": "Debenho (Pte) Ltd",
+  "total": 6104,
+  "net": 5600,
+  "date": "2026-08-01",
+  "ref": "BI202608026 (4th mth HDB Yishun N5C11 - DO202605-002 1xLION375 MG20260141, 1xDG 30001077)",
+  "ordinal": 4,
+  "serials": [
+   "MG20260141"
+  ],
+  "doRef": "202605-002",
+  "prorate": false,
+  "aimsName": "BI202608025",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608027",
+  "xeroId": "78e71d33-c58b-4d64-a03d-1ba1e4462758",
+  "status": "AUTHORISED",
+  "cust": "Debenho (Pte) Ltd",
+  "total": 6104,
+  "net": 5600,
+  "date": "2026-08-01",
+  "ref": "BI202608027 (3rd mth HDB Yishun N5C11 - DO202606-001 1xLION375 MG20260136, 1xDG 3997331)",
+  "ordinal": 3,
+  "serials": [
+   "MG20260136"
+  ],
+  "doRef": "202606-001",
+  "prorate": false,
+  "aimsName": "BI202608026",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608028",
+  "xeroId": "fd446f05-6f1b-4118-90fb-3e2c53024fc6",
+  "status": "AUTHORISED",
+  "cust": "Debenho (Pte) Ltd",
+  "total": 6104,
+  "net": 5600,
+  "date": "2026-08-01",
+  "ref": "BI202608028 (3rd mth HDB Yishun N5C11 - DO202606-003 1xLION375 MG20260121, 1xDG 30001086)",
+  "ordinal": 3,
+  "serials": [
+   "MG20260121"
+  ],
+  "doRef": "202606-003",
+  "prorate": false,
+  "aimsName": "BI202608027",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608029",
+  "xeroId": "efff8dd1-2040-4ab9-8950-0bff8e6170cc",
+  "status": "AUTHORISED",
+  "cust": "Debenho (Pte) Ltd",
+  "total": 6104,
+  "net": 5600,
+  "date": "2026-08-01",
+  "ref": "BI202608029 (2nd mth HDB Yishun N5C11 - DO202607-013 1xLION375 MG20260140, 1xDG 30001082)",
+  "ordinal": 2,
+  "serials": [
+   "MG20260140"
+  ],
+  "doRef": "202607-013",
+  "prorate": false,
+  "aimsName": "BI202608029 (efff)",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608021",
+  "xeroId": "4675ce9e-93ad-464c-b3c1-017bda571a70",
+  "status": "AUTHORISED",
+  "cust": "China Construction Realty Co. Pte Ltd",
+  "total": 2790.4,
+  "net": 2560,
+  "date": "2026-08-01",
+  "ref": "BI202608021 (16th/1st mth Clementi Ave 1 - DO202504-006, DO202602-001 & DO202608-002 1xAF100 0023 to AF40 0013 & 0021)",
+  "ordinal": 16,
+  "serials": [
+   "AF40",
+   "AF100"
+  ],
+  "doRef": "202504-006",
+  "prorate": false,
+  "aimsName": "BI202608020",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608030",
+  "xeroId": "6a054362-a9d4-49fc-abd5-b62f30f1aad6",
+  "status": "AUTHORISED",
+  "cust": "Debenho (Pte) Ltd",
+  "total": 4725.67,
+  "net": 4335.48,
+  "date": "2026-08-08",
+  "ref": "BI202608030 (1st mth Yishun N5C11 - DO202608-007 1xLION375 MG20260124, 1xDG 30001085)",
+  "ordinal": 1,
+  "serials": [
+   "MG20260124"
+  ],
+  "doRef": "202608-007",
+  "prorate": true,
+  "aimsName": "BI202608030 (6a05)",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608031",
+  "xeroId": "d56af6ae-92d3-435b-a68e-3694acb1383d",
+  "status": "AUTHORISED",
+  "cust": "Debenho (Pte) Ltd",
+  "total": 4134.97,
+  "net": 3793.55,
+  "date": "2026-08-11",
+  "ref": "BI202608031 (1st mth Yishun N5C11 - DO202608-008 1xLION375 MG20250054, 1xDG 3997324)",
+  "ordinal": 1,
+  "serials": [
+   "MG20250054"
+  ],
+  "doRef": "202608-008",
+  "prorate": true,
+  "aimsName": "BI202608031",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608034",
+  "xeroId": "7072d101-60dd-449e-8252-c6f56f5606bb",
+  "status": "AUTHORISED",
+  "cust": "Keller Foundations (S E Asia) Pte Ltd",
+  "total": 4388.14,
+  "net": 4025.81,
+  "date": "2026-08-01",
+  "ref": "BI202608034 (1st mth KSIG2628 Jurong Port - DO202607-018 1xLION125 MG20250114, 1xDG 30002739,1xDB Box SB321)",
+  "ordinal": 1,
+  "serials": [
+   "MG20250114"
+  ],
+  "doRef": "202607-018",
+  "prorate": true,
+  "aimsName": "BI202608xxx",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608033",
+  "xeroId": "d146e607-e87a-4e36-a49b-67775e1d4691",
+  "status": "AUTHORISED",
+  "cust": "Express Tunnelling Pte Ltd",
+  "total": 1090,
+  "net": 1000,
+  "date": "2026-08-01",
+  "ref": "BI202608033 (24th mth - DO202409-001 AF40 2022AFS1138, PO 8350000658)",
+  "ordinal": 24,
+  "serials": [],
+  "doRef": "202409-001",
+  "prorate": false,
+  "aimsName": "BI202608028",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608032",
+  "xeroId": "b69b025e-6988-4c3e-8a29-2311a629ddd5",
+  "status": "AUTHORISED",
+  "cust": "Debenho (Pte) Ltd",
+  "total": 2756.64,
+  "net": 2529.03,
+  "date": "2026-08-18",
+  "ref": "BI202608032 (1st mth Yishun N5C11 - DO202608-012 1xLION375 MG20260121, 1xDG 30001960)",
+  "ordinal": 1,
+  "serials": [
+   "MG20260121"
+  ],
+  "doRef": "202608-012",
+  "prorate": true,
+  "aimsName": "BI202608032 (b69b)",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608xxxxSunpower",
+  "xeroId": "345d0356-96bb-4eef-848b-e71b519fee41",
+  "status": "AUTHORISED",
+  "cust": "Sunpower Grand Holdings Pte Ltd",
+  "total": 6322,
+  "net": 5800,
+  "date": "2026-08-03",
+  "ref": "BI202608035 (1st mth + 1 mth Deposit Neo Tiew Harvest Link - DO202608-001 1xLION135 MG20260159)",
+  "ordinal": null,
+  "serials": [],
+  "doRef": "202608-001",
+  "prorate": false,
+  "aimsName": "BI202608xxxxSunpower",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608035",
+  "xeroId": "93655e1a-4921-4cae-aabb-acc7405722f2",
+  "status": "AUTHORISED",
+  "cust": "Koh Brothers Building & Civil Engineering Contractor (Pte) Ltd",
+  "total": 3815,
+  "net": 3500,
+  "date": "2026-08-01",
+  "ref": "BI202608035 (4th mth BD201 DO202604-009 1xLION135 MG20260148 + 1xDG 3997333+ 1xCable)",
+  "ordinal": 4,
+  "serials": [
+   "MG20260148"
+  ],
+  "doRef": "202604-009",
+  "prorate": false,
+  "aimsName": "BI202608029",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608036",
+  "xeroId": "e6ed8dae-0c95-4745-babb-ec82b7866372",
+  "status": "AUTHORISED",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "total": 5777,
+  "net": 5300,
+  "date": "2026-08-01",
+  "ref": "BI202608036 (12th mth 1st unit Amoy Quee Camp - DO202509-013 1xLION375 MG20250091 & 1xDG 3997335)",
+  "ordinal": 12,
+  "serials": [
+   "MG20250091"
+  ],
+  "doRef": "202509-013",
+  "prorate": false,
+  "aimsName": "BI202608030",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608037",
+  "xeroId": "e174f12e-40d0-49d7-821b-f1dfcfbe6786",
+  "status": "AUTHORISED",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "total": 5777,
+  "net": 5300,
+  "date": "2026-08-01",
+  "ref": "BI202608037 (11th mth 2nd unit Amoy Quee Camp - DO202509-020 1xLION375 MG20250089 & 1xDG 3994753)",
+  "ordinal": 11,
+  "serials": [
+   "MG20250089"
+  ],
+  "doRef": "202509-020",
+  "prorate": false,
+  "aimsName": "BI202608032",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608038",
+  "xeroId": "d5122138-ad85-4c47-85b9-7603be386740",
+  "status": "AUTHORISED",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "total": 5777,
+  "net": 5300,
+  "date": "2026-08-01",
+  "ref": "BI202608038 (11th mth 3rd unit Amoy Quee Camp - DO202510-003 1xLION375 MG20250068 & 1xDG 3988934)",
+  "ordinal": 11,
+  "serials": [
+   "MG20250068"
+  ],
+  "doRef": "202510-003",
+  "prorate": false,
+  "aimsName": "BI202608033",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608039",
+  "xeroId": "9512ee99-b0d6-4130-9e83-7b6acc2dd71c",
+  "status": "AUTHORISED",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "total": 5777,
+  "net": 5300,
+  "date": "2026-08-01",
+  "ref": "BI202608039 (8th mth 4th unit Amoy Quee Camp - DO202601-008 1xLION375 MG20250104 & 1xDG 30001962)",
+  "ordinal": 8,
+  "serials": [
+   "MG20250104"
+  ],
+  "doRef": "202601-008",
+  "prorate": false,
+  "aimsName": "BI202608034",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608040",
+  "xeroId": "1ae851ea-d445-4d10-a1ec-741170f6608c",
+  "status": "AUTHORISED",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "total": 5777,
+  "net": 5300,
+  "date": "2026-08-01",
+  "ref": "BI202608040 (8th mth 5th unit Amoy Quee Camp - DO202601-009 1xLION375 MG20250105 & 1xDG 3995596 )",
+  "ordinal": 8,
+  "serials": [
+   "MG20250105"
+  ],
+  "doRef": "202601-009",
+  "prorate": false,
+  "aimsName": "BI202608036",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608041",
+  "xeroId": "60c53e9b-0f02-4453-8620-03401382279f",
+  "status": "AUTHORISED",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "total": 5777,
+  "net": 5300,
+  "date": "2026-08-01",
+  "ref": "BI202608041 (8th mth 6th unit Amoy Quee Camp - DO202601-010 1xLION375 MG20250095 & 1xDG 3997325)",
+  "ordinal": 8,
+  "serials": [
+   "MG20250095"
+  ],
+  "doRef": "202601-010",
+  "prorate": false,
+  "aimsName": "BI202608037",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608042",
+  "xeroId": "a9c967f0-def8-4db2-b9f1-d200ae76e289",
+  "status": "AUTHORISED",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "total": 5777,
+  "net": 5300,
+  "date": "2026-08-01",
+  "ref": "BI202608042 (8th mth 7th unit Amoy Quee Camp - DO202601-011 1xLION375 MG20250097 & 1xDG 30001074)",
+  "ordinal": 8,
+  "serials": [
+   "MG20250097"
+  ],
+  "doRef": "202601-011",
+  "prorate": false,
+  "aimsName": "BI202608038",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608043",
+  "xeroId": "832d6720-55f3-4cb1-98fa-9485bdc91ba2",
+  "status": "AUTHORISED",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "total": 5777,
+  "net": 5300,
+  "date": "2026-08-01",
+  "ref": "BI202608043 (8th mth 8th unit Amoy Quee Camp - DO202601-012 1xLION375 MG20250108 & 1xDG 30001072)",
+  "ordinal": 8,
+  "serials": [
+   "MG20250108"
+  ],
+  "doRef": "202601-012",
+  "prorate": false,
+  "aimsName": "BI202608039",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608044",
+  "xeroId": "cea28e14-ad43-4e7b-9e9e-a145c9ca9a2f",
+  "status": "AUTHORISED",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "total": 5777,
+  "net": 5300,
+  "date": "2026-08-01",
+  "ref": "BI202608044 (8th mth 9th unit Amoy Quee Camp - DO202601-013 1xLION375 MG20250081 & 1xDG 30001075)",
+  "ordinal": 8,
+  "serials": [
+   "MG20250081"
+  ],
+  "doRef": "202601-013",
+  "prorate": false,
+  "aimsName": "BI202608040",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608045",
+  "xeroId": "5a01bae4-6979-4872-aaee-2b39c44037d3",
+  "status": "AUTHORISED",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "total": 7630,
+  "net": 7000,
+  "date": "2026-08-01",
+  "ref": "BI202608045 (6th mth 10th unit Amoy Quee Camp - DO202602-010 1xLION500 MG20250102 & 1xDG 30005990)",
+  "ordinal": 6,
+  "serials": [
+   "MG20250102"
+  ],
+  "doRef": "202602-010",
+  "prorate": false,
+  "aimsName": "BI202608041",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608046",
+  "xeroId": "0572a4a6-70ca-4984-b5e0-cb044d155639",
+  "status": "AUTHORISED",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "total": 5450,
+  "net": 5000,
+  "date": "2026-08-01",
+  "ref": "BI202608046 (6th mth 11th unit Amoy Quee Camp - DO202603-008 1xLION375 MG20260130)",
+  "ordinal": 6,
+  "serials": [
+   "MG20260130"
+  ],
+  "doRef": "202603-008",
+  "prorate": false,
+  "aimsName": "BI202608042",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608047",
+  "xeroId": "1bdc41cc-ca10-4cd2-855d-2876b91326fd",
+  "status": "AUTHORISED",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "total": 2180,
+  "net": 2000,
+  "date": "2026-08-01",
+  "ref": "BI202608047 (23rd mth 200 Jalan Murai DO202410-008 1xAF100 2022AFS1123)",
+  "ordinal": 23,
+  "serials": [],
+  "doRef": "202410-008",
+  "prorate": false,
+  "aimsName": "BI202608043",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608048",
+  "xeroId": "c6ab063e-65df-4068-bbf2-9559c350f15a",
+  "status": "AUTHORISED",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "total": 8720,
+  "net": 8000,
+  "date": "2026-08-01",
+  "ref": "BI202608048 (8th mth 200 Jln Murai DO202601-001 4xAF100 003, 005, 006 & 007)",
+  "ordinal": 8,
+  "serials": [
+   "AF100"
+  ],
+  "doRef": "202601-001",
+  "prorate": false,
+  "aimsName": "BI202608044",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608049",
+  "xeroId": "1f0b169b-d9bf-41b4-b240-f77448afef1b",
+  "status": "AUTHORISED",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "total": 13080,
+  "net": 12000,
+  "date": "2026-08-01",
+  "ref": "BI202608049 (6th mth 200 Jln Murai DO202603-001 6xAF100 0031,0034, 0036, 0039, 0040 & 0041)",
+  "ordinal": 6,
+  "serials": [
+   "AF100"
+  ],
+  "doRef": "202603-001",
+  "prorate": false,
+  "aimsName": "BI202608045",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608050",
+  "xeroId": "f5980439-2c9d-4870-bbb8-481d9c3f7ab8",
+  "status": "AUTHORISED",
+  "cust": "Lian Beng Construction (1988) Pte Ltd",
+  "total": 1798.5,
+  "net": 1650,
+  "date": "2026-08-01",
+  "ref": "BI202608050 (7th mth 31 Tengah Gdn Ave DO202601-022 1xAF60 0004)",
+  "ordinal": 7,
+  "serials": [
+   "AF60"
+  ],
+  "doRef": "202601-022",
+  "prorate": false,
+  "aimsName": "BI202608047",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608055",
+  "xeroId": "f3d067f9-2c55-44be-8b0e-d4e8b708bc61",
+  "status": "AUTHORISED",
+  "cust": "MegaBuilders & Development Pte Ltd",
+  "total": 468.7,
+  "net": 430,
+  "date": "2026-08-01",
+  "ref": "BI202608055 (13th mth DO202507-012 SIDS Youth Facilities at Jalan) ID 016",
+  "ordinal": 13,
+  "serials": [],
+  "doRef": "202507-012",
+  "prorate": false,
+  "aimsName": "BI202608050",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608062",
+  "xeroId": "8b3f8b18-358e-46eb-8877-12bec5ae13b0",
+  "status": "AUTHORISED",
+  "cust": "LT Sambo (NSC106)",
+  "total": 1962,
+  "net": 1800,
+  "date": "2026-08-01",
+  "ref": "BI202608062 (10th mth Near Denham DO202511-002 1xAF40) AF40 0007",
+  "ordinal": 10,
+  "serials": [
+   "AF40"
+  ],
+  "doRef": "202511-002",
+  "prorate": false,
+  "aimsName": "BI202608048",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608063",
+  "xeroId": "bc1c7504-79f3-49de-98af-162afb2540a1",
+  "status": "AUTHORISED",
+  "cust": "LT Sambo (NSC106)",
+  "total": 1744,
+  "net": 1600,
+  "date": "2026-08-01",
+  "ref": "BI202608063 (8th mth Near Denham DO202601-002 1xAF40) AF40 0019",
+  "ordinal": 8,
+  "serials": [
+   "AF40"
+  ],
+  "doRef": "202601-002",
+  "prorate": false,
+  "aimsName": "BI202608049",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608064",
+  "xeroId": "99f75ec8-737e-484d-9d77-23de0ca99457",
+  "status": "AUTHORISED",
+  "cust": "Nishio Rent All Singapore Pte Ltd",
+  "total": 763,
+  "net": 700,
+  "date": "2026-08-01",
+  "ref": "BI202608064 (4th mth DO202605-008 2xAIS2026009 & AIS2026041)",
+  "ordinal": null,
+  "serials": [
+   "AIS2026009",
+   "AIS2026041"
+  ],
+  "doRef": "202605-008",
+  "prorate": false,
+  "aimsName": "BI202608062",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608065",
+  "xeroId": "395d6cd8-0644-4191-982a-dc7fec741201",
+  "status": "AUTHORISED",
+  "cust": "Nishio Rent All Singapore Pte Ltd",
+  "total": 1144.5,
+  "net": 1050,
+  "date": "2026-08-01",
+  "ref": "BI202608065 (3rd mth No. 9 Tuas Ave 18 DO202605-015 3xAIS2026001, AIS2026002, AIS2026004)",
+  "ordinal": 3,
+  "serials": [
+   "AIS2026001",
+   "AIS2026002",
+   "AIS2026004"
+  ],
+  "doRef": "202605-015",
+  "prorate": false,
+  "aimsName": "BI202608063",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608066",
+  "xeroId": "2bf73a22-5429-4e58-bb32-92866bdce0c9",
+  "status": "AUTHORISED",
+  "cust": "Nishio Rent All Singapore Pte Ltd",
+  "total": 763,
+  "net": 700,
+  "date": "2026-08-01",
+  "ref": "BI202608066 (2nd mth DO202607-005 2xAIS2026006 & AIS2026008)",
+  "ordinal": null,
+  "serials": [
+   "AIS2026006",
+   "AIS2026008"
+  ],
+  "doRef": "202607-005",
+  "prorate": false,
+  "aimsName": "BI202608064",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI2026080 RETURN",
+  "xeroId": "3075fa25-0640-4630-931d-84738c014899",
+  "status": "DRAFT",
+  "cust": "Nishio Rent All Singapore Pte Ltd",
+  "total": 0,
+  "net": 0,
+  "date": "2026-08-05",
+  "ref": "BI202608067 (1st mth DO202608-003 1xLION5)",
+  "ordinal": null,
+  "serials": [],
+  "doRef": "202608-003",
+  "prorate": true,
+  "aimsName": "BI202608055",
+  "aimsStatus": "draft"
+ },
+ {
+  "xeroNum": "BI202608067",
+  "xeroId": "094caf92-423b-4ff5-88e2-6cf7487edf0c",
+  "status": "AUTHORISED",
+  "cust": "Obayashi Singapore Pte Ltd",
+  "total": 9873.29,
+  "net": 9058.06,
+  "date": "2026-08-01",
+  "ref": "BI202608067 (Monthly Rental - July 2026: 3 units full month + LBGU 321822-5 pro-rated to 15/07)",
+  "ordinal": null,
+  "serials": [],
+  "doRef": "",
+  "prorate": true,
+  "aimsName": "BI202608065",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608068",
+  "xeroId": "25578380-2df5-4dee-bbe7-262a89955de0",
+  "status": "AUTHORISED",
+  "cust": "QJEC-LBC Joint Venture",
+  "total": 381.5,
+  "net": 350,
+  "date": "2026-08-01",
+  "ref": "BI202608068 (23rd mth DO202410-007 1xSIDS)",
+  "ordinal": 23,
+  "serials": [],
+  "doRef": "202410-007",
+  "prorate": false,
+  "aimsName": "BI202608066",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608069",
+  "xeroId": "da0d1c5b-09b4-4c59-ad1f-e3dc2bac3e57",
+  "status": "AUTHORISED",
+  "cust": "QJEC-LBC Joint Venture",
+  "total": 6867,
+  "net": 6300,
+  "date": "2026-08-01",
+  "ref": "BI202608069 (15th mth Marina BLVD LP7 - DO202505-012 1xLION375 MG20250060 & 1xDG 30000270)",
+  "ordinal": 15,
+  "serials": [
+   "MG20250060"
+  ],
+  "doRef": "202505-012",
+  "prorate": false,
+  "aimsName": "BI202608067",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608070",
+  "xeroId": "afb90e7f-4357-46ff-858b-71e77f7ac684",
+  "status": "AUTHORISED",
+  "cust": "QJEC-LBC Joint Venture",
+  "total": 4905,
+  "net": 4500,
+  "date": "2026-08-01",
+  "ref": "BI202608070 (10th mth Marina BLVD LP7 - DO202511-001 1xMGS LION375 MG20250080 & 1xDG 3994750)",
+  "ordinal": 10,
+  "serials": [
+   "MG20250080"
+  ],
+  "doRef": "202511-001",
+  "prorate": false,
+  "aimsName": "BI202608068",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608071",
+  "xeroId": "62df9a70-8f29-48c2-9069-6a17b257720d",
+  "status": "AUTHORISED",
+  "cust": "QJEC-LBC Joint Venture",
+  "total": 4905,
+  "net": 4500,
+  "date": "2026-08-01",
+  "ref": "BI202608071 (8th mth Marina BLVD LP7 - DO202512-010 1xLION375 MG20250094 & 1xDG 3996496)",
+  "ordinal": 8,
+  "serials": [
+   "MG20250094"
+  ],
+  "doRef": "202512-010",
+  "prorate": false,
+  "aimsName": "BI202608069",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608072",
+  "xeroId": "570bc353-4c87-4326-8dee-96d33365c407",
+  "status": "AUTHORISED",
+  "cust": "QJEC-LBC Joint Venture",
+  "total": 327,
+  "net": 300,
+  "date": "2026-08-01",
+  "ref": "BI202608072 (10th mth Marina BLVD LP7 - DO202511-004 1xDB Box MDB023)",
+  "ordinal": 10,
+  "serials": [
+   "MDB023"
+  ],
+  "doRef": "202511-004",
+  "prorate": false,
+  "aimsName": "BI202608070",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608073",
+  "xeroId": "27b70f7c-080b-4004-812c-a340826d1f58",
+  "status": "AUTHORISED",
+  "cust": "SCB Building Construction Pte Ltd",
+  "total": 3270,
+  "net": 3000,
+  "date": "2026-08-01",
+  "ref": "BI202608073 (12th mth DO202509-019 1xAF100 0019 Blk 284 Tampines St 22)",
+  "ordinal": 12,
+  "serials": [
+   "AF100"
+  ],
+  "doRef": "202509-019",
+  "prorate": false,
+  "aimsName": "BI202608071",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608074",
+  "xeroId": "75410d70-affd-4ffd-bdfd-91893f88be3d",
+  "status": "AUTHORISED",
+  "cust": "SCB Building Construction Pte Ltd",
+  "total": 3270,
+  "net": 3000,
+  "date": "2026-08-01",
+  "ref": "BI202608074 (10th mth DO202511-008 1xAF100 0027 Blk 284 Tampines St 22)",
+  "ordinal": 10,
+  "serials": [
+   "AF100"
+  ],
+  "doRef": "202511-008",
+  "prorate": false,
+  "aimsName": "BI202608072",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608075",
+  "xeroId": "40a19c91-24ee-455b-bdc4-3289ea404571",
+  "status": "AUTHORISED",
+  "cust": "SCB Building Construction Pte Ltd",
+  "total": 3270,
+  "net": 3000,
+  "date": "2026-08-01",
+  "ref": "BI202608075 (9th mth DO202512-001 1xAF100 0030 Blk 284 Tampines St 22) AF100 0030",
+  "ordinal": 9,
+  "serials": [
+   "AF100"
+  ],
+  "doRef": "202512-001",
+  "prorate": false,
+  "aimsName": "BI202608073",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608076",
+  "xeroId": "06ecd1a9-800b-4fab-974d-7101e4208976",
+  "status": "AUTHORISED",
+  "cust": "SCB Building Construction Pte Ltd",
+  "total": 545,
+  "net": 500,
+  "date": "2026-08-01",
+  "ref": "BI202608076 (5th mth Blk 179 AMK DO202604-003 1xSIDS ID No. 056)",
+  "ordinal": 5,
+  "serials": [],
+  "doRef": "202604-003",
+  "prorate": false,
+  "aimsName": "BI202608074",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608077",
+  "xeroId": "87d13480-4d27-4670-af61-f3210f84ee77",
+  "status": "AUTHORISED",
+  "cust": "SCB Building Construction Pte Ltd",
+  "total": 1090,
+  "net": 1000,
+  "date": "2026-08-01",
+  "ref": "BI202608077 (3rd mth Opp Blk 280 Tampines St 22 DO202606-007 2xAIS2026032 & AIS2026038)",
+  "ordinal": 3,
+  "serials": [
+   "AIS2026032",
+   "AIS2026038"
+  ],
+  "doRef": "202606-007",
+  "prorate": false,
+  "aimsName": "BI202608075",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608078",
+  "xeroId": "079f6b80-3b37-40ef-b167-310db153000e",
+  "status": "AUTHORISED",
+  "cust": "SCB Building Construction Pte Ltd",
+  "total": 949.35,
+  "net": 870.96,
+  "date": "2026-08-05",
+  "ref": "BI202608078 (1st mth Opp Blk 280 Tampines St 22 DO202608-004 2xAIS2026027 & AIS2026048)",
+  "ordinal": 1,
+  "serials": [
+   "AIS2026027",
+   "AIS2026048"
+  ],
+  "doRef": "202608-004",
+  "prorate": true,
+  "aimsName": "BI202608078 (079f)",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608079",
+  "xeroId": "99a40610-405c-4305-83cc-ac693d56694d",
+  "status": "AUTHORISED",
+  "cust": "Shuan Huat Tractor Services Pte Ltd",
+  "total": 1635,
+  "net": 1500,
+  "date": "2026-08-01",
+  "ref": "BI202608079 (13th mth Plantation Crescent LP79 - DO202508-009 1xAF40 AF40 0009)",
+  "ordinal": 13,
+  "serials": [
+   "AF40"
+  ],
+  "doRef": "202508-009",
+  "prorate": false,
+  "aimsName": "BI202608076",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608080",
+  "xeroId": "d7e9c623-24ec-4930-a585-f16a8f36877a",
+  "status": "AUTHORISED",
+  "cust": "Teambuild Engineering & Construction Pte Ltd",
+  "total": 9374,
+  "net": 8600,
+  "date": "2026-08-01",
+  "ref": "BI202608080 (17th mth Jurong N4C22 - DO202503-003 & 202506-0061xLION500 MG20250075)",
+  "ordinal": 17,
+  "serials": [
+   "MG20250075"
+  ],
+  "doRef": "202503-003",
+  "prorate": false,
+  "aimsName": "BI202608077",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608081",
+  "xeroId": "fc45a06c-981f-4aeb-adf5-2b309b7c78a9",
+  "status": "AUTHORISED",
+  "cust": "Teambuild Engineering & Construction Pte Ltd",
+  "total": 9374,
+  "net": 8600,
+  "date": "2026-08-01",
+  "ref": "BI202608081 (16th mth Jurong N4C22 - DO202505-004 1xLION500 MG20250071)",
+  "ordinal": 16,
+  "serials": [
+   "MG20250071"
+  ],
+  "doRef": "202505-004",
+  "prorate": false,
+  "aimsName": "BI202608078",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608082",
+  "xeroId": "38afd1d0-0c94-4684-bf4a-470ac550a1d1",
+  "status": "AUTHORISED",
+  "cust": "Teambuild Engineering & Construction Pte Ltd",
+  "total": 7194,
+  "net": 6600,
+  "date": "2026-08-01",
+  "ref": "BI202608082 (13th mth Jurong N4C22 - DO202508-001 1xLION500 MG20250077, 1xDG 3997324)",
+  "ordinal": 13,
+  "serials": [
+   "MG20250077"
+  ],
+  "doRef": "202508-001",
+  "prorate": false,
+  "aimsName": "BI202608079",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608083",
+  "xeroId": "a1fbda3f-e944-43ac-89a6-7d2a6f073740",
+  "status": "AUTHORISED",
+  "cust": "Teambuild Engineering & Construction Pte Ltd",
+  "total": 7194,
+  "net": 6600,
+  "date": "2026-08-01",
+  "ref": "BI202608083 (13th mth Jurong N4C22 - DO202508-011 1xLION375 MG20250061)",
+  "ordinal": 13,
+  "serials": [
+   "MG20250061"
+  ],
+  "doRef": "202508-011",
+  "prorate": false,
+  "aimsName": "BI202608080",
+  "aimsStatus": "pending_payment"
+ },
+ {
+  "xeroNum": "BI202608085",
+  "xeroId": "a402e0ae-a184-434d-983a-aea8cfef5b3c",
+  "status": "AUTHORISED",
+  "cust": "Tenda Equipment & Services Pte Ltd",
+  "total": 1907.5,
+  "net": 1750,
+  "date": "2026-08-01",
+  "ref": "BI202608085 (55 Sungei Kadut Loop DO202605-014 4th mth - 5xAIS2026003, AIS2026007, AIS2026026, AIS2026029, AIS2026046)",
+  "ordinal": 4,
+  "serials": [
+   "AIS2026003",
+   "AIS2026007",
+   "AIS2026026",
+   "AIS2026029",
+   "AIS2026046"
+  ],
+  "doRef": "202605-014",
+  "prorate": false,
+  "aimsName": "BI202608082",
+  "aimsStatus": "draft"
+ },
+ {
+  "xeroNum": "BI202608084",
+  "xeroId": "dd42f530-0122-4488-8683-38962a1e0138",
+  "status": "AUTHORISED",
+  "cust": "Tenda Equipment & Services Pte Ltd",
+  "total": 1144.5,
+  "net": 1050,
+  "date": "2026-08-01",
+  "ref": "BI202608084 (55 Sungei Kadut Loop DO202605-007 4th mth - 3xAIS2026020, AIS2026023, AIS2026043)",
+  "ordinal": 4,
+  "serials": [
+   "AIS2026020",
+   "AIS2026023",
+   "AIS2026043"
+  ],
+  "doRef": "202605-007",
+  "prorate": false,
+  "aimsName": "BI202608081",
+  "aimsStatus": "draft"
+ },
+ {
+  "xeroNum": "BI202608086",
+  "xeroId": "1eb7c206-60b9-48f4-a6f2-436be63782af",
+  "status": "AUTHORISED",
+  "cust": "Tenda Equipment & Services Pte Ltd",
+  "total": 763,
+  "net": 700,
+  "date": "2026-08-01",
+  "ref": "BI202608086 (55 Sungei Kadut Loop DO202606-004 3rd mth - 2xAIS2026036, AIS2026050)",
+  "ordinal": 3,
+  "serials": [
+   "AIS2026036",
+   "AIS2026050"
+  ],
+  "doRef": "202606-004",
+  "prorate": false,
+  "aimsName": "BI202608083",
+  "aimsStatus": "draft"
+ },
+ {
+  "xeroNum": "BI202608087",
+  "xeroId": "3502b39a-dc39-4e07-b5dd-d5008acc5a52",
+  "status": "AUTHORISED",
+  "cust": "United Elite Construction Pte Ltd",
+  "total": 2452.5,
+  "net": 2250,
+  "date": "2026-08-01",
+  "ref": "BI202608087 (Opp 514 Chai Chee Lane 10th mth DO202511-010 1xAF100 0022)",
+  "ordinal": 10,
+  "serials": [
+   "AF100"
+  ],
+  "doRef": "202511-010",
+  "prorate": false,
+  "aimsName": "BI202608084",
+  "aimsStatus": "draft"
+ },
+ {
+  "xeroNum": "BI202608088",
+  "xeroId": "e665e040-b72e-49ca-b3ce-c60fce4f2d22",
+  "status": "AUTHORISED",
+  "cust": "United Elite Construction Pte Ltd",
+  "total": 1308,
+  "net": 1200,
+  "date": "2026-08-01",
+  "ref": "BI202608088 (Opp 514 Chai Chee Lane 9th mth DO202511-020 1xAF40 0010)",
+  "ordinal": 9,
+  "serials": [
+   "AF40"
+  ],
+  "doRef": "202511-020",
+  "prorate": false,
+  "aimsName": "BI202608085",
+  "aimsStatus": "draft"
+ },
+ {
+  "xeroNum": "BI202608089",
+  "xeroId": "46d44586-f718-4a4b-9850-a85a5da92080",
+  "status": "AUTHORISED",
+  "cust": "United Elite Construction Pte Ltd",
+  "total": 1308,
+  "net": 1200,
+  "date": "2026-08-01",
+  "ref": "BI202608089 (20A Crawford St 4th mth DO202605-012 1xAF40 0012)",
+  "ordinal": 4,
+  "serials": [
+   "AF40"
+  ],
+  "doRef": "202605-012",
+  "prorate": false,
+  "aimsName": "BI202608086",
+  "aimsStatus": "draft"
+ },
+ {
+  "xeroNum": "BI202608090",
+  "xeroId": "e9c720ed-e2ce-49d5-9875-7e258d66d87a",
+  "status": "AUTHORISED",
+  "cust": "VCE Pte Ltd",
+  "total": 1471.5,
+  "net": 1350,
+  "date": "2026-08-01",
+  "ref": "BI202608090 (8th mth Near Denham DO202601-002 1xAF40) AF40 0011",
+  "ordinal": 8,
+  "serials": [
+   "AF40"
+  ],
+  "doRef": "202601-002",
+  "prorate": false,
+  "aimsName": "BI202608087",
+  "aimsStatus": "draft"
+ },
+ {
+  "xeroNum": "BI202608123",
+  "xeroId": "92154fcd-bf93-4683-8234-43bdfcaffa43",
+  "status": "AUTHORISED",
+  "cust": "Wai Fong Construction Pte Ltd",
+  "total": 1526,
+  "net": 1400,
+  "date": "2026-08-01",
+  "ref": "BI202608123 (J103 MBR10)",
+  "ordinal": null,
+  "serials": [],
+  "doRef": "",
+  "prorate": false,
+  "aimsName": "BI202608088",
+  "aimsStatus": "draft"
+ },
+ {
+  "xeroNum": "BI202608124",
+  "xeroId": "4a0d505a-3f9f-42e7-b525-c63af28d6a1f",
+  "status": "AUTHORISED",
+  "cust": "Wai Fong Construction Pte Ltd",
+  "total": 2180,
+  "net": 2000,
+  "date": "2026-08-01",
+  "ref": "BI202608124 (N112 MBR20 DO-BI202402-004)",
+  "ordinal": null,
+  "serials": [],
+  "doRef": "",
+  "prorate": false,
+  "aimsName": "BI202608089",
+  "aimsStatus": "draft"
+ },
+ {
+  "xeroNum": "BI202608125",
+  "xeroId": "391dac4c-be0a-4bf4-9831-7ee58a4b4bd8",
+  "status": "AUTHORISED",
+  "cust": "Wai Fong Construction Pte Ltd",
+  "total": 9810,
+  "net": 9000,
+  "date": "2026-08-01",
+  "ref": "BI202608125 (18th mth N112 DO202503-010 1xLION500 MG20250056)",
+  "ordinal": 18,
+  "serials": [
+   "MG20250056"
+  ],
+  "doRef": "202503-010",
+  "prorate": false,
+  "aimsName": "BI202608090",
+  "aimsStatus": "draft"
+ },
+ {
+  "xeroNum": "BI202608126",
+  "xeroId": "d4222096-8c02-4ee4-acc0-c29b684b4f90",
+  "status": "AUTHORISED",
+  "cust": "Wai Fong Machinery Pte Ltd",
+  "total": 8589.2,
+  "net": 7880,
+  "date": "2026-08-01",
+  "ref": "BI202608126 (SRR 1xLION500 MG2024008)",
+  "ordinal": null,
+  "serials": [
+   "MG2024008"
+  ],
+  "doRef": "",
+  "prorate": false,
+  "aimsName": "BI202608091",
+  "aimsStatus": "draft"
+ }
+]

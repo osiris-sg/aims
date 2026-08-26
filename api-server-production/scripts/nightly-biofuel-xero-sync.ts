@@ -43,6 +43,19 @@ function run(label: string, script: string, args: string[] = []): boolean {
   return ok;
 }
 
+
+// Current GST quarter (Biofuel FY starts 1 Jul: Jul-Sep / Oct-Dec / Jan-Mar /
+// Apr-Jun). The F5 layer (doc tax coding) drifts independently of the GL —
+// verify it every night so a green scorecard covers BOTH layers (guru 2026-08-26).
+function gstQuarterArgs(): string[] {
+  const now = new Date();
+  const qStartMonth = Math.floor(now.getMonth() / 3) * 3; // 0,3,6,9
+  const from = new Date(Date.UTC(now.getFullYear(), qStartMonth, 1));
+  const to = new Date(Date.UTC(now.getFullYear(), qStartMonth + 3, 0));
+  const f = (d: Date) => d.toISOString().slice(0, 10);
+  return [`--from=${f(from)}`, `--to=${f(to)}`];
+}
+
 function clearJournalCache() {
   // Force the GL script to pull fresh (full reload must not trust the cache).
   if (!fs.existsSync(CACHE_DIR)) return;
@@ -71,7 +84,8 @@ async function main() {
 
   // Independent verification.
   if (run("[reconcile] Xero vs AIMS", "scripts/reconcile-xero-biofuel.ts")) {
-    console.log(`\n✓ NIGHTLY SYNC CLEAN in ${Math.round((Date.now() - startedAt) / 60000)} min`);
+    if (!run("[GST] F5 current quarter vs Xero", "scripts/verify-gst-vs-xero.ts", gstQuarterArgs())) process.exit(1);
+    console.log(`\n✓ NIGHTLY SYNC CLEAN (GL+AR+AP+GST) in ${Math.round((Date.now() - startedAt) / 60000)} min`);
     process.exit(0);
   }
 
@@ -89,7 +103,8 @@ async function main() {
   if (!run("[balances] AR true-up + phantom sweep", "scripts/update-invoice-balances-from-xero.ts")) process.exit(1);
 
   if (run("[reconcile 2nd] Xero vs AIMS", "scripts/reconcile-xero-biofuel.ts")) {
-    console.log(`\n✓ NIGHTLY SYNC CLEAN (after full reload) in ${Math.round((Date.now() - startedAt) / 60000)} min`);
+    if (!run("[GST] F5 current quarter vs Xero", "scripts/verify-gst-vs-xero.ts", gstQuarterArgs())) process.exit(1);
+    console.log(`\n✓ NIGHTLY SYNC CLEAN (GL+AR+AP+GST, after full reload) in ${Math.round((Date.now() - startedAt) / 60000)} min`);
     process.exit(0);
   }
 

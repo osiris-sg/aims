@@ -514,8 +514,8 @@ model CustomerInfoRequest {
   // a PLAIN pointer to it (no @relation, matching customerId/projectId), plus a
   // display snapshot of its number. Null poDocumentId = no PO yet, so the public
   // form requires the customer to upload one.
-  poDocumentId    String?   @db.Uuid
-  poNumber        String? // snapshot of the PO document's number, for display
+  poDocumentId String? @db.Uuid
+  poNumber     String? // snapshot of the PO document's number, for display
 
   contacts CustomerInfoContact[]
 
@@ -2554,10 +2554,14 @@ model WhatsAppScheduledMessage {
   // Recurrence: NONE | DAILY | WEEKLY | MONTHLY | CUSTOM_DAYS.
   // CUSTOM_DAYS uses recurEvery (n days between sends). recurUntil caps the
   // series; recurCount tracks how many have gone out.
-  recurrence String    @default("NONE")
-  recurEvery Int? // for CUSTOM_DAYS
-  recurUntil DateTime?
-  recurCount Int       @default(0)
+  recurrence     String    @default("NONE")
+  recurEvery     Int? // for CUSTOM_DAYS
+  recurUntil     DateTime?
+  recurCount     Int       @default(0)
+  // The intended day-of-month for MONTHLY series. Without it, a run that
+  // clamps into a short month (31 -> 30 Sep) would keep deriving from the
+  // clamped day and ratchet downwards, silently drifting off month-end.
+  recurAnchorDay Int?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
