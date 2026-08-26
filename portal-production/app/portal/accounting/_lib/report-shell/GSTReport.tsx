@@ -145,13 +145,27 @@ export default function GSTReport({ basePath }: { basePath: string }) {
 
   return (
     <>
-    {/* Summary prints as the legacy Form 5 sheet; Details prints the table as-is. */}
+    {/* Summary prints as the legacy Form 5 sheet; Details prints a clean
+        report sheet (header + full table) — without this, the browser printed
+        the raw app page: sidebar, filters, clipped columns (guru 2026-08-26). */}
     {view === "summary" && data && (
       <GlobalStyles styles={{
         "@media print": {
           "body *": { visibility: "hidden" },
           ".gst-f5-print, .gst-f5-print *": { visibility: "visible" },
           ".gst-f5-print": { display: "block !important", position: "absolute", left: 0, top: 0, width: "100%", padding: "48px 64px", color: "#000", background: "#fff" },
+        },
+      }} />
+    )}
+    {view === "details" && data && (
+      <GlobalStyles styles={{
+        "@media print": {
+          "body *": { visibility: "hidden" },
+          ".gst-details-print, .gst-details-print *": { visibility: "visible" },
+          ".gst-details-print": { position: "absolute", left: 0, top: 0, width: "100%", padding: "24px 32px", color: "#000", background: "#fff" },
+          ".gst-details-print .print-only": { display: "block !important" },
+          // 9 columns on A4 — shrink type and padding so nothing clips.
+          ".gst-details-print td, .gst-details-print th": { fontSize: "8.5px !important", padding: "2px 6px !important", whiteSpace: "normal !important" },
         },
       }} />
     )}
@@ -251,7 +265,17 @@ export default function GSTReport({ basePath }: { basePath: string }) {
           <Typography variant="body2" color="text.secondary">{loading ? "Loading…" : "No data"}</Typography>
         </Box>
       ) : view === "details" ? (
-        <ReportTable columns={detailColumns} rows={detailRows} compact={compact} />
+        <Box className="gst-details-print">
+          {/* Print-only report header — on screen the shell already shows it. */}
+          <Box className="print-only" sx={{ display: "none", mb: 2 }}>
+            <Typography sx={{ fontWeight: 700, fontSize: "1.05rem" }}>{organization?.name || ""}</Typography>
+            <Typography sx={{ fontWeight: 700, fontSize: "0.95rem" }}>Goods and Services Tax — Details</Typography>
+            {headerLines.map((l) => (
+              <Typography key={l} sx={{ fontSize: "0.8rem" }}>{l}</Typography>
+            ))}
+          </Box>
+          <ReportTable columns={detailColumns} rows={detailRows} compact={compact} />
+        </Box>
       ) : (
         <Box sx={{ maxWidth: 640 }}>
           {summaryLines.map((l) => (

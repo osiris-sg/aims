@@ -62,7 +62,9 @@ async function xeroSide(tokens: any): Promise<Buckets> {
           if (!m) continue; // NONE / unmapped = out of scope (matches report)
           // Ledger sign convention from the report: output normal = −, input normal = +.
           const sign = m.side === 'OUTPUT' ? -1 : 1;
-          add(b, m.code, m.side, R((Number(li.LineAmount) || 0) * sign), R((Number(li.TaxAmount) || 0) * sign));
+          // Inclusive docs: LineAmount CONTAINS tax — F5 nets it off.
+          const netInv = (Number(li.LineAmount) || 0) - (inv.LineAmountTypes === 'Inclusive' ? Number(li.TaxAmount) || 0 : 0);
+          add(b, m.code, m.side, R(netInv * sign), R((Number(li.TaxAmount) || 0) * sign));
         }
       }
       if (invs.length < 100) break;
@@ -80,7 +82,8 @@ async function xeroSide(tokens: any): Promise<Buckets> {
           if (!m) continue;
           // Credit notes reverse their side's normal sign.
           const sign = m.side === 'OUTPUT' ? 1 : -1;
-          add(b, m.code, m.side, R((Number(li.LineAmount) || 0) * sign), R((Number(li.TaxAmount) || 0) * sign));
+          const netCn = (Number(li.LineAmount) || 0) - (cn.LineAmountTypes === 'Inclusive' ? Number(li.TaxAmount) || 0 : 0);
+          add(b, m.code, m.side, R(netCn * sign), R((Number(li.TaxAmount) || 0) * sign));
         }
       }
       if (notes.length < 100) break;

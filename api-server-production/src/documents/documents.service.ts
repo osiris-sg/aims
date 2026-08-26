@@ -3714,7 +3714,7 @@ export class DocumentsService {
 
       // Public "Click to pay" page: mint the unguessable token once and reuse.
       const payToken = await this.ensurePayToken(documentId, organizationId);
-      const paymentUrl = payToken ? `${process.env.PORTAL_BASE_URL || 'https://www.ai-ms.io'}/pay/${payToken}` : undefined;
+      const paymentUrl = payToken ? `${process.env.PORTAL_BASE_URL || 'https://app.ai-ms.io'}/pay/${payToken}` : undefined;
 
       // 6. Send email via email service
       const emailResult = await this.emailService.sendInvoiceEmail({

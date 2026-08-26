@@ -2942,7 +2942,7 @@ export default function TabbedDocumentCreator({
       // run in a Capacitor WebView / preview host that isn't the public
       // site. So base off NEXT_PUBLIC_APP_URL, defaulting to the prod
       // host; the token/path come from the response.
-      const base = (process.env.NEXT_PUBLIC_APP_URL || "https://www.ai-ms.io").replace(/\/$/, "");
+      const base = (process.env.NEXT_PUBLIC_APP_URL || "https://app.ai-ms.io").replace(/\/$/, "");
       const path = body?.path || (body?.token ? `/guest/delivery/${body.token}` : "");
       full = path ? `${base}${path}` : (body?.url ?? "");
     } catch (e: any) {

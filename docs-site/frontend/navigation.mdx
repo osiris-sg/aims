@@ -9,7 +9,7 @@ description: "How the sidebar is built and how modules reach orgs"
 
 Filter pipeline: `m.enabled` → `isModuleAllowed(code)` (Role.allowedModules) → `HIDDEN_MODULES` (Customers/Suppliers moved into Master Files) → per-module `HIDDEN_SUBMENUS` → `adminOnly` submenus stripped for non-admins → sort by `ORDER_OVERRIDE` then `sortOrder`.
 
-Extras: a hardcoded **Deliveries** entry outside the catalog; a secondary "Organization Settings" section (Company Profile, Accounting Setup, Master Files); `data-tour="nav-<MODULE>"` anchors for Guide tours; active-tab remapping for accounting routes; sidebar is hardcoded dark (`#041627`) in both themes with mint accent `#6FFBBE`.
+Extras: a secondary "Organization Settings" section (Company Profile, Accounting Setup, Master Files); `data-tour="nav-<MODULE>"` anchors for Guide tours; active-tab remapping for accounting routes; sidebar is hardcoded dark (`#041627`) in both themes with mint accent `#6FFBBE`.
 
 ## MODULE_CATALOG
 
@@ -30,6 +30,7 @@ Extras: a hardcoded **Deliveries** entry outside the catalog; a secondary "Organ
 | ANALYTICS | `/portal/analytics` | ❌ | (no page exists) |
 | INTEGRATIONS | `/portal/integrations` | ❌ | — |
 | CRM | `/portal/crm` | ❌ | whatsapp, contacts, agent, suggestions, scheduled |
+| DELIVERIES | `/portal/deliveries` | ✅ | — (delivery-run queue; was a hardcoded sidebar entry until 2026-08-25) |
 | ADMIN | `/portal/admin` | ✅ | perm-gated (`admin:access`) |
 
 `mergeModulesWithCatalog()` overlays per-org `OrganizationModule` rows on the catalog, so **every module shows for every org in the admin panel** (toggle per org); missing rows appear as virtual catalog defaults.

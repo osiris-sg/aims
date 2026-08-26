@@ -7,11 +7,20 @@ description: "Branches, databases, and where everything deploys"
 
 | Branch | Role | Auto-deploys |
 |---|---|---|
-| `main` | Production | Backend → Render (`aims`), portal → Vercel `www.ai-ms.io` |
+| `main` | Production | Backend → Render (`aims`), portal → Vercel `app.ai-ms.io`, landing site (`landing-production/`) → Vercel `ai-ms.io` / `www.ai-ms.io` |
 | `elroy/dev` | Staging / work branch | Vercel previews at `aims-mocha.vercel.app`; backend staging on Render (`aims-staging`) |
 | `master` | **Stale pre-2026 branch — never target it** | — |
 
 The old `yx/dev` was renamed to `main` on 2026-07-08.
+
+## Domains
+
+| Host | Serves | Project |
+|---|---|---|
+| `ai-ms.io`, `www.ai-ms.io` | Marketing landing page | `landing-production/` |
+| `app.ai-ms.io` | The portal (sign-in, `/portal`, `/pay/:token`, `/guest/...`, `/scan/:sku`, field app) | `portal-production/` |
+
+The landing project 301s every legacy portal path on www to the same path on `app.ai-ms.io`, so emailed pay links, guest delivery links and printed QR codes keep working. The backend's `PORTAL_BASE_URL` (pay links) and the portal's `NEXT_PUBLIC_APP_URL` (guest delivery links) both default to `https://app.ai-ms.io`; the Capacitor field app's `CAP_SERVER_URL` must also point at `app.ai-ms.io`.
 
 ## Databases — three Neon branches
 

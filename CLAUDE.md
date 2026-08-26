@@ -4,14 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Structure
 
-This is a monorepo containing an Asset and Inventory Management System (AIMS) — an asset/inventory/document platform that has grown a full double-entry accounting subsystem. It has **four deployables**:
+This is a monorepo containing an Asset and Inventory Management System (AIMS) — an asset/inventory/document platform that has grown a full double-entry accounting subsystem. It has **five deployables**:
 
 - **api-server-production/**: NestJS backend API server with PostgreSQL/Prisma (Neon)
-- **portal-production/**: Next.js frontend portal (also ships a Capacitor Android field app)
+- **portal-production/**: Next.js frontend portal (also ships a Capacitor Android field app) — served on `app.ai-ms.io`
+- **landing-production/**: Next.js marketing site for `ai-ms.io` (no auth, no MUI; copy in `app/_content/site.ts`); 301s legacy `/portal`, `/pay`, `/guest`, `/scan`, `/sign-in` links to `app.ai-ms.io`
 - **email-ingest-worker/**: Cloudflare Email Worker — routes `docs+{orgId}@…` mail to the AIMS ingestion webhook
 - **whatsapp-group-bridge/**: Node `whatsapp-web.js` bridge for group messages
 
-**Branch topology:** `main` = production (auto-deploys: backend → Render, portal → Vercel `www.ai-ms.io`). `elroy/dev` = staging/work branch (Vercel previews served at `aims-mocha.vercel.app`). The old `yx/dev` was renamed to `main` 2026-07-08; `master` is a stale pre-2026 branch — never target it.
+**Branch topology:** `main` = production (auto-deploys: backend → Render, portal → Vercel `app.ai-ms.io`, landing → Vercel `ai-ms.io`). `elroy/dev` = staging/work branch (Vercel previews served at `aims-mocha.vercel.app`). The old `yx/dev` was renamed to `main` 2026-07-08; `master` is a stale pre-2026 branch — never target it.
 
 **Deeper docs:** `docs-site/` (Mintlify) is the full documentation set. Root-level specs (`ACCOUNTING_ARCHITECTURE.md`, `EXTERNAL_API_AND_INGESTION_HANDOVER.md`, `EMAIL_INGESTION_PLAN.md`, `POSTING_QUEUE_AND_JSON_INGESTION_SPEC.md`, `WATER_SG_INTEGRATION.md`) cover individual subsystems. `manual/` holds the end-user manual source.
 
