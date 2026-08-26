@@ -162,9 +162,8 @@ export default function CustomerSelectionDrawer({ open, onClose, onSelectCustome
                                 variant="body2"
                                 color="text.secondary"
                                 sx={{
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
+                                  whiteSpace: "normal",
+                                  wordBreak: "break-word",
                                   maxWidth: "250px",
                                 }}
                               >

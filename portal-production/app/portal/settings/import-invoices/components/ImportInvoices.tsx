@@ -743,7 +743,7 @@ export default function ImportInvoices() {
                   </Typography>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Tooltip title={li.description} placement="bottom-start">
-                      <Typography variant="body2" sx={{ fontSize: 13, mb: 0.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <Typography variant="body2" sx={{ fontSize: 13, mb: 0.5, whiteSpace: "normal", wordBreak: "break-word" }}>
                         {li.description.split("\n")[0]}
                       </Typography>
                     </Tooltip>

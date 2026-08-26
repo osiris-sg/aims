@@ -355,7 +355,7 @@ export default function GstPage() {
                         color={isOutput ? "success" : "info"}
                       />
                     </TableCell>
-                    <TableCell sx={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <TableCell sx={{ maxWidth: 320, whiteSpace: "normal", wordBreak: "break-word" }}>
                       {r.remarks}
                     </TableCell>
                     <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>

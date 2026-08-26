@@ -199,7 +199,7 @@ export default function CrmScheduledPage() {
         accessorKey: "body",
         header: "Message",
         cell: ({ row }: any) => (
-          <Box sx={{ maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <Box sx={{ maxWidth: 420, whiteSpace: "normal", wordBreak: "break-word" }}>
             {row.original.body}
           </Box>
         ),
@@ -214,7 +214,7 @@ export default function CrmScheduledPage() {
               <Chip size="small" label={r.status} color={statusColor(r.status)} variant="outlined" />
               {r.error && (
                 <Tooltip title={r.error}>
-                  <Typography variant="caption" color="error" sx={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <Typography variant="caption" color="error" sx={{ maxWidth: 180, whiteSpace: "normal", wordBreak: "break-word" }}>
                     {r.error}
                   </Typography>
                 </Tooltip>

@@ -255,7 +255,7 @@ export default function InvoicesPage() {
     {
       accessorKey: "status",
       header: "Status",
-      nowrap: true,
+      // wrap: chip may take two lines (no "…" — guru 2026-08-27)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => <StatusChip status={row.original.status} />,
     },
@@ -264,14 +264,14 @@ export default function InvoicesPage() {
       // Xero; then a green chip carrying the Xero-side status.
       accessorKey: "xeroSync",
       header: "Xero",
-      nowrap: true,
+      // wrap: chip may take two lines (no "…" — guru 2026-08-27)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => {
         const cfg = row.original?.config || {};
         return cfg.xeroInvoiceId ? (
-          <Chip size="small" variant="outlined" color="success" label={`Xero · ${cfg.xeroStatus || "SYNCED"}`} sx={{ fontSize: "0.65rem" }} />
+          <Chip size="small" variant="outlined" color="success" label={`Xero · ${cfg.xeroStatus || "SYNCED"}`} sx={{ fontSize: "0.65rem", height: "auto", minHeight: 24, py: 0.25, "& .MuiChip-label": { whiteSpace: "normal", display: "block", textAlign: "center", lineHeight: 1.3 } }} />
         ) : (
-          <Chip size="small" variant="outlined" label="Not synced" sx={{ fontSize: "0.65rem", opacity: 0.6 }} />
+          <Chip size="small" variant="outlined" label="Not synced" sx={{ fontSize: "0.65rem", opacity: 0.6, height: "auto", minHeight: 24, py: 0.25, "& .MuiChip-label": { whiteSpace: "normal", display: "block", textAlign: "center", lineHeight: 1.3 } }} />
         );
       },
     },

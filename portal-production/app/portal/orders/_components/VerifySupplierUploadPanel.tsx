@@ -681,7 +681,7 @@ function BatchRowItem({
         <Tooltip arrow title={file.name}>
           <Typography
             variant="body2"
-            sx={{ flex: 1, minWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }}
+            sx={{ flex: 1, minWidth: 160, whiteSpace: "normal", wordBreak: "break-word", fontWeight: 500 }}
           >
             {file.name}
           </Typography>

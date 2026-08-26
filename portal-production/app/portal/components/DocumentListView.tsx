@@ -300,7 +300,7 @@ export default function DocumentListView({
     {
       accessorKey: "status",
       header: "Status",
-      nowrap: true,
+      // wrap: chip may take two lines (no "…" — guru 2026-08-27)
       // Fixed-width chip/date columns: the flexible width goes to Customer
       // and Reference instead (guru 2026-08-18).
       pxWidth: 150,

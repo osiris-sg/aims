@@ -274,7 +274,7 @@ export default function BillsPage() {
         const b: any = row.original;
         return b.xeroBillId ? (
           <Tooltip title={b.xeroSyncedAt ? `Synced ${new Date(b.xeroSyncedAt).toLocaleString()}` : "Linked to Xero"}>
-            <Chip size="small" variant="outlined" color="success" label={`Xero · ${b.xeroSyncStatus || "SYNCED"}`} sx={{ fontSize: "0.65rem" }} />
+            <Chip size="small" variant="outlined" color="success" label={`Xero · ${b.xeroSyncStatus || "SYNCED"}`} sx={{ fontSize: "0.65rem", height: "auto", minHeight: 24, py: 0.25, "& .MuiChip-label": { whiteSpace: "normal", display: "block", textAlign: "center", lineHeight: 1.3 } }} />
           </Tooltip>
         ) : (
           <Chip size="small" variant="outlined" label="Not synced" sx={{ fontSize: "0.65rem", opacity: 0.6 }} />

@@ -126,9 +126,8 @@ export default function useAuditTableHeader() {
               fontSize: "0.85rem",
               color: row.original.errorMessage ? "error.main" : "text.secondary",
               maxWidth: "200px",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
+              whiteSpace: "normal",
+              wordBreak: "break-word",
             }}
             title={row.original.errorMessage || ""}
           >

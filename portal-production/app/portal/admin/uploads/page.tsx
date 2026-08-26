@@ -159,7 +159,7 @@ export default function AdminUploadsPage() {
                   <TableCell>{j.docType}</TableCell>
                   <TableCell sx={{ maxWidth: 220 }}>
                     {j.fileUrl ? (
-                      <MuiLink href={j.fileUrl} target="_blank" rel="noopener" noWrap sx={{ display: "block", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      <MuiLink href={j.fileUrl} target="_blank" rel="noopener" sx={{ display: "block", whiteSpace: "normal", wordBreak: "break-all" }}>
                         {j.fileName || "file"}
                       </MuiLink>
                     ) : (

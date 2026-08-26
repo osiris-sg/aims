@@ -485,7 +485,7 @@ export default function WhatsAppPage() {
                       />
                     </TableCell>
                     <TableCell>{m.counterparty}</TableCell>
-                    <TableCell sx={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <TableCell sx={{ maxWidth: 320, whiteSpace: "normal", wordBreak: "break-word" }}>
                       {m.templateName ? `[template] ${m.templateName}` : m.body || "—"}
                     </TableCell>
                     <TableCell>

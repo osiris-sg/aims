@@ -483,7 +483,7 @@ function DrilldownDialog({ account, onClose, from, to }: { account: Account | nu
                           <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{r.journalNumber}</TableCell>
                           <TableCell>{r.type}</TableCell>
                           <TableCell>{r.reference}</TableCell>
-                          <TableCell sx={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.description}</TableCell>
+                          <TableCell sx={{ maxWidth: 320, whiteSpace: "normal", wordBreak: "break-word" }}>{r.description}</TableCell>
                           <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{fmt(r.debit)}</TableCell>
                           <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{fmt(r.credit)}</TableCell>
                           <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{fmtKpi(r.balance)}</TableCell>

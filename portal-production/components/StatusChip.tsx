@@ -39,5 +39,21 @@ export default function StatusChip({ status }: { status?: string | null }) {
       .split("_")
       .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
       .join(" ");
-  return <Chip size="small" variant="outlined" color={STATUS_COLOR[s] || "default"} label={label} sx={{ fontSize: "0.7rem" }} />;
+  return (
+    <Chip
+      size="small"
+      variant="outlined"
+      color={STATUS_COLOR[s] || "default"}
+      label={label}
+      // Long statuses ("Delivered Installed") WRAP to a second line instead of
+      // ellipsizing inside a fixed-width column (guru 2026-08-27: no "…").
+      sx={{
+        fontSize: "0.7rem",
+        height: "auto",
+        minHeight: 24,
+        py: 0.25,
+        "& .MuiChip-label": { whiteSpace: "normal", display: "block", textAlign: "center", lineHeight: 1.3 },
+      }}
+    />
+  );
 }

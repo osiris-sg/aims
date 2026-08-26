@@ -90,7 +90,7 @@ export default function useCustomersTableHeader() {
     columnHelper.accessor("address", {
       header: "Address",
       cell: (info) => (
-        <Typography variant="body2" sx={{ fontSize: "0.8rem", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }}>
+        <Typography variant="body2" sx={{ fontSize: "0.8rem", maxWidth: 200, whiteSpace: "normal", wordBreak: "break-word" }}>
           {info.getValue() || "N/A"}
         </Typography>
       ),

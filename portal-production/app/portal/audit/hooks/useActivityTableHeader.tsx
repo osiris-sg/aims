@@ -91,7 +91,7 @@ export default function useActivityTableHeader() {
           const detail = r.details ? JSON.stringify(r.details) : "";
           return (
             <Tooltip title={detail.length > 2 ? detail : ""}>
-              <Typography variant="body2" sx={{ fontSize: "0.78rem", fontFamily: "monospace", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <Typography variant="body2" sx={{ fontSize: "0.78rem", fontFamily: "monospace", maxWidth: 260, whiteSpace: "normal", wordBreak: "break-word" }}>
                 {r.method ? `${r.method} ${r.path}` : r.details?.note || "—"}
               </Typography>
             </Tooltip>

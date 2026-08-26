@@ -404,7 +404,7 @@ export default function BankReconciliationPage() {
       accessorKey: "description",
       header: "Description",
       cell: ({ row }: any) => (
-        <Box sx={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <Box sx={{ maxWidth: 320, whiteSpace: "normal", wordBreak: "break-word" }}>
           {row.original.description}
         </Box>
       ),

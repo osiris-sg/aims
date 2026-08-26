@@ -627,7 +627,7 @@ export default function EmailIngestionTab({ organizationId }: { organizationId: 
                 <TableRow key={log.id} hover>
                   <TableCell sx={{ whiteSpace: "nowrap" }}>{new Date(log.createdAt).toLocaleString()}</TableCell>
                   <TableCell>{log.fromAddress || "—"}</TableCell>
-                  <TableCell sx={{ maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <TableCell sx={{ maxWidth: 240, whiteSpace: "normal", wordBreak: "break-word" }}>
                     {log.subject || "—"}
                   </TableCell>
                   <TableCell>
@@ -647,7 +647,7 @@ export default function EmailIngestionTab({ organizationId }: { organizationId: 
                         ))
                       : "—"}
                   </TableCell>
-                  <TableCell sx={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <TableCell sx={{ maxWidth: 320, whiteSpace: "normal", wordBreak: "break-word" }}>
                     <Tooltip title={log.reason || ""}>
                       <span>{log.reason || "—"}</span>
                     </Tooltip>

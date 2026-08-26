@@ -226,7 +226,7 @@ export default function SalesDocumentList({
     {
       accessorKey: "status",
       header: "Status",
-      nowrap: true,
+      // wrap: chip may take two lines (no "…" — guru 2026-08-27)
       pxWidth: 150,
       cell: ({ row }: any) => <StatusChip status={row.original.status} />,
     },
