@@ -341,42 +341,112 @@ export class OperatorToolsService {
       {
         name: 'create_invoice_from_quotation',
         description:
-          'Raise an invoice from an existing quotation, carrying over its customer and line items and linking the two. Use when the customer accepts a quote.',
+          'Raise an invoice from an existing quotation, carrying over its customer and line items and linking the two. ' +
+          'Supports PROGRESS / MILESTONE billing: pass `lines` (the 1-based line numbers of the quote) to invoice only ' +
+          'part of the quote now and the rest later — e.g. bill the setup line this month, the remaining line next month. ' +
+          'Omit `lines` to invoice everything still unbilled. To choose lines, first call get_document on the quotation to ' +
+          'read its numbered line items, then map the user\'s intent ("bill the 2.8k", "bill the setup") to those line numbers. ' +
+          'Already-billed lines are tracked across invoices, so the same line is never billed twice and you can keep billing ' +
+          'the remainder until the quote is fully invoiced.',
         permissions: ['documents:create-basic'],
         input_schema: {
           type: 'object',
-          properties: { quotationId: { type: 'string', description: 'Quotation document id or number' } },
+          properties: {
+            quotationId: { type: 'string', description: 'Quotation document id or number' },
+            lines: {
+              type: 'array',
+              items: { type: 'integer' },
+              description:
+                '1-based line numbers of the quotation to bill now (as shown by get_document). Omit to bill all lines not yet invoiced.',
+            },
+          },
           required: ['quotationId'],
         },
-        run: async (ctx, { quotationId }) => {
+        run: async (ctx, { quotationId, lines }) => {
           const quote = await this.findDoc(ctx.organizationId, quotationId);
           if (!quote) return { result: { error: 'Quotation not found in this organization' } };
+          if (String(quote.type).toUpperCase() !== 'QUOTATION') {
+            return { result: { error: `${quote.name} is a ${quote.type}, not a quotation.` } };
+          }
 
-          // Idempotency: don't raise a second invoice from the same quotation.
-          const existing = await this.prisma.document.findFirst({
-            where: {
-              organizationId: ctx.organizationId,
-              type: 'INVOICE',
-              config: { path: ['sourceDocumentId'], equals: quote.id },
-            },
-            select: { id: true, name: true },
-          });
-          if (existing) {
-            return { result: { alreadyExists: true, documentId: existing.id, documentNumber: existing.name } };
+          const qcfg: any = (quote.config as any) || {};
+          const quoteItems: any[] = qcfg.items || qcfg.documentInfo?.items || [];
+          if (!quoteItems.length) return { result: { error: `${quote.name} has no line items to bill.` } };
+          const N = quoteItems.length;
+
+          // Work out which quote lines are already billed, across every invoice
+          // raised from this quote.
+          const { billed, billedBy, remaining, childNames } = await this.billedLinesForQuote(
+            ctx.organizationId,
+            quote.id,
+            N,
+          );
+
+          // Resolve the requested lines.
+          let requested: number[];
+          if (Array.isArray(lines) && lines.length) {
+            requested = [...new Set(lines.map((n: any) => Number(n)))];
+            const bad = requested.filter((n) => !Number.isInteger(n) || n < 1 || n > N);
+            if (bad.length) {
+              return { result: { error: `Line(s) ${bad.join(', ')} are out of range. This quote has ${N} line(s).` } };
+            }
+            const clash = requested.filter((n) => billed.has(n));
+            if (clash.length) {
+              return {
+                result: {
+                  error: `Line(s) ${clash.map((n) => `${n} (already on ${billedBy.get(n)})`).join('; ')} are already billed. Remaining unbilled: ${remaining.length ? remaining.join(', ') : 'none'}.`,
+                },
+              };
+            }
+          } else {
+            if (!remaining.length) {
+              return {
+                result: {
+                  error: `${quote.name} is already fully billed (invoices: ${childNames.join(', ')}).`,
+                },
+              };
+            }
+            requested = remaining;
           }
 
           const template = await this.templates.getDocumentTemplateByType('INVOICE', ctx.organizationId);
           const templateId = (template as any)?.id ?? (template as any)?.data?.id;
           if (!templateId) return { result: { error: 'No INVOICE template configured for this organization' } };
 
-          // Carry the whole quotation config over, restamp date + lineage.
+          const selectedItems = requested.map((n) => quoteItems[n - 1]);
+
+          // Recompute totals for just the billed lines, using the quote's own tax
+          // settings so the maths matches the quote exactly.
+          const gstPercent = Number(qcfg.gstPercent ?? 9) || 0;
+          const taxApplicable = qcfg.taxApplicable === 'N' ? 'N' : 'Y';
+          const absorbTax = qcfg.absorbTax === 'Y' ? 'Y' : 'N';
+          const grossTotal = round2(selectedItems.reduce((s, it) => s + (Number(it.amount) || 0), 0));
+          const subTotal = grossTotal;
+          const gstAmount =
+            taxApplicable === 'N'
+              ? 0
+              : absorbTax === 'Y'
+                ? round2((subTotal * gstPercent) / (100 + gstPercent))
+                : round2((subTotal * gstPercent) / 100);
+          const nettTotal = absorbTax === 'Y' || taxApplicable === 'N' ? subTotal : round2(subTotal + gstAmount);
+          const totals = { subTotal, gstAmount, nettTotal, grossTotal, discountAmount: 0 };
+
+          const partial = requested.length < N;
           const config: any = {
-            ...((quote.config as any) || {}),
+            ...qcfg,
+            items: selectedItems,
+            ...totals,
             date: new Date().toISOString().slice(0, 10),
             sourceDocumentId: quote.id,
             sourceDocumentNumber: quote.name ?? undefined,
             sourceDocumentType: 'QUOTATION',
+            billedSourceLines: requested, // per-line tracking for progress billing
+            documentInfo: { ...(qcfg.documentInfo || {}), ...totals, items: selectedItems },
           };
+          // Let the invoice take its own fresh number, not the quote's.
+          delete config.documentNumber;
+          if (config.documentInfo) delete config.documentInfo.documentNumber;
+
           const created: any = await this.documents.createBasicDocument(
             templateId,
             'INVOICE',
@@ -386,14 +456,34 @@ export class OperatorToolsService {
             ctx.actor,
           );
           const doc = created?.data ?? created;
-          this.log(ctx, 'CREATED', 'document', doc?.id, doc?.name, `Invoice raised from ${quote.name} via Operator`);
+          const billedDesc = requested.map((n) => ({
+            line: n,
+            description: (quoteItems[n - 1]?.description || '').slice(0, 60),
+            amount: quoteItems[n - 1]?.amount,
+          }));
+          const stillRemaining = remaining.filter((n) => !requested.includes(n));
+          this.log(
+            ctx,
+            'CREATED',
+            'document',
+            doc?.id,
+            doc?.name,
+            `Invoice raised from ${quote.name}${partial ? ` (lines ${requested.join(', ')})` : ''} via Operator`,
+          );
           return {
             result: {
               documentId: doc?.id,
               documentNumber: doc?.name,
               fromQuotation: quote.name,
               status: doc?.status || 'unconfirmed',
-              nettTotal: config.nettTotal ?? config.documentInfo?.nettTotal,
+              billed: billedDesc,
+              nettTotal,
+              partial,
+              remainingLines: stillRemaining.map((n) => ({
+                line: n,
+                description: (quoteItems[n - 1]?.description || '').slice(0, 60),
+                amount: quoteItems[n - 1]?.amount,
+              })),
             },
           };
         },
@@ -837,20 +927,43 @@ export class OperatorToolsService {
           const doc = await this.findDoc(ctx.organizationId, numberOrId);
           if (!doc) return { result: { error: 'Not found' } };
           const cfg: any = doc.config || {};
-          return {
-            result: {
-              id: doc.id,
-              documentNumber: doc.name,
-              type: doc.type,
-              status: doc.status,
-              customer: cfg.customerName || cfg.customer?.name,
-              subTotal: cfg.subTotal ?? cfg.documentInfo?.subTotal,
-              gstAmount: cfg.gstAmount ?? cfg.documentInfo?.gstAmount,
-              nettTotal: cfg.nettTotal ?? cfg.documentInfo?.nettTotal,
-              itemCount: Array.isArray(cfg.items) ? cfg.items.length : 0,
-              createdAt: doc.createdAt,
-            },
+          const items: any[] = Array.isArray(cfg.items) ? cfg.items : cfg.documentInfo?.items || [];
+          // Numbered lines so the model can reference them for progress billing.
+          const lines = items.map((it, i) => ({
+            line: i + 1,
+            description: (it.description || it.itemCode || '').slice(0, 80),
+            quantity: it.quantity,
+            unitPrice: it.unitPrice,
+            amount: it.amount,
+          }));
+          const result: any = {
+            id: doc.id,
+            documentNumber: doc.name,
+            type: doc.type,
+            status: doc.status,
+            customer: cfg.customerName || cfg.customer?.name,
+            subTotal: cfg.subTotal ?? cfg.documentInfo?.subTotal,
+            gstAmount: cfg.gstAmount ?? cfg.documentInfo?.gstAmount,
+            nettTotal: cfg.nettTotal ?? cfg.documentInfo?.nettTotal,
+            lines,
+            createdAt: doc.createdAt,
           };
+          // For quotations, surface how much has already been invoiced so the
+          // model can bill "the rest" and answer "what's left on this quote".
+          if (String(doc.type).toUpperCase() === 'QUOTATION' && items.length) {
+            const { billed, remaining, childNames } = await this.billedLinesForQuote(
+              ctx.organizationId,
+              doc.id,
+              items.length,
+            );
+            result.billing = {
+              billedLines: [...billed].sort((a, b) => a - b),
+              remainingLines: remaining,
+              invoices: childNames,
+              fullyBilled: remaining.length === 0,
+            };
+          }
+          return { result };
         },
       },
 
@@ -1058,6 +1171,36 @@ export class OperatorToolsService {
         createdAt: true,
       },
     });
+  }
+
+  /**
+   * Progress-billing tracker: which 1-based lines of a quotation have already
+   * been invoiced, across every invoice raised from it. A legacy full-copy
+   * invoice (no `billedSourceLines` marker) counts as having billed ALL lines.
+   */
+  private async billedLinesForQuote(organizationId: string, quoteId: string, lineCount: number) {
+    const children = await this.prisma.document.findMany({
+      where: {
+        organizationId,
+        type: 'INVOICE',
+        config: { path: ['sourceDocumentId'], equals: quoteId },
+      },
+      select: { name: true, config: true },
+    });
+    const billed = new Set<number>();
+    const billedBy = new Map<number, string>();
+    for (const ch of children) {
+      const marker = (ch.config as any)?.billedSourceLines;
+      const covered: number[] = Array.isArray(marker)
+        ? marker.map((n: any) => Number(n))
+        : Array.from({ length: lineCount }, (_, i) => i + 1);
+      for (const n of covered) {
+        billed.add(n);
+        if (!billedBy.has(n)) billedBy.set(n, ch.name || 'an invoice');
+      }
+    }
+    const remaining = Array.from({ length: lineCount }, (_, i) => i + 1).filter((n) => !billed.has(n));
+    return { billed, billedBy, remaining, childNames: [...new Set(children.map((c) => c.name))] };
   }
 
   /** Execute a held action after the user confirms it in chat. */
