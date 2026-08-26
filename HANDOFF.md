@@ -1,5 +1,5 @@
 # AIMS — Project Handoff / Context Doc
-_Last updated: 2026-08-14. Maintainer: Elroy. This doc orients a fresh Claude/Claude Code session. Everything below was re-verified against the code + PROD DB on 2026-08-14, not carried over on trust._
+_Last updated: 2026-08-27. Maintainer: Elroy. This doc orients a fresh Claude/Claude Code session. Delivery/return flows + gotchas re-verified against the code + PROD DB on 2026-08-27; other sections carry their prior 2026-08-14 verification date._
 
 ---
 
@@ -62,11 +62,11 @@ This session a DTO used `@IsOptional()` **without importing it** (TS2304). `nest
 
 ---
 
-## 5. THE DELIVERY FEATURE (as it stands 2026-08-14)
+## 5. THE DELIVERY FEATURE (as it stands 2026-08-27)
 The delivery system is now a **standalone run model** decoupled from Delivery Orders. Backend in `src/deliveries/`, `src/maintenance-reports/` (field scan-context + MSR proof), field UI in `app/(field)/scan/`, office UI in `app/portal/deliveries/`.
 
 ### Data model
-- **`Delivery`** (a "run"): `deliveryNumber` (per-org), `status` (`DeliveryRunStatus`: `in_progress`→`delivered`→`completed`, or `cancelled`), `riderUserId`, nullable `projectId`/`customerId`/`siteAddress`. `documentId` is **FROZEN legacy** (never read/written — per-item linking replaced it).
+- **`Delivery`** (a "run"): `deliveryNumber` (per-org), `status` (`DeliveryRunStatus`: `scheduled`→`in_progress`→`delivered`→`completed`, or `cancelled`), `isDraft` (office draft schedule; excluded from every rider query, mints no DO), `direction` (`DeliveryDirection` `OUTBOUND`|`RETURN`, default OUTBOUND), `riderUserId`, `scheduledFor`, nullable `projectId`/`customerId`/`siteAddress`. `documentId` is **FROZEN legacy** (never read/written — per-item linking replaced it).
 - **`DeliveryItem`**: `inventoryId`+`assetId` (plain UUIDs, no FK). **Free-typed items have BOTH null** — description-only lines awaiting office resolution. `deliveryStatus` (`not_delivered`→`delivering`→`not_installed`→`completed`), `installSkipped`, and **`documentId`** = THE per-item link (the DO this item fulfils). No `deductedAt` here — deduction stays on the DO's `DocumentItem`. `@@unique([deliveryId, inventoryId])`.
 
 ### Per-item DO linking (the core of the office flow)
@@ -80,11 +80,26 @@ The delivery system is now a **standalone run model** decoupled from Delivery Or
 - `releaseUnit` — `reserved→instock` on run cancel.
 - **Ack-time hand-off flip** (`advanceDeliveryItem`, action `ack`): `reserved/instock → rental|sold` per the unit's active `ProjectDeployment.type` (default rental). Idempotent (only from instock/reserved), so a prior DO deduction is a no-op.
 
-### Field-side flow (per unit; signature LAST)
-`mandatory condition photo at DO_START → acknowledge (GPS + photos, saved UNSIGNED) → assign-to-project/customer in-flow (creates the deployment; skippable; customer & project pickers have inline "+ Create") → "Installation needed?" prompt (install photos if yes) → ONE customer signature covering delivery + installation → "Confirm and Print DO"`. Leaving mid-flow is resumable (the item's basket button becomes Continue at the right step).
+### Field-side flow (per unit) — signature is ONE, at the END of the run
+Per-unit steps: `DO_START (guided condition photos: EQUIPMENT 4 angles Front/Left/Back/Right, ACCESSORY 1; enforced client AND server via minPhotosForAssetClass — the two constants are mirrored in api-server `src/common/asset-class.ts` and portal `helpers/assetClass.ts`) → assign to a SCHEDULED DELIVERY (see below) → "Installation needed?" (install photos if yes) → item MARKED DELIVERED, no per-item signature`. There is NO acknowledgement photo step and NO per-item signature anymore. The **ONE customer signature** is captured at the END via `finalizeRun` once every item is delivered; it completes the run, commits the DO + fires the draft invoice, and covers delivery + installation for all items. `finalizeRun`/`commitScheduledRunOnCompletion` also **stamp the run's proof MSRs onto their born-linked DO** (`MSR.documentId` from each item's link) so the DO preview/PDF resolves the signature + photos — a born-linked scheduled run never passes through `link()`, the only other place that stamping happens. Leaving mid-flow is resumable (basket button becomes Continue at the right step).
 
-### Assign-at-start-delivery + `deferStatusFlip`
-In-flow assign (`/deliveries/:id/assign` → `projects.fieldDeploy` with `deferStatusFlip:true`) creates the Assignment + ProjectDeployment **without** flipping `Inventory.status` — the unit is still `reserved` on the truck; the flip waits for ack. The office/walk-around/bind callers omit `deferStatusFlip` and flip immediately.
+### Assign step is a SCHEDULED-DELIVERY PICKER (replaced the project picker, 2026-08)
+After DO_START, the rider no longer picks a customer→project. They pick one of the office's **open scheduled runs shown by drop address** (`GET /deliveries/scheduled-open?assetId=`). The chosen run supplies project + customer; `assignItem({scheduledRunId})` `fieldDeploy`s with `deferStatusFlip:true` (unit stays `reserved` on the truck; flip waits for ack) and **merges** the ad-hoc run into the chosen run (`mergeIntoChosenScheduledRun`): fills the matching open slot, or **appends the unit as an extra line when the run has no slot for that asset** (surfaces the office's mismatch instead of locking the rider out). EVERY open run is listed, never filtered by asset. No open runs → a screen telling the rider the office must schedule one first (no ad-hoc fallback). Legacy `assignItem({projectId})` path is kept for the after-ack screen. New-unit tagging (`/scan/bind`) no longer assigns a project — it registers the unit only (instock+unassigned).
+
+### Walk-through + skip semantics (SCHEDULED runs)
+A scheduled run steps the rider through every line in the order the office entered them ("Item 3 of 7"), qty-N expanded into N positions. At each: scan a tag, key a serial, Start Delivery on a free-typed line, or **Skip**. A **skip is "not now, come back to it"**: it holds the run OPEN (`in_progress`, no signature, no completion, no DO commit) until the item is actually delivered — the bulk "End all delivery/return" NEVER touches skipped items. The basket splits into DELIVERING and SKIPPED. AD-HOC runs keep the free-order basket.
+
+### Free-typed lines run the FULL lifecycle (delivery + return)
+A free-typed line (`DeliveryItem.assetId=null && inventoryId=null`, description only) now runs the same Start Delivery → guided condition photos (from the line's own stored `assetClass`) → signature-at-end flow a unit does, and the same on returns. Its proof is normal DO_START/DO_ACK MSRs with no asset/unit, tied to the run; it shows in the office proof panel and the DO/RDO proof section. Absent only from asset/project service-history (a cable has no asset history).
+
+### Returns / RDO (reverse delivery)
+Scanning a unit OUT on rental offers **Start Return** — same field flow (condition photo + GPS at pickup) minus assign/install; the return guided capture goes ONE ANGLE AT A TIME, each shot shown beside its matching OUTBOUND angle (paired by stored angle key; unmatched/old outbound photos degrade cleanly — a delivered TOP shot from the old 5-angle rule simply has no return counterpart and is not shown). Signature is ONCE at the end (`finalizeReturn`). Collecting a unit flips `rental→instock` and off-hires its deployment **only when it is the LAST unit out on that deployment** (partial return never stops billing). Completing a return auto-creates a **goods-only Return Delivery Order (RDO)** — no prices, no invoice, no GL. RDO office page + template exist (`RDO` document type/template). A SOLD unit is blocked (raise a Credit Note instead).
+
+### Guest run link (unauthenticated)
+Office mints a **run-scoped** share link (`DeliveryShareLink`, additive `deliveryId` column). Token = `randomBytes(32).base64url`, resolves to EXACTLY one OUTBOUND run via a typed state union (`ok|expired|revoked|completed|cancelled|notfound`); GET returns state in a 200 body, mutating POSTs gate on `assertActionable` (410 Gone). In-memory per-`token::ip` rate limiter (60/min) — **single Render instance only; move to Redis before scaling** (the same limiter is reused by Customer Information). Public routes are `@Public()` under `public/…`; office generate/revoke are `@Permissions`-gated. 2-day TTL around `scheduledFor`; auto-revoked on finalize. Guest page `app/guest/delivery/[token]/`.
+
+### Customer Information (separate feature, 2026-08 — reached from the bottom of the nav)
+`/portal/customer-information`: office mints an unguessable link per customer+project; a no-login page collects contact people (DO + Invoice groups) and, if the office did not pre-select a PO, requires the customer to **upload their PO** (PDF/JPEG/PNG ≤10 MB, magic-byte sniffed, rate-limited, one file-only unconfirmed PO Document minted per request via `createFromExtraction`, GL-inert). STANDALONE tables `CustomerInfoRequest`/`CustomerInfoContact` — customer/project/PO held as PLAIN ids (no FK). Reuses the guest-link token/state/rate-limit pattern. Backend `src/customer-info/`; permissions `customer-info:read`/`create` (granted via `scripts/add-customer-info-permissions.ts`), nav module via `scripts/add-customer-information-module.ts`.
 
 ### Itemized receipt + reprint
 Thermal ESC/POS receipt is itemized (`SERIAL (Asset)` label format, ASCII-only). Reprint from `app/(field)/scan/deliveries/finished/[deliveryId]/page.tsx`. Print stack: `app/(field)/lib/btPrinter.ts` + native `BtPrinterPlugin.java` (see §6).
@@ -131,7 +146,8 @@ Field roles get **narrow, purpose-built** permissions instead of the office-wide
   - Office **per-item Rental/Sale toggle** on `/portal/deliveries/[id]`.
   - Scan-chooser "can't start delivery" reasoned messaging.
 - **`/submit` async intake queue (normal_user) — shipped, untested end-to-end.** `app/(submit)/submit/page.tsx`: pick type → add photos/files → upload to the **async intake (202)**; a **server-side worker** extracts → DRAFT (BILL routed to the bills pipeline server-side). Job status via `GET /submit/jobs/mine`. Still blocked on the same thing as the old HANDOFF §5: create a **normal_user in Clerk** + run the Biofuel role-provisioning, then walk login → /submit → photo → "Submitted!" → admin sees the draft.
-- **Office resolution of free-typed delivery items (Phase 2) — UNBUILT.** A `DeliveryItem` with `assetId=null && inventoryId=null` (description only) has no office UI to resolve it to a real asset/unit yet. The run detail shows a "Needs resolution" chip but no action.
+- **Office resolution of free-typed delivery items (Phase 2) — still UNBUILT.** Free-typed lines now run the full delivery+return lifecycle in the field (§5), but there is still no office UI to RESOLVE a `assetId=null && inventoryId=null` line to a real asset/unit. The run detail shows a "Needs resolution" chip but no action.
+- **Born-linked scheduled runs are now exercised on prod** (scheduled-delivery picker + walk-through). The `enableUnifiedRuns` DO-first soak is still the separate item above.
 - Carried from before: OSI-8 quotation send-email is not type-aware; invoice cleanup (~2451 Xero-mirror invoices + orphaned auto-invoices); dead deps removable (`pdf-parse`, `pdf-to-png-converter`; keep `openai` for embeddings).
 
 ---
@@ -165,3 +181,10 @@ The ambient-`.env` variant (`npx dotenv -e .env -- node -e "…process.env.DATAB
 - Run numbers recycle — reference runs by id (§8).
 - Attachments pasted into web chat sometimes arrive BLANK — paste terminal output as plain text.
 - Clean-tree + `git branch --show-current` check (elroy/dev for work, main for prod-bound pushes) before any build.
+
+### Lessons that cost the most time (2026-08 session)
+- **Count-based allocators break PERMANENTLY on a deletion gap.** An id/number allocated as `count()+1` (rather than `max(existing)+1` or a real sequence) reissues an EXISTING id forever once any row below the top is deleted — the count never recovers. Always allocate from `max()+1` (or a DB sequence); reference recyclable numbers by `id`.
+- **`ALTER TYPE ADD VALUE` blocks deploys** — never add a Postgres enum value through `prisma db push` on the deploy path. It has stalled the whole backend before. Model new states as a `String`/`Boolean` (e.g. `Delivery.isDraft` is a bool, not a new `DeliveryRunStatus`). Additive nullable columns are safe; enum/destructive changes are not.
+- **A field sent alongside a multipart upload can silently VANISH — verify server receipt, not just a 200.** A key sent with a file (e.g. a PO reference) went missing with no error. The cause is a payload allowlist on the SENDING side (a helper that builds an object from a fixed field set, or a `FormData` that never `.append`ed the extra key) — NOT `helpers/request.ts`, whose `formData` branch posts the `FormData` as-is. Guard: append every field to the `FormData` explicitly and confirm the server actually received it.
+- **Shallow config merges LOSE nested objects.** `replaceScheduledDoConfig`-style `{...oldConfig, ...fragment}` only overwrites keys the fragment re-emits. A nested object written once at mint (`config.customer`) survives stale forever unless the regen re-emits it — an edited scheduled run printed the MINT-time customer for exactly this reason. When you refresh a flat key, refresh its nested twin too.
+- **Preview and server PDF can read DIFFERENT fields.** The DO preview (react-to-print of `CleanDocumentPreview`) reads `config.documentInfo.contactName`; the server `generateInvoiceHtml` reads `config.customer.attention`; the list reads `config.customerId`. Writing one surface's field leaves the others blank. When correcting document data, write EVERY key the list, preview, AND PDF read — and remember stored proof (signatures/photos) resolves by `MSR.documentId`, which born-linked runs must have stamped.
