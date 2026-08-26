@@ -385,7 +385,7 @@ export class DeliveriesService {
     deliveryAddress: string;
     poNumber?: string;
     machineLocation?: string;
-    customer: { id: string; name: string; customerCode: string | null; address: string | null; email: string | null } | null;
+    customer: { id: string; name: string; customerCode: string | null; address: string | null; email: string | null; phone?: string | null; gstRegNo?: string | null } | null;
     // Frozen per-document Attention snapshot (name/phone/email). From the office
     // dialog when it sent one, else derived from the project's first contact.
     attention?: { name: string; phoneNumber?: string; email?: string };
@@ -437,6 +437,25 @@ export class DeliveriesService {
             ...(customer.customerCode ? { customerCode: customer.customerCode } : {}),
             ...(customer.address ? { customerAddress: customer.address } : {}),
             ...(customer.email ? { customerEmail: customer.email } : {}),
+            // Nested customer object — MUST be emitted here, not only the flat
+            // keys above. The preview (CleanDocumentPreview reads
+            // data.customer.name) and the server PDF (generateInvoiceHtml reads
+            // data.customer.name / .attention) render from this nested object.
+            // On an EDIT the regen fragment is shallow-merged over the DO config
+            // (replaceScheduledDoConfig), so if we don't re-emit `customer` the
+            // mint-time object survives and the doc prints the OLD customer
+            // (bug 2026-08). Carrying the resolved attention here also refreshes
+            // customer.attention, which the server PDF reads for the Attn line.
+            customer: {
+              id: customer.id,
+              name: customer.name,
+              customerCode: customer.customerCode ?? null,
+              address: customer.address ?? null,
+              email: customer.email ?? null,
+              phone: customer.phone ?? null,
+              gstRegNo: customer.gstRegNo ?? null,
+              ...(attention?.name ? { attention: attention.name } : {}),
+            },
           }
         : {}),
     };
@@ -562,7 +581,7 @@ export class DeliveriesService {
       const customer = customerId
         ? await this.prisma.customer.findFirst({
             where: { id: customerId, organizationId },
-            select: { id: true, name: true, customerCode: true, email: true, phone: true, address: true },
+            select: { id: true, name: true, customerCode: true, email: true, phone: true, address: true, gstRegNo: true },
           })
         : null;
       const attention = await this.projectFirstContactAttention(dto.projectId, organizationId);
@@ -704,7 +723,7 @@ export class DeliveriesService {
         const customer = customerId
           ? await this.prisma.customer.findFirst({
               where: { id: customerId, organizationId },
-              select: { id: true, name: true, customerCode: true, address: true, email: true },
+              select: { id: true, name: true, customerCode: true, address: true, email: true, phone: true, gstRegNo: true },
             })
           : null;
         const doConfig = this.buildScheduledDoConfig({
@@ -744,7 +763,7 @@ export class DeliveriesService {
         const customer = customerId
           ? await this.prisma.customer.findFirst({
               where: { id: customerId, organizationId },
-              select: { id: true, name: true, customerCode: true, address: true, email: true },
+              select: { id: true, name: true, customerCode: true, address: true, email: true, phone: true, gstRegNo: true },
             })
           : null;
         const fragment = this.buildScheduledDoConfig({
