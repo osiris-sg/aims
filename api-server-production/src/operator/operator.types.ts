@@ -17,6 +17,9 @@ export interface InboundMessage {
   /** WhatsApp only: the business phoneNumberId that received this message —
    *  replies route back out through it. */
   businessPhoneNumberId?: string;
+  /** Provider id of THIS inbound message (WhatsApp wamid) — used to flash a
+   *  typing indicator against it. */
+  providerMessageId?: string;
 }
 
 export interface ChannelButton {

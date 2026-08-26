@@ -1125,17 +1125,19 @@ export class OperatorToolsService {
     if (pending.kind === 'confirm_quotation') {
       const doc = await this.prisma.document.findFirst({
         where: { id: pending.documentId!, organizationId: ctx.organizationId },
-        select: { id: true, name: true, type: true, status: true, documentTemplateId: true },
+        select: { id: true, name: true, type: true, status: true },
       });
       if (!doc) return { ok: false, message: 'That document no longer exists.' };
       if (doc.status === 'confirmed') return { ok: true, message: `${doc.type} ${doc.name} was already confirmed.` };
-      // Confirm WITHOUT sending config — updateDocument rejects config edits on
-      // a confirmed doc, and we only want the status transition here.
-      await this.documents.updateDocument(
-        { id: doc.id, type: doc.type, status: 'confirmed', documentTemplateId: doc.documentTemplateId } as any,
-        ctx.organizationId,
-        ctx.actor,
-      );
+      // A quotation confirm is a PURE status transition — no GL posting, no stock
+      // movement, no numbering side effects — so flip the status directly. The
+      // heavy updateDocument path reconstructs `config`, and with no config sent
+      // it throws (rejects the edit) / risks wiping the items, which is what left
+      // this stuck on 'unconfirmed' before.
+      await this.prisma.document.update({
+        where: { id: doc.id },
+        data: { status: 'confirmed' },
+      });
       this.log(ctx, 'STATUS_CHANGED', 'document', doc.id, doc.name, `Confirmed via Operator (${ctx.channel})`);
       return { ok: true, message: `✅ ${doc.type} ${doc.name} confirmed.` };
     }

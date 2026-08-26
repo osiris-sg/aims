@@ -86,7 +86,7 @@ export class OperatorService {
     // WhatsApp replies route back out through the business number that received
     // the inbound — prime the adapter before any send in this request.
     if (msg.channel === 'whatsapp' && msg.businessPhoneNumberId) {
-      this.whatsapp.rememberContext(msg.chatId, msg.businessPhoneNumberId);
+      this.whatsapp.rememberContext(msg.chatId, msg.businessPhoneNumberId, msg.providerMessageId);
     }
     if (msg.callbackId) await adapter.answerCallback?.(msg.callbackId).catch(() => null);
 
@@ -388,7 +388,20 @@ export class OperatorService {
     session: SessionState,
   ): Promise<void> {
     const pending = session.pendingAction!;
-    const res = await this.tools.runPending(ctx, pending);
+    let res: { ok: boolean; message: string };
+    try {
+      res = await this.tools.runPending(ctx, pending);
+    } catch (e: any) {
+      // A thrown confirm used to vanish silently (the webhook swallows the
+      // rejection) leaving the user with no feedback and a stuck pendingAction.
+      // Surface the real reason and clear the action so they can retry.
+      this.logger.error(`runPending(${pending.kind}) failed: ${e?.message}`);
+      const detail = e?.response?.message ?? e?.message ?? 'Unknown error';
+      res = {
+        ok: false,
+        message: `Sorry, I couldn't finalise that: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`,
+      };
+    }
     session.pendingAction = null;
     await this.saveSession(msg.channel, msg.channelUserId, session);
     await adapter.sendText(msg.chatId, res.message);

@@ -532,6 +532,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         recurrence,
         recurEvery,
         recurUntil,
+        // Remember the intended day-of-month so month-end series stay on
+        // month-end instead of ratcheting down through short months.
+        recurAnchorDay: recurrence === 'MONTHLY' ? when.getUTCDate() : null,
         createdBy: userId || null,
       },
     });
@@ -569,7 +572,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Advance a date by one recurrence step; null once the series should end. */
-  private nextOccurrence(from: Date, recurrence: string, recurEvery: number | null): Date | null {
+  private nextOccurrence(from: Date, recurrence: string, recurEvery: number | null, anchorDay?: number | null): Date | null {
     const d = new Date(from);
     switch (recurrence) {
       case 'DAILY':
@@ -578,9 +581,20 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       case 'WEEKLY':
         d.setDate(d.getDate() + 7);
         return d;
-      case 'MONTHLY':
-        d.setMonth(d.getMonth() + 1);
-        return d;
+      case 'MONTHLY': {
+        // Keep the intended day-of-month. Naive setMonth() rolls 31 Jan over to
+        // 3 Mar, which silently skips a month for month-end schedules, so clamp
+        // to the last day when the target month is shorter.
+        // Use the intended day, not the (possibly clamped) day we last landed on.
+        const day = anchorDay || d.getUTCDate();
+        const target = new Date(d);
+        target.setUTCDate(1);
+        target.setUTCMonth(target.getUTCMonth() + 1);
+        const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+        target.setUTCDate(Math.min(day, lastDay));
+        target.setUTCHours(d.getUTCHours(), d.getUTCMinutes(), 0, 0);
+        return target;
+      }
       case 'CUSTOM_DAYS':
         if (!recurEvery || recurEvery < 1) return null;
         d.setDate(d.getDate() + recurEvery);
@@ -622,6 +636,8 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         take: 25,
       });
       for (const msg of due) {
+        // Group targets are delivered by the bridge, not the Cloud API.
+        if (msg.to.endsWith('@g.us')) continue;
         // Claim first so a crash can't double-send.
         const claimed = await this.prisma.whatsAppScheduledMessage.updateMany({
           where: { id: msg.id, status: 'PENDING' },
@@ -634,7 +650,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           // it's within the series window, re-arm this row instead of closing it.
           let next: Date | null = null;
           if (msg.recurrence && msg.recurrence !== 'NONE') {
-            next = this.nextOccurrence(msg.scheduledAt, msg.recurrence, msg.recurEvery);
+            next = this.nextOccurrence(msg.scheduledAt, msg.recurrence, msg.recurEvery, msg.recurAnchorDay);
             if (next && msg.recurUntil && next.getTime() > msg.recurUntil.getTime()) next = null;
           }
           await this.prisma.whatsAppScheduledMessage.update({
@@ -655,7 +671,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           // occurrence so one closed 24h window doesn't kill the series.
           let next: Date | null = null;
           if (msg.recurrence && msg.recurrence !== 'NONE') {
-            next = this.nextOccurrence(msg.scheduledAt, msg.recurrence, msg.recurEvery);
+            next = this.nextOccurrence(msg.scheduledAt, msg.recurrence, msg.recurEvery, msg.recurAnchorDay);
             if (next && msg.recurUntil && next.getTime() > msg.recurUntil.getTime()) next = null;
           }
           await this.prisma.whatsAppScheduledMessage.update({
@@ -769,19 +785,42 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     return { ...row, updated: !!updatesExisting };
   }
 
-  /** Reminders now due. The bridge posts these into their groups. */
+  /**
+   * Everything now due to be posted INTO a group: appointment reminders, plus
+   * any scheduled message addressed to a group. Groups aren't on the Cloud API,
+   * so the bridge polls this and posts on our behalf.
+   */
   async dueGroupReminders(organizationId: string) {
-    const rows = await this.prisma.whatsAppAppointment.findMany({
-      where: { organizationId, reminderStatus: 'PENDING', remindAt: { lte: new Date() } },
+    const now = new Date();
+    const appointments = await this.prisma.whatsAppAppointment.findMany({
+      where: { organizationId, reminderStatus: 'PENDING', remindAt: { lte: now } },
       orderBy: { remindAt: 'asc' },
       take: 20,
     });
-    return rows.map((r) => ({
-      id: r.id,
-      groupId: r.groupId,
-      message: this.buildReminderText(r),
-      startsAt: r.startsAt,
-    }));
+    const scheduled = await this.prisma.whatsAppScheduledMessage.findMany({
+      where: {
+        organizationId,
+        status: 'PENDING',
+        scheduledAt: { lte: now },
+        to: { endsWith: '@g.us' },
+      },
+      orderBy: { scheduledAt: 'asc' },
+      take: 20,
+    });
+    return [
+      ...appointments.map((r) => ({
+        id: r.id,
+        kind: 'appointment' as const,
+        groupId: r.groupId,
+        message: this.buildReminderText(r),
+      })),
+      ...scheduled.map((r) => ({
+        id: r.id,
+        kind: 'scheduled' as const,
+        groupId: r.to,
+        message: r.body,
+      })),
+    ];
   }
 
   /** The client-facing reminder, following the advisor's agreed wording. */
@@ -815,15 +854,37 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  /** Called by the bridge once it has posted (or failed to post) a reminder. */
+  /**
+   * Called by the bridge once it has posted (or failed to post) something into
+   * a group. Recurring scheduled messages re-arm here exactly as they do on the
+   * Cloud API path, so a group series keeps running.
+   */
   async markReminderSent(organizationId: string, id: string, error?: string | null) {
-    const row = await this.prisma.whatsAppAppointment.findFirst({ where: { id, organizationId } });
-    if (!row) throw new NotFoundException('Appointment not found');
-    return this.prisma.whatsAppAppointment.update({
+    const appointment = await this.prisma.whatsAppAppointment.findFirst({ where: { id, organizationId } });
+    if (appointment) {
+      return this.prisma.whatsAppAppointment.update({
+        where: { id },
+        data: error
+          ? { reminderStatus: 'FAILED', error: error.slice(0, 500) }
+          : { reminderStatus: 'SENT', remindedAt: new Date(), error: null },
+      });
+    }
+
+    const scheduled = await this.prisma.whatsAppScheduledMessage.findFirst({ where: { id, organizationId } });
+    if (!scheduled) throw new NotFoundException('Nothing pending with that id');
+
+    let next: Date | null = null;
+    if (scheduled.recurrence && scheduled.recurrence !== 'NONE') {
+      next = this.nextOccurrence(scheduled.scheduledAt, scheduled.recurrence, scheduled.recurEvery, scheduled.recurAnchorDay);
+      if (next && scheduled.recurUntil && next.getTime() > scheduled.recurUntil.getTime()) next = null;
+    }
+    return this.prisma.whatsAppScheduledMessage.update({
       where: { id },
-      data: error
-        ? { reminderStatus: 'FAILED', error: error.slice(0, 500) }
-        : { reminderStatus: 'SENT', remindedAt: new Date(), error: null },
+      data: next
+        ? { status: 'PENDING', scheduledAt: next, error: error?.slice(0, 500) || null, recurCount: { increment: 1 } }
+        : error
+          ? { status: 'FAILED', error: error.slice(0, 500) }
+          : { status: 'SENT', error: null, recurCount: { increment: 1 } },
     });
   }
 
@@ -1099,6 +1160,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
                 // A tapped Confirm/Cancel button carries its action in reply.id.
                 callbackData: message.interactive?.button_reply?.id,
                 businessPhoneNumberId: phoneNumberId,
+                providerMessageId: message.id,
               })
               .catch((e) =>
                 this.logger.error(`Operator failed on message ${message.id}: ${e.message}`),
