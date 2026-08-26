@@ -1,19 +1,38 @@
 import Image from "next/image";
-import { DEMO_URL, NAV_LINKS, SIGN_IN_URL } from "../_content/site";
+import Link from "next/link";
+import { DEMO_URL, MODULES, SIGN_IN_URL } from "../_content/site";
 import { ThemeToggle } from "./ThemeToggle";
+import { MODULE_ICONS } from "./Modules";
 
 export function Nav() {
   return (
     <header className="nav">
       <div className="wrap nav-inner">
-        <a className="brand" href="#top" aria-label="AIMS home">
+        <Link className="brand" href="/" aria-label="AIMS home">
           <Image src="/aims-logo.png" alt="" width={28} height={28} priority />
           <span>AIMS</span>
-        </a>
+        </Link>
         <nav className="nav-links" aria-label="Primary">
-          {NAV_LINKS.map((l) => (
-            <a key={l.href} href={l.href}>{l.label}</a>
-          ))}
+          <div className="nav-menu">
+            <Link href="/#modules" className="nav-menu-trigger" aria-haspopup="true">
+              Modules
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+            </Link>
+            <div className="nav-dropdown">
+              {MODULES.map((m) => (
+                <Link key={m.key} href={`/modules/${m.key}`} className="nav-dropdown-item">
+                  <span className="nav-dropdown-icon">{MODULE_ICONS[m.key]}</span>
+                  <span>
+                    <strong>{m.name}</strong>
+                    <small>{m.hero}</small>
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </div>
+          <Link href="/agent">WhatsApp agent</Link>
+          <Link href="/agent#how">How it works</Link>
+          <Link href="/pricing">Pricing</Link>
         </nav>
         <div className="nav-actions">
           <ThemeToggle />

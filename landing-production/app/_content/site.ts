@@ -8,10 +8,10 @@ export const DEMO_URL = process.env.NEXT_PUBLIC_DEMO_URL || "#book-a-demo";
 export const WHATSAPP_URL = process.env.NEXT_PUBLIC_WHATSAPP_URL || "";
 
 export const NAV_LINKS = [
-  { label: "Modules", href: "#modules" },
-  { label: "WhatsApp agent", href: "#agent" },
-  { label: "How it works", href: "#how" },
-  { label: "Pricing", href: "#pricing" },
+  { label: "Modules", href: "/#modules" },
+  { label: "WhatsApp agent", href: "/agent" },
+  { label: "How it works", href: "/agent#how" },
+  { label: "Pricing", href: "/pricing" },
 ];
 
 export const HERO = {
@@ -172,13 +172,14 @@ export const CTA = {
 export const FOOTER = {
   blurb: "AI operations for small and medium businesses. By Osiris Technology Pte. Ltd., Singapore.",
   columns: [
-    { title: "Modules", links: MODULES.map((m) => ({ label: m.name, href: "#modules" })) },
+    { title: "Modules", links: MODULES.map((m) => ({ label: m.name, href: `/modules/${m.key}` })) },
     {
       title: "Product",
       links: [
-        { label: "WhatsApp agent", href: "#agent" },
+        { label: "WhatsApp agent", href: "/agent" },
+        { label: "How it works", href: "/agent#how" },
+        { label: "Pricing", href: "/pricing" },
         { label: "Sign in", href: SIGN_IN_URL },
-        { label: "Pricing", href: "#pricing" },
       ],
     },
     {

@@ -7,12 +7,20 @@ import { SCREENS } from "../_content/site";
  * time and renders a labelled placeholder when the capture isn't there yet, so
  * the page never ships a broken image.
  */
+export function hasScreen(id?: string): boolean {
+  if (!id) return false;
+  const s = SCREENS[id];
+  if (!s) return false;
+  return fs.existsSync(path.join(process.cwd(), "public", "screens", s.file)) || process.env.NEXT_PUBLIC_SHOW_PENDING === "1";
+}
+
 export function Screenshot({ id, className = "" }: { id: string; className?: string }) {
   const s = SCREENS[id];
   if (!s) return null;
   const abs = path.join(process.cwd(), "public", "screens", s.file);
   const exists = fs.existsSync(abs);
   const dim = exists ? pngSize(abs) : null;
+  if (!exists && process.env.NEXT_PUBLIC_SHOW_PENDING !== "1") return null;
   const frame = s.kind === "phone" ? "shot shot-phone" : "shot shot-desktop";
   return (
     <figure className={`${frame} ${className}`.trim()}>
