@@ -101,13 +101,13 @@ const GROUP_LINKS = parseMap(process.env.GROUP_LINKS);
 
 // Fixed PA intro. {name} is filled with the client's name, resolved from the
 // group (the participant who is neither the PA nor whoever asked for the intro).
-const INTRO_TEMPLATE = `Hi {name}! 😊
+const INTRO_TEMPLATE = `Hi {name}! This is San, Denzel's PA. It's a pleasure to meet you! 😊
 
-This is San, Denzel's PA. Pleasure to meet you!
+I'll be supporting Denzel and helping to ensure everything runs smoothly for you, whether it's with portfolio-related queries, scheduling, or anything else you may need along the way.
 
-I'll be supporting Denzel to ensure everything runs smoothly for you, whether it's portfolio-related queries, scheduling, or any other assistance you may need along the way.
+Feel free to reach out to me anytime, either directly or in the group, and I'll be more than happy to assist.
 
-Feel free to reach out to me here or in the group anytime and I'll be happy to help. We'll do our best to make sure you continue receiving the level of care and responsiveness you're used to 🙏🏻`;
+We're glad to have you on board, and we look forward to supporting you every step of the way! 🙏🏻`;
 
 // Resolve the client's name from the group: exclude the bot itself, whoever
 // asked, and any configured staff numbers — the remaining participant is the
