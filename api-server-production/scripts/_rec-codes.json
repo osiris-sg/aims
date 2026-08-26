@@ -1,0 +1,536 @@
+[
+ {
+  "code": "REC-001",
+  "cust": "Capital Cranes Global Pte Ltd",
+  "augXero": "BI202608010",
+  "note": ""
+ },
+ {
+  "code": "REC-002",
+  "cust": "Capital Cranes Global Pte Ltd",
+  "augXero": "BI202608011",
+  "note": ""
+ },
+ {
+  "code": "REC-003",
+  "cust": "Capital Cranes Global Pte Ltd",
+  "augXero": "BI202608012",
+  "note": ""
+ },
+ {
+  "code": "REC-004",
+  "cust": "Capital Cranes Global Pte Ltd",
+  "augXero": "BI202608013",
+  "note": ""
+ },
+ {
+  "code": "REC-005",
+  "cust": "Capital Cranes Global Pte Ltd",
+  "augXero": "BI202608014",
+  "note": ""
+ },
+ {
+  "code": "REC-006",
+  "cust": "Capital Cranes Global Pte Ltd",
+  "augXero": "BI202608015",
+  "note": ""
+ },
+ {
+  "code": "REC-007",
+  "cust": "Capital Cranes Global Pte Ltd",
+  "augXero": "BI202608016",
+  "note": ""
+ },
+ {
+  "code": "REC-008",
+  "cust": "Capital Cranes Global Pte Ltd",
+  "augXero": "BI202608017",
+  "note": ""
+ },
+ {
+  "code": "REC-009",
+  "cust": "Capital Cranes Global Pte Ltd",
+  "augXero": "BI202608018",
+  "note": ""
+ },
+ {
+  "code": "REC-010",
+  "cust": "China Communications Construction Co Ltd (SG BR)",
+  "augXero": "BI202608006",
+  "note": ""
+ },
+ {
+  "code": "REC-011",
+  "cust": "China Construction Realty Co. Pte Ltd",
+  "augXero": "BI202608007",
+  "note": ""
+ },
+ {
+  "code": "REC-012",
+  "cust": "China Construction Realty Co. Pte Ltd",
+  "augXero": "BI202608008",
+  "note": ""
+ },
+ {
+  "code": "REC-013",
+  "cust": "China Construction Realty Co. Pte Ltd",
+  "augXero": "BI202608009",
+  "note": ""
+ },
+ {
+  "code": "REC-014",
+  "cust": "China Construction Realty Co. Pte Ltd",
+  "augXero": "BI202608019",
+  "note": ""
+ },
+ {
+  "code": "REC-015",
+  "cust": "China Construction Realty Co. Pte Ltd",
+  "augXero": "BI202608020",
+  "note": ""
+ },
+ {
+  "code": "REC-016",
+  "cust": "China Construction Realty Co. Pte Ltd",
+  "augXero": "BI202608021",
+  "note": ""
+ },
+ {
+  "code": "REC-017",
+  "cust": "China Railway 11 Bureau Group Corpn (Singapore Branch)",
+  "augXero": "BI202608004",
+  "note": "METERED"
+ },
+ {
+  "code": "REC-018",
+  "cust": "China Railway 11 Bureau Group Corpn (Singapore Branch)",
+  "augXero": "BI202608005",
+  "note": "METERED"
+ },
+ {
+  "code": "REC-019",
+  "cust": "Debenho (Pte) Ltd",
+  "augXero": "BI202608022",
+  "note": ""
+ },
+ {
+  "code": "REC-020",
+  "cust": "Debenho (Pte) Ltd",
+  "augXero": "BI202608023",
+  "note": ""
+ },
+ {
+  "code": "REC-021",
+  "cust": "Debenho (Pte) Ltd",
+  "augXero": "BI202608024",
+  "note": ""
+ },
+ {
+  "code": "REC-022",
+  "cust": "Debenho (Pte) Ltd",
+  "augXero": "BI202608025",
+  "note": ""
+ },
+ {
+  "code": "REC-023",
+  "cust": "Debenho (Pte) Ltd",
+  "augXero": "BI202608026",
+  "note": ""
+ },
+ {
+  "code": "REC-024",
+  "cust": "Debenho (Pte) Ltd",
+  "augXero": "BI202608027",
+  "note": ""
+ },
+ {
+  "code": "REC-025",
+  "cust": "Debenho (Pte) Ltd",
+  "augXero": "BI202608028",
+  "note": ""
+ },
+ {
+  "code": "REC-026",
+  "cust": "Debenho (Pte) Ltd",
+  "augXero": "BI202608029",
+  "note": ""
+ },
+ {
+  "code": "REC-027",
+  "cust": "Debenho (Pte) Ltd",
+  "augXero": "BI202608030",
+  "note": ""
+ },
+ {
+  "code": "REC-028",
+  "cust": "Debenho (Pte) Ltd",
+  "augXero": "BI202608031",
+  "note": ""
+ },
+ {
+  "code": "REC-029",
+  "cust": "Debenho (Pte) Ltd",
+  "augXero": "BI202608032",
+  "note": ""
+ },
+ {
+  "code": "REC-030",
+  "cust": "Express Tunnelling Pte Ltd",
+  "augXero": "BI202608033",
+  "note": ""
+ },
+ {
+  "code": "REC-031",
+  "cust": "Hock Lian Seng Infrastructure Pte Ltd",
+  "augXero": "BI202608002",
+  "note": "METERED"
+ },
+ {
+  "code": "REC-032",
+  "cust": "Hock Lian Seng Infrastructure Pte Ltd",
+  "augXero": "BI202608003",
+  "note": "METERED"
+ },
+ {
+  "code": "REC-033",
+  "cust": "Keller Foundations (S E Asia) Pte Ltd",
+  "augXero": "BI202608034",
+  "note": ""
+ },
+ {
+  "code": "REC-034",
+  "cust": "Koh Brothers Building & Civil Engineering Contractor (Pte) Ltd",
+  "augXero": "BI202608035",
+  "note": ""
+ },
+ {
+  "code": "REC-035",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "augXero": "BI202608036",
+  "note": ""
+ },
+ {
+  "code": "REC-036",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "augXero": "BI202608037",
+  "note": ""
+ },
+ {
+  "code": "REC-037",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "augXero": "BI202608038",
+  "note": ""
+ },
+ {
+  "code": "REC-038",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "augXero": "BI202608039",
+  "note": ""
+ },
+ {
+  "code": "REC-039",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "augXero": "BI202608040",
+  "note": ""
+ },
+ {
+  "code": "REC-040",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "augXero": "BI202608041",
+  "note": ""
+ },
+ {
+  "code": "REC-041",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "augXero": "BI202608042",
+  "note": ""
+ },
+ {
+  "code": "REC-042",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "augXero": "BI202608043",
+  "note": ""
+ },
+ {
+  "code": "REC-043",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "augXero": "BI202608044",
+  "note": ""
+ },
+ {
+  "code": "REC-044",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "augXero": "BI202608045",
+  "note": ""
+ },
+ {
+  "code": "REC-045",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "augXero": "BI202608046",
+  "note": "HOLD — KTC trial purchase-option"
+ },
+ {
+  "code": "REC-046",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "augXero": "BI202608047",
+  "note": ""
+ },
+ {
+  "code": "REC-047",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "augXero": "BI202608048",
+  "note": ""
+ },
+ {
+  "code": "REC-048",
+  "cust": "KTC Civil Engrg & Construction Pte Ltd",
+  "augXero": "BI202608049",
+  "note": ""
+ },
+ {
+  "code": "REC-049",
+  "cust": "Lian Beng Construction (1988) Pte Ltd",
+  "augXero": "BI202608050",
+  "note": ""
+ },
+ {
+  "code": "REC-050",
+  "cust": "LT Sambo (NSC106)",
+  "augXero": "BI202608062",
+  "note": ""
+ },
+ {
+  "code": "REC-051",
+  "cust": "LT Sambo (NSC106)",
+  "augXero": "BI202608063",
+  "note": ""
+ },
+ {
+  "code": "REC-052",
+  "cust": "MegaBuilders & Development Pte Ltd",
+  "augXero": "BI202608055",
+  "note": ""
+ },
+ {
+  "code": "REC-053",
+  "cust": "Nishio Rent All Singapore Pte Ltd",
+  "augXero": "BI202608064",
+  "note": ""
+ },
+ {
+  "code": "REC-054",
+  "cust": "Nishio Rent All Singapore Pte Ltd",
+  "augXero": "BI202608065",
+  "note": ""
+ },
+ {
+  "code": "REC-055",
+  "cust": "Nishio Rent All Singapore Pte Ltd",
+  "augXero": "BI202608066",
+  "note": ""
+ },
+ {
+  "code": "REC-056",
+  "cust": "Obayashi Singapore Pte Ltd",
+  "augXero": "BI202608067",
+  "note": ""
+ },
+ {
+  "code": "REC-057",
+  "cust": "QJEC-LBC Joint Venture",
+  "augXero": "BI202608068",
+  "note": ""
+ },
+ {
+  "code": "REC-058",
+  "cust": "QJEC-LBC Joint Venture",
+  "augXero": "BI202608069",
+  "note": ""
+ },
+ {
+  "code": "REC-059",
+  "cust": "QJEC-LBC Joint Venture",
+  "augXero": "BI202608070",
+  "note": ""
+ },
+ {
+  "code": "REC-060",
+  "cust": "QJEC-LBC Joint Venture",
+  "augXero": "BI202608071",
+  "note": ""
+ },
+ {
+  "code": "REC-061",
+  "cust": "QJEC-LBC Joint Venture",
+  "augXero": "BI202608072",
+  "note": ""
+ },
+ {
+  "code": "REC-062",
+  "cust": "SCB Building Construction Pte Ltd",
+  "augXero": "BI202608073",
+  "note": ""
+ },
+ {
+  "code": "REC-063",
+  "cust": "SCB Building Construction Pte Ltd",
+  "augXero": "BI202608074",
+  "note": ""
+ },
+ {
+  "code": "REC-064",
+  "cust": "SCB Building Construction Pte Ltd",
+  "augXero": "BI202608075",
+  "note": ""
+ },
+ {
+  "code": "REC-065",
+  "cust": "SCB Building Construction Pte Ltd",
+  "augXero": "BI202608076",
+  "note": ""
+ },
+ {
+  "code": "REC-066",
+  "cust": "SCB Building Construction Pte Ltd",
+  "augXero": "BI202608077",
+  "note": ""
+ },
+ {
+  "code": "REC-067",
+  "cust": "SCB Building Construction Pte Ltd",
+  "augXero": "BI202608078",
+  "note": ""
+ },
+ {
+  "code": "REC-068",
+  "cust": "Shuan Huat Tractor Services Pte Ltd",
+  "augXero": "BI202608079",
+  "note": ""
+ },
+ {
+  "code": "REC-069",
+  "cust": "Sunpower Grand Holdings Pte Ltd",
+  "augXero": "BI202608xxxxSunpower",
+  "note": ""
+ },
+ {
+  "code": "REC-070",
+  "cust": "Teambuild Engineering & Construction Pte Ltd",
+  "augXero": "BI202608080",
+  "note": ""
+ },
+ {
+  "code": "REC-071",
+  "cust": "Teambuild Engineering & Construction Pte Ltd",
+  "augXero": "BI202608081",
+  "note": ""
+ },
+ {
+  "code": "REC-072",
+  "cust": "Teambuild Engineering & Construction Pte Ltd",
+  "augXero": "BI202608082",
+  "note": ""
+ },
+ {
+  "code": "REC-073",
+  "cust": "Teambuild Engineering & Construction Pte Ltd",
+  "augXero": "BI202608083",
+  "note": ""
+ },
+ {
+  "code": "REC-074",
+  "cust": "Tenda Equipment & Services Pte Ltd",
+  "augXero": "BI202608084",
+  "note": ""
+ },
+ {
+  "code": "REC-075",
+  "cust": "Tenda Equipment & Services Pte Ltd",
+  "augXero": "BI202608085",
+  "note": ""
+ },
+ {
+  "code": "REC-076",
+  "cust": "Tenda Equipment & Services Pte Ltd",
+  "augXero": "BI202608086",
+  "note": ""
+ },
+ {
+  "code": "REC-077",
+  "cust": "United Elite Construction Pte Ltd",
+  "augXero": "BI202608087",
+  "note": ""
+ },
+ {
+  "code": "REC-078",
+  "cust": "United Elite Construction Pte Ltd",
+  "augXero": "BI202608088",
+  "note": ""
+ },
+ {
+  "code": "REC-079",
+  "cust": "United Elite Construction Pte Ltd",
+  "augXero": "BI202608089",
+  "note": ""
+ },
+ {
+  "code": "REC-080",
+  "cust": "VCE Pte Ltd",
+  "augXero": "BI202608090",
+  "note": ""
+ },
+ {
+  "code": "REC-081",
+  "cust": "Wai Fong Construction Pte Ltd",
+  "augXero": "BI202608123",
+  "note": "METERED"
+ },
+ {
+  "code": "REC-082",
+  "cust": "Wai Fong Construction Pte Ltd",
+  "augXero": "BI202608124",
+  "note": "METERED"
+ },
+ {
+  "code": "REC-083",
+  "cust": "Wai Fong Construction Pte Ltd",
+  "augXero": "BI202608125",
+  "note": ""
+ },
+ {
+  "code": "REC-084",
+  "cust": "Wai Fong Machinery Pte Ltd",
+  "augXero": "BI202608126",
+  "note": ""
+ },
+ {
+  "code": "REC-085",
+  "cust": "Jiayi Construction Engineering Pte. Ltd.",
+  "augXero": "",
+  "note": ""
+ },
+ {
+  "code": "REC-086",
+  "cust": "Prime Builders Pte Ltd",
+  "augXero": "",
+  "note": ""
+ },
+ {
+  "code": "REC-087",
+  "cust": "QJI-GCC Joint Venture",
+  "augXero": "",
+  "note": "RATE TBC"
+ },
+ {
+  "code": "REC-088",
+  "cust": "Integrate Engineers Pte Ltd",
+  "augXero": "",
+  "note": "RATE TBC"
+ },
+ {
+  "code": "REC-089",
+  "cust": "TANGLIN CORPORATION PTE. LTD.",
+  "augXero": "",
+  "note": "RATE TBC"
+ }
+]
