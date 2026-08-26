@@ -212,7 +212,16 @@ export class RecurringInvoicesService {
   }
 
   async update(organizationId: string, id: string, dto: any) {
-    await this.findOne(organizationId, id);
+    const existing = await this.findOne(organizationId, id);
+    // The edit dialog sends a REBUILT config (items/reference/notes only) — a
+    // wholesale replace would wipe server-managed fields: the reserved number
+    // slot, billTo/address, tax coding, terms. Merge those back (guru 2026-08-27).
+    if (dto.config && existing.config) {
+      const prev: any = existing.config;
+      const KEEP = ['documentNumber', 'billTo', 'customerAddress', 'paymentTerms', 'taxApplicable', 'gstPercent', 'currency', 'subTotal', 'gstAmount', 'nettTotal', 'note'];
+      for (const k of KEEP) if (dto.config[k] === undefined && prev[k] !== undefined) dto.config[k] = prev[k];
+      dto.config.documentInfo = { ...(prev.documentInfo || {}), ...(dto.config.documentInfo || {}) };
+    }
     return this.prisma.recurringInvoiceTemplate.update({
       where: { id },
       data: {
@@ -308,6 +317,9 @@ export class RecurringInvoicesService {
     // same slot in every month's series and the number is known BEFORE the
     // run. Passed as nameOverride so createBasicDocument skips the sequence.
     const reservedNumber = typeof config.documentNumber === 'string' && config.documentNumber.trim() ? config.documentNumber.trim() : undefined;
+    // The printed invoice header (TI2 variant) reads documentInfo.documentNumber
+    // + documentInfo.date — mirror them so the generated draft prints complete.
+    config.documentInfo = { ...(config.documentInfo || {}), ...(reservedNumber ? { documentNumber: reservedNumber } : {}), date: config.documentInfo?.date || runDate.toISOString().slice(0, 10) };
     const doc = await this.documents.createBasicDocument(
       template.documentTemplateId,
       'INVOICE',

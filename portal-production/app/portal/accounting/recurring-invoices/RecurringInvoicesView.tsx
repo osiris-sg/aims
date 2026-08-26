@@ -656,7 +656,14 @@ export default function RecurringInvoicesView() {
             // Reserved running number: templates carry a tokenized slot
             // ("BI{YEAR}{MONTH NO}001") — resolve so the accountant sees the
             // real number the run will use.
-            if (tplCfg.documentNumber) data.documentNumber = resolveText(tplCfg.documentNumber, previewDate, runNo);
+            if (tplCfg.documentNumber) {
+              const rn = resolveText(tplCfg.documentNumber, previewDate, runNo);
+              data.documentNumber = rn;
+              // TI2-variant header reads documentInfo.documentNumber/date.
+              data.documentInfo = { ...data.documentInfo, documentNumber: rn, date: previewDate.toISOString().slice(0, 10) };
+            } else {
+              data.documentInfo = { ...data.documentInfo, date: previewDate.toISOString().slice(0, 10) };
+            }
             return <CleanDocumentPreview documentType="INVOICE" data={data} organization={organization} />;
           })()}
         </DialogContent>

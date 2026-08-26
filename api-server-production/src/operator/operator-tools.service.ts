@@ -492,7 +492,7 @@ export class OperatorToolsService {
       {
         name: 'edit_document',
         description:
-          'Edit an EXISTING unconfirmed/draft document in place — change a line\'s wording, quantity or unit price, remove a line, add new lines, or update notes/PO/reference. Totals are recomputed automatically. Use this instead of raising a fresh document when the user asks to "change", "edit", "reword", "fix" or "update" something on a document. First call get_document to see the numbered lines, then reference lines by their number. Confirmed/posted documents cannot be edited (they need a revision in the app) — the tool will say so.',
+          'Edit an EXISTING unconfirmed/draft document in place. For a SMALL wording change (e.g. "two (2)" to "one (1)"), use lineEdits with find/replaceWith so the rest of the text is preserved exactly — NEVER retype the whole description from memory. Use the `description` field only to rewrite a whole line. Also supports changing quantity/unitPrice, removing a line, adding lines, and notes/PO/reference. Totals recompute automatically. ALWAYS call get_document first to read the full current line text, then edit. Confirmed/posted documents need a revision in the app (the tool will say so).',
         permissions: ['documents:update'],
         input_schema: {
           type: 'object',
@@ -505,7 +505,17 @@ export class OperatorToolsService {
                 type: 'object',
                 properties: {
                   line: { type: 'integer', description: '1-based line number to edit' },
-                  description: { type: 'string' },
+                  find: {
+                    type: 'string',
+                    description:
+                      'For a SURGICAL wording change, the exact substring to find in this line (e.g. "two (2) month"). Preferred over `description` when only part of the text changes — it leaves the rest of the wording untouched.',
+                  },
+                  replaceWith: { type: 'string', description: 'What to replace `find` with (e.g. "one (1) month").' },
+                  description: {
+                    type: 'string',
+                    description:
+                      'Replace the ENTIRE line description. Only use when rewriting the whole line; for a small change use find/replaceWith instead so you never lose the original wording.',
+                  },
                   quantity: { type: 'number' },
                   unitPrice: { type: 'number' },
                   remove: { type: 'boolean', description: 'true to delete this line' },
@@ -561,7 +571,13 @@ export class OperatorToolsService {
               continue;
             }
             const it = items[idx];
-            if (e.description != null) it.description = cleanText(String(e.description));
+            if (e.find != null && e.find !== '') {
+              // Surgical swap — preserve the rest of the wording exactly (do NOT
+              // run cleanText over it, or we'd alter the untouched original text).
+              it.description = String(it.description ?? '').split(String(e.find)).join(String(e.replaceWith ?? ''));
+            } else if (e.description != null) {
+              it.description = cleanText(String(e.description));
+            }
             if (e.quantity != null) it.quantity = Number(e.quantity);
             if (e.unitPrice != null) it.unitPrice = Number(e.unitPrice);
             const disc = Number(it.discount) || 0;
@@ -625,7 +641,7 @@ export class OperatorToolsService {
               status: doc.status,
               lines: nextItems.map((it, i) => ({
                 line: i + 1,
-                description: (it.description || '').slice(0, 60),
+                description: String(it.description ?? '').slice(0, 4000),
                 quantity: it.quantity,
                 unitPrice: it.unitPrice,
                 amount: it.amount,
@@ -1078,7 +1094,9 @@ export class OperatorToolsService {
           // Numbered lines so the model can reference them for progress billing.
           const lines = items.map((it, i) => ({
             line: i + 1,
-            description: (it.description || it.itemCode || '').slice(0, 80),
+            // FULL description — the model needs the complete text to edit it
+            // (truncating here made edits overwrite blindly and lose wording).
+            description: String(it.description ?? it.itemCode ?? '').slice(0, 4000),
             quantity: it.quantity,
             unitPrice: it.unitPrice,
             amount: it.amount,
