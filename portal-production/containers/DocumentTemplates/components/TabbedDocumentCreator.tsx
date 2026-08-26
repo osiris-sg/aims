@@ -1586,7 +1586,11 @@ export default function TabbedDocumentCreator({
           // is 'amount' for a flat $ discount, otherwise it's a % discount
           // (default — preserves existing behavior for rows without the field).
           const qty = Number(updated.quantity) || 0;
-          const unit = Number(updated.unitPrice) || 0;
+          // Rental+Sales templates (QO1) carry two rates per line: unitPrice
+          // (monthly rental) and salePrice (sales unit rate). The rental rate
+          // prices the line when set; a line with ONLY a sales rate is a sale —
+          // without this fallback its amount stuck at 0 (guru 2026-08-26).
+          const unit = Number(updated.unitPrice) || Number(updated.salePrice) || 0;
           const disc = Number(updated.discount) || 0;
           const gross = qty * unit;
           updated.amount =

@@ -133,6 +133,11 @@ export default function BankReconciliationPage() {
   const [limit, setLimit] = useState(25);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({});
+  // Status-chip filter (null = all) — the count chips above the table filter it.
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  // Manual ending-balance entry (imports without a running-balance column).
+  const [endingEditOpen, setEndingEditOpen] = useState(false);
+  const [endingDraft, setEndingDraft] = useState("");
 
   // Initial: load bank accounts
   useEffect(() => {
@@ -365,18 +370,21 @@ export default function BankReconciliationPage() {
     return c;
   }, [visibleLines]);
 
-  // Apply search to lines before paging.
+  // Apply status-chip filter + search to lines before paging.
   const visibleFiltered = useMemo(() => {
+    let rows = statusFilter ? visibleLines.filter((l) => l.status === statusFilter) : visibleLines;
     const q = (search || "").trim().toLowerCase();
-    if (!q) return visibleLines;
-    return visibleLines.filter(
-      (l) =>
-        (l.description || "").toLowerCase().includes(q) ||
-        (l.reference || "").toLowerCase().includes(q),
-    );
-  }, [visibleLines, search]);
+    if (q) {
+      rows = rows.filter(
+        (l) =>
+          (l.description || "").toLowerCase().includes(q) ||
+          (l.reference || "").toLowerCase().includes(q),
+      );
+    }
+    return rows;
+  }, [visibleLines, search, statusFilter]);
 
-  useEffect(() => { setPage(1); }, [search, activeImportId]);
+  useEffect(() => { setPage(1); }, [search, activeImportId, statusFilter]);
 
   const pageCount = Math.max(1, Math.ceil(visibleFiltered.length / limit));
   const pagedLines = useMemo(
@@ -689,7 +697,21 @@ export default function BankReconciliationPage() {
       {/* Reconciliation summary */}
       {recon && activeImport && (
         <Stack direction="row" gap={2} flexWrap="wrap">
-          <Stat label="Bank ending" value={recon.bankEndingBalance !== null ? fmt(recon.bankEndingBalance) : "—"} />
+          <Tooltip title="Click to set the statement's closing balance">
+            <Box
+              sx={{ cursor: "pointer" }}
+              onClick={() => {
+                setEndingDraft(recon.bankEndingBalance !== null && recon.bankEndingBalance !== undefined ? String(recon.bankEndingBalance) : "");
+                setEndingEditOpen(true);
+              }}
+            >
+              <Stat
+                label="Bank ending"
+                value={recon.bankEndingBalance !== null ? fmt(recon.bankEndingBalance) : "Set…"}
+                accent={recon.bankEndingBalance === null ? "warning" : undefined}
+              />
+            </Box>
+          </Tooltip>
           <Stat label="GL balance" value={fmt(recon.glBalance)} />
           <Stat
             label="Pending"
@@ -717,15 +739,27 @@ export default function BankReconciliationPage() {
         </Stack>
       )}
 
-      {/* Status chip strip */}
+      {/* Status chip strip — click to filter the table (click again / All to clear). */}
       {activeImport && (
         <Stack direction="row" gap={1}>
-          <Chip size="small" variant="outlined" label={`All ${counts.all}`} />
-          <Chip size="small" variant="outlined" color="warning" label={`Pending ${counts.PENDING}`} />
-          <Chip size="small" variant="outlined" color="success" label={`Matched ${counts.MATCHED}`} />
-          <Chip size="small" variant="outlined" color="info" label={`Suggested ${(counts as any).SUGGESTED}`} />
-          <Chip size="small" variant="outlined" color="info" label={`Posted-new ${counts.POSTED_NEW}`} />
-          <Chip size="small" variant="outlined" label={`Ignored ${counts.IGNORED}`} />
+          {([
+            { key: null, label: `All ${counts.all}`, color: undefined },
+            { key: "PENDING", label: `Pending ${counts.PENDING}`, color: "warning" },
+            { key: "MATCHED", label: `Matched ${counts.MATCHED}`, color: "success" },
+            { key: "SUGGESTED", label: `Suggested ${(counts as any).SUGGESTED}`, color: "info" },
+            { key: "POSTED_NEW", label: `Posted-new ${counts.POSTED_NEW}`, color: "info" },
+            { key: "IGNORED", label: `Ignored ${counts.IGNORED}`, color: undefined },
+          ] as const).map((c) => (
+            <Chip
+              key={c.label}
+              size="small"
+              clickable
+              variant={statusFilter === c.key || (c.key === null && statusFilter === null) ? "filled" : "outlined"}
+              color={c.color as any}
+              label={c.label}
+              onClick={() => setStatusFilter(c.key === null ? null : statusFilter === c.key ? null : c.key)}
+            />
+          ))}
         </Stack>
       )}
 
@@ -776,6 +810,49 @@ export default function BankReconciliationPage() {
       {/* Manual match picker (guru 2026-08-03): candidates shown with the
           info an accountant matches by — reference (REC/P/V), contact,
           document, amount, date — ranked exact-amount-first. */}
+      {/* Manual ending-balance entry (statement had no running-balance column) */}
+      <Dialog open={endingEditOpen} onClose={() => setEndingEditOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Statement ending balance</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            The closing balance printed on the bank statement — used to compute "Reconciles?" against the GL balance.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            type="number"
+            label="Ending balance"
+            value={endingDraft}
+            onChange={(e) => setEndingDraft(e.target.value)}
+            inputProps={{ step: "0.01" }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEndingEditOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={async () => {
+              const v = endingDraft.trim() === "" ? null : parseFloat(endingDraft);
+              if (v !== null && !Number.isFinite(v)) return toast.error("Enter a valid amount");
+              try {
+                await request(`/bank-rec/imports/${activeImportId}/ending-balance`, {
+                  method: "POST",
+                  body: JSON.stringify({ endingBalance: v }),
+                });
+                setEndingEditOpen(false);
+                toast.success(v === null ? "Ending balance cleared" : "Ending balance set");
+                loadActive();
+              } catch (e: any) {
+                toast.error(e?.message || "Failed to save ending balance");
+              }
+            }}
+          >
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={!!matchLine} onClose={() => setMatchLine(null)} fullWidth maxWidth="lg">
         <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <Box>

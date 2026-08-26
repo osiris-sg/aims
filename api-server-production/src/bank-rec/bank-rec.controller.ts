@@ -68,6 +68,19 @@ export class BankRecController {
     return this.service.autoMatch(requireOrgId(req), id);
   }
 
+  // Manual ending balance — statements without a running-balance column (or a
+  // missed extraction) land with endingBalance null, which shows "Reconciles?
+  // n/a". The user types the closing balance off the physical statement.
+  @Post('imports/:id/ending-balance')
+  @Permissions('bankrec:create')
+  setEndingBalance(
+    @Req() req: RequestWithOrganization,
+    @Param('id') id: string,
+    @Body() body: { endingBalance: number | null },
+  ) {
+    return this.service.setEndingBalance(requireOrgId(req), id, body?.endingBalance ?? null);
+  }
+
   @Delete('imports/:id')
   @Permissions('bankrec:create')
   deleteImport(@Req() req: RequestWithOrganization, @Param('id') id: string) {

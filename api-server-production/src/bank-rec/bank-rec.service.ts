@@ -1013,6 +1013,17 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
     return { line, candidates: shaped };
   }
 
+  // Manual ending-balance override for imports whose statement carried no
+  // running-balance column — without it "Reconciles?" can only say n/a.
+  async setEndingBalance(organizationId: string, importId: string, endingBalance: number | null) {
+    const imp = await this.prisma.bankStatementImport.findFirst({ where: { id: importId, organizationId } });
+    if (!imp) throw new NotFoundException();
+    return this.prisma.bankStatementImport.update({
+      where: { id: importId },
+      data: { endingBalance },
+    });
+  }
+
   async deleteImport(organizationId: string, importId: string) {
     const imp = await this.prisma.bankStatementImport.findFirst({ where: { id: importId, organizationId } });
     if (!imp) throw new NotFoundException();
