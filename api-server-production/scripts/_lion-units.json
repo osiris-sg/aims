@@ -1,0 +1,494 @@
+[
+ {
+  "serial": "MG20260147",
+  "model": "LION135",
+  "customer": "KTC Civil Engrg & Construction Pte Ltd",
+  "invoice": "BI202609xxx",
+  "reference": "BI202609xxx (6th mth 11th unit Amoy Quee Camp - DO202603-008 1xLION375 MG20260130 & 1xGenset)",
+  "status": "DRAFT",
+  "total": 96166.13,
+  "date": "2026-09-01"
+ },
+ {
+  "serial": "MG20260130",
+  "model": "LION135",
+  "customer": "KTC Civil Engrg & Construction Pte Ltd",
+  "invoice": "BI202609xxx",
+  "reference": "BI202609xxx (6th mth 11th unit Amoy Quee Camp - DO202603-008 1xLION375 MG20260130 & 1xGenset)",
+  "status": "DRAFT",
+  "total": 96166.13,
+  "date": "2026-09-01",
+  "note": "serial stale on invoice — actual unit is LION135 (per invoice REMARKS)"
+ },
+ {
+  "serial": "MG20250079",
+  "model": "LION375",
+  "customer": "China Construction (South Pacific) Development Co Pte Ltd",
+  "invoice": "BI202608007",
+  "reference": "BI202608007 (13th mth - Canberra DO/BT202508-001 1xLION375 MG20250079)",
+  "status": "AUTHORISED",
+  "total": 6540,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250087",
+  "model": "LION375",
+  "customer": "China Construction (South Pacific) Development Co Pte Ltd",
+  "invoice": "BI202608008",
+  "reference": "BI202608008 (9th mth - Canberra DO202512-006 1xLION375 MG20250087)",
+  "status": "AUTHORISED",
+  "total": 6540,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG2024008",
+  "model": "LION500",
+  "customer": "Wai Fong Machinery Pte Ltd",
+  "invoice": "BI202608WFM",
+  "reference": "BI202608091 (SRR 1xLION500 MG2024008)",
+  "status": "DRAFT",
+  "total": 8589.2,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250061",
+  "model": "LION375",
+  "customer": "Teambuild Engineering & Construction Pte Ltd",
+  "invoice": "BI202608083",
+  "reference": "BI202608080 (13th mth Jurong N4C22 - DO202508-011 1xLION375 MG20250061)",
+  "status": "DRAFT",
+  "total": 7194,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250071",
+  "model": "LION500",
+  "customer": "Teambuild Engineering & Construction Pte Ltd",
+  "invoice": "BI202608081",
+  "reference": "BI202608078 (16th mth Jurong N4C22 - DO202505-004 1xLION500 MG20250071)",
+  "status": "DRAFT",
+  "total": 9374,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250056",
+  "model": "LION500",
+  "customer": "Wai Fong Construction Pte Ltd",
+  "invoice": "BI202608WFC-3",
+  "reference": "BI202608090 (18th mth N112 DO202503-010 1xLION500 MG20250056)",
+  "status": "DRAFT",
+  "total": 9810,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250111",
+  "model": "LION375",
+  "customer": "China Construction (South Pacific) Development Co Pte Ltd",
+  "invoice": "BI202608009",
+  "reference": "BI202608009 (8th mth - Canberra DO202601-016 1xLION375 MG20250111)",
+  "status": "AUTHORISED",
+  "total": 6540,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250075",
+  "model": "LION500",
+  "customer": "Teambuild Engineering & Construction Pte Ltd",
+  "invoice": "BI202608080",
+  "reference": "BI202608077 (17th mth Jurong N4C22 - DO202503-003 & 202506-0061xLION500 MG20250075)",
+  "status": "DRAFT",
+  "total": 9374,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250077",
+  "model": "LION500",
+  "customer": "Teambuild Engineering & Construction Pte Ltd",
+  "invoice": "BI202608082",
+  "reference": "BI202608079 (13th mth Jurong N4C22 - DO202508-001 1xLION500 MG20250077)",
+  "status": "DRAFT",
+  "total": 7194,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250090",
+  "model": "LION375",
+  "customer": "Capital Cranes Global Pte Ltd",
+  "invoice": "BI202608010",
+  "reference": "BI202608010 (11th mth DE195 Site Office - DO202510-001 1xLION375 MG20250090 & 1xDG 30002729)",
+  "status": "AUTHORISED",
+  "total": 5515.4,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250110",
+  "model": "LION375",
+  "customer": "Capital Cranes Global Pte Ltd",
+  "invoice": "BI202608011",
+  "reference": "BI202608011 (6th mth T5 Substructure Project - DO202603-007 1xLION375 MG20250110 & 1xDG 30001084)",
+  "status": "AUTHORISED",
+  "total": 4612.88,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20260142",
+  "model": "LION375",
+  "customer": "Capital Cranes Global Pte Ltd",
+  "invoice": "BI202608014",
+  "reference": "BI202608014 (4th mth DE195 Site Office - DO202605-004 1xLION375 MG20260142 & 1xDG 30000285)",
+  "status": "AUTHORISED",
+  "total": 5816.24,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20260144",
+  "model": "LION375",
+  "customer": "Capital Cranes Global Pte Ltd",
+  "invoice": "BI202608013",
+  "reference": "BI202608013 (5th mth DE195 Site Office - DO202604-011 1xLION375 MG20260144 & 1xDG 30001949)",
+  "status": "AUTHORISED",
+  "total": 5816.24,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20260153",
+  "model": "LION135",
+  "customer": "Capital Cranes Global Pte Ltd",
+  "invoice": "BI202608015",
+  "reference": "BI202608015 (4th mth DE195 Site Office - DO202605-005 1xLION135 MG20260150 & 2xCables)",
+  "status": "AUTHORISED",
+  "total": 3784.48,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20260126",
+  "model": "LION375",
+  "customer": "Capital Cranes Global Pte Ltd",
+  "invoice": "BI202608016",
+  "reference": "BI202608016 (4th mth T5 Substructure Project - DO202605-013 1xLION375 MG20260126 & 1xDG 3988936)",
+  "status": "AUTHORISED",
+  "total": 4612.88,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20260135",
+  "model": "LION375",
+  "customer": "Capital Cranes Global Pte Ltd",
+  "invoice": "BI202608017",
+  "reference": "BI202608017 (2nd mth DE195 Site Office - DO202606-014 1xLION375 MG20260135 & 1xDG 3997323)",
+  "status": "AUTHORISED",
+  "total": 5816.24,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20260128",
+  "model": "LION375",
+  "customer": "Capital Cranes Global Pte Ltd",
+  "invoice": "BI202608012",
+  "reference": "BI202608012 (5th mth T5 Substructure Project - DO202604-005 1xLION375 MG20260128 & 1xDG 3995592)",
+  "status": "AUTHORISED",
+  "total": 4612.88,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20260130",
+  "model": "LION375",
+  "customer": "Capital Cranes Global Pte Ltd",
+  "invoice": "BI202608018",
+  "reference": "BI202608018 (2nd mth DE195 Site Office - DO202607-006 1xLION375 MG20260130 & 1xDG 30000271)",
+  "status": "AUTHORISED",
+  "total": 5816.24,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250112",
+  "model": "LION500",
+  "customer": "China Construction Realty Co. Pte Ltd",
+  "invoice": "BI202608019",
+  "reference": "BI202608019 (17th mth Clementi - DO202504-005, DO202505-006 & DO202510-002 1xLION500 MG20250112 & 1xDG 3996492 )",
+  "status": "AUTHORISED",
+  "total": 8720,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250057",
+  "model": "LION500",
+  "customer": "China Construction Realty Co. Pte Ltd",
+  "invoice": "BI202608020",
+  "reference": "BI202608020 (16th mth Clementi - DO202505-010 1xLION500 MG20250057 & 1xDG 3997332)",
+  "status": "AUTHORISED",
+  "total": 8720,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250109",
+  "model": "LION375",
+  "customer": "Debenho (Pte) Ltd",
+  "invoice": "BI202608023",
+  "reference": "BI202608023 (7th mth HDB Yishun N5C11 - DO202602-007 1xLION375 MG20250109, 1xDG 30000256)",
+  "status": "AUTHORISED",
+  "total": 6104,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250086",
+  "model": "LION375",
+  "customer": "Debenho (Pte) Ltd",
+  "invoice": "BI202608022",
+  "reference": "BI202608022 (10th mth HDB Yishun N5C11 - DO202511-016 1xLION375 MG20250086, 1xDG 2311035)",
+  "status": "AUTHORISED",
+  "total": 5014,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20260118",
+  "model": "LION375",
+  "customer": "Debenho (Pte) Ltd",
+  "invoice": "BI202608024",
+  "reference": "BI202608024 (6th mth HDB Yishun N5C11 - DO202603-004 1xLION375 MG20260118, 1xDG 30002729)",
+  "status": "AUTHORISED",
+  "total": 6104,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20260133",
+  "model": "LION375",
+  "customer": "Debenho (Pte) Ltd",
+  "invoice": "BI202608025",
+  "reference": "BI202608025 (5th mth HDB Yishun N5C11 - DO202604-007 1xLION375 MG20260133, 1xDG 3996496)",
+  "status": "AUTHORISED",
+  "total": 6104,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20260141",
+  "model": "LION375",
+  "customer": "Debenho (Pte) Ltd",
+  "invoice": "BI202608026",
+  "reference": "BI202608026 (4th mth HDB Yishun N5C11 - DO202605-002 1xLION375 MG20260141, 1xDG 30001077)",
+  "status": "AUTHORISED",
+  "total": 6104,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20260136",
+  "model": "LION375",
+  "customer": "Debenho (Pte) Ltd",
+  "invoice": "BI202608027",
+  "reference": "BI202608027 (3rd mth HDB Yishun N5C11 - DO202606-001 1xLION375 MG20260136, 1xDG 3997331)",
+  "status": "AUTHORISED",
+  "total": 6104,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20260121",
+  "model": "LION375",
+  "customer": "Debenho (Pte) Ltd",
+  "invoice": "BI202608028",
+  "reference": "BI202608028 (3rd mth HDB Yishun N5C11 - DO202606-003 1xLION375 MG20260121, 1xDG 30001086)",
+  "status": "AUTHORISED",
+  "total": 6104,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20260140",
+  "model": "LION375",
+  "customer": "Debenho (Pte) Ltd",
+  "invoice": "BI202608029",
+  "reference": "BI202608029 (2nd mth HDB Yishun N5C11 - DO202607-013 1xLION375 MG20260140, 1xDG 30001082)",
+  "status": "AUTHORISED",
+  "total": 6104,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20260124",
+  "model": "LION375",
+  "customer": "Debenho (Pte) Ltd",
+  "invoice": "BI202608030",
+  "reference": "BI202608030 (1st mth Yishun N5C11 - DO202608-007 1xLION375 MG20260124, 1xDG 30001085)",
+  "status": "AUTHORISED",
+  "total": 4725.67,
+  "date": "2026-08-08"
+ },
+ {
+  "serial": "MG20250054",
+  "model": "LION375",
+  "customer": "Debenho (Pte) Ltd",
+  "invoice": "BI202608031",
+  "reference": "BI202608031 (1st mth Yishun N5C11 - DO202608-008 1xLION375 MG20250054, 1xDG 3997324)",
+  "status": "AUTHORISED",
+  "total": 4134.97,
+  "date": "2026-08-11"
+ },
+ {
+  "serial": "MG20250114",
+  "model": "LION125",
+  "customer": "Keller Foundations (S E Asia) Pte Ltd",
+  "invoice": "BI202608034",
+  "reference": "BI202608034 (1st mth KSIG2628 Jurong Port - DO202607-018 1xLION125 MG20250114, 1xDG 30002739,1xDB Box SB321)",
+  "status": "AUTHORISED",
+  "total": 4388.14,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20260121",
+  "model": "LION375",
+  "customer": "Debenho (Pte) Ltd",
+  "invoice": "BI202608032",
+  "reference": "BI202608032 (1st mth Yishun N5C11 - DO202608-012 1xLION375 MG20260121, 1xDG 30001960)",
+  "status": "AUTHORISED",
+  "total": 2756.64,
+  "date": "2026-08-18"
+ },
+ {
+  "serial": "MG20260148",
+  "model": "LION135",
+  "customer": "Koh Brothers Building & Civil Engineering Contractor (Pte) Ltd",
+  "invoice": "BI202608035",
+  "reference": "BI202608035 (4th mth BD201 DO202604-009 1xLION135 MG20260148 + 1xDG 3997333+ 1xCable)",
+  "status": "AUTHORISED",
+  "total": 3815,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250091",
+  "model": "LION375",
+  "customer": "KTC Civil Engrg & Construction Pte Ltd",
+  "invoice": "BI202608036",
+  "reference": "BI202608036 (12th mth 1st unit Amoy Quee Camp - DO202509-013 1xLION375 MG20250091 & 1xDG 3997335)",
+  "status": "AUTHORISED",
+  "total": 5777,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250089",
+  "model": "LION375",
+  "customer": "KTC Civil Engrg & Construction Pte Ltd",
+  "invoice": "BI202608037",
+  "reference": "BI202608037 (11th mth 2nd unit Amoy Quee Camp - DO202509-020 1xLION375 MG20250089 & 1xDG 3994753)",
+  "status": "AUTHORISED",
+  "total": 5777,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250068",
+  "model": "LION375",
+  "customer": "KTC Civil Engrg & Construction Pte Ltd",
+  "invoice": "BI202608038",
+  "reference": "BI202608038 (11th mth 3rd unit Amoy Quee Camp - DO202510-003 1xLION375 MG20250068 & 1xDG 3988934)",
+  "status": "AUTHORISED",
+  "total": 5777,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250104",
+  "model": "LION375",
+  "customer": "KTC Civil Engrg & Construction Pte Ltd",
+  "invoice": "BI202608039",
+  "reference": "BI202608039 (8th mth 4th unit Amoy Quee Camp - DO202601-008 1xLION375 MG20250104 & 1xDG 30001962)",
+  "status": "AUTHORISED",
+  "total": 5777,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250105",
+  "model": "LION375",
+  "customer": "KTC Civil Engrg & Construction Pte Ltd",
+  "invoice": "BI202608040",
+  "reference": "BI202608040 (8th mth 5th unit Amoy Quee Camp - DO202601-009 1xLION375 MG20250105 & 1xDG 3995596 )",
+  "status": "AUTHORISED",
+  "total": 5777,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250095",
+  "model": "LION375",
+  "customer": "KTC Civil Engrg & Construction Pte Ltd",
+  "invoice": "BI202608041",
+  "reference": "BI202608041 (8th mth 6th unit Amoy Quee Camp - DO202601-010 1xLION375 MG20250095 & 1xDG 3997325)",
+  "status": "AUTHORISED",
+  "total": 5777,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250097",
+  "model": "LION375",
+  "customer": "KTC Civil Engrg & Construction Pte Ltd",
+  "invoice": "BI202608042",
+  "reference": "BI202608042 (8th mth 7th unit Amoy Quee Camp - DO202601-011 1xLION375 MG20250097 & 1xDG 30001074)",
+  "status": "AUTHORISED",
+  "total": 5777,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250108",
+  "model": "LION375",
+  "customer": "KTC Civil Engrg & Construction Pte Ltd",
+  "invoice": "BI202608043",
+  "reference": "BI202608043 (8th mth 8th unit Amoy Quee Camp - DO202601-012 1xLION375 MG20250108 & 1xDG 30001072)",
+  "status": "AUTHORISED",
+  "total": 5777,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250081",
+  "model": "LION375",
+  "customer": "KTC Civil Engrg & Construction Pte Ltd",
+  "invoice": "BI202608044",
+  "reference": "BI202608044 (8th mth 9th unit Amoy Quee Camp - DO202601-013 1xLION375 MG20250081 & 1xDG 30001075)",
+  "status": "AUTHORISED",
+  "total": 5777,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250102",
+  "model": "LION500",
+  "customer": "KTC Civil Engrg & Construction Pte Ltd",
+  "invoice": "BI202608045",
+  "reference": "BI202608045 (6th mth 10th unit Amoy Quee Camp - DO202602-010 1xLION500 MG20250102 & 1xDG 30005990)",
+  "status": "AUTHORISED",
+  "total": 7630,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20260130",
+  "model": "LION135",
+  "customer": "KTC Civil Engrg & Construction Pte Ltd",
+  "invoice": "BI202608046",
+  "reference": "BI202608046 (6th mth 11th unit Amoy Quee Camp - DO202603-008 1xLION375 MG20260130)",
+  "status": "AUTHORISED",
+  "total": 5450,
+  "date": "2026-08-01",
+  "note": "serial stale on invoice — actual unit is LION135 (per invoice REMARKS)"
+ },
+ {
+  "serial": "MG20250060",
+  "model": "LION375",
+  "customer": "QJEC-LBC Joint Venture",
+  "invoice": "BI202608070",
+  "reference": "BI202608070 (15th mth Marina BLVD LP7 - DO202505-012 1xLION375 MG20250060 & 1xDG 30000270)",
+  "status": "AUTHORISED",
+  "total": 6867,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250080",
+  "model": "LION375",
+  "customer": "QJEC-LBC Joint Venture",
+  "invoice": "BI202608071",
+  "reference": "BI202608071 (10th mth Marina BLVD LP7 - DO202511-001 1xMGS LION375 MG20250080 & 1xDG 3994750)",
+  "status": "AUTHORISED",
+  "total": 4905,
+  "date": "2026-08-01"
+ },
+ {
+  "serial": "MG20250094",
+  "model": "LION375",
+  "customer": "QJEC-LBC Joint Venture",
+  "invoice": "BI202608072",
+  "reference": "BI202608072 (8th mth Marina BLVD LP7 - DO202512-010 1xLION375 MG20250094 & 1xDG 3996496)",
+  "status": "AUTHORISED",
+  "total": 4905,
+  "date": "2026-08-01"
+ }
+]
