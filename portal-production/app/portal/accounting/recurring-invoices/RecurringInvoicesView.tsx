@@ -12,6 +12,9 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import CloudSyncIcon from "@mui/icons-material/CloudSync";
 import LinkIcon from "@mui/icons-material/Link";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import CloseIcon from "@mui/icons-material/Close";
+import CleanDocumentPreview from "@/containers/DocumentTemplates/components/CleanDocumentPreview";
 import { useSearchParams } from "next/navigation";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
@@ -142,6 +145,7 @@ export default function RecurringInvoicesView() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [editing, setEditing] = useState<Template | null>(null);
   const [form, setForm] = useState<any>(blank);
   const [saving, setSaving] = useState(false);
@@ -571,9 +575,57 @@ export default function RecurringInvoicesView() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)} disabled={saving}>Cancel</Button>
+          <Button variant="outlined" startIcon={<VisibilityIcon />} onClick={() => setPreviewOpen(true)} disabled={saving}>Preview</Button>
           <Button variant="outlined" onClick={() => save(true)} disabled={saving}>Save as draft</Button>
           <Button variant="contained" onClick={() => save(false)} disabled={saving} startIcon={saving ? <CircularProgress size={14} color="inherit" /> : undefined}>{editing ? "Save" : "Create & activate"}</Button>
         </DialogActions>
+      </Dialog>
+
+      {/* Live preview of the NEXT generated invoice: tokens resolved against
+          the form's next-run date + {NTH} counter (guru 2026-08-27). */}
+      <Dialog open={previewOpen} onClose={() => setPreviewOpen(false)} fullWidth maxWidth="lg">
+        <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          Preview — next run ({previewDate.toLocaleDateString("en-SG")})
+          <IconButton size="small" onClick={() => setPreviewOpen(false)}><CloseIcon fontSize="small" /></IconButton>
+        </DialogTitle>
+        <DialogContent dividers sx={{ bgcolor: "grey.100" }}>
+          {(() => {
+            const runNo = Number(form.nextRunNo) || 1;
+            const rows = (form.items || []).map((it: any) => {
+              const qty = it.quantity === null || it.quantity === "" ? null : Number(it.quantity);
+              const up = it.unitPrice === null || it.unitPrice === "" ? null : Number(it.unitPrice);
+              const amt = up != null && qty != null ? Math.round(qty * up * 100) / 100 : (up != null ? up : null);
+              return {
+                description: resolveText(it.description || "", previewDate, runNo),
+                quantity: qty, unitPrice: up, amount: amt,
+                accountCode: it.accountCode || null,
+                taxAmount: amt ? Math.round(amt * 9) / 100 : null,
+              };
+            });
+            const sub = rows.reduce((t: number, r: any) => t + (Number(r.amount) || 0), 0);
+            const gst = Math.round(sub * 9) / 100;
+            const tplCfg: any = editing?.config || {};
+            const data = {
+              ...tplCfg,
+              items: rows,
+              date: previewDate.toISOString().slice(0, 10),
+              documentNumber: "(assigned on generation)",
+              reference: resolveText(form.reference || tplCfg.reference || "", previewDate, runNo),
+              customerName: custName(form.customerId),
+              customer: { name: custName(form.customerId) },
+              subTotal: Math.round(sub * 100) / 100,
+              gstAmount: gst,
+              nettTotal: Math.round((sub + gst) * 100) / 100,
+              documentInfo: {
+                ...(tplCfg.documentInfo || {}),
+                referenceNo: resolveText(form.reference || tplCfg.reference || "", previewDate, runNo),
+                currency: "SGD", gstPercent: 9,
+              },
+              notes: resolveText(form.notes || "", previewDate, runNo),
+            };
+            return <CleanDocumentPreview documentType="INVOICE" data={data} />;
+          })()}
+        </DialogContent>
       </Dialog>
 
       {/* Email preview — the exact dialog used when sending an invoice email
