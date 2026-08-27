@@ -1910,7 +1910,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
       </Box>
     );
     const timelineBlock = (
-      <Box sx={{ mt: 2 }}>
+      // mt:4 (was 2) — roughly double the gap between the item table bottom and
+      // the TIMELINE heading. Biofuel replica only (generic no longer uses this).
+      <Box sx={{ mt: 4 }}>
         <Typography sx={{ fontSize: "0.9375rem", fontWeight: 700, letterSpacing: "1px", pb: 0.5, mb: 1, borderBottom: "1px solid #ddd" }}>
           TIMELINE
         </Typography>
@@ -1940,7 +1942,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
       const signedName = sig?.signedByName ?? "";
       const signedDate = sig ? new Date(sig.signedAt ?? sig.createdAt).toLocaleDateString("en-GB") : "";
       return (
-        <Box sx={{ border: "1px solid #000", pageBreakInside: "avoid", breakInside: "avoid" }}>
+        // mt:4 gives a guaranteed gap between the last Timeline row and the top
+        // of this box. It sits after the flex spacer, so on a short page the
+        // spacer absorbs it (no extra page height); on a full page it keeps a
+        // minimum gap. Footer stays pinned to the bottom. Biofuel replica only.
+        <Box sx={{ mt: 4, border: "1px solid #000", pageBreakInside: "avoid", breakInside: "avoid" }}>
           <Box sx={{ backgroundColor: "#e0e0e0", px: 1.5, py: 0.75, borderBottom: "1px solid #000" }}>
             <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, letterSpacing: "0.5px" }}>RECEIVED BY</Typography>
           </Box>
