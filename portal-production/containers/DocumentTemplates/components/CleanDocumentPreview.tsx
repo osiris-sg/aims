@@ -1962,28 +1962,26 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
     const hasProofPhotos = items.some(
       (it: any) => Array.isArray(it.proofPhotos) && it.proofPhotos.length > 0,
     );
-    // Screen-only nudge that the inline proof photos enlarge on click. Rendered
-    // directly below the item table, before the Timeline. Only when a line truly
-    // has a photo — a DO with none stays silent. Quiet grey at the Timeline
-    // label weight, left aligned under the table. Hidden on print (like the Route
-    // row) because a printed page cannot be clicked. It lives INSIDE the widened
-    // table→Timeline gap: a SMALL gap above (mt:0.5) tucks it under the table like
-    // a caption, and the LARGER remainder falls below it (Timeline mt:1.5), so it
-    // reads as belonging to the table, not the Timeline. The two margins still sum
-    // to the same 4-spacing gap as before (0.5 + 1.5 = the old 1 + 1), so nothing
-    // shifts toward a second page — only the distribution changes.
+    // Screen-only caption that the inline proof photos enlarge on click.
+    // Rendered directly ABOVE the item table so it reads as a label for the
+    // table below it. Only when a line truly has a photo — a DO with none stays
+    // silent. Quiet grey at the Timeline label weight, left aligned. Hidden on
+    // print (like the Route row) because a printed page cannot be clicked.
+    // lineHeight:1 collapses the Typography's own line box — a default ~1.4 line
+    // height pads invisible space above/below the glyphs — so mb:0.5 is the
+    // ACTUAL few-pixel gap down to the table's top border, not a larger apparent
+    // one. Sitting above the table, it does NOT touch the table→TIMELINE gap.
     const photoHint = hasProofPhotos ? (
-      <Typography sx={{ mt: 0.5, fontSize: "0.8125rem", color: "#666", "@media print": { display: "none" } }}>
+      <Typography sx={{ mb: 0.5, lineHeight: 1, fontSize: "0.8125rem", color: "#666", "@media print": { display: "none" } }}>
         Click photos to view
       </Typography>
     ) : null;
     const timelineBlock = (
       // mt:4 (was 2) — roughly double the gap between the item table bottom and
       // the TIMELINE heading. Biofuel replica only (generic no longer uses this).
-      // Drops to mt:1.5 when the photo hint is shown; paired with the hint's
-      // mt:0.5 above it the total table→TIMELINE gap stays the same, with the
-      // larger share below the hint so the Timeline is clearly separated.
-      <Box sx={{ mt: hasProofPhotos ? 1.5 : 4 }}>
+      // Constant: the hint now sits ABOVE the table, so the table→TIMELINE gap is
+      // back to its original value (item-table box mb:3 + this mt:4).
+      <Box sx={{ mt: 4 }}>
         <Typography sx={{ fontSize: "0.9375rem", fontWeight: 700, letterSpacing: "1px", pb: 0.5, mb: 1, borderBottom: "1px solid #ddd" }}>
           TIMELINE
         </Typography>
@@ -2210,6 +2208,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 </Box>
               </Box>
 
+              {/* Screen-only "click to enlarge" caption, directly ABOVE the
+                  item table so it labels it. Nothing when no line has a photo. */}
+              {photoHint}
+
               {/* Boxed items table — Item | Description | Quantity. The box
                   stretches to fill the page (flex) with full-height column
                   separators, like the paper form. */}
@@ -2265,10 +2267,6 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   </TableBody>
                 </Table>
               </Box>
-
-              {/* Screen-only "click to enlarge" hint, in the gap above the
-                  Timeline. Renders nothing when no line has a photo. */}
-              {photoHint}
 
               {/* Timeline (screen only) directly below the item box. */}
               {timelineBlock}
