@@ -131,6 +131,11 @@ interface CleanDocumentPreviewProps {
   // (photos + signature per report). Optional — older callers (template
   // designer, mock previews) omit it and the section is suppressed.
   maintenanceReports?: FieldDeliveryReport[];
+  // View-only share token, set ONLY on the public guest page. When present, the
+  // DO route map fetches the token-scoped public endpoint (no Clerk auth) and
+  // does not poll. Absent in the authenticated portal (which keeps the Clerk
+  // path). Never used to gate rendering — only to pick the route fetch mode.
+  publicShareToken?: string | null;
 }
 
 // Resolve an S3 key or a data URL to a renderable img src. Mirrors the helper
@@ -266,7 +271,7 @@ function groupDeliveryLines(raw: any[], isReturn = false): any[] {
   return out;
 }
 
-function CleanDocumentPreviewInner({ documentType, data, organization, maintenanceReports }: CleanDocumentPreviewProps) {
+function CleanDocumentPreviewInner({ documentType, data, organization, maintenanceReports, publicShareToken }: CleanDocumentPreviewProps) {
   // DO/RDO Timeline: the route popup opens keyed on the DO_START report id, the
   // same trigger the editor header uses. Screen only.
   const [routeOpen, setRouteOpen] = useState(false);
@@ -2662,7 +2667,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
       </Paper>
       {/* Route map popup (screen only) — reuses the existing dialog, opened by
           the Timeline "View route" link and keyed on the DO_START report id. */}
-      <DeliveryRouteDialog reportId={doStartReportId} open={routeOpen} onClose={() => setRouteOpen(false)} />
+      <DeliveryRouteDialog reportId={doStartReportId} open={routeOpen} onClose={() => setRouteOpen(false)} publicToken={publicShareToken} />
       {/* Single proof-photo zoom dialog for the whole document (screen only).
           Driven by zoomSrc; closes on backdrop click and Esc (MUI onClose).
           It is only mounted while open and carries an explicit print guard, so

@@ -48,9 +48,13 @@ interface Props {
   reportId: string | null;
   open: boolean;
   onClose: () => void;
+  // When set, fetch the token-scoped PUBLIC route endpoint (no Clerk auth) and
+  // do NOT poll — a shared DO is a finished document, so one fetch is enough.
+  // When absent (the portal), keep using the Clerk-authenticated endpoint + poll.
+  publicToken?: string | null;
 }
 
-export default function DeliveryRouteDialog({ reportId, open, onClose }: Props) {
+export default function DeliveryRouteDialog({ reportId, open, onClose, publicToken }: Props) {
   const { getToken } = useAuth();
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
@@ -71,23 +75,33 @@ export default function DeliveryRouteDialog({ reportId, open, onClose }: Props) 
 
     const fetchTrack = async () => {
       try {
-        const token = await getToken();
-        if (!token) return;
-        const res = await request(
-          { path: `/maintenance-reports/${reportId}/location-track`, method: "GET" },
-          {},
-          token,
-        );
-        if (cancelled) return;
-        if (res?.success) {
-          const payload = res.data;
-          setTrack({
-            isActive: !!payload?.isActive,
-            pings: payload?.pings ?? [],
-          });
+        let res: any;
+        if (publicToken) {
+          // Guest page: token-scoped public endpoint, no Clerk auth.
+          res = await request(
+            { path: `/public/document/${publicToken}/route/${reportId}`, method: "GET" },
+            {},
+          );
         } else {
-          setError(res?.message ?? "Failed to load delivery route");
+          const token = await getToken();
+          if (!token) return;
+          res = await request(
+            { path: `/maintenance-reports/${reportId}/location-track`, method: "GET" },
+            {},
+            token,
+          );
         }
+        if (cancelled) return;
+        if (res?.success === false) {
+          setError(res?.message ?? "Failed to load delivery route");
+          return;
+        }
+        const payload = res?.data ?? res;
+        setTrack({
+          // A shared DO is final — never "live" on the guest page.
+          isActive: publicToken ? false : !!payload?.isActive,
+          pings: payload?.pings ?? [],
+        });
       } catch (err: any) {
         if (!cancelled) setError(err?.message ?? "Failed to load delivery route");
       } finally {
@@ -98,23 +112,26 @@ export default function DeliveryRouteDialog({ reportId, open, onClose }: Props) 
     setLoading(true);
     void fetchTrack();
 
-    // Poll only while the delivery is still in progress. Once isActive
-    // becomes false we stop — the route is final.
-    const intervalId = window.setInterval(() => {
-      if (cancelled) return;
-      // Stop polling if we know the delivery has completed.
-      if (track && !track.isActive) return;
-      void fetchTrack();
-    }, 10_000);
+    // Poll only in the authenticated portal while the delivery may still be in
+    // progress. On the guest page a shared DO is final — fetch once, no polling.
+    let intervalId: number | undefined;
+    if (!publicToken) {
+      intervalId = window.setInterval(() => {
+        if (cancelled) return;
+        // Stop polling if we know the delivery has completed.
+        if (track && !track.isActive) return;
+        void fetchTrack();
+      }, 10_000);
+    }
 
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
+      if (intervalId !== undefined) window.clearInterval(intervalId);
     };
     // We intentionally don't depend on `track` — the effect would tear down
     // and re-create on every ping batch, defeating the polling cadence.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, reportId, getToken]);
+  }, [open, reportId, getToken, publicToken]);
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg" fullScreen={fullScreen}>

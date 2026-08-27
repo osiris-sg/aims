@@ -222,7 +222,41 @@ export class PublicDocumentService {
         createdAt: r.createdAt,
         subjectAsset: r.subjectAsset ?? null,
         subjectSku: r.subjectSku ?? null,
+        // pingCount is a plain integer (how many GPS pings this DO_START has). The
+        // Timeline uses it to decide whether to offer the "View route" link; the
+        // actual coordinates come from the token-scoped route endpoint below.
+        pingCount: r.pingCount ?? 0,
       })),
     };
+  }
+
+  /**
+   * PUBLIC — the GPS route for one DO_START report behind a view-only token.
+   * DOUBLY scoped: the token must be valid + non-revoked, AND the report must
+   * belong to THAT token's document (a bare report id is never trusted — a token
+   * for another document, or a report from another document, resolves to 404).
+   * Returns ONLY lat/lng/timestamp per ping: no device id, accuracy, speed,
+   * heading, user, or report internals. A shared DO is final, so no live flag.
+   */
+  async getPublicRouteTrack(token: string, reportId: string) {
+    const { link, state } = await this.resolveToken(token);
+    if (!link || state !== 'ok') throw new NotFoundException('Not found');
+    // The report must be a DO_START belonging to THIS token's document + org.
+    const report = await this.prisma.maintenanceServiceReport.findFirst({
+      where: {
+        id: reportId,
+        documentId: link.documentId,
+        organizationId: link.organizationId,
+        kind: 'DO_START',
+      },
+      select: { id: true },
+    });
+    if (!report) throw new NotFoundException('Not found');
+    const pings = await this.prisma.deliveryLocationPing.findMany({
+      where: { reportId },
+      orderBy: { timestamp: 'asc' },
+      select: { latitude: true, longitude: true, timestamp: true },
+    });
+    return { pings };
   }
 }

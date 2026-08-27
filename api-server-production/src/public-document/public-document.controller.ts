@@ -56,4 +56,15 @@ export class PublicDocumentController {
     this.service.publicRateGate(token, this.clientIp(req));
     return this.service.getPublicView(token);
   }
+
+  /**
+   * PUBLIC — GPS route (lat/lng/timestamp only) for a DO_START report that
+   * belongs to the token's document. Token-scoped, not report-id-scoped.
+   */
+  @Public()
+  @Get('public/document/:token/route/:reportId')
+  async routeTrack(@Param('token') token: string, @Param('reportId') reportId: string, @Req() req: Request) {
+    this.service.publicRateGate(token, this.clientIp(req));
+    return this.service.getPublicRouteTrack(token, reportId);
+  }
 }

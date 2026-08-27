@@ -87,6 +87,7 @@ export default function PublicDocumentViewPage() {
           data={view.data || {}}
           organization={view.organization}
           maintenanceReports={view.maintenanceReports}
+          publicShareToken={token}
         />
       </Box>
     </Box>
