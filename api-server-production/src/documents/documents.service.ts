@@ -718,6 +718,31 @@ export class DocumentsService {
         /* non-fatal */
       }
 
+      // Project name for the DO header. The DO project picker saves ONLY the
+      // relation (Document.projectId); the Biofuel DO header renders a project
+      // NAME (data.projectName), and nothing bridged the two — so a linked
+      // project never showed. Resolve the name from the relation and fold it
+      // into config so it rides the config spread to the preview, without
+      // touching the picker or save path. DO/RDO only (no other layout reads
+      // this, and generic DO deliberately renders no project row). Read-derived
+      // each load, so a renamed project always shows fresh. Best-effort.
+      try {
+        const doTypes = ['DO', 'DELIVERY_ORDER', 'RDO', 'RETURN_DELIVERY_ORDER'];
+        if (document.projectId && doTypes.includes((document as any).type)) {
+          const project = await this.prisma.project.findUnique({
+            where: { id: document.projectId },
+            select: { name: true },
+          });
+          if (project?.name) {
+            const cfg3: any = (document as any).config ?? {};
+            cfg3.projectName = project.name;
+            (document as any).config = cfg3;
+          }
+        }
+      } catch {
+        /* non-fatal */
+      }
+
       // Fold the template + its field definitions into this response so opening a
       // document is ONE round-trip instead of three (was: GET doc → GET template →
       // GET template/fields). Resolved in-region here; the two extra client fetches
