@@ -16,6 +16,7 @@ import { PrismaService } from './common/prisma.service';
 import { DocumentTemplatesModule } from './documentTemplates/documentTemplates.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { PublicDeliveryModule } from './public-delivery/public-delivery.module';
+import { PublicDocumentModule } from './public-document/public-document.module';
 import { CustomerInfoModule } from './customer-info/customer-info.module';
 import { PublicApiModule } from './public-api/public-api.module';
 import { DocumentsModule } from './documents/documents.module';
@@ -125,6 +126,7 @@ import { ActionLogInterceptor } from './action-log/action-log.interceptor';
     BankRecModule,
     XeroSyncModule,
     PublicDeliveryModule,
+    PublicDocumentModule,
     CustomerInfoModule,
     PublicApiModule,
     IngestionModule,

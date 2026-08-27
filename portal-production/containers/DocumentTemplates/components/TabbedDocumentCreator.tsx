@@ -296,6 +296,9 @@ export default function TabbedDocumentCreator({
   // (navigator.clipboard) succeeds. Null = dialog closed.
   const [shareLinkUrl, setShareLinkUrl] = useState<string | null>(null);
   const [shareLinkExpires, setShareLinkExpires] = useState<string | null>(null);
+  // View-only DO link (read-only render, no signing). Kept in its OWN state and
+  // dialog so it is never confused with the signing delivery link above.
+  const [doViewLinkUrl, setDoViewLinkUrl] = useState<string | null>(null);
   // Collapse the General/Details fields panel to give the Items table more space.
   const [isFieldsCollapsed, setIsFieldsCollapsed] = useState(false);
   // Items section tabs
@@ -2991,6 +2994,51 @@ export default function TabbedDocumentCreator({
     }
   };
 
+  // View-only DO link: a read-only render of this DO, no signing, no actions.
+  // Distinct from the delivery (signing) link above.
+  const handleShareDoViewLink = async () => {
+    const token = await getToken();
+    if (!token) { toast.error("Authentication required"); return; }
+    const id = existingData?.id || documentId;
+    let full = "";
+    try {
+      const res = await request({ path: `/documents/${id}/share-link`, method: "POST" }, {}, token);
+      const body = res?.data ?? res;
+      // Same absolute-URL build as the delivery link: window.location.origin is
+      // unreliable in a WebView/preview host, so base off NEXT_PUBLIC_APP_URL.
+      const base = (process.env.NEXT_PUBLIC_APP_URL || "https://app.ai-ms.io").replace(/\/$/, "");
+      const path = body?.path || (body?.token ? `/guest/do/${body.token}` : "");
+      full = path ? `${base}${path}` : (body?.url ?? "");
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || e?.message || "Failed to create DO link");
+      return;
+    }
+    if (!full) { toast.error("DO link created but no URL was returned"); return; }
+    setDoViewLinkUrl(full);
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(full);
+        toast.success("DO link copied to clipboard");
+      }
+    } catch {
+      toast.info("DO link ready — copy it from the dialog");
+    }
+  };
+
+  const handleRevokeDoViewLink = async () => {
+    if (!window.confirm("Revoke the view-only DO link? Anyone holding the current link will no longer be able to open it.")) return;
+    const authToken = await getToken();
+    if (!authToken) { toast.error("Authentication required"); return; }
+    const id = existingData?.id || documentId;
+    try {
+      await request({ path: `/documents/${id}/share-link/revoke`, method: "POST" }, {}, authToken);
+      setDoViewLinkUrl(null);
+      toast.success("DO link revoked");
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || e?.message || "Failed to revoke DO link");
+    }
+  };
+
   const handleBulkCompleteDO = async () => {
     if (!window.confirm("Mark ALL items on this delivery order as completed? This deducts stock for any not-yet-delivered items and triggers the invoice.")) return;
     try {
@@ -3969,6 +4017,18 @@ export default function TabbedDocumentCreator({
               <MenuItem onClick={() => { closeMoreMenu(); handleRevokeDeliveryLink(); }}>
                 <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Revoke delivery link</ListItemText>
+              </MenuItem>
+            )}
+            {(documentType === "DO" || documentType === "DELIVERY_ORDER" || documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER") && (existingData?.id || documentId) && (
+              <MenuItem onClick={() => { closeMoreMenu(); handleShareDoViewLink(); }}>
+                <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Share DO link (view only)</ListItemText>
+              </MenuItem>
+            )}
+            {(documentType === "DO" || documentType === "DELIVERY_ORDER" || documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER") && (existingData?.id || documentId) && (
+              <MenuItem onClick={() => { closeMoreMenu(); handleRevokeDoViewLink(); }}>
+                <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Revoke DO link (view only)</ListItemText>
               </MenuItem>
             )}
             {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (existingData?.id || documentId) && (
@@ -6377,6 +6437,50 @@ export default function TabbedDocumentCreator({
               if (!shareLinkUrl) return;
               try {
                 await navigator.clipboard.writeText(shareLinkUrl);
+                toast.success("Copied");
+              } catch {
+                toast.info("Select the link above and copy manually");
+              }
+            }}
+          >
+            Copy
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* View-only DO link — a read-only render of this DO. Deliberately worded
+          and kept separate from the signing "delivery link" above. Never expires;
+          revoke to disable it. */}
+      <Dialog open={!!doViewLinkUrl} onClose={() => setDoViewLinkUrl(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>View-only DO link</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Anyone with this link can VIEW this delivery order, with no login. They cannot sign, finalize, or change anything. This link does not expire; revoke it to disable it.
+          </Typography>
+          <TextField
+            value={doViewLinkUrl ?? ""}
+            fullWidth
+            size="small"
+            InputProps={{ readOnly: true }}
+            onFocus={(e) => e.target.select()}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button color="error" onClick={handleRevokeDoViewLink}>Revoke</Button>
+          <Button onClick={() => setDoViewLinkUrl(null)}>Close</Button>
+          <Button
+            startIcon={<OpenInNewIcon />}
+            onClick={() => { if (doViewLinkUrl) window.open(doViewLinkUrl, "_blank", "noopener"); }}
+          >
+            Open
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<ContentCopyIcon />}
+            onClick={async () => {
+              if (!doViewLinkUrl) return;
+              try {
+                await navigator.clipboard.writeText(doViewLinkUrl);
                 toast.success("Copied");
               } catch {
                 toast.info("Select the link above and copy manually");

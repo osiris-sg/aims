@@ -441,6 +441,7 @@ model Document {
   msrInvoices        MaintenanceServiceReport[] @relation("MsrInvoice") // Service reports that produced THIS invoice
   orderSources       Order[]                    @relation("OrderSourceQuotation") // Orders auto-created when this quotation was confirmed
   deliveryShareLinks DeliveryShareLink[] // Guest (no-login) delivery links scoped to THIS delivery order
+  documentShareLinks DocumentShareLink[] // View-only (no-login) links to THIS document, read-only render
   deliveries         Delivery[] // Standalone physical-delivery runs later linked to THIS delivery order (legacy run-level link — frozen)
   deliveryItems      DeliveryItem[] // Per-item DO links: run items fulfilled by THIS delivery order
 
@@ -482,6 +483,25 @@ model DeliveryShareLink {
 
   @@index([documentId])
   @@index([deliveryId])
+}
+
+// View-only document link (2026): a no-login, read-only link to ONE document
+// (a DO/RDO), rendered exactly as the portal preview. Mirrors DeliveryShareLink's
+// proven shape (same crypto-random 32-byte base64url token, same soft revoke),
+// but is scoped to a single DOCUMENT — never a run — and has ZERO mutation
+// surface behind the token (the public route is GET-only).
+//
+// NO EXPIRY BY DESIGN: these links never expire, so `revokedAt` (soft revoke) is
+// the ONLY access control. There is deliberately no expiresAt column.
+model DocumentShareLink {
+  id         String    @id @default(uuid())
+  token      String    @unique // unguessable, crypto-random (32 bytes, base64url)
+  documentId String    @db.Uuid
+  document   Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime? // set on revoke; the ONLY way to disable a link (no expiry)
+
+  @@index([documentId])
 }
 
 // Customer Information collection (2026-08): the office mints an unguessable
