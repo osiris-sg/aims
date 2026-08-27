@@ -1892,6 +1892,28 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
       (data as any)?.organizationId === "52e90ba8-bfbd-48b0-bb76-4f9667bf74f1" ||
       organization?.id === "52e90ba8-bfbd-48b0-bb76-4f9667bf74f1" ||
       organization?.name === "Biofuel Industries Pte Ltd";
+    // Delivery Started / Ended for the Timeline (Biofuel replica only). Bracket
+    // the WHOLE run: the EARLIEST DO_START (custody handover began) and the
+    // LATEST DO_ACK (last unit acknowledged) — a run has one DO_START per unit
+    // and may carry several DO_ACKs. Same MSR createdAt timestamps the deleted
+    // PROOF OF DELIVERY section rendered; RDOs reuse DO_START/DO_ACK for returns.
+    const msrTimes = (kind: string) =>
+      (maintenanceReports ?? [])
+        .filter((r) => r.kind === kind)
+        .map((r) => new Date(r.createdAt).getTime())
+        .filter((t) => !Number.isNaN(t));
+    const startTimes = msrTimes("DO_START");
+    const ackTimes = msrTimes("DO_ACK");
+    const deliveryStartedAt = startTimes.length ? new Date(Math.min(...startTimes)) : null;
+    const deliveryEndedAt = ackTimes.length ? new Date(Math.max(...ackTimes)) : null;
+    const sameCalendarDay = (a: Date, b: Date) =>
+      a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    // Time only when the event fell on the scheduled day; otherwise date + time,
+    // so a run that slipped to a different day is unambiguous.
+    const tlTimeValue = (d: Date) =>
+      scheduledAt && !Number.isNaN(scheduledAt.getTime()) && sameCalendarDay(d, scheduledAt)
+        ? d.toLocaleTimeString("en-GB", { hour: "numeric", minute: "2-digit", hour12: true })
+        : d.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
     // Timeline block (receipt style): a bold, letter-spaced "TIMELINE" heading
     // over a quiet grey rule, then rows with a grey label on the left and a
     // near-black value right-aligned. Shared by both sub-layouts below. The
@@ -1917,6 +1939,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           TIMELINE
         </Typography>
         {tlRow("Scheduled Date", scheduledDateTimeStr)}
+        {/* Print rows (no screenOnly). Each hides entirely when its source MSR
+            is absent, rather than showing a blank or a placeholder. */}
+        {deliveryStartedAt && tlRow("Delivery Started", tlTimeValue(deliveryStartedAt))}
+        {deliveryEndedAt && tlRow("Delivery Ended", tlTimeValue(deliveryEndedAt))}
         {tlRow(
           "Route",
           doStartReportId && doStartPingCount > 0 ? (
