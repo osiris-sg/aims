@@ -2125,24 +2125,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                             {data.documentInfo?.documentNumber || data.name || ""}
                           </Typography>,
                         )}
-                        {/* Our Ref. carries JSX (ref no + optional "dated …"),
-                            so guard at the call site — the string rule can't see
-                            inside it. Hidden entirely when there's no ref no. */}
-                        {(data.documentInfo?.referenceNo || data.referenceNo)
-                          ? rightRow(
-                              "Our Ref. No :",
-                              <>
-                                <Typography sx={{ fontSize: "0.875rem" }}>
-                                  {data.documentInfo?.referenceNo || data.referenceNo}
-                                </Typography>
-                                {data.documentInfo?.referenceQuotationDate && (
-                                  <Typography sx={{ fontSize: "0.875rem" }}>
-                                    dated {dmy(data.documentInfo.referenceQuotationDate)}
-                                  </Typography>
-                                )}
-                              </>,
-                            )
-                          : null}
+                        {/* "Our Ref. No" row removed from the Biofuel DO header
+                            (2026). The underlying referenceNo data is left intact
+                            on the document; it is simply no longer rendered here. */}
                         {rightRow("Your PO No.:", data.documentInfo?.poNo || data.poNo || "")}
                       </>
                     );
