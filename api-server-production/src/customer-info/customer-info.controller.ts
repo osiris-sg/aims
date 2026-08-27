@@ -35,14 +35,6 @@ export class CustomerInfoController {
     });
   }
 
-  // Picker: PO documents for a project (the "select a PO" dialog on Add
-  // Customer Info). Declared BEFORE :id so "pos" is not captured as a request id.
-  @Get('pos')
-  @Permissions('customer-info:read')
-  listPos(@Query('projectId') projectId: string, @UserOrganization() org: { id: string }) {
-    return this.service.listProjectPos(org.id, projectId);
-  }
-
   @Get(':id')
   @Permissions('customer-info:read')
   detail(@Param('id') id: string, @UserOrganization() org: { id: string }) {

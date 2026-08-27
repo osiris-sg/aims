@@ -23,11 +23,6 @@ export class CreateCustomerInfoRequestDto {
   @ApiProperty({ description: 'Existing project (UUID) belonging to that customer.' })
   @IsUUID()
   projectId!: string;
-
-  @ApiProperty({ required: false, description: 'Pre-selected PO document (UUID) for this project. When set, the public form does not ask the customer to upload one.' })
-  @IsOptional()
-  @IsUUID()
-  poDocumentId?: string;
 }
 
 /** One contact person supplied by the recipient on the public page. */

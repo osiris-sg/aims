@@ -5,19 +5,10 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { randomBytes, randomUUID } from 'crypto';
+import { randomBytes } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
-import { S3Service } from '../common/services/s3.service';
-import { DocumentsService } from '../documents/documents.service';
 import { SubmitCustomerInfoDto } from './dto/customer-info.dto';
-
-// A guest-uploaded PO document is created under a non-secret marker actor (never
-// the token), mirroring the guest delivery flow's GUEST technician marker.
-const GUEST_ACTOR = { id: 'GUEST', name: 'Customer upload (Customer Info)' };
-// PO upload size cap (unauthenticated path). The controller also caps this at
-// the multer layer; this is the service-side backstop.
-const PO_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 
 // Link lifetime from mint. Contact collection is not time-critical (unlike a
 // delivery date), so a generous window avoids nuisance re-mints while still
@@ -75,11 +66,7 @@ type ContactGroup = (typeof CONTACT_GROUPS)[number];
  */
 @Injectable()
 export class CustomerInfoService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly s3: S3Service,
-    private readonly documentsService: DocumentsService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   /** Controller calls this per public request with the token + client IP. */
   publicRateGate(token: string, ip: string) {
@@ -208,7 +195,7 @@ export class CustomerInfoService {
    */
   async createRequest(
     organizationId: string,
-    dto: { customerId: string; projectId: string; poDocumentId?: string },
+    dto: { customerId: string; projectId: string },
     createdBy: string | null,
   ) {
     const customer = await this.prisma.customer.findFirst({
@@ -222,25 +209,6 @@ export class CustomerInfoService {
     });
     if (!project) throw new NotFoundException('Project not found in this organization');
 
-    // Optional pre-selected PO: an existing PO document for THIS project. When
-    // set, the public form does not ask the customer to upload one.
-    let poDocumentId: string | null = null;
-    let poNumber: string | null = null;
-    if (dto.poDocumentId) {
-      const po = await this.prisma.document.findFirst({
-        where: {
-          id: dto.poDocumentId,
-          organizationId,
-          type: { in: ['PO', 'PURCHASE_ORDER'] },
-          projectId: project.id,
-        },
-        select: { id: true, name: true },
-      });
-      if (!po) throw new NotFoundException('Purchase Order not found for this project');
-      poDocumentId = po.id;
-      poNumber = po.name ?? null;
-    }
-
     const created = await this.prisma.customerInfoRequest.create({
       data: {
         organizationId,
@@ -251,32 +219,10 @@ export class CustomerInfoService {
         projectName: project.name,
         createdBy: createdBy ?? null,
         expiresAt: new Date(Date.now() + LINK_WINDOW_MS),
-        poDocumentId,
-        poNumber,
       },
       select: { id: true, token: true, expiresAt: true },
     });
     return created;
-  }
-
-  /**
-   * Office picker: PO documents for a project (drives the "select a PO" dialog on
-   * the Add Customer Info form). Only project-scoped POs surface — legacy
-   * project-less POs are supplier-side and unrelated. Newest first.
-   */
-  async listProjectPos(organizationId: string, projectId: string) {
-    const docs = await this.prisma.document.findMany({
-      where: { organizationId, projectId, type: { in: ['PO', 'PURCHASE_ORDER'] } },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, name: true, status: true, config: true, createdAt: true },
-    });
-    return docs.map((d) => ({
-      id: d.id,
-      name: d.name,
-      poNumber: (d.config as any)?.poNo ?? (d.config as any)?.documentInfo?.documentNumber ?? d.name,
-      status: d.status,
-      createdAt: d.createdAt,
-    }));
   }
 
   /** Revoke a request's link (idempotent). */
@@ -343,8 +289,6 @@ export class CustomerInfoService {
         submittedAt: true,
         customerName: true,
         projectName: true,
-        poDocumentId: true,
-        poNumber: true,
       },
     });
     if (!link) return { link: null, state: 'notfound' as TokenState };
@@ -379,9 +323,6 @@ export class CustomerInfoService {
         customerName: null as string | null,
         projectName: null as string | null,
         submittedAt: null as Date | null,
-        poRequired: false,
-        poProvided: false,
-        poNumber: null as string | null,
         doContacts: [] as Array<{ name: string; email: string | null; phone: string | null }>,
         invoiceContacts: [] as Array<{ name: string; email: string | null; phone: string | null }>,
       };
@@ -396,12 +337,6 @@ export class CustomerInfoService {
       customerName: link.customerName,
       projectName: link.projectName,
       submittedAt: link.submittedAt,
-      // SOP: every customer provides a PO. If the office did not pre-select one,
-      // the customer must upload it here. Once a PO exists (pre-selected or
-      // uploaded) poDocumentId is set and the form stops asking.
-      poRequired: !link.poDocumentId,
-      poProvided: !!link.poDocumentId,
-      poNumber: link.poNumber,
       doContacts: contacts.filter((c) => c.group === 'DO').map(({ name, email, phone }) => ({ name, email, phone })),
       invoiceContacts: contacts.filter((c) => c.group === 'INVOICE').map(({ name, email, phone }) => ({ name, email, phone })),
     };
@@ -434,11 +369,6 @@ export class CustomerInfoService {
     if (doRows.length === 0 && invoiceRows.length === 0) {
       throw new BadRequestException('Add at least one contact before submitting');
     }
-    // Enforce the PO requirement server-side (the form gates too): if the office
-    // did not pre-select a PO, the customer must have uploaded one first.
-    if (!link.poDocumentId) {
-      throw new BadRequestException('Please attach your Purchase Order before submitting');
-    }
 
     const now = new Date();
     await this.prisma.$transaction(async (tx) => {
@@ -466,130 +396,4 @@ export class CustomerInfoService {
     return { ok: true, submittedAt: now };
   }
 
-  /**
-   * PUBLIC: the customer uploads their Purchase Order. UNAUTHENTICATED — this
-   * creates a REAL Document in the org, so it is deliberately fenced:
-   *   • token-scoped: org + project + customer come from the request row, never
-   *     the client; the actor is a non-secret GUEST marker.
-   *   • file-only + unconfirmed: no priced items, so GL can never post (the PO
-   *     GL trigger skips when gross<=0), and PO type is excluded from the posting
-   *     queue — the document is inert until an authenticated user acts on it.
-   *   • one document per request: idempotent on poDocumentId — a re-upload
-   *     REPLACES the file on the existing PO rather than minting another.
-   *   • rate limited (publicRateGate) + type/size capped + magic-byte sniffed.
-   * Residual risk: there is NO virus scanning anywhere in the codebase.
-   */
-  async uploadPo(
-    token: string,
-    file: { buffer: Buffer; size: number; mimetype?: string } | undefined,
-    poReference?: string,
-  ) {
-    const { link, state } = await this.resolveToken(token);
-    this.assertActionable(state);
-    if (!link) throw new NotFoundException('This link was not found');
-    if (!file?.buffer?.length) throw new BadRequestException('No file uploaded');
-    if (file.size > PO_MAX_BYTES) throw new BadRequestException('File is too large (maximum 10 MB)');
-    // Magic-byte sniff: file.mimetype is client-supplied and cannot be trusted.
-    const kind = sniffFileKind(file.buffer);
-    if (!kind) throw new BadRequestException('Upload a PDF, JPEG, or PNG file');
-
-    const key = `customer-info-po/${link.organizationId}/${link.id}/${randomUUID()}.${kind.ext}`;
-    const fileUrl = await this.s3.uploadFile(key, file.buffer, kind.mime);
-
-    // Idempotent: at most ONE PO document per request. A re-upload replaces the
-    // file on the existing PO (pre-selected or previously uploaded).
-    if (link.poDocumentId) {
-      await this.replacePoFile(link.poDocumentId, link.organizationId, fileUrl);
-      return { poDocumentId: link.poDocumentId, poNumber: link.poNumber, replaced: true };
-    }
-
-    // Document.name = the customer's own PO reference when given and it doesn't
-    // collide; otherwise the generated serial (createFromExtraction's fallback).
-    const customerRef = poReference?.trim() || null;
-    const collision = customerRef
-      ? !!(await this.prisma.document.findFirst({
-          where: { organizationId: link.organizationId, name: customerRef },
-          select: { id: true },
-        }))
-      : false;
-    const numberForDoc = customerRef && !collision ? customerRef : undefined;
-
-    // Reuse the /submit upload-to-document path. Empty items => GL-inert.
-    const created = await this.documentsService.createFromExtraction(
-      link.organizationId,
-      'PO',
-      { document: { number: numberForDoc }, customer: { name: link.customerName }, items: [], references: {} },
-      undefined,
-      fileUrl,
-      'upload',
-      GUEST_ACTOR,
-    );
-    const docId = created.id;
-
-    // createFromExtraction only sets projectId on a PO name-match; we KNOW it, so
-    // set it explicitly (this is what makes the doc selectable next time). Also
-    // stamp the customer's reference onto config.poNo so a serial-name fallback
-    // (from a collision) never loses their real PO number.
-    const doc = await this.prisma.document.findFirst({
-      where: { id: docId, organizationId: link.organizationId },
-      select: { name: true, config: true },
-    });
-    const cfg = (doc?.config as any) ?? {};
-    await this.prisma.document.update({
-      where: { id: docId },
-      data: {
-        projectId: link.projectId,
-        ...(customerRef ? { config: { ...cfg, poNo: customerRef } as Prisma.InputJsonValue } : {}),
-      },
-    });
-    const poNumber = customerRef ?? doc?.name ?? null;
-    await this.prisma.customerInfoRequest.update({
-      where: { id: link.id },
-      data: { poDocumentId: docId, poNumber },
-    });
-    return { poDocumentId: docId, poNumber, created: true };
-  }
-
-  /** Replace the stored file on an existing PO document (config.source.fileUrl +
-   *  the flat mirror), matching how createFromExtraction attaches it. */
-  private async replacePoFile(documentId: string, organizationId: string, fileUrl: string) {
-    const doc = await this.prisma.document.findFirst({
-      where: { id: documentId, organizationId },
-      select: { config: true },
-    });
-    if (!doc) return;
-    const cfg = (doc.config as any) ?? {};
-    await this.prisma.document.update({
-      where: { id: documentId },
-      data: {
-        config: {
-          ...cfg,
-          source: { ...(cfg.source ?? {}), fileUrl, extractedFrom: 'upload' },
-          sourceFileUrl: fileUrl,
-        } as Prisma.InputJsonValue,
-      },
-    });
-  }
-}
-
-/**
- * Minimal magic-byte sniff for the public PO upload. Returns the true type or
- * null (rejected). Guards against a spoofed client mimetype letting an
- * arbitrary file into storage.
- */
-function sniffFileKind(buf: Buffer): { ext: string; mime: string } | null {
-  if (buf.length >= 4 && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) {
-    return { ext: 'pdf', mime: 'application/pdf' }; // %PDF
-  }
-  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
-    return { ext: 'jpg', mime: 'image/jpeg' }; // JPEG
-  }
-  if (
-    buf.length >= 8 &&
-    buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47 &&
-    buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a
-  ) {
-    return { ext: 'png', mime: 'image/png' }; // PNG
-  }
-  return null;
 }
