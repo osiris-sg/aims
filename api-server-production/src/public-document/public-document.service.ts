@@ -89,6 +89,13 @@ export class PublicDocumentService {
       const { email: _email, ...rest } = cfg.attention as Record<string, unknown>;
       cfg.attention = rest;
     }
+    // documentInfo.referenceNo is customer-facing free text that, in practice,
+    // carries INTERNAL ops notes (billing customer, "NOT INVOICED", staff names).
+    // Strip it entirely; the generic DO heading falls back to documentNumber.
+    if (cfg.documentInfo && typeof cfg.documentInfo === 'object') {
+      const { referenceNo: _ref, ...di } = cfg.documentInfo as Record<string, unknown>;
+      cfg.documentInfo = di;
+    }
     const ITEM_KEEP = ['id', 'sku', 'skuKey', 'itemCode', 'description', 'quantity', 'uom', 'remarks', 'serialNumbers', 'proofPhotos'];
     if (Array.isArray(cfg.items)) {
       cfg.items = cfg.items.map((it: any) => {
@@ -181,9 +188,20 @@ export class PublicDocumentService {
     const org = full?.organization ?? {};
     const reports = Array.isArray(full?.maintenanceReports) ? full.maintenanceReports : [];
 
+    // CleanDocumentPreview's DO layout branch matches the SHORT type codes the
+    // office passes ('DO' / 'RDO'), not the raw stored type. Map the stored type
+    // to that code so the public view enters the DO layout (and the org selector
+    // then picks the Biofuel replica) instead of falling through to the default
+    // priced layout. Pass any other code through unchanged.
+    const TYPE_MAP: Record<string, string> = {
+      DELIVERY_ORDER: 'DO',
+      RETURN_DELIVERY_ORDER: 'RDO',
+    };
+    const documentType = (full?.type && TYPE_MAP[full.type]) || full?.type || null;
+
     return {
       state: 'ok' as const,
-      documentType: full?.type ?? null,
+      documentType,
       data: this.sanitizeConfigForPublic(full?.config),
       organization: {
         id: org.id ?? null,
