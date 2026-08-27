@@ -1,10 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from "@mui/material";
 import { createTheme, ThemeProvider, useTheme } from "@mui/material/styles";
 import { BIOFUEL_SIGNATURE_DATA_URI, BIOFUEL_STAMP_DATA_URI, BIOFUEL_LOGO_DATA_URI } from "../../DocumentsTemplateView/biofuelAssets";
+import DeliveryRouteDialog from "@/components/DeliveryRouteDialog";
 
 // Font handling:
 // - Using Carlito from Google Fonts (open-source, metric-compatible with Calibri)
@@ -266,6 +267,18 @@ function groupDeliveryLines(raw: any[], isReturn = false): any[] {
 }
 
 function CleanDocumentPreviewInner({ documentType, data, organization, maintenanceReports }: CleanDocumentPreviewProps) {
+  // DO/RDO Timeline: the route popup opens keyed on the DO_START report id, the
+  // same trigger the editor header uses. Screen only.
+  const [routeOpen, setRouteOpen] = useState(false);
+  const doStartReport = maintenanceReports?.find((r) => r.kind === "DO_START") ?? null;
+  const doStartReportId = doStartReport?.id ?? null;
+  const doStartPingCount = (doStartReport as any)?.pingCount ?? 0;
+  const doTechnician = doStartReport?.technicianName ?? null;
+  // Scheduled date/time comes from the Delivery run (getById folds it into config).
+  const scheduledAt = (data as any)?.scheduledFor ? new Date((data as any).scheduledFor) : null;
+  const scheduledDateStr = scheduledAt && !isNaN(scheduledAt.getTime()) ? scheduledAt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "";
+  const scheduledTimeStr = scheduledAt && !isNaN(scheduledAt.getTime()) ? scheduledAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "";
+
   const getDocumentTitle = () => {
     const titles: Record<string, string> = {
       // Short codes
@@ -1866,7 +1879,38 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
     // FROM the site) with the same person/address value. Preview only for now -
     // the server PDF renderer is not routed through here (OSI-87).
     const isRdo = documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER";
+    // Timeline block (screen only): scheduled date/time, technician, and a route
+    // link. Shared by both sub-layouts below. The route link opens the existing
+    // DeliveryRouteDialog keyed on the DO_START report id; when the run recorded
+    // no GPS pings it shows plain text instead of an empty map.
+    const tlRow = (label: string, value: string) => (
+      <Box sx={{ display: "flex", mb: 0.25 }}>
+        <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, width: 120, flexShrink: 0 }}>{label}</Typography>
+        <Typography sx={{ fontSize: "0.8125rem" }}>{value}</Typography>
+      </Box>
+    );
+    const timelineBlock = (
+      <Box sx={{ mt: 2 }}>
+        <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, mb: 0.5 }}>Timeline</Typography>
+        {tlRow("Scheduled Date", scheduledDateStr)}
+        {tlRow("Scheduled Time", scheduledTimeStr)}
+        {tlRow("Technician", doTechnician || "")}
+        {/* Route link is interactive (opens the map dialog), so it prints
+            nothing — only this row is screen-only; the rows above print. */}
+        <Box sx={{ display: "flex", mb: 0.25, "@media print": { display: "none" } }}>
+          <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, width: 120, flexShrink: 0 }}>Route</Typography>
+          {doStartReportId && doStartPingCount > 0 ? (
+            <Typography component="span" onClick={() => setRouteOpen(true)} sx={{ fontSize: "0.8125rem", color: "primary.main", cursor: "pointer", textDecoration: "underline" }}>
+              View route
+            </Typography>
+          ) : (
+            <Typography sx={{ fontSize: "0.8125rem", color: "#444" }}>Not recorded</Typography>
+          )}
+        </Box>
+      </Box>
+    );
     return (
+      <>
       <Paper
         data-print-paper
         sx={{
@@ -1894,8 +1938,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             wrapper's minHeight is A4 minus the Paper's 20mm padding so it
             fills the content area on screen; on print [data-print-paper]
             strips the padding, so the wrapper expands to a full 297mm.
-            PROOF OF DELIVERY sits OUTSIDE this wrapper so its size never
-            pulls into the page-1 flex layout. */}
+            Proof photos now render inline under each item line, and the
+            Timeline block sits below the item table, so nothing trails the
+            wrapper on print. */}
         <Box
           sx={{
             minHeight: "calc(297mm - 40mm)",
@@ -2055,7 +2100,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               {/* Boxed items table — Item | Description | Quantity. The box
                   stretches to fill the page (flex) with full-height column
                   separators, like the paper form. */}
-              <Box sx={{ flex: 1, display: "flex", flexDirection: "column", border: "1.5px solid #000", mb: 3, minHeight: 260 }}>
+              <Box sx={{ display: "flex", flexDirection: "column", border: "1.5px solid #000", mb: 3 }}>
                 <Table
                   sx={{
                     tableLayout: "fixed",
@@ -2090,6 +2135,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                         <TableCell sx={{ textAlign: "center" }}>{index + 1}.</TableCell>
                         <TableCell>
                           <DescriptionText text={item.description || ""} sx={{ fontWeight: 500 }} />
+                          {Array.isArray(item.proofPhotos) && item.proofPhotos.length > 0 && (
+                            <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "nowrap" }}>
+                              {item.proofPhotos.slice(0, 4).map((key: string) => (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img key={key} src={resolvePhotoSrc(key)} alt="" style={{ width: "23%", aspectRatio: "4 / 3", objectFit: "cover", border: "1px solid #ccc" }} />
+                              ))}
+                            </Box>
+                          )}
                         </TableCell>
                         <TableCell sx={{ textAlign: "center" }}>
                           {item.quantity ?? ""}{item.uom ? ` ${item.uom}` : ""}
@@ -2098,13 +2151,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     ))}
                   </TableBody>
                 </Table>
-                {/* Filler keeps the column separators running to the box bottom */}
-                <Box sx={{ flex: 1, display: "flex", minHeight: 40 }}>
-                  <Box sx={{ width: "12%", borderRight: "1px solid #000" }} />
-                  <Box sx={{ flex: 1, borderRight: "1px solid #000" }} />
-                  <Box sx={{ width: "16%" }} />
-                </Box>
               </Box>
+
+              {/* Timeline (screen only) directly below the item box. */}
+              {timelineBlock}
+
+              {/* Flex spacer pins the footer signature block to the page bottom
+                  now that the item box fits its content instead of stretching. */}
+              <Box sx={{ flex: 1 }} />
 
               {/* Footer — Biofuel signature + stamp LEFT, customer receipt RIGHT */}
               <Box sx={{ display: "flex", justifyContent: "space-between", gap: 6, pageBreakInside: "avoid", breakInside: "avoid" }}>
@@ -2266,6 +2320,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   <TableCell>{item.itemCode || ""}</TableCell>
                   <TableCell>
                     <DescriptionText text={item.description || ""} sx={{ fontWeight: 500 }} />
+                    {Array.isArray(item.proofPhotos) && item.proofPhotos.length > 0 && (
+                      <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "nowrap" }}>
+                        {item.proofPhotos.slice(0, 4).map((key: string) => (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img key={key} src={resolvePhotoSrc(key)} alt="" style={{ width: "23%", aspectRatio: "4 / 3", objectFit: "cover", border: "1px solid #ccc" }} />
+                        ))}
+                      </Box>
+                    )}
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity?.toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.uom || ""}</TableCell>
@@ -2273,23 +2335,16 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 </TableRow>
               ))}
 
-              {/* Add empty rows for spacing */}
-              {items.length < 5 &&
-                Array.from({ length: 5 - items.length }).map((_, index) => (
-                  <TableRow key={`empty-${index}`} sx={{ height: 40 }}>
-                    <TableCell>&nbsp;</TableCell>
-                    <TableCell>&nbsp;</TableCell>
-                    <TableCell>&nbsp;</TableCell>
-                    <TableCell>&nbsp;</TableCell>
-                    <TableCell>&nbsp;</TableCell>
-                  </TableRow>
-                ))}
             </TableBody>
           </Table>
         </TableContainer>
 
+        {/* Timeline (screen only) directly below the item table. */}
+        {timelineBlock}
+
         {/* Flex spacer — fills available height inside the page-1 wrapper so
-            the signature block below pins to the bottom of the printed page. */}
+            the signature block below pins to the bottom of the printed page.
+            The empty filler rows were removed so the table fits its content. */}
         <Box sx={{ flex: 1 }} />
 
         {/* Bottom Signature Section - DO Style */}
@@ -2413,135 +2468,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         )}
 
         </Box>
-        {/* End of page-1 wrapper. PROOF OF DELIVERY follows as a sibling so
-            its content height doesn't compress the page-1 layout. */}
-
-        {/* PROOF OF DELIVERY — field-tech reports linked to this DO via
-            documentId. Condition photos are captured at START-delivery
-            (custody handover), so DO_START rows render here WHEN they carry
-            photos; a photo-less DO_START is still filtered out (the tech's
-            identity already shows on page 1's "Delivery By" line — a bare
-            stub would be visual noise). Section is suppressed entirely when
-            nothing remains after the filter, so a DO with only a photo-less
-            DO_START keeps its clean one-page print. */}
-        {maintenanceReports &&
-          maintenanceReports.filter((r) => r.kind !== "DO_START" || (r.photos?.length ?? 0) > 0).length > 0 && (
-          <Box
-            sx={{
-              mt: 4,
-              pt: 3,
-              borderTop: "2px solid #000",
-              pageBreakBefore: "always",
-              "@media print": { pageBreakBefore: "always" },
-            }}
-          >
-            <Typography
-              sx={{
-                fontSize: "0.9375rem",
-                fontWeight: 700,
-                textAlign: "center",
-                mb: 2,
-                letterSpacing: "1px",
-              }}
-            >
-              PROOF OF DELIVERY
-            </Typography>
-
-            {maintenanceReports
-              .filter((r) => r.kind !== "DO_START" || (r.photos?.length ?? 0) > 0)
-              .map((report, idx) => (
-              <Box
-                key={report.id}
-                sx={{
-                  mb: 3,
-                  pb: 2,
-                  // Reports flow together on the same page when they fit. The
-                  // browser's natural page break kicks in only if the content
-                  // overflows — saves paper when a report is just a header +
-                  // a few photos + a signature. A thin top border + extra top
-                  // padding visually separates subsequent reports without
-                  // forcing a fresh page.
-                  ...(idx > 0 && {
-                    mt: 3,
-                    pt: 3,
-                    borderTop: "1px solid #ddd",
-                  }),
-                }}
-              >
-                {/* Header row: kind label + ISO timestamp + technician */}
-                <Box sx={{ display: "flex", gap: 2, alignItems: "baseline", mb: 1.5, flexWrap: "wrap" }}>
-                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700 }}>
-                    {report.kind === "DO_START"
-                      ? "Delivery Started"
-                      : report.kind === "DO_INSTALL"
-                        ? "Installation Acknowledged"
-                        : "Delivery Acknowledged"}
-                  </Typography>
-                  <Typography sx={{ fontSize: "0.75rem", color: "#444" }}>
-                    {new Date(report.createdAt).toLocaleString("en-GB", {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    })}
-                  </Typography>
-                  {report.technicianName && (
-                    <Typography sx={{ fontSize: "0.75rem", color: "#444" }}>
-                      By: {report.technicianName}
-                    </Typography>
-                  )}
-                </Box>
-
-                {/* Subject: which unit this photo set belongs to. A multi-unit
-                    run renders several proof blocks, so the asset name (and unit
-                    sku when known) labels each. Asset-less proof (run-level
-                    install, free-typed line) has no subject and shows no label. */}
-                {(report.subjectAsset || report.subjectSku) && (
-                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, mb: 1.5 }}>
-                    {report.subjectAsset && report.subjectSku
-                      ? `${report.subjectAsset} (${report.subjectSku})`
-                      : report.subjectAsset || report.subjectSku}
-                  </Typography>
-                )}
-
-                {/* Photos — 2-column grid, ~85mm wide each at A4 margins, fixed
-                    4:3 aspect so the print engine doesn't fight the layout.
-                    All kinds render their photos: DO_START carries the
-                    outbound condition shots, DO_ACK/DO_INSTALL any proof
-                    captured at their steps (historical acks keep theirs). */}
-                {report.photos && report.photos.length > 0 && (
-                  <Box
-                    sx={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: 1.5,
-                      my: 1.5,
-                    }}
-                  >
-                    {report.photos.map((key) => (
-                      <Box
-                        key={key}
-                        sx={{
-                          width: "100%",
-                          aspectRatio: "4 / 3",
-                          overflow: "hidden",
-                          border: "1px solid #ccc",
-                        }}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={resolvePhotoSrc(key)}
-                          alt=""
-                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                        />
-                      </Box>
-                    ))}
-                  </Box>
-                )}
-              </Box>
-            ))}
-          </Box>
-        )}
-
       </Paper>
+      {/* Route map popup (screen only) — reuses the existing dialog, opened by
+          the Timeline "View route" link and keyed on the DO_START report id. */}
+      <DeliveryRouteDialog reportId={doStartReportId} open={routeOpen} onClose={() => setRouteOpen(false)} />
+      </>
     );
   }
 

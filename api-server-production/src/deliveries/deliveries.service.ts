@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { AssetClass, DeliveryDirection, DeliveryStatus, DeploymentStatus, DeploymentType, InventoryStatus, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
@@ -373,6 +374,21 @@ export class DeliveriesService {
 
 
   /**
+   * Pre-generate the DeliveryItem ids for a scheduled run, one array of ids per
+   * form line, expanded exactly the way the run's rows are (free-typed => 1 id;
+   * qty-N catalog => N ids). The caller creates the DeliveryItem rows WITH these
+   * ids and stamps the matching config line with the same id, so the config
+   * line <-> DeliveryItem pairing is the actual id, established at creation, not
+   * a positional key recovered afterwards. `plannedIds[lineIdx][n]` is the id of
+   * line `lineIdx`'s n-th unit.
+   */
+  private planDeliveryItemIds(items: ScheduleDeliveryDto['items']): string[][] {
+    return (items ?? []).map((it) =>
+      !it.assetId ? [randomUUID()] : Array.from({ length: Math.max(1, it.quantity) }, () => randomUUID()),
+    );
+  }
+
+  /**
    * Build the draft-DO config fragment for a scheduled delivery (items + header
    * fields). Shared by createScheduled and updateScheduled so the two never drift.
    * Catalog lines are EXPANDED to N x qty-1 asset slots (each unit binds its own
@@ -389,15 +405,28 @@ export class DeliveriesService {
     // Frozen per-document Attention snapshot (name/phone/email). From the office
     // dialog when it sent one, else derived from the project's first contact.
     attention?: { name: string; phoneNumber?: string; email?: string };
+    // Resolves the EXACT DeliveryItem id for the (lineIdx, n) expanded unit, so
+    // each config line carries the id of its own DeliveryItem. The caller owns
+    // the ids (it generates them once and creates the rows with them), so this
+    // is a direct structural pairing (same line, same unit index) — NOT a match
+    // on a computed sortOrder, which collides once a single line exceeds 100
+    // units (lineIdx*100 + n overruns into the next line's base). Lets the DO
+    // preview attach each line's proof photos by deliveryItemId (getById
+    // grouping) instead of guessing by text.
+    deliveryItemIdFor?: (lineIdx: number, n: number) => string | undefined;
   }): Record<string, any> {
-    const { items, assetById, projectName, deliveryAddress, poNumber, machineLocation, customer, attention } = params;
+    const { items, assetById, projectName, deliveryAddress, poNumber, machineLocation, customer, attention, deliveryItemIdFor } = params;
+    const diFor = (lineIdx: number, n: number) => {
+      const id = deliveryItemIdFor?.(lineIdx, n);
+      return id ? { deliveryItemId: id } : {};
+    };
     return {
-      items: items.flatMap((it) => {
+      items: items.flatMap((it, lineIdx) => {
         if (!it.assetId) {
-          return [{ description: it.description?.trim() ?? '', quantity: it.quantity, unitPrice: 0, amount: 0 }];
+          return [{ description: it.description?.trim() ?? '', quantity: it.quantity, unitPrice: 0, amount: 0, ...diFor(lineIdx, 0) }];
         }
         const a = assetById.get(it.assetId)!;
-        return Array.from({ length: it.quantity }, () => ({
+        return Array.from({ length: it.quantity }, (_, n) => ({
           assetId: it.assetId,
           sku: a.skuKey,
           itemCode: a.skuKey,
@@ -407,6 +436,7 @@ export class DeliveriesService {
           unitPrice: 0,
           amount: 0,
           deliveryGroup: it.assetId,
+          ...diFor(lineIdx, n),
         }));
       }),
       ...(poNumber ? { poNo: poNumber } : {}),
@@ -509,6 +539,12 @@ export class DeliveriesService {
     const lineDescription = (it: { assetId?: string; description?: string }) =>
       it.assetId ? assetById.get(it.assetId)!.name : (it.description?.trim() ?? '');
 
+    // DeliveryItem ids generated up front so the rows are created WITH them and
+    // the DO config is stamped with the SAME ids — the pairing is the actual id,
+    // not a positional sortOrder. Reused as-is across P2002 retries (a failed
+    // attempt rolls back, so nothing was persisted under these ids).
+    const plannedIds = this.planDeliveryItemIds(dto.items);
+
     // 1. Create the scheduled run (asset-only items). Per-org serial + P2002 retry.
     let run: Prisma.DeliveryGetPayload<{ include: { items: true } }> | null = null;
     for (let attempt = 0; attempt < 3 && !run; attempt++) {
@@ -546,8 +582,9 @@ export class DeliveriesService {
                   // reads it off the asset, so leave that null.
                   assetClass: it.assetId ? null : it.assetClass ?? AssetClass.EQUIPMENT,
                 };
-                if (!it.assetId) return [{ ...base, quantity: it.quantity, sortOrder: lineIdx * 100 }];
+                if (!it.assetId) return [{ id: plannedIds[lineIdx][0], ...base, quantity: it.quantity, sortOrder: lineIdx * 100 }];
                 return Array.from({ length: Math.max(1, it.quantity) }, (_, n) => ({
+                  id: plannedIds[lineIdx][n],
                   ...base,
                   quantity: 1,
                   // Gaps of 100 leave room to insert without renumbering.
@@ -594,6 +631,9 @@ export class DeliveriesService {
         machineLocation: dto.machineLocation,
         customer,
         attention,
+        // Stamp each config line with the id of its own DeliveryItem (the same
+        // ids the rows were just created with — a direct pairing, not sortOrder).
+        deliveryItemIdFor: (lineIdx, n) => plannedIds[lineIdx]?.[n],
       });
       // OSI-83: a scheduled DRAFT must NOT consume a real DO number — mint a
       // per-org placeholder (DO-PENDING-NN); the real number is claimed when the
@@ -641,6 +681,22 @@ export class DeliveriesService {
     if (run.direction === DeliveryDirection.RETURN) {
       throw new BadRequestException('This endpoint edits scheduled deliveries, not returns.');
     }
+    // A free-typed line's DO_START proof is captured scan-less, so (unlike a
+    // catalog scan) it does NOT flip the run to in_progress — the status guard
+    // above misses it, and this edit would deleteMany the DeliveryItem rows and
+    // null every proof MSR that points at them (deliveryItemId is onDelete
+    // SetNull). Detect proof directly: any MaintenanceServiceReport whose
+    // deliveryItem belongs to this run means a rider has already started, so the
+    // item set is locked. (Counts the proof link, not item deliveryStatus, which
+    // is a derived signal that can drift.)
+    const proofCount = await this.prisma.maintenanceServiceReport.count({
+      where: { deliveryItem: { deliveryId: id } },
+    });
+    if (proofCount > 0) {
+      throw new BadRequestException(
+        'This run already has delivery proof captured, so its items can no longer be changed. Once a rider has started, cancel the run to redo it.',
+      );
+    }
     // PROMOTION: saving a COMPLETE form with isDraft absent/false turns a draft
     // into a real scheduled run, which is also the moment its DO is minted (a
     // draft has none). Saving an incomplete form again just keeps it a draft.
@@ -675,6 +731,11 @@ export class DeliveriesService {
       it.assetId ? assetById.get(it.assetId)!.name : (it.description?.trim() ?? '');
     const documentId = run.items.find((i) => i.documentId)?.documentId ?? null;
 
+    // DeliveryItem ids generated up front: the recreated rows are created WITH
+    // them and the regenerated DO config is stamped with the SAME ids (a direct
+    // pairing, not a sortOrder lookup). Removes the post-create re-read entirely.
+    const plannedIds = this.planDeliveryItemIds(dto.items);
+
     // Swap the item set (scheduled = nothing bound) + update the run's fields.
     await this.prisma.$transaction(async (tx) => {
       await tx.deliveryItem.deleteMany({ where: { deliveryId: id } });
@@ -690,8 +751,9 @@ export class DeliveriesService {
             assetClass: it.assetId ? null : it.assetClass ?? AssetClass.EQUIPMENT,
             ...(documentId ? { documentId } : {}),
           };
-          if (!it.assetId) return [{ ...base, quantity: it.quantity, sortOrder: lineIdx * 100 }];
+          if (!it.assetId) return [{ id: plannedIds[lineIdx][0], ...base, quantity: it.quantity, sortOrder: lineIdx * 100 }];
           return Array.from({ length: Math.max(1, it.quantity) }, (_, n) => ({
+            id: plannedIds[lineIdx][n],
             ...base,
             quantity: 1,
             sortOrder: lineIdx * 100 + n,
@@ -713,6 +775,10 @@ export class DeliveriesService {
     // Attention snapshot for whichever DO path runs below (dialog value wins,
     // else the project's first contact) — resolved once for both mint + regen.
     const scheduledAttention = await this.projectFirstContactAttention(dto.projectId, organizationId);
+
+    // Both DO paths below stamp config lines from the ids in `plannedIds` (the
+    // same ids the rows were just created with), so no post-create re-read.
+    const deliveryItemIdFor = (lineIdx: number, n: number) => plannedIds[lineIdx]?.[n];
 
     // PROMOTION MINT: a draft carries no DO, so the first save that makes it a
     // real schedule is what creates one. Same placeholder-numbered draft DO the
@@ -737,6 +803,7 @@ export class DeliveriesService {
             ? { id: customer.id, name: customer.name, customerCode: customer.customerCode, address: customer.address, email: customer.email }
             : null,
           attention: scheduledAttention,
+          deliveryItemIdFor,
         });
         const pending = await this.prisma.document.findMany({
           where: { organizationId, name: { startsWith: 'DO-PENDING-' } },
@@ -775,6 +842,7 @@ export class DeliveriesService {
           machineLocation: dto.machineLocation,
           customer,
           attention: scheduledAttention,
+          deliveryItemIdFor,
         });
         // On edit a CLEARED PO / machine location must actually clear on the DO
         // (a plain config merge would keep the old value), so set them explicitly.

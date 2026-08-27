@@ -789,6 +789,10 @@ export default function TabbedDocumentCreator({
       phoneNumber: existingData?.attention?.phoneNumber || "",
       email: existingData?.attention?.email || "",
     },
+    // Scheduled date/time of the delivery RUN (getById folds it into config so
+    // it rides the config spread here). Carried explicitly or the formData
+    // allowlist drops it and the DO Timeline block renders blank.
+    scheduledFor: (existingData as any)?.scheduledFor ?? null,
     // Items data
     items: existingData?.items || [],
     // Source document tracking (for quotation/DO extraction)

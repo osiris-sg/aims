@@ -602,6 +602,12 @@ export class DocumentsService {
               // inline under each item, including free-typed lines that assetId/
               // inventoryId cannot disambiguate. Null for run-level proof.
               deliveryItemId: true,
+              // description: the free-typed line's own text ("Delivery started:
+              // <text>"), used as the last-resort per-line match for old rows.
+              description: true,
+              // pingCount: whether this DO_START has a GPS route to link to (the
+              // Timeline shows a Route link only when there are pings).
+              _count: { select: { locationPings: true } },
             },
           },
         },
@@ -637,7 +643,79 @@ export class DocumentsService {
           const assetId = r.assetId ?? unit?.assetId ?? null;
           r.subjectAsset = assetId ? assetNameById.get(assetId) ?? null : null;
           r.subjectSku = unit?.sku ?? null;
+          // Whether this DO_START has a GPS route (the Timeline links to it only
+          // when pings were recorded). _count comes from the select above.
+          r.pingCount = (r as any)._count?.locationPings ?? 0;
         }
+      }
+
+      // Group DO_START proof photos onto each config line so the DO preview
+      // renders them inline and does NO matching itself. Match order (never
+      // guess): 1) line.deliveryItemId === MSR.deliveryItemId (exact, new mints);
+      // 2) line.inventoryItemId === MSR.inventoryId (exact, unit lines);
+      // 2b) line.serialNumbers contains MSR.subjectSku (older unit lines with no
+      // inventoryItemId), only when unambiguous; 3) line description === MSR
+      // description (fallback, old free-typed), only when unambiguous. Each MSR is
+      // attached to at most one line. DO_START only (DO_ACK/DO_INSTALL carry no
+      // per-line condition photos). For an RDO these are the return DO_START
+      // returning-condition photos; the outbound reference is never fetched here.
+      try {
+        const cfg: any = (document as any).config ?? {};
+        const lines: any[] = Array.isArray(cfg.items) ? cfg.items : [];
+        if (lines.length && proofReports.length) {
+          const starts = proofReports.filter((r) => r.kind === 'DO_START' && (r.photos?.length ?? 0) > 0);
+          const norm = (s: any) => String(s ?? '').trim().toLowerCase();
+          // A free-typed MSR description is "Delivery started: <text>" / "Return
+          // started: <text>"; strip the known prefix before comparing.
+          const lineText = (r: any) => norm(String(r.description ?? '').replace(/^(delivery|return) started:\s*/i, ''));
+          const used = new Set<string>();
+          const findFor = (line: any): any | null => {
+            if (line.deliveryItemId) {
+              const m = starts.find((r) => !used.has(r.id) && r.deliveryItemId && r.deliveryItemId === line.deliveryItemId);
+              if (m) return m;
+            }
+            if (line.inventoryItemId) {
+              const m = starts.find((r) => !used.has(r.id) && r.inventoryId && r.inventoryId === line.inventoryItemId);
+              if (m) return m;
+            }
+            const serials: string[] = Array.isArray(line.serialNumbers) ? line.serialNumbers.map(norm).filter(Boolean) : [];
+            if (serials.length) {
+              const ms = starts.filter((r) => !used.has(r.id) && r.subjectSku && serials.includes(norm(r.subjectSku)));
+              if (ms.length === 1) return ms[0];
+            }
+            const d = norm(line.description);
+            if (d) {
+              const ms = starts.filter((r) => !used.has(r.id) && !r.inventoryId && lineText(r) === d);
+              if (ms.length === 1) return ms[0];
+            }
+            return null;
+          };
+          for (const line of lines) {
+            const m = findFor(line);
+            if (m) { line.proofPhotos = m.photos ?? []; used.add(m.id); }
+          }
+          (document as any).config = cfg;
+        }
+      } catch (err: any) {
+        console.warn(`getById: proof photo grouping failed for ${document.id}: ${err?.message ?? err}`);
+      }
+
+      // Timeline: the scheduled date/time lives on the Delivery RUN, not the DO
+      // config. Resolve the run born-linked to this DO (via DeliveryItem.documentId)
+      // and expose its scheduledFor INSIDE config, so it rides the config spread
+      // to the preview (transformBackendDataForForm) with no per-page plumbing.
+      // Best-effort; null when there is no run.
+      try {
+        const linkItem = await this.prisma.deliveryItem.findFirst({
+          where: { documentId: document.id },
+          select: { delivery: { select: { scheduledFor: true } } },
+        });
+        const scheduledFor = linkItem?.delivery?.scheduledFor ?? null;
+        const cfg2: any = (document as any).config ?? {};
+        cfg2.scheduledFor = scheduledFor;
+        (document as any).config = cfg2;
+      } catch {
+        /* non-fatal */
       }
 
       // Fold the template + its field definitions into this response so opening a
