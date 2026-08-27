@@ -1956,10 +1956,31 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         </Box>
       </Box>
     );
+    // At least one delivered line actually carries a proof photo. Drives the
+    // "Click photos to view" hint AND how much of the table→Timeline gap it eats
+    // (see photoHint below). Reads item.proofPhotos exactly as the table does.
+    const hasProofPhotos = items.some(
+      (it: any) => Array.isArray(it.proofPhotos) && it.proofPhotos.length > 0,
+    );
+    // Screen-only nudge that the inline proof photos enlarge on click. Rendered
+    // directly below the item table, before the Timeline. Only when a line truly
+    // has a photo — a DO with none stays silent. Quiet grey at the Timeline
+    // label weight, left aligned under the table. Hidden on print (like the Route
+    // row) because a printed page cannot be clicked. It lives INSIDE the widened
+    // table→Timeline gap: when it shows, the Timeline's top margin drops from 4
+    // to 1 (below) so the hint occupies the slack instead of adding height and
+    // risking a second page.
+    const photoHint = hasProofPhotos ? (
+      <Typography sx={{ mt: 1, fontSize: "0.8125rem", color: "#666", "@media print": { display: "none" } }}>
+        Click photos to view
+      </Typography>
+    ) : null;
     const timelineBlock = (
       // mt:4 (was 2) — roughly double the gap between the item table bottom and
       // the TIMELINE heading. Biofuel replica only (generic no longer uses this).
-      <Box sx={{ mt: 4 }}>
+      // Drops to mt:1 when the photo hint is shown so the hint sits in that gap
+      // rather than pushing the Timeline down.
+      <Box sx={{ mt: hasProofPhotos ? 1 : 4 }}>
         <Typography sx={{ fontSize: "0.9375rem", fontWeight: 700, letterSpacing: "1px", pb: 0.5, mb: 1, borderBottom: "1px solid #ddd" }}>
           TIMELINE
         </Typography>
@@ -2241,6 +2262,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   </TableBody>
                 </Table>
               </Box>
+
+              {/* Screen-only "click to enlarge" hint, in the gap above the
+                  Timeline. Renders nothing when no line has a photo. */}
+              {photoHint}
 
               {/* Timeline (screen only) directly below the item box. */}
               {timelineBlock}
