@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from "@mui/material";
+import { Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Dialog } from "@mui/material";
 import { createTheme, ThemeProvider, useTheme } from "@mui/material/styles";
 import { BIOFUEL_SIGNATURE_DATA_URI, BIOFUEL_STAMP_DATA_URI, BIOFUEL_LOGO_DATA_URI } from "../../DocumentsTemplateView/biofuelAssets";
 import DeliveryRouteDialog from "@/components/DeliveryRouteDialog";
@@ -270,14 +270,19 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
   // DO/RDO Timeline: the route popup opens keyed on the DO_START report id, the
   // same trigger the editor header uses. Screen only.
   const [routeOpen, setRouteOpen] = useState(false);
+  // One zoom dialog for the WHOLE document: a single piece of state holds the
+  // url of the proof photo to show full size. Thumbnails set it on click; the
+  // dialog (mounted once, in the DO branch return) opens whenever it is non-null.
+  const [zoomSrc, setZoomSrc] = useState<string | null>(null);
   const doStartReport = maintenanceReports?.find((r) => r.kind === "DO_START") ?? null;
   const doStartReportId = doStartReport?.id ?? null;
   const doStartPingCount = (doStartReport as any)?.pingCount ?? 0;
-  const doTechnician = doStartReport?.technicianName ?? null;
   // Scheduled date/time comes from the Delivery run (getById folds it into config).
+  // Shown as one line, e.g. "26 Aug 2026, 4:12 pm".
   const scheduledAt = (data as any)?.scheduledFor ? new Date((data as any).scheduledFor) : null;
-  const scheduledDateStr = scheduledAt && !isNaN(scheduledAt.getTime()) ? scheduledAt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "";
-  const scheduledTimeStr = scheduledAt && !isNaN(scheduledAt.getTime()) ? scheduledAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "";
+  const scheduledDateTimeStr = scheduledAt && !isNaN(scheduledAt.getTime())
+    ? scheduledAt.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true })
+    : "";
 
   const getDocumentTitle = () => {
     const titles: Record<string, string> = {
@@ -1879,36 +1884,87 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
     // FROM the site) with the same person/address value. Preview only for now -
     // the server PDF renderer is not routed through here (OSI-87).
     const isRdo = documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER";
-    // Timeline block (screen only): scheduled date/time, technician, and a route
-    // link. Shared by both sub-layouts below. The route link opens the existing
-    // DeliveryRouteDialog keyed on the DO_START report id; when the run recorded
-    // no GPS pings it shows plain text instead of an empty map.
-    const tlRow = (label: string, value: string) => (
-      <Box sx={{ display: "flex", mb: 0.25 }}>
-        <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, width: 120, flexShrink: 0 }}>{label}</Typography>
-        <Typography sx={{ fontSize: "0.8125rem" }}>{value}</Typography>
+    // Biofuel replica vs generic layout. Hoisted so the same test gates BOTH the
+    // sub-layout selector below AND the PROOF OF DELIVERY section (generic only):
+    // the Biofuel replica shows proof photos inline, every other org keeps the
+    // original separate proof section.
+    const isBiofuel =
+      (data as any)?.organizationId === "52e90ba8-bfbd-48b0-bb76-4f9667bf74f1" ||
+      organization?.id === "52e90ba8-bfbd-48b0-bb76-4f9667bf74f1" ||
+      organization?.name === "Biofuel Industries Pte Ltd";
+    // Timeline block (receipt style): a bold, letter-spaced "TIMELINE" heading
+    // over a quiet grey rule, then rows with a grey label on the left and a
+    // near-black value right-aligned. Shared by both sub-layouts below. The
+    // Route row is interactive (opens the DeliveryRouteDialog keyed on the
+    // DO_START report id) so it renders nothing on print; a run with no GPS
+    // pings shows plain "Not recorded" instead of a link. A `screenOnly` row
+    // gets @media print display:none; every other row prints.
+    const tlRow = (label: string, value: React.ReactNode, screenOnly = false) => (
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", mb: 0.5, ...(screenOnly ? { "@media print": { display: "none" } } : {}) }}>
+        <Typography sx={{ fontSize: "0.8125rem", color: "#666" }}>{label}</Typography>
+        <Box sx={{ textAlign: "right" }}>
+          {typeof value === "string"
+            ? <Typography sx={{ fontSize: "0.8125rem", color: "#111" }}>{value}</Typography>
+            : value}
+        </Box>
       </Box>
     );
     const timelineBlock = (
       <Box sx={{ mt: 2 }}>
-        <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, mb: 0.5 }}>Timeline</Typography>
-        {tlRow("Scheduled Date", scheduledDateStr)}
-        {tlRow("Scheduled Time", scheduledTimeStr)}
-        {tlRow("Technician", doTechnician || "")}
-        {/* Route link is interactive (opens the map dialog), so it prints
-            nothing — only this row is screen-only; the rows above print. */}
-        <Box sx={{ display: "flex", mb: 0.25, "@media print": { display: "none" } }}>
-          <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, width: 120, flexShrink: 0 }}>Route</Typography>
-          {doStartReportId && doStartPingCount > 0 ? (
+        <Typography sx={{ fontSize: "0.9375rem", fontWeight: 700, letterSpacing: "1px", pb: 0.5, mb: 1, borderBottom: "1px solid #ddd" }}>
+          TIMELINE
+        </Typography>
+        {tlRow("Scheduled Date", scheduledDateTimeStr)}
+        {tlRow(
+          "Route",
+          doStartReportId && doStartPingCount > 0 ? (
             <Typography component="span" onClick={() => setRouteOpen(true)} sx={{ fontSize: "0.8125rem", color: "primary.main", cursor: "pointer", textDecoration: "underline" }}>
               View route
             </Typography>
           ) : (
             <Typography sx={{ fontSize: "0.8125rem", color: "#444" }}>Not recorded</Typography>
-          )}
-        </Box>
+          ),
+          true, // screen only
+        )}
       </Box>
     );
+    // "RECEIVED BY" block (receipt style), shared by both sub-layouts. Grey
+    // header bar, then a Name column and a Signature column (signature in a
+    // bordered white box) with the sign date beside it on one line. Source is
+    // unchanged: the DO_ACK signature, falling back to DO_INSTALL. Prints, and
+    // is placed after the flex spacer so it pins to the bottom of page 1.
+    const receivedByBlock = (() => {
+      const ack = maintenanceReports?.find((r) => r.kind === "DO_ACK") ?? null;
+      const install = maintenanceReports?.find((r) => r.kind === "DO_INSTALL") ?? null;
+      const sig = ack?.signature ? ack : install?.signature ? install : null;
+      const signedName = sig?.signedByName ?? "";
+      const signedDate = sig ? new Date(sig.signedAt ?? sig.createdAt).toLocaleDateString("en-GB") : "";
+      return (
+        <Box sx={{ border: "1px solid #000", pageBreakInside: "avoid", breakInside: "avoid" }}>
+          <Box sx={{ backgroundColor: "#e0e0e0", px: 1.5, py: 0.75, borderBottom: "1px solid #000" }}>
+            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, letterSpacing: "0.5px" }}>RECEIVED BY</Typography>
+          </Box>
+          <Box sx={{ display: "flex", gap: 2, p: 1.5 }}>
+            <Box sx={{ width: "38%", flexShrink: 0 }}>
+              <Typography sx={{ fontSize: "0.75rem", color: "#666", mb: 0.75 }}>Name</Typography>
+              <Typography sx={{ fontSize: "0.875rem", fontWeight: 500 }}>{signedName}</Typography>
+            </Box>
+            <Box sx={{ flex: 1, display: "flex", alignItems: "flex-end", gap: 2 }}>
+              <Box sx={{ flex: 1 }}>
+                <Typography sx={{ fontSize: "0.75rem", color: "#666", mb: 0.75 }}>Signature</Typography>
+                <Box sx={{ border: "1px solid #ccc", backgroundColor: "#fff", height: 68, display: "flex", alignItems: "center", justifyContent: "center", p: 0.5 }}>
+                  {sig?.signature && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={resolvePhotoSrc(sig.signature)} alt="Customer signature" style={{ maxHeight: 60, maxWidth: "100%", objectFit: "contain" }} />
+                  )}
+                </Box>
+              </Box>
+              <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "nowrap", pb: 0.5 }}>Date: {signedDate}</Typography>
+            </Box>
+          </Box>
+        </Box>
+      );
+    })();
     return (
       <>
       <Paper
@@ -1955,18 +2011,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             Received" block). Every other org keeps the generic layout below.
             The customer signature still auto-fills from the field app's
             DO_ACK report; the old "Delivery By" line is dropped by design. */}
-        {(() => {
-          const BIOFUEL_ORG_ID = "52e90ba8-bfbd-48b0-bb76-4f9667bf74f1";
-          return (
-            (data as any)?.organizationId === BIOFUEL_ORG_ID ||
-            organization?.id === BIOFUEL_ORG_ID ||
-            organization?.name === "Biofuel Industries Pte Ltd"
-          );
-        })() ? (() => {
-          const doAck = maintenanceReports?.find((r) => r.kind === "DO_ACK") ?? null;
-          const doInstall = maintenanceReports?.find((r) => r.kind === "DO_INSTALL") ?? null;
-          // Customer "received" signature: delivery ack first, install ack fallback.
-          const receivedSig = doAck?.signature ? doAck : doInstall?.signature ? doInstall : null;
+        {isBiofuel ? (() => {
+          // The customer-received signature now lives in the shared receivedByBlock
+          // below; this IIFE only needs dmy for the header date rows.
           const dmy = (d: any) => (d ? new Date(d).toLocaleDateString("en-GB") : "");
           const infoRow = (label: string, value: React.ReactNode, opts?: { boldValue?: boolean }) => {
             // Hide the whole row (label + colon) when a string value is blank —
@@ -2139,7 +2186,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                             <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "nowrap" }}>
                               {item.proofPhotos.slice(0, 4).map((key: string) => (
                                 // eslint-disable-next-line @next/next/no-img-element
-                                <img key={key} src={resolvePhotoSrc(key)} alt="" style={{ width: "23%", aspectRatio: "4 / 3", objectFit: "cover", border: "1px solid #ccc" }} />
+                                <img key={key} src={resolvePhotoSrc(key)} alt="" onClick={() => setZoomSrc(resolvePhotoSrc(key))} style={{ width: "23%", aspectRatio: "4 / 3", objectFit: "cover", border: "1px solid #ccc", cursor: "pointer" }} />
                               ))}
                             </Box>
                           )}
@@ -2160,48 +2207,49 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   now that the item box fits its content instead of stretching. */}
               <Box sx={{ flex: 1 }} />
 
-              {/* Footer — Biofuel signature + stamp LEFT, customer receipt RIGHT */}
-              <Box sx={{ display: "flex", justifyContent: "space-between", gap: 6, pageBreakInside: "avoid", breakInside: "avoid" }}>
-                <Box sx={{ width: "44%" }}>
-                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, mb: 1 }}>
-                    for Biofuel Industries Pte Ltd
-                  </Typography>
-                  {/* Eugene Lee signature + company stamp on the ruled line —
-                      same base64 assets as the Biofuel quotation. */}
-                  <Box sx={{ display: "flex", alignItems: "flex-end", gap: 1, height: 72, mb: 0.5, borderBottom: "1px solid #000" }}>
-                    <Box component="img" src={BIOFUEL_SIGNATURE_DATA_URI} alt="Director signature" sx={{ width: 120, maxHeight: 70, objectFit: "contain" }} />
-                    <Box component="img" src={BIOFUEL_STAMP_DATA_URI} alt="Company stamp" sx={{ width: 75, maxHeight: 70, objectFit: "contain" }} />
+              {/* Footer — the RECEIVED BY block (reference receipt style). The
+                  old left-hand Biofuel signature + stamp was removed; the
+                  customer signature now lives in this shared bordered box. */}
+              {receivedByBlock}
+
+              {/* Biofuel DO closing footer (prints). The contact number comes
+                  from the org record (organization.phoneNumber) with a +65
+                  prefix applied at render only (the record is left unchanged).
+                  The e-mail is Biofuel's enquiries address; the Organization
+                  model has no e-mail field, so it is a component-local literal
+                  matching the backend's salePersonEmail constant
+                  (documentTemplates.service.ts). The generated line stamps the
+                  render time in SGT. No QR code. */}
+              {(() => {
+                const rawPhone = organization?.phoneNumber || "";
+                const enquiriesPhone = rawPhone ? (rawPhone.startsWith("+") ? rawPhone : `+65 ${rawPhone}`) : "";
+                const BIOFUEL_ENQUIRIES_EMAIL = "eugene@biofuelindustries.sg";
+                const generatedAt = new Date().toLocaleString("en-GB", {
+                  timeZone: "Asia/Singapore",
+                  day: "2-digit",
+                  month: "short",
+                  year: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                  hour12: true,
+                });
+                return (
+                  <Box sx={{ mt: 3, pt: 1.5, borderTop: "1px solid #ddd", textAlign: "center", pageBreakInside: "avoid", breakInside: "avoid" }}>
+                    <Typography sx={{ fontSize: "0.875rem", fontWeight: 700, mb: 0.5 }}>
+                      Thank you for your business!
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.75rem", color: "#666" }}>
+                      For any enquiries concerning this delivery note, please contact us at {enquiriesPhone}.
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.75rem", color: "#666" }}>
+                      Tel: {enquiriesPhone}&nbsp;&nbsp;|&nbsp;&nbsp;E-mail: {BIOFUEL_ENQUIRIES_EMAIL}
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.6875rem", color: "#aaa", mt: 0.5 }}>
+                      Generated on {generatedAt} (SGT) | Biofuel Industries Pte. Ltd
+                    </Typography>
                   </Box>
-                </Box>
-                <Box sx={{ width: "48%" }}>
-                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, mb: 1 }}>
-                    Goods Received in Good Order &amp; Condition
-                  </Typography>
-                  {/* Auto-filled from the field app's DO_ACK signature when the
-                      DO has been signed; otherwise stays a blank paper line. */}
-                  <Box sx={{ height: 72, display: "flex", alignItems: "flex-end", borderBottom: "1px solid #000", mb: 0.5 }}>
-                    {receivedSig?.signature && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={resolvePhotoSrc(receivedSig.signature)}
-                        alt="Customer signature"
-                        style={{ maxHeight: 64, maxWidth: "70%", objectFit: "contain" }}
-                      />
-                    )}
-                  </Box>
-                  <Typography sx={{ fontSize: "0.8125rem" }}>Customer&apos;s Signature &amp; Company Stamp</Typography>
-                  {receivedSig?.signedByName && (
-                    <Typography sx={{ fontSize: "0.75rem", color: "#444" }}>{receivedSig.signedByName}</Typography>
-                  )}
-                  <Typography sx={{ fontSize: "0.8125rem", mt: 0.25 }}>
-                    {/* Date the customer signed (signedAt) — the actual
-                        hand-over time; fall back to the row's createdAt only if
-                        an older signed report has no signedAt. Blank when
-                        unsigned, preserving the wet-ink paper line. */}
-                    Date: {receivedSig ? dmy(receivedSig.signedAt ?? receivedSig.createdAt) : ""}
-                  </Typography>
-                </Box>
-              </Box>
+                );
+              })()}
             </>
           );
         })() : (
@@ -2320,14 +2368,6 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   <TableCell>{item.itemCode || ""}</TableCell>
                   <TableCell>
                     <DescriptionText text={item.description || ""} sx={{ fontWeight: 500 }} />
-                    {Array.isArray(item.proofPhotos) && item.proofPhotos.length > 0 && (
-                      <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "nowrap" }}>
-                        {item.proofPhotos.slice(0, 4).map((key: string) => (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img key={key} src={resolvePhotoSrc(key)} alt="" style={{ width: "23%", aspectRatio: "4 / 3", objectFit: "cover", border: "1px solid #ccc" }} />
-                        ))}
-                      </Box>
-                    )}
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity?.toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.uom || ""}</TableCell>
@@ -2335,16 +2375,23 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 </TableRow>
               ))}
 
+              {/* Add empty rows for spacing */}
+              {items.length < 5 &&
+                Array.from({ length: 5 - items.length }).map((_, index) => (
+                  <TableRow key={`empty-${index}`} sx={{ height: 40 }}>
+                    <TableCell>&nbsp;</TableCell>
+                    <TableCell>&nbsp;</TableCell>
+                    <TableCell>&nbsp;</TableCell>
+                    <TableCell>&nbsp;</TableCell>
+                    <TableCell>&nbsp;</TableCell>
+                  </TableRow>
+                ))}
             </TableBody>
           </Table>
         </TableContainer>
 
-        {/* Timeline (screen only) directly below the item table. */}
-        {timelineBlock}
-
         {/* Flex spacer — fills available height inside the page-1 wrapper so
-            the signature block below pins to the bottom of the printed page.
-            The empty filler rows were removed so the table fits its content. */}
+            the signature block below pins to the bottom of the printed page. */}
         <Box sx={{ flex: 1 }} />
 
         {/* Bottom Signature Section - DO Style */}
@@ -2468,10 +2515,148 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         )}
 
         </Box>
+        {/* End of page-1 wrapper. PROOF OF DELIVERY follows as a sibling so
+            its content height doesn't compress the page-1 layout. */}
+
+        {/* PROOF OF DELIVERY — field-tech reports linked to this DO via
+            documentId. Condition photos are captured at START-delivery
+            (custody handover), so DO_START rows render here WHEN they carry
+            photos; a photo-less DO_START is still filtered out (the tech's
+            identity already shows on page 1's "Delivery By" line — a bare
+            stub would be visual noise). Section is suppressed entirely when
+            nothing remains after the filter, so a DO with only a photo-less
+            DO_START keeps its clean one-page print. */}
+        {!isBiofuel && maintenanceReports &&
+          maintenanceReports.filter((r) => r.kind !== "DO_START" || (r.photos?.length ?? 0) > 0).length > 0 && (
+          <Box
+            sx={{
+              mt: 4,
+              pt: 3,
+              borderTop: "2px solid #000",
+              pageBreakBefore: "always",
+              "@media print": { pageBreakBefore: "always" },
+            }}
+          >
+            <Typography
+              sx={{
+                fontSize: "0.9375rem",
+                fontWeight: 700,
+                textAlign: "center",
+                mb: 2,
+                letterSpacing: "1px",
+              }}
+            >
+              PROOF OF DELIVERY
+            </Typography>
+
+            {maintenanceReports
+              .filter((r) => r.kind !== "DO_START" || (r.photos?.length ?? 0) > 0)
+              .map((report, idx) => (
+              <Box
+                key={report.id}
+                sx={{
+                  mb: 3,
+                  pb: 2,
+                  // Reports flow together on the same page when they fit. The
+                  // browser's natural page break kicks in only if the content
+                  // overflows — saves paper when a report is just a header +
+                  // a few photos + a signature. A thin top border + extra top
+                  // padding visually separates subsequent reports without
+                  // forcing a fresh page.
+                  ...(idx > 0 && {
+                    mt: 3,
+                    pt: 3,
+                    borderTop: "1px solid #ddd",
+                  }),
+                }}
+              >
+                {/* Header row: kind label + ISO timestamp + technician */}
+                <Box sx={{ display: "flex", gap: 2, alignItems: "baseline", mb: 1.5, flexWrap: "wrap" }}>
+                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700 }}>
+                    {report.kind === "DO_START"
+                      ? "Delivery Started"
+                      : report.kind === "DO_INSTALL"
+                        ? "Installation Acknowledged"
+                        : "Delivery Acknowledged"}
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.75rem", color: "#444" }}>
+                    {new Date(report.createdAt).toLocaleString("en-GB", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </Typography>
+                  {report.technicianName && (
+                    <Typography sx={{ fontSize: "0.75rem", color: "#444" }}>
+                      By: {report.technicianName}
+                    </Typography>
+                  )}
+                </Box>
+
+                {/* Subject: which unit this photo set belongs to. A multi-unit
+                    run renders several proof blocks, so the asset name (and unit
+                    sku when known) labels each. Asset-less proof (run-level
+                    install, free-typed line) has no subject and shows no label. */}
+                {(report.subjectAsset || report.subjectSku) && (
+                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, mb: 1.5 }}>
+                    {report.subjectAsset && report.subjectSku
+                      ? `${report.subjectAsset} (${report.subjectSku})`
+                      : report.subjectAsset || report.subjectSku}
+                  </Typography>
+                )}
+
+                {/* Photos — 2-column grid, ~85mm wide each at A4 margins, fixed
+                    4:3 aspect so the print engine doesn't fight the layout.
+                    All kinds render their photos: DO_START carries the
+                    outbound condition shots, DO_ACK/DO_INSTALL any proof
+                    captured at their steps (historical acks keep theirs). */}
+                {report.photos && report.photos.length > 0 && (
+                  <Box
+                    sx={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: 1.5,
+                      my: 1.5,
+                    }}
+                  >
+                    {report.photos.map((key) => (
+                      <Box
+                        key={key}
+                        sx={{
+                          width: "100%",
+                          aspectRatio: "4 / 3",
+                          overflow: "hidden",
+                          border: "1px solid #ccc",
+                        }}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={resolvePhotoSrc(key)}
+                          alt=""
+                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                        />
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+              </Box>
+            ))}
+          </Box>
+        )}
       </Paper>
       {/* Route map popup (screen only) — reuses the existing dialog, opened by
           the Timeline "View route" link and keyed on the DO_START report id. */}
       <DeliveryRouteDialog reportId={doStartReportId} open={routeOpen} onClose={() => setRouteOpen(false)} />
+      {/* Single proof-photo zoom dialog for the whole document (screen only).
+          Driven by zoomSrc; closes on backdrop click and Esc (MUI onClose).
+          It is only mounted while open and carries an explicit print guard, so
+          it never appears in the printed output. Image shows at natural size,
+          capped to the viewport. */}
+      <Dialog open={!!zoomSrc} onClose={() => setZoomSrc(null)} maxWidth={false} sx={{ "@media print": { display: "none" } }}>
+        {zoomSrc && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={zoomSrc} alt="" style={{ display: "block", width: "auto", height: "auto", maxWidth: "95vw", maxHeight: "95vh" }} />
+        )}
+      </Dialog>
       </>
     );
   }
