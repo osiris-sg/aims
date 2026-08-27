@@ -80,11 +80,14 @@ export default function PublicDocumentViewPage() {
   }
 
   return (
-    // Full-width page background; the document's own Paper (width 210mm,
-    // margin: 0 auto) centres itself within it, exactly as the portal preview
-    // does. overflowX lets a wide A4 page scroll on a narrow phone instead of
-    // being clipped.
-    <Box sx={{ minHeight: "100vh", bgcolor: "#f5f5f5", py: { xs: 1, sm: 3 }, overflowX: "auto" }}>
+    // The app's <body class="ROOT_LAYOUT"> is `display:flex; width:100vw`, so
+    // this wrapper is a flex ITEM. Without flexGrow it shrinks to the document's
+    // width and hugs the left, leaving the raw body background beside it. flexGrow
+    // makes it fill the full viewport (page background spans the whole width);
+    // the document's own Paper (margin: 0 auto) then centres inside it. minWidth:0
+    // + overflowX let a viewport narrower than the A4 page scroll horizontally
+    // instead of being clipped. The Paper's own width is untouched.
+    <Box sx={{ flexGrow: 1, minWidth: 0, minHeight: "100vh", bgcolor: "#f5f5f5", py: { xs: 1, sm: 3 }, overflowX: "auto" }}>
       <CleanDocumentPreview
         documentType={view.documentType || "DO"}
         data={view.data || {}}
