@@ -40,7 +40,7 @@ export function Screenshot({ id, className = "" }: { id: string; className?: str
   );
 }
 
-/** Width/height from a PNG's IHDR chunk — enough to reserve layout space without an image library. */
+/** Width/height from a PNG's IHDR chunk, enough to reserve layout space without an image library. */
 function pngSize(file: string): { w: number; h: number } | null {
   try {
     const fd = fs.openSync(file, "r");

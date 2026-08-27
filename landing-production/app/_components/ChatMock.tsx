@@ -2,7 +2,7 @@ import Image from "next/image";
 import { CHAT, QUOTE_FILE, QUOTE_LINES, QUOTE_TOTAL } from "../_content/site";
 import { FileIcon, SendIcon } from "./Icons";
 
-/** Static rendering of a sample operator conversation — the hero's product shot. */
+/** Static rendering of a sample operator conversation, the hero's product shot. */
 export function ChatMock() {
   return (
     <div className="phone-wrap">

@@ -7,11 +7,11 @@ const SITE_URL = "https://ai-ms.io";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "AIMS — Run your whole business from one chat",
+  title: "AIMS: Run your whole business from one chat",
   description:
     "Inventory, HR, CRM, accounting and claims in one system, with an agent on WhatsApp or Telegram that does the work when you ask. Built for Singapore SMEs.",
   openGraph: {
-    title: "AIMS — Run your whole business from one chat",
+    title: "AIMS: Run your whole business from one chat",
     description:
       "Inventory, HR, CRM, accounting and claims in one system, with a WhatsApp/Telegram agent that does the work when you ask.",
     url: SITE_URL,

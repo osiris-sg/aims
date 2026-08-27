@@ -468,3 +468,12 @@ h1, h2, h3, p { margin: 0; }
   .feature-title { font-size: 26px; }
   .more-grid, .more-grid-5, .tools-grid, .plans { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Works-with logo strip */
+.logos { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); background: var(--surface-soft); }
+.logos-inner { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; padding-top: 22px; padding-bottom: 22px; }
+.logos-label { font-size: 13px; color: var(--muted-2); white-space: nowrap; }
+.logos-list { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: 28px; flex-wrap: wrap; }
+.logo { display: inline-flex; align-items: center; gap: 8px; color: var(--muted-2); font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+.logo-mark { width: 20px; height: 20px; background: currentColor; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-size: contain; mask-size: contain; -webkit-mask-position: center; mask-position: center; }
+.logo:hover { color: var(--ink); }

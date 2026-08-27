@@ -7,7 +7,7 @@ import { ArrowIcon, CheckIcon } from "../_components/Icons";
 import { MODULE_ICONS } from "../_components/Modules";
 
 export const metadata: Metadata = {
-  title: "Pricing — AIMS",
+  title: "Pricing | AIMS",
   description: "Priced per company, per module. Setup and Xero migration handled by our team.",
 };
 
@@ -24,7 +24,7 @@ const PLANS = [
     tagline: "Everything on, plus your accountant.",
     price: "All modules, per month",
     featured: true,
-    features: ["All five modules", "Accountant seat with the posting queue", "Xero migration, reconciled to the cent", "Field app for your technicians", "Priority support on WhatsApp"],
+    features: ["All five modules", "Accountant seat with the posting queue", "Migration from Xero, QuickBooks, Odoo and more", "Field app for your technicians", "Priority support on WhatsApp"],
     cta: "Book a demo",
   },
   {
@@ -45,7 +45,7 @@ export default function PricingPage() {
           <div className="page-hero-copy" style={{ alignItems: "center", textAlign: "center" }}>
             <span className="eyebrow">Pricing</span>
             <h1 className="h1 h1-page">Pick the modules you need. Pay for those.</h1>
-            <p className="hero-body">Priced per company, per module. Setup and Xero migration are handled by our team, not left to you.</p>
+            <p className="hero-body">Priced per company, per module. Our team handles setup and migration.</p>
           </div>
         </section>
         <section className="wrap plans">

@@ -66,7 +66,7 @@ export function PromptStrip({ prompts, title = "Ask the agent" }: { prompts: str
         <div className="section-head">
           <span className="eyebrow">{title}</span>
           <h2 className="h2">The same module, from WhatsApp or Telegram.</h2>
-          <p className="lede">Everything above is also a sentence away. Look-ups answer instantly; anything that commits waits for your Confirm.</p>
+          <p className="lede">Everything above is one message away. Look-ups answer at once. Anything that commits waits for your Confirm.</p>
         </div>
         <div className="prompt-bubbles">
           {prompts.map((p) => <span key={p} className="prompt-bubble">{p}</span>)}

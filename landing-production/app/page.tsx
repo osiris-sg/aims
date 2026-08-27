@@ -1,6 +1,7 @@
 import { Nav } from "./_components/Nav";
 import { Hero } from "./_components/Hero";
 import { Proof } from "./_components/Proof";
+import { LogoStrip } from "./_components/LogoStrip";
 import { Modules } from "./_components/Modules";
 import { Agent } from "./_components/Agent";
 import { Platform } from "./_components/Platform";
@@ -13,6 +14,7 @@ export default function Page() {
       <Nav />
       <main>
         <Hero />
+        <LogoStrip />
         <Proof />
         <Modules />
         <Agent />

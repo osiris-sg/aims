@@ -17,7 +17,7 @@ export function Modules() {
       <div className="section-head" style={{ marginBottom: 44 }}>
         <span className="eyebrow">Five modules · one agent</span>
         <h2 className="h2">Every part of the business, reachable from the same conversation.</h2>
-        <p className="lede">Turn modules on per company. Whatever is on, the agent can read it, draft in it, and — once you confirm — act in it.</p>
+        <p className="lede">Turn modules on per company. Whatever is on, the agent can read it, draft in it, and, once you confirm, act in it.</p>
       </div>
       <div className="grid6">
         {MODULES.map((m) => (

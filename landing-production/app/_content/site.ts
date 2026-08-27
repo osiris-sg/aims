@@ -18,8 +18,8 @@ export const HERO = {
   eyebrow: "AI operations platform for SMEs",
   title: "Run your whole business from one chat.",
   body:
-    "Inventory, HR, CRM, accounting and claims in one system — and an agent on WhatsApp or Telegram that does the work when you ask. Quotations, stock checks, leave approvals, expense claims, aged receivables: type it, confirm it, done.",
-  proofs: ["Double-entry ledger built in", "GST-ready, Singapore first", "Imports your Xero history"],
+    "Inventory, HR, CRM, accounting and claims in one system. An agent on WhatsApp or Telegram does the work when you ask. Type it, confirm it, done.",
+  proofs: ["Double-entry ledger built in", "GST-ready, Singapore first", "Works with your current accounting software"],
 };
 
 /** Sample conversation rendered in the hero phone. */
@@ -33,7 +33,7 @@ export const CHAT: ChatTurn[] = [
   { from: "you", text: "how much does Beta owe us?", time: "09:42" },
   {
     from: "aims",
-    html: "Beta Industries has <strong>2 open invoices — S$4,820.00</strong>. INV-0231 (S$3,200) is 12 days overdue. Want me to send a reminder?",
+    html: "Beta Industries has <strong>2 open invoices, S$4,820.00</strong>. INV-0231 (S$3,200) is 12 days overdue. Send a reminder?",
     time: "09:42",
   },
   { from: "you", text: "yes, and check stock for FXAQ25", time: "09:42" },
@@ -52,7 +52,7 @@ export const QUOTE_TOTAL = { label: "Total incl. 9% GST", amount: "S$2,616.00" }
 export const QUOTE_FILE = "QT-2026-0148.pdf";
 
 /**
- * Client logos for the proof strip. Leave empty and the strip is not rendered —
+ * Client logos for the proof strip. Leave empty and the strip is not rendered -
  * never ship placeholder logos. Files go in /public/clients/.
  */
 export const CLIENT_LOGOS: { src: string; alt: string }[] = [];
@@ -76,8 +76,8 @@ export const MODULES: {
   {
     key: "inventory",
     name: "Inventory",
-    hero: "Tap the NFC sticker, photograph the nameplate — the unit exists.",
-    body: "Serial-tracked or quantity-tracked products, purchases and adjustments, a stock card per item, and a field app that creates units from a tag tap and an AI-read serial — with a three-layer duplicate guard.",
+    hero: "Tap the NFC sticker, photograph the nameplate. The unit exists.",
+    body: "Products, purchases, adjustments and a stock card per item. A field app that creates units from a tag tap and an AI-read serial.",
     screen: "field-scan",
     prompts: ["“check stock for FXAQ25”", "“raise a PO to Daikin for 20 units”", "“what did we deliver to Tuas this week?”"],
     span: 2,
@@ -86,7 +86,7 @@ export const MODULES: {
     key: "hr",
     name: "HR",
     hero: "Leave, attendance and payroll, approved in the chat.",
-    body: "Staff records built on the same roles and permissions that gate every other module. Leave requests and approvals move through the agent, not a queue of emails.",
+    body: "Staff records, leave and payroll on the same roles and permissions as every other module. Approvals happen in the chat.",
     badge: "roadmap",
     prompts: ["“apply 2 days leave next Thu–Fri”", "“who’s on leave this week?”", "“prepare August payroll”"],
     span: 2,
@@ -94,8 +94,8 @@ export const MODULES: {
   {
     key: "crm",
     name: "CRM",
-    hero: "Drop a PDF or a photo — get a numbered, branded document.",
-    body: "Customers, the full Quotation → Sales Order → Delivery Order → Invoice chain with partial billing, click-to-pay invoices with a PayNow QR, and a WhatsApp assistant that only answers what you trained it on.",
+    hero: "Drop a PDF or a photo. Get a numbered, branded document.",
+    body: "Customers, the full quotation to invoice chain, click-to-pay invoices with a PayNow QR, and a WhatsApp assistant that only says what you taught it.",
     screen: "doc-upload",
     prompts: ["“quote Beta for 2 FCUs + install”", "“which quotes are unanswered over 7 days?”", "“add Ciel Interior as a customer”"],
     span: 2,
@@ -104,7 +104,7 @@ export const MODULES: {
     key: "accounting",
     name: "Accounting",
     hero: "AI does the coding. Your accountant keeps the pen.",
-    body: "Documents post balanced journals automatically and wait in a review queue. Bank rec that solves batch payments, a close wizard whose lock is enforced at the write path, six anomaly detectors, GST F5, and 43 reports — reconciled to the cent against Xero.",
+    body: "Documents post journals automatically and wait for review. Bank rec, period close, anomaly checks, GST F5 and 43 reports. Moves your books over from Xero, QuickBooks, Odoo and more.",
     screen: "posting-queue",
     prompts: ["“aged receivables as of today”", "“record S$3,200 from Beta against INV-0231”", "“GST report for Q3”"],
     span: 3,
@@ -113,8 +113,8 @@ export const MODULES: {
   {
     key: "claims",
     name: "Claims",
-    hero: "Snap the receipt. It's filed, coded and waiting for approval.",
-    body: "The same extraction that reads supplier bills reads staff receipts: amount, GST and vendor, tagged to a project or cost centre, coded with the account your accountant taught it, and posted to the ledger on approval.",
+    hero: "Snap the receipt. It is filed, coded and waiting for approval.",
+    body: "Send a receipt photo to the bot. AI reads the amount, GST and vendor, tags the project, and posts it to the ledger once approved.",
     badge: "early-access",
     prompts: ["[receipt photo] “claim this under Tuas project”", "“approve all claims under S$50”", "“how much has Ravi claimed this month?”"],
     span: 3,
@@ -124,22 +124,22 @@ export const MODULES: {
 export const AGENT = {
   eyebrow: "The agent",
   title: "Not a chatbot that answers questions. A colleague that does the work.",
-  body: "The AIMS agent has the same permissions as the person messaging it. It looks things up freely, drafts anything, and only commits — send, post, pay, delete — after you tap Confirm.",
+  body: "The agent has the same permissions as the person messaging it. It looks things up, drafts anything, and only commits after you tap Confirm.",
   steps: [
     {
       n: "01",
       title: "Ask in plain language",
-      body: "WhatsApp or Telegram, from the phone you already have. No app to open, no forms to find. It knows your customers, items, prices and staff.",
+      body: "WhatsApp or Telegram, from the phone you already have. It knows your customers, items, prices and staff.",
     },
     {
       n: "02",
       title: "It drafts and shows you",
-      body: "A quotation PDF, a leave request, a claim, a payment allocation — rendered with your own document template so you see exactly what will go out.",
+      body: "A quotation PDF, a leave request, a claim. Rendered on your own template so you see exactly what will go out.",
     },
     {
       n: "03",
       title: "You confirm, AIMS executes",
-      body: "One tap. The document is numbered, sent, and — for invoices, bills and claims — posted to the general ledger. Every action is in the audit trail with your name on it.",
+      body: "One tap. The document is numbered, sent and posted to the ledger. Every action is logged with your name on it.",
     },
   ],
   guarantees: [
@@ -154,19 +154,19 @@ export const PLATFORM = {
   eyebrow: "The platform underneath",
   title: "The chat is the front door. The system behind it is complete.",
   items: [
-    { title: "Branded documents", body: "Quotation, SO, DO, invoice, credit/debit note, PO — your templates, your numbering formats." },
-    { title: "Field app", body: "Android app for technicians: NFC asset scans, deliveries with signature and location, offline-tolerant." },
-    { title: "Email & API ingestion", body: "Forward supplier bills to your AIMS address; connect your own apps through the REST API." },
-    { title: "Projects & deployments", body: "Rentals, sales and service jobs with assigned assets and recurring invoicing anchored to each deployment." },
-    { title: "Multi-company, multi-currency", body: "Run several entities from one login; foreign invoices convert to base with realised FX handled for you." },
-    { title: "Xero migration", body: "Bring in contacts, invoices, bills and the full journal history; we reconcile the trial balance before you switch." },
+    { title: "Branded documents", body: "Quotation, SO, DO, invoice, credit note, PO. Your templates, your numbering." },
+    { title: "Field app", body: "Android app for technicians. NFC scans, deliveries with signature and location." },
+    { title: "Email & API ingestion", body: "Forward supplier bills to your AIMS email address. Connect your own apps through the API." },
+    { title: "Projects & deployments", body: "Rentals, sales and service jobs with assigned assets and recurring invoicing." },
+    { title: "Multi-company, multi-currency", body: "Several companies from one login. Foreign invoices convert to base currency automatically." },
+    { title: "Migration from your current software", body: "Xero, QuickBooks, Odoo, MYOB, Sage and more. We bring in contacts, invoices, bills and history, and check the trial balance before you switch." },
   ],
 };
 
 export const CTA = {
   eyebrow: "Get started",
   title: "Pick the modules you need. Talk to the agent tomorrow.",
-  body: "Priced per company, per module. Setup and Xero migration handled by our team.",
+  body: "Priced per company, per module. Our team handles setup and migration.",
 };
 
 export const FOOTER = {
@@ -207,7 +207,7 @@ export type Screen = { file: string; alt: string; kind: "desktop" | "phone"; cap
 export const SCREENS: Record<string, Screen> = {
   "field-scan": { file: "field-scan.png", alt: "AIMS Field app: tap an asset tag", kind: "phone", caption: "Tap an asset tag" },
   "field-photos": { file: "field-photos.png", alt: "Guided 4-angle condition photo capture", kind: "phone", caption: "Guided 4-angle condition photos" },
-  "field-route": { file: "field-route.png", alt: "Completed delivery run with condition photos, customer signature and linked Delivery Order", kind: "desktop", caption: "Proof of delivery in the office: condition photos, signature, linked DO" },
+  "field-route": { file: "field-route.png", alt: "Completed delivery run with photos, signature and linked Delivery Order", kind: "desktop", caption: "Proof of delivery in the office" },
   "guest-delivery": { file: "guest-delivery.png", alt: "Zero-login delivery link for a driver", kind: "phone", caption: "Zero-login driver link" },
   "doc-upload": { file: "doc-upload.png", alt: "Upload a PDF and AIMS extracts the document", kind: "desktop", caption: "PDF in, numbered document out" },
   "invoices-list": { file: "invoices-list.png", alt: "Invoice list with statuses and totals", kind: "desktop", caption: "Every invoice, its status and its balance" },
@@ -224,12 +224,12 @@ export const SCREENS: Record<string, Screen> = {
 export const FIELD_BAND = {
   eyebrow: "In the field",
   title: "Proof that comes back from the van by itself.",
-  body: "The AIMS Field app on an Android handheld: tap the NFC sticker, let AI read the nameplate, walk the four-angle photo set, take one signature at the end — and the Delivery Order and a priced draft invoice are already in the office.",
+  body: "The AIMS Field app on an Android handheld: tap the NFC sticker, let AI read the nameplate, walk the four-angle photo set, take one signature at the end. and the Delivery Order and a priced draft invoice are already in the office.",
   points: [
     "NFC tap identifies the unit; AI reads model + serial off the label",
     "Front · Left · Back · Right photos, enforced on the phone and the server; before/after side-by-side on return",
     "Background GPS from Start to Acknowledge, drawn as a route in the portal",
-    "Subcontracted driver? Send a link — no app, no login, self-expiring",
+    "Subcontracted driver? Send a link. no app, no login, self-expiring",
   ],
   screens: ["field-scan", "field-photos", "guest-delivery"],
   wide: "field-route",
@@ -238,18 +238,18 @@ export const FIELD_BAND = {
 export const ACCOUNTANT_BAND = {
   eyebrow: "Built for the accountant",
   title: "Nothing reaches the ledger without a human clicking Post.",
-  body: "The controls an accountant would ask for, on by default. Plus bank rec that solves batch payments: one transfer settling four invoices is matched by subset-sum, guarded by the counterparty’s name in the narrative — and still surfaced as a suggestion for you to confirm.",
+  body: "The controls an accountant would ask for, on by default. Plus bank rec that solves batch payments: one transfer settling four invoices is matched by subset-sum, guarded by the counterparty’s name in the narrative. and still surfaced as a suggestion for you to confirm.",
   tiles: [
     { screen: "posting-queue", title: "One review queue", body: "Invoices, bills, credit and debit notes, receipts and journal vouchers, each with an AI Dr/Cr preview you can override. Batch-post; never double-posts." },
-    { screen: "ask-ai", title: "Ask the books — and hand it a PDF", body: "“Who owes me the most?” answered from the ledger with tables and drill-links. Attach a supplier or bank statement and it reconciles it against your books. It never invents a figure." },
+    { screen: "ask-ai", title: "Ask the books. and hand it a PDF", body: "“Who owes me the most?” answered from the ledger with tables and drill-links. Attach a supplier or bank statement and it reconciles it against your books. It never invents a figure." },
     { screen: "close-wizard", title: "A close that locks the door", body: "Preflight checks with fix-it links, retained-earnings rollover and depreciation posted for you, then a period lock enforced at the write path." },
     { screen: "finance-hub", title: "Six detectors on the dashboard", body: "Possible duplicate invoices, invoices posted without GST, amounts 3× an account’s norm, stale drafts, rentals still billed in full after a partial return." },
   ],
   parity: {
-    title: "Reconciled to the cent against Xero",
+    title: "Checked to the cent before you switch",
     body: "Import your Xero history, then run the reconciler: every GL account, plus total AR and AP, diffed against Xero’s live API at a one-cent tolerance and cross-checked against your own control accounts. Zero drift or the run fails.",
     sample: [
-      "$ reconcile-xero --asof 2026-08-31 --tol 0.01",
+      "$ reconcile --asof 2026-08-31 --tol 0.01",
       "GL / trial balance  169 accounts   drift 0.00   OK",
       "Accounts receivable                 drift 0.00   OK",
       "Accounts payable                    drift 0.00   OK",
