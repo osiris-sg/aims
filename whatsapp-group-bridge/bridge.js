@@ -56,6 +56,13 @@ const MIN_REPLY_GAP_MS = Number(process.env.MIN_REPLY_GAP_MS || 4000); // gentle
 const REPLY_DELAY_MS = Number(process.env.REPLY_DELAY_MS || 5 * 60 * 1000);
 // How often to check AIMS for appointment reminders that have come due.
 const REMINDER_POLL_MS = Number(process.env.REMINDER_POLL_MS || 5 * 60 * 1000);
+// A holding reply ("Denzel's with clients, he'll come back to you") only makes
+// sense once he has actually had a chance to answer. Firing it minutes after
+// the client writes reads as eager and pre-empts him, so these wait longer than
+// an ordinary templated answer.
+const HOLDING_DELAY_MS = Number(process.env.HOLDING_DELAY_MS || 30 * 60 * 1000);
+const HOLDING_REPLY =
+  /(with clients|the moment he'?s free|get back to you|follow up with you personally|noted this down and passed it)/i;
 
 // Extra numbers to treat as "staff" (never the client) — e.g. Denzel's own
 // number — so the intro never greets them. Comma-separated digits in .env.
@@ -402,7 +409,7 @@ async function captureAppointment(msg, chatId, group, clientName) {
       `📅 ${appt.updated ? 'Updated' : 'Noted'}: ${appt.topic || 'appointment'}${appt.venue ? ` at ${appt.venue}` : ''}\n` +
         `${when}${appt.tentative ? ' (tentative)' : ''}\n` +
         `Chat: ${group?.name || chatId}\n\n` +
-        `I'll remind ${clientName || 'them'} in the group on ${remind} 🙏`,
+        `I'll remind ${clientName || 'them'} in the group on ${remind} 🙏🏻`,
     );
     return true;
   } catch (e) {
@@ -560,7 +567,7 @@ async function notifyDenzel(group, clientMsg, reply) {
       `Chat: ${where}\n\n` +
       `They said:\n"${String(clientMsg || '').slice(0, 200)}"\n\n` +
       `I replied:\n"${String(reply || '').slice(0, 250)}"\n\n` +
-      `Please follow up with them personally 🙏`,
+      `Please follow up with them personally 🙏🏻`,
   );
 }
 
@@ -631,8 +638,9 @@ client.on('message_create', async (msg) => {
       return;
     }
     // Template Q&A replies are delayed (human-first). Fire-and-forget timer.
-    const mins = Math.round(REPLY_DELAY_MS / 60000);
-    console.log(`   ⏲  reply scheduled in ${mins}m: ${reply.slice(0, 70)}…`);
+    const delay = HOLDING_REPLY.test(reply) ? HOLDING_DELAY_MS : REPLY_DELAY_MS;
+    const mins = Math.round(delay / 60000);
+    console.log(`   ⏲  reply scheduled in ${mins}m${delay === HOLDING_DELAY_MS ? ' (holding)' : ''}: ${reply.slice(0, 60)}…`);
     const group = await groupInfo(msg, chatId);
     setTimeout(async () => {
       try {
@@ -645,7 +653,7 @@ client.on('message_create', async (msg) => {
       } catch (e) {
         console.error('   ✖ delayed send failed:', e && e.message ? e.message : e);
       }
-    }, REPLY_DELAY_MS);
+    }, delay);
   } catch (e) {
     console.error('handler error:', e && e.message ? e.message : e);
   }
