@@ -74,6 +74,50 @@ export class PublicDocumentService {
    * no price/cost field can ever ride along on a line. Proof-photo grouping has
    * already run in getById, so the internal item ids are safe to drop now.
    */
+  /**
+   * Server-side mirror of the preview's `groupDeliveryLines`: collapse each
+   * consecutive same-`deliveryGroup` run of qty-1 delivery lines into ONE line
+   * whose `description` carries the "Rental/Sale of N units of {name} / Model:
+   * {skuKey} / S/No.: {serial}" block. Run BEFORE sanitising so the grouping key
+   * (deliveryGroup = the real Asset id) is consumed here and never shipped; the
+   * preview then passes these pre-grouped, key-less lines through unchanged.
+   * Non-delivery lines (no deliveryGroup) pass through untouched.
+   */
+  private groupDeliveryLinesForPublic(raw: any[], isReturn: boolean): any[] {
+    if (!Array.isArray(raw) || raw.length === 0) return raw;
+    const out: any[] = [];
+    let i = 0;
+    while (i < raw.length) {
+      const line = raw[i];
+      const key = line?.deliveryGroup;
+      if (!key) {
+        out.push(line);
+        i++;
+        continue;
+      }
+      const run = [line];
+      let j = i + 1;
+      while (j < raw.length && raw[j]?.deliveryGroup === key) {
+        run.push(raw[j]);
+        j++;
+      }
+      const serials = run.flatMap((r) => (Array.isArray(r.serialNumbers) ? r.serialNumbers : [])).filter(Boolean);
+      const qty = run.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
+      const name = run[0].description || '';
+      const model = run[0].skuKey || '';
+      const verb = isReturn ? 'Return' : run.some((r) => r.deploymentType === 'SALE') ? 'Sale' : 'Rental';
+      const years = run.map((r) => r.year).filter((y) => y != null);
+      const year = years.length === run.length && new Set(years).size === 1 ? years[0] : null;
+      const lines = [`${verb} of ${qty} unit${qty === 1 ? '' : 's'} of ${name}`];
+      if (model) lines.push(`Model: ${model}`);
+      if (year != null) lines.push(`Year: ${year}`);
+      for (const s of serials) lines.push(`S/No.: ${s}`);
+      out.push({ ...run[0], quantity: qty, serialNumbers: serials, description: lines.join('\n') });
+      i = j;
+    }
+    return out;
+  }
+
   private sanitizeConfigForPublic(config: any): any {
     const cfg = { ...(config ?? {}) };
     const DROP_TOP = [
@@ -96,6 +140,10 @@ export class PublicDocumentService {
       const { referenceNo: _ref, ...di } = cfg.documentInfo as Record<string, unknown>;
       cfg.documentInfo = di;
     }
+    // NOTE: deliveryGroup is deliberately NOT kept — it is the real Asset id
+    // (deliveries.service sets deliveryGroup = assetId). The "Model … S/No …"
+    // grouping is done SERVER-SIDE in groupDeliveryLinesForPublic (before this
+    // sanitise) and baked into `description`, so no asset id ever ships.
     const ITEM_KEEP = ['id', 'sku', 'skuKey', 'itemCode', 'description', 'quantity', 'uom', 'remarks', 'serialNumbers', 'proofPhotos'];
     if (Array.isArray(cfg.items)) {
       cfg.items = cfg.items.map((it: any) => {
@@ -199,10 +247,27 @@ export class PublicDocumentService {
     };
     const documentType = (full?.type && TYPE_MAP[full.type]) || full?.type || null;
 
+    // Collapse the delivery lines into their "N units / Model / S/No." display
+    // form on the SERVER (using deliveryGroup = the Asset id), so the sanitise
+    // below can drop the asset id — only the rendered description lines ship.
+    const isReturn = full?.type === 'RETURN_DELIVERY_ORDER' || full?.type === 'RDO';
+    const rawCfg: any = full?.config ?? {};
+    const groupedCfg = {
+      ...rawCfg,
+      items: this.groupDeliveryLinesForPublic(Array.isArray(rawCfg.items) ? rawCfg.items : [], isReturn),
+    };
+
+    // The DO No. row reads data.documentInfo?.documentNumber || data.name. The
+    // document number lives on the Document ROW (getById's full.name), NOT in
+    // config, so the config-only public payload had neither and rendered blank.
+    // Carry the name (the DO number) so the header shows it, matching the portal.
+    const data = this.sanitizeConfigForPublic(groupedCfg);
+    if (full?.name && data && data.name == null) data.name = full.name;
+
     return {
       state: 'ok' as const,
       documentType,
-      data: this.sanitizeConfigForPublic(full?.config),
+      data,
       organization: {
         id: org.id ?? null,
         name: org.name ?? null,

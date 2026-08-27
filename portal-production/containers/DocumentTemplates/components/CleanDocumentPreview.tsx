@@ -160,11 +160,19 @@ export default function CleanDocumentPreview(props: CleanDocumentPreviewProps) {
         ...parentTheme,
         palette: {
           ...parentTheme.palette,
-          // Force printed-document body text to solid black. Otherwise the doc
-          // inherits the app theme's text.primary — which in dark mode is a
-          // light grey (#DFE3EE) — washing out the quotation/PDF. Scoped to
-          // docTheme, so the rest of the app's theming is unaffected.
-          text: { ...parentTheme.palette.text, primary: "#000" },
+          // A rendered document is a PRINTABLE artifact — it must be a light page
+          // (white paper, black text) with readable contrast in BOTH app modes and
+          // correct print output, NOT the app's dark palette. Previously only
+          // text.primary was forced, so in dark mode palette.mode stayed "dark":
+          // palette-derived colours (primary, action, divider) and the dark
+          // MuiTableRow hover leaked in, giving black text on dark surfaces. Force
+          // the whole doc palette light so nothing resolves to a dark value.
+          mode: "light",
+          text: { ...parentTheme.palette.text, primary: "#000", secondary: "#444" },
+          background: { ...parentTheme.palette.background, paper: "#fff", default: "#fff" },
+          primary: { ...parentTheme.palette.primary, main: "#1976d2" },
+          divider: "rgba(0,0,0,0.12)",
+          action: { ...parentTheme.palette.action, hover: "rgba(0,0,0,0.04)", selected: "rgba(0,0,0,0.08)" },
         },
         typography: {
           ...parentTheme.typography,
@@ -190,6 +198,18 @@ export default function CleanDocumentPreview(props: CleanDocumentPreviewProps) {
               // override above.
               root: { fontWeight: 400, color: "#000" },
               head: { fontWeight: 600, color: "#000" },
+            },
+          },
+          // A printed document is STATIC — it must not carry the app theme's
+          // interactive row hover/selected background (dark in dark mode), which
+          // was painting a dark band under the black line-item text on hover.
+          MuiTableRow: {
+            styleOverrides: {
+              root: {
+                "&:hover": { backgroundColor: "transparent" },
+                "&.Mui-selected": { backgroundColor: "transparent" },
+                "&.Mui-selected:hover": { backgroundColor: "transparent" },
+              },
             },
           },
         },

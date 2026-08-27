@@ -80,16 +80,18 @@ export default function PublicDocumentViewPage() {
   }
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: "#f5f5f5", py: { xs: 1, sm: 3 }, display: "flex", justifyContent: "center" }}>
-      <Box sx={{ width: "fit-content", maxWidth: "100%", overflowX: "auto" }}>
-        <CleanDocumentPreview
-          documentType={view.documentType || "DO"}
-          data={view.data || {}}
-          organization={view.organization}
-          maintenanceReports={view.maintenanceReports}
-          publicShareToken={token}
-        />
-      </Box>
+    // Full-width page background; the document's own Paper (width 210mm,
+    // margin: 0 auto) centres itself within it, exactly as the portal preview
+    // does. overflowX lets a wide A4 page scroll on a narrow phone instead of
+    // being clipped.
+    <Box sx={{ minHeight: "100vh", bgcolor: "#f5f5f5", py: { xs: 1, sm: 3 }, overflowX: "auto" }}>
+      <CleanDocumentPreview
+        documentType={view.documentType || "DO"}
+        data={view.data || {}}
+        organization={view.organization}
+        maintenanceReports={view.maintenanceReports}
+        publicShareToken={token}
+      />
     </Box>
   );
 }
