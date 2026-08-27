@@ -42,6 +42,22 @@ const NOTIFICATION_TITLE = "AIMS Field — Tracking delivery";
 const NOTIFICATION_MESSAGE =
   "Recording GPS location until you acknowledge the delivery.";
 
+// Local ping queue (batch + retry + drain). The old path POSTed one ping per
+// fix and, on any failure, logged and dropped it forever — so a transient
+// mobile-data drop looked identical to a tracking gap. Fixes are now buffered
+// and POSTed in batches; a failed batch stays queued and retries. Retries are
+// safe because DeliveryLocationPing has @@unique([reportId, timestamp]) and the
+// endpoint inserts with skipDuplicates, so a re-sent batch never double-inserts
+// (each queued ping keeps its capture timestamp, so the unique key is stable).
+const FLUSH_INTERVAL_MS = 5000; // drain cadence
+const FLUSH_AT_QUEUE_LEN = 10; // ...or flush immediately once this many buffer
+const BATCH_MAX_PINGS = 50; // max pings per POST request
+const MAX_QUEUE = 1000; // hard cap; oldest fixes evicted beyond this (bounded memory)
+
+// Shown once (until the tech visits Settings) to explain that Android needs
+// "Allow all the time" for tracking to survive the screen turning off.
+const BG_NOTICE_KEY = "aims-field-bg-location-notice-ack";
+
 interface ActiveDelivery {
   reportId: string;
   startedAt: string;
@@ -52,8 +68,17 @@ export interface BackgroundLocationContextValue {
   isTracking: boolean;
   activeReportId: string | null;
   error: string | null;
-  start: (reportId: string) => Promise<void>;
+  start: (reportId: string, opts?: { isResume?: boolean }) => Promise<void>;
   stop: () => Promise<void>;
+}
+
+interface QueuedPing {
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+  speed?: number;
+  heading?: number;
+  timestamp: string;
 }
 
 const BackgroundLocationContext =
@@ -100,91 +125,110 @@ export function BackgroundLocationProvider({
   // for any reason during initial render.
   const resumedRef = useRef(false);
 
-  const postPing = useCallback(async (loc: Location) => {
-    const reportId = activeReportIdRef.current;
-    const token = tokenRef.current;
-    // Capgo's Location.time is epoch ms (or null). Fall back to "now" so
-    // the DTO's @IsISO8601() never sees null, and so pings emitted by the
-    // OS in rapid succession without a fresh GPS fix get distinct
-    // timestamps — otherwise the (reportId, timestamp) unique constraint
-    // silently drops every duplicate via skipDuplicates: true.
-    const timestamp = loc.time
-      ? new Date(loc.time).toISOString()
-      : new Date().toISOString();
-    // eslint-disable-next-line no-console
-    console.log("[bgLocation] postPing called", {
-      hasReportId: !!reportId,
-      hasToken: !!token,
-      latitude: loc.latitude,
-      longitude: loc.longitude,
-      accuracy: loc.accuracy,
-      timestamp,
-    });
-    if (!reportId || !token) return;
-    try {
-      // NOTE: the shared helpers/request.ts catches non-2xx HTTP errors and
-      // returns { success: false, message } instead of throwing. So a
-      // successful await here does NOT mean the backend accepted the ping.
-      // Inspect the response shape explicitly below.
-      const res = await request(
-        {
-          path: `/maintenance-reports/${reportId}/location-ping`,
-          method: "POST",
-        },
-        {
-          pings: [
-            {
-              latitude: loc.latitude,
-              longitude: loc.longitude,
-              accuracy:
-                typeof loc.accuracy === "number" ? loc.accuracy : undefined,
-              speed: typeof loc.speed === "number" ? loc.speed : undefined,
-              heading:
-                typeof loc.bearing === "number" ? loc.bearing : undefined,
-              timestamp,
-            },
-          ],
-        },
-        token,
-      );
+  // Ping queue + the machinery that drains it. queueRef holds captured-but-not-
+  // yet-acknowledged fixes; flushingRef prevents overlapping flushes; the timer
+  // and online handler drive periodic + on-reconnect draining.
+  const queueRef = useRef<QueuedPing[]>([]);
+  const flushingRef = useRef(false);
+  const flushTimerRef = useRef<number | null>(null);
+  const onlineHandlerRef = useRef<(() => void) | null>(null);
 
-      // Three response shapes we want to distinguish in Logcat:
-      //   { success: false, message }                — request helper caught a non-2xx
-      //   { success: true, data: { accepted, skipped }, message }  — normal pass
-      //   anything else / undefined                  — unexpected
-      if (!res || res.success === false) {
-        // eslint-disable-next-line no-console
-        console.warn("[bgLocation] ping REJECTED by backend", {
-          message: res?.message,
-          fullResponse: res,
-        });
-        return;
-      }
-      const payload = res?.data ?? {};
-      // eslint-disable-next-line no-console
-      console.log("[bgLocation] ping accepted", {
-        accepted: payload.accepted,
-        skipped: payload.skipped,
-      });
-      if (payload.accepted === 0 && payload.skipped > 0) {
-        // Every ping is being silently dropped by the (reportId, timestamp)
-        // unique constraint. Usually means Capgo is re-emitting the same
-        // cached fix repeatedly.
-        // eslint-disable-next-line no-console
-        console.warn(
-          "[bgLocation] ping was skipped as duplicate — Capgo may be re-emitting a cached fix",
+  // "Allow all the time" rationale overlay (JS-only: we cannot trigger the
+  // background-location prompt from JS with this plugin, so we explain and route
+  // to Settings via BackgroundGeolocation.openSettings()).
+  const [bgNoticeOpen, setBgNoticeOpen] = useState(false);
+
+  // Drain the queue: POST buffered fixes in batches. A failed batch is LEFT in
+  // the queue and retried on the next tick (or the next `online` event) instead
+  // of being dropped. A fresh token is fetched per flush so a long delivery
+  // outliving the start-time token doesn't silently 401 every ping.
+  const flushQueue = useCallback(async () => {
+    if (flushingRef.current) return;
+    const reportId = activeReportIdRef.current;
+    if (!reportId || queueRef.current.length === 0) return;
+    flushingRef.current = true;
+    try {
+      const token = await getToken();
+      if (!token) return; // keep the queue; try again next tick
+      // Drain several batches per tick so a reconnect backlog clears fast;
+      // stop on the first failure (kept for retry) or when empty.
+      for (let i = 0; i < 20 && queueRef.current.length > 0; i++) {
+        const batch = queueRef.current.slice(0, BATCH_MAX_PINGS);
+        // NOTE: helpers/request.ts turns non-2xx into { success:false } rather
+        // than throwing, so inspect the shape rather than trusting the await.
+        const res = await request(
+          {
+            path: `/maintenance-reports/${reportId}/location-ping`,
+            method: "POST",
+          },
+          { pings: batch },
+          token,
         );
+        if (!res || res.success === false) {
+          // eslint-disable-next-line no-console
+          console.warn("[bgLocation] batch POST failed — kept for retry", {
+            queueLen: queueRef.current.length,
+            message: res?.message,
+          });
+          break;
+        }
+        // Remove exactly what we sent from the FRONT — new fixes appended
+        // during the await must not be dropped.
+        queueRef.current.splice(0, batch.length);
+        const payload = res?.data ?? {};
+        // eslint-disable-next-line no-console
+        console.log("[bgLocation] batch accepted", {
+          sent: batch.length,
+          accepted: payload.accepted,
+          skipped: payload.skipped,
+          remaining: queueRef.current.length,
+        });
       }
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.warn("[bgLocation] ping threw unexpectedly:", err);
+      console.warn("[bgLocation] flush threw — queue kept for retry:", err);
+    } finally {
+      flushingRef.current = false;
     }
-  }, []);
+  }, [getToken]);
+
+  // Buffer one fix. Never awaits a network call, so it stays cheap on the GPS
+  // callback path and works fully offline. Capgo's Location.time is epoch ms (or
+  // null) — fall back to "now" so the DTO's @IsISO8601() never sees null and
+  // rapid re-emits of a cached fix still get distinct timestamps.
+  const enqueuePing = useCallback(
+    (loc: Location) => {
+      const timestamp = loc.time
+        ? new Date(loc.time).toISOString()
+        : new Date().toISOString();
+      const q = queueRef.current;
+      q.push({
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        accuracy: typeof loc.accuracy === "number" ? loc.accuracy : undefined,
+        speed: typeof loc.speed === "number" ? loc.speed : undefined,
+        heading: typeof loc.bearing === "number" ? loc.bearing : undefined,
+        timestamp,
+      });
+      // Bounded buffer: a long offline stretch cannot grow memory without limit.
+      // Evict the OLDEST fixes past the cap so the most recent trail survives.
+      if (q.length > MAX_QUEUE) q.splice(0, q.length - MAX_QUEUE);
+      // eslint-disable-next-line no-console
+      console.log("[bgLocation] ping queued", {
+        queueLen: q.length,
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        timestamp,
+      });
+      if (q.length >= FLUSH_AT_QUEUE_LEN) void flushQueue();
+    },
+    [flushQueue],
+  );
 
   const start = useCallback(
-    async (reportId: string) => {
+    async (reportId: string, opts?: { isResume?: boolean }) => {
       // eslint-disable-next-line no-console
-      console.log("[bgLocation] start() entry", { reportId, isAvailable });
+      console.log("[bgLocation] start() entry", { reportId, isAvailable, isResume: !!opts?.isResume });
       if (!isAvailable) {
         // eslint-disable-next-line no-console
         console.warn(
@@ -197,6 +241,9 @@ export function BackgroundLocationProvider({
       setError(null);
       activeReportIdRef.current = reportId;
       setActiveReportId(reportId);
+      // Fresh delivery: start from an empty buffer so no stale pings from a
+      // prior report ever POST against this reportId.
+      queueRef.current = [];
       writeActive({ reportId, startedAt: new Date().toISOString() });
 
       const token = await getToken();
@@ -256,7 +303,7 @@ export function BackgroundLocationProvider({
               return;
             }
             if (location) {
-              void postPing(location);
+              enqueuePing(location);
             }
           },
         );
@@ -265,6 +312,38 @@ export function BackgroundLocationProvider({
           "[bgLocation] BackgroundGeolocation.start resolved — tracking now active",
         );
         setIsTracking(true);
+
+        // Drain the buffer on a timer and whenever connectivity returns.
+        if (flushTimerRef.current == null) {
+          flushTimerRef.current = window.setInterval(() => {
+            void flushQueue();
+          }, FLUSH_INTERVAL_MS);
+        }
+        if (!onlineHandlerRef.current) {
+          const handler = () => {
+            // eslint-disable-next-line no-console
+            console.log("[bgLocation] back online — draining queue");
+            void flushQueue();
+          };
+          onlineHandlerRef.current = handler;
+          window.addEventListener("online", handler);
+        }
+
+        // Background-location step: after foreground is granted (Capgo's
+        // requestPermissions handled that during start()), explain that Android
+        // needs "Allow all the time" for tracking to survive the screen turning
+        // off, and offer Settings. Not shown on resume, and suppressed once the
+        // tech has visited Settings. We cannot detect the actual grant or fire
+        // the prompt from JS with this plugin (see the native follow-up).
+        if (!opts?.isResume && typeof window !== "undefined") {
+          let acked = false;
+          try {
+            acked = window.localStorage.getItem(BG_NOTICE_KEY) === "1";
+          } catch {
+            acked = false;
+          }
+          if (!acked) setBgNoticeOpen(true);
+        }
       } catch (e: any) {
         // eslint-disable-next-line no-console
         console.error("[bgLocation] BackgroundGeolocation.start REJECTED", e);
@@ -274,29 +353,46 @@ export function BackgroundLocationProvider({
         clearActive();
       }
     },
-    [isAvailable, getToken, postPing],
+    [isAvailable, getToken, enqueuePing, flushQueue],
   );
 
   const stop = useCallback(async () => {
     // eslint-disable-next-line no-console
     console.log("[bgLocation] stop() called", { isAvailable });
     if (!isAvailable) {
+      queueRef.current = [];
       clearActive();
       activeReportIdRef.current = null;
       setActiveReportId(null);
       return;
+    }
+    // Best-effort: send anything still buffered (e.g. the final fixes at the
+    // drop-off) while activeReportIdRef is still set, before we tear down.
+    try {
+      await flushQueue();
+    } catch {
+      // Whatever couldn't send is discarded below — the delivery is closing.
     }
     try {
       await BackgroundGeolocation.stop();
     } catch {
       // Already stopped — fine
     }
+    if (flushTimerRef.current != null) {
+      window.clearInterval(flushTimerRef.current);
+      flushTimerRef.current = null;
+    }
+    if (onlineHandlerRef.current) {
+      window.removeEventListener("online", onlineHandlerRef.current);
+      onlineHandlerRef.current = null;
+    }
     setIsTracking(false);
     activeReportIdRef.current = null;
     setActiveReportId(null);
     tokenRef.current = null;
+    queueRef.current = [];
     clearActive();
-  }, [isAvailable]);
+  }, [isAvailable, flushQueue]);
 
   const resumeIfActive = useCallback(async () => {
     // eslint-disable-next-line no-console
@@ -341,7 +437,7 @@ export function BackgroundLocationProvider({
         "[bgLocation] resume: restarting tracking for",
         stored.reportId,
       );
-      await start(stored.reportId);
+      await start(stored.reportId, { isResume: true });
     } catch (err) {
       // eslint-disable-next-line no-console
       console.warn("[bgLocation] resumeIfActive failed:", err);
@@ -360,6 +456,28 @@ export function BackgroundLocationProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Remember the tech has seen the notice once they visit Settings, so we stop
+  // showing it every delivery. "Not now" does NOT set the flag — a tech who
+  // keeps dismissing keeps being reminded, since we can't confirm the grant.
+  const markBgNoticeAcked = useCallback(() => {
+    try {
+      window.localStorage.setItem(BG_NOTICE_KEY, "1");
+    } catch {
+      // Private mode / storage disabled — worst case the notice shows again.
+    }
+  }, []);
+
+  const openLocationSettings = useCallback(async () => {
+    markBgNoticeAcked();
+    setBgNoticeOpen(false);
+    try {
+      await BackgroundGeolocation.openSettings();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn("[bgLocation] openSettings failed", err);
+    }
+  }, [markBgNoticeAcked]);
+
   const value: BackgroundLocationContextValue = {
     isAvailable,
     isTracking,
@@ -372,6 +490,79 @@ export function BackgroundLocationProvider({
   return (
     <BackgroundLocationContext.Provider value={value}>
       {children}
+      {bgNoticeOpen && (
+        // Plain inline-styled overlay (no MUI dependency) so it renders reliably
+        // inside the field route group on the Sunmi device. Screen only.
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="aims-bg-notice-title"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 2000,
+            background: "rgba(0,0,0,0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: 12,
+              maxWidth: 420,
+              width: "100%",
+              padding: 20,
+              boxShadow: "0 8px 30px rgba(0,0,0,0.3)",
+            }}
+          >
+            <h2 id="aims-bg-notice-title" style={{ margin: "0 0 8px", fontSize: 18 }}>
+              Keep tracking with the screen off
+            </h2>
+            <p style={{ margin: "0 0 12px", fontSize: 14, lineHeight: 1.5, color: "#333" }}>
+              To record your full delivery route, Android needs location set to{" "}
+              <strong>Allow all the time</strong>. If it is only set to{" "}
+              <strong>While using the app</strong>, tracking pauses when your screen
+              turns off, and the route between stops will be missing.
+            </p>
+            <p style={{ margin: "0 0 16px", fontSize: 13, lineHeight: 1.5, color: "#666" }}>
+              Open Settings, tap Permissions, then Location, and choose Allow all the time.
+            </p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => setBgNoticeOpen(false)}
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: 8,
+                  border: "1px solid #ccc",
+                  background: "#fff",
+                  fontSize: 14,
+                }}
+              >
+                Not now
+              </button>
+              <button
+                type="button"
+                onClick={() => void openLocationSettings()}
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: "#1976d2",
+                  color: "#fff",
+                  fontSize: 14,
+                  fontWeight: 600,
+                }}
+              >
+                Open Settings
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </BackgroundLocationContext.Provider>
   );
 }
