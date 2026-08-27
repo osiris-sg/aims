@@ -1,8 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import React, { useMemo, useState } from "react";
-import { Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Dialog } from "@mui/material";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Dialog, IconButton } from "@mui/material";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { createTheme, ThemeProvider, useTheme } from "@mui/material/styles";
 import { BIOFUEL_SIGNATURE_DATA_URI, BIOFUEL_STAMP_DATA_URI, BIOFUEL_LOGO_DATA_URI } from "../../DocumentsTemplateView/biofuelAssets";
 import DeliveryRouteDialog from "@/components/DeliveryRouteDialog";
@@ -295,10 +297,37 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
   // DO/RDO Timeline: the route popup opens keyed on the DO_START report id, the
   // same trigger the editor header uses. Screen only.
   const [routeOpen, setRouteOpen] = useState(false);
-  // One zoom dialog for the WHOLE document: a single piece of state holds the
-  // url of the proof photo to show full size. Thumbnails set it on click; the
-  // dialog (mounted once, in the DO branch return) opens whenever it is non-null.
-  const [zoomSrc, setZoomSrc] = useState<string | null>(null);
+  // One zoom lightbox for the WHOLE document. A thumbnail click opens its
+  // photo SET (every photo of that item / report, not just the ones drawn
+  // inline) at the clicked index; the dialog (mounted once, in the DO branch
+  // return) offers prev/next arrows, keyboard arrows and touch swipe to cycle
+  // through the set, wrapping at both ends.
+  const [zoom, setZoom] = useState<{ srcs: string[]; index: number } | null>(null);
+  const openZoom = (keys: string[], index: number) =>
+    setZoom({ srcs: keys.map((k) => resolvePhotoSrc(k)), index });
+  const stepZoom = useCallback((delta: number) => {
+    setZoom((z) => (z && z.srcs.length > 1 ? { ...z, index: (z.index + delta + z.srcs.length) % z.srcs.length } : z));
+  }, []);
+  useEffect(() => {
+    if (!zoom) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") { e.preventDefault(); stepZoom(-1); }
+      else if (e.key === "ArrowRight") { e.preventDefault(); stepZoom(1); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [zoom, stepZoom]);
+  // Touch swipe: horizontal drag of 40px+ steps the lightbox.
+  const swipeStartX = useRef<number | null>(null);
+  const onSwipeStart = (e: React.TouchEvent) => { swipeStartX.current = e.touches[0]?.clientX ?? null; };
+  const onSwipeEnd = (e: React.TouchEvent) => {
+    const start = swipeStartX.current;
+    swipeStartX.current = null;
+    const end = e.changedTouches[0]?.clientX;
+    if (start == null || end == null) return;
+    const dx = end - start;
+    if (Math.abs(dx) >= 40) stepZoom(dx < 0 ? 1 : -1);
+  };
   const doStartReport = maintenanceReports?.find((r) => r.kind === "DO_START") ?? null;
   const doStartReportId = doStartReport?.id ?? null;
   const doStartPingCount = (doStartReport as any)?.pingCount ?? 0;
@@ -2252,9 +2281,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                           <DescriptionText text={item.description || ""} sx={{ fontWeight: 500 }} />
                           {Array.isArray(item.proofPhotos) && item.proofPhotos.length > 0 && (
                             <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "nowrap" }}>
-                              {item.proofPhotos.slice(0, 4).map((key: string) => (
+                              {item.proofPhotos.slice(0, 4).map((key: string, photoIdx: number) => (
                                 // eslint-disable-next-line @next/next/no-img-element
-                                <img key={key} src={resolvePhotoSrc(key)} alt="" onClick={() => setZoomSrc(resolvePhotoSrc(key))} style={{ width: "23%", aspectRatio: "4 / 3", objectFit: "cover", border: "1px solid #ccc", cursor: "pointer" }} />
+                                <img key={key} src={resolvePhotoSrc(key)} alt="" onClick={() => openZoom(item.proofPhotos, photoIdx)} style={{ width: "23%", aspectRatio: "4 / 3", objectFit: "cover", border: "1px solid #ccc", cursor: "pointer" }} />
                               ))}
                             </Box>
                           )}
@@ -2686,14 +2715,16 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                       my: 1.5,
                     }}
                   >
-                    {report.photos.map((key) => (
+                    {report.photos.map((key, photoIdx) => (
                       <Box
                         key={key}
+                        onClick={() => openZoom(report.photos, photoIdx)}
                         sx={{
                           width: "100%",
                           aspectRatio: "4 / 3",
                           overflow: "hidden",
                           border: "1px solid #ccc",
+                          cursor: "pointer",
                         }}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -2714,15 +2745,56 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
       {/* Route map popup (screen only) — reuses the existing dialog, opened by
           the Timeline "View route" link and keyed on the DO_START report id. */}
       <DeliveryRouteDialog reportId={doStartReportId} open={routeOpen} onClose={() => setRouteOpen(false)} publicToken={publicShareToken} />
-      {/* Single proof-photo zoom dialog for the whole document (screen only).
-          Driven by zoomSrc; closes on backdrop click and Esc (MUI onClose).
-          It is only mounted while open and carries an explicit print guard, so
-          it never appears in the printed output. Image shows at natural size,
-          capped to the viewport. */}
-      <Dialog open={!!zoomSrc} onClose={() => setZoomSrc(null)} maxWidth={false} sx={{ "@media print": { display: "none" } }}>
-        {zoomSrc && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={zoomSrc} alt="" style={{ display: "block", width: "auto", height: "auto", maxWidth: "95vw", maxHeight: "95vh" }} />
+      {/* Single proof-photo lightbox for the whole document (screen only).
+          Driven by `zoom` (photo set + index); closes on backdrop click and
+          Esc (MUI onClose). Prev/next arrows overlay the image (only when the
+          set has more than one photo), with a "n / N" counter underneath;
+          keyboard arrows and touch swipe are wired in the component body. It
+          is only mounted while open and carries an explicit print guard, so it
+          never appears in the printed output. Image shows at natural size,
+          capped to the viewport. Colours are fixed dark-overlay values (the
+          photo sits on a translucent black sheet in both themes). */}
+      <Dialog
+        open={!!zoom}
+        onClose={() => setZoom(null)}
+        maxWidth={false}
+        sx={{ "@media print": { display: "none" } }}
+        PaperProps={{ sx: { bgcolor: "transparent", boxShadow: "none", overflow: "visible", m: 1 } }}
+      >
+        {zoom && (
+          <Box
+            onTouchStart={onSwipeStart}
+            onTouchEnd={onSwipeEnd}
+            sx={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", userSelect: "none" }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={zoom.srcs[zoom.index]}
+              alt=""
+              style={{ display: "block", width: "auto", height: "auto", maxWidth: "95vw", maxHeight: "88vh", borderRadius: 4 }}
+            />
+            {zoom.srcs.length > 1 && (
+              <>
+                <IconButton
+                  aria-label="Previous photo"
+                  onClick={(e) => { e.stopPropagation(); stepZoom(-1); }}
+                  sx={{ position: "absolute", left: 4, top: "50%", transform: "translateY(-50%)", color: "#fff", bgcolor: "rgba(0,0,0,0.45)", "&:hover": { bgcolor: "rgba(0,0,0,0.7)" } }}
+                >
+                  <ChevronLeftIcon fontSize="large" />
+                </IconButton>
+                <IconButton
+                  aria-label="Next photo"
+                  onClick={(e) => { e.stopPropagation(); stepZoom(1); }}
+                  sx={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", color: "#fff", bgcolor: "rgba(0,0,0,0.45)", "&:hover": { bgcolor: "rgba(0,0,0,0.7)" } }}
+                >
+                  <ChevronRightIcon fontSize="large" />
+                </IconButton>
+                <Typography sx={{ mt: 1, px: 1.5, py: 0.25, borderRadius: 1, fontSize: "0.8125rem", color: "#fff", bgcolor: "rgba(0,0,0,0.55)" }}>
+                  {zoom.index + 1} / {zoom.srcs.length}
+                </Typography>
+              </>
+            )}
+          </Box>
         )}
       </Dialog>
       </>
