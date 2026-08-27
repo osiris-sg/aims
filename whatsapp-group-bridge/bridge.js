@@ -366,13 +366,28 @@ async function callBridgeApi(path, { method = 'POST', body, query } = {}) {
  */
 function looksLikeAppointment(text) {
   const t = String(text || '');
-  if (t.length < 12) return false;
+  if (t.length < 10) return false;
+
   const hasDate =
     /\b\d{1,2}\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(t) ||
     /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}/i.test(t) ||
     /\b\d{1,2}[\/-]\d{1,2}([\/-]\d{2,4})?\b/.test(t) ||
-    /\b(today|tomorrow|tmr|next (mon|tue|wed|thu|fri|sat|sun))/i.test(t);
-  const hasSchedulingWord = /(date|time|venue|appointment|appt|meet|meeting|session|zoom|call)\b/i.test(t);
+    /\b(today|tomorrow|tmr|tonight)\b/i.test(t) ||
+    /\b(next|this|coming)\s+(mon|tue|wed|thu|fri|sat|sun)/i.test(t) ||
+    /\b(mon|tues|wednes|thurs|fri|satur|sun)day\b/i.test(t);
+
+  // "8pm", "4.30pm", "at 15:00"
+  const hasTime = /\b\d{1,2}([.:]\d{2})?\s*(am|pm)\b/i.test(t) || /\b\d{1,2}:\d{2}\b/.test(t);
+
+  const hasSchedulingWord =
+    /(date|time|venue|appointment|appt|meet|meeting|session|zoom|call|see you|catch up|drop by|come by|confirmed for|let'?s do|pencil)\b/i.test(
+      t,
+    );
+
+  // A date paired with a time is almost always a booking however it is phrased
+  // ("perfect! see you next tuesday at 8pm"), so don't also demand a keyword —
+  // requiring one silently dropped real appointments.
+  if (hasDate && hasTime) return true;
   return hasDate && hasSchedulingWord;
 }
 
