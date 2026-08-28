@@ -29,16 +29,19 @@ import CleanDocumentPreview from "@/containers/DocumentTemplates/components/Clea
 // centering is unchanged. The Paper's own width is never touched.
 const DOC_WIDTH_PX = 794; // 210mm @ 96dpi — CleanDocumentPreview's fixed Paper width
 
-// Print sheet rules — IDENTICAL to the portal editor's Print/PDF
-// (TabbedDocumentCreator handleBrowserPrint). A4 with real 20mm/15mm page
-// margins; the Paper's on-screen 20mm padding (which only simulates those
-// margins) is stripped via [data-print-paper] so margins are not doubled and
-// the 210mm Paper is never pushed past the printable width. Blank margin boxes
-// suppress the browser's URL/date header and footer.
+// Print sheet rules for the guest DO. CleanDocumentPreview's Paper is a RIGID
+// full A4 page — fixed 210mm wide, minHeight 297mm, and it strips its own
+// padding in print — so the @page margin MUST be 0. Any positive margin (the
+// portal editor uses 20mm/15mm) shrinks the printable area below 210×297mm, and
+// a block larger than the printable area only fits on one sheet if the print
+// engine scales-to-fit: desktop Chrome does, but mobile Safari/Chrome do not,
+// so the full-size document spills a near-empty SECOND page. margin:0 makes the
+// printable area equal the document, so it is exactly one page on every engine
+// with no scaling. Blank margin boxes suppress the browser URL/date header.
 const PRINT_PAGE_STYLE = `
   @page {
     size: A4;
-    margin: 20mm 15mm;
+    margin: 0;
     @top-left { content: ""; }
     @top-center { content: ""; }
     @top-right { content: ""; }
@@ -167,16 +170,17 @@ export default function PublicDocumentViewPage() {
   return (
     <>
       {/* Fallback for a customer who presses Cmd/Ctrl+P instead of the button:
-          the same sheet rules as PRINT_PAGE_STYLE (A4, 20mm/15mm margins, Paper
-          padding stripped) so both paths print identically. The body reset
-          drops the app's flex/100vh shell and the grey page background so the
-          print is the document only; print-color-adjust:exact keeps the
-          document's grey header bars/borders. CleanDocumentPreview is shared
-          with the portal and is NOT touched. */}
+          the same sheet rules as PRINT_PAGE_STYLE (A4, margin:0 so the rigid
+          210×297mm document maps 1:1 onto the sheet with no engine scaling —
+          see PRINT_PAGE_STYLE) so both paths print identically at any viewport.
+          The body reset drops the app's flex/100vh shell and the grey page
+          background so the print is the document only; print-color-adjust:exact
+          keeps the document's grey header bars/borders. CleanDocumentPreview is
+          shared with the portal and is NOT touched. */}
       <GlobalStyles
         styles={{
           "@media print": {
-            "@page": { size: "A4", margin: "20mm 15mm" },
+            "@page": { size: "A4", margin: 0 },
             "[data-print-paper]": { padding: "0 !important" },
             "body.ROOT_LAYOUT": {
               display: "block",
