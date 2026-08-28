@@ -29,19 +29,27 @@ import CleanDocumentPreview from "@/containers/DocumentTemplates/components/Clea
 // centering is unchanged. The Paper's own width is never touched.
 const DOC_WIDTH_PX = 794; // 210mm @ 96dpi — CleanDocumentPreview's fixed Paper width
 
-// Print sheet rules for the guest DO. CleanDocumentPreview's Paper is a RIGID
-// full A4 page — fixed 210mm wide, minHeight 297mm, and it strips its own
-// padding in print — so the @page margin MUST be 0. Any positive margin (the
-// portal editor uses 20mm/15mm) shrinks the printable area below 210×297mm, and
-// a block larger than the printable area only fits on one sheet if the print
-// engine scales-to-fit: desktop Chrome does, but mobile Safari/Chrome do not,
-// so the full-size document spills a near-empty SECOND page. margin:0 makes the
-// printable area equal the document, so it is exactly one page on every engine
-// with no scaling. Blank margin boxes suppress the browser URL/date header.
+// Print sheet rules for the guest DO.
+//
+// This used to set `@page { margin: 0 }` so that a RIGID 210×297mm Paper mapped
+// 1:1 onto the sheet — an EXACT fit with zero tolerance. That only holds while
+// nothing at all reduces the printable area, and plenty does: a margin chosen in
+// the print dialog, a printer's unprintable ring, sub-pixel rounding of 210mm.
+// When it did, Chrome clipped the overflow (right edge cut mid-word, footer gone)
+// while Safari quietly shrink-to-fit, which is exactly the browser inconsistency
+// we must not depend on.
+//
+// Now the page box reserves a 6mm ring for the printer and CleanDocumentPreview's
+// DO sheet is 186×277mm inside the resulting 198×285mm band — genuinely smaller
+// than the paper, so there is real tolerance on every edge and no engine ever has
+// to scale. The DO override below must out-specify the shared
+// `[data-print-paper] { padding: 0 }` rule, which the other document types still
+// rely on; `[data-print-paper][data-print-sheet="do"]` does that regardless of
+// source order. Blank margin boxes suppress the browser URL/date header.
 const PRINT_PAGE_STYLE = `
   @page {
     size: A4;
-    margin: 0;
+    margin: 6mm;
     @top-left { content: ""; }
     @top-center { content: ""; }
     @top-right { content: ""; }
@@ -52,6 +60,12 @@ const PRINT_PAGE_STYLE = `
   @media print {
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0; padding: 0; }
     [data-print-paper] { padding: 0 !important; }
+    [data-print-paper][data-print-sheet="do"] {
+      width: 186mm !important;
+      min-height: 0 !important;
+      margin: 0 auto !important;
+      padding: 8mm !important;
+    }
   }
 `;
 
@@ -170,9 +184,10 @@ export default function PublicDocumentViewPage() {
   return (
     <>
       {/* Fallback for a customer who presses Cmd/Ctrl+P instead of the button:
-          the same sheet rules as PRINT_PAGE_STYLE (A4, margin:0 so the rigid
-          210×297mm document maps 1:1 onto the sheet with no engine scaling —
-          see PRINT_PAGE_STYLE) so both paths print identically at any viewport.
+          the same sheet rules as PRINT_PAGE_STYLE (A4 with a 6mm printer ring,
+          and the DO sheet sized to 186×277mm inside it — see PRINT_PAGE_STYLE
+          for why an exact 210×297mm fit was the bug) so both paths print
+          identically at any viewport and in any browser.
           The body reset drops the app's flex/100vh shell and the grey page
           background so the print is the document only; print-color-adjust:exact
           keeps the document's grey header bars/borders. CleanDocumentPreview is
@@ -180,8 +195,14 @@ export default function PublicDocumentViewPage() {
       <GlobalStyles
         styles={{
           "@media print": {
-            "@page": { size: "A4", margin: 0 },
+            "@page": { size: "A4", margin: "6mm" },
             "[data-print-paper]": { padding: "0 !important" },
+            '[data-print-paper][data-print-sheet="do"]': {
+              width: "186mm !important",
+              minHeight: "0 !important",
+              margin: "0 auto !important",
+              padding: "8mm !important",
+            },
             "body.ROOT_LAYOUT": {
               display: "block",
               width: "auto",

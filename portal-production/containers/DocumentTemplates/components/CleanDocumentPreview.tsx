@@ -2077,6 +2077,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
       <>
       <Paper
         data-print-paper
+        // Marks THIS sheet as carrying the DO print geometry below. Every print
+        // path ships a shared `[data-print-paper] { padding: 0 !important }`
+        // rule which would otherwise strip the print padding set here, so each
+        // path pairs it with a higher-specificity
+        // `[data-print-paper][data-print-sheet="do"]` rule. Other document
+        // types keep their existing print behaviour untouched.
+        data-print-sheet="do"
         sx={{
           width: "210mm",
           minHeight: "297mm",
@@ -2090,27 +2097,57 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           color: "#000",
           display: "flex",
           flexDirection: "column",
+          // PRINT SHEET GEOMETRY (2026-08). This used to print as a RIGID
+          // 210×297mm block with its padding stripped — i.e. EXACTLY the sheet,
+          // with zero tolerance. Anything that shrinks the printable area (the
+          // editor's own `@page margin: 20mm 15mm`, a margin chosen in the print
+          // dialog, a printer's unprintable ring, sub-pixel rounding) then had
+          // nowhere to go: Chrome CLIPS the overflow — losing the right edge and
+          // pushing the footer off the page — while Safari silently
+          // shrink-to-fits and looked fine. We rely on neither behaviour.
+          //
+          // Instead the sheet is deliberately SMALLER than the paper, and the
+          // page box reserves a 6mm ring for the printer (each print path sets
+          // `@page { margin: 6mm }`):
+          //
+          //   printable band       198 × 285mm  (A4 less the 6mm ring)
+          //   this Paper           186 × 277mm  → 6mm lateral, 8mm vertical slack
+          //   content column       186 − 16 = 170mm — IDENTICAL to the on-screen
+          //                        column (210mm less the 20mm screen padding),
+          //                        so the print is what the viewer actually saw
+          //   nearest ink to edge  6 + 6 + 8 = 20mm, so the item-table and
+          //                        RECEIVED BY borders never land in a printer's
+          //                        unprintable margin
+          //
+          // minHeight is released here — the page-1 wrapper below owns the
+          // height so the footer lands INSIDE the band.
           "@media print": {
-            margin: 0,
-            padding: 0,
+            width: "186mm",
+            minHeight: 0,
+            margin: "0 auto",
+            padding: "8mm",
             boxShadow: "none",
           },
         }}
       >
         {/* Page-1 wrapper: pins the signature lines to the bottom of the
-            first printed page regardless of how few items the DO has. The
-            wrapper's minHeight is A4 minus the Paper's 20mm padding so it
-            fills the content area on screen; on print [data-print-paper]
-            strips the padding, so the wrapper expands to a full 297mm.
-            Proof photos now render inline under each item line, and the
-            Timeline block sits below the item table, so nothing trails the
-            wrapper on print. */}
+            first printed page regardless of how few items the DO has. On
+            screen its minHeight is A4 less the Paper's 20mm padding, so it
+            fills the visible page.
+            In PRINT it is 261mm — the printable band (285mm) less the Paper's
+            own 16mm of print padding, less 8mm of deliberate slack. It used to
+            be a flat 297mm, which pinned the footer to the bottom of the SHEET
+            rather than the bottom of the PRINTABLE AREA: the spacer filled
+            correctly but the block it filled was taller than any real page, so
+            the footer (the last 25mm) paginated away entirely and the RECEIVED
+            BY box was cut. 261mm keeps the same "pin to the bottom" behaviour
+            against a frame that actually prints. */}
         <Box
           sx={{
             minHeight: "calc(297mm - 40mm)",
             display: "flex",
             flexDirection: "column",
-            "@media print": { minHeight: "297mm" },
+            "@media print": { minHeight: "261mm" },
           }}
         >
         {/* Page 1 — Biofuel org gets a replica of their paper DO (letterhead,

@@ -347,13 +347,27 @@ export default function TabbedDocumentCreator({
   // Browser print ref for CleanDocumentPreview
   const printContentRef = useRef<HTMLDivElement>(null);
   const printDocumentTitle = existingData?.documentNumber || existingData?.name || documentId || "Document";
+  // The DO/RDO sheet carries its OWN print geometry (CleanDocumentPreview sizes
+  // it to 186×277mm inside a 6mm printer ring — see the sheet's `@media print`
+  // block). The 20mm/15mm page margin below predates that and is wrong for it:
+  // it cuts the printable area to 180×257mm while CleanDocumentPreview strips
+  // the Paper's padding, so the rigid 210×297mm DO overflowed by 30mm across and
+  // 40mm down. Chrome clipped that (right edge cut mid-word, Quantity column
+  // gone, footer paginated away); Safari hid it by shrink-to-fitting. DO/RDO now
+  // get the same 6mm ring as the guest view so both paths print identically.
+  // Every OTHER document type keeps 20mm/15mm exactly as before.
+  const isDoSheet =
+    documentType === "DO" ||
+    documentType === "DELIVERY_ORDER" ||
+    documentType === "RDO" ||
+    documentType === "RETURN_DELIVERY_ORDER";
   const handleBrowserPrint = useReactToPrint({
     contentRef: printContentRef,
     documentTitle: printDocumentTitle,
     pageStyle: `
       @page {
         size: A4;
-        margin: 20mm 15mm;
+        margin: ${isDoSheet ? "6mm" : "20mm 15mm"};
         @top-left { content: ""; }
         @top-center { content: ""; }
         @top-right { content: ""; }
@@ -366,6 +380,14 @@ export default function TabbedDocumentCreator({
         /* Templates that previously simulated page margins via Paper padding
            should drop that padding when printing so margins aren't doubled. */
         [data-print-paper] { padding: 0 !important; }
+        /* …except the DO sheet, which sets a real print padding of its own.
+           Higher specificity so it wins regardless of source order. */
+        [data-print-paper][data-print-sheet="do"] {
+          width: 186mm !important;
+          min-height: 0 !important;
+          margin: 0 auto !important;
+          padding: 8mm !important;
+        }
       }
     `,
   });
