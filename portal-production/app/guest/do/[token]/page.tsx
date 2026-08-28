@@ -15,6 +15,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { useParams } from "next/navigation";
 import { Box, Button, Card, CircularProgress, Container, GlobalStyles, Typography } from "@mui/material";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import { useReactToPrint } from "react-to-print";
 import { request } from "@/helpers/request";
 import CleanDocumentPreview from "@/containers/DocumentTemplates/components/CleanDocumentPreview";
 
@@ -27,6 +28,29 @@ import CleanDocumentPreview from "@/containers/DocumentTemplates/components/Clea
 // sets no maximum-scale). At/above the document width nothing scales — desktop
 // centering is unchanged. The Paper's own width is never touched.
 const DOC_WIDTH_PX = 794; // 210mm @ 96dpi — CleanDocumentPreview's fixed Paper width
+
+// Print sheet rules — IDENTICAL to the portal editor's Print/PDF
+// (TabbedDocumentCreator handleBrowserPrint). A4 with real 20mm/15mm page
+// margins; the Paper's on-screen 20mm padding (which only simulates those
+// margins) is stripped via [data-print-paper] so margins are not doubled and
+// the 210mm Paper is never pushed past the printable width. Blank margin boxes
+// suppress the browser's URL/date header and footer.
+const PRINT_PAGE_STYLE = `
+  @page {
+    size: A4;
+    margin: 20mm 15mm;
+    @top-left { content: ""; }
+    @top-center { content: ""; }
+    @top-right { content: ""; }
+    @bottom-left { content: ""; }
+    @bottom-center { content: ""; }
+    @bottom-right { content: ""; }
+  }
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0; padding: 0; }
+    [data-print-paper] { padding: 0 !important; }
+  }
+`;
 
 interface PublicDocView {
   state: "ok" | "revoked" | "notfound";
@@ -114,12 +138,18 @@ export default function PublicDocumentViewPage() {
     };
   }, [view]);
 
-  // Download-as-PDF: open the browser's print dialog, from which the customer
-  // saves as PDF. There is NO server PDF renderer for DOs (that is OSI-87, out of
-  // scope) and no new endpoint. The @media print rules below strip the scale
-  // transform, the button and the page background so the print is the document
-  // only, at full A4 size.
-  const handleDownloadPdf = () => window.print();
+  // Download-as-PDF: the SAME mechanism as the portal editor's Print/PDF —
+  // react-to-print clones ONLY the document subtree (printContentRef) into a
+  // print frame with PRINT_PAGE_STYLE, so the customer saves it as PDF from the
+  // browser dialog. Because only the subtree is printed, the on-screen scale
+  // transform, page background and floating button never reach the sheet.
+  // There is NO server PDF renderer for DOs (that is OSI-87, out of scope).
+  const printContentRef = useRef<HTMLDivElement>(null);
+  const handleDownloadPdf = useReactToPrint({
+    contentRef: printContentRef,
+    documentTitle: view?.data?.name || "Delivery Order",
+    pageStyle: PRINT_PAGE_STYLE,
+  });
 
   if (loading) {
     return (
@@ -136,17 +166,18 @@ export default function PublicDocumentViewPage() {
 
   return (
     <>
-      {/* Print rules scoped to this guest page only (CleanDocumentPreview is
-          shared with the portal and is NOT touched). @page margin:0 so the
-          210mm-wide document maps 1:1 onto A4 with nothing cut off — a non-zero
-          page margin would push the padding-stripped 210mm Paper wider than the
-          printable area and clip it. The body reset drops the app's flex/100vh
-          shell and the grey page background so the print is the document only;
-          print-color-adjust:exact keeps the document's grey header bars/borders. */}
+      {/* Fallback for a customer who presses Cmd/Ctrl+P instead of the button:
+          the same sheet rules as PRINT_PAGE_STYLE (A4, 20mm/15mm margins, Paper
+          padding stripped) so both paths print identically. The body reset
+          drops the app's flex/100vh shell and the grey page background so the
+          print is the document only; print-color-adjust:exact keeps the
+          document's grey header bars/borders. CleanDocumentPreview is shared
+          with the portal and is NOT touched. */}
       <GlobalStyles
         styles={{
           "@media print": {
-            "@page": { size: "A4", margin: 0 },
+            "@page": { size: "A4", margin: "20mm 15mm" },
+            "[data-print-paper]": { padding: "0 !important" },
             "body.ROOT_LAYOUT": {
               display: "block",
               width: "auto",
@@ -222,13 +253,18 @@ export default function PublicDocumentViewPage() {
               "@media print": { transform: "none", width: DOC_WIDTH_PX },
             }}
           >
-            <CleanDocumentPreview
-              documentType={view.documentType || "DO"}
-              data={view.data || {}}
-              organization={view.organization}
-              maintenanceReports={view.maintenanceReports}
-              publicShareToken={token}
-            />
+            {/* Print root: react-to-print clones THIS subtree only, so it sits
+                inside the transformed box (the transform is on the parent and
+                is not cloned) — exactly how the portal wraps the preview. */}
+            <div ref={printContentRef}>
+              <CleanDocumentPreview
+                documentType={view.documentType || "DO"}
+                data={view.data || {}}
+                organization={view.organization}
+                maintenanceReports={view.maintenanceReports}
+                publicShareToken={token}
+              />
+            </div>
           </Box>
         </Box>
       </Box>
