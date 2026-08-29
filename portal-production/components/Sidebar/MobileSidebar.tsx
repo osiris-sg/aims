@@ -6,7 +6,11 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { Box } from "@mui/material";
 import { UserButton, useUser } from "@clerk/nextjs";
-import SideBarContent from "./SideBarContent";
+// Legacy static SideBarContent replaced with the SAME dynamic, module- and
+// role-aware nav the desktop rail uses — the hard-coded menu showed retired
+// tabs (Assets/Documents/Audit) and hid real ones like Accounting
+// (guru 2026-08-29, found via test2 on mobile).
+import DynamicSidebarContent from "./DynamicSidebarContent";
 
 interface Props {
   open: boolean;
@@ -55,8 +59,8 @@ function MobileSideBar({ open, toggleDrawer }: Props) {
           </Box>
         </Stack>
         <Divider />
-        <Stack sx={{ flexGrow: 1 }}>
-          <SideBarContent />
+        <Stack sx={{ flexGrow: 1, overflowY: "auto" }}>
+          <DynamicSidebarContent />
           <Divider />
         </Stack>
       </Stack>
