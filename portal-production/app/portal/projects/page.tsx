@@ -14,6 +14,8 @@ import { ROUTES } from "@/routes";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import IdProjectList from "./_id/IdProjectList";
 
 interface Project {
   id: string;
@@ -39,7 +41,17 @@ interface PaginatedResponse {
   nextPage: number;
 }
 
+// Interior-design orgs (enableIdQuotation) get the ID projects list — client,
+// site, designer, stage, contract/collected/outstanding, margin. Everyone else
+// keeps the rental-shaped list below.
 export default function ProjectsPage() {
+  const { isIdQuotationEnabled, isLoading } = useOrganizationFeatures();
+  if (isLoading) return null;
+  if (isIdQuotationEnabled) return <IdProjectList />;
+  return <LegacyProjectsPage />;
+}
+
+function LegacyProjectsPage() {
   const router = useRouter();
   const { organization } = useOrganization();
   const { getToken } = useAuth();

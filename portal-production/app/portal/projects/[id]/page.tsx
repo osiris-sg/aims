@@ -7,6 +7,8 @@ import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import IdProjectPage from "../_id/IdProjectPage";
 import {
   Box,
   Button,
@@ -278,7 +280,17 @@ function statusChip(status: DeploymentStatus) {
   return <Chip size="small" label={cfg.label} color={cfg.color} />;
 }
 
+// Interior-design orgs (enableIdQuotation) get the costing-summary project
+// page (costs ledger, progressive payments, contract & P&L). Everyone else
+// keeps the rental deployments page below.
 export default function ProjectDetailsPage({ params }: { params: { id: string } }) {
+  const { isIdQuotationEnabled, isLoading } = useOrganizationFeatures();
+  if (isLoading) return null;
+  if (isIdQuotationEnabled) return <IdProjectPage id={params.id} />;
+  return <LegacyProjectDetailsPage params={params} />;
+}
+
+function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const { organization } = useOrganization();
   const { getToken } = useAuth();
