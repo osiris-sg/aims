@@ -442,6 +442,7 @@ model Document {
   orderSources       Order[]                    @relation("OrderSourceQuotation") // Orders auto-created when this quotation was confirmed
   deliveryShareLinks DeliveryShareLink[] // Guest (no-login) delivery links scoped to THIS delivery order
   documentShareLinks DocumentShareLink[] // View-only (no-login) links to THIS document, read-only render
+  signLinks          DocumentSignLink[] // Client e-signature links (quotations)
   deliveries         Delivery[] // Standalone physical-delivery runs later linked to THIS delivery order (legacy run-level link — frozen)
   deliveryItems      DeliveryItem[] // Per-item DO links: run items fulfilled by THIS delivery order
 
@@ -500,6 +501,29 @@ model DocumentShareLink {
   document   Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
   createdAt  DateTime  @default(now())
   revokedAt  DateTime? // set on revoke; the ONLY way to disable a link (no expiry)
+
+  @@index([documentId])
+}
+
+// Client e-signature link (2026-08, interior-design quotations): the office
+// mints an unguessable token; the client opens /sign/<token> with no login,
+// reads the rendered quotation, signs on a canvas and accepts the T&Cs. On
+// signature the document is CONFIRMED, the signature is stored on
+// config.clientSignature, a project is created/linked, and the office gets a
+// bell notification. One active link per document (re-sharing reuses it);
+// expiresAt defaults to the quotation's 14-day validity; revokedAt = soft kill.
+model DocumentSignLink {
+  id         String    @id @default(uuid())
+  token      String    @unique // unguessable, crypto-random (32 bytes, base64url)
+  documentId String    @db.Uuid
+  document   Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+  signedAt   DateTime?
+  signerName String?
+  signerIp   String?
+  userAgent  String?
 
   @@index([documentId])
 }
@@ -623,8 +647,122 @@ model RevenueItem {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  // ---- Work-library fields (interior-design quotations, CIEL 2026-08) ----
+  // Null / default for plain services. A "work item" is one templatised
+  // quotation line: which trade section it belongs to, the full line text
+  // with {dims} placeholders, its default "* Includes …" bullets, a default
+  // cost per unit for margin tracking, and how it is normally priced.
+  workSectionId       String?
+  descriptionTemplate String? // e.g. "Provide Labour & Materials to Construct {dims} Full Height Casement Wardrobe …"
+  includes            Json? // [{ text: string, qty?: number }]
+  unitCost            Float? // default cost per uom (what the subcontractor charges)
+  uom                 String? // sqft | ft | nos | trip | lot
+  pricingMode         String   @default("priced") // priced | inclusive | complimentary
+
   @@index([organizationId, isActive])
   @@index([organizationId, type])
+  @@index([organizationId, workSectionId])
+}
+
+// Project costing ledger (interior-design projects, CIEL 2026-08): one row per
+// subcontractor / supplier charge against the project — the left-hand table of
+// their "Costing Summary" sheet. Rows come from the portal, from a supplier
+// invoice photo/PDF (AI-extracted, attachment kept) or from the WhatsApp agent.
+// `sectionId` ties the charge to the quotation's trade section so actual cost
+// can be tallied against what was provisioned in the quote.
+model ProjectCost {
+  id             String    @id @default(uuid())
+  organizationId String
+  projectId      String    @db.Uuid
+  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  date           DateTime?
+  supplierName   String?
+  supplierId     String?
+  description    String
+  invoiceNo      String?
+  amount         Float
+  sectionId      String? // WorkSection id
+  attachmentUrl  String?
+  attachmentKey  String?
+  source         String    @default("portal") // portal | extract | whatsapp | bill
+  status         String    @default("approved") // pending | approved | rejected
+  createdByName  String?
+  approvedAt     DateTime?
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([organizationId, projectId])
+  @@index([projectId, status])
+}
+
+// Progressive payment schedule + collections for an interior-design project —
+// the right-hand "Payment Collected" and "Contract" blocks of their sheet.
+// kind: milestone (10/40/45/5 %), vo (variation order sum), refund (excess
+// returned to the client; subtracts from collected). Seeded from the signed
+// quotation's grand total; paid fields are filled as money arrives (Phase 2
+// links invoices/receipts here).
+model ProjectMilestone {
+  id             String    @id @default(uuid())
+  organizationId String
+  projectId      String    @db.Uuid
+  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind           String    @default("milestone") // milestone | vo | refund
+  label          String
+  pct            Float?
+  amount         Float     @default(0)
+  sortOrder      Int       @default(0)
+  dueTrigger     String? // confirmation | rendering | commencement | carpentry | handover
+  invoiceId      String?   @db.Uuid
+  paidAmount     Float     @default(0)
+  paidAt         DateTime?
+  paymentMethod  String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([organizationId, projectId])
+}
+
+// Project schedule (interior-design projects): one row per activity on the
+// weekly Mon–Sun calendar the firm sends clients ("Project Schedule" sheet).
+// kind: work (spans startDate..endDate, skips Sundays), note (a reminder
+// pinned to one day, e.g. "Kitchen hood & hob must be confirmed"), holiday.
+model ProjectScheduleItem {
+  id             String   @id @default(uuid())
+  organizationId String
+  projectId      String   @db.Uuid
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  label          String
+  kind           String   @default("work") // work | note | holiday
+  startDate      DateTime
+  endDate        DateTime
+  sortOrder      Int      @default(0)
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId, projectId])
+  @@index([projectId, startDate])
+}
+
+// Trade sections an interior-design quotation is organised by (A Hacking &
+// Dismantling, B Masonry & Vinyl, … J Miscellaneous). Per-org presets: the
+// editor offers them as section headers and seeds each with its defaultNotes
+// (e.g. "All measurements include 10% wastage"). Work items point here via
+// RevenueItem.workSectionId.
+model WorkSection {
+  id             String   @id @default(uuid())
+  organizationId String
+  letter         String? // display prefix: "A", "B", …
+  title          String
+  defaultNotes   String[] @default([])
+  sortOrder      Int      @default(0)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, title])
+  @@index([organizationId, sortOrder])
 }
 
 // Customisable document numbering. Each row is one named VARIANT of a document
@@ -809,11 +947,18 @@ model Project {
   endDate          DateTime?
   status           ProjectStatus       @default(pending)
   siteOfficeId     String?             @db.Uuid
+  // ---- Interior-design project fields (CIEL, 2026-08) — null for other orgs ----
+  designer         String? // designer in charge (name; user link comes with commissions)
+  stage            String? // signed | design | works | carpentry | handover | completed
+  commissionPct    Float? // designer's share of project profit (their sheet: 50%)
   assignments      Assignment[]
   documents        Document[]
   deployments      ProjectDeployment[]
   deliveries       Delivery[]
   contacts         ProjectContact[]
+  costs            ProjectCost[]
+  milestones       ProjectMilestone[]
+  scheduleItems    ProjectScheduleItem[]
   organization     Organization?       @relation(fields: [organizationId], references: [id])
   siteOffice       SiteOffice?         @relation("SiteOfficeProjects", fields: [siteOfficeId], references: [id])
   customer         Customer?           @relation("CustomerProjects", fields: [customerId], references: [id])

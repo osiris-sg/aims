@@ -5,7 +5,8 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 // no auth; the backend authorises solely via the URL token (Phase 6).
 // /pay(.*) is the public "Click to pay" invoice page — reached from emailed
 // links; the backend authorises solely via the unguessable pay token.
-const isPublicRoute = createRouteMatcher(["/sign-in(.*)", "/guest(.*)", "/pay(.*)"]);
+// /sign(.*) is the public client e-signature page for quotations (token URL).
+const isPublicRoute = createRouteMatcher(["/sign-in(.*)", "/guest(.*)", "/pay(.*)", "/sign/(.*)"]);
 
 export default clerkMiddleware(async (auth, request) => {
   if (!isPublicRoute(request)) {

@@ -171,6 +171,35 @@ export class DocumentsController {
     return await this.documentsService.getPastDescriptions(organizationId);
   }
 
+  // Rendered print HTML for a saved document (same renderer as the server PDF)
+  // — the ID quotation editor shows it in an iframe so preview === PDF.
+  @Get(':id/html')
+  @Permissions('documents:read-one')
+  async getHtml(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentsService.renderDocumentHtml(id, organizationId);
+  }
+
+  // Margin guardrail breach (ID quotations): the editor calls this when a
+  // saved quote sits below the org's minimum margin — management gets a bell
+  // notification. Idempotent per document (unique userId+kind+entityId).
+  @Post(':id/margin-alert')
+  @Permissions('documents:update')
+  async marginAlert(
+    @Param('id') id: string,
+    @Body() body: { marginPct?: number; floorPct?: number; lines?: string[] },
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentsService.emitMarginAlert(id, organizationId, body || {}, actorFromReq(req));
+  }
+
   @Get(':id')
   @Permissions('documents:read-one')
   async getById(@Param('id') id: string, @Req() req: RequestWithOrganization) {

@@ -4864,7 +4864,7 @@ export class DocumentsService {
    * priority: active selection (primary → isDefault → newest among selected),
    * else the cross-org default / org's own default-active-newest.
    */
-  private async resolveTemplateIdForType(type: string, organizationId: string): Promise<string> {
+  async resolveTemplateIdForType(type: string, organizationId: string): Promise<string> {
     const selections = await this.prisma.organizationActiveTemplate.findMany({
       where: { organizationId, type },
     });
@@ -5682,5 +5682,69 @@ export class DocumentsService {
       xeroStatus: xeroInvoice?.status,
       lineAmountTypes,
     };
+  }
+
+  // ── Print HTML (shared by the on-screen preview and the server PDF) ──────
+  /**
+   * Build the same data bag the emailed-PDF path uses and run it through the
+   * document renderer. Used by GET /documents/:id/html so the ID quotation
+   * editor's preview iframe shows exactly what the PDF will contain.
+   */
+  async renderDocumentHtml(documentId: string, organizationId: string): Promise<{ html: string; name: string | null; type: string }> {
+    const document = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      include: { organization: true },
+    });
+    if (!document) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+    const config: any = document.config || {};
+    const documentInfo = config.documentInfo || { documentNumber: document.name };
+    const items: any[] = Array.isArray(config.items) ? config.items : [];
+    const isQuotation = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(String(document.type).toUpperCase());
+    const html = this.pdfGeneratorService.generateInvoiceHtml({
+      documentType: document.type,
+      ...config,
+      name: document.name,
+      organization: document.organization,
+      company: document.organization,
+      customer: config.customer || { name: config.customerName },
+      documentInfo: { ...documentInfo, documentNumber: documentInfo?.documentNumber || document.name },
+      items,
+      config,
+      isQuotation,
+    });
+    return { html, name: document.name, type: document.type };
+  }
+
+  /**
+   * Margin guardrail breach on an ID quotation → bell notification to the
+   * org's office users (management). Best-effort, idempotent per document.
+   */
+  async emitMarginAlert(
+    documentId: string,
+    organizationId: string,
+    body: { marginPct?: number; floorPct?: number; lines?: string[] },
+    actor?: DocumentActor,
+  ) {
+    const document = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true, name: true, type: true, config: true },
+    });
+    if (!document) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+    const cfg: any = document.config || {};
+    const client = cfg?.quote?.header?.clientName || cfg?.customer?.name || '';
+    const pct = typeof body.marginPct === 'number' ? `${body.marginPct.toFixed(1)}%` : 'below floor';
+    const floor = typeof body.floorPct === 'number' ? `${body.floorPct}%` : 'the minimum';
+    const who = actor?.name ? ` by ${actor.name}` : '';
+    const lines = (body.lines || []).slice(0, 5);
+    await this.notifications.emit({
+      organizationId,
+      kind: 'quote_margin_breach',
+      title: `Quotation ${document.name || ''} margin ${pct} is below ${floor}`,
+      body: `${client ? `${client} — ` : ''}saved${who}.${lines.length ? ` Low-margin lines: ${lines.join('; ')}` : ''}`,
+      entityType: 'document',
+      entityId: document.id,
+      linkUrl: `/portal/sales/quotations/id/${document.id}`,
+    });
+    return { ok: true };
   }
 }

@@ -17,6 +17,8 @@ import { DocumentTemplatesModule } from './documentTemplates/documentTemplates.m
 import { UploadsModule } from './uploads/uploads.module';
 import { PublicDeliveryModule } from './public-delivery/public-delivery.module';
 import { PublicDocumentModule } from './public-document/public-document.module';
+import { PublicSignModule } from './public-sign/public-sign.module';
+import { ProjectCostingModule } from './project-costing/project-costing.module';
 import { CustomerInfoModule } from './customer-info/customer-info.module';
 import { PublicApiModule } from './public-api/public-api.module';
 import { DocumentsModule } from './documents/documents.module';
@@ -127,6 +129,8 @@ import { ActionLogInterceptor } from './action-log/action-log.interceptor';
     XeroSyncModule,
     PublicDeliveryModule,
     PublicDocumentModule,
+    PublicSignModule,
+    ProjectCostingModule,
     CustomerInfoModule,
     PublicApiModule,
     IngestionModule,
