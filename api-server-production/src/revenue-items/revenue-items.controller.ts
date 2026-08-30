@@ -21,11 +21,44 @@ function orgId(req: RequestWithOrganization): string {
 export class RevenueItemsController {
   constructor(private readonly service: RevenueItemsService) {}
 
+  // ── Work sections (declared before the generic :id routes) ───────────────
+  // Read is used by the quotation editor → documents:read.
+  @Get('sections')
+  @Permissions('documents:read')
+  listSections(@Req() req: RequestWithOrganization, @Query('activeOnly') activeOnly?: string) {
+    return this.service.listSections(orgId(req), activeOnly === 'true');
+  }
+
+  @Post('sections')
+  @Permissions('accounting:update')
+  createSection(@Req() req: RequestWithOrganization, @Body() body: any) {
+    return this.service.createSection(orgId(req), body);
+  }
+
+  @Patch('sections/:id')
+  @Permissions('accounting:update')
+  updateSection(@Req() req: RequestWithOrganization, @Param('id') id: string, @Body() body: any) {
+    return this.service.updateSection(orgId(req), id, body);
+  }
+
+  @Delete('sections/:id')
+  @Permissions('accounting:update')
+  removeSection(@Req() req: RequestWithOrganization, @Param('id') id: string) {
+    return this.service.removeSection(orgId(req), id);
+  }
+
+  // ── Items ────────────────────────────────────────────────────────────────
   // Read is used by the invoice editor (sales) → documents:read.
+  // ?workOnly=true returns just the work-library items (those in a section).
   @Get()
   @Permissions('documents:read')
-  list(@Req() req: RequestWithOrganization, @Query('type') type?: string, @Query('activeOnly') activeOnly?: string) {
-    return this.service.list(orgId(req), { type, activeOnly: activeOnly === 'true' });
+  list(
+    @Req() req: RequestWithOrganization,
+    @Query('type') type?: string,
+    @Query('activeOnly') activeOnly?: string,
+    @Query('workOnly') workOnly?: string,
+  ) {
+    return this.service.list(orgId(req), { type, activeOnly: activeOnly === 'true', workOnly: workOnly === 'true' });
   }
 
   // Mutations are Accounting Setup (accountant/admin) → accounting:update.

@@ -24,6 +24,7 @@
               "guides/database-changes",
               "guides/document-templates",
               "guides/guide-assistant",
+              "guides/id-quotation",
               "guides/gotchas"
             ]
           }

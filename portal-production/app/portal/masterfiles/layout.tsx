@@ -3,6 +3,7 @@
 import React from "react";
 import { Box, Typography, Tabs, Tab } from "@mui/material";
 import { useRouter, usePathname } from "next/navigation";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 // Master Files hub — a route-based tab bar (mirrors the admin control panel)
 // grouping the org's core master data: Customers, Suppliers, Products, Inventory.
@@ -10,6 +11,7 @@ import { useRouter, usePathname } from "next/navigation";
 export default function MasterFilesLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const { isIdQuotationEnabled } = useOrganizationFeatures();
 
   const tabs = [
     { label: "Customers", value: "/portal/masterfiles/customers" },
@@ -17,6 +19,9 @@ export default function MasterFilesLayout({ children }: { children: React.ReactN
     { label: "Products", value: "/portal/masterfiles/products" },
     { label: "Inventory", value: "/portal/masterfiles/inventory" },
     { label: "Services", value: "/portal/masterfiles/services" },
+    // Interior-design work library (trade sections + templatised quotation
+    // lines) — only for orgs on the ID quotation editor.
+    ...(isIdQuotationEnabled ? [{ label: "Work Library", value: "/portal/masterfiles/work-library" }] : []),
   ];
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: string) => {

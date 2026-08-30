@@ -12,6 +12,11 @@
 import { pageShell } from './shared';
 import { renderQuotationBody } from './quotation';
 import { renderInvoiceBody } from './invoice';
+import { renderIdQuotationBody } from './id-quotation';
+
+/** Interior-design quotation (config.templateVariant 'ID' / config.quote tree). */
+const isIdQuotation = (data: any): boolean =>
+  String(data?.templateVariant || data?.config?.templateVariant || '').toUpperCase() === 'ID' || !!(data?.quote || data?.config?.quote);
 
 const QUOTATION_TYPES = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'];
 const INVOICE_TYPES = ['INVOICE', 'TI', 'TI2'];
@@ -32,7 +37,11 @@ export function isPortedType(type: string): boolean {
 export function renderDocumentHtml(type: string, data: any, organization?: any): string | null {
   const t = String(type || '').toUpperCase();
   if (QUOTATION_TYPES.includes(t)) {
-    return pageShell(renderQuotationBody(data || {}, organization || data?.organization || data?.company || {}));
+    const org = organization || data?.organization || data?.company || {};
+    if (isIdQuotation(data)) {
+      return pageShell(renderIdQuotationBody({ ...(data || {}), quote: data?.quote || data?.config?.quote }, org));
+    }
+    return pageShell(renderQuotationBody(data || {}, org));
   }
   if (INVOICE_TYPES.includes(t)) {
     return pageShell(renderInvoiceBody(data || {}, organization || data?.organization || data?.company || {}));

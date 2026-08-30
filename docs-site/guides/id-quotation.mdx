@@ -1,0 +1,60 @@
+---
+title: "Interior-Design Quotation"
+description: "The sectioned Letter-of-Intent quotation editor and Work Library (feature flag enableIdQuotation)"
+---
+
+Built for CIEL INTERIOR PTE. LTD. (2026-08). Interior-design firms quote by
+**trade section → room → numbered line with "* Includes" bullets**, price each
+line as a lump sum, and track cost/margin internally. The generic document
+editor can't express that, so orgs with `enableIdQuotation` get a dedicated
+editor while everything downstream (numbering, projects, invoices, audit,
+PDF) keeps working on the same `Document` row.
+
+## Where things live
+
+| Piece | Path |
+|---|---|
+| Flag | `enableIdQuotation` — `default-features.ts` + `useOrganizationFeatures.ts` (default OFF) |
+| Routing | `GoToLatestDocument.tsx` renders `IdQuotationList` for quotation types when the flag is on |
+| List | `portal-production/app/portal/sales/quotations/id/_components/IdQuotationList.tsx` (PageTable over `POST /documents/paginated`) |
+| Editor | `portal-production/app/portal/sales/quotations/id/[id]/page.tsx` + `_components/` (HeaderBar, DetailsCard, OutlineRail, SectionCard, LibraryPalette, SummaryPanel, TermsDialog, PreviewDialog) |
+| Shared lib | `_lib/types.ts` (the `IdQuote` tree), `_lib/math.ts` (totals, margin, flatten), `_lib/defaults.ts` (their payment terms + T&Cs), `_lib/api.ts` |
+| Work library | `RevenueItem` work fields (`workSectionId, descriptionTemplate, includes, unitCost, uom, pricingMode`) + `WorkSection` model; API under `/revenue-items` (`GET ?workOnly=true`, `/sections` CRUD); UI at Master Files → Work Library |
+| Print / PDF | `api-server-production/src/common/services/document-html/id-quotation.ts`, selected by `document-html/index.ts` when `config.templateVariant === 'ID'` or `config.quote` exists; on-screen preview fetches `GET /documents/:id/html` (same renderer → preview === PDF) |
+| Margin alert | `POST /documents/:id/margin-alert` → `NotificationsService.emit(kind: quote_margin_breach)` |
+
+## Data shape
+
+`Document.config` for an ID quotation:
+
+```ts
+{
+  templateVariant: "ID",
+  quote: {                       // the editable tree (see _lib/types.ts)
+    header: { title, clientName, nric, address, contact, agreementDate, remarks, designer, designerPhone, paymentTerms },
+    sections: [{ letter, title, notes[], areas: [{ name, items: [{ description, qty, uom, amount, pricingMode, cost, includes: [{ text, qty, cost, amount, pricingMode }] }] }] }],
+    summary: { designFeePct, discounts: [{ label, amount }] },
+    terms: { paymentTerms[], clauses[] },
+    settings: { marginGuidelinePct: 25, marginFloorPct: 15 },
+  },
+  items: [...],                  // flattened legacy lines (priced only) for invoices / DocumentItem / reports
+  customer, customerName, documentInfo, designer   // kept in sync for the rest of the app
+}
+```
+
+**Margin is on price**: `(amount − cost) / amount` — that is how the firm's
+own spreadsheet computes its "Percentage" column, so a 25% guideline means
+`price = cost / 0.75`.
+
+## Behaviours worth knowing
+
+- Autosave (1.2 s debounce) through `POST /documents/update` with the
+  optimistic-concurrency `version`; a 409 shows the reload banner.
+- Confirm = `status: confirmed`; the editor then renders read-only (the
+  service already refuses config edits on confirmed documents).
+- Non-priced lines (`inclusive` / `complimentary`) contribute 0 to totals and
+  are skipped when flattening; includes only count when `pricingMode: priced`.
+- Quotation numbers come from the org's `DocumentNumberFormat`
+  (CIEL: `CI{YY}-{###}`), assigned at create.
+- Seeding a new org's library: `scripts/import-ciel-work-library.ts` shows the
+  pattern (sections + items from a parsed spreadsheet).

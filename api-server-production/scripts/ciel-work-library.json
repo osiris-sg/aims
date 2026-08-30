@@ -1,0 +1,776 @@
+{
+ "sections": [
+  {
+   "letter": "A",
+   "title": "Hacking & Dismantling Works",
+   "notes": [
+    "Hacking Works Permit Application*"
+   ],
+   "sortOrder": 0
+  },
+  {
+   "letter": "B",
+   "title": "Masonry & Vinyl Works",
+   "notes": [
+    "All Measurements are calculated with additional 10% wastage"
+   ],
+   "sortOrder": 1
+  },
+  {
+   "letter": "C",
+   "title": "Ceiling & Plastering Works",
+   "notes": [],
+   "sortOrder": 2
+  },
+  {
+   "letter": "D",
+   "title": "Painting Works",
+   "notes": [],
+   "sortOrder": 3
+  },
+  {
+   "letter": "E",
+   "title": "Carpentry Works",
+   "notes": [],
+   "sortOrder": 4
+  },
+  {
+   "letter": "F",
+   "title": "Tabletop Works (Aximus)",
+   "notes": [],
+   "sortOrder": 5
+  },
+  {
+   "letter": "G",
+   "title": "Kitchen Synchronised Sliding Door",
+   "notes": [],
+   "sortOrder": 6
+  },
+  {
+   "letter": "H",
+   "title": "7DOORS",
+   "notes": [],
+   "sortOrder": 7
+  },
+  {
+   "letter": "I",
+   "title": "Plumbing Works",
+   "notes": [
+    "Includes Application of Licensed Plumber Permit",
+    "Includes Piping for Cold Point Only"
+   ],
+   "sortOrder": 8
+  },
+  {
+   "letter": "J",
+   "title": "Miscellaneous",
+   "notes": [],
+   "sortOrder": 9
+  }
+ ],
+ "items": [
+  {
+   "section": "Hacking & Dismantling Works",
+   "name": "HACK : Existing Cornices & L-Box False Ceiling",
+   "descriptionTemplate": "Supply labour & tools for hacking & disposal {unit type} \u2014 - HACK : Existing Cornices & L-Box False Ceiling",
+   "uom": "nos",
+   "unitPrice": 280.0,
+   "unitCost": 100.0,
+   "pricingMode": "priced",
+   "includes": []
+  },
+  {
+   "section": "Hacking & Dismantling Works",
+   "name": "REMOVE : Existing Window Grilles",
+   "descriptionTemplate": "Supply labour & tools for hacking & disposal {unit type} \u2014 - REMOVE : Existing Window Grilles",
+   "uom": "nos",
+   "unitPrice": null,
+   "unitCost": null,
+   "pricingMode": "complimentary",
+   "includes": []
+  },
+  {
+   "section": "Hacking & Dismantling Works",
+   "name": "REMOVE : Existing Storeroom Door & Frame",
+   "descriptionTemplate": "Supply labour & tools for hacking & disposal {unit type} \u2014 - REMOVE : Existing Storeroom Door & Frame",
+   "uom": "nos",
+   "unitPrice": 80.0,
+   "unitCost": 50.0,
+   "pricingMode": "priced",
+   "includes": []
+  },
+  {
+   "section": "Hacking & Dismantling Works",
+   "name": "HACK : Existing Floor & Wall Tiles",
+   "descriptionTemplate": "Supply labour & tools for hacking & disposal {unit type} \u2014 - HACK : Existing Floor & Wall Tiles",
+   "uom": "nos",
+   "unitPrice": 1175.0,
+   "unitCost": 1080.0,
+   "pricingMode": "priced",
+   "includes": []
+  },
+  {
+   "section": "Hacking & Dismantling Works",
+   "name": "REMOVE : Existing Balcony Double Door w/ Frame",
+   "descriptionTemplate": "Supply labour & tools for hacking & disposal {unit type} \u2014 - REMOVE : Existing Balcony Double Door w/ Frame",
+   "uom": "nos",
+   "unitPrice": 100.0,
+   "unitCost": 80.0,
+   "pricingMode": "priced",
+   "includes": []
+  },
+  {
+   "section": "Hacking & Dismantling Works",
+   "name": "HACK : Existing Top & Bottom Cabinetry",
+   "descriptionTemplate": "Supply labour & tools for hacking & disposal {unit type} \u2014 - HACK : Existing Top & Bottom Cabinetry",
+   "uom": "nos",
+   "unitPrice": null,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": []
+  },
+  {
+   "section": "Hacking & Dismantling Works",
+   "name": "HACK : Existing Concrete Sink & Stove Support",
+   "descriptionTemplate": "Supply labour & tools for hacking & disposal {unit type} \u2014 - HACK : Existing Concrete Sink & Stove Support",
+   "uom": "nos",
+   "unitPrice": null,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": []
+  },
+  {
+   "section": "Hacking & Dismantling Works",
+   "name": "REMOVE : Existing MBR Full Height Wardrobe",
+   "descriptionTemplate": "Supply labour & tools for hacking & disposal {unit type} \u2014 - REMOVE : Existing MBR Full Height Wardrobe",
+   "uom": "nos",
+   "unitPrice": 150.0,
+   "unitCost": 135.0,
+   "pricingMode": "priced",
+   "includes": []
+  },
+  {
+   "section": "Hacking & Dismantling Works",
+   "name": "REMOVE : Existing Bedroom Door & Frame",
+   "descriptionTemplate": "Supply labour & tools for removal and disposal {unit type} \u2014 - REMOVE : Existing Bedroom Door & Frame",
+   "uom": "nos",
+   "unitPrice": 80.0,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": []
+  },
+  {
+   "section": "Masonry & Vinyl Works",
+   "name": "Provide Labour & Materials to Apply Selected Microcement overlay ontop of existing Tiles",
+   "descriptionTemplate": "Provide Labour & Materials to Apply Selected Microcement overlay ontop of existing Tiles",
+   "uom": "sqft",
+   "unitPrice": 18.75,
+   "unitCost": 14.8,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Warranty below for 3 years"
+    }
+   ]
+  },
+  {
+   "section": "Masonry & Vinyl Works",
+   "name": "Provide Labour & Materials to Lay Floor Tiles w/ HDB Approved 3 in 1 Cement Screeding",
+   "descriptionTemplate": "Provide Labour & Materials to Lay Floor Tiles w/ HDB Approved 3 in 1 Cement Screeding",
+   "uom": "sqft",
+   "unitPrice": 7.08,
+   "unitCost": 5.74,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes Labour up to 600 x 600 Tiles"
+    },
+    {
+     "text": "Includes Natural Gradient towards drainage area"
+    }
+   ]
+  },
+  {
+   "section": "Masonry & Vinyl Works",
+   "name": "Provide Labour & Materials To Apply Cement Screed Smooth onto existing wall tiles",
+   "descriptionTemplate": "Provide Labour & Materials To Apply Cement Screed Smooth onto existing wall tiles",
+   "uom": "sqft",
+   "unitPrice": 6.4,
+   "unitCost": 5.6,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes Sealing wall with Paint after screeding smooth"
+    }
+   ]
+  },
+  {
+   "section": "Masonry & Vinyl Works",
+   "name": "Provide Labour & Materials to Lay 2-layer K11/104 Waterproofing Membrane",
+   "descriptionTemplate": "Provide Labour & Materials to Lay 2-layer K11/104 Waterproofing Membrane",
+   "uom": "nos",
+   "unitPrice": 250.0,
+   "unitCost": 200.0,
+   "pricingMode": "priced",
+   "includes": []
+  },
+  {
+   "section": "Masonry & Vinyl Works",
+   "name": "Provide Labour & Materials to Lay 2-layer K11/104 Waterproofing Membrane for Kitchen",
+   "descriptionTemplate": "Provide Labour & Materials to Lay 2-layer K11/104 Waterproofing Membrane for Kitchen",
+   "uom": "nos",
+   "unitPrice": 450.0,
+   "unitCost": 350.0,
+   "pricingMode": "priced",
+   "includes": []
+  },
+  {
+   "section": "Masonry & Vinyl Works",
+   "name": "Provide Labour & Materials to Construct {dims} Height Mortar Base",
+   "descriptionTemplate": "Provide Labour & Materials to Construct {dims} Height Mortar Base",
+   "uom": "ft",
+   "unitPrice": 25.37,
+   "unitCost": 22.99,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes Tiled to exposed sides of base (include tiles)"
+    }
+   ]
+  },
+  {
+   "section": "Masonry & Vinyl Works",
+   "name": "Provide Labour & Materials To Apply Cement Screed Smooth after Hacking down existing wall tiles",
+   "descriptionTemplate": "Provide Labour & Materials To Apply Cement Screed Smooth after Hacking down existing wall tiles",
+   "uom": "sqft",
+   "unitPrice": 6.22,
+   "unitCost": 5.0,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes Sealing wall with Paint after screeding smooth"
+    }
+   ]
+  },
+  {
+   "section": "Masonry & Vinyl Works",
+   "name": "Provide Labour & Materials To Change Vaccumm Sealed Rubbish Chute",
+   "descriptionTemplate": "Provide Labour & Materials To Change Vaccumm Sealed Rubbish Chute",
+   "uom": "nos",
+   "unitPrice": 300.0,
+   "unitCost": 250.0,
+   "pricingMode": "priced",
+   "includes": []
+  },
+  {
+   "section": "Masonry & Vinyl Works",
+   "name": "Provide Labour & Materials to Overlay 6mm Thk Selected Floor Atelier's Vinyl",
+   "descriptionTemplate": "Provide Labour & Materials to Overlay 6mm Thk Selected Floor Atelier's Vinyl",
+   "uom": "sqft",
+   "unitPrice": 5.52,
+   "unitCost": 4.2,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes 75mm Skirting"
+    },
+    {
+     "text": "Includes Gold/Rose Gold/Chrome Finishing Door Triming"
+    }
+   ]
+  },
+  {
+   "section": "Ceiling & Plastering Works",
+   "name": "Provide Labour & Materials to construct 125mm Drop Down False Ceiling with Gypsum Partition Board",
+   "descriptionTemplate": "Provide Labour & Materials to construct 125mm Drop Down False Ceiling with Gypsum Partition Board",
+   "uom": "sqft",
+   "unitPrice": 6.58,
+   "unitCost": 2.54,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes Reinforced Timber Support for Ceiling Fan areas"
+    },
+    {
+     "text": "Includes Aircon Pelmet & Curtain L-Box up Pelmet"
+    },
+    {
+     "text": "Remarks - Curved detailing or cove light will incur additional cost"
+    },
+    {
+     "text": "Includes 600mm Outer Curve w/ 12ft Cove Light Detailing Finish"
+    }
+   ]
+  },
+  {
+   "section": "Ceiling & Plastering Works",
+   "name": "Provide Labour & Materials to construct {dims} x 3\" thk TV Single-sided Partition Feature Wall",
+   "descriptionTemplate": "Provide Labour & Materials to construct {dims} x 3\" thk TV Single-sided Partition Feature Wall",
+   "uom": "sqft",
+   "unitPrice": 19.69,
+   "unitCost": 4.62,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes Reinforced Timber Support for Wall-Hung TV"
+    },
+    {
+     "text": "Includes 150mm Inner Curve & 80mm Outer Curve Detailing"
+    }
+   ]
+  },
+  {
+   "section": "Ceiling & Plastering Works",
+   "name": "Provide Labour & Materials to construct {dims} F/H Single-sided Partition Box-up",
+   "descriptionTemplate": "Provide Labour & Materials to construct {dims} F/H Single-sided Partition Box-up",
+   "uom": "sqft",
+   "unitPrice": 9.78,
+   "unitCost": 3.89,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes Odd-shape Niche Hole for display"
+    }
+   ]
+  },
+  {
+   "section": "Ceiling & Plastering Works",
+   "name": "Provide Labour & Materials to construct {dims} U-Box Support for Sliding Door",
+   "descriptionTemplate": "Provide Labour & Materials to construct {dims} U-Box Support for Sliding Door",
+   "uom": "ft",
+   "unitPrice": 31.67,
+   "unitCost": 13.0,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes Reinforced Timber Support"
+    }
+   ]
+  },
+  {
+   "section": "Ceiling & Plastering Works",
+   "name": "Provide Labour & Materials to construct {dims} Curved Beam at Right kitchen Wall",
+   "descriptionTemplate": "Provide Labour & Materials to construct {dims} Curved Beam at Right kitchen Wall",
+   "uom": "ft",
+   "unitPrice": 28.95,
+   "unitCost": 12.0,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes 19ft Cove Light Detailing Finish"
+    }
+   ]
+  },
+  {
+   "section": "Painting Works",
+   "name": "ITEM : Nippon paint (VINILEX 5000) in Bedrooms + Living - BRAND & SERIES : NIPPON PAINT - VINILEX 5000 (Up to 5 colour) + Matex white paint for all ceiling - REMARK : Price exclude plastering , minor ",
+   "descriptionTemplate": "Provide Labour & Materials to paint at least 2 coats for whole house internal wall up to 8.5ft (H) & ceiling (except Kitchen & Bathrooms Wall) \u2014 - ITEM : Nippon paint (VINILEX 5000) in Bedrooms + Living - BRAND & SERIES : NIPPON PAINT - VINILEX 5000 (Up to 5 colour) + Matex white paint for all ceiling - REMARK : Price exclude plastering , minor restorative works to be done on walls",
+   "uom": "nos",
+   "unitPrice": 1450.0,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": []
+  },
+  {
+   "section": "Painting Works",
+   "name": "ITEM : Sealer (water / oil)",
+   "descriptionTemplate": "Provide Labour & Materials to apply sealer whole house internal wall up to 8.5ft (H) & ceiling (except Kitchen & Bathrooms Wall) \u2014 - ITEM : Sealer (water / oil)",
+   "uom": "nos",
+   "unitPrice": 450.0,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": []
+  },
+  {
+   "section": "Carpentry Works",
+   "name": "Provide Labour & Materials to Construct {dims} Full Height Shoe L-Shaped Cabinet with Settee Compartments in Solid Plywood High Grade Laminate and ABS Edging Doors",
+   "descriptionTemplate": "Provide Labour & Materials to Construct {dims} Full Height Shoe L-Shaped Cabinet with Settee Compartments in Solid Plywood High Grade Laminate and ABS Edging Doors",
+   "uom": "ft",
+   "unitPrice": 331.03,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes E0 Wood Grade Low-Formaldehyde"
+    },
+    {
+     "text": "Includes Soft Closing Hinges"
+    },
+    {
+     "text": "Includes Laminated Niche Opening"
+    },
+    {
+     "text": "Includes A20 Gold-Frame Tinted Glass Door Panel"
+    }
+   ]
+  },
+  {
+   "section": "Carpentry Works",
+   "name": "Provide Labour & Materials to Construct {dims} Low TV Console with Pull-out Mechanism in Solid Plywood High Grade Laminate and ABS Edging Doors",
+   "descriptionTemplate": "Provide Labour & Materials to Construct {dims} Low TV Console with Pull-out Mechanism in Solid Plywood High Grade Laminate and ABS Edging Doors",
+   "uom": "ft",
+   "unitPrice": 205.26,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes E0 Wood Grade Low-Formaldehyde"
+    },
+    {
+     "text": "Includes Soft Closing Hinges"
+    }
+   ]
+  },
+  {
+   "section": "Carpentry Works",
+   "name": "Provide Labour & Materials to Construct {dims} Bottom Dry-Pantry Cabinet in Solid Plywood High Grade Laminate and ABS Edging Doors",
+   "descriptionTemplate": "Provide Labour & Materials to Construct {dims} Bottom Dry-Pantry Cabinet in Solid Plywood High Grade Laminate and ABS Edging Doors",
+   "uom": "ft",
+   "unitPrice": 162.5,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes E0 Wood Grade Low-Formaldehyde"
+    },
+    {
+     "text": "Includes Soft Closing Hinges"
+    },
+    {
+     "text": "Includes 03nos Drawers"
+    }
+   ]
+  },
+  {
+   "section": "Carpentry Works",
+   "name": "Provide Labour & Materials to Install {dims} Top & Bottom Kitchen Cabinets in Solid Plywood High Grade Laminate and ABS Edging Doors",
+   "descriptionTemplate": "Provide Labour & Materials to Install {dims} Top & Bottom Kitchen Cabinets in Solid Plywood High Grade Laminate and ABS Edging Doors",
+   "uom": "ft",
+   "unitPrice": 172.34,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes E0 Wood Grade Low-Formaldehyde"
+    },
+    {
+     "text": "Includes 03nos Soft Closing Drawers"
+    },
+    {
+     "text": "Includes Dish Rack & Cutlery Tray"
+    },
+    {
+     "text": "Includes 02nos. 30mm Thk Laminated Side Board"
+    },
+    {
+     "text": "Includes 3ft Top Hung Cabinet Above Refrigerator"
+    },
+    {
+     "text": "Includes 80mm Rounded Edge"
+    }
+   ]
+  },
+  {
+   "section": "Carpentry Works",
+   "name": "Provide Labour & Materials to Construct {dims} Full Height Casement Wardrobe in Solid Plywood High Grade Laminate and ABS Edging Doors",
+   "descriptionTemplate": "Provide Labour & Materials to Construct {dims} Full Height Casement Wardrobe in Solid Plywood High Grade Laminate and ABS Edging Doors",
+   "uom": "ft",
+   "unitPrice": 420.46,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes E0 Wood Grade Low-Formaldehyde"
+    },
+    {
+     "text": "Includes 03nos Soft Closing Drawers"
+    },
+    {
+     "text": "Includes 80mm Rounded Edge"
+    }
+   ]
+  },
+  {
+   "section": "Carpentry Works",
+   "name": "Provide Labour & Materials to Construct {dims} Dresser Table Beside Wardrobe in Solid Plywood High Grade Laminate and ABS Edging Doors",
+   "descriptionTemplate": "Provide Labour & Materials to Construct {dims} Dresser Table Beside Wardrobe in Solid Plywood High Grade Laminate and ABS Edging Doors",
+   "uom": "ft",
+   "unitPrice": 217.14,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes E0 Wood Grade Low-Formaldehyde"
+    },
+    {
+     "text": "Includes 04nos Soft Closing Drawers"
+    },
+    {
+     "text": "Includes 80mm Rounded Edge"
+    },
+    {
+     "text": "Includes 02nos Soft Closing Drawers"
+    }
+   ]
+  },
+  {
+   "section": "Carpentry Works",
+   "name": "Provide Labour & Materials to Construct {dims} Half Height Carpentry Bedhead in Solid Plywood High Grade Laminate and ABS Edging Doors",
+   "descriptionTemplate": "Provide Labour & Materials to Construct {dims} Half Height Carpentry Bedhead in Solid Plywood High Grade Laminate and ABS Edging Doors",
+   "uom": "sqft",
+   "unitPrice": 37.71,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes E0 Wood Grade Low-Formaldehyde"
+    },
+    {
+     "text": "Includes Integrated 6.5ft Led Light"
+    },
+    {
+     "text": "Includes Integrated 10ft Led Light"
+    },
+    {
+     "text": "Includes 02nos Rounded Side Table with Drawers"
+    }
+   ]
+  },
+  {
+   "section": "Carpentry Works",
+   "name": "Provide Labour & Materials to Construct 55sqft x {dims} Laminated Platform bed w/ Flip up Storages in Solid Plywood High Grade Laminate and ABS Edging Doors",
+   "descriptionTemplate": "Provide Labour & Materials to Construct 55sqft x {dims} Laminated Platform bed w/ Flip up Storages in Solid Plywood High Grade Laminate and ABS Edging Doors",
+   "uom": "sqft",
+   "unitPrice": 50.91,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes E0 Wood Grade Low-Formaldehyde"
+    },
+    {
+     "text": "Includes Integrated 6.5ft Led Light"
+    }
+   ]
+  },
+  {
+   "section": "Carpentry Works",
+   "name": "Provide Labour & Materials to Construct {dims} Laminated Rounded Console Shelving in Solid Plywood High Grade Laminate and ABS Edging Doors",
+   "descriptionTemplate": "Provide Labour & Materials to Construct {dims} Laminated Rounded Console Shelving in Solid Plywood High Grade Laminate and ABS Edging Doors",
+   "uom": "ft",
+   "unitPrice": null,
+   "unitCost": null,
+   "pricingMode": "complimentary",
+   "includes": [
+    {
+     "text": "Includes E0 Wood Grade Low-Formaldehyde"
+    }
+   ]
+  },
+  {
+   "section": "Tabletop Works (Aximus)",
+   "name": "Provide Labour & Materials to Install {dims} Selected Sintered Stone Tabletop Kitchen, Yard In 12mm Single Profile finish",
+   "descriptionTemplate": "Provide Labour & Materials to Install {dims} Selected Sintered Stone Tabletop Kitchen, Yard In 12mm Single Profile finish",
+   "uom": "ft",
+   "unitPrice": 129.85,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes 50mm Upturn Skirting For Carpentry/Wall Areas"
+    }
+   ]
+  },
+  {
+   "section": "Tabletop Works (Aximus)",
+   "name": "Provide Labour & Materials to Install {dims} Selected Sintered Stone Kitchen Backing In 12mm Single Profile finish",
+   "descriptionTemplate": "Provide Labour & Materials to Install {dims} Selected Sintered Stone Kitchen Backing In 12mm Single Profile finish",
+   "uom": "ft",
+   "unitPrice": 130.0,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": []
+  },
+  {
+   "section": "Kitchen Synchronised Sliding Door",
+   "name": "Design, fabricate and Install {dims} Clear Tempered White Powder Coated Frame Synchronised Sliding Kitchen Door",
+   "descriptionTemplate": "Design, fabricate and Install {dims} Clear Tempered White Powder Coated Frame Synchronised Sliding Kitchen Door",
+   "uom": "sqft",
+   "unitPrice": 46.43,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes White Frame Fixed Panel & 03nos Sliding Door panel"
+    }
+   ]
+  },
+  {
+   "section": "7DOORS",
+   "name": "Design, fabricate and Install {dims} Aluminium Champange Gold Flushed Door w/ Frame",
+   "descriptionTemplate": "Design, fabricate and Install {dims} Aluminium Champange Gold Flushed Door w/ Frame",
+   "uom": "nos",
+   "unitPrice": 950.0,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": [
+    {
+     "text": "Includes Selected Waterproof PET Panel"
+    },
+    {
+     "text": "Includes Concealed Door Handle Lockset & Door Stopper"
+    }
+   ]
+  },
+  {
+   "section": "Plumbing Works",
+   "name": "Provide Labour & Materials to Install Main Stainless Steel Inlet Water Pipe to Kitchen (Exposed)",
+   "descriptionTemplate": "Provide Labour & Materials to Install Main Stainless Steel Inlet Water Pipe to Kitchen (Exposed)",
+   "uom": "nos",
+   "unitPrice": null,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": []
+  },
+  {
+   "section": "Plumbing Works",
+   "name": "Provide Labour & Materials to Install Sink and Tap",
+   "descriptionTemplate": "Provide Labour & Materials to Install Sink and Tap",
+   "uom": "nos",
+   "unitPrice": null,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": []
+  },
+  {
+   "section": "Plumbing Works",
+   "name": "Provide Labour & Materials to extend Cold Water Inlet for Water Dispenser",
+   "descriptionTemplate": "Provide Labour & Materials to extend Cold Water Inlet for Water Dispenser",
+   "uom": "nos",
+   "unitPrice": null,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": []
+  },
+  {
+   "section": "Plumbing Works",
+   "name": "Provide Labour & Materials to Lay Concealed 2\" Drainage Pipe for Kitchen Sink & Washing Machine",
+   "descriptionTemplate": "Provide Labour & Materials to Lay Concealed 2\" Drainage Pipe for Kitchen Sink & Washing Machine",
+   "uom": "nos",
+   "unitPrice": null,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": []
+  },
+  {
+   "section": "Miscellaneous",
+   "name": "Design Space Planning with 2D Architectural Plan",
+   "descriptionTemplate": "Design Space Planning with 2D Architectural Plan",
+   "uom": "nos",
+   "unitPrice": null,
+   "unitCost": null,
+   "pricingMode": "inclusive",
+   "includes": []
+  },
+  {
+   "section": "Miscellaneous",
+   "name": "3D Perspective Drawing(s)",
+   "descriptionTemplate": "3D Perspective Drawing(s)",
+   "uom": "nos",
+   "unitPrice": null,
+   "unitCost": null,
+   "pricingMode": "inclusive",
+   "includes": []
+  },
+  {
+   "section": "Miscellaneous",
+   "name": "Colour Palettes, Material & Accessories Selection",
+   "descriptionTemplate": "Colour Palettes, Material & Accessories Selection",
+   "uom": "nos",
+   "unitPrice": null,
+   "unitCost": null,
+   "pricingMode": "inclusive",
+   "includes": []
+  },
+  {
+   "section": "Miscellaneous",
+   "name": "Project Management & Site Coordination",
+   "descriptionTemplate": "Project Management & Site Coordination",
+   "uom": "nos",
+   "unitPrice": null,
+   "unitCost": null,
+   "pricingMode": "inclusive",
+   "includes": []
+  },
+  {
+   "section": "Miscellaneous",
+   "name": "Detailed Work Schedule and Project Timeline",
+   "descriptionTemplate": "Detailed Work Schedule and Project Timeline",
+   "uom": "nos",
+   "unitPrice": null,
+   "unitCost": null,
+   "pricingMode": "inclusive",
+   "includes": []
+  },
+  {
+   "section": "Miscellaneous",
+   "name": "14x Golden Ticket Chances for CIEL's Year End Grand Lucky Draw Worth up to $8000 +",
+   "descriptionTemplate": "14x Golden Ticket Chances for CIEL's Year End Grand Lucky Draw Worth up to $8000 +",
+   "uom": "nos",
+   "unitPrice": null,
+   "unitCost": null,
+   "pricingMode": "inclusive",
+   "includes": []
+  },
+  {
+   "section": "Miscellaneous",
+   "name": "1x Chances Spin the Wheel Lucky Draw",
+   "descriptionTemplate": "1x Chances Spin the Wheel Lucky Draw",
+   "uom": "nos",
+   "unitPrice": null,
+   "unitCost": null,
+   "pricingMode": "inclusive",
+   "includes": []
+  },
+  {
+   "section": "Miscellaneous",
+   "name": "Complientary Dreame's X50 Pro Ultra Or Nereos Lux Water Dispenser & K4 Automated Laundry Rack",
+   "descriptionTemplate": "Complientary Dreame's X50 Pro Ultra Or Nereos Lux Water Dispenser & K4 Automated Laundry Rack",
+   "uom": "nos",
+   "unitPrice": null,
+   "unitCost": null,
+   "pricingMode": "inclusive",
+   "includes": []
+  },
+  {
+   "section": "Miscellaneous",
+   "name": "Provide Labour For Post-Reno General Cleaning Upon Completion of Works",
+   "descriptionTemplate": "Provide Labour For Post-Reno General Cleaning Upon Completion of Works",
+   "uom": "trip",
+   "unitPrice": 450.0,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": []
+  },
+  {
+   "section": "Miscellaneous",
+   "name": "Provide Labour To lay Corrugated Paper Floor Protection during renovation work.",
+   "descriptionTemplate": "Provide Labour To lay Corrugated Paper Floor Protection during renovation work.",
+   "uom": "trip",
+   "unitPrice": 350.0,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": []
+  },
+  {
+   "section": "Miscellaneous",
+   "name": "Provide Labour For Haulage Service Including Clearing Of Debris To NEA Approved Site.",
+   "descriptionTemplate": "Provide Labour For Haulage Service Including Clearing Of Debris To NEA Approved Site.",
+   "uom": "trip",
+   "unitPrice": 325.0,
+   "unitCost": null,
+   "pricingMode": "priced",
+   "includes": []
+  }
+ ]
+}
