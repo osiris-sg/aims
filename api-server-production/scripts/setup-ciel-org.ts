@@ -64,6 +64,7 @@ const FEATURE_OVERRIDES: Record<string, boolean> = {
   enableQuotationProjectLink: true, // quotations attach to the project they belong to
   enableActionLog: true, // management wanted every document edit traceable
   enableDocumentAI: true,
+  enableIdQuotation: true, // sectioned Letter-of-Intent quotation editor + Work Library
 };
 
 // Designer: can raise quotations / invoices, manage their projects + customers.
@@ -82,8 +83,10 @@ const DESIGNER_RESOURCES = new Set([
 const DESIGNER_READ_ONLY_RESOURCES = new Set(['suppliers', 'accounting']);
 
 // Document numbering — one default variant per type the firm issues.
+// Quotation numbers follow their existing contract-number series (CI25-102):
+// "CI" + 2-digit year + running 3-digit serial.
 const NUMBER_FORMATS = [
-  { documentType: 'QUOTATION', pattern: 'CIEL-QO-{YYYY}-{####}' },
+  { documentType: 'QUOTATION', pattern: 'CI{YY}-{###}' },
   { documentType: 'INVOICE', pattern: 'CIEL-INV-{YYYY}-{####}' },
   { documentType: 'CREDIT_NOTE', pattern: 'CIEL-CN-{YYYY}-{####}' },
   { documentType: 'DEBIT_NOTE', pattern: 'CIEL-DN-{YYYY}-{####}' },
@@ -281,7 +284,12 @@ async function main() {
   for (const f of NUMBER_FORMATS) {
     const exists = await prisma.documentNumberFormat.findFirst({ where: { organizationId: orgId, documentType: f.documentType, label: 'Default' } });
     if (exists) {
-      log(`number format ${f.documentType} exists`);
+      if (exists.pattern !== f.pattern) {
+        if (APPLY) await prisma.documentNumberFormat.update({ where: { id: exists.id }, data: { pattern: f.pattern } });
+        log(`number format ${f.documentType.padEnd(16)} pattern ${exists.pattern} → ${f.pattern}`);
+      } else {
+        log(`number format ${f.documentType} exists`);
+      }
       continue;
     }
     if (APPLY) {
