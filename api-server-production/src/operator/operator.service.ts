@@ -58,6 +58,7 @@ const TOOL_STATUS: Record<string, string> = {
   email_document: '📧 Preparing the email...',
   edit_document: '✏️ Editing the document...',
   get_document_link: '🔗 Getting the link...',
+  add_project_cost: '🧾 Recording the project cost...',
 };
 
 @Injectable()
@@ -126,6 +127,30 @@ export class OperatorService {
     // Button taps
     if (msg.callbackData) {
       await this.handleCallback(ctx, adapter, msg, msg.callbackData);
+      return;
+    }
+
+    // An uploaded file (photo/PDF of an invoice) — extract it and let the agent
+    // file it (currently: as a project cost for interior-design orgs).
+    if (msg.attachment) {
+      await adapter.sendTyping?.(msg.chatId).catch(() => null);
+      const status = (await adapter.sendStatus?.(msg.chatId, '📎 Reading the uploaded invoice...')) ?? null;
+      const up = await this.tools
+        .extractUpload(ctx.organizationId, msg.attachment.dataUri, msg.attachment.mimetype, msg.attachment.filename)
+        .catch(() => null);
+      if (status) await adapter.deleteMessage?.(msg.chatId, status).catch(() => null);
+      ctx.upload = up ?? undefined;
+      const e = up?.extracted;
+      const caption = (msg.text || '').trim();
+      const synthetic =
+        `The user just uploaded an invoice/receipt${caption ? ` and said: "${caption}"` : ''}. ` +
+        `Extracted — supplier: ${e?.supplierName || 'unknown'}, invoice no: ${e?.invoiceNo || 'unknown'}, ` +
+        `date: ${e?.date || 'unknown'}, amount: ${e?.amount != null ? `${e.currency || 'SGD'} ${e.amount}` : 'unknown'}, ` +
+        `description: ${e?.description || 'unknown'}. ` +
+        `Record it as a project cost with add_project_cost: if there is only ONE project use it without asking; ` +
+        `otherwise call list_projects and pick the best match (or ask which). Preview and confirm before saving.`;
+      const session = await this.loadSession(msg.channel, msg.channelUserId);
+      await this.runAgent(ctx, adapter, msg, session, synthetic);
       return;
     }
 

@@ -15,6 +15,8 @@ import { SuppliersService } from '../suppliers/suppliers.service';
 import { BillsService } from '../bills/bills.service';
 import { InventoriesService } from '../inventories/inventories.service';
 import { ProjectsService } from '../projects/projects.service';
+import { ProjectCostingService } from '../project-costing/project-costing.service';
+import { S3Service } from '../common/services/s3.service';
 import { OperatorAuthService } from './operator-auth.service';
 import { OperatorContext, PendingAction } from './operator.types';
 import { cleanText } from './text.util';
@@ -59,8 +61,57 @@ export class OperatorToolsService {
     private readonly bills: BillsService,
     private readonly inventories: InventoriesService,
     private readonly projects: ProjectsService,
+    private readonly costing: ProjectCostingService,
+    private readonly s3: S3Service,
     private readonly auth: OperatorAuthService,
   ) {}
+
+  /** Extract a just-uploaded invoice/receipt (project-agnostic) and store the
+   *  original, so the turn's tools can turn it into a project cost. Returns the
+   *  data to stamp on ctx.upload. Never throws — extraction failures still keep
+   *  the stored file so the user can fill fields in manually. */
+  async extractUpload(
+    organizationId: string,
+    dataUri: string,
+    mimetype: string,
+    filename?: string,
+  ): Promise<OperatorContext['upload']> {
+    const commaIdx = dataUri.indexOf(',');
+    const raw = commaIdx >= 0 ? dataUri.slice(commaIdx + 1) : dataUri;
+    const ext = mimetype.includes('pdf') ? 'pdf' : mimetype.includes('png') ? 'png' : mimetype.includes('webp') ? 'webp' : 'jpg';
+    const safe = (filename || 'invoice').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const key = `project-costs/${organizationId}/whatsapp/${Date.now()}-${safe}.${ext}`;
+    const media = (mimetype.includes('pdf')
+      ? 'application/pdf'
+      : mimetype.includes('png')
+        ? 'image/png'
+        : mimetype.includes('webp')
+          ? 'image/webp'
+          : 'image/jpeg') as any;
+    const [attachmentUrl, extracted] = await Promise.all([
+      this.s3.uploadFile(key, Buffer.from(raw, 'base64'), media).catch(() => null),
+      this.bills.extractFromFile(organizationId, dataUri, media).catch(() => null as any),
+    ]);
+    const lines: any[] = Array.isArray(extracted?.lines) ? extracted.lines : [];
+    const description = lines.length
+      ? lines.map((l) => String(l.description || '').split('\n')[0]).filter(Boolean).slice(0, 4).join('; ')
+      : extracted?.supplierName
+        ? `${extracted.supplierName} invoice`
+        : '';
+    return {
+      attachmentUrl,
+      attachmentKey: attachmentUrl ? key : null,
+      filename,
+      extracted: {
+        supplierName: extracted?.supplierName ?? null,
+        invoiceNo: extracted?.billNumber ?? null,
+        date: extracted?.billDate ?? null,
+        amount: Number(extracted?.totalAmount ?? extracted?.subtotal) || null,
+        description: description || null,
+        currency: extracted?.currency ?? 'SGD',
+      },
+    };
+  }
 
   /** Tool definitions handed to Claude (schema only — no implementations). */
   definitions(ctx: OperatorContext): Anthropic.Tool[] {
@@ -670,6 +721,70 @@ export class OperatorToolsService {
               })),
               nettTotal,
             },
+          };
+        },
+      },
+
+      {
+        name: 'add_project_cost',
+        description:
+          "Record a supplier/cost invoice against a project's COSTING table (interior-design / project jobs). Use this right after the user uploads an invoice photo/PDF — the extracted supplier, invoice number, date and amount are already available on the upload. Project selection: if the org has only ONE project, use it WITHOUT asking; if several, call list_projects and pick the best match from the supplier/description, or ask which. Shows a preview and asks the user to confirm before saving; the original file is attached automatically.",
+        permissions: ['projects:update'],
+        input_schema: {
+          type: 'object',
+          properties: {
+            projectId: { type: 'string', description: 'Project id (from list_projects) to charge the cost to' },
+            supplierName: { type: 'string', description: 'Override the extracted supplier, if needed' },
+            amount: { type: 'number', description: 'Override the extracted amount, if needed' },
+            invoiceNo: { type: 'string' },
+            date: { type: 'string', description: 'YYYY-MM-DD' },
+            description: { type: 'string' },
+          },
+          required: ['projectId'],
+        },
+        run: async (ctx, args) => {
+          const proj = await this.prisma.project.findFirst({
+            where: { id: args.projectId, organizationId: ctx.organizationId },
+            select: { id: true, name: true },
+          });
+          if (!proj) return { result: { error: 'Project not found in this organization' } };
+          const up = ctx.upload;
+          const amount = Number(args.amount ?? up?.extracted.amount) || 0;
+          if (!(amount > 0)) {
+            return { result: { error: 'I could not read an amount from the invoice. Tell me the amount to record.' } };
+          }
+          const supplierName = args.supplierName ?? up?.extracted.supplierName ?? null;
+          const invoiceNo = args.invoiceNo ?? up?.extracted.invoiceNo ?? null;
+          const date = args.date ?? up?.extracted.date ?? null;
+          const description =
+            args.description ?? up?.extracted.description ?? (supplierName ? `${supplierName} invoice` : 'Project cost');
+          const cur = up?.extracted.currency || 'SGD';
+          const pending: PendingAction = {
+            kind: 'add_project_cost',
+            summary: `Add cost to ${proj.name}: ${supplierName || 'supplier'} ${invoiceNo ? '(' + invoiceNo + ') ' : ''}${cur} ${amount.toFixed(2)}`,
+            args: {
+              projectId: proj.id,
+              projectName: proj.name,
+              supplierName,
+              invoiceNo,
+              date,
+              description,
+              amount,
+              attachmentUrl: up?.attachmentUrl ?? null,
+              attachmentKey: up?.attachmentKey ?? null,
+            },
+            createdAt: new Date().toISOString(),
+          };
+          return {
+            result: {
+              needsConfirmation: true,
+              project: proj.name,
+              supplierName,
+              invoiceNo,
+              amount,
+              willAttachOriginal: !!up?.attachmentUrl,
+            },
+            pending,
           };
         },
       },
@@ -1450,6 +1565,31 @@ export class OperatorToolsService {
       // PaymentsService does not write an audit log of its own.
       this.log(ctx, 'PAYMENT', 'document', a.documentId, undefined, `Payment ${a.amount} recorded via Operator (${ctx.channel})`);
       return { ok: true, message: `✅ Payment of ${a.amount} recorded${pay?.document?.name ? ` against ${pay.document.name}` : ''}.` };
+    }
+
+    if (pending.kind === 'add_project_cost') {
+      const a = pending.args || {};
+      const cost: any = await this.costing.addCost(
+        a.projectId,
+        ctx.organizationId,
+        {
+          date: a.date || undefined,
+          supplierName: a.supplierName || undefined,
+          description: a.description || 'Project cost',
+          invoiceNo: a.invoiceNo || undefined,
+          amount: Number(a.amount),
+          attachmentUrl: a.attachmentUrl || undefined,
+          attachmentKey: a.attachmentKey || undefined,
+          source: 'whatsapp',
+          status: 'approved',
+        } as any,
+        ctx.actor.name,
+      );
+      this.log(ctx, 'CREATED', 'project-cost', cost?.id, a.projectName, `Cost ${a.amount} added to ${a.projectName} via Operator (${ctx.channel})`);
+      return {
+        ok: true,
+        message: `✅ Added ${a.supplierName ? a.supplierName + ' ' : ''}${Number(a.amount).toFixed(2)} to ${a.projectName}'s costing${a.attachmentUrl ? ' (invoice attached)' : ''}.`,
+      };
     }
 
     if (pending.kind === 'confirm_quotation') {

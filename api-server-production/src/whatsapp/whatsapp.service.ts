@@ -70,6 +70,28 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     return json as T;
   }
 
+  /** Download an inbound media object (image/document): resolve its URL from the
+   *  media id, then fetch the bytes — both calls need the connection's token.
+   *  Returns null on any failure so the operator flow degrades gracefully. */
+  private async downloadMedia(
+    mediaId: string,
+    token: string,
+  ): Promise<{ buffer: Buffer; mimetype: string } | null> {
+    try {
+      const meta = await this.graph<{ url?: string; mime_type?: string }>(mediaId, { token });
+      if (!meta?.url) return null;
+      const res = await fetch(meta.url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return null;
+      const buffer = Buffer.from(await res.arrayBuffer());
+      // Cap at 15MB — the extractor rejects larger, and we never want a runaway.
+      if (buffer.length > 15 * 1024 * 1024) return null;
+      return { buffer, mimetype: meta.mime_type || 'application/octet-stream' };
+    } catch (e: any) {
+      this.logger.error(`Media download failed for ${mediaId}: ${e.message}`);
+      return null;
+    }
+  }
+
   // ── Onboarding (Embedded Signup completion) ───────────────────────────────
 
   /**
@@ -1150,17 +1172,32 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           if (from && (await this.operatorAuth.isLinked('whatsapp', from))) {
             const senderName = (value.contacts || []).find((c: any) => c?.wa_id === from)?.profile
               ?.name;
+            // An uploaded photo/PDF — download it so the operator can extract it.
+            let attachment: { dataUri: string; mimetype: string; filename?: string } | undefined;
+            const mediaMsg = message.image || message.document;
+            if (mediaMsg?.id) {
+              const dl = await this.downloadMedia(mediaMsg.id, connection.accessToken);
+              if (dl) {
+                attachment = {
+                  dataUri: `data:${dl.mimetype};base64,${dl.buffer.toString('base64')}`,
+                  mimetype: dl.mimetype,
+                  filename: message.document?.filename,
+                };
+              }
+            }
+            const caption = message.image?.caption || message.document?.caption || body || '';
             this.operator
               .handleInbound({
                 channel: 'whatsapp',
                 channelUserId: from,
                 chatId: from,
-                text: body || '',
+                text: caption || '',
                 displayName: senderName,
                 // A tapped Confirm/Cancel button carries its action in reply.id.
                 callbackData: message.interactive?.button_reply?.id,
                 businessPhoneNumberId: phoneNumberId,
                 providerMessageId: message.id,
+                attachment,
               })
               .catch((e) =>
                 this.logger.error(`Operator failed on message ${message.id}: ${e.message}`),

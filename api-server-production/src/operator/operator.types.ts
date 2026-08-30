@@ -20,6 +20,9 @@ export interface InboundMessage {
   /** Provider id of THIS inbound message (WhatsApp wamid) — used to flash a
    *  typing indicator against it. */
   providerMessageId?: string;
+  /** An uploaded file (photo/PDF) the user sent, already downloaded by the
+   *  channel. dataUri is `data:<mime>;base64,<...>`. */
+  attachment?: { dataUri: string; mimetype: string; filename?: string };
 }
 
 export interface ChannelButton {
@@ -55,11 +58,32 @@ export interface OperatorContext {
   isOsirisAdmin: boolean;
   channel: OperatorChannel;
   channelUserId: string;
+  /** Set for the turn in which the user uploaded a file: the extracted data and
+   *  the stored original, so a tool called this turn can build a project cost. */
+  upload?: {
+    attachmentUrl: string | null;
+    attachmentKey: string | null;
+    filename?: string;
+    extracted: {
+      supplierName?: string | null;
+      invoiceNo?: string | null;
+      date?: string | null;
+      amount?: number | null;
+      description?: string | null;
+      currency?: string | null;
+    };
+  };
 }
 
 /** An action held awaiting the user's explicit confirmation. */
 export interface PendingAction {
-  kind: 'confirm_quotation' | 'confirm_invoice' | 'record_payment' | 'post_bill' | 'email_document';
+  kind:
+    | 'confirm_quotation'
+    | 'confirm_invoice'
+    | 'record_payment'
+    | 'post_bill'
+    | 'email_document'
+    | 'add_project_cost';
   documentId?: string;
   documentType?: string;
   summary: string;
