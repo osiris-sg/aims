@@ -9,6 +9,9 @@ import { Box, CircularProgress } from "@mui/material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import DocumentListView from "./DocumentListView";
 import { useTemplatePicker } from "./useTemplatePicker";
+import IdQuotationList from "@/app/portal/sales/quotations/id/_components/IdQuotationList";
+
+const QUOTATION_CODES = ["QUOTATION", "QO", "QO1", "QO2", "QT"];
 
 interface GoToLatestDocumentProps {
   documentTypes: string[]; // e.g., ["SO", "SALES_ORDER"] - types to filter by
@@ -26,7 +29,11 @@ export default function GoToLatestDocument({
   const router = useRouter();
   const { getToken } = useAuth();
   const { organization } = useOrganization();
-  const { isDocumentListViewEnabled, isLoading: featuresLoading } = useOrganizationFeatures();
+  const { isDocumentListViewEnabled, isIdQuotationEnabled, isLoading: featuresLoading } = useOrganizationFeatures();
+  // Interior-design quotation mode: the Quotation menu renders its own list +
+  // editor (sectioned quote), bypassing both the auto-redirect and the generic
+  // document list. Other document types are unaffected.
+  const idQuotationMode = isIdQuotationEnabled && documentTypes.some((t) => QUOTATION_CODES.includes(String(t).toUpperCase()));
   const { resolveTemplate, dialog: templatePickerDialog } = useTemplatePicker();
   const [, setError] = useState<string | null>(null);
   const hasRedirected = useRef(false);
@@ -37,6 +44,7 @@ export default function GoToLatestDocument({
     if (featuresLoading) return;
     // When list view is enabled, skip auto-redirect.
     if (isDocumentListViewEnabled) return;
+    if (idQuotationMode) return;
 
     const fetchAndRedirect = async () => {
       if (!organization?.id) return;
@@ -108,7 +116,7 @@ export default function GoToLatestDocument({
     };
 
     fetchAndRedirect();
-  }, [organization?.id, documentTypes, documentLabel, createDocumentType, getToken, router, isDocumentListViewEnabled, featuresLoading, resolveTemplate]);
+  }, [organization?.id, documentTypes, documentLabel, createDocumentType, getToken, router, isDocumentListViewEnabled, idQuotationMode, featuresLoading, resolveTemplate]);
 
   // Wait for feature flag to load before deciding which UI to render —
   // otherwise we'd briefly redirect, then unmount and show the list view.
@@ -120,6 +128,9 @@ export default function GoToLatestDocument({
     );
   }
 
+  if (idQuotationMode) {
+    return <IdQuotationList />;
+  }
   if (isDocumentListViewEnabled) {
     return (
       <DocumentListView

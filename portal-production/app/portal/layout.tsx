@@ -2,7 +2,6 @@
 import React, { useEffect, useState } from "react";
 import styles from "./layout.module.scss";
 import { Box } from "@mui/material";
-import DesktopSideBar from "@/components/Sidebar/DestopSideBar";
 import AppNavbar from "@/components/Appnavbar";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -13,10 +12,8 @@ import { useThemeMode } from "@/contexts/ThemeModeContext";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import FieldOnlyGuard from "./components/FieldOnlyGuard";
-import OrgSwitcher from "@/components/OrgSwitcher";
-import ViewingAsBanner from "@/components/ViewingAsBanner";
-import NotificationBell from "@/components/NotificationBell";
 import GuideAssistant from "./components/GuideAssistant/GuideAssistant";
+import TopNavBar from "@/components/TopNav/TopNavBar";
 
 interface Props {
   children: React.ReactNode;
@@ -99,22 +96,7 @@ export default function Layout(props: Props) {
                   ...(isDocumentPage && { minHeight: 0, overflow: "auto" }),
                 }}
               >
-                {/* Admin-only chrome — both components self-hide for non-admins. */}
-                <ViewingAsBanner />
-                {/* Top-right chrome row: the "Viewing as org" dropdown with the
-                    notification bell to its RIGHT (the org box shifts left to make
-                    room, so the two no longer overlap). OrgSwitcher returns null
-                    for non-admins, leaving just the bell right-aligned. Bell is
-                    desktop-only here; mobile has its own bell in AppNavbar. Hidden
-                    entirely on document pages (viewport-locked editor). */}
-                {!isDocumentPage && (
-                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.5, pr: 1.5 }}>
-                    <OrgSwitcher />
-                    <Box sx={{ display: { xs: "none", md: "inline-flex" } }}>
-                      <NotificationBell />
-                    </Box>
-                  </Box>
-                )}
+                <TopNavBar />
                 {children}
               </Box>
               {/* AIMS Guide bubble (bottom-right) — global for every org. */}
@@ -133,10 +115,7 @@ export default function Layout(props: Props) {
 // dropped (guru, 2026-07-13) — the normal sidebar + navbar stay everywhere in
 // both modes. (isDocumentPage kept in the signature for call-site stability.)
 function PortalChrome({ isDocumentPage: _isDocumentPage }: { isDocumentPage: boolean }) {
-  return (
-    <>
-      <DesktopSideBar />
-      <AppNavbar />
-    </>
-  );
+  // Desktop navigation is the Xero-style top bar (guru 2026-08-30, global —
+  // the left rail is retired). AppNavbar remains the mobile hamburger bar.
+  return <AppNavbar />;
 }

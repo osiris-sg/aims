@@ -79,6 +79,11 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Default ON for every org, new and existing (guru, 2026-08-23) — an org
   // only loses the tab if an admin explicitly switches it off.
   enableActionLog: true,
+  // Interior-design quotation editor (CIEL INTERIOR, 2026-08): Sales →
+  // Quotation opens the sectioned ID editor (trade sections → areas → work
+  // items with includes, internal cost/margin + guardrails, Letter-of-Intent
+  // print layout) instead of the generic document editor. Default OFF.
+  enableIdQuotation: false,
   // NOTE: the "AIMS Guide" assistant (bottom-right bubble) is deliberately
   // NOT flagged — it's global for every org (guru, 2026-08-03).
 };
@@ -150,5 +155,6 @@ export function useOrganizationFeatures() {
     isQuotationProjectLinkEnabled: features.enableQuotationProjectLink ?? false,
     isXeroDocSyncEnabled: features.enableXeroDocSync ?? false,
     isLegacyAccountingUxEnabled: features.enableLegacyAccountingUx ?? false,
+    isIdQuotationEnabled: features.enableIdQuotation ?? false,
   };
 }

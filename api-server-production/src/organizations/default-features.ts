@@ -37,4 +37,10 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // is always-on server-side; this flag gates the viewer UI per org.
   // Default ON for every org, new and existing (guru, 2026-08-23).
   enableActionLog: true,
+  // Interior-design quotation editor (CIEL INTERIOR, 2026-08): lettered trade
+  // sections → room areas → work items with "* Includes" bullets, internal
+  // cost / margin columns with guardrails, and the "Letter of Intent" print
+  // layout. When ON, Sales → Quotation opens the ID editor instead of the
+  // generic document editor. Default OFF; enabled per org.
+  enableIdQuotation: false,
 };
