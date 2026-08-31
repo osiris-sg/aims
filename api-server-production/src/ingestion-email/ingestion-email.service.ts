@@ -1,4 +1,5 @@
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import { LeadsService, looksLikeLeadEmail } from '../leads/leads.service';
 import { createHash } from 'crypto';
 import AdmZip = require('adm-zip');
 import { Prisma } from '@prisma/client';
@@ -63,6 +64,7 @@ export class IngestionEmailService {
     private readonly bills: BillsService,
     private readonly documents: DocumentsService,
     private readonly extraction: DocumentExtractionService,
+    private readonly leads: LeadsService,
   ) {}
 
   async handleInbound(payload: InboundEmailPayload): Promise<InboundResult> {
@@ -109,6 +111,23 @@ export class IngestionEmailService {
       });
       return { ok: false, reason: 'rule-ignored', details: this.describeRule(matched) };
     }
+    // 5b. Lead emails (EZiD / Network Singapore lead-programme mail) become
+    //     Lead rows instead of AR/AP documents. Detected by sender/subject —
+    //     a paid lead must never be misfiled as an invoice draft.
+    if (looksLikeLeadEmail(fromEmail, payload.subject)) {
+      const r = await this.leads.createFromEmail(organizationId, {
+        from: payload.from,
+        subject: payload.subject,
+        text: payload.text,
+        attachments: payload.attachments,
+      });
+      await this.prisma.emailIngestLog.update({
+        where: { id: log.id },
+        data: { status: r.created.length ? 'PROCESSED' : 'FAILED', reason: r.created.length ? `lead:${r.created.length}` : 'lead-parse-failed' },
+      });
+      return r.created.length ? { ok: true, created: r.created, logId: log.id, notes: 'lead' } : { ok: false, reason: 'lead-parse-failed' };
+    }
+
     const routing: RuleRouting =
       matched?.action === 'FORCE_BILL'
         ? { forcedType: 'BILL' }

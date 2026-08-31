@@ -19,6 +19,7 @@ import { PublicDeliveryModule } from './public-delivery/public-delivery.module';
 import { PublicDocumentModule } from './public-document/public-document.module';
 import { PublicSignModule } from './public-sign/public-sign.module';
 import { ProjectCostingModule } from './project-costing/project-costing.module';
+import { LeadsModule } from './leads/leads.module';
 import { CustomerInfoModule } from './customer-info/customer-info.module';
 import { PublicApiModule } from './public-api/public-api.module';
 import { DocumentsModule } from './documents/documents.module';
@@ -131,6 +132,7 @@ import { ActionLogInterceptor } from './action-log/action-log.interceptor';
     PublicDocumentModule,
     PublicSignModule,
     ProjectCostingModule,
+    LeadsModule,
     CustomerInfoModule,
     PublicApiModule,
     IngestionModule,

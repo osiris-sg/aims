@@ -723,6 +723,57 @@ model ProjectMilestone {
   @@index([organizationId, projectId])
 }
 
+// Sales lead (interior-design orgs, 2026-08): one homeowner enquiry. Arrives
+// by email — EZiD (plain-text fields) or Network Singapore (PDF "Lead
+// Programme" distribution) — via the docs+{org}@ ingestion webhook, or is
+// keyed manually. Designers engage within 24h (Network rule); a lead that was
+// never contactable is returned for replacement within the 14-day window.
+model Lead {
+  id                   String    @id @default(uuid())
+  organizationId       String
+  source               String    @default("manual") // ezid | network | manual
+  ref                  String? // provider reference, e.g. NSG-2026-2160
+  name                 String
+  email                String?
+  phone                String?
+  phoneVerified        Boolean   @default(false)
+  location             String?
+  propertyType         String? // HDB | Resale Private Condo | ...
+  propertyRooms        String?
+  propertyStatus       String? // New | Resale
+  keyCollection        String?
+  moveIn               String?
+  budget               String?
+  areas                String? // areas to renovate
+  designStyle          String?
+  remarks              String? // homeowner's remarks / summary
+  approachNotes        String? // concierge "how to approach"
+  floorPlanUrl         String?
+  attachmentUrl        String?
+  attachmentKey        String?
+  status               String    @default("unqualified") // unqualified → engaging → dead | converted
+  deadProofUrl         String? // screenshot proof the client never replied (required to mark dead — replacement claim evidence)
+  deadProofKey         String?
+  deadAt               DateTime?
+  assignedToUserId     String?
+  assignedToName       String?
+  assignedAt           DateTime?
+  firstContactDeadline DateTime? // Network: 24h from distribution
+  replacementDeadline  DateTime? // Network: 14 days from distribution
+  quotationId          String?   @db.Uuid
+  projectId            String?   @db.Uuid
+  emailFrom            String?
+  emailSubject         String?
+  receivedAt           DateTime  @default(now())
+  notes                String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([organizationId, status])
+  @@index([organizationId, assignedToUserId])
+  @@index([organizationId, receivedAt])
+}
+
 // Public share link for a project's client-facing surfaces (2026-08: kind
 // "schedule" — the live weekly calendar). Mirrors DocumentShareLink: crypto
 // token, no expiry, soft revoke only. The client always sees the LATEST data.
