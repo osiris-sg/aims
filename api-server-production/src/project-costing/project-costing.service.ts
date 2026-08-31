@@ -615,12 +615,22 @@ export class ProjectCostingService {
     return { revoked: r.count };
   }
 
-  /** PUBLIC (token only): the live schedule HTML for the client. */
+  /**
+   * PUBLIC (token only): the live schedule for the client — structured weeks
+   * for the responsive page, plus the A4 print HTML for its Print button.
+   */
   async publicScheduleByToken(token: string) {
     if (!token || token.length < 16) throw new NotFoundException();
     const link = await this.prisma.projectShareLink.findUnique({ where: { token }, select: { projectId: true, kind: true, revokedAt: true, project: { select: { organizationId: true } } } });
     if (!link || link.kind !== 'schedule' || link.revokedAt) throw new NotFoundException();
-    return this.scheduleHtml(link.projectId, link.project.organizationId!);
+    const organizationId = link.project.organizationId!;
+    const h = await this.scheduleHeader(link.projectId, organizationId);
+    const items = await this.prisma.projectScheduleItem.findMany({ where: { projectId: link.projectId }, orderBy: [{ startDate: 'asc' }, { sortOrder: 'asc' }] });
+    return {
+      header: { projectSite: h.projectSite, contractNo: h.contractNo, manager: h.manager, contact: h.contact, orgName: h.orgName, logo: h.logo },
+      weeks: buildWeeks(items).map((w) => ({ index: w.index, days: w.days.map((d) => ({ iso: d.iso, dow: d.dow, holiday: d.holiday, work: d.work, notes: d.notes })) })),
+      html: renderScheduleHtml({ projectSite: h.projectSite, contractNo: h.contractNo, manager: h.manager, contact: h.contact, orgName: h.orgName, logo: h.logo, items }).toString(),
+    };
   }
 
   // ── list for the ID projects page ─────────────────────────────────────
