@@ -22,6 +22,7 @@ const ORG_NAME = 'CIEL INTERIOR PTE. LTD.';
 const USERS = [
   { email: 'mikeleong@cielinterior.com', firstName: 'Mike', lastName: 'Leong', whatsapp: '6582289608' },
   { email: 'levichoo@cielinterior.com', firstName: 'Levi', lastName: 'Choo', whatsapp: '6583686614' },
+  { email: 'summerec@cielinterior.com', firstName: 'Summer', lastName: 'EC', whatsapp: '6587640168' },
 ];
 
 async function main() {

@@ -72,7 +72,7 @@ Everything is on the `elroy/dev` working tree, **uncommitted**, dev DB only. Sta
 | 3.12 | **Contract & P&L tab**: initial sum + VOs, collected − costing = profit, margin, commission % (50% default), advances, balance payable | 🟡 Built | |
 | 3.13 | **Documents tab** | 🟡 Built | |
 | 3.14 | **Schedule tab**: 35-step sequence picker with date ranges (sequential spread), weekly Mon–Sun calendar (Sun off, SG PH flagged), list editor, Shift, Print/PDF in their sheet layout | 🟡 Built | |
-| 3.15 | Client share link for the schedule (live, always latest) | 🟡 Built (31 Aug) | `/schedule/<token>` public page + "Client link" button (copies URL) |
+| 3.15 | Client share link for the schedule (live, always latest) | ✅ Tested (31 Aug) | `/schedule/<token>` responsive rewrite: mobile agenda rows / desktop 7-col grid, Print/PDF keeps the A4 sheet layout; verified both widths in Chrome |
 | 3.15a | Schedule dates bug (default range + compressing spread) | 🟡 Fixed (31 Aug) | default 2-week window; ticking re-spreads live; extends past To date, min 1 day each |
 | 3.15b | Payments tab button clarity | 🟡 Fixed (31 Aug) | explanatory tooltips on Recalculate / Add VO / Add refund |
 | 3.16 | Monthly supplier payment run view (all approved costs across projects) | ⬜ Not started | from the "1st of the month I pay everyone" walkthrough |
