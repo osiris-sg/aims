@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Box, Button, Drawer, Grid, Typography, FormControl, InputLabel, Select, MenuItem, Chip, Alert, IconButton, InputAdornment } from "@mui/material";
+import { Box, Button, Drawer, Grid, Typography, FormControl, InputLabel, Select, MenuItem, Chip, Alert, IconButton, InputAdornment, TextField } from "@mui/material";
 import { useForm } from "react-hook-form";
 import FormInputBox from "@/form-components/FormInputBox";
 import { request } from "@/helpers/request";
@@ -28,6 +28,10 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  // Org-scoped member profile (not Clerk): WhatsApp number for the agent's
+  // sender matching + the designer's default commission share.
+  const [whatsappNumber, setWhatsappNumber] = useState("");
+  const [commissionPct, setCommissionPct] = useState("");
 
   const {
     control,
@@ -91,6 +95,8 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
       // Set selected roles
       const roleIds = user.roles?.map((role: any) => role.id) || [];
       setSelectedRoles(roleIds);
+      setWhatsappNumber(user.whatsappNumber || "");
+      setCommissionPct(user.commissionPct != null ? String(user.commissionPct) : "");
     }
   }, [user, open, setValue]);
 
@@ -156,6 +162,19 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
 
       console.log("Sending update data:", updateData);
       await updateUser(updateData);
+
+      // Org member profile (WhatsApp number + default commission) — separate
+      // endpoint because these live per-org, not in Clerk.
+      try {
+        const token = await getToken();
+        await request(
+          { method: "PATCH", path: `/users/${user.id}/profile` },
+          { whatsappNumber: whatsappNumber.trim() || null, commissionPct: commissionPct.trim() === "" ? null : Number(commissionPct) },
+          token ?? undefined
+        );
+      } catch (profileErr) {
+        console.error("Profile update failed:", profileErr);
+      }
 
       // Reset form and close drawer after successful update
       reset();
@@ -296,6 +315,31 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                     }}
                     error={!!errors.email}
                     helperText={errors.email?.message as string}
+                  />
+                </Grid>
+
+                <Grid item xs={6}>
+                  <TextField
+                    label="WhatsApp Number"
+                    fullWidth
+                    size="small"
+                    value={whatsappNumber}
+                    onChange={(e) => setWhatsappNumber(e.target.value)}
+                    placeholder="e.g. 6591234567"
+                    helperText="Lets the WhatsApp agent recognise this user"
+                    inputProps={{ inputMode: "tel" }}
+                  />
+                </Grid>
+                <Grid item xs={6}>
+                  <TextField
+                    label="Default Commission %"
+                    fullWidth
+                    size="small"
+                    value={commissionPct}
+                    onChange={(e) => setCommissionPct(e.target.value)}
+                    placeholder="e.g. 50"
+                    helperText="Applied to new projects they run"
+                    inputProps={{ inputMode: "decimal" }}
                   />
                 </Grid>
 

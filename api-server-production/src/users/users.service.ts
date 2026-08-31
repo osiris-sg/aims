@@ -65,10 +65,19 @@ export class UsersService {
       userRolesByUserId[userRole.userId].push(userRole as UserRoleWithDetails);
     });
 
+    // Per-org member profiles (WhatsApp number for agent routing, default
+    // designer commission). Users live in Clerk; these org-scoped attributes
+    // live in OrganizationMemberProfile.
+    const profiles = await this.prisma.organizationMemberProfile.findMany({
+      where: { organizationId, userId: { in: Object.keys(userRolesByUserId) } },
+    });
+    const profileByUser = new Map(profiles.map((p) => [p.userId, p]));
+
     // Fetch user information from Clerk for each userId
     const transformedUsers = await Promise.all(
       Object.entries(userRolesByUserId).map(async ([userId, roles]: [string, UserRoleWithDetails[]]) => {
         const firstRole = roles[0];
+        const profile = profileByUser.get(userId);
 
         try {
           // Fetch user from Clerk
@@ -78,6 +87,8 @@ export class UsersService {
             id: userId,
             email: clerkUser.emailAddresses[0]?.emailAddress || userId,
             name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || clerkUser.username || `User ${userId}`,
+            whatsappNumber: profile?.whatsappNumber ?? null,
+            commissionPct: profile?.commissionPct ?? null,
             roles: roles.map((ur) => ({
               id: ur.role.id,
               name: ur.role.name,
@@ -94,6 +105,8 @@ export class UsersService {
             id: userId,
             email: userId,
             name: `User ${userId}`,
+            whatsappNumber: profile?.whatsappNumber ?? null,
+            commissionPct: profile?.commissionPct ?? null,
             roles: roles.map((ur) => ({
               id: ur.role.id,
               name: ur.role.name,
@@ -112,6 +125,28 @@ export class UsersService {
       totalDocuments,
       totalPagesCount: Math.ceil(totalDocuments / limit),
     };
+  }
+
+  /**
+   * Org-scoped member profile: the WhatsApp number the agent matches inbound
+   * messages against, and a designer's default commission share. Upsert —
+   * only provided fields change.
+   */
+  async upsertMemberProfile(userId: string, organizationId: string, dto: { whatsappNumber?: string | null; commissionPct?: number | null }) {
+    const whatsappNumber = dto.whatsappNumber !== undefined ? (dto.whatsappNumber ? dto.whatsappNumber.replace(/\D/g, '') : null) : undefined;
+    return this.prisma.organizationMemberProfile.upsert({
+      where: { organizationId_userId: { organizationId, userId } },
+      update: {
+        whatsappNumber,
+        commissionPct: dto.commissionPct !== undefined ? dto.commissionPct : undefined,
+      },
+      create: {
+        organizationId,
+        userId,
+        whatsappNumber: whatsappNumber ?? null,
+        commissionPct: dto.commissionPct ?? null,
+      },
+    });
   }
 
   async getUserRoles(userId: string, organizationId: string) {

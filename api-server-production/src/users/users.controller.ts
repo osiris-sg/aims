@@ -53,6 +53,13 @@ export class UsersController {
     return this.usersService.createUser(createUserDto);
   }
 
+  @Patch(':userId/profile')
+  @Permissions('users:update')
+  @ApiOperation({ summary: 'Update the org-scoped member profile (WhatsApp number, default commission %)' })
+  updateProfile(@Param('userId') userId: string, @Body() body: { whatsappNumber?: string | null; commissionPct?: number | null }, @UserOrganization() organization: { id: string; name: string }) {
+    return this.usersService.upsertMemberProfile(userId, organization.id, body || {});
+  }
+
   @Patch(':userId')
   @Permissions('users:update')
   @ApiOperation({ summary: 'Update user information and role assignments' })
