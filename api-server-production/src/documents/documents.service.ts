@@ -1018,12 +1018,19 @@ export class DocumentsService {
         // expired" (guru 2026-08-19).
         'payToken',
       ];
-      for (const k of trackingKeys) {
-        if (
-          (configAsPlainObject as any)[k] === undefined &&
-          existingConfig[k] !== undefined
-        ) {
-          (configAsPlainObject as any)[k] = existingConfig[k];
+      // Only meaningful when the caller actually sent a config. A status-only
+      // save (dto.config absent → configAsPlainObject null) has nothing to
+      // preserve INTO, and dereferencing null here threw
+      // "Cannot read properties of null (reading 'sourceOrderId')" — the first
+      // trackingKey — which the closing catch re-threw as a 500.
+      if (configAsPlainObject) {
+        for (const k of trackingKeys) {
+          if (
+            (configAsPlainObject as any)[k] === undefined &&
+            existingConfig[k] !== undefined
+          ) {
+            (configAsPlainObject as any)[k] = existingConfig[k];
+          }
         }
       }
 
@@ -1111,7 +1118,11 @@ export class DocumentsService {
           organizationId, // Ensure user can only update documents in their organization
         },
         data: {
-          config: configAsPlainObject,
+          // A status-only save (Confirm, and any other caller that sends no
+          // dto.config) carries no config at all, so it must leave the stored
+          // config ALONE. Writing it unconditionally would put null into a
+          // required Json column and wipe the document's contents.
+          ...(configAsPlainObject ? { config: configAsPlainObject } : {}),
           type: dto.type,
           // Update document status if provided
           status: dto.status, // DocumentStatus enum
