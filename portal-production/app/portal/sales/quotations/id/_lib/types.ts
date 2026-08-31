@@ -48,6 +48,16 @@ export interface QuoteSection {
 
 export interface QuoteHeader {
   title: string;
+  /**
+   * The printed contract / quotation number. Optional: existing quotations
+   * have never written it, and the editor falls back to Document.name when it
+   * is unset. Editing it renames the document — buildConfig copies it into
+   * config.documentInfo.documentNumber, which updateDocument() writes to
+   * Document.name. The server renderer already reads it FIRST
+   * (id-quotation.ts: `h.contractNo || documentInfo.documentNumber || name`),
+   * so this populates a key the print layout has always expected.
+   */
+  contractNo?: string | null;
   clientName: string;
   nric: string;
   address: string;

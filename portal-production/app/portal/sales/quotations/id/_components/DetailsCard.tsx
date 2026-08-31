@@ -117,7 +117,19 @@ export default function DetailsCard({ header, contractNo, readOnly, onChange, on
               />
             </Grid>
             <Grid item xs={12} md={6}>
-              <TextField label="Contract Number" size="small" fullWidth value={contractNo || ""} disabled helperText="Assigned automatically" />
+              {/* Editable: typing here renames the document. header.contractNo
+                  is the edited value; the contractNo prop (Document.name) is
+                  the fallback so existing quotations show their current
+                  number before anyone has touched the field. */}
+              <TextField
+                label="Contract Number"
+                size="small"
+                fullWidth
+                value={header.contractNo ?? contractNo ?? ""}
+                disabled={readOnly}
+                onChange={(e) => onChange({ contractNo: e.target.value })}
+                helperText="Auto-assigned. Edit to use your own number."
+              />
             </Grid>
             <Grid item xs={12} md={6}>
               {field("NRIC No", "nric")}

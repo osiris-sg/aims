@@ -146,7 +146,10 @@ export default function IdQuotationEditorPage() {
         customerName: q.header.clientName,
         documentInfo: {
           ...(base.documentInfo || {}),
-          documentNumber: doc?.name || base.documentInfo?.documentNumber,
+          // An edited Contract Number wins over the stored name: updateDocument()
+          // copies documentInfo.documentNumber into Document.name, so sourcing
+          // doc?.name first would clobber the user's input on the next autosave.
+          documentNumber: q.header.contractNo?.trim() || doc?.name || base.documentInfo?.documentNumber,
           date: q.header.agreementDate,
           subject: q.header.title,
           paymentTerms: q.header.paymentTerms,
