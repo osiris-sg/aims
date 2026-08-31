@@ -723,6 +723,37 @@ model ProjectMilestone {
   @@index([organizationId, projectId])
 }
 
+// Public share link for a project's client-facing surfaces (2026-08: kind
+// "schedule" — the live weekly calendar). Mirrors DocumentShareLink: crypto
+// token, no expiry, soft revoke only. The client always sees the LATEST data.
+model ProjectShareLink {
+  id         String    @id @default(uuid())
+  token      String    @unique
+  projectId  String    @db.Uuid
+  project    Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind       String    @default("schedule")
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  @@index([projectId])
+}
+
+// Per-org member profile for Clerk users (users themselves live in Clerk, so
+// org-scoped attributes go here): the WhatsApp number the agent matches
+// incoming messages against, and the designer's default commission share.
+model OrganizationMemberProfile {
+  id             String   @id @default(uuid())
+  organizationId String
+  userId         String // Clerk user id
+  whatsappNumber String? // digits only, e.g. 6591234567
+  commissionPct  Float? // default share of project profit for this designer
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, userId])
+  @@index([whatsappNumber])
+}
+
 // Project schedule (interior-design projects): one row per activity on the
 // weekly Mon–Sun calendar the firm sends clients ("Project Schedule" sheet).
 // kind: work (spans startDate..endDate, skips Sundays), note (a reminder
@@ -956,9 +987,11 @@ model Project {
   deployments      ProjectDeployment[]
   deliveries       Delivery[]
   contacts         ProjectContact[]
+  designerUserId   String? // Clerk user id of the designer in charge (drives WhatsApp routing)
   costs            ProjectCost[]
   milestones       ProjectMilestone[]
   scheduleItems    ProjectScheduleItem[]
+  shareLinks       ProjectShareLink[]
   organization     Organization?       @relation(fields: [organizationId], references: [id])
   siteOffice       SiteOffice?         @relation("SiteOfficeProjects", fields: [siteOfficeId], references: [id])
   customer         Customer?           @relation("CustomerProjects", fields: [customerId], references: [id])

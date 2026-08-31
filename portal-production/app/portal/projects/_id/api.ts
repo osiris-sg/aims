@@ -144,6 +144,22 @@ export function useIdProjectApi() {
       updateScheduleItem: (itemId: string, body: any) => request(`/projects/schedule/${itemId}`, { method: "PATCH", body: j(body) }),
       removeScheduleItem: (itemId: string) => request(`/projects/schedule/${itemId}`, { method: "DELETE" }),
       shiftSchedule: (id: string, days: number, fromDate?: string) => request(`/projects/${id}/schedule/shift`, { method: "POST", body: j({ days, fromDate }) }),
+      createScheduleLink: (id: string) => request<{ url: string; path: string }>(`/projects/${id}/schedule/share-link`, { method: "POST" }),
+      revokeScheduleLink: (id: string) => request(`/projects/${id}/schedule/share-link/revoke`, { method: "POST" }),
+      // Designer-role holders only (fallback to all users when the org has no
+      // designers yet, so the picker still works during setup).
+      listOrgUsers: () =>
+        request<any>(`/users/list`, { method: "POST", body: j({ page: 1, limit: 100, search: "", filters: {} }) }).then((r: any) => {
+          const all = (r?.users || r?.docs || (Array.isArray(r) ? r : [])).map((u: any) => ({
+            id: u.id,
+            name: u.name || u.email || u.id,
+            email: u.email,
+            whatsappNumber: u.whatsappNumber || null,
+            isDesigner: (u.roles || []).some((role: any) => /designer/i.test(role?.name || "")),
+          }));
+          const designers = all.filter((u: any) => u.isDesigner);
+          return designers.length ? designers : all;
+        }),
       setDepositMode: (id: string, body: { mode: "engagement" | "percent"; engagementFee?: number; pct?: number }) => request(`/projects/${id}/deposit-mode`, { method: "PATCH", body: j(body) }),
       createMilestoneInvoice: (mid: string) => request<{ id: string; number: string | null; status: string; path: string; created: boolean }>(`/projects/milestones/${mid}/invoice`, { method: "POST" }),
     }),

@@ -3,7 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { S3Service } from '../common/services/s3.service';
 import { BillsModule } from '../bills/bills.module';
 import { DocumentsModule } from '../documents/documents.module';
-import { IdProjectsListController, ProjectCostingController } from './project-costing.controller';
+import { IdProjectsListController, ProjectCostingController, PublicScheduleController } from './project-costing.controller';
 import { ProjectCostingService } from './project-costing.service';
 
 /**
@@ -13,7 +13,7 @@ import { ProjectCostingService } from './project-costing.service';
  */
 @Module({
   imports: [BillsModule, DocumentsModule],
-  controllers: [IdProjectsListController, ProjectCostingController],
+  controllers: [PublicScheduleController, IdProjectsListController, ProjectCostingController],
   providers: [ProjectCostingService, PrismaService, S3Service],
   exports: [ProjectCostingService],
 })

@@ -3,6 +3,7 @@ import { Request } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
+import { Public } from '../decorators/public.decorator';
 import { ProjectCostingService } from './project-costing.service';
 
 interface RequestWithOrganization extends Request {
@@ -17,6 +18,19 @@ function orgId(req: RequestWithOrganization): string {
 function actorName(req: RequestWithOrganization): string | undefined {
   const u: any = req.user || {};
   return u.name || [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email || undefined;
+}
+
+/** PUBLIC (no auth): the client-facing live schedule, by unguessable token. */
+@ApiTags('project-costing')
+@Controller()
+export class PublicScheduleController {
+  constructor(private readonly service: ProjectCostingService) {}
+
+  @Public()
+  @Get('public/schedule/:token')
+  publicSchedule(@Param('token') token: string) {
+    return this.service.publicScheduleByToken(token);
+  }
 }
 
 /**
@@ -104,6 +118,18 @@ export class ProjectCostingController {
   @Permissions('projects:update')
   addSchedule(@Param('id') id: string, @Body() body: { items: any[] }, @Req() req: RequestWithOrganization) {
     return this.service.addScheduleItems(id, orgId(req), body?.items || []);
+  }
+
+  @Post(':id/schedule/share-link')
+  @Permissions('projects:update')
+  scheduleLink(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    return this.service.createScheduleLink(id, orgId(req));
+  }
+
+  @Post(':id/schedule/share-link/revoke')
+  @Permissions('projects:update')
+  revokeScheduleLink(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    return this.service.revokeScheduleLink(id, orgId(req));
   }
 
   @Post(':id/schedule/shift')

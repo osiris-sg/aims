@@ -42,6 +42,7 @@ import PrintIcon from "@mui/icons-material/PrintOutlined";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonthOutlined";
 import ListAltIcon from "@mui/icons-material/ListAltOutlined";
 import UpdateIcon from "@mui/icons-material/Update";
+import ShareIcon from "@mui/icons-material/IosShareOutlined";
 import { toast } from "react-toastify";
 import { useIdProjectApi, type Schedule, type ScheduleItem } from "./api";
 
@@ -114,6 +115,26 @@ export default function ScheduleTab({ projectId }: { projectId: string }) {
         <Tooltip title="Push every activity later/earlier by N days (site delays)">
           <Button size="small" startIcon={<UpdateIcon />} onClick={() => setShiftOpen(true)} disabled={!data.items.length} sx={{ textTransform: "none" }}>
             Shift
+          </Button>
+        </Tooltip>
+        <Tooltip title="A live link for the client — always shows the latest schedule, even after shifts">
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<ShareIcon />}
+            onClick={async () => {
+              try {
+                const r = await api.createScheduleLink(projectId);
+                const url = /^https?:/i.test(r.url) ? r.url : `${window.location.origin}${r.url.startsWith("/") ? "" : "/"}${r.url}`;
+                await navigator.clipboard.writeText(url).catch(() => {});
+                toast.success("Client link copied — paste it into WhatsApp");
+              } catch (e: any) {
+                toast.error(e.message || "Could not create link");
+              }
+            }}
+            sx={{ textTransform: "none" }}
+          >
+            Client link
           </Button>
         </Tooltip>
         <Button size="small" variant="outlined" startIcon={<PrintIcon />} onClick={openPrint} sx={{ textTransform: "none" }}>
@@ -324,40 +345,43 @@ function AddActivitiesDialog({ open, sequence, projectId, onClose, onAdded }: { 
       setPicked({});
       setCustom("");
       setRangeStart(isoToday());
-      setRangeEnd(isoToday());
+      setRangeEnd(addDays(isoToday(), 13)); // default: a two-week window
     }
   }, [open]);
 
   const labels = useMemo(() => Object.keys(picked), [picked]);
+
+  // Spread a set of labels across the range: back-to-back in sequence order,
+  // every activity gets at least ONE day, and if the range is shorter than the
+  // activity count the schedule simply extends past the To date — never piles
+  // everything onto one day.
+  const spread = (keys: string[], from: string, to: string, seq: boolean): Record<string, { start: string; end: string }> => {
+    const order = [...sequence, ...keys.filter((l) => !sequence.includes(l))].filter((l) => keys.includes(l));
+    const next: Record<string, { start: string; end: string }> = {};
+    if (!seq) {
+      for (const l of order) next[l] = { start: from, end: to };
+      return next;
+    }
+    const total = Math.max(1, Math.round((new Date(to).getTime() - new Date(from).getTime()) / DAY) + 1);
+    const per = Math.max(1, Math.floor(total / Math.max(1, order.length)));
+    let cursor = from;
+    for (const l of order) {
+      const end = addDays(cursor, per - 1);
+      next[l] = { start: cursor, end };
+      cursor = addDays(end, 1);
+    }
+    return next;
+  };
+
+  // Ticking recalculates the whole spread live (fine-tuned dates are re-derived
+  // when the ticked set changes — fine-tune AFTER picking everything).
   const toggle = (label: string) =>
     setPicked((p) => {
-      const n = { ...p };
-      if (n[label]) delete n[label];
-      else n[label] = { start: rangeStart, end: rangeEnd };
-      return n;
+      const keys = p[label] ? Object.keys(p).filter((k) => k !== label) : [...Object.keys(p), label];
+      return spread(keys, rangeStart, rangeEnd, sequential);
     });
 
-  // Sequential fill: spread the ticked activities back-to-back across the
-  // overall range (in sequence order), skipping nothing — designers then fine-tune.
-  const applyRange = () => {
-    const order = [...sequence, ...labels.filter((l) => !sequence.includes(l))].filter((l) => picked[l]);
-    if (!order.length) return;
-    if (!sequential) {
-      setPicked((p) => Object.fromEntries(Object.keys(p).map((k) => [k, { start: rangeStart, end: rangeEnd }])));
-      return;
-    }
-    const total = Math.max(1, Math.round((new Date(rangeEnd).getTime() - new Date(rangeStart).getTime()) / DAY) + 1);
-    const per = Math.max(1, Math.floor(total / order.length));
-    let cursor = rangeStart;
-    const next: Record<string, { start: string; end: string }> = {};
-    order.forEach((l, i) => {
-      const last = i === order.length - 1;
-      const end = last ? rangeEnd : addDays(cursor, per - 1);
-      next[l] = { start: cursor, end: end < cursor ? cursor : end };
-      cursor = addDays(end, 1);
-    });
-    setPicked(next);
-  };
+  const applyRange = () => setPicked((p) => spread(Object.keys(p), rangeStart, rangeEnd, sequential));
 
   const submit = async () => {
     const items = labels.map((l) => ({ label: l, kind: "work", startDate: picked[l].start, endDate: picked[l].end }));
@@ -409,7 +433,7 @@ function AddActivitiesDialog({ open, sequence, projectId, onClose, onAdded }: { 
               Apply to ticked
             </Button>
           </Stack>
-          <FormControlLabel control={<Checkbox size="small" checked={sequential} onChange={(e) => setSequential(e.target.checked)} />} label={<Typography variant="caption">Spread the ticked activities one after another across the range (untick = all get the same range)</Typography>} sx={{ mb: 1, alignItems: "flex-start", "& .MuiCheckbox-root": { pt: 0 } }} />
+          <FormControlLabel control={<Checkbox size="small" checked={sequential} onChange={(e) => setSequential(e.target.checked)} />} label={<Typography variant="caption">Spread the ticked activities one after another across the range (untick = every activity gets the whole range). If the range is shorter than the list, the schedule extends past the To date.</Typography>} sx={{ mb: 1, alignItems: "flex-start", "& .MuiCheckbox-root": { pt: 0 } }} />
           <Divider sx={{ mb: 1 }} />
           <Typography variant="caption" sx={{ color: "text.secondary", mb: 0.5 }}>
             {labels.length} selected — fine-tune each start/end here
@@ -417,7 +441,7 @@ function AddActivitiesDialog({ open, sequence, projectId, onClose, onAdded }: { 
           <Box sx={{ flex: 1, overflowY: "auto" }}>
             {labels.length === 0 && (
               <Typography variant="body2" sx={{ color: "text.disabled", p: 2, textAlign: "center" }}>
-                Tick activities on the left.
+                Tick activities on the left — they spread across the date range automatically, in sequence order.
               </Typography>
             )}
             {[...sequence, ...labels.filter((l) => !sequence.includes(l))]

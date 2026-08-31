@@ -234,13 +234,25 @@ export class ProjectCostingService {
     };
   }
 
-  async updateProjectFields(projectId: string, organizationId: string, dto: { designer?: string | null; stage?: string | null; commissionPct?: number | null; status?: string; startDate?: string | null; endDate?: string | null; name?: string; address?: string | null }) {
+  async updateProjectFields(projectId: string, organizationId: string, dto: { designer?: string | null; designerUserId?: string | null; stage?: string | null; commissionPct?: number | null; status?: string; startDate?: string | null; endDate?: string | null; name?: string; address?: string | null }) {
     await this.project(projectId, organizationId);
     if (dto.stage && !ID_STAGES.includes(dto.stage as any)) throw new BadRequestException('Unknown stage');
+    // Picking a designer with a stored default commission adopts it (unless the
+    // caller sets commissionPct explicitly in the same call).
+    let commissionFromProfile: number | undefined;
+    if (dto.designerUserId && dto.commissionPct === undefined) {
+      const profile = await this.prisma.organizationMemberProfile.findUnique({
+        where: { organizationId_userId: { organizationId, userId: dto.designerUserId } },
+        select: { commissionPct: true },
+      });
+      if (profile?.commissionPct != null) commissionFromProfile = profile.commissionPct;
+    }
     return this.prisma.project.update({
       where: { id: projectId },
       data: {
         designer: dto.designer !== undefined ? dto.designer : undefined,
+        designerUserId: dto.designerUserId !== undefined ? dto.designerUserId : undefined,
+        ...(commissionFromProfile !== undefined ? { commissionPct: commissionFromProfile } : {}),
         stage: dto.stage !== undefined ? dto.stage : undefined,
         commissionPct: dto.commissionPct !== undefined ? dto.commissionPct : undefined,
         status: dto.status ? (dto.status as any) : dto.stage === 'completed' ? 'completed' : undefined,
@@ -582,6 +594,33 @@ export class ProjectCostingService {
     const h = await this.scheduleHeader(projectId, organizationId);
     const items = await this.prisma.projectScheduleItem.findMany({ where: { projectId }, orderBy: [{ startDate: 'asc' }, { sortOrder: 'asc' }] });
     return { html: renderScheduleHtml({ projectSite: h.projectSite, contractNo: h.contractNo, manager: h.manager, contact: h.contact, orgName: h.orgName, logo: h.logo, items }) };
+  }
+
+  /** Mint (or reuse) the public schedule link — the client always sees the latest calendar. */
+  async createScheduleLink(projectId: string, organizationId: string) {
+    await this.project(projectId, organizationId);
+    let link = await this.prisma.projectShareLink.findFirst({ where: { projectId, kind: 'schedule', revokedAt: null }, orderBy: { createdAt: 'desc' } });
+    if (!link) {
+      const { randomBytes } = await import('crypto');
+      link = await this.prisma.projectShareLink.create({ data: { projectId, kind: 'schedule', token: randomBytes(32).toString('base64url') } });
+    }
+    const base = (process.env.PORTAL_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    const path = `/schedule/${link.token}`;
+    return { token: link.token, path, url: base ? `${base}${path}` : path };
+  }
+
+  async revokeScheduleLink(projectId: string, organizationId: string) {
+    await this.project(projectId, organizationId);
+    const r = await this.prisma.projectShareLink.updateMany({ where: { projectId, kind: 'schedule', revokedAt: null }, data: { revokedAt: new Date() } });
+    return { revoked: r.count };
+  }
+
+  /** PUBLIC (token only): the live schedule HTML for the client. */
+  async publicScheduleByToken(token: string) {
+    if (!token || token.length < 16) throw new NotFoundException();
+    const link = await this.prisma.projectShareLink.findUnique({ where: { token }, select: { projectId: true, kind: true, revokedAt: true, project: { select: { organizationId: true } } } });
+    if (!link || link.kind !== 'schedule' || link.revokedAt) throw new NotFoundException();
+    return this.scheduleHtml(link.projectId, link.project.organizationId!);
   }
 
   // ── list for the ID projects page ─────────────────────────────────────

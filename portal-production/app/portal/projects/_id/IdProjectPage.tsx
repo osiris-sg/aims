@@ -11,6 +11,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Chip,
@@ -63,6 +64,42 @@ const KPI = ({ label, value, hint, color }: { label: string; value: string; hint
     )}
   </Paper>
 );
+
+/** Designer = one of the org's users (drives WhatsApp routing + commissions). */
+function DesignerSelect({ value, onPick }: { value: string | null; onPick: (u: { id: string; name: string } | null) => void }) {
+  const api = useIdProjectApi();
+  const [options, setOptions] = useState<Array<{ id: string; name: string; email?: string }>>([]);
+  useEffect(() => {
+    api
+      .listOrgUsers()
+      .then((users: any[]) => setOptions(users))
+      .catch(() => {});
+  }, [api]);
+  return (
+    <Autocomplete
+      size="small"
+      options={options}
+      getOptionLabel={(o) => o.name}
+      value={options.find((o) => o.name === value) || (value ? ({ id: "", name: value } as any) : null)}
+      isOptionEqualToValue={(a, b) => a.id === b.id || a.name === b.name}
+      onChange={(_, v) => onPick(v ? { id: v.id, name: v.name } : null)}
+      renderOption={(props, o) => (
+        <li {...props} key={o.id || o.name}>
+          <Box>
+            <Typography variant="body2">{o.name}</Typography>
+            {o.email && (
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                {o.email}
+              </Typography>
+            )}
+          </Box>
+        </li>
+      )}
+      renderInput={(params) => <TextField {...params} label="Designer" placeholder="Pick a user" />}
+      sx={{ minWidth: 220 }}
+    />
+  );
+}
 
 const Cell = ({ children, right, sx }: { children?: React.ReactNode; right?: boolean; sx?: any }) => (
   <TableCell sx={{ py: 0.75, whiteSpace: "nowrap", textAlign: right ? "right" : "left", fontVariantNumeric: "tabular-nums", ...sx }}>{children}</TableCell>
@@ -172,7 +209,7 @@ export default function IdProjectPage({ id }: { id: string }) {
               </MenuItem>
             ))}
           </TextField>
-          <TextField size="small" label="Designer" defaultValue={p.designer || ""} onBlur={(e) => e.target.value !== (p.designer || "") && saveField({ designer: e.target.value })} sx={{ minWidth: 160 }} />
+          <DesignerSelect value={p.designer} onPick={(u) => saveField(u ? { designer: u.name, designerUserId: u.id } : { designer: null, designerUserId: null })} />
         </Stack>
       </Stack>
 
@@ -359,17 +396,21 @@ export default function IdProjectPage({ id }: { id: string }) {
                 Progressive payments
               </Typography>
               <Box sx={{ flex: 1 }} />
-              <Tooltip title="Re-derive the milestone amounts from the current contract sum (keeps what was paid)">
+              <Tooltip title="Contract sum changed (e.g. a VO was signed)? This re-derives each % milestone amount from the new total — paid amounts are kept">
                 <Button size="small" startIcon={<RefreshIcon />} onClick={() => api.recalcMilestones(id).then(load)} sx={{ textTransform: "none" }}>
                   Recalculate
                 </Button>
               </Tooltip>
-              <Button size="small" startIcon={<AddIcon />} onClick={() => api.addMilestone(id, { kind: "vo", label: `VO${data.milestones.filter((m) => m.kind === "vo").length + 1}` }).then(load)} sx={{ textTransform: "none" }}>
-                Add VO
-              </Button>
-              <Button size="small" startIcon={<AddIcon />} onClick={() => api.addMilestone(id, { kind: "refund", label: "Refund excess" }).then(load)} sx={{ textTransform: "none" }}>
-                Add refund
-              </Button>
+              <Tooltip title="A signed variation order: adds its amount to the contract sum and appears as its own collectable line">
+                <Button size="small" startIcon={<AddIcon />} onClick={() => api.addMilestone(id, { kind: "vo", label: `VO${data.milestones.filter((m) => m.kind === "vo").length + 1}` }).then(load)} sx={{ textTransform: "none" }}>
+                  Add VO
+                </Button>
+              </Tooltip>
+              <Tooltip title="Money returned to the client (overcharge/excess) — subtracts from Total Amount Collected">
+                <Button size="small" startIcon={<AddIcon />} onClick={() => api.addMilestone(id, { kind: "refund", label: "Refund excess" }).then(load)} sx={{ textTransform: "none" }}>
+                  Add refund
+                </Button>
+              </Tooltip>
             </Stack>
             {q && t.initialContractSum <= 0 && (
               <Alert severity="warning" sx={{ mb: 1.5 }} action={<Button color="inherit" size="small" onClick={() => router.push(`/portal/sales/quotations/id/${q.id}`)}>Open quotation</Button>}>
