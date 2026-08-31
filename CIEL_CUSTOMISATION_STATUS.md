@@ -22,7 +22,7 @@ Everything is on the `elroy/dev` working tree, **uncommitted**, dev DB only. Sta
 | 0.4 | Deliveries promoted to a real module so CIEL can hide it | ✅ Done & tested | catalog + `promote-deliveries-module.ts`; guru saw it disappear |
 | 0.5 | Quotation numbering `CI{YY}-{###}` | 🟡 Built | serial starts at 001 — **guru to give the real next number** |
 | 0.6 | CIEL company profile: logo, address, phone, bank details, PayNow QR | ⬜ Not started | needed by invoices, sign page, schedule header |
-| 0.7 | CIEL users: 2 owners (Management) + designers (Designer role) | ⬜ Not started | |
+| 0.7 | CIEL users: Mike Leong + Levi Choo — Clerk accounts + Management **and** Designer roles + WhatsApp numbers on member profile | 🟡 dev+staging DONE (31 Aug, `scripts/setup-ciel-users.ts`); prod via guru's `!` | shared Clerk instance → same user ids everywhere |
 | 0.8 | Deploy to staging → prod | 🟡 DB DONE on both (2026-08-31): staging org `25134abf-…`, prod org `09e55c23-e031-4254-8152-a373597b2cb3`, schema + 53-item library + deliveries rollout on each; **CODE still uncommitted — portal/API not deployed anywhere** | code push = release-captain flow |
 
 ## 1. Quotation (Phase 1)
@@ -108,13 +108,13 @@ Everything is on the `elroy/dev` working tree, **uncommitted**, dev DB only. Sta
 
 | # | Item | Status | Notes |
 |---|---|---|---|
-| 7.1 | `LEADS` module: auto-capture from **EasyID** lead emails (name, number, email, requirement) into a Leads list under Sales | ⬜ Not started | Mike's email requested for forwarding; need a sample |
-| 7.1a | Dead-lead rule: no reply in 2–3 days → dead → refund claim from EasyID | ⬜ Not started | 30 Aug |
-| 7.1b | Qualified lead → "Create quotation" button | ⬜ Not started | 30 Aug |
+| 7.1 | Leads: auto-capture from **EZiD** emails + **Network Singapore** lead-programme PDFs via docs+{org}@ ingestion into Sales → Leads | 🟡 Built (31 Aug) | `Lead` model, `src/leads`, hook in ingestion-email; needs EmailIngestConfig enabled per org |
+| 7.1a | Dead/replacement handling: statuses incl. Dead + Replacement requested; Network 24h contact chip + 14-day replacement window shown | 🟡 Built (31 Aug) | |
+| 7.1b | Create quotation from a lead (pre-filled, linked back) | 🟡 Built (31 Aug) | |
 | 7.2 | WhatsApp notify management → assign designer by reply → designer notified | ⬜ Not started | |
-| 7.3 | Statuses (contacted / met = non-refundable / returned / signed), comments | ⬜ Not started | |
+| 7.3 | Status flow per owners' spec: Unqualified → Engaging (on assign) → Dead (mandatory no-reply proof upload, stored for replacement claim) \| Converted (auto-creates + links quotation) | 🟡 Built (31 Aug) | stat chips: unqualified/engaging/converted %/dead + per-designer ratios |
 | 7.4 | Metrics: taken/returned/signed %, per-designer conversion ratio, cost per lead ($100), CAC | ⬜ Not started | data-building first, targets/alerts after 1–2 months |
-| 7.5 | Signed lead → auto-create project | ⬜ Not started | |
+| 7.5 | Signed lead → project (happens via the quotation e-sign flow) | 🟡 Covered | lead → quotation → sign → project |
 | 7.6 | ID dashboard replacing rental widgets | ⬜ Not started | |
 | 7.7 | 2nd lead platform (starts "next week" per meeting) | ⬜ Not started | |
 

@@ -43,6 +43,7 @@ const ENABLED_MODULES: Array<{ code: string; subMenus?: Array<{ key: string; lab
   {
     code: 'SALES',
     subMenus: [
+      { key: 'leads', label: 'Leads' },
       { key: 'quotations', label: 'Quotation' },
       { key: 'invoices', label: 'Invoice' },
       { key: 'credit-notes', label: 'Credit Note' },
