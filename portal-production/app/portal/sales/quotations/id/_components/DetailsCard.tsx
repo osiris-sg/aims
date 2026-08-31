@@ -23,6 +23,11 @@ export default function DetailsCard({ header, contractNo, readOnly, onChange, on
   const [open, setOpen] = useState(true);
   const [options, setOptions] = useState<any[]>([]);
   const [input, setInput] = useState(header.clientName || "");
+  const [designers, setDesigners] = useState<Array<{ id: string; name: string; email?: string; whatsappNumber?: string | null }>>([]);
+
+  useEffect(() => {
+    api.listOrgUsers().then(setDesigners).catch(() => {});
+  }, [api]);
 
   useEffect(() => {
     const t = setTimeout(async () => {
@@ -130,7 +135,28 @@ export default function DetailsCard({ header, contractNo, readOnly, onChange, on
               {field("Contact", "contact")}
             </Grid>
             <Grid item xs={12} md={3}>
-              {field("Designer", "designer")}
+              <Autocomplete
+                size="small"
+                disabled={readOnly}
+                options={designers}
+                getOptionLabel={(o: any) => (typeof o === "string" ? o : o?.name || "")}
+                value={designers.find((d) => d.name === header.designer) || (header.designer ? ({ id: "", name: header.designer } as any) : null)}
+                isOptionEqualToValue={(a: any, b: any) => a?.id === b?.id || a?.name === b?.name}
+                onChange={(_, v: any) => onChange({ designer: v?.name || "", designerPhone: header.designerPhone || v?.whatsappNumber || "" })}
+                renderOption={(props, o: any) => (
+                  <li {...props} key={o.id || o.name}>
+                    <Box>
+                      <Typography variant="body2">{o.name}</Typography>
+                      {o.email && (
+                        <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                          {o.email}
+                        </Typography>
+                      )}
+                    </Box>
+                  </li>
+                )}
+                renderInput={(params) => <TextField {...params} label="Designer" placeholder="Pick a user" />}
+              />
             </Grid>
             <Grid item xs={12} md={3}>
               {field("Designer Phone", "designerPhone")}

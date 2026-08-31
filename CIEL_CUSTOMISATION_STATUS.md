@@ -23,7 +23,7 @@ Everything is on the `elroy/dev` working tree, **uncommitted**, dev DB only. Sta
 | 0.5 | Quotation numbering `CI{YY}-{###}` | 🟡 Built | serial starts at 001 — **guru to give the real next number** |
 | 0.6 | CIEL company profile: logo, address, phone, bank details, PayNow QR | ⬜ Not started | needed by invoices, sign page, schedule header |
 | 0.7 | CIEL users: 2 owners (Management) + designers (Designer role) | ⬜ Not started | |
-| 0.8 | Deploy to staging → prod | ⬜ Not started | after test pass |
+| 0.8 | Deploy to staging → prod | 🟡 DB DONE on both (2026-08-31): staging org `25134abf-…`, prod org `09e55c23-e031-4254-8152-a373597b2cb3`, schema + 53-item library + deliveries rollout on each; **CODE still uncommitted — portal/API not deployed anywhere** | code push = release-captain flow |
 
 ## 1. Quotation (Phase 1)
 
@@ -72,12 +72,12 @@ Everything is on the `elroy/dev` working tree, **uncommitted**, dev DB only. Sta
 | 3.12 | **Contract & P&L tab**: initial sum + VOs, collected − costing = profit, margin, commission % (50% default), advances, balance payable | 🟡 Built | |
 | 3.13 | **Documents tab** | 🟡 Built | |
 | 3.14 | **Schedule tab**: 35-step sequence picker with date ranges (sequential spread), weekly Mon–Sun calendar (Sun off, SG PH flagged), list editor, Shift, Print/PDF in their sheet layout | 🟡 Built | |
-| 3.15 | Client share link for the schedule (live, always latest) | ⬜ Not started | **asked again 30 Aug** — reuse sign-link pattern |
-| 3.15a | Schedule dates bug: default From/To = today puts every activity on the same day; sequential spread compresses when range < activities | ⬜ Not started | seen 30 Aug walkthrough ("every day is 30th") |
-| 3.15b | Payments tab: unexplained buttons (Recalculate / Add refund) — clearer labels or hide | ⬜ Not started | 30 Aug |
+| 3.15 | Client share link for the schedule (live, always latest) | 🟡 Built (31 Aug) | `/schedule/<token>` public page + "Client link" button (copies URL) |
+| 3.15a | Schedule dates bug (default range + compressing spread) | 🟡 Fixed (31 Aug) | default 2-week window; ticking re-spreads live; extends past To date, min 1 day each |
+| 3.15b | Payments tab button clarity | 🟡 Fixed (31 Aug) | explanatory tooltips on Recalculate / Add VO / Add refund |
 | 3.16 | Monthly supplier payment run view (all approved costs across projects) | ⬜ Not started | from the "1st of the month I pay everyone" walkthrough |
 | 3.17 | Project number auto-generation (`PRJ-{YY}-{###}`) | ⬜ Not started | column exists, never populated |
-| 3.18 | Designer = dropdown of org users (not free text); drives WhatsApp routing | ⬜ Not started | 30 Aug |
+| 3.18 | Designer = dropdown of org users; saves designerUserId; adopts the user's default commission | 🟡 Built (31 Aug) | |
 
 ## 4. Payments — remaining Phase 2
 
@@ -100,7 +100,7 @@ Everything is on the `elroy/dev` working tree, **uncommitted**, dev DB only. Sta
 |---|---|---|---|
 | 6.1 | Designer sends supplier invoice photo → pending cost on the project | ⬜ Not started | endpoints ready (`/projects/:id/costs/extract`, `/costs`); needs CIEL WhatsApp connection + agent tool |
 | 6.2 | Site photos / delivery confirmations captured against the project | ⬜ Not started | |
-| 6.3 | User master: WhatsApp number field; agent resolves number → org + role | ⬜ Not started | 30 Aug — most users have no number yet |
+| 6.3 | User master: WhatsApp number + default commission % on Edit User (OrganizationMemberProfile, `PATCH /users/:id/profile`) | 🟡 Built (31 Aug) | agent lookup by number: `OrganizationMemberProfile.whatsappNumber` indexed |
 | 6.4 | Agent asks "which project?" when the designer has several | ⬜ Not started | 30 Aug |
 | 6.5 | Hand over `.md` docs for the ID agent + WhatsApp agent | ⬜ Not started | 30 Aug |
 
@@ -129,7 +129,7 @@ Everything is on the `elroy/dev` working tree, **uncommitted**, dev DB only. Sta
 | # | Item | Status | Notes |
 |---|---|---|---|
 | 9.1 | Designer as a user; commission ledger across projects (50% of profit, configurable) | ⬜ Not started | per-project commission % + payable already on the P&L tab |
-| 9.1a | Commission % **per designer** editable on the page ("small thing, before I go") | ⬜ Not started | 30 Aug |
+| 9.1a | Commission % per designer (Edit User) + picked up when assigning them to a project | 🟡 Built (31 Aug) | |
 | 9.2 | $1,000 signing incentive deducted from final commission | ⬜ Not started | |
 | 9.3 | **Advance request + management approval**, offset at handover (SOW item) | ⬜ Not started | "Advanced" line already on P&L |
 | 9.4 | Per-designer targets / bonus & rewards rules | ⬜ Not started | still undefined — Pocket reminder 30 Aug |

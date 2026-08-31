@@ -62,6 +62,21 @@ export function useIdQuoteApi() {
       marginAlert: (id: string, body: { marginPct: number | null; floorPct: number; lines: string[] }) =>
         request(`/documents/${id}/margin-alert`, { method: "POST", body: JSON.stringify(body) }),
       listWorkItems: () => request<WorkItem[]>(`/revenue-items?workOnly=true&activeOnly=true`),
+      // Users pickable as the quotation's Designer: only holders of the
+      // "Designer" role. Falls back to everyone ONLY when the org has no
+      // designer users yet (so the picker isn't uselessly empty during setup).
+      listOrgUsers: () =>
+        request<any>(`/users/list`, { method: "POST", body: JSON.stringify({ page: 1, limit: 100, search: "", filters: {} }) }).then((r: any) => {
+          const all = (r?.users || r?.docs || (Array.isArray(r) ? r : [])).map((u: any) => ({
+            id: u.id,
+            name: u.name || u.email || u.id,
+            email: u.email,
+            whatsappNumber: u.whatsappNumber || null,
+            isDesigner: (u.roles || []).some((role: any) => /designer/i.test(role?.name || "")),
+          }));
+          const designers = all.filter((u: any) => u.isDesigner);
+          return designers.length ? designers : all;
+        }),
       listSections: () => request<WorkSection[]>(`/revenue-items/sections?activeOnly=true`),
       searchCustomers: (search: string) =>
         request<any>(`/customers`, { method: "POST", body: JSON.stringify({ page: 1, limit: 20, search, filters: {} }) }).then(

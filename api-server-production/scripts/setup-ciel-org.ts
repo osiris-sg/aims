@@ -80,7 +80,9 @@ const DESIGNER_RESOURCES = new Set([
   'timeline-items',
   'uploads',
 ]);
-const DESIGNER_READ_ONLY_RESOURCES = new Set(['suppliers', 'accounting']);
+// users read access lets the Designer pick from the user dropdowns (quotation
+// editor "Designer" field, project header) — no user mutation rights.
+const DESIGNER_READ_ONLY_RESOURCES = new Set(['suppliers', 'accounting', 'users']);
 
 // Document numbering — one default variant per type the firm issues.
 // Quotation numbers follow their existing contract-number series (CI25-102):
