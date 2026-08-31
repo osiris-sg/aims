@@ -1581,14 +1581,16 @@ export class OperatorToolsService {
           attachmentUrl: a.attachmentUrl || undefined,
           attachmentKey: a.attachmentKey || undefined,
           source: 'whatsapp',
-          status: 'approved',
+          // Costs filed by chat land as PENDING so a human approves them in the
+          // app before they count as final — never auto-approved.
+          status: 'pending',
         } as any,
         ctx.actor.name,
       );
       this.log(ctx, 'CREATED', 'project-cost', cost?.id, a.projectName, `Cost ${a.amount} added to ${a.projectName} via Operator (${ctx.channel})`);
       return {
         ok: true,
-        message: `✅ Added ${a.supplierName ? a.supplierName + ' ' : ''}${Number(a.amount).toFixed(2)} to ${a.projectName}'s costing${a.attachmentUrl ? ' (invoice attached)' : ''}.`,
+        message: `✅ Added ${a.supplierName ? a.supplierName + ' ' : ''}${Number(a.amount).toFixed(2)} to ${a.projectName}'s costing as PENDING APPROVAL${a.attachmentUrl ? ' (invoice attached)' : ''}. Approve it in the app to finalise.`,
       };
     }
 
