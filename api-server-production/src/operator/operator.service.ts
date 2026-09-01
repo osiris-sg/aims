@@ -30,6 +30,7 @@ const PENDING_TTL_MS = 30 * 60 * 1000;
 // What the user sees while a tool runs, so the bot never looks frozen.
 const TOOL_STATUS: Record<string, string> = {
   find_customer: '🔎 Looking up the customer...',
+  list_customers: '📇 Fetching customers...',
   create_customer: '👤 Creating the customer...',
   find_item: '🔎 Looking up items...',
   create_quotation: '📝 Creating the quotation...',

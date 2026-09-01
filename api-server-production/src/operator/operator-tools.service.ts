@@ -176,6 +176,41 @@ export class OperatorToolsService {
       },
 
       {
+        name: 'list_customers',
+        description:
+          'List the customers in this organization (most recent first), optionally filtered by a search term. Use when the user asks to see all / their customers or "how many customers".',
+        permissions: ['customers:read'],
+        input_schema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Optional name/code filter' },
+            limit: { type: 'number', description: 'Max to return (default 20, max 50)' },
+          },
+        },
+        run: async (ctx, { query, limit }) => {
+          const res: any = await this.customers.getCustomers(
+            { page: 1, limit: Math.min(Number(limit) || 20, 50), search: query || undefined } as any,
+            ctx.organizationId,
+          );
+          const docs = res?.docs ?? res?.data?.docs ?? [];
+          const total = res?.totalDocs ?? res?.total ?? res?.data?.totalDocs ?? docs.length;
+          return {
+            result: {
+              total,
+              showing: docs.length,
+              customers: docs.map((c: any) => ({
+                id: c.id,
+                name: c.name,
+                customerCode: c.customerCode,
+                email: c.email,
+                phone: c.phone,
+              })),
+            },
+          };
+        },
+      },
+
+      {
         name: 'create_customer',
         description: 'Create a new customer. Only call after find_customer returns no match and the user confirmed the name.',
         permissions: ['customers:create'],
