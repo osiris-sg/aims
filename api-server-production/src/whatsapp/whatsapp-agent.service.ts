@@ -51,32 +51,48 @@ export class WhatsAppAgentService {
     this.anthropic = anthropicKey ? new Anthropic({ apiKey: anthropicKey }) : null;
   }
 
-  /** Transcribe a voice note / audio clip to text (Whisper). Returns null if
-   *  transcription is unavailable or fails, so callers degrade gracefully. */
-  async transcribeAudio(buffer: Buffer, mimetype: string): Promise<string | null> {
+  /** Transcribe a voice note / audio clip to text. Uses gpt-4o-transcribe
+   *  (accurate on accented English) with whisper-1 fallback, and an optional
+   *  `promptContext` (e.g. the org's customer/project names + domain words) that
+   *  biases recognition so names and commands come through right. Returns null
+   *  on failure so callers degrade gracefully. */
+  async transcribeAudio(buffer: Buffer, mimetype: string, promptContext?: string): Promise<string | null> {
     if (!this.openai) {
       this.logger.warn('Transcription unavailable (no OPENAI_API_KEY)');
       return null;
     }
-    try {
-      const ext = mimetype.includes('ogg')
-        ? 'ogg'
-        : mimetype.includes('m4a') || mimetype.includes('mp4')
-          ? 'm4a'
-          : mimetype.includes('mpeg') || mimetype.includes('mp3')
-            ? 'mp3'
-            : mimetype.includes('wav')
-              ? 'wav'
-              : mimetype.includes('webm')
-                ? 'webm'
-                : 'ogg';
+    const ext = mimetype.includes('ogg')
+      ? 'ogg'
+      : mimetype.includes('m4a') || mimetype.includes('mp4')
+        ? 'm4a'
+        : mimetype.includes('mpeg') || mimetype.includes('mp3')
+          ? 'mp3'
+          : mimetype.includes('wav')
+            ? 'wav'
+            : mimetype.includes('webm')
+              ? 'webm'
+              : 'ogg';
+    const prompt = promptContext ? promptContext.slice(0, 900) : undefined;
+    const attempt = async (model: string): Promise<string | null> => {
+      // Fresh Uploadable per attempt — the stream is consumed on use.
       const file = await toFile(buffer, `voice.${ext}`, { type: mimetype || 'audio/ogg' });
-      const res: any = await this.openai.audio.transcriptions.create({ file, model: 'whisper-1' });
-      const text = String(res?.text || '').trim();
-      return text || null;
+      const res: any = await this.openai!.audio.transcriptions.create({
+        file,
+        model,
+        ...(prompt ? { prompt } : {}),
+      } as any);
+      return String(res?.text || '').trim() || null;
+    };
+    try {
+      return await attempt('gpt-4o-transcribe');
     } catch (e: any) {
-      this.logger.error(`Transcription failed: ${e.message}`);
-      return null;
+      this.logger.warn(`gpt-4o-transcribe failed (${e.message}); falling back to whisper-1`);
+      try {
+        return await attempt('whisper-1');
+      } catch (e2: any) {
+        this.logger.error(`Transcription failed: ${e2.message}`);
+        return null;
+      }
     }
   }
 

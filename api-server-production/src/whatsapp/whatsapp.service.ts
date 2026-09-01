@@ -92,6 +92,32 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /** A short biasing prompt for voice transcription: the org's customer/project
+   *  names + domain words, so spoken names and commands transcribe correctly. */
+  private async buildVoiceBias(organizationId: string): Promise<string> {
+    const [custs, projs] = await Promise.all([
+      this.prisma.customer.findMany({
+        where: { organizationId },
+        select: { name: true },
+        take: 40,
+        orderBy: { updatedAt: 'desc' },
+      }),
+      this.prisma.project.findMany({
+        where: { organizationId },
+        select: { name: true },
+        take: 20,
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+    const names = [...custs, ...projs]
+      .map((r) => String(r.name || '').split(',')[0].trim())
+      .filter((n) => n && n.length <= 40);
+    const uniq = [...new Set(names)].slice(0, 40);
+    const domain =
+      'Voice command for the Osiris AIMS accounting app. Likely words: create, quotation, invoice, delivery order, credit note, payment, PayNow, customer, project, quantity, unit price, dollars, install, supply, cost.';
+    return uniq.length ? `${domain} Known names: ${uniq.join(', ')}.` : domain;
+  }
+
   // ── Onboarding (Embedded Signup completion) ───────────────────────────────
 
   /**
@@ -1185,13 +1211,23 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
                 };
               }
             }
-            // A voice note → transcribe to text (voice-to-quotation/invoice).
+            // A voice note → transcribe to text (voice-to-quotation/invoice),
+            // biased with the sender's org customer/project names for accuracy.
             const isVoice = !!(message.audio?.id || message.voice?.id);
             let voiceText: string | undefined;
             if (isVoice) {
               const audioId = message.audio?.id || message.voice?.id;
               const dl = await this.downloadMedia(audioId, connection.accessToken);
-              if (dl) voiceText = (await this.agent.transcribeAudio(dl.buffer, dl.mimetype)) || undefined;
+              if (dl) {
+                let bias: string | undefined;
+                try {
+                  const r = await this.operatorAuth.resolve('whatsapp', from);
+                  if (r.ok && r.ctx) bias = await this.buildVoiceBias(r.ctx.organizationId);
+                } catch {
+                  /* biasing is best-effort */
+                }
+                voiceText = (await this.agent.transcribeAudio(dl.buffer, dl.mimetype, bias)) || undefined;
+              }
             }
             const caption = message.image?.caption || message.document?.caption || body || '';
             this.operator
