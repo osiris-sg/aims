@@ -82,25 +82,78 @@ export class OperatorAuthService {
       where: { channel_channelUserId: { channel, channelUserId } },
       select: { id: true },
     });
-    return !!id;
+    if (id) return true;
+    // Also recognised: a WhatsApp number an admin set on a user's member profile
+    // (User Management → WhatsApp number). Cheap — whatsappNumber is indexed.
+    if (channel === 'whatsapp') {
+      const digits = String(channelUserId).replace(/\D/g, '');
+      if (!digits) return false;
+      const prof = await this.prisma.organizationMemberProfile.findFirst({
+        where: { whatsappNumber: digits },
+        select: { id: true },
+      });
+      return !!prof;
+    }
+    return false;
   }
 
   async resolve(channel: OperatorChannel, channelUserId: string): Promise<ResolveResult> {
+    // 1) Explicit link — OperatorIdentity (/link flow, osirisadmin, manual register).
     const identity = await this.prisma.operatorIdentity.findUnique({
       where: { channel_channelUserId: { channel, channelUserId } },
     });
-    if (!identity || !identity.verified) return { ok: false, reason: 'unlinked' };
+    if (identity?.verified) {
+      return this.resolveForUser(identity.clerkUserId, identity.organizationId, channel, channelUserId, {
+        displayName: identity.displayName,
+        identityId: identity.id,
+      });
+    }
 
+    // 2) Self-serve link — a WhatsApp number an admin set on the user's member
+    //    profile (User Management → WhatsApp number). No manual registration.
+    if (channel === 'whatsapp') {
+      const digits = String(channelUserId).replace(/\D/g, '');
+      if (digits) {
+        const profiles = await this.prisma.organizationMemberProfile.findMany({
+          where: { whatsappNumber: digits },
+          select: { userId: true, organizationId: true },
+        });
+        const users = [...new Set(profiles.map((p) => p.userId))];
+        if (users.length === 1) {
+          // One person. If the number is on exactly one org's profile, use that
+          // org; if on several, let org-selection pick from their memberships.
+          const orgId = profiles.length === 1 ? profiles[0].organizationId : null;
+          return this.resolveForUser(users[0], orgId, channel, channelUserId);
+        }
+        if (users.length > 1) {
+          this.logger.warn(`WhatsApp number ${digits} is set on ${users.length} different users — ignoring.`);
+        }
+      }
+    }
+    return { ok: false, reason: 'unlinked' };
+  }
+
+  /** Build the org-scoped context for a resolved user. `preferredOrgId` is the
+   *  stored/assigned org to prefer; when null (or not a membership) org-selection
+   *  falls back to their memberships. `identityId` is set only for the
+   *  OperatorIdentity path so we can persist the chosen org + touch lastSeenAt. */
+  private async resolveForUser(
+    clerkUserId: string,
+    preferredOrgId: string | null,
+    channel: OperatorChannel,
+    channelUserId: string,
+    opts: { displayName?: string | null; identityId?: string } = {},
+  ): Promise<ResolveResult> {
     const [roles, memberships] = await Promise.all([
       this.prisma.userRole.findMany({
-        where: { userId: identity.clerkUserId, isActive: true },
+        where: { userId: clerkUserId, isActive: true },
         select: {
           organizationId: true,
           role: { select: { name: true, permissions: { select: { resource: true, action: true } } } },
         },
       }),
       this.prisma.userOrganization.findMany({
-        where: { userId: identity.clerkUserId, isActive: true },
+        where: { userId: clerkUserId, isActive: true },
         select: { organization: { select: { id: true, name: true } } },
       }),
     ]);
@@ -110,16 +163,15 @@ export class OperatorAuthService {
     // osirisadmin is matched as a lowercase literal, same as ClerkAuthGuard.
     const isOsirisAdmin = roles.some((r) => r.role?.name === 'osirisadmin');
 
-    // Never rely on findFirst — pick explicitly (stored choice, or the only one).
-    let chosen = identity.organizationId ? orgs.find((o) => o.id === identity.organizationId) : undefined;
+    // Never rely on findFirst — pick explicitly (assigned org, or the only one).
+    let chosen = preferredOrgId ? orgs.find((o) => o.id === preferredOrgId) : undefined;
 
     // Global osirisadmin can operate in ANY org without a membership row, exactly
-    // like ClerkAuthGuard's cross-org bypass. Honour a stored target org even when
-    // it isn't among their memberships (e.g. the WhatsApp number wired to an org
-    // the admin doesn't formally belong to).
-    if (!chosen && isOsirisAdmin && identity.organizationId) {
+    // like ClerkAuthGuard's cross-org bypass. Honour the assigned org even when
+    // it isn't among their memberships.
+    if (!chosen && isOsirisAdmin && preferredOrgId) {
       const org = await this.prisma.organization.findUnique({
-        where: { id: identity.organizationId },
+        where: { id: preferredOrgId },
         select: { id: true, name: true },
       });
       if (org) chosen = org;
@@ -129,27 +181,31 @@ export class OperatorAuthService {
       if (!orgs.length) return { ok: false, reason: 'no-org' };
       if (orgs.length > 1) return { ok: false, reason: 'needs-org-choice', options: orgs };
       chosen = orgs[0];
-      await this.prisma.operatorIdentity.update({
-        where: { id: identity.id },
-        data: { organizationId: chosen.id },
-      });
+      if (opts.identityId) {
+        await this.prisma.operatorIdentity.update({
+          where: { id: opts.identityId },
+          data: { organizationId: chosen.id },
+        });
+      }
     }
     // Filter roles by the CHOSEN org (the guard filters by the membership org).
     const scopedRoles = roles
       .filter((r) => r.organizationId === chosen!.id && r.role)
       .map((r) => ({ name: r.role!.name, permissions: r.role!.permissions }));
 
-    this.prisma.operatorIdentity
-      .update({ where: { id: identity.id }, data: { lastSeenAt: new Date(), displayName: identity.displayName } })
-      .catch(() => null); // best-effort touch
+    if (opts.identityId) {
+      this.prisma.operatorIdentity
+        .update({ where: { id: opts.identityId }, data: { lastSeenAt: new Date(), displayName: opts.displayName ?? undefined } })
+        .catch(() => null); // best-effort touch
+    }
 
     return {
       ok: true,
       ctx: {
         organizationId: chosen.id,
         organizationName: chosen.name,
-        clerkUserId: identity.clerkUserId,
-        actor: { id: identity.clerkUserId, name: identity.displayName || undefined },
+        clerkUserId,
+        actor: { id: clerkUserId, name: opts.displayName || undefined },
         roles: scopedRoles,
         isOsirisAdmin,
         channel,
@@ -159,10 +215,30 @@ export class OperatorAuthService {
   }
 
   async setOrganization(channel: OperatorChannel, channelUserId: string, organizationId: string) {
-    await this.prisma.operatorIdentity.update({
+    const existing = await this.prisma.operatorIdentity.findUnique({
       where: { channel_channelUserId: { channel, channelUserId } },
-      data: { organizationId },
+      select: { id: true },
     });
+    if (existing) {
+      await this.prisma.operatorIdentity.update({ where: { id: existing.id }, data: { organizationId } });
+      return;
+    }
+    // Member-profile user with no identity row yet: create one to persist the
+    // org they just chose (look up who this number belongs to in that org).
+    if (channel === 'whatsapp') {
+      const digits = String(channelUserId).replace(/\D/g, '');
+      const prof = await this.prisma.organizationMemberProfile.findFirst({
+        where: { whatsappNumber: digits, organizationId },
+        select: { userId: true },
+      });
+      if (prof) {
+        await this.prisma.operatorIdentity.upsert({
+          where: { channel_channelUserId: { channel, channelUserId } },
+          create: { channel, channelUserId, clerkUserId: prof.userId, organizationId, verified: true },
+          update: { organizationId },
+        });
+      }
+    }
   }
 
   /**
