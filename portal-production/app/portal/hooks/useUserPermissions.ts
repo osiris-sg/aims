@@ -79,11 +79,13 @@ export function useUserPermissions() {
     // If user has no roles, allow all (fallback)
     if (userRoles.length === 0) return true;
 
-    // Collect allowedModules from all roles
-    const allAllowed = userRoles.flatMap((role) => role.allowedModules ?? []);
+    // An empty allowedModules means the role grants ALL modules — so a user
+    // holding any unrestricted role (e.g. Management) sees everything, even if
+    // another of their roles (e.g. Designer) carries a restricted list.
+    if (userRoles.some((role) => (role.allowedModules ?? []).length === 0)) return true;
 
-    // If no role restricts modules (all empty arrays), allow everything
-    if (allAllowed.length === 0) return true;
+    // Every role is restricted → module is allowed if any role grants it
+    const allAllowed = userRoles.flatMap((role) => role.allowedModules ?? []);
 
     // Module is allowed if any role grants it
     return allAllowed.includes(moduleCode);

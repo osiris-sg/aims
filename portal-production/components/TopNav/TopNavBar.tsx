@@ -35,6 +35,14 @@ const HIDDEN_SUBMENUS: Record<string, string[]> = {
   INVENTORY: ["products", "list"],
 };
 const ORDER_OVERRIDE: Record<string, number> = { SALES: 0.5 };
+// Secondary group — mirrors the sidebar's "Organization Settings" block
+// (company profile / accounting setup / Master Files hub). Not module-gated,
+// same as the sidebar.
+const SETTINGS_MENU = [
+  { label: "Company Profile", path: "/portal/settings/company-profile" },
+  { label: "Accounting Setup", path: "/portal/settings/accounting-setup" },
+  { label: "Master Files", path: "/portal/masterfiles" },
+];
 
 // Admin-only org switcher, folded into the bar next to the brand (Xero puts
 // the org name there). Replaces the old below-bar "Viewing organization" row
@@ -263,6 +271,43 @@ export default function TopNavBar() {
             </React.Fragment>
           );
         })}
+
+        {/* Organization Settings — same secondary group as the sidebar */}
+        <Button
+          size="small"
+          onClick={(e) => setOpenMenu(openMenu?.code === "ORG_SETTINGS" ? null : { code: "ORG_SETTINGS", anchor: e.currentTarget })}
+          endIcon={<KeyboardArrowDownIcon sx={{ fontSize: "1rem !important", opacity: 0.7 }} />}
+          sx={{
+            color: "#FFFFFF",
+            px: 1.5,
+            height: 52,
+            borderRadius: 0,
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+            fontWeight: rawPathname.startsWith("/portal/settings") || rawPathname.startsWith("/portal/masterfiles") ? 700 : 500,
+            fontSize: "0.8125rem",
+            textTransform: "none",
+            boxShadow: rawPathname.startsWith("/portal/settings") || rawPathname.startsWith("/portal/masterfiles") ? "inset 0 -3px 0 #2f80ed" : "none",
+            bgcolor: openMenu?.code === "ORG_SETTINGS" ? "rgba(255,255,255,0.08)" : "transparent",
+            "&:hover": { bgcolor: "rgba(255,255,255,0.08)" },
+          }}
+        >
+          Org Settings
+        </Button>
+        <Menu
+          anchorEl={openMenu && openMenu.code === "ORG_SETTINGS" ? openMenu.anchor : null}
+          open={openMenu?.code === "ORG_SETTINGS"}
+          onClose={() => setOpenMenu(null)}
+          anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+          transformOrigin={{ vertical: "top", horizontal: "left" }}
+          slotProps={{ paper: { sx: { mt: 0, minWidth: 220, borderRadius: "0 0 10px 10px" } } }}
+        >
+          {SETTINGS_MENU.map((s) => (
+            <MenuItem key={s.path} onClick={() => go(s.path)} sx={{ fontSize: "0.8125rem", py: 1 }}>
+              {s.label}
+            </MenuItem>
+          ))}
+        </Menu>
       </Stack>
 
       <Stack direction="row" alignItems="center" gap={1} sx={{ flexShrink: 0, ml: 1 }}>
