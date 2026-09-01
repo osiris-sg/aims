@@ -188,6 +188,35 @@ export class WhatsAppAdapter implements ChannelAdapter {
       await this.sendText(chatId, `${text}\n\nReply "yes" to confirm or "no" to cancel.`);
     }
   }
+
+  async sendList(
+    chatId: string,
+    text: string,
+    buttonLabel: string,
+    rows: Array<{ id: string; title: string; description?: string }>,
+  ): Promise<void> {
+    // Cloud API list: <=10 rows; id<=200, title<=24, description<=72.
+    const listRows = rows.slice(0, 10).map((r) => ({
+      id: r.id.slice(0, 200),
+      title: cleanText(r.title).slice(0, 24) || 'Option',
+      ...(r.description ? { description: cleanText(r.description).slice(0, 72) } : {}),
+    }));
+    const ok = await this.sendMessage(chatId, {
+      type: 'interactive',
+      interactive: {
+        type: 'list',
+        body: { text: cleanText(text).slice(0, 1024) },
+        action: { button: cleanText(buttonLabel).slice(0, 20) || 'Choose', sections: [{ rows: listRows }] },
+      },
+    });
+    // Degrade to a numbered prompt if the list isn't accepted.
+    if (!ok) {
+      await this.sendText(
+        chatId,
+        `${text}\n${rows.map((r, i) => `${i + 1}. ${r.title}`).join('\n')}\n\nReply with the number or the name.`,
+      );
+    }
+  }
 }
 
 function chunkText(text: string, size: number): string[] {

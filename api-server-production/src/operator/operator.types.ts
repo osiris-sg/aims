@@ -37,6 +37,14 @@ export interface ChannelAdapter {
   sendText(chatId: string, text: string): Promise<void>;
   sendDocument(chatId: string, url: string, filename: string, caption?: string): Promise<void>;
   sendButtons(chatId: string, text: string, buttons: ChannelButton[]): Promise<void>;
+  /** A tappable list (up to 10 rows) — for choices too many for buttons. Each
+   *  row's `id` behaves exactly like a button's `data` when tapped. */
+  sendList?(
+    chatId: string,
+    text: string,
+    buttonLabel: string,
+    rows: Array<{ id: string; title: string; description?: string }>,
+  ): Promise<void>;
   /** Stop the client-side spinner on a tapped button (no-op where unsupported). */
   answerCallback?(callbackId: string, text?: string): Promise<void>;
   /** Live-progress affordances. Optional so a channel can omit them. */

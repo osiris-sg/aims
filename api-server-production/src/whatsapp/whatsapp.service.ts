@@ -1193,8 +1193,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
                 chatId: from,
                 text: caption || '',
                 displayName: senderName,
-                // A tapped Confirm/Cancel button carries its action in reply.id.
-                callbackData: message.interactive?.button_reply?.id,
+                // A tapped button OR list row carries its action in reply.id.
+                callbackData:
+                  message.interactive?.button_reply?.id || message.interactive?.list_reply?.id,
                 businessPhoneNumberId: phoneNumberId,
                 providerMessageId: message.id,
                 attachment,

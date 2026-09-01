@@ -116,6 +116,25 @@ export class TelegramAdapter implements ChannelAdapter {
     });
   }
 
+  async sendList(
+    chatId: string,
+    text: string,
+    _buttonLabel: string,
+    rows: Array<{ id: string; title: string; description?: string }>,
+  ): Promise<void> {
+    // Telegram has no native list — stack the rows as inline buttons (callback
+    // data max 64 bytes, which fits `costproj:<uuid>`).
+    await this.call('sendMessage', {
+      chat_id: chatId,
+      text: cleanText(text),
+      reply_markup: {
+        inline_keyboard: rows
+          .slice(0, 10)
+          .map((r) => [{ text: cleanText(r.title).slice(0, 60), callback_data: r.id.slice(0, 64) }]),
+      },
+    });
+  }
+
   async answerCallback(callbackId: string, text?: string): Promise<void> {
     await this.call('answerCallbackQuery', { callback_query_id: callbackId, text: text?.slice(0, 200) });
   }

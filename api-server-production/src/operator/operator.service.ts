@@ -237,17 +237,38 @@ export class OperatorService {
     session.pendingUpload = up;
     session.pendingAction = null;
     await this.saveSession(msg.channel, msg.channelUserId, session);
-    const pick = projects.slice(0, 3); // WhatsApp shows at most 3 buttons
-    await adapter.sendButtons(
-      msg.chatId,
-      `Which project should I charge ${who} (${money}) to?`,
-      pick.map((p) => ({ label: this.projectButtonLabel(p), data: `costproj:${p.id}` })),
-    );
-    if (projects.length > 3) {
-      await adapter.sendText(
+    const prompt = `Which project should I charge ${who} (${money}) to?`;
+    if (projects.length > 3 && adapter.sendList) {
+      // More than 3 → a scrollable list (up to 10).
+      await adapter.sendList(
         msg.chatId,
-        `(${projects.length} projects total — showing the first 3. If it's a different one, just tell me the project name.)`,
+        prompt,
+        'Choose project',
+        projects.slice(0, 10).map((p) => ({
+          id: `costproj:${p.id}`,
+          title: p.name || p.customer || 'Project',
+          description: p.address || p.customer || undefined,
+        })),
       );
+      if (projects.length > 10) {
+        await adapter.sendText(
+          msg.chatId,
+          `(${projects.length} projects total — showing 10. If it's a different one, tell me the project name.)`,
+        );
+      }
+    } else {
+      // 3 or fewer (or a channel without lists) → buttons.
+      await adapter.sendButtons(
+        msg.chatId,
+        prompt,
+        projects.slice(0, 3).map((p) => ({ label: this.projectButtonLabel(p), data: `costproj:${p.id}` })),
+      );
+      if (projects.length > 3) {
+        await adapter.sendText(
+          msg.chatId,
+          `(${projects.length} projects total — showing the first 3. If it's a different one, just tell me the project name.)`,
+        );
+      }
     }
   }
 
