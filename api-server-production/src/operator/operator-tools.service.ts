@@ -109,8 +109,21 @@ export class OperatorToolsService {
         amount: Number(extracted?.totalAmount ?? extracted?.subtotal) || null,
         description: description || null,
         currency: extracted?.currency ?? 'SGD',
+        siteAddress: extracted?.siteAddress ?? null,
       },
     };
+  }
+
+  /** Projects with their site address — for matching an uploaded invoice's
+   *  site/project address to the right project. */
+  async listProjectsForMatch(organizationId: string): Promise<Array<{ id: string; name: string; address: string | null; customer: string | null }>> {
+    const rows = await this.prisma.project.findMany({
+      where: { organizationId },
+      select: { id: true, name: true, address: true, customer: { select: { name: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+    return rows.map((p) => ({ id: p.id, name: p.name, address: p.address ?? null, customer: p.customer?.name ?? null }));
   }
 
   /** Tool definitions handed to Claude (schema only — no implementations). */

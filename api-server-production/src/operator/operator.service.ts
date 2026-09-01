@@ -130,8 +130,9 @@ export class OperatorService {
       return;
     }
 
-    // An uploaded file (photo/PDF of an invoice) — extract it and let the agent
-    // file it (currently: as a project cost for interior-design orgs).
+    // An uploaded file (photo/PDF of an invoice) → extract it and file it as a
+    // project cost: match the invoice's site address to a project, else offer
+    // the projects as tappable buttons.
     if (msg.attachment) {
       await adapter.sendTyping?.(msg.chatId).catch(() => null);
       const status = (await adapter.sendStatus?.(msg.chatId, '📎 Reading the uploaded invoice...')) ?? null;
@@ -139,18 +140,8 @@ export class OperatorService {
         .extractUpload(ctx.organizationId, msg.attachment.dataUri, msg.attachment.mimetype, msg.attachment.filename)
         .catch(() => null);
       if (status) await adapter.deleteMessage?.(msg.chatId, status).catch(() => null);
-      ctx.upload = up ?? undefined;
-      const e = up?.extracted;
-      const caption = (msg.text || '').trim();
-      const synthetic =
-        `The user just uploaded an invoice/receipt${caption ? ` and said: "${caption}"` : ''}. ` +
-        `Extracted — supplier: ${e?.supplierName || 'unknown'}, invoice no: ${e?.invoiceNo || 'unknown'}, ` +
-        `date: ${e?.date || 'unknown'}, amount: ${e?.amount != null ? `${e.currency || 'SGD'} ${e.amount}` : 'unknown'}, ` +
-        `description: ${e?.description || 'unknown'}. ` +
-        `Record it as a project cost with add_project_cost: if there is only ONE project use it without asking; ` +
-        `otherwise call list_projects and pick the best match (or ask which). Preview and confirm before saving.`;
       const session = await this.loadSession(msg.channel, msg.channelUserId);
-      await this.runAgent(ctx, adapter, msg, session, synthetic);
+      await this.handleUpload(ctx, adapter, msg, session, up);
       return;
     }
 
@@ -189,6 +180,102 @@ export class OperatorService {
 
     if (!text) return;
     await this.runAgent(ctx, adapter, msg, session, text);
+  }
+
+  // ── Invoice upload → project costing ──────────────────────────────────────
+
+  /** File an uploaded invoice as a project cost: match its site address to a
+   *  project, else offer the projects as tappable buttons. */
+  private async handleUpload(
+    ctx: OperatorContext,
+    adapter: ChannelAdapter,
+    msg: InboundMessage,
+    session: SessionState,
+    up: OperatorContext['upload'] | null,
+  ): Promise<void> {
+    const e = up?.extracted;
+    if (!up || e?.amount == null) {
+      await adapter.sendText(
+        msg.chatId,
+        "I couldn't read the amount from that invoice. Reply with the amount (and the project) and I'll record it.",
+      );
+      return;
+    }
+    const projects = await this.tools.listProjectsForMatch(ctx.organizationId);
+    if (!projects.length) {
+      await adapter.sendText(
+        msg.chatId,
+        'There are no projects yet to charge this to. Create a project in AIMS first, then resend the invoice.',
+      );
+      return;
+    }
+    const money = `${e.currency || 'SGD'} ${Number(e.amount).toFixed(2)}`;
+    const who = e.supplierName || 'this supplier';
+
+    // Pick a project: the only one, or a confident site-address match.
+    let chosen = projects.length === 1 ? projects[0] : this.matchProjectByAddress(e.siteAddress, projects);
+
+    if (chosen) {
+      ctx.upload = up;
+      const outcome = await this.tools.execute(ctx, 'add_project_cost', { projectId: chosen.id });
+      session.pendingUpload = null;
+      if (outcome.pending) {
+        session.pendingAction = outcome.pending;
+        await this.saveSession(msg.channel, msg.channelUserId, session);
+        await adapter.sendButtons(msg.chatId, `${outcome.pending.summary}\n\nConfirm?`, [
+          { label: '✅ Confirm', data: `confirm:${outcome.pending.documentId ?? 'pending'}` },
+          { label: '❌ Cancel', data: 'cancel' },
+        ]);
+      } else {
+        await this.saveSession(msg.channel, msg.channelUserId, session);
+        await adapter.sendText(msg.chatId, outcome.result?.error || "I couldn't record that cost.");
+      }
+      return;
+    }
+
+    // Ambiguous → let them tap the project. Stash the upload for the tap.
+    session.pendingUpload = up;
+    session.pendingAction = null;
+    await this.saveSession(msg.channel, msg.channelUserId, session);
+    const pick = projects.slice(0, 3); // WhatsApp shows at most 3 buttons
+    await adapter.sendButtons(
+      msg.chatId,
+      `Which project should I charge ${who} (${money}) to?`,
+      pick.map((p) => ({ label: this.projectButtonLabel(p), data: `costproj:${p.id}` })),
+    );
+    if (projects.length > 3) {
+      await adapter.sendText(
+        msg.chatId,
+        `(${projects.length} projects total — showing the first 3. If it's a different one, just tell me the project name.)`,
+      );
+    }
+  }
+
+  /** Confident site-address match: score projects by shared distinctive tokens
+   *  (numbers weigh more), return the clear winner or null. */
+  private matchProjectByAddress(
+    siteAddress: string | null | undefined,
+    projects: Array<{ id: string; name: string; address: string | null; customer: string | null }>,
+  ): (typeof projects)[number] | null {
+    if (!siteAddress) return null;
+    const norm = (s: any) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const invTokens = new Set(norm(siteAddress).split(' ').filter((t) => t.length >= 2));
+    if (!invTokens.size) return null;
+    const scoreFor = (p: (typeof projects)[number]) => {
+      const ptoks = new Set(norm(`${p.name} ${p.address || ''}`).split(' ').filter(Boolean));
+      let score = 0;
+      for (const t of ptoks) if (invTokens.has(t)) score += /[0-9]/.test(t) ? 2 : 1;
+      return score;
+    };
+    const scored = projects.map((p) => ({ p, s: scoreFor(p) })).sort((a, b) => b.s - a.s);
+    const [best, second] = scored;
+    // Confident: clears a threshold AND clearly beats the runner-up.
+    if (best && best.s >= 4 && (!second || best.s >= second.s + 3)) return best.p;
+    return null;
+  }
+
+  private projectButtonLabel(p: { name: string; customer: string | null }): string {
+    return (p.name || p.customer || 'Project').slice(0, 20);
   }
 
   // ── The tool-use loop ─────────────────────────────────────────────────────
@@ -385,6 +472,32 @@ export class OperatorService {
     }
 
     const session = await this.loadSession(msg.channel, msg.channelUserId);
+
+    // Project chosen for an uploaded invoice's cost.
+    if (data.startsWith('costproj:')) {
+      const projectId = data.slice('costproj:'.length);
+      const up = session.pendingUpload;
+      if (!up) {
+        await adapter.sendText(msg.chatId, 'That invoice upload has expired — please resend it.');
+        return;
+      }
+      ctx.upload = up;
+      const outcome = await this.tools.execute(ctx, 'add_project_cost', { projectId });
+      session.pendingUpload = null;
+      if (outcome.pending) {
+        session.pendingAction = outcome.pending;
+        await this.saveSession(msg.channel, msg.channelUserId, session);
+        await adapter.sendButtons(msg.chatId, `${outcome.pending.summary}\n\nConfirm?`, [
+          { label: '✅ Confirm', data: `confirm:${outcome.pending.documentId ?? 'pending'}` },
+          { label: '❌ Cancel', data: 'cancel' },
+        ]);
+      } else {
+        await this.saveSession(msg.channel, msg.channelUserId, session);
+        await adapter.sendText(msg.chatId, outcome.result?.error || "I couldn't record that cost.");
+      }
+      return;
+    }
+
     if (data === 'cancel') {
       session.pendingAction = null;
       await this.saveSession(msg.channel, msg.channelUserId, session);

@@ -71,6 +71,7 @@ export interface OperatorContext {
       amount?: number | null;
       description?: string | null;
       currency?: string | null;
+      siteAddress?: string | null;
     };
   };
 }
@@ -94,4 +95,6 @@ export interface PendingAction {
 export interface SessionState {
   history: Array<{ role: 'user' | 'assistant'; content: any }>;
   pendingAction?: PendingAction | null;
+  /** An uploaded invoice awaiting a project pick (tapped from buttons). */
+  pendingUpload?: OperatorContext['upload'] | null;
 }

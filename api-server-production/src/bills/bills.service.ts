@@ -919,6 +919,7 @@ export class BillsService {
   - "subtotal": number (excl tax)
   - "taxAmount": number
   - "totalAmount": number (subtotal + tax)
+  - "siteAddress": string or null — any project / site / delivery / job address on the document (e.g. a "PROJECT:" or "SITE:" or "DELIVER TO:" line, or a block/unit/street/postal reference identifying WHERE the work is). Copy it verbatim. Null if none.
 "description" must be the line's COMPLETE text copied WORD-FOR-WORD from the
 document — keep every sub-line (model, serial numbers, rental periods, DO/PO
 references, locations) joined with \n newlines, in the original order. NEVER
