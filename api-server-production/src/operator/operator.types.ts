@@ -23,6 +23,9 @@ export interface InboundMessage {
   /** An uploaded file (photo/PDF) the user sent, already downloaded by the
    *  channel. dataUri is `data:<mime>;base64,<...>`. */
   attachment?: { dataUri: string; mimetype: string; filename?: string };
+  /** True when `text` came from transcribing a voice note — the operator echoes
+   *  what it heard so the user can catch a mis-transcription. */
+  fromVoice?: boolean;
 }
 
 export interface ChannelButton {

@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
-import OpenAI from 'openai';
+import OpenAI, { toFile } from 'openai';
 import { PrismaService } from '../common/prisma.service';
 
 // ---------------------------------------------------------------------------
@@ -49,6 +49,35 @@ export class WhatsAppAgentService {
     this.openai = openaiKey && openaiKey !== 'your_openai_api_key_here' ? new OpenAI({ apiKey: openaiKey }) : null;
     const anthropicKey = process.env.ANTHROPIC_API_KEY;
     this.anthropic = anthropicKey ? new Anthropic({ apiKey: anthropicKey }) : null;
+  }
+
+  /** Transcribe a voice note / audio clip to text (Whisper). Returns null if
+   *  transcription is unavailable or fails, so callers degrade gracefully. */
+  async transcribeAudio(buffer: Buffer, mimetype: string): Promise<string | null> {
+    if (!this.openai) {
+      this.logger.warn('Transcription unavailable (no OPENAI_API_KEY)');
+      return null;
+    }
+    try {
+      const ext = mimetype.includes('ogg')
+        ? 'ogg'
+        : mimetype.includes('m4a') || mimetype.includes('mp4')
+          ? 'm4a'
+          : mimetype.includes('mpeg') || mimetype.includes('mp3')
+            ? 'mp3'
+            : mimetype.includes('wav')
+              ? 'wav'
+              : mimetype.includes('webm')
+                ? 'webm'
+                : 'ogg';
+      const file = await toFile(buffer, `voice.${ext}`, { type: mimetype || 'audio/ogg' });
+      const res: any = await this.openai.audio.transcriptions.create({ file, model: 'whisper-1' });
+      const text = String(res?.text || '').trim();
+      return text || null;
+    } catch (e: any) {
+      this.logger.error(`Transcription failed: ${e.message}`);
+      return null;
+    }
   }
 
   // ── Config ─────────────────────────────────────────────────────────────────

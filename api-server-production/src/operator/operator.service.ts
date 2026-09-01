@@ -130,6 +130,16 @@ export class OperatorService {
       return;
     }
 
+    // Voice note: echo what we heard (so a mis-transcription is caught), or say
+    // we couldn't make it out. Then the transcript flows through as normal text.
+    if (msg.fromVoice) {
+      if (!text) {
+        await adapter.sendText(msg.chatId, "Sorry, I couldn't make out that voice note. Try again, or type it.");
+        return;
+      }
+      await adapter.sendText(msg.chatId, `🎙️ "${text}"`);
+    }
+
     // An uploaded file (photo/PDF of an invoice) → extract it and file it as a
     // project cost: match the invoice's site address to a project, else offer
     // the projects as tappable buttons.

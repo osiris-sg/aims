@@ -1185,13 +1185,22 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
                 };
               }
             }
+            // A voice note → transcribe to text (voice-to-quotation/invoice).
+            const isVoice = !!(message.audio?.id || message.voice?.id);
+            let voiceText: string | undefined;
+            if (isVoice) {
+              const audioId = message.audio?.id || message.voice?.id;
+              const dl = await this.downloadMedia(audioId, connection.accessToken);
+              if (dl) voiceText = (await this.agent.transcribeAudio(dl.buffer, dl.mimetype)) || undefined;
+            }
             const caption = message.image?.caption || message.document?.caption || body || '';
             this.operator
               .handleInbound({
                 channel: 'whatsapp',
                 channelUserId: from,
                 chatId: from,
-                text: caption || '',
+                text: voiceText || caption || '',
+                fromVoice: isVoice,
                 displayName: senderName,
                 // A tapped button OR list row carries its action in reply.id.
                 callbackData:
