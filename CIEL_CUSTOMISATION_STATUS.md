@@ -178,3 +178,28 @@ Everything is on the `elroy/dev` working tree, **uncommitted**, dev DB only. Sta
 4. Schedule → Add activities (tick 6–8, apply a range) → Calendar → Print
 5. Master Files → Work Library → edit an item, add a section
 6. Projects list
+
+## Phase 9 — 09-01 meeting round (Lead→Project→Quotation rework + editor polish)
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 9.1 | Flow rework: Lead → Project → Quotation (project created from assigned lead OR designer referral/self; quotation raised inside the project, tagged to the lead) | ⬜ Not started | replaces auto-create-project-on-sign |
+| 9.2 | Create-project button (dashboard top right) with source: lead / referral / self | ⬜ Not started | |
+| 9.3 | Contract number allocation: Draft → Send for signature → signed → Confirm → allocate CI number (drafts stop burning serials) | ⬜ Not started | |
+| 9.4 | One main quotation per project; post-signing changes = Variation Orders VO1/VO2… | ⬜ Not started | VO adjusts contract total + payment schedule |
+| 9.5 | Editor: Enter in amount field creates a new line (bug) | 🟡 Built (2 Sep) | Enter now only commits the value |
+| 9.6 | Editor: remove "Add line below" (redundant with "Add custom line"); "Add item" inserts in correct sequence | 🟡 Built (2 Sep) | row menu now Delete only; Custom line/library always append at end of area so numbering stays sequential |
+| 9.7 | Editor: checkbox row selection for grouped ops (ranges), remove per-row hamburger | ⬜ Not started | |
+| 9.8 | Editor: Undo button | ⬜ Not started | |
+| 9.9 | Lump sum: combine selected lines into one client-facing line, details kept internally | ⬜ Not started | internal records retained for costing/learning |
+| 9.10 | Quotation template restyle to CIEL's current format + logo (high priority) | ⬜ Blocked | waiting: sample PDF + transparent/BW logo assets |
+| 9.11 | AIMS branding for CIEL org per new logo colour scheme | ⬜ Blocked | waiting: logo assets |
+| 9.12 | Designer counter-signature after client signs + saved signature on profile | ⬜ Not started | |
+| 9.13 | Designer dashboard: own projects/leads only; done/ongoing counts, revenue vs target, projected profit/earnings | ⬜ Not started | admins keep full view |
+| 9.14 | Manager-set yearly sales target per designer (editable) | ⬜ Not started | feeds 9.13 |
+| 9.15 | Projects list scoped to designer-in-charge (Designer role); Management/admin see all | 🟡 Built (2 Sep) | /id-projects filters designerUserId when caller's only org role is Designer |
+| 9.16 | WhatsApp share of sign link "copy issue" / not working | ➡ Moved | → CIEL_WHATSAPP_WORKLIST.md W1 (guru-owned) |
+| 9.17 | Invoice send to a company number failed | ✅ Fixed by guru (2 Sep) | tracked in CIEL_WHATSAPP_WORKLIST.md W2 |
+| 9.18 | WhatsApp automation: designer follow-up stages | ➡ Moved | → CIEL_WHATSAPP_WORKLIST.md W3 (guru-owned) |
+| 9.19 | Voice-to-quotation / voice-to-invoice via WhatsApp | ➡ Moved | → CIEL_WHATSAPP_WORKLIST.md W4 (guru-owned) |
+| 9.20 | "Quest" gamification system | ⬜ Parked | CIEL gathering info |
