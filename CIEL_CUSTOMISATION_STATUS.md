@@ -185,13 +185,13 @@ Everything is on the `elroy/dev` working tree, **uncommitted**, dev DB only. Sta
 |---|------|--------|-------|
 | 9.1 | Flow rework: Lead → Project → Quotation (project created from assigned lead OR designer referral/self; quotation raised inside the project, tagged to the lead) | ⬜ Not started | replaces auto-create-project-on-sign |
 | 9.2 | Create-project button (dashboard top right) with source: lead / referral / self | ⬜ Not started | |
-| 9.3 | Contract number allocation: Draft → Send for signature → signed → Confirm → allocate CI number (drafts stop burning serials) | ⬜ Not started | |
+| 9.3 | Contract number allocation: Draft → Send for signature → signed → Confirm → allocate CI number (drafts stop burning serials) | 🟡 Built (2 Sep) | new ID drafts create with no number (skipNumbering); Confirm button + client-sign both allocate; typed custom numbers still win |
 | 9.4 | One main quotation per project; post-signing changes = Variation Orders VO1/VO2… | ⬜ Not started | VO adjusts contract total + payment schedule |
 | 9.5 | Editor: Enter in amount field creates a new line (bug) | 🟡 Built (2 Sep) | Enter now only commits the value |
 | 9.6 | Editor: remove "Add line below" (redundant with "Add custom line"); "Add item" inserts in correct sequence | 🟡 Built (2 Sep) | row menu now Delete only; Custom line/library always append at end of area so numbering stays sequential |
-| 9.7 | Editor: checkbox row selection for grouped ops (ranges), remove per-row hamburger | ⬜ Not started | |
-| 9.8 | Editor: Undo button | ⬜ Not started | |
-| 9.9 | Lump sum: combine selected lines into one client-facing line, details kept internally | ⬜ Not started | internal records retained for costing/learning |
+| 9.7 | Editor: checkbox row selection for grouped ops (ranges), remove per-row hamburger | 🟡 Built (2 Sep) | checkbox column, shift-click ranges, floating Delete/Lump sum/Clear bar; row hamburger gone |
+| 9.8 | Editor: Undo button | 🟡 Built (2 Sep) | 60-step history, header button + ⌘Z outside text fields |
+| 9.9 | Lump sum: combine selected lines into one client-facing line, details kept internally | 🟡 Built (2 Sep) | same-area lines only; components stored on the item, chip expands them, Unbundle restores; never printed |
 | 9.10 | Quotation template restyle to CIEL's current format + logo (high priority) | ⬜ Blocked | waiting: sample PDF + transparent/BW logo assets |
 | 9.11 | AIMS branding for CIEL org per new logo colour scheme | ⬜ Blocked | waiting: logo assets |
 | 9.12 | Designer counter-signature after client signs + saved signature on profile | ⬜ Not started | |

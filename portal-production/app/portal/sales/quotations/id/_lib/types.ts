@@ -30,6 +30,12 @@ export interface QuoteItem {
   includes: QuoteInclude[];
   /** Internal: reason recorded when the line sits below the margin floor. */
   marginNote?: string;
+  /**
+   * Lump-sum bundle: the original lines this item replaced (CIEL 09-01).
+   * The client sees ONE line (this item's description/amount); the components
+   * stay here for internal tracking and can be un-bundled. Never printed.
+   */
+  components?: QuoteItem[] | null;
 }
 
 export interface QuoteArea {

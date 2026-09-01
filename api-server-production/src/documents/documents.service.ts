@@ -1111,6 +1111,29 @@ export class DocumentsService {
         );
       }
 
+      // An unnumbered skip-numbering draft (ID quotation) claims its real
+      // contract number the FIRST time it confirms (CIEL 09-01) — unless the
+      // user typed their own number into the form.
+      let confirmedIdqName: string | undefined;
+      if (
+        doConfirmingNow &&
+        !existingDocument.name &&
+        !trimmedDocNumber &&
+        ((existingDocument.config as any)?.skipNumbering === true)
+      ) {
+        try {
+          confirmedIdqName = await this.generateSequentialDocumentName(
+            organizationId,
+            existingDocument.type,
+            existingDocument.documentTemplateId,
+            configAsPlainObject ?? (existingDocument.config as any),
+            new Date(),
+          );
+        } catch (e: any) {
+          console.warn('[numbering] confirm-time allocation failed:', e?.message);
+        }
+      }
+
       // Update the document itself with config only
       const updatedDocument = await this.prisma.document.update({
         where: {
@@ -1128,7 +1151,7 @@ export class DocumentsService {
           status: dto.status, // DocumentStatus enum
           // A confirming placeholder DO claims its real number here; otherwise a
           // custom doc number wins, else honour dto.name.
-          name: confirmedDoName ?? nameToWrite,
+          name: confirmedDoName ?? confirmedIdqName ?? nameToWrite,
           // Link to project if projectId exists in config
           projectId: projectId || undefined,
           // Bump the optimistic-concurrency counter on every successful save so
@@ -2032,7 +2055,9 @@ export class DocumentsService {
    * legacy prefix+serial from the max existing name. Used to claim a REAL number
    * for a placeholder-named draft at confirm (OSI-83).
    */
-  private async generateSequentialDocumentName(
+  // Public: PublicSignService allocates a confirm-time number for unnumbered
+  // skip-numbering drafts (ID quotations) when the client signs.
+  async generateSequentialDocumentName(
     organizationId: string,
     type: string,
     documentTemplateId: string,
@@ -2176,6 +2201,11 @@ export class DocumentsService {
       // has one — or config.numberFormatId — else the legacy serial above.
       if (nameOverride) {
         name = nameOverride;
+      } else if ((config as any)?.skipNumbering === true) {
+        // ID quotations (CIEL 09-01): drafts carry NO number — the serial is
+        // claimed only when the quotation confirms (updateDocument / sign),
+        // so abandoned drafts stop burning contract numbers.
+        name = null as any;
       } else {
         try {
           const numberFormatId = (config as any)?.numberFormatId ?? null;

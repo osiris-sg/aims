@@ -105,7 +105,7 @@ export default function IdQuotationList() {
         header: "Contract No.",
         cell: ({ row }: any) => (
           <Typography variant="body2" sx={{ fontWeight: 600 }}>
-            {row.original.name || "—"}
+            {row.original.name || "Draft"}
           </Typography>
         ),
       },

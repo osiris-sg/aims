@@ -92,7 +92,9 @@ export function useIdQuoteApi() {
             type: "QUOTATION",
             documentTemplateId: tpl.id,
             organizationId,
-            config: { templateVariant: "ID", quote, items: [] },
+            // skipNumbering: the CI serial is allocated on CONFIRM, not on
+            // create — drafts must not burn contract numbers (CIEL 09-01).
+            config: { templateVariant: "ID", quote, items: [], skipNumbering: true },
           }),
         });
       },

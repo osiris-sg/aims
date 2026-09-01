@@ -220,13 +220,33 @@ export class PublicSignService {
     const { projectId } = await this.projectFor({ id: doc.id, projectId: doc.projectId, organizationId: doc.organizationId, config: cfg }, signedAt);
 
     const clientSignature = { name, image, signedAt: signedAt.toISOString(), ip: meta.ip || null };
+
+    // Skip-numbering drafts (ID quotations) claim their contract number at
+    // THIS moment — signing confirms the quotation (CIEL 09-01). The number
+    // lands on the document AND inside the quote header so the printed LOI
+    // shows it immediately.
+    let allocatedName: string | null = null;
+    if (!doc.name && cfg.skipNumbering === true) {
+      try {
+        allocatedName = await this.documents.generateSequentialDocumentName(doc.organizationId, doc.type, doc.documentTemplateId, cfg, signedAt);
+      } catch (e) {
+        this.logger.warn(`confirm-time number allocation failed for ${doc.id}: ${(e as Error).message}`);
+      }
+    }
+    const cfgOut: any = { ...cfg, clientSignature, quote: { ...quote, clientSignature } };
+    if (allocatedName) {
+      cfgOut.documentInfo = { ...(cfgOut.documentInfo || {}), documentNumber: allocatedName };
+      cfgOut.quote = { ...cfgOut.quote, header: { ...(cfgOut.quote?.header || {}), contractNo: allocatedName } };
+    }
+
     await this.prisma.$transaction([
       this.prisma.document.update({
         where: { id: doc.id },
         data: {
           status: 'confirmed',
           projectId,
-          config: { ...cfg, clientSignature, quote: { ...quote, clientSignature } },
+          ...(allocatedName ? { name: allocatedName } : {}),
+          config: cfgOut,
           version: { increment: 1 },
         },
       }),
@@ -238,7 +258,7 @@ export class PublicSignService {
     await this.notifications.emit({
       organizationId: doc.organizationId,
       kind: 'quotation_signed',
-      title: `Quotation ${doc.name || ''} signed by ${name}`,
+      title: `Quotation ${allocatedName || doc.name || ''} signed by ${name}`,
       body: `${quote?.header?.clientName || ''} accepted the quotation — it is now confirmed and linked to its project.`,
       entityType: 'document',
       entityId: doc.id,

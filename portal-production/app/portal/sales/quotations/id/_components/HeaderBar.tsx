@@ -10,6 +10,7 @@ import CloudSyncIcon from "@mui/icons-material/CloudSyncOutlined";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import MenuIcon from "@mui/icons-material/Menu";
 import DrawIcon from "@mui/icons-material/DrawOutlined";
+import UndoIcon from "@mui/icons-material/Undo";
 import AccountTreeIcon from "@mui/icons-material/AccountTreeOutlined";
 import StatusChip from "@/components/StatusChip";
 
@@ -29,6 +30,8 @@ interface Props {
   onSaveNow: () => void;
   onToggleRail: () => void;
   onSendForSignature: () => void;
+  canUndo: boolean;
+  onUndo: () => void;
   signedBy?: { name: string | null; signedAt: string } | null;
   project?: { id: string; name: string } | null;
   onOpenProject?: () => void;
@@ -43,7 +46,7 @@ const SAVE_LABEL: Record<SaveState, { text: string; icon: React.ReactNode; color
   conflict: { text: "Updated elsewhere — reload", icon: <ErrorOutlineIcon fontSize="small" />, color: "error.main" },
 };
 
-export default function HeaderBar({ number, clientName, status, saveState, internalView, onInternalView, readOnly, onBack, onPreview, onConfirm, onSaveNow, onToggleRail, onSendForSignature, signedBy, project, onOpenProject }: Props) {
+export default function HeaderBar({ number, clientName, status, saveState, internalView, onInternalView, readOnly, onBack, onPreview, onConfirm, onSaveNow, onToggleRail, onSendForSignature, canUndo, onUndo, signedBy, project, onOpenProject }: Props) {
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down("md"));
   const save = SAVE_LABEL[saveState];
@@ -76,7 +79,7 @@ export default function HeaderBar({ number, clientName, status, saveState, inter
       <Box sx={{ minWidth: 0, flex: 1 }}>
         <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
           <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2, whiteSpace: "nowrap" }}>
-            {number || "New quotation"}
+            {number || "Draft"}
           </Typography>
           <StatusChip status={status} />
         </Stack>
@@ -99,6 +102,16 @@ export default function HeaderBar({ number, clientName, status, saveState, inter
           {!compact && <Typography variant="caption">{save.text}</Typography>}
         </Stack>
       </Tooltip>
+
+      {!readOnly && (
+        <Tooltip title={canUndo ? "Undo last change" : "Nothing to undo"}>
+          <span>
+            <IconButton size="small" onClick={onUndo} disabled={!canUndo} aria-label="Undo" data-tour="idq-undo">
+              <UndoIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+      )}
 
       <Tooltip title="Show cost & margin columns (never printed)">
         <Stack direction="row" spacing={0.5} alignItems="center">

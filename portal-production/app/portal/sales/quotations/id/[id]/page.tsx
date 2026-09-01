@@ -8,12 +8,14 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Drawer, Paper, Stack, Typography, useMediaQuery, useTheme } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Drawer, Paper, Stack, Tooltip, Typography, useMediaQuery, useTheme } from "@mui/material";
+import DeleteIcon from "@mui/icons-material/DeleteOutline";
+import MergeIcon from "@mui/icons-material/CallMergeRounded";
 import { toast } from "react-toastify";
 import { useIdQuoteApi, ApiError } from "../_lib/api";
 import type { IdQuote, QuoteDocument, QuoteItem, QuoteSection, WorkItem, WorkSection } from "../_lib/types";
-import { defaultQuote, emptySection, normalizeQuote, sectionFromPreset } from "../_lib/defaults";
-import { flattenItems, quoteTotals } from "../_lib/math";
+import { defaultQuote, emptyItem, emptySection, normalizeQuote, sectionFromPreset } from "../_lib/defaults";
+import { flattenItems, itemAmount, itemCost, quoteTotals } from "../_lib/math";
 import HeaderBar, { type SaveState } from "../_components/HeaderBar";
 import DetailsCard from "../_components/DetailsCard";
 import OutlineRail from "../_components/OutlineRail";
@@ -52,6 +54,11 @@ export default function IdQuotationEditorPage() {
   const [signOpen, setSignOpen] = useState(false);
   const [signedBy, setSignedBy] = useState<{ name: string | null; signedAt: string } | null>(null);
   const [project, setProject] = useState<{ id: string; name: string } | null>(null);
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [undoLen, setUndoLen] = useState(0);
+  const undoRef = useRef<IdQuote[]>([]);
+  const lastPickRef = useRef<string | null>(null);
 
   const versionRef = useRef<number>(0);
   const dirtyRef = useRef(false);
@@ -104,7 +111,7 @@ export default function IdQuotationEditorPage() {
       if (s.signed) {
         // Signing confirms + links a project server-side — pull the fresh document.
         const d = await api.getDocument(id);
-        setDoc((prev) => (prev && prev.status !== d.status ? { ...prev, status: d.status, projectId: d.projectId, config: d.config } : prev ? { ...prev, projectId: d.projectId } : d));
+        setDoc((prev) => (prev && prev.status !== d.status ? { ...prev, status: d.status, name: d.name, projectId: d.projectId, config: d.config } : prev ? { ...prev, name: d.name, projectId: d.projectId } : d));
         versionRef.current = d.version ?? versionRef.current;
         if (d.projectId) {
           const p = await api.getProject(d.projectId).catch(() => null);
@@ -207,12 +214,42 @@ export default function IdQuotationEditorPage() {
   const update = useCallback(
     (next: IdQuote | ((q: IdQuote) => IdQuote)) => {
       if (readOnly) return;
-      setQuote((q) => (typeof next === "function" ? (next as any)(q) : next));
+      const cur = quoteRef.current;
+      const val = typeof next === "function" ? (next as (q: IdQuote) => IdQuote)(cur) : next;
+      if (val === cur) return;
+      // Undo history (CIEL 09-01): every edit pushes the previous tree.
+      undoRef.current.push(cur);
+      if (undoRef.current.length > 60) undoRef.current.shift();
+      setUndoLen(undoRef.current.length);
+      setQuote(val);
       dirtyRef.current = true;
       setSaveState((s) => (s === "conflict" ? s : "dirty"));
     },
     [readOnly],
   );
+
+  const undo = useCallback(() => {
+    const prev = undoRef.current.pop();
+    if (!prev) return;
+    setUndoLen(undoRef.current.length);
+    setQuote(prev);
+    dirtyRef.current = true;
+    setSaveState((s) => (s === "conflict" ? s : "dirty"));
+  }, []);
+
+  // ⌘Z / Ctrl+Z outside text fields → editor-level undo (inside a field the
+  // browser's own text undo must keep working).
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z" || e.shiftKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      e.preventDefault();
+      undo();
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [undo]);
 
   useEffect(() => {
     if (!dirtyRef.current || saveState === "conflict") return;
@@ -288,6 +325,97 @@ export default function IdQuotationEditorPage() {
       sections: q.sections.map((s) => (s.id !== sectionId ? s : { ...s, areas: s.areas.map((a) => (a.id !== areaId ? a : { ...a, items: [...a.items, item] })) })),
     }));
 
+  // ── line selection (checkboxes; shift-click extends the range) ────────
+  const allItemIds = useMemo(() => quote.sections.flatMap((s) => s.areas.flatMap((a) => a.items.map((it) => it.id))), [quote]);
+  useEffect(() => {
+    // Drop ids that no longer exist (deleted / unbundled elsewhere).
+    setSelected((prev) => {
+      const live = new Set(allItemIds);
+      const next = new Set(Array.from(prev).filter((id) => live.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [allItemIds]);
+  const toggleSelect = useCallback(
+    (itemId: string, shift: boolean) => {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        const anchor = lastPickRef.current;
+        if (shift && anchor && anchor !== itemId) {
+          const a = allItemIds.indexOf(anchor);
+          const b = allItemIds.indexOf(itemId);
+          if (a >= 0 && b >= 0) {
+            const [lo, hi] = a < b ? [a, b] : [b, a];
+            const turnOn = !prev.has(itemId);
+            for (let i = lo; i <= hi; i++) {
+              if (turnOn) next.add(allItemIds[i]);
+              else next.delete(allItemIds[i]);
+            }
+            lastPickRef.current = itemId;
+            return next;
+          }
+        }
+        if (next.has(itemId)) next.delete(itemId);
+        else next.add(itemId);
+        lastPickRef.current = itemId;
+        return next;
+      });
+    },
+    [allItemIds],
+  );
+  const deleteSelected = () => {
+    update((q) => ({
+      ...q,
+      sections: q.sections.map((s) => ({ ...s, areas: s.areas.map((a) => ({ ...a, items: a.items.filter((it) => !selected.has(it.id)) })) })),
+    }));
+    setSelected(new Set());
+  };
+  // Lump sum (CIEL 09-01): combine ticked lines in ONE area into a single
+  // client-facing line; the originals ride along as `components` (internal).
+  const lumpTarget = useMemo(() => {
+    if (selected.size < 2) return null;
+    for (const s of quote.sections)
+      for (const a of s.areas) {
+        const inArea = a.items.filter((it) => selected.has(it.id));
+        if (inArea.length === selected.size) return { sectionId: s.id, areaId: a.id };
+        if (inArea.length > 0) return null; // spread across areas
+      }
+    return null;
+  }, [selected, quote]);
+  const combineSelected = () => {
+    if (!lumpTarget) return;
+    update((q) => ({
+      ...q,
+      sections: q.sections.map((s) => {
+        if (s.id !== lumpTarget.sectionId) return s;
+        return {
+          ...s,
+          areas: s.areas.map((a) => {
+            if (a.id !== lumpTarget.areaId) return a;
+            const picked = a.items.filter((it) => selected.has(it.id));
+            const sumAmount = picked.reduce((x, it) => x + itemAmount(it), 0);
+            const sumCost = picked.reduce((x, it) => x + itemCost(it), 0);
+            const lump = emptyItem({
+              description: `Supply & install works package (${picked.length} items)`,
+              qty: 1,
+              uom: "lot",
+              pricingMode: "priced",
+              amount: Math.round(sumAmount * 100) / 100,
+              cost: picked.some((it) => it.cost != null || it.includes.some((i) => i.cost != null)) ? Math.round(sumCost * 100) / 100 : null,
+              includes: [],
+              components: picked,
+            });
+            const firstIdx = a.items.findIndex((it) => selected.has(it.id));
+            const items = a.items.filter((it) => !selected.has(it.id));
+            items.splice(firstIdx, 0, lump);
+            return { ...a, items };
+          }),
+        };
+      }),
+    }));
+    setSelected(new Set());
+    toast.success("Combined into one lump-sum line — the client sees a single amount; open the chip to see or unbundle the lines inside");
+  };
+
   const onConfirm = async () => {
     setConfirmOpen(false);
     const ok = dirtyRef.current ? await save() : true;
@@ -302,6 +430,14 @@ export default function IdQuotationEditorPage() {
       toast.success(p.created ? `Quotation confirmed — project "${p.name}" created` : "Quotation confirmed");
     } catch (e: any) {
       toast.warn(`Confirmed, but the project could not be created: ${e.message || "unknown error"}`);
+    }
+    // Confirm allocates the contract number server-side — pull it in.
+    try {
+      const fresh = await api.getDocument(doc!.id);
+      setDoc((d) => (d ? { ...d, name: fresh.name, status: fresh.status, projectId: fresh.projectId ?? d.projectId, config: fresh.config } : fresh));
+      versionRef.current = fresh.version ?? versionRef.current;
+    } catch {
+      /* display-only refresh */
     }
   };
 
@@ -370,6 +506,8 @@ export default function IdQuotationEditorPage() {
           if (dirtyRef.current) await save();
           setSignOpen(true);
         }}
+        canUndo={undoLen > 0}
+        onUndo={undo}
         signedBy={signedBy}
         project={project}
         onOpenProject={() => project && router.push(`/portal/projects/${project.id}`)}
@@ -421,6 +559,8 @@ export default function IdQuotationEditorPage() {
                 guidelinePct={quote.settings.marginGuidelinePct}
                 floorPct={quote.settings.marginFloorPct}
                 active={s.id === activeSectionId}
+                selectedIds={selected}
+                onToggleSelect={toggleSelect}
                 onChange={setSection}
                 onRemove={() => removeSection(s.id)}
                 onOpenLibrary={(areaId) => setPalette({ sectionId: s.id, areaId })}
@@ -430,7 +570,7 @@ export default function IdQuotationEditorPage() {
 
             {quote.sections.length > 0 && (
               <Typography variant="caption" sx={{ color: "text.disabled", textAlign: "center" }}>
-                Tip: press ⌘K / Ctrl+K anywhere to add from the work library · Enter in an amount box adds the next line
+                Tip: press ⌘K / Ctrl+K anywhere to add from the work library · tick lines to delete or combine them · shift-click ticks a range
               </Typography>
             )}
           </Stack>
@@ -438,6 +578,27 @@ export default function IdQuotationEditorPage() {
           <SummaryPanel quote={quote} internalView={internalView} readOnly={readOnly} onChange={(n) => update(n)} onEditTerms={() => setTermsOpen(true)} onJumpToItem={jumpToItem} />
         </Box>
       </Box>
+
+      {selected.size > 0 && !readOnly && (
+        <Paper elevation={8} sx={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 30, px: 2, py: 1, borderRadius: 3, display: "flex", gap: 1.5, alignItems: "center" }}>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+            {selected.size} selected
+          </Typography>
+          <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={deleteSelected} sx={{ textTransform: "none" }}>
+            Delete
+          </Button>
+          <Tooltip title={lumpTarget ? "Combine into ONE client-facing line — the client sees a single amount, the lines stay inside for tracking" : "Tick 2 or more lines in the SAME area to combine them"}>
+            <span>
+              <Button size="small" startIcon={<MergeIcon />} disabled={!lumpTarget} onClick={combineSelected} sx={{ textTransform: "none" }}>
+                Lump sum
+              </Button>
+            </span>
+          </Tooltip>
+          <Button size="small" onClick={() => setSelected(new Set())} sx={{ textTransform: "none", color: "text.secondary" }}>
+            Clear
+          </Button>
+        </Paper>
+      )}
 
       <LibraryPalette
         open={!!palette}

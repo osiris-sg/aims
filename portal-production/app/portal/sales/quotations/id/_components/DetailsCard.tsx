@@ -128,7 +128,8 @@ export default function DetailsCard({ header, contractNo, readOnly, onChange, on
                 value={header.contractNo ?? contractNo ?? ""}
                 disabled={readOnly}
                 onChange={(e) => onChange({ contractNo: e.target.value })}
-                helperText="Auto-assigned. Edit to use your own number."
+                placeholder="Assigned when confirmed"
+                helperText="Allocated on confirm — drafts have no number. Type to use your own."
               />
             </Grid>
             <Grid item xs={12} md={6}>

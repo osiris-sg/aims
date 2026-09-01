@@ -7,7 +7,7 @@
 // Internal toggle is on.
 
 import React, { memo, useState } from "react";
-import { Autocomplete, Box, Button, Chip, IconButton, InputAdornment, Menu, MenuItem, Paper, Stack, TextField, Tooltip, Typography } from "@mui/material";
+import { Autocomplete, Box, Button, Checkbox, Chip, IconButton, InputAdornment, Menu, MenuItem, Paper, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
@@ -25,6 +25,10 @@ interface Props {
   guidelinePct: number;
   floorPct: number;
   active: boolean;
+  /** Ticked line ids (page-level so grouped ops span sections). */
+  selectedIds: Set<string>;
+  /** Toggle a line's tick; shift extends the range (CIEL 09-01). */
+  onToggleSelect: (itemId: string, shift: boolean) => void;
   onChange: (next: QuoteSection) => void;
   onRemove: () => void;
   onOpenLibrary: (areaId: string) => void;
@@ -33,8 +37,8 @@ interface Props {
 
 // Column template shared by the header, item rows and include rows so
 // everything lines up. Internal view appends Cost + Margin.
-const gridCols = (internal: boolean) => `36px minmax(280px,1fr) 84px 96px 150px 132px${internal ? " 124px 96px" : ""} 40px`;
-const MIN_W = (internal: boolean) => (internal ? 1120 : 900);
+const gridCols = (internal: boolean) => `30px 36px minmax(280px,1fr) 84px 96px 150px 132px${internal ? " 124px 96px" : ""} 40px`;
+const MIN_W = (internal: boolean) => (internal ? 1150 : 930);
 
 const numOrNull = (v: string): number | null => {
   if (v === "" || v == null) return null;
@@ -87,6 +91,7 @@ function HeaderRow({ internal }: { internal: boolean }) {
   );
   return (
     <Box sx={{ display: "grid", gridTemplateColumns: gridCols(internal), columnGap: 1, px: 1, pb: 0.5, borderBottom: 1, borderColor: "divider", minWidth: MIN_W(internal) }}>
+      <H> </H>
       <H align="right">#</H>
       <H>Description</H>
       <H align="right">Qty</H>
@@ -108,6 +113,7 @@ const IncludeRow = memo(function IncludeRow({ inc, internalView, readOnly, onCha
   const priced = inc.pricingMode === "priced";
   return (
     <Box sx={{ display: "grid", gridTemplateColumns: gridCols(internalView), columnGap: 1, alignItems: "center", px: 1, py: 0.25, minWidth: MIN_W(internalView) }}>
+      <Cell />
       <Cell sx={{ textAlign: "right", color: "text.disabled" }}>*</Cell>
       <Cell sx={{ pl: 2 }}>
         <TextField size="small" fullWidth variant="standard" placeholder="Includes …" value={inc.text} onChange={(e) => onChange({ ...inc, text: e.target.value })} disabled={readOnly} InputProps={{ disableUnderline: true, sx: { fontSize: 13 } }} />
@@ -142,8 +148,8 @@ const IncludeRow = memo(function IncludeRow({ inc, internalView, readOnly, onCha
   );
 });
 
-const ItemRow = memo(function ItemRow({ item, no, internalView, readOnly, guidelinePct, floorPct, onChange, onRemove }: { item: QuoteItem; no: number; internalView: boolean; readOnly: boolean; guidelinePct: number; floorPct: number; onChange: (n: QuoteItem) => void; onRemove: () => void }) {
-  const [menu, setMenu] = useState<null | HTMLElement>(null);
+const ItemRow = memo(function ItemRow({ item, no, internalView, readOnly, guidelinePct, floorPct, selected, onToggleSelect, onChange, onUnbundle }: { item: QuoteItem; no: number; internalView: boolean; readOnly: boolean; guidelinePct: number; floorPct: number; selected: boolean; onToggleSelect: (itemId: string, shift: boolean) => void; onChange: (n: QuoteItem) => void; onUnbundle: () => void }) {
+  const [showComponents, setShowComponents] = useState(false);
   const amount = itemAmount(item);
   const cost = itemCost(item);
   const margin = itemMarginPct(item);
@@ -160,8 +166,13 @@ const ItemRow = memo(function ItemRow({ item, no, internalView, readOnly, guidel
   };
 
   return (
-    <Box sx={{ borderTop: 1, borderColor: "divider", py: 0.75, bgcolor: low ? (t) => (t.palette.mode === "dark" ? "rgba(255,167,38,0.07)" : "rgba(255,167,38,0.09)") : "transparent" }}>
+    <Box sx={{ borderTop: 1, borderColor: "divider", py: 0.75, bgcolor: selected ? "action.selected" : low ? (t) => (t.palette.mode === "dark" ? "rgba(255,167,38,0.07)" : "rgba(255,167,38,0.09)") : "transparent" }}>
       <Box sx={{ display: "grid", gridTemplateColumns: gridCols(internalView), columnGap: 1, alignItems: "start", px: 1, minWidth: MIN_W(internalView) }}>
+        <Cell sx={{ pt: 0.25 }}>
+          {!readOnly && (
+            <Checkbox size="small" checked={selected} onClick={(e) => onToggleSelect(item.id, (e as React.MouseEvent).shiftKey)} sx={{ p: 0.5 }} inputProps={{ "aria-label": "Select line" }} />
+          )}
+        </Cell>
         <Cell sx={{ textAlign: "right", color: "text.secondary", pt: 1, fontVariantNumeric: "tabular-nums" }}>{no}</Cell>
         <Cell>
           <TextField
@@ -175,7 +186,16 @@ const ItemRow = memo(function ItemRow({ item, no, internalView, readOnly, guidel
             disabled={readOnly}
             InputProps={{ sx: { fontSize: 13.5, lineHeight: 1.45 } }}
           />
-          <Stack direction="row" spacing={1} sx={{ mt: 0.25, minHeight: 16 }}>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.25, minHeight: 16 }}>
+            {(item.components?.length ?? 0) > 0 && (
+              <Chip
+                size="small"
+                variant="outlined"
+                label={`Lump sum · ${item.components!.length} lines`}
+                onClick={() => setShowComponents((v) => !v)}
+                sx={{ height: 18, "& .MuiChip-label": { fontSize: 10.5 } }}
+              />
+            )}
             {item.code && (
               <Typography variant="caption" sx={{ color: "text.disabled" }}>
                 {item.code}
@@ -222,14 +242,38 @@ const ItemRow = memo(function ItemRow({ item, no, internalView, readOnly, guidel
             </Cell>
           </>
         )}
-        <Cell sx={{ textAlign: "center" }}>
-          {!readOnly && (
-            <IconButton size="small" onClick={(e) => setMenu(e.currentTarget)}>
-              <MoreVertIcon fontSize="small" />
-            </IconButton>
-          )}
-        </Cell>
+        <Cell />
       </Box>
+
+      {/* Lump-sum internals: the client sees ONE line; the bundled lines live
+          here for tracking, and Unbundle restores them (internal view only). */}
+      {(item.components?.length ?? 0) > 0 && showComponents && (
+        <Box sx={{ ml: `calc(30px + 36px + 16px)`, mr: 1, my: 0.5, p: 1, borderRadius: 1, bgcolor: "action.hover", border: 1, borderColor: "divider" }}>
+          {item.components!.map((c, i) => (
+            <Stack key={c.id || i} direction="row" spacing={1} sx={{ py: 0.25 }}>
+              <Typography variant="caption" sx={{ color: "text.secondary", flex: 1, minWidth: 0 }}>
+                {c.description || "(untitled line)"}
+              </Typography>
+              <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums" }}>{money(itemAmount(c))}</Typography>
+              {internalView && (
+                <Typography variant="caption" sx={{ color: "text.disabled", fontVariantNumeric: "tabular-nums" }}>
+                  cost {money(itemCost(c))}
+                </Typography>
+              )}
+            </Stack>
+          ))}
+          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 0.5 }}>
+            <Typography variant="caption" sx={{ color: "text.disabled" }}>
+              Never printed — the client only sees the lump-sum line above.
+            </Typography>
+            {!readOnly && (
+              <Button size="small" onClick={onUnbundle} sx={{ textTransform: "none", fontSize: 11, py: 0 }}>
+                Unbundle
+              </Button>
+            )}
+          </Stack>
+        </Box>
+      )}
 
       {item.includes.map((inc) => (
         <IncludeRow key={inc.id} inc={inc} internalView={internalView} readOnly={readOnly} onChange={(n) => onChange({ ...item, includes: item.includes.map((x) => (x.id === n.id ? n : x)) })} onRemove={() => onChange({ ...item, includes: item.includes.filter((x) => x.id !== inc.id) })} />
@@ -249,22 +293,11 @@ const ItemRow = memo(function ItemRow({ item, no, internalView, readOnly, guidel
         </Box>
       )}
 
-      <Menu open={!!menu} anchorEl={menu} onClose={() => setMenu(null)}>
-        <MenuItem
-          onClick={() => {
-            setMenu(null);
-            onRemove();
-          }}
-          sx={{ color: "error.main" }}
-        >
-          Delete item
-        </MenuItem>
-      </Menu>
     </Box>
   );
 });
 
-function AreaBlock({ area, startNo, canRemove, internalView, readOnly, guidelinePct, floorPct, onChange, onRemove, onOpenLibrary }: { area: QuoteArea; startNo: number; canRemove: boolean; internalView: boolean; readOnly: boolean; guidelinePct: number; floorPct: number; onChange: (a: QuoteArea) => void; onRemove: () => void; onOpenLibrary: () => void }) {
+function AreaBlock({ area, startNo, canRemove, internalView, readOnly, guidelinePct, floorPct, selectedIds, onToggleSelect, onChange, onRemove, onOpenLibrary }: { area: QuoteArea; startNo: number; canRemove: boolean; internalView: boolean; readOnly: boolean; guidelinePct: number; floorPct: number; selectedIds: Set<string>; onToggleSelect: (itemId: string, shift: boolean) => void; onChange: (a: QuoteArea) => void; onRemove: () => void; onOpenLibrary: () => void }) {
   const setItem = (n: QuoteItem) => onChange({ ...area, items: area.items.map((x) => (x.id === n.id ? n : x)) });
   // New lines always append at the END of the area so numbering stays in
   // sequence (CIEL 09-01 — "add item must insert in the correct sequence").
@@ -309,13 +342,13 @@ function AreaBlock({ area, startNo, canRemove, internalView, readOnly, guideline
         </Typography>
       )}
       {area.items.map((it, i) => (
-        <ItemRow key={it.id} item={it} no={startNo + i} internalView={internalView} readOnly={readOnly} guidelinePct={guidelinePct} floorPct={floorPct} onChange={setItem} onRemove={() => onChange({ ...area, items: area.items.filter((x) => x.id !== it.id) })} />
+        <ItemRow key={it.id} item={it} no={startNo + i} internalView={internalView} readOnly={readOnly} guidelinePct={guidelinePct} floorPct={floorPct} selected={selectedIds.has(it.id)} onToggleSelect={onToggleSelect} onChange={setItem} onUnbundle={() => onChange({ ...area, items: area.items.flatMap((x) => (x.id === it.id ? (x.components && x.components.length ? x.components : [x]) : [x])) })} />
       ))}
     </Box>
   );
 }
 
-export default function SectionCard({ section, internalView, readOnly, guidelinePct, floorPct, active, onChange, onRemove, onOpenLibrary, onFocus }: Props) {
+export default function SectionCard({ section, internalView, readOnly, guidelinePct, floorPct, active, selectedIds, onToggleSelect, onChange, onRemove, onOpenLibrary, onFocus }: Props) {
   const [menu, setMenu] = useState<null | HTMLElement>(null);
   const t = sectionTotals(section);
   let running = 0;
@@ -372,7 +405,7 @@ export default function SectionCard({ section, internalView, readOnly, guideline
       <Box sx={{ overflowX: "auto", px: 1, pt: 1.5 }}>
         <HeaderRow internal={internalView} />
         {section.areas.map((a, i) => (
-          <AreaBlock key={a.id} area={a} startNo={areaStarts[i]} canRemove={section.areas.length > 1} internalView={internalView} readOnly={readOnly} guidelinePct={guidelinePct} floorPct={floorPct} onChange={(n) => onChange({ ...section, areas: section.areas.map((x) => (x.id === n.id ? n : x)) })} onRemove={() => onChange({ ...section, areas: section.areas.filter((x) => x.id !== a.id) })} onOpenLibrary={() => onOpenLibrary(a.id)} />
+          <AreaBlock key={a.id} area={a} startNo={areaStarts[i]} canRemove={section.areas.length > 1} internalView={internalView} readOnly={readOnly} guidelinePct={guidelinePct} floorPct={floorPct} selectedIds={selectedIds} onToggleSelect={onToggleSelect} onChange={(n) => onChange({ ...section, areas: section.areas.map((x) => (x.id === n.id ? n : x)) })} onRemove={() => onChange({ ...section, areas: section.areas.filter((x) => x.id !== a.id) })} onOpenLibrary={() => onOpenLibrary(a.id)} />
         ))}
       </Box>
 
