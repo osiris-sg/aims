@@ -7,8 +7,9 @@
  *   - modules: DASHBOARD / SALES (quotation + invoice + CN/DN only) / CUSTOMERS /
  *     PROJECTS / ACCOUNTING / USER_MANAGEMENT / AUDIT / ADMIN enabled; every
  *     rental/inventory module explicitly disabled so catalog defaults don't leak in
- *   - roles: superadmin (all perms), Management (all perms), Designer (sales +
- *     projects + customers only, restricted allowedModules)
+ *   - roles: superadmin (all perms, all modules), Management (all perms but
+ *     modules limited to Dashboard/Sales/Accounting/Projects/Customers),
+ *     Designer (sales + projects + customers only, restricted allowedModules)
  *   - accounting: AccountingSetting + default chart of accounts (not GST registered)
  *   - document numbering: one "Default" variant per sales doc type
  *   - access: every superadmin of Osiris Technology gets Management on CIEL
@@ -67,6 +68,10 @@ const FEATURE_OVERRIDES: Record<string, boolean> = {
   enableDocumentAI: true,
   enableIdQuotation: true, // sectioned Letter-of-Intent quotation editor + Work Library
 };
+
+// Management (the owners): full permissions, but the nav shows only the day-to-day
+// modules (guru 2026-09-01) — user/role admin stays with Osiris superadmins.
+const MANAGEMENT_MODULES = ['DASHBOARD', 'SALES', 'ACCOUNTING', 'PROJECTS', 'CUSTOMERS'];
 
 // Designer: can raise quotations / invoices, manage their projects + customers.
 // No accounting, no user management, no admin.
@@ -171,7 +176,7 @@ async function main() {
   };
 
   await ensureRole('superadmin', 'Platform superadmin', [], allPerms);
-  const management = await ensureRole('Management', 'CIEL owners — full access', [], allPerms);
+  const management = await ensureRole('Management', 'CIEL owners — full access', MANAGEMENT_MODULES, allPerms);
   await ensureRole(
     'Designer',
     'Interior designers — quotations, invoices, projects, customers',

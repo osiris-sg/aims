@@ -21,7 +21,8 @@ One Clerk instance serves all three environments, so **user ids are identical ev
 **Feature flags ON for CIEL**: `enableIdQuotation` (the master switch for the whole ID experience — quotation editor, projects page, leads, work library), `enableProjects`, `enableQuotationProjectLink`, `enableActionLog`, `enableDocumentAI`.
 
 **Roles**
-- `superadmin` / **Management** — all permissions (the two owners)
+- `superadmin` — all permissions, all modules (Osiris)
+- **Management** — all permissions; nav limited to Dashboard, Sales, Accounting, Projects, Customers (the owners; user/role admin stays with Osiris)
 - **Designer** — documents/projects/customers/uploads/extraction + read-only suppliers/accounting/users; sidebar limited to Dashboard/Sales/Customers/Projects
 
 **Users** (Clerk, shared across envs)
@@ -89,7 +90,7 @@ Cloudflare Email Routing on `inbound.osiris.sg` → `email-ingest-worker` → `P
 - **E-sign** — token link, public sign page, signature on PDF, auto-project, office notification.
 - **Projects** — list + the costing-summary page: costing ledger with AI invoice extraction and provision tally, 10/40/45/5 payments with deposit either/or and per-milestone invoice generation, Contract & P&L with commission, 35-step schedule with calendar/print/client link, documents.
 - **Leads** — Lead model, EZiD parser + Network PDF extractor, ingestion hook, Sales → Leads page with the Unqualified/Engaging/Dead(+proof)/Converted(+auto-quote) flow; email ingestion enabled (dev+staging) with the lead allow-list. **Verified end-to-end on dev** with both sample emails (Jiaxin, Anna).
-- **Users** — Mike + Levi in Clerk with Management+Designer and WhatsApp numbers (dev+staging; prod pending).
+- **Users** — Mike, Levi + Summer in Clerk with Management+Designer and WhatsApp numbers (dev+staging; prod pending). All three log in with password `password` (to be changed at onboarding).
 - **30 Aug feedback round** — schedule date-spread fix, schedule client link, designer dropdowns (quotation + project, Designer-role holders only), WhatsApp number + default commission on Edit User, Payments-tab tooltips.
 - **SOW** delivered; Pocket AI MCP wired for meeting-note extraction.
 
