@@ -8,7 +8,7 @@ import { ProjectCostingService } from './project-costing.service';
 
 interface RequestWithOrganization extends Request {
   userOrganization?: { id: string };
-  user?: { firstName?: string; lastName?: string; email?: string; name?: string };
+  user?: { id?: string; firstName?: string; lastName?: string; email?: string; name?: string };
 }
 function orgId(req: RequestWithOrganization): string {
   const id = req.userOrganization?.id;
@@ -47,7 +47,7 @@ export class IdProjectsListController {
   @Get()
   @Permissions('projects:read')
   list(@Req() req: RequestWithOrganization, @Query('page') page?: string, @Query('limit') limit?: string, @Query('search') search?: string, @Query('stage') stage?: string, @Query('designer') designer?: string) {
-    return this.service.list(orgId(req), { page: Number(page) || 1, limit: Number(limit) || 20, search, stage, designer });
+    return this.service.list(orgId(req), { page: Number(page) || 1, limit: Number(limit) || 20, search, stage, designer, callerUserId: req.user?.id });
   }
 }
 

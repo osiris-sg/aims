@@ -111,12 +111,20 @@ function TopNavOrgSwitcher() {
           )}
           sx={{
             width: 210,
-            "& .MuiInputBase-root": {
+            // Doubled-up class selector out-specifies the light theme's white
+            // input fill — the bar field must stay dark in BOTH themes (the
+            // white pill with invisible text was the light-mode result).
+            "& .MuiOutlinedInput-root.MuiInputBase-root": {
               color: "#FFFFFF",
               fontSize: "0.78rem",
-              bgcolor: "rgba(255,255,255,0.06)",
+              backgroundColor: "rgba(255,255,255,0.06)",
               "& fieldset": { borderColor: isOverride ? "#4da3ff" : "rgba(255,255,255,0.25)" },
               "&:hover fieldset": { borderColor: isOverride ? "#4da3ff" : "rgba(255,255,255,0.45)" },
+              "&.Mui-focused": { backgroundColor: "rgba(255,255,255,0.10)", boxShadow: "none" },
+            },
+            "& .MuiOutlinedInput-input": {
+              color: "#FFFFFF",
+              "&::placeholder": { color: "rgba(255,255,255,0.6)", opacity: 1 },
             },
             "& .MuiSvgIcon-root": { color: "rgba(255,255,255,0.7)" },
           }}

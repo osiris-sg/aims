@@ -43,7 +43,7 @@ const numOrNull = (v: string): number | null => {
 };
 
 /** Numeric field used for qty / amount / cost (commits on blur / Enter). */
-function NumField({ value, onChange, disabled, placeholder, adornment, warn, onEnter }: { value: number | null; onChange: (v: number | null) => void; disabled?: boolean; placeholder?: string; adornment?: string; warn?: boolean; onEnter?: () => void }) {
+function NumField({ value, onChange, disabled, placeholder, adornment, warn }: { value: number | null; onChange: (v: number | null) => void; disabled?: boolean; placeholder?: string; adornment?: string; warn?: boolean }) {
   const [draft, setDraft] = useState<string | null>(null);
   return (
     <TextField
@@ -57,10 +57,9 @@ function NumField({ value, onChange, disabled, placeholder, adornment, warn, onE
         setDraft(null);
       }}
       onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          (e.target as HTMLInputElement).blur();
-          onEnter?.();
-        }
+        // Enter just commits the value (blur). It must NOT create a new line —
+        // CIEL 09-01: designers kept adding rows by accident.
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
       }}
       disabled={disabled}
       placeholder={placeholder}
@@ -143,7 +142,7 @@ const IncludeRow = memo(function IncludeRow({ inc, internalView, readOnly, onCha
   );
 });
 
-const ItemRow = memo(function ItemRow({ item, no, internalView, readOnly, guidelinePct, floorPct, onChange, onRemove, onAddAfter }: { item: QuoteItem; no: number; internalView: boolean; readOnly: boolean; guidelinePct: number; floorPct: number; onChange: (n: QuoteItem) => void; onRemove: () => void; onAddAfter: () => void }) {
+const ItemRow = memo(function ItemRow({ item, no, internalView, readOnly, guidelinePct, floorPct, onChange, onRemove }: { item: QuoteItem; no: number; internalView: boolean; readOnly: boolean; guidelinePct: number; floorPct: number; onChange: (n: QuoteItem) => void; onRemove: () => void }) {
   const [menu, setMenu] = useState<null | HTMLElement>(null);
   const amount = itemAmount(item);
   const cost = itemCost(item);
@@ -206,7 +205,7 @@ const ItemRow = memo(function ItemRow({ item, no, internalView, readOnly, guidel
         </Cell>
         <Cell>
           {priced ? (
-            <NumField value={item.amount} onChange={(v) => onChange({ ...item, amount: v })} disabled={readOnly} placeholder="0.00" adornment="$" onEnter={readOnly ? undefined : onAddAfter} />
+            <NumField value={item.amount} onChange={(v) => onChange({ ...item, amount: v })} disabled={readOnly} placeholder="0.00" adornment="$" />
           ) : (
             <Chip size="small" variant="outlined" label={item.pricingMode === "inclusive" ? "Inclusive" : "Complimentary"} sx={{ width: "100%", mt: 0.5 }} />
           )}
@@ -254,14 +253,6 @@ const ItemRow = memo(function ItemRow({ item, no, internalView, readOnly, guidel
         <MenuItem
           onClick={() => {
             setMenu(null);
-            onAddAfter();
-          }}
-        >
-          Add item below
-        </MenuItem>
-        <MenuItem
-          onClick={() => {
-            setMenu(null);
             onRemove();
           }}
           sx={{ color: "error.main" }}
@@ -275,12 +266,9 @@ const ItemRow = memo(function ItemRow({ item, no, internalView, readOnly, guidel
 
 function AreaBlock({ area, startNo, canRemove, internalView, readOnly, guidelinePct, floorPct, onChange, onRemove, onOpenLibrary }: { area: QuoteArea; startNo: number; canRemove: boolean; internalView: boolean; readOnly: boolean; guidelinePct: number; floorPct: number; onChange: (a: QuoteArea) => void; onRemove: () => void; onOpenLibrary: () => void }) {
   const setItem = (n: QuoteItem) => onChange({ ...area, items: area.items.map((x) => (x.id === n.id ? n : x)) });
-  const addAfter = (id: string | null) => {
-    const idx = id ? area.items.findIndex((x) => x.id === id) : area.items.length - 1;
-    const items = [...area.items];
-    items.splice(idx + 1, 0, emptyItem());
-    onChange({ ...area, items });
-  };
+  // New lines always append at the END of the area so numbering stays in
+  // sequence (CIEL 09-01 — "add item must insert in the correct sequence").
+  const addLine = () => onChange({ ...area, items: [...area.items, emptyItem()] });
   return (
     <Box sx={{ minWidth: MIN_W(internalView) }}>
       {/* Area / room heading row */}
@@ -302,7 +290,7 @@ function AreaBlock({ area, startNo, canRemove, internalView, readOnly, guideline
             <Button size="small" startIcon={<LibraryBooksIcon />} onClick={onOpenLibrary} sx={{ textTransform: "none" }}>
               From library
             </Button>
-            <Button size="small" startIcon={<AddIcon />} onClick={() => addAfter(null)} sx={{ textTransform: "none" }}>
+            <Button size="small" startIcon={<AddIcon />} onClick={addLine} sx={{ textTransform: "none" }}>
               Custom line
             </Button>
             {canRemove && (
@@ -321,7 +309,7 @@ function AreaBlock({ area, startNo, canRemove, internalView, readOnly, guideline
         </Typography>
       )}
       {area.items.map((it, i) => (
-        <ItemRow key={it.id} item={it} no={startNo + i} internalView={internalView} readOnly={readOnly} guidelinePct={guidelinePct} floorPct={floorPct} onChange={setItem} onRemove={() => onChange({ ...area, items: area.items.filter((x) => x.id !== it.id) })} onAddAfter={() => addAfter(it.id)} />
+        <ItemRow key={it.id} item={it} no={startNo + i} internalView={internalView} readOnly={readOnly} guidelinePct={guidelinePct} floorPct={floorPct} onChange={setItem} onRemove={() => onChange({ ...area, items: area.items.filter((x) => x.id !== it.id) })} />
       ))}
     </Box>
   );

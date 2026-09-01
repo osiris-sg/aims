@@ -634,10 +634,25 @@ export class ProjectCostingService {
   }
 
   // ── list for the ID projects page ─────────────────────────────────────
-  async list(organizationId: string, opts: { page?: number; limit?: number; search?: string; stage?: string; designer?: string }) {
+  async list(organizationId: string, opts: { page?: number; limit?: number; search?: string; stage?: string; designer?: string; callerUserId?: string }) {
     const page = Math.max(1, opts.page || 1);
     const limit = Math.min(100, Math.max(1, opts.limit || 20));
     const where: any = { organizationId };
+    // Designers only see the projects they're in charge of (CIEL 09-01).
+    // A user whose ONLY active role in the org is "Designer" is scoped to
+    // projects where they are the designer; anyone holding a broader role
+    // (Management, superadmin, admin…) — or with no org roles at all
+    // (osirisadmin bypass) — sees everything.
+    if (opts.callerUserId) {
+      const roles = await this.prisma.userRole.findMany({
+        where: { userId: opts.callerUserId, organizationId, isActive: true },
+        select: { role: { select: { name: true } } },
+      });
+      const names = roles.map((r) => r.role.name);
+      if (names.length > 0 && names.every((n) => n === 'Designer')) {
+        where.designerUserId = opts.callerUserId;
+      }
+    }
     if (opts.stage) where.stage = opts.stage;
     if (opts.designer) where.designer = { contains: opts.designer, mode: 'insensitive' };
     if (opts.search?.trim()) {
