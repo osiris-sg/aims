@@ -1,0 +1,93 @@
+[
+ {
+  "file": "Bona Design-2510006.pdf",
+  "supplier": "Bona Design Pte Ltd",
+  "billNumber": "BINV-2510-006",
+  "billDate": "2025-10-31",
+  "total": 4910
+ },
+ {
+  "file": "CIEL INTEROR - PRP26-CI0011.pdf",
+  "supplier": "PRIROPEP",
+  "billNumber": "PRP26-CI0011",
+  "billDate": "2026-01-05",
+  "total": 4000
+ },
+ {
+  "file": "Cowboy 2601021.pdf",
+  "supplier": "COWBOY DESIGN PTE LTD",
+  "billNumber": "2601021",
+  "billDate": "2026-01-13",
+  "total": 350
+ },
+ {
+  "file": "Huakhian 26000170.pdf",
+  "supplier": "HUA KHIAN CO PTE LTD",
+  "billNumber": "26000170",
+  "billDate": "2026-01-05",
+  "total": 1281.84
+ },
+ {
+  "file": "Huakhian 26000570.pdf",
+  "supplier": "HUA KHIAN CO PTE LTD",
+  "billNumber": "26000570",
+  "billDate": "2026-01-13",
+  "total": 2599.65
+ },
+ {
+  "file": "Huakhian 26000572.pdf",
+  "supplier": "HUA KHIAN CO PTE LTD",
+  "billNumber": "26000572",
+  "billDate": "2026-01-13",
+  "total": 3776.85
+ },
+ {
+  "file": "Hue Workz 25586-SUMMER-70 CCK #01-18.pdf",
+  "supplier": "HUE WORKZ PTE LTD",
+  "billNumber": "25586",
+  "billDate": "2025-12-31",
+  "total": 4110
+ },
+ {
+  "file": "J&H Engineering .jpeg",
+  "supplier": "J & H Engineering Services Pte Ltd",
+  "billNumber": "0002-26",
+  "billDate": "2026-01-03",
+  "total": 436
+ },
+ {
+  "file": "J&I 07213 - Summer 87640168.pdf",
+  "supplier": "J&I Facilities Management Pte Ltd",
+  "billNumber": "07213",
+  "billDate": "2025-01-09",
+  "total": 700
+ },
+ {
+  "file": "J&I 07223 - Mike 82289608.pdf",
+  "supplier": "J&I Facilities Management Pte Ltd",
+  "billNumber": "07223",
+  "billDate": "2026-01-12",
+  "total": 150
+ },
+ {
+  "file": "SongAik Parquet- 87640168.pdf",
+  "supplier": "Song Aik Timber Construction",
+  "billNumber": "25-1208",
+  "billDate": "2025-12-28",
+  "total": 4230
+ },
+ {
+  "file": "YMF 15_01_26 .png",
+  "supplier": "YMF GROUP PTE. LTD.",
+  "billNumber": "STMT-2026-01",
+  "billDate": "2026-01-15",
+  "total": 2218
+ },
+ {
+  "file": "YanHo 135215.pdf",
+  "supplier": "YAN HO ALUMINIUM",
+  "billNumber": "YH01036",
+  "billDate": "2026-01-13",
+  "total": 1566.3
+ }
+]

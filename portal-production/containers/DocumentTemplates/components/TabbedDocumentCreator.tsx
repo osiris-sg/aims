@@ -1130,16 +1130,26 @@ export default function TabbedDocumentCreator({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isBiofuel, isDeliveryOrder, formData.customer?.id, organization?.id]);
 
-  const handleRefQuotationSelect = useCallback((q: any) => {
+  // "QO202607-0027 dated 21/07/2026" — the date now lives IN the field text
+  // (guru 2026-09-02: the editor must show it, and multiple quotations can be
+  // referenced at once, comma-separated).
+  const refQuotationLabel = (q: any) => {
+    const d = q?.config?.confirmedAt || q?.createdAt;
+    const num = q?.name || "";
+    return d ? `${num} dated ${new Date(d).toLocaleDateString("en-GB")}` : num;
+  };
+  const handleRefQuotationSelect = useCallback((qs: any[]) => {
+    const list = Array.isArray(qs) ? qs : [qs];
     setFormData((prev: any) => ({
       ...prev,
       documentInfo: {
         ...prev.documentInfo,
-        referenceNo: q?.name || "",
-        // Printed as " dated dd/mm/yyyy" after the number on the DO.
-        referenceQuotationDate: q ? (q.config?.confirmedAt || q.createdAt || null) : null,
+        referenceNo: list.map(refQuotationLabel).filter(Boolean).join(", "),
+        // Legacy print-side date field retired — the date is in the text now.
+        referenceQuotationDate: null,
       },
     }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setFormData]);
 
   // ---- AI Document Assistant ----
@@ -4291,9 +4301,9 @@ export default function TabbedDocumentCreator({
                             orAmountRow: <OrAmountInput formData={formData} setFormData={setFormData} />,
                           }
                         : // Biofuel DO: Reference No = quotation picker (Customer-code
-                      // pattern — search icon opens the dialog). Editor shows just
-                      // the quotation number; the confirm date is stored alongside
-                      // and only printed ("Our Ref. No : QO… dated dd/mm/yyyy").
+                      // pattern — search icon opens the dialog). Multi-select;
+                      // the field text carries "QO… dated dd/mm/yyyy" per pick,
+                      // comma-separated. Free typing still allowed.
                       isBiofuel && isDeliveryOrder
                         ? {
                             "documentInfo.referenceNo": (
@@ -6959,8 +6969,8 @@ export default function TabbedDocumentCreator({
               // " dated dd/mm/yyyy" on the DO).
               ...(isBiofuel && !isInvoiceType
                 ? {
-                    referenceNo: quotation.name,
-                    referenceQuotationDate: quotationConfig.confirmedAt || quotation.createdAt || null,
+                    referenceNo: refQuotationLabel(quotation),
+                    referenceQuotationDate: null,
                   }
                 : {}),
             },
@@ -7043,8 +7053,8 @@ export default function TabbedDocumentCreator({
               // Biofuel DO: pre-fill "Our Ref" with the FIRST source quotation.
               ...(isBiofuel && !isInvoiceType
                 ? {
-                    referenceNo: firstQuotation.name,
-                    referenceQuotationDate: quotationConfig.confirmedAt || firstQuotation.createdAt || null,
+                    referenceNo: refQuotationLabel(firstQuotation),
+                    referenceQuotationDate: null,
                   }
                 : {}),
             },
@@ -7292,8 +7302,8 @@ export default function TabbedDocumentCreator({
               // " dated dd/mm/yyyy" on the DO).
               ...(isBiofuel && !isInvoiceType
                 ? {
-                    referenceNo: quotation.name,
-                    referenceQuotationDate: quotationConfig.confirmedAt || quotation.createdAt || null,
+                    referenceNo: refQuotationLabel(quotation),
+                    referenceQuotationDate: null,
                   }
                 : {}),
             },
@@ -7376,8 +7386,8 @@ export default function TabbedDocumentCreator({
               // Biofuel DO: pre-fill "Our Ref" with the FIRST source quotation.
               ...(isBiofuel && !isInvoiceType
                 ? {
-                    referenceNo: firstQuotation.name,
-                    referenceQuotationDate: quotationConfig.confirmedAt || firstQuotation.createdAt || null,
+                    referenceNo: refQuotationLabel(firstQuotation),
+                    referenceQuotationDate: null,
                   }
                 : {}),
             },

@@ -45,6 +45,8 @@ export type Summary = {
   project: {
     id: string;
     projectNumber: string | null;
+    source: string | null;
+    leadId: string | null;
     name: string;
     address: string | null;
     status: string;
@@ -57,6 +59,7 @@ export type Summary = {
     client: { name: string | null; contact: string | null; nric: string | null; address: string | null };
   };
   quotation: { id: string; number: string | null; status: string; grandTotal: number; signedAt: string | null; signedBy: string | null; isId: boolean } | null;
+  vos: Array<{ id: string; name: string | null; status: string; additions: number; removals: number; net: number; createdAt: string }>;
   documents: Array<{ id: string; name: string | null; type: string; status: string; createdAt: string; documentTemplateId: string }>;
   costs: Cost[];
   milestones: Milestone[];
@@ -125,6 +128,17 @@ export function useIdProjectApi() {
   return useMemo(
     () => ({
       request,
+      createProject: (body: { clientName?: string; address?: string | null; source?: string; leadId?: string | null; designer?: string | null; designerUserId?: string | null }) =>
+        request<{ projectId: string; name: string; created: boolean }>(`/id-projects`, { method: "POST", body: j(body) }),
+      createVo: (id: string) => request<{ id: string; name: string | null }>(`/projects/${id}/vo`, { method: "POST" }),
+      confirmVo: (docId: string) => request<{ confirmed: boolean; net: number; newQuantum: number }>(`/projects/vo/${docId}/confirm`, { method: "POST" }),
+      getDocument: (docId: string) => request<any>(`/documents/${docId}`),
+      saveDocument: (doc: { id: string; type: string; config: any; version?: number }) => request<any>(`/documents/update`, { method: "POST", body: j(doc) }),
+      getDocHtml: (docId: string) => request<{ html: string }>(`/documents/${docId}/html`),
+      listLeads: () =>
+        request<any>(`/leads?page=1&limit=100&search=&status=&source=`).then((r: any) =>
+          (r?.docs || []).filter((l: any) => l.status === "unqualified" || l.status === "engaging"),
+        ),
       list: (q: { page: number; limit: number; search?: string; stage?: string; designer?: string }) =>
         request<{ docs: any[]; total: number }>(`/id-projects?page=${q.page}&limit=${q.limit}&search=${encodeURIComponent(q.search || "")}&stage=${encodeURIComponent(q.stage || "")}&designer=${encodeURIComponent(q.designer || "")}`),
       summary: (id: string) => request<Summary>(`/projects/${id}/costing`),

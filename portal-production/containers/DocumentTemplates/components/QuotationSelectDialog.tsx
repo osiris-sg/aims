@@ -5,6 +5,8 @@ import {
   DialogTitle,
   DialogContent,
   Box,
+  Button,
+  Checkbox,
   TextField,
   Table,
   TableBody,
@@ -19,12 +21,13 @@ import {
 } from "@mui/material";
 import { Search as SearchIcon, Close as CloseIcon } from "@mui/icons-material";
 
-// Single-select quotation picker — same look as the extract dialog, but a
-// row click selects one quotation (used by the Biofuel DO "Our Ref" field).
+// Multi-select quotation picker (Biofuel DO "Our Ref" field): row clicks
+// toggle checkmarks, "Use selected" returns them ALL — the field renders
+// each as "QO… dated dd/mm/yyyy", comma-separated (guru 2026-09-02).
 interface QuotationSelectDialogProps {
   open: boolean;
   onClose: () => void;
-  onSelect: (quotation: any) => void;
+  onSelect: (quotations: any[]) => void;
   quotations: any[];
   customerName?: string;
 }
@@ -39,6 +42,7 @@ export default function QuotationSelectDialog({
   customerName,
 }: QuotationSelectDialogProps) {
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Free-text search across ALL displayed columns.
   const filtered = useMemo(() => {
@@ -50,14 +54,26 @@ export default function QuotationSelectDialog({
     );
   }, [quotations, searchTerm]);
 
-  const handleRowClick = (q: any) => {
-    onSelect(q);
+  const toggleRow = (q: any) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(q.id)) next.delete(q.id);
+      else next.add(q.id);
+      return next;
+    });
+  };
+
+  const handleUseSelected = () => {
+    const picked = quotations.filter((q) => selectedIds.has(q.id));
+    if (picked.length) onSelect(picked);
     setSearchTerm("");
+    setSelectedIds(new Set());
     onClose();
   };
 
   const handleClose = () => {
     setSearchTerm("");
+    setSelectedIds(new Set());
     onClose();
   };
 
@@ -95,6 +111,7 @@ export default function QuotationSelectDialog({
           <Table stickyHeader size="small">
             <TableHead>
               <TableRow>
+                <TableCell padding="checkbox" />
                 <TableCell>Quotation No.</TableCell>
                 <TableCell>Confirmed Date</TableCell>
                 <TableCell>Reference No.</TableCell>
@@ -105,9 +122,13 @@ export default function QuotationSelectDialog({
                 <TableRow
                   key={q.id}
                   hover
-                  onClick={() => handleRowClick(q)}
+                  onClick={() => toggleRow(q)}
+                  selected={selectedIds.has(q.id)}
                   sx={{ cursor: "pointer" }}
                 >
+                  <TableCell padding="checkbox">
+                    <Checkbox size="small" checked={selectedIds.has(q.id)} tabIndex={-1} />
+                  </TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>{q.name}</TableCell>
                   <TableCell>{dmy(q.config?.confirmedAt || q.createdAt)}</TableCell>
                   <TableCell>{q.config?.referenceNo || "-"}</TableCell>
@@ -115,7 +136,7 @@ export default function QuotationSelectDialog({
               ))}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={3}>
+                  <TableCell colSpan={4}>
                     <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
                       No confirmed quotations for this customer.
                     </Typography>
@@ -125,13 +146,18 @@ export default function QuotationSelectDialog({
             </TableBody>
           </Table>
         </TableContainer>
-        <Box sx={{ display: "flex", justifyContent: "space-between", mt: 1 }}>
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 1 }}>
           <Typography variant="caption" color="text.secondary">
             Showing {filtered.length} of {quotations.length} quotations
           </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Click on a row to select
-          </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Typography variant="caption" color="text.secondary">
+              Click rows to select one or more quotations
+            </Typography>
+            <Button size="small" variant="contained" disabled={selectedIds.size === 0} onClick={handleUseSelected}>
+              Use {selectedIds.size || ""} selected
+            </Button>
+          </Box>
         </Box>
       </DialogContent>
     </Dialog>

@@ -123,6 +123,7 @@ Cloudflare Email Routing on `inbound.osiris.sg` → `email-ingest-worker` → `P
 | Email ingest enable | `scripts/seed-ciel-email-config.ts` |
 | Users | `scripts/setup-ciel-users.ts` |
 | Deliveries role rollout | `scripts/promote-deliveries-module.ts --apply` |
+| Bi-weekly finance backfill (bills+payments+GL) | parse step baked into `scripts/ciel-biweekly-payments.json`; `npx dotenv -e <env> -- npx ts-node scripts/import-ciel-biweekly-finance.ts` (dry) / `--apply` |
 | ID quotation editor | `portal-production/app/portal/sales/quotations/id/` |
 | ID project page | `portal-production/app/portal/projects/_id/` |
 | Leads page | `portal-production/app/portal/sales/leads/page.tsx` |

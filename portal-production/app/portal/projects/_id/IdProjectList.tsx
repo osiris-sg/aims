@@ -5,7 +5,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Box, Chip, IconButton, Stack, Tooltip, Typography } from "@mui/material";
+import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
@@ -32,6 +32,37 @@ export default function IdProjectList() {
   const [limit, setLimit] = useState(20);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({ stage: "" });
+  // New project (CIEL 09-01): projects start BEFORE the quotation — from an
+  // assigned lead, a referral, or the designer's own client.
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [leads, setLeads] = useState<any[]>([]);
+  const [designers, setDesigners] = useState<Array<{ id: string; name: string }>>([]);
+  const [form, setForm] = useState({ source: "lead", leadId: "", clientName: "", address: "", designerUserId: "" });
+  useEffect(() => {
+    if (!createOpen) return;
+    api.listLeads().then(setLeads).catch(() => setLeads([]));
+    api.listOrgUsers().then(setDesigners).catch(() => {});
+  }, [createOpen, api]);
+  const createProject = async () => {
+    setCreating(true);
+    try {
+      const designer = designers.find((d) => d.id === form.designerUserId);
+      const r = await api.createProject({
+        source: form.source,
+        leadId: form.source === "lead" ? form.leadId || null : null,
+        clientName: form.clientName || undefined,
+        address: form.address || null,
+        designerUserId: form.designerUserId || null,
+        designer: designer?.name || null,
+      });
+      toast.success(`Project "${r.name}" created`);
+      router.push(`/portal/projects/${r.projectId}`);
+    } catch (e: any) {
+      toast.error(e.message || "Could not create the project");
+      setCreating(false);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -123,6 +154,8 @@ export default function IdProjectList() {
     <MainCard>
       <PageTable
         tableName="Projects"
+        buttonName="New project"
+        onAddClick={() => setCreateOpen(true)}
         subTitle="Every signed quotation becomes a project — costing, payments and profit live here"
         columns={columns as any}
         data={rows}
@@ -139,6 +172,49 @@ export default function IdProjectList() {
         pageCount={Math.max(1, Math.ceil(total / limit))}
         totalDocs={total}
       />
+          <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>New project</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
+            <TextField select size="small" label="Source" value={form.source} onChange={(e) => setForm((f) => ({ ...f, source: e.target.value }))} helperText="Where this client came from">
+              <MenuItem value="lead">From a lead</MenuItem>
+              <MenuItem value="referral">Referral</MenuItem>
+              <MenuItem value="self">Own client</MenuItem>
+            </TextField>
+            {form.source === "lead" ? (
+              <TextField select size="small" label="Lead" value={form.leadId} onChange={(e) => setForm((f) => ({ ...f, leadId: e.target.value }))} helperText={leads.length ? "Converts the lead — client and designer carry over" : "No open leads (unqualified / engaging)"}>
+                {leads.map((l) => (
+                  <MenuItem key={l.id} value={l.id}>
+                    {l.name}
+                    {l.assignedToName ? ` · ${l.assignedToName}` : ""}
+                  </MenuItem>
+                ))}
+              </TextField>
+            ) : (
+              <>
+                <TextField size="small" label="Client name" value={form.clientName} onChange={(e) => setForm((f) => ({ ...f, clientName: e.target.value }))} />
+                <TextField size="small" label="Site address" value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} multiline minRows={2} />
+              </>
+            )}
+            <TextField select size="small" label="Designer in charge" value={form.designerUserId} onChange={(e) => setForm((f) => ({ ...f, designerUserId: e.target.value }))}>
+              <MenuItem value="">—</MenuItem>
+              {designers.map((d) => (
+                <MenuItem key={d.id} value={d.id}>
+                  {d.name}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateOpen(false)} sx={{ textTransform: "none" }}>
+            Cancel
+          </Button>
+          <Button variant="contained" onClick={createProject} disabled={creating || (form.source === "lead" ? !form.leadId : !form.clientName.trim())} sx={{ textTransform: "none" }}>
+            Create
+          </Button>
+        </DialogActions>
+      </Dialog>
     </MainCard>
   );
 }

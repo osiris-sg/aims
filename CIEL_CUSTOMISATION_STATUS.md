@@ -183,10 +183,10 @@ Everything is on the `elroy/dev` working tree, **uncommitted**, dev DB only. Sta
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 9.1 | Flow rework: Lead → Project → Quotation (project created from assigned lead OR designer referral/self; quotation raised inside the project, tagged to the lead) | ⬜ Not started | replaces auto-create-project-on-sign |
-| 9.2 | Create-project button (dashboard top right) with source: lead / referral / self | ⬜ Not started | |
+| 9.1 | Flow rework: Lead → Project → Quotation | 🟡 Built (2 Sep) | lead convert → POST /id-projects (marks lead converted, adopts assigned designer + commission); project page "Create quotation" pre-fills client + links projectId + leadId; sign/confirm lock onto that project; auto-create-on-sign kept as fallback |
+| 9.2 | Create-project button with source: lead / referral / self | 🟡 Built (2 Sep) | "New project" on the Projects list (top right); lead picker for open leads; Project.source + Project.leadId columns (dev+staging pushed) |
 | 9.3 | Contract number allocation: Draft → Send for signature → signed → Confirm → allocate CI number (drafts stop burning serials) | 🟡 Built (2 Sep) | new ID drafts create with no number (skipNumbering); Confirm button + client-sign both allocate; typed custom numbers still win |
-| 9.4 | One main quotation per project; post-signing changes = Variation Orders VO1/VO2… | ⬜ Not started | VO adjusts contract total + payment schedule |
+| 9.4 | One main quotation per project; post-signing changes = VOs | 🟡 Built (2 Sep) | VARIATION_ORDER docs (VO editor dialog: additions/removals, Complimentary, consolidation panel, Print in their sheet layout); Confirm VO → vo milestone with net amount; Payments "New VO" replaces bare milestone button |
 | 9.5 | Editor: Enter in amount field creates a new line (bug) | 🟡 Built (2 Sep) | Enter now only commits the value |
 | 9.6 | Editor: remove "Add line below" (redundant with "Add custom line"); "Add item" inserts in correct sequence | 🟡 Built (2 Sep) | row menu now Delete only; Custom line/library always append at end of area so numbering stays sequential |
 | 9.7 | Editor: checkbox row selection for grouped ops (ranges), remove per-row hamburger | 🟡 Built (2 Sep) | checkbox column, shift-click ranges, floating Delete/Lump sum/Clear bar; row hamburger gone |

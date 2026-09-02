@@ -38,6 +38,44 @@ assistant only sees screens the current user's org + role allow; guide
 descriptions must distinguish create-from-scratch vs upload-existing-file.
 Full context: memory note `guide-assistant.md`.
 
+## Activity Log — every feature must be captured (EVERY feature you ship or modify)
+
+AIMS has a global user-action log (guru, 2026-08: "capture all user actions").
+Storage: `ActionLog` Prisma model. Writer: `ActionLogInterceptor`
+(`api-server-production/src/action-log/`), registered as a global
+`APP_INTERCEPTOR` — it auto-logs **every HTTP request** with a typed actor
+(`USER` | `API_KEY` | `GUEST` | `SYSTEM` — non-human actors display as
+**"System creation"**). Viewer: portal **/portal/audit → "Activity Log" tab**
+(`enableActionLog` flag, default ON for all orgs; `audit:read` permission).
+
+**Whenever you add or modify a feature, make sure its actions land in the
+Activity Log correctly:**
+1. **Plain HTTP endpoints** are covered automatically — but verify the row is
+   *meaningful*, not just present:
+   - New **POST-that-is-really-a-list** endpoint (house convention "POST / =
+     list") → add it to `VIEW_POST_RE` in `action-log.interceptor.ts`, or it
+     logs as a bogus CREATE.
+   - New **workflow verb** in a path (confirm/void/approve/sign/…) → add it to
+     `VERB_ACTIONS` so the action chip is semantic instead of a generic
+     CREATE/UPDATE.
+   - New **high-frequency background endpoint** (heartbeat, ping, poll) → add
+     it to `SKIP_PATHS` / `SKIP_GET_PATHS`, or it floods the log.
+2. **Non-HTTP work** (cron jobs, queue workers, webhook handlers that respond
+   early and process async) is NOT seen by the interceptor → inject
+   `ActionLogService` (global module, no import needed) and call
+   `actionLog.system('<job-name>', ACTION, resource, { organizationId, resourceId, details })`
+   — this stamps the "System creation" actor. Existing examples:
+   `recurring-invoices.service.ts` cron, `submit.service.ts` worker.
+3. **New auth surface / actor kind** (new token guard, new public route group,
+   new integration) → extend `resolveActor()` in the interceptor so it doesn't
+   fall through to a generic SYSTEM row.
+4. **Renamed/moved routes** → check the skip lists and `VIEW_POST_RE` still
+   match the new paths.
+
+Do NOT confuse this with the legacy `AuditLog` table (document "History &
+notes" + old audit page) — that stays as-is; per-document history still goes
+through `logDocumentEvent`. Full context: memory note `user-action-log-study.md`.
+
 ## Development Commands
 
 ### Backend (api-server-production/)

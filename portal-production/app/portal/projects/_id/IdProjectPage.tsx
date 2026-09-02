@@ -48,6 +48,10 @@ import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import CostDialog from "./CostDialog";
 import ScheduleTab from "./ScheduleTab";
 import { STAGE_LABEL, fmtDate, money, pct, useIdProjectApi, type Cost, type Milestone, type Summary } from "./api";
+import VoDialog from "./VoDialog";
+import { useOrganization } from "@hooks/useOrganization";
+import { useIdQuoteApi } from "@/app/portal/sales/quotations/id/_lib/api";
+import { defaultQuote } from "@/app/portal/sales/quotations/id/_lib/defaults";
 
 const KPI = ({ label, value, hint, color }: { label: string; value: string; hint?: string; color?: string }) => (
   <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, minWidth: 0 }}>
@@ -115,6 +119,9 @@ export default function IdProjectPage({ id }: { id: string }) {
   const [costToDelete, setCostToDelete] = useState<Cost | null>(null);
   const [busy, setBusy] = useState(false);
   const [editingMs, setEditingMs] = useState<Record<string, Partial<Milestone>>>({});
+  const [voDoc, setVoDoc] = useState<string | null>(null);
+  const { organization } = useOrganization();
+  const quoteApi = useIdQuoteApi();
 
   const load = useCallback(async () => {
     try {
@@ -151,6 +158,39 @@ export default function IdProjectPage({ id }: { id: string }) {
       load();
     } catch (e: any) {
       toast.error(e.message || "Update failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Lead → Project → Quotation: the quotation is raised FROM the project,
+  // pre-filled with the client, linked via projectId (signing locks onto this
+  // project) and tagged with the source lead.
+  const createQuotationHere = async () => {
+    if (!organization?.id || !data) return;
+    setBusy(true);
+    try {
+      const qd = defaultQuote();
+      qd.header.clientName = data.project.client.name || data.project.name || "";
+      qd.header.address = data.project.client.address || data.project.address || "";
+      qd.header.contact = data.project.client.contact || "";
+      qd.header.designer = data.project.designer || "";
+      const doc = await quoteApi.createQuotation(organization.id, qd, { projectId: id, leadId: data.project.leadId });
+      router.push(`/portal/sales/quotations/id/${doc.id}`);
+    } catch (e: any) {
+      toast.error(e.message || "Could not create the quotation");
+      setBusy(false);
+    }
+  };
+
+  const newVo = async () => {
+    setBusy(true);
+    try {
+      const d = await api.createVo(id);
+      await load();
+      setVoDoc(d.id);
+    } catch (e: any) {
+      toast.error(e.message || "Could not create the VO");
     } finally {
       setBusy(false);
     }
@@ -210,6 +250,20 @@ export default function IdProjectPage({ id }: { id: string }) {
             ))}
           </TextField>
           <DesignerSelect value={p.designer} onPick={(u) => saveField(u ? { designer: u.name, designerUserId: u.id } : { designer: null, designerUserId: null })} />
+          {!q && (
+            <Tooltip title="Raise this project's main quotation — pre-filled with the client, and signing locks onto this project">
+              <Button variant="contained" size="small" startIcon={<DescriptionIcon />} onClick={createQuotationHere} disabled={busy} sx={{ textTransform: "none", whiteSpace: "nowrap" }}>
+                Create quotation
+              </Button>
+            </Tooltip>
+          )}
+          {q?.status === "confirmed" && (
+            <Tooltip title="One main quotation per project — changes after signing go on a Variation Order">
+              <Button variant="outlined" size="small" startIcon={<AddIcon />} onClick={newVo} disabled={busy} sx={{ textTransform: "none", whiteSpace: "nowrap" }}>
+                New VO
+              </Button>
+            </Tooltip>
+          )}
         </Stack>
       </Stack>
 
@@ -401,9 +455,9 @@ export default function IdProjectPage({ id }: { id: string }) {
                   Recalculate
                 </Button>
               </Tooltip>
-              <Tooltip title="A signed variation order: adds its amount to the contract sum and appears as its own collectable line">
-                <Button size="small" startIcon={<AddIcon />} onClick={() => api.addMilestone(id, { kind: "vo", label: `VO${data.milestones.filter((m) => m.kind === "vo").length + 1}` }).then(load)} sx={{ textTransform: "none" }}>
-                  Add VO
+              <Tooltip title="Raise a Variation Order document (their VO sheet: additions + removals) — confirming it adds the net to the contract sum">
+                <Button size="small" startIcon={<AddIcon />} onClick={newVo} disabled={busy} sx={{ textTransform: "none" }}>
+                  New VO
                 </Button>
               </Tooltip>
               <Tooltip title="Money returned to the client (overcharge/excess) — subtracts from Total Amount Collected">
@@ -456,6 +510,43 @@ export default function IdProjectPage({ id }: { id: string }) {
                     Either/or — the balance is collected 40% on commencement, 45% at carpentry, 5% on handover.
                   </Typography>
                 </Stack>
+              </Paper>
+            )}
+            {data.vos.length > 0 && (
+              <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5, borderRadius: 1.5 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
+                  Variation orders
+                </Typography>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <Cell>VO</Cell>
+                      <Cell>Status</Cell>
+                      <Cell right>Additions</Cell>
+                      <Cell right>Removals</Cell>
+                      <Cell right>Net (S$)</Cell>
+                      <Cell />
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {data.vos.map((v) => (
+                      <TableRow key={v.id} hover>
+                        <Cell sx={{ fontWeight: 600 }}>{v.name || "VO"}</Cell>
+                        <Cell>
+                          <StatusChip status={v.status} />
+                        </Cell>
+                        <Cell right>{money(v.additions)}</Cell>
+                        <Cell right>({money(v.removals)})</Cell>
+                        <Cell right sx={{ fontWeight: 700 }}>{money(v.net)}</Cell>
+                        <Cell right>
+                          <Button size="small" onClick={() => setVoDoc(v.id)} sx={{ textTransform: "none" }}>
+                            {v.status === "confirmed" ? "View" : "Edit"}
+                          </Button>
+                        </Cell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </Paper>
             )}
             <Box sx={{ overflowX: "auto", width: "100%" }}>
@@ -726,6 +817,8 @@ export default function IdProjectPage({ id }: { id: string }) {
           </Box>
         )}
       </Paper>
+
+      {voDoc && data && <VoDialog docId={voDoc} summary={data} onClose={() => setVoDoc(null)} onChanged={load} />}
 
       <CostDialog open={costDialog.open} projectId={id} sections={data.sections} editing={costDialog.editing} onClose={() => setCostDialog({ open: false, editing: null })} onSaved={load} />
       <DeleteItemDialogNoConfirm

@@ -1039,6 +1039,8 @@ model Project {
   deliveries       Delivery[]
   contacts         ProjectContact[]
   designerUserId   String? // Clerk user id of the designer in charge (drives WhatsApp routing)
+  source           String? // where the project came from: lead | referral | self (CIEL 09-01)
+  leadId           String? @db.Uuid // the Lead this project was converted from
   costs            ProjectCost[]
   milestones       ProjectMilestone[]
   scheduleItems    ProjectScheduleItem[]

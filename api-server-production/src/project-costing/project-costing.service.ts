@@ -188,10 +188,23 @@ export class ProjectCostingService {
       return { sectionId: s.id, letter: s.letter, title: s.title, quoted: prov?.quoted || 0, provisionedCost: prov?.cost || 0, actualCost: bySection.get(s.id) || 0 };
     }).filter((t) => t.quoted || t.provisionedCost || t.actualCost);
 
+    const voDocs = await this.prisma.document.findMany({
+      where: { projectId, organizationId, type: 'VARIATION_ORDER' },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, name: true, status: true, config: true, createdAt: true },
+    });
+    const voDocuments = voDocs.map((d) => {
+      const c: any = d.config || {};
+      const sumL = (list: any[]) => (Array.isArray(list) ? list : []).reduce((x, l) => x + (l?.complimentary ? 0 : num(l?.amount)), 0);
+      return { id: d.id, name: d.name, status: d.status, additions: sumL(c?.vo?.additions), removals: sumL(c?.vo?.removals), net: sumL(c?.vo?.additions) - sumL(c?.vo?.removals), createdAt: d.createdAt };
+    });
+
     return {
       project: {
         id: project.id,
         projectNumber: project.projectNumber,
+        source: (project as any).source || null,
+        leadId: (project as any).leadId || null,
         name: project.name,
         address: project.address,
         status: project.status,
@@ -204,6 +217,7 @@ export class ProjectCostingService {
         client: { name: quotation?.clientName || customer?.name || null, contact: quotation?.contact || customer?.phone || null, nric: quotation?.nric || null, address: quotation?.address || project.address || customer?.address || null },
       },
       quotation,
+      vos: voDocuments,
       documents: otherDocs,
       costs,
       milestones,
@@ -631,6 +645,141 @@ export class ProjectCostingService {
       weeks: buildWeeks(items).map((w) => ({ index: w.index, days: w.days.map((d) => ({ iso: d.iso, dow: d.dow, holiday: d.holiday, work: d.work, notes: d.notes })) })),
       html: renderScheduleHtml({ projectSite: h.projectSite, contractNo: h.contractNo, manager: h.manager, contact: h.contact, orgName: h.orgName, logo: h.logo, items }).toString(),
     };
+  }
+
+  // ── Lead → Project → Quotation (CIEL 09-01) ───────────────────────
+  /**
+   * Create an ID project directly — from an assigned lead, a referral, or the
+   * designer's own client — BEFORE any quotation exists. Converting a lead
+   * marks it converted and links it. The quotation is raised from the project
+   * page afterwards; signing then locks onto this same project.
+   */
+  async createIdProject(
+    organizationId: string,
+    dto: { clientName?: string; name?: string; address?: string | null; source?: string; leadId?: string | null; designer?: string | null; designerUserId?: string | null },
+  ) {
+    let lead: any = null;
+    if (dto.leadId) {
+      lead = await this.prisma.lead.findFirst({ where: { id: dto.leadId, organizationId } });
+      if (!lead) throw new NotFoundException('Lead not found');
+      if (lead.projectId) {
+        const existing = await this.prisma.project.findFirst({ where: { id: lead.projectId, organizationId }, select: { id: true, name: true } });
+        if (existing) return { projectId: existing.id, name: existing.name, created: false };
+      }
+    }
+    const clientName = (dto.clientName || dto.name || lead?.name || '').trim();
+    if (!clientName) throw new BadRequestException('Client name is required');
+    const address = (dto.address ?? lead?.location ?? null) || null;
+    let designer = dto.designer ?? null;
+    let designerUserId = dto.designerUserId ?? null;
+    if (!designerUserId && lead?.assignedToUserId) {
+      designerUserId = lead.assignedToUserId;
+      designer = designer || lead.assignedToName || null;
+    }
+    // Designer's stored default commission rides in (same rule as updateProjectFields).
+    let commissionPct: number | undefined;
+    if (designerUserId) {
+      const profile = await this.prisma.organizationMemberProfile.findUnique({
+        where: { organizationId_userId: { organizationId, userId: designerUserId } },
+        select: { commissionPct: true },
+      });
+      if (profile?.commissionPct != null) commissionPct = profile.commissionPct;
+    }
+    const project = await this.prisma.project.create({
+      data: {
+        organizationId,
+        name: address ? `${clientName} — ${address.split('\n')[0]}` : clientName,
+        address,
+        status: 'pending',
+        source: dto.source || (lead ? 'lead' : 'self'),
+        leadId: dto.leadId || null,
+        designer,
+        designerUserId,
+        ...(commissionPct != null ? { commissionPct } : {}),
+      },
+      select: { id: true, name: true },
+    });
+    if (lead) await this.prisma.lead.update({ where: { id: lead.id }, data: { status: 'converted', projectId: project.id } });
+    return { projectId: project.id, name: project.name, created: true };
+  }
+
+  // ── Variation Orders (CIEL 09-01: one main quotation; changes are VOs) ──
+  /** New draft VO document on the project (their sheet: additions + removals). */
+  async createVo(projectId: string, organizationId: string) {
+    const project = await this.project(projectId, organizationId);
+    const q = await this.prisma.document.findFirst({
+      where: { projectId, organizationId, type: { in: QUOTATION_TYPES }, status: 'confirmed' },
+      orderBy: { createdAt: 'desc' },
+      select: { name: true, config: true },
+    });
+    const n = (await this.prisma.document.count({ where: { projectId, organizationId, type: 'VARIATION_ORDER' } })) + 1;
+    const templateId = await this.documents.resolveTemplateIdForType('QUOTATION', organizationId);
+    const qc: any = q?.config || {};
+    const doc = await this.prisma.document.create({
+      data: {
+        organizationId,
+        projectId,
+        type: 'VARIATION_ORDER',
+        documentTemplateId: templateId,
+        name: `VO${n}${q?.name ? ` · ${q.name}` : ''}`,
+        config: {
+          templateVariant: 'ID_VO',
+          voNumber: n,
+          contractNo: q?.name || null,
+          designer: project.designer || qc?.quote?.header?.designer || null,
+          client: {
+            name: qc?.quote?.header?.clientName || null,
+            address: qc?.quote?.header?.address || project.address || null,
+            agreementDate: qc?.quote?.header?.agreementDate || null,
+          },
+          vo: { additions: [], removals: [] },
+        },
+      },
+      select: { id: true, name: true },
+    });
+    return doc;
+  }
+
+  /**
+   * Confirm a VO: snapshot the consolidation (their sheet's right-hand panel),
+   * lock the document, and add the net amount to the contract as a `vo`
+   * milestone so contract sum, balance and reports all move together.
+   */
+  async confirmVo(docId: string, organizationId: string) {
+    const doc = await this.prisma.document.findFirst({ where: { id: docId, organizationId, type: 'VARIATION_ORDER' } });
+    if (!doc) throw new NotFoundException('Variation order not found');
+    if (!doc.projectId) throw new BadRequestException('Variation order is not linked to a project');
+    if (doc.status === 'confirmed') throw new BadRequestException('This variation order is already confirmed');
+    const cfg: any = doc.config || {};
+    const vo: any = cfg.vo || {};
+    const sumLines = (list: any[]) => (Array.isArray(list) ? list : []).reduce((x, l) => x + (l?.complimentary ? 0 : num(l?.amount)), 0);
+    const additions = sumLines(vo.additions);
+    const removals = sumLines(vo.removals);
+    const net = additions - removals;
+
+    const summary = await this.summary(doc.projectId, organizationId);
+    const previousQuantum = summary.totals.contractTotal; // incl. earlier VOs, not this one
+    const consolidation = {
+      previousQuantum,
+      additions,
+      removals,
+      newQuantum: previousQuantum + net,
+      collected: summary.totals.collected,
+      balance: previousQuantum + net - summary.totals.collected,
+      schedule: summary.milestones.filter((m: any) => m.kind === 'milestone').map((m: any) => ({ label: m.label, collected: num(m.amount) > 0 && num(m.paidAmount) >= num(m.amount) })),
+    };
+
+    const count = await this.prisma.projectMilestone.count({ where: { projectId: doc.projectId, organizationId } });
+    await this.prisma.$transaction([
+      this.prisma.document.update({
+        where: { id: doc.id },
+        data: { status: 'confirmed', config: { ...cfg, vo: { ...vo, confirmedAt: new Date().toISOString() }, consolidation }, version: { increment: 1 } },
+      }),
+      this.prisma.projectMilestone.create({
+        data: { organizationId, projectId: doc.projectId, kind: 'vo', label: doc.name || `VO`, amount: net, sortOrder: count, paidAmount: 0 },
+      }),
+    ]);
+    return { confirmed: true, net, newQuantum: consolidation.newQuantum };
   }
 
   // ── list for the ID projects page ─────────────────────────────────────

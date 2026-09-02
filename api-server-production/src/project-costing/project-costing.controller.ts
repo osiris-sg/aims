@@ -49,6 +49,15 @@ export class IdProjectsListController {
   list(@Req() req: RequestWithOrganization, @Query('page') page?: string, @Query('limit') limit?: string, @Query('search') search?: string, @Query('stage') stage?: string, @Query('designer') designer?: string) {
     return this.service.list(orgId(req), { page: Number(page) || 1, limit: Number(limit) || 20, search, stage, designer, callerUserId: req.user?.id });
   }
+
+  // Lead → Project → Quotation (CIEL 09-01): create a project from an
+  // assigned lead, a referral, or the designer's own client — before any
+  // quotation exists.
+  @Post()
+  @Permissions('projects:create')
+  create(@Body() body: any, @Req() req: RequestWithOrganization) {
+    return this.service.createIdProject(orgId(req), body || {});
+  }
 }
 
 /**
@@ -68,6 +77,20 @@ export class ProjectCostingController {
   @Permissions('projects:read')
   summary(@Param('id') id: string, @Req() req: RequestWithOrganization) {
     return this.service.summary(id, orgId(req));
+  }
+
+  // Variation Orders — one main quotation per project; changes after signing
+  // are VO documents (CIEL 09-01).
+  @Post(':id/vo')
+  @Permissions('projects:update')
+  createVo(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    return this.service.createVo(id, orgId(req));
+  }
+
+  @Post('vo/:docId/confirm')
+  @Permissions('projects:update')
+  confirmVo(@Param('docId') docId: string, @Req() req: RequestWithOrganization) {
+    return this.service.confirmVo(docId, orgId(req));
   }
 
   @Patch(':id/id-fields')

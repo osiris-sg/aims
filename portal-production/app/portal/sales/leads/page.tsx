@@ -2,9 +2,9 @@
 
 // Sales → Leads (interior-design orgs): every homeowner enquiry from EZiD /
 // Network Singapore (auto-captured from email) or keyed manually. Designers
-// are assigned inline, statuses follow the funnel (new → contacted → met →
-// qualified → signed, or non-qualified / dead → replacement), and a qualified
-// lead becomes a quotation in one click.
+// are assigned inline, statuses follow the funnel (unqualified → engaging →
+// dead | converted), and converting creates the lead's PROJECT — the
+// quotation is then raised inside the project (Lead → Project → Quotation).
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -42,7 +42,6 @@ import type { FilterField } from "@/components/FilterDrawer";
 import { useOrganization } from "@hooks/useOrganization";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useIdQuoteApi } from "@/app/portal/sales/quotations/id/_lib/api";
-import { defaultQuote } from "@/app/portal/sales/quotations/id/_lib/defaults";
 
 type Lead = {
   id: string;
@@ -71,6 +70,7 @@ type Lead = {
   firstContactDeadline: string | null;
   replacementDeadline: string | null;
   quotationId: string | null;
+  projectId: string | null;
   deadProofUrl: string | null;
   receivedAt: string;
   notes: string | null;
@@ -136,20 +136,17 @@ export default function LeadsPage() {
     }
   };
 
-  const createQuotationFromLead = async (lead: Lead) => {
-    if (!organization?.id) return;
+  // Lead → Project → Quotation (CIEL 09-01): converting a lead creates its
+  // PROJECT (tagged source=lead, designer from the assignment); the quotation
+  // is raised from the project page and signs onto that same project.
+  const convertLeadToProject = async (lead: Lead) => {
     setBusy(true);
     try {
-      const q = defaultQuote();
-      q.header.clientName = lead.name;
-      q.header.contact = lead.phone || "";
-      q.header.address = lead.location || "";
-      q.header.remarks = [lead.propertyType, lead.propertyRooms, lead.budget].filter(Boolean).join(" · ");
-      const doc = await api.createQuotation(organization.id, q);
-      await api.request(`/leads/${lead.id}`, { method: "PATCH", body: JSON.stringify({ quotationId: doc.id, status: "converted" }) });
-      router.push(`/portal/sales/quotations/id/${doc.id}`);
+      const r = await api.request<{ projectId: string; name: string; created: boolean }>(`/id-projects`, { method: "POST", body: JSON.stringify({ leadId: lead.id, source: "lead" }) });
+      toast.success(r.created ? `Project "${r.name}" created — raise the quotation from the project page` : `Lead already has project "${r.name}"`);
+      router.push(`/portal/projects/${r.projectId}`);
     } catch (e: any) {
-      toast.error(e.message || "Could not create quotation");
+      toast.error(e.message || "Could not create the project");
       setBusy(false);
     }
   };
@@ -254,7 +251,7 @@ export default function LeadsPage() {
               onChange={(e) => {
                 const next = e.target.value;
                 if (next === "dead") setDeadFor(l); // proof of no reply is mandatory
-                else if (next === "converted") createQuotationFromLead(l); // auto-creates + links the quotation
+                else if (next === "converted") convertLeadToProject(l); // creates + links the project (quotation comes next, from the project)
                 else patch(l.id, { status: next });
               }}
               variant="standard"
@@ -289,16 +286,22 @@ export default function LeadsPage() {
                   <VisibilityIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
-              {l.quotationId ? (
+              {l.projectId ? (
+                <Tooltip title="Open project">
+                  <IconButton size="small" onClick={() => router.push(`/portal/projects/${l.projectId}`)} sx={{ color: "primary.main" }}>
+                    <DescriptionIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              ) : l.quotationId ? (
                 <Tooltip title="Open quotation">
                   <IconButton size="small" onClick={() => router.push(`/portal/sales/quotations/id/${l.quotationId}`)} sx={{ color: "primary.main" }}>
                     <DescriptionIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
               ) : (
-                <Tooltip title="Create quotation from this lead">
+                <Tooltip title="Create project from this lead (the quotation follows from the project page)">
                   <span>
-                    <IconButton size="small" disabled={busy} onClick={() => createQuotationFromLead(l)} sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}>
+                    <IconButton size="small" disabled={busy} onClick={() => convertLeadToProject(l)} sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}>
                       <OpenInNewIcon fontSize="small" />
                     </IconButton>
                   </span>
@@ -445,9 +448,9 @@ export default function LeadsPage() {
                   WhatsApp
                 </Button>
               )}
-              {!detail.quotationId && (
-                <Button size="small" variant="contained" disabled={busy} onClick={() => createQuotationFromLead(detail)} sx={{ textTransform: "none" }}>
-                  Create quotation
+              {!detail.projectId && !detail.quotationId && (
+                <Button size="small" variant="contained" disabled={busy} onClick={() => convertLeadToProject(detail)} sx={{ textTransform: "none" }}>
+                  Create project
                 </Button>
               )}
             </Stack>

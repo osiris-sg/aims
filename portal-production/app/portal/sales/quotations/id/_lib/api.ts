@@ -83,7 +83,7 @@ export function useIdQuoteApi() {
           (d) => d?.docs || d?.customers || [],
         ),
       /** Template for the type + a new draft document already stamped as an ID quote. */
-      createQuotation: async (organizationId: string, quote: IdQuote) => {
+      createQuotation: async (organizationId: string, quote: IdQuote, opts?: { projectId?: string; leadId?: string | null }) => {
         const tpl = await request<{ id: string }>(`/documentTemplates/type/QUOTATION`);
         if (!tpl?.id) throw new Error("No quotation template is active for this organisation");
         return request<QuoteDocument>(`/documents/basic`, {
@@ -92,9 +92,12 @@ export function useIdQuoteApi() {
             type: "QUOTATION",
             documentTemplateId: tpl.id,
             organizationId,
+            // Raised from a project (Lead → Project → Quotation): links the doc
+            // so signing confirms onto that SAME project instead of creating one.
+            ...(opts?.projectId ? { projectId: opts.projectId } : {}),
             // skipNumbering: the CI serial is allocated on CONFIRM, not on
             // create — drafts must not burn contract numbers (CIEL 09-01).
-            config: { templateVariant: "ID", quote, items: [], skipNumbering: true },
+            config: { templateVariant: "ID", quote, items: [], skipNumbering: true, ...(opts?.leadId ? { leadId: opts.leadId } : {}) },
           }),
         });
       },
