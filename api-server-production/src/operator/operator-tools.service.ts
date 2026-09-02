@@ -111,6 +111,8 @@ export class OperatorToolsService {
         currency: extracted?.currency ?? 'SGD',
         siteAddress: extracted?.siteAddress ?? null,
       },
+      lines: Array.isArray(extracted?.lines) ? extracted.lines : null,
+      taxAmount: Number(extracted?.taxAmount) || null,
     };
   }
 
@@ -818,6 +820,9 @@ export class OperatorToolsService {
               date,
               description,
               amount,
+              currency: up?.extracted.currency ?? 'SGD',
+              lines: up?.lines ?? null,
+              taxAmount: up?.taxAmount ?? null,
               attachmentUrl: up?.attachmentUrl ?? null,
               attachmentKey: up?.attachmentKey ?? null,
             },
@@ -1635,10 +1640,54 @@ export class OperatorToolsService {
         } as any,
         ctx.actor.name,
       );
+      // Also create a linked Bill (AP) DRAFT — unconfirmed, so it does NOT post
+      // to the ledger until reviewed. Links to the project cost via inboundMeta.
+      let billInfo = '';
+      try {
+        const rawLines: any[] = Array.isArray(a.lines) && a.lines.length ? a.lines : [];
+        const lines =
+          rawLines.length > 0
+            ? rawLines.map((l) => ({
+                description: String(l.description || '').slice(0, 1000),
+                quantity: Number(l.quantity) || undefined,
+                unitPrice: Number(l.unitPrice) || undefined,
+                amount: Number(l.amount) || 0,
+              }))
+            : [{ description: a.description || `${a.supplierName || 'Supplier'} invoice`, amount: Number(a.amount) }];
+        const hasTax = Number(a.taxAmount) > 0;
+        const bill: any = await this.bills.create(
+          ctx.organizationId,
+          ctx.actor.id,
+          {
+            supplierName: a.supplierName || 'Unknown Supplier',
+            billNumber: a.invoiceNo || `WA-${Date.now().toString().slice(-8)}`,
+            billDate: a.date || new Date().toISOString().slice(0, 10),
+            description: (a.description || '').slice(0, 500) || undefined,
+            lines,
+            taxAmount: hasTax ? Number(a.taxAmount) : undefined,
+            amountsAre: hasTax ? 'INCLUSIVE' : 'NO_TAX',
+            inboundChannel: 'UPLOAD',
+            inboundMeta: { source: 'whatsapp', projectCostId: cost?.id, projectId: a.projectId, projectName: a.projectName },
+          } as any,
+          { postOnSave: false }, // DRAFT — no GL post until reviewed
+        );
+        const b = bill?.data ?? bill;
+        const billNo = b?.billNumber || b?.name;
+        if (cost?.id && b?.id) {
+          await this.prisma.projectCost
+            .update({ where: { id: cost.id }, data: { notes: `Linked to Bill draft ${billNo || b.id}` } })
+            .catch(() => null);
+        }
+        billInfo = billNo ? ` + created Bill draft ${billNo} (unconfirmed — review in Bills)` : '';
+      } catch (e: any) {
+        this.log(ctx, 'ERROR', 'bill', undefined, a.projectName, `Linked bill draft failed: ${e?.message}`);
+        billInfo = " (couldn't create the linked Bill draft — the cost is saved; add the bill manually if needed)";
+      }
+
       this.log(ctx, 'CREATED', 'project-cost', cost?.id, a.projectName, `Cost ${a.amount} added to ${a.projectName} via Operator (${ctx.channel})`);
       return {
         ok: true,
-        message: `✅ Added ${a.supplierName ? a.supplierName + ' ' : ''}${Number(a.amount).toFixed(2)} to ${a.projectName}'s costing as PENDING APPROVAL${a.attachmentUrl ? ' (invoice attached)' : ''}. Approve it in the app to finalise.`,
+        message: `✅ Added ${a.supplierName ? a.supplierName + ' ' : ''}${Number(a.amount).toFixed(2)} to ${a.projectName}'s costing as PENDING APPROVAL${a.attachmentUrl ? ' (invoice attached)' : ''}${billInfo}. Approve it in the app to finalise.`,
       };
     }
 

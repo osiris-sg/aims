@@ -84,6 +84,9 @@ export interface OperatorContext {
       currency?: string | null;
       siteAddress?: string | null;
     };
+    /** Raw line items + tax, for creating the linked Bill (AP) draft. */
+    lines?: Array<{ description?: string; quantity?: number; unitPrice?: number; amount?: number }> | null;
+    taxAmount?: number | null;
   };
 }
 
