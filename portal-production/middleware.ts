@@ -7,7 +7,21 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 // links; the backend authorises solely via the unguessable pay token.
 // /sign(.*) is the public client e-signature page for quotations (token URL).
 // /schedule(.*) is the public client link to a project's live weekly schedule.
-const isPublicRoute = createRouteMatcher(["/sign-in(.*)", "/guest(.*)", "/pay(.*)", "/sign/(.*)", "/schedule/(.*)"]);
+// /signature/<random> is the TEMPORARY (2026-09) standalone signature capture
+// page. The path segment is the ONLY thing making it unguessable — it is
+// matched EXACTLY, so any other /signature/* falls through to Clerk and
+// redirects to sign-in rather than 404ing and confirming the prefix exists.
+// There is no token behind it, so the backend's rate limiter + validation
+// remain the real gate. Remove this entry with the page and the
+// temp-signature module.
+const isPublicRoute = createRouteMatcher([
+  "/sign-in(.*)",
+  "/guest(.*)",
+  "/pay(.*)",
+  "/sign/(.*)",
+  "/schedule/(.*)",
+  "/signature/9eyFpEEFvrmPZN3qvwD_Zw",
+]);
 
 export default clerkMiddleware(async (auth, request) => {
   if (!isPublicRoute(request)) {

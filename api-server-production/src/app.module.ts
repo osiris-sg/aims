@@ -18,6 +18,8 @@ import { UploadsModule } from './uploads/uploads.module';
 import { PublicDeliveryModule } from './public-delivery/public-delivery.module';
 import { PublicDocumentModule } from './public-document/public-document.module';
 import { PublicSignModule } from './public-sign/public-sign.module';
+// TEMPORARY (2026-09): standalone signature capture for manual backfill. Remove with the module.
+import { TempSignatureModule } from './temp-signature/temp-signature.module';
 import { ProjectCostingModule } from './project-costing/project-costing.module';
 import { LeadsModule } from './leads/leads.module';
 import { CustomerInfoModule } from './customer-info/customer-info.module';
@@ -131,6 +133,7 @@ import { ActionLogInterceptor } from './action-log/action-log.interceptor';
     PublicDeliveryModule,
     PublicDocumentModule,
     PublicSignModule,
+    TempSignatureModule, // TEMPORARY — remove after backfill
     ProjectCostingModule,
     LeadsModule,
     CustomerInfoModule,
