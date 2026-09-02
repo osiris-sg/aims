@@ -1673,6 +1673,22 @@ export class OperatorToolsService {
         );
         const b = bill?.data ?? bill;
         const billNo = b?.billNumber || b?.name;
+        // Attach the SAME S3 file we already stored (no re-upload) so the bill
+        // reviewer sees the original invoice.
+        if (b?.id && a.attachmentKey) {
+          const ext = String(a.attachmentKey).split('.').pop()?.toLowerCase() || '';
+          const mimeType =
+            ext === 'pdf' ? 'application/pdf' : ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+          const fileName = String(a.attachmentKey).split('/').pop() || `invoice.${ext || 'pdf'}`;
+          await this.bills
+            .addAttachments(
+              ctx.organizationId,
+              b.id,
+              [{ fileKey: a.attachmentKey, fileName, mimeType, label: 'Original invoice (WhatsApp upload)' }],
+              ctx.actor.id,
+            )
+            .catch(() => null);
+        }
         if (cost?.id && b?.id) {
           await this.prisma.projectCost
             .update({ where: { id: cost.id }, data: { notes: `Linked to Bill draft ${billNo || b.id}` } })
