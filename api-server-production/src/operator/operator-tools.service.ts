@@ -1694,6 +1694,10 @@ export class OperatorToolsService {
             .update({ where: { id: cost.id }, data: { notes: `Linked to Bill draft ${billNo || b.id}` } })
             .catch(() => null);
         }
+        // Provenance goes in the AUDIT LOG, never in the line description.
+        if (b?.id) {
+          this.log(ctx, 'CREATED', 'document', b.id, billNo, `Bill draft created from a WhatsApp invoice upload via Operator (${ctx.channel})`);
+        }
         billInfo = billNo ? ` + created Bill draft ${billNo} (unconfirmed — review in Bills)` : '';
       } catch (e: any) {
         this.log(ctx, 'ERROR', 'bill', undefined, a.projectName, `Linked bill draft failed: ${e?.message}`);
