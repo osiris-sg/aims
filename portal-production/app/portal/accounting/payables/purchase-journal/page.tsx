@@ -27,6 +27,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import PaymentIcon from "@mui/icons-material/Payment";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../../_lib/api";
+import { useOrganizationFeatures } from "../../../hooks/useOrganizationFeatures";
 import BillEditorDialog from "../../bills/_components/BillEditorDialog";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -70,6 +71,7 @@ const fmt = (n: number) => (n || 0).toLocaleString(undefined, { minimumFractionD
 
 export default function BillsPage() {
   const { request } = useAccountingApi();
+  const { isXeroDocSyncEnabled } = useOrganizationFeatures();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [items, setItems] = useState<Bill[]>([]);
@@ -265,7 +267,9 @@ export default function BillsPage() {
         return <Chip size="small" variant="outlined" color={STATUS_COLOR[s] || "default"} label={label} sx={{ fontSize: "0.7rem" }} />;
       },
     },
-    {
+    // Xero sync column only for orgs with enableXeroDocSync (Biofuel) — other
+    // orgs don't sync docs to Xero, so "Not synced" everywhere is just noise.
+    ...(isXeroDocSyncEnabled ? [{
       // Xero sync state: grey "Not synced" until the doc is pushed/imported;
       // then a green chip carrying the Xero-side status (DRAFT/AUTHORISED/…).
       accessorKey: "xeroSyncStatus",
@@ -280,7 +284,7 @@ export default function BillsPage() {
           <Chip size="small" variant="outlined" label="Not synced" sx={{ fontSize: "0.65rem", opacity: 0.6 }} />
         );
       },
-    },
+    }] : []),
     {
       accessorKey: "inboundChannel",
       header: "Channel",
@@ -326,7 +330,7 @@ export default function BillsPage() {
         );
       },
     },
-  ], [request]);
+  ], [request, isXeroDocSyncEnabled]);
 
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>

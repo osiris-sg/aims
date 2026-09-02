@@ -101,6 +101,74 @@ const canon = (n: string) => {
   return n.replace(/\s+/g, ' ').trim();
 };
 
+// ── short reference: "site · trade" so a bill reads at one glance ────────
+const VENDOR_TRADE: Array<[RegExp, string]> = [
+  [/daco|bona/i, 'Tiling/Hacking'],
+  [/hue\s*work/i, 'Electrical'],
+  [/hua\s*khian/i, 'Sanitary/Materials'],
+  [/hafary|soon bee huat/i, 'Tiles'],
+  [/dynaglass/i, 'Glass'],
+  [/yan\s*ho/i, 'Aluminium'],
+  [/pd door|smart door|ether space/i, 'Doors'],
+  [/song aik/i, 'Timber'],
+  [/j&i/i, 'Cleaning'],
+  [/plumbing/i, 'Plumbing'],
+  [/yong\s*li|electrical/i, 'Electrical'],
+  [/carpentry/i, 'Carpentry'],
+  [/aubo|vk3d|cooptech|erdeve/i, '3D Render'],
+  [/visual impact/i, 'Photography'],
+  [/window film/i, 'Window Film'],
+  [/pest/i, 'Pest Control'],
+  [/curtain/i, 'Curtains'],
+  [/wonderbath/i, 'Bathroom'],
+  [/vlux/i, 'Lighting'],
+  [/keding/i, 'Boards'],
+  [/better guys|bg glass/i, 'Glass'],
+  [/temax/i, 'Hardware'],
+  [/innostruct/i, 'Works'],
+];
+const TRADE_KEYWORDS: Array<[RegExp, string]> = [
+  [/hack/i, 'Hacking'], [/tiling/i, 'Tiling'], [/carpentry|wardrobe/i, 'Carpentry'],
+  [/plumb/i, 'Plumbing'], [/electric/i, 'Electrical'], [/glass|shower/i, 'Glass'],
+  [/vinyl/i, 'Vinyl'], [/table\s*top/i, 'Tabletop'], [/door/i, 'Doors'],
+  [/paint/i, 'Painting'], [/clean/i, 'Cleaning'], [/curtain/i, 'Curtains'],
+  [/3d|render/i, '3D Render'], [/photo|video/i, 'Photography'], [/aircon/i, 'Aircon'],
+  [/epoxy|expoxy/i, 'Epoxy'], [/insect|mesh/i, 'Insect Mesh'], [/light/i, 'Lighting'],
+  [/moving/i, 'Moving'], [/showroom/i, 'Showroom'],
+];
+function shortRef(supplier: string, description: string | null | undefined): string | null {
+  let d = String(description || '');
+  // Feb/Mar payment-batch aggregates → "Feb batch · Trade" (site regex would
+  // otherwise bite the "(aggregate of N docs)" tail).
+  const batch = d.match(/^Bi-weekly batch (\d{4})-(\d{2})-\d{2}/);
+  if (batch) {
+    const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][Number(batch[2]) - 1];
+    let trade: string | null = null;
+    for (const [re, t] of TRADE_KEYWORDS) if (re.test(d)) { trade = t; break; }
+    if (!trade) for (const [re, t] of VENDOR_TRADE) if (re.test(supplier)) { trade = t; break; }
+    return [`${mon} batch`, trade].filter(Boolean).join(' · ');
+  }
+  // site: leading block + street words — "532B BISHAN ST 14 #15-124" → "532B Bishan"
+  let site: string | null = null;
+  const m = d.match(/(\d{1,4}[A-Z]?)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)/);
+  if (m && !/invoice|payment|company|statement|batch/i.test(m[2])) {
+    const w = m[2].split(/\s+/).map((x) => x[0].toUpperCase() + x.slice(1).toLowerCase());
+    site = `${m[1]} ${w.join(' ')}`.replace(/\s+(St|Street|Rd|Road|Dr|Drive|Ave|Lane|Walk|Central|Field|Way|Ctrl)$/i, '');
+  }
+  if (/showroom/i.test(d)) site = site || 'Showroom';
+  let trade: string | null = null;
+  for (const [re, t] of TRADE_KEYWORDS) if (re.test(d)) { trade = t; break; }
+  if (!trade) for (const [re, t] of VENDOR_TRADE) if (re.test(supplier)) { trade = t; break; }
+  const parts = [site, trade].filter(Boolean);
+  if (parts.length) return parts.join(' · ');
+  return d ? d.slice(0, 40) : null;
+}
+
+// Known duplicates the sheets carry (same invoice listed twice) — never import.
+// jan-0 = Bona BINV-2510-006 (also in the April sheet); xl-72 = DINV-2605-021
+// under Daco (their remark: invoice reassigned to Bona Design).
+const SKIP_SOURCE_ROWS = new Set(['jan-0', 'xl-72']);
+
 async function main() {
   const org = await prisma.organization.findUnique({ where: { name: ORG_NAME }, select: { id: true } });
   if (!org) throw new Error(`${ORG_NAME} not found`);
@@ -183,11 +251,20 @@ async function main() {
     const supplierName = canon(b.supplier);
     const supplierId = await ensureSupplier(supplierName);
     const billNumber = String(b.billNumber).trim();
+    if (SKIP_SOURCE_ROWS.has(b.id)) { skipped++; continue; }
+    const ref = shortRef(supplierName, b.description);
     const exists = await prisma.document.findFirst({
       where: { organizationId: orgId, type: 'BILL', config: { path: ['inboundMeta', 'sourceRow'], equals: b.id } },
-      select: { id: true },
+      select: { id: true, config: true },
     });
-    if (exists) { skipped++; continue; }
+    if (exists) {
+      // Already imported — just stamp the short reference if it's missing.
+      const storedRef = (exists.config as any)?.reference;
+      if (APPLY && ref && (!storedRef || /^\d+ Docs/.test(storedRef))) {
+        await prisma.document.update({ where: { id: exists.id }, data: { config: { ...(exists.config as any), reference: ref } as unknown as Prisma.InputJsonValue } });
+      }
+      skipped++; continue;
+    }
 
     const amount = ROUND(b.amount);
     const isSpr = b.kind === 'SPR';
@@ -207,7 +284,7 @@ async function main() {
     const config: any = {
       supplierId, supplier: { id: supplierId, name: supplierName },
       billDate: b.billDate, date: b.billDate, dueDate: null,
-      reference: null, description: b.description || null, currency: 'SGD',
+      reference: ref, description: b.description || null, currency: 'SGD',
       subtotal: amount, taxAmount: 0, totalAmount: amount, amountPaid: paid ? amount : 0,
       amountsAre: 'NO_TAX',
       documentInfo: { taxCode: null, gstPercent: null, absorbTax: false },
