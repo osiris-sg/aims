@@ -21,7 +21,7 @@ Everything is on the `elroy/dev` working tree, **uncommitted**, dev DB only. Sta
 | 0.3 | CIEL org on dev (modules: Sales/Projects/Customers/Accounting; roles superadmin/Management/Designer; tax off; CoA; numbering) | ✅ Done & tested | `scripts/setup-ciel-org.ts`; guru viewed the org |
 | 0.4 | Deliveries promoted to a real module so CIEL can hide it | ✅ Done & tested | catalog + `promote-deliveries-module.ts`; guru saw it disappear |
 | 0.5 | Quotation numbering `CI{YY}-{###}` | 🟡 Built | serial starts at 001 — **guru to give the real next number** |
-| 0.6 | CIEL company profile: logo, address, phone, bank details, PayNow QR | ⬜ Not started | needed by invoices, sign page, schedule header |
+| 0.6 | CIEL company profile: logo, address, phone, bank details, PayNow QR | 🟡 Logo DONE (3 Sep) | Original_Black.png → S3, org.logo set dev+staging (`scripts/set-ciel-logo.ts`, prod via guru's !); appears on quotation/VO/invoice headers. Still needed: address, phone, bank, PayNow QR |
 | 0.7 | CIEL users: Mike Leong + Levi Choo — Clerk accounts + Management **and** Designer roles + WhatsApp numbers on member profile | 🟡 dev+staging DONE (31 Aug, `scripts/setup-ciel-users.ts`); prod via guru's `!` | shared Clerk instance → same user ids everywhere |
 | 0.8 | Deploy to staging → prod | 🟡 DB DONE on both (2026-08-31): staging org `25134abf-…`, prod org `09e55c23-e031-4254-8152-a373597b2cb3`, schema + 53-item library + deliveries rollout on each; **CODE still uncommitted — portal/API not deployed anywhere** | code push = release-captain flow |
 
@@ -92,7 +92,7 @@ Everything is on the `elroy/dev` working tree, **uncommitted**, dev DB only. Sta
 
 | # | Item | Status | Notes |
 |---|---|---|---|
-| 5.1 | `VARIATION_ORDER` doc in quotation format, own cost/margin, linked to parent quote, e-signable, adds to contract sum + Payments tab, "paid before work" rule | ⬜ Not started | Payments tab has a manual "Add VO" placeholder line for now |
+| 5.1 | `VARIATION_ORDER` doc, linked to parent quote, adds to contract sum + Payments tab | 🟡 Built (2 Sep, see 9.4) | additions/removals editor + their sheet print + Confirm→vo milestone; NOT e-signable yet (open question), no "paid before work" gate |
 
 ## 6. WhatsApp agent (designer-side)
 
@@ -110,12 +110,12 @@ Everything is on the `elroy/dev` working tree, **uncommitted**, dev DB only. Sta
 |---|---|---|---|
 | 7.1 | Leads: auto-capture from **EZiD** emails + **Network Singapore** lead-programme PDFs via docs+{org}@ ingestion into Sales → Leads | 🟡 Built (31 Aug) | `Lead` model, `src/leads`, hook in ingestion-email; needs EmailIngestConfig enabled per org |
 | 7.1a | Dead/replacement handling: statuses incl. Dead + Replacement requested; Network 24h contact chip + 14-day replacement window shown | 🟡 Built (31 Aug) | |
-| 7.1b | Create quotation from a lead (pre-filled, linked back) | 🟡 Built (31 Aug) | |
+| 7.1b | Create quotation from a lead | 🟡 Superseded (2 Sep) | convert now creates the PROJECT first (9.1); quotation raised from the project page, pre-filled + lead-tagged |
 | 7.2 | WhatsApp notify management → assign designer by reply → designer notified | ⬜ Not started | |
 | 7.3 | Status flow per owners' spec: Unqualified → Engaging (on assign) → Dead (mandatory no-reply proof upload, stored for replacement claim) \| Converted (auto-creates + links quotation) | 🟡 Built (31 Aug) | stat chips: unqualified/engaging/converted %/dead + per-designer ratios |
 | 7.4 | Metrics: taken/returned/signed %, per-designer conversion ratio, cost per lead ($100), CAC | ⬜ Not started | data-building first, targets/alerts after 1–2 months |
 | 7.5 | Signed lead → project (happens via the quotation e-sign flow) | 🟡 Covered | lead → quotation → sign → project |
-| 7.6 | ID dashboard replacing rental widgets | ⬜ Not started | |
+| 7.6 | ID dashboard replacing rental widgets | 🟡 Built (3 Sep, see 9.13) | |
 | 7.7 | 2nd lead platform (starts "next week" per meeting) | ⬜ Not started | |
 
 ## 8. Library (Phase 6)
@@ -132,7 +132,7 @@ Everything is on the `elroy/dev` working tree, **uncommitted**, dev DB only. Sta
 | 9.1a | Commission % per designer (Edit User) + picked up when assigning them to a project | 🟡 Built (31 Aug) | |
 | 9.2 | $1,000 signing incentive deducted from final commission | ⬜ Not started | |
 | 9.3 | **Advance request + management approval**, offset at handover (SOW item) | ⬜ Not started | "Advanced" line already on P&L |
-| 9.4 | Per-designer targets / bonus & rewards rules | ⬜ Not started | still undefined — Pocket reminder 30 Aug |
+| 9.4 | Per-designer targets / bonus & rewards rules | 🟡 Targets built (3 Sep, see Phase-9 9.14) | bonus/rewards rules still undefined |
 
 ## 10. Marketing (Phase 8)
 

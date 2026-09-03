@@ -325,7 +325,7 @@ export default function RecurringInvoicesView() {
       name: t.name, customerId: t.customerId, documentTemplateId: t.documentTemplateId, numberFormatId: t.numberFormatId || "",
       frequency: t.frequency, nextRunDate: toLocalInput(t.nextRunDate), endDate: t.endDate?.slice(0, 10) || "",
       autoSend: t.autoSend, isActive: t.isActive, notes: t.config?.notes || "", reference: t.config?.reference || "", nextRunNo: t.nextRunNo ?? 1, emailOverrides: t.config?.email || null,
-      items: Array.isArray(t.config?.items) && t.config.items.length ? t.config.items.map((i: any) => ({ description: i.description || "", quantity: i.quantity ?? 1, unitPrice: i.unitPrice ?? 0, accountCode: i.accountCode || "" })) : blank.items,
+      items: Array.isArray(t.config?.items) && t.config.items.length ? t.config.items.map((i: any) => ({ description: i.description || "", quantity: i.quantity ?? "", unitPrice: i.unitPrice ?? "", accountCode: i.accountCode || "" })) : blank.items,
       projectId: t.projectId || "", projectDeploymentId: t.projectDeploymentId || "", sourceDocumentId: t.sourceDocumentId || "", projectName: "",
     });
     setOpen(true);
@@ -352,10 +352,25 @@ export default function RecurringInvoicesView() {
         // Saved email settings (recipients/subject/body) for auto-send runs —
         // tokens in subject/body resolve per run.
         ...(form.emailOverrides ? { email: form.emailOverrides } : {}),
-        items: form.items.filter((r: Row) => r.description.trim()).map((r: Row) => ({
-          itemCode: "", description: r.description, quantity: Number(r.quantity) || 1, unitPrice: Number(r.unitPrice) || 0,
-          amount: (Number(r.quantity) || 1) * (Number(r.unitPrice) || 0), ...(r.accountCode ? { accountCode: r.accountCode } : {}),
-        })),
+        items: form.items.filter((r: Row) => r.description.trim()).map((r: Row, idx: number) => {
+          // Description-only lines keep BLANK qty/price/amount (null) — the
+          // print convention; coercing to 1/0/0 flattened them (guru 2026-09-03).
+          const qBlank = r.quantity === null || r.quantity === undefined || String(r.quantity).trim() === "";
+          const pBlank = r.unitPrice === null || r.unitPrice === undefined || String(r.unitPrice).trim() === "";
+          const qty = qBlank ? null : Number(r.quantity);
+          const up = pBlank ? null : Number(r.unitPrice);
+          const priced = up != null && up !== 0;
+          const prevItem: any = (editing?.config?.items || [])[idx] || {};
+          return {
+            itemCode: prevItem.itemCode || "",
+            description: r.description,
+            quantity: qty,
+            unitPrice: priced ? up : (qty != null ? 0 : null),
+            amount: priced ? Math.round((qty ?? 1) * up * 100) / 100 : (qty != null ? 0 : null),
+            ...(priced ? { tax: prevItem.tax ?? 9 } : {}),
+            ...(r.accountCode ? { accountCode: r.accountCode } : {}),
+          };
+        }),
       };
       const payload = {
         name: form.name.trim(), customerId: form.customerId, documentTemplateId: form.documentTemplateId,

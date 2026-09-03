@@ -84,16 +84,10 @@ export default function Layout(props: Props) {
                   width: "100%",
                   display: "flex",
                   flexDirection: "column",
-                  // Document editor pages are viewport-locked (Xero-style):
-                  // this column owns exactly one viewport height and the
-                  // editor's inner regions scroll — the page itself never
-                  // scrolls, whatever the monitor size. Other pages keep
-                  // normal page scroll.
-                  height: isDocumentPage ? "100dvh" : "100%",
-                  // overflow auto (not hidden): if a very short screen can't fit
-                  // the editor's minimum chrome, it scrolls instead of trapping
-                  // controls below the fold.
-                  ...(isDocumentPage && { minHeight: 0, overflow: "auto" }),
+                  // Document pages scroll like every other page (guru
+                  // 2026-09-03, Xero-style: the PAGE scrolls, the items table
+                  // does not have its own inner scrollbar).
+                  height: "100%",
                 }}
               >
                 <TopNavBar />

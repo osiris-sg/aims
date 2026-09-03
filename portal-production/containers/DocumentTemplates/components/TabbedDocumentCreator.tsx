@@ -63,6 +63,7 @@ import {
   Payment as PaymentIcon,
   CloudSync as CloudSyncIcon,
   NavigateBefore as NavigateBeforeIcon,
+  ExpandMore as ExpandMoreIcon,
   Undo as UndoIcon,
   Redo as RedoIcon,
   NavigateNext as NavigateNextIcon,
@@ -2103,6 +2104,38 @@ export default function TabbedDocumentCreator({
     setItemsTabValue(newValue);
   };
 
+  // Collapsed-fields summary (guru 2026-09-03): mirrors the FORM — each
+  // visible row's label + its value ("Invoice No. BI…", "Date 03/09/2026"),
+  // dot-separated. Empty rows and the side totals panel (rate/currency/tax
+  // flags — the cryptic "1 · SGD · Y · N") are skipped.
+  const summarizeTabFields = (tab: any): string => {
+    const getPath = (obj: any, path: string) => String(path).split(".").reduce((o: any, k: string) => (o == null ? o : o[k]), obj);
+    // Totals-panel keys — rendered in the right-hand money panel, not the form.
+    const EXCLUDED = /(^|\.)(rate|currency|discount|discountPercent|discountAmount|disc|taxApplicable|absorbTax|taxInclusive|gstPercent|gst|exchangeRate)$/i;
+    const parts: string[] = [];
+    const push = (label: string, v: any) => {
+      const t = String(v ?? "").trim();
+      if (!t) return;
+      const entry = label ? `${label} ${t}` : t;
+      if (!parts.includes(entry)) parts.push(entry);
+    };
+    if (formData.customer?.name) push("", formData.customer.name);
+    for (const f of tab?.fields || []) {
+      const name = f?.fieldName || "";
+      if (!name || name === "customer" || EXCLUDED.test(name)) continue;
+      let v: any = getPath(formData, name);
+      if (v === undefined) v = getPath((formData as any).documentInfo || {}, name);
+      if (v && typeof v === "object") v = v.name || v.label || null;
+      if (v === null || v === undefined || String(v).trim() === "" || typeof v === "boolean") continue;
+      const isDate = /(^|\.)(date|dueDate|deliveryDate|qinDate|woDate)$/i.test(name) || f?.fieldType === "date";
+      const text = isDate && !isNaN(new Date(v).getTime()) ? new Date(v).toLocaleDateString("en-GB") : v;
+      push(f?.displayLabel || "", text);
+    }
+    if (!parts.length) return "no details yet";
+    const shown = parts.slice(0, 8);
+    return shown.join(" \u00b7 ") + (parts.length > 8 ? ` \u00b7 +${parts.length - 8} more` : "");
+  };
+
   const getDocumentTitle = () => {
     const titles: Record<string, string> = {
       QO1: "Quotation",
@@ -4073,9 +4106,10 @@ export default function TabbedDocumentCreator({
         </Box>
       </Box>
 
-      {/* Main Content with Sidebar — minHeight:0 so this flex child can shrink
-          below its content height; without it the viewport lock clips. */}
-      <Box sx={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
+      {/* Main Content with Sidebar — content grows naturally and the PAGE
+          scrolls (guru 2026-09-03); the old viewport lock + inner-table
+          scroll is retired. */}
+      <Box sx={{ flex: 1, display: "flex", overflow: "visible" }}>
         {/* DocumentCustomizer Sidebar - Only in template edit mode */}
         {isTemplateEditMode && isToolBarOpen && (
           <Box sx={{ width: 320, borderRight: 1, borderColor: "divider", p: 2, overflow: "auto", bgcolor: "background.paper" }}>
@@ -4096,7 +4130,7 @@ export default function TabbedDocumentCreator({
 
         {/* Main Content Area */}
         {!previewMode && !isDocumentConfirmed ? (
-          <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative", display: "flex", flexDirection: "column" }}>
+          <Box sx={{ flex: 1, overflow: "visible", position: "relative", display: "flex", flexDirection: "column" }}>
             {/* Template Settings Toggle Button */}
             {isTemplateEditMode && (
               <IconButton
@@ -4171,9 +4205,8 @@ export default function TabbedDocumentCreator({
             </Box>
 
             {/* Main Tabs - Dynamic rendering based on template config.
-                Right side hosts the Hide/Show fields toggle (re-added — guru
-                2026-08-18; the button was lost in the compact-layout rework
-                while its Collapse machinery survived). */}
+                The Hide/Show fields toggle sits directly beside the tabs
+                (guru 2026-09-03 — it lived at the row's far right before). */}
             <Box sx={{ borderBottom: 1, borderColor: "divider", bgcolor: "background.paper", display: "flex", alignItems: "center" }}>
               {isLoadingFieldConfig ? (
                 <Box sx={{ p: 2, textAlign: 'center', flex: 1 }}>
@@ -4181,7 +4214,7 @@ export default function TabbedDocumentCreator({
                 </Box>
               ) : (
                 <>
-                <Tabs value={mainTabValue} onChange={handleMainTabChange} sx={{ minHeight: 36, flex: 1, "& .MuiTab-root": { minHeight: 36, py: 0 } }}>
+                <Tabs value={mainTabValue} onChange={handleMainTabChange} sx={{ minHeight: 36, "& .MuiTab-root": { minHeight: 36, py: 0 } }}>
                   {templateFieldConfig?.tabs.map((tab) => (
                     <Tab key={tab.tabId} label={tab.tabLabel} />
                   ))}
@@ -4190,11 +4223,13 @@ export default function TabbedDocumentCreator({
                     <Tab label={isRDO ? "Return Info" : "Delivery Address"} />
                   )}
                 </Tabs>
+                {/* Sits right beside the tabs — was at the far right of the
+                    row, a long mouse-trip away (guru 2026-09-03). */}
                 <Button
                   size="small"
                   onClick={() => setIsFieldsCollapsed((prev) => !prev)}
                   endIcon={isFieldsCollapsed ? <UnfoldMoreIcon /> : <UnfoldLessIcon />}
-                  sx={{ mr: 1, height: 26, py: 0, px: 1, minWidth: 0, fontSize: "0.75rem", textTransform: "none", lineHeight: 1, flexShrink: 0, color: "text.secondary" }}
+                  sx={{ ml: 1.5, height: 26, py: 0, px: 1, minWidth: 0, fontSize: "0.75rem", textTransform: "none", lineHeight: 1, flexShrink: 0, color: "text.secondary" }}
                 >
                   {isFieldsCollapsed ? "Show fields" : "Hide fields"}
                 </Button>
@@ -4208,6 +4243,35 @@ export default function TabbedDocumentCreator({
             <TabPanel key={tab.tabId} value={mainTabValue} index={index}>
               <Card sx={{ flexShrink: 0, maxHeight: isOfficialReceipt ? 420 : 320, display: "flex", flexDirection: "column" }}>
                 <CardContent sx={{ p: 1, flex: 1, overflow: "auto", "&:last-child": { pb: 1 } }}>
+                  {/* Collapsed state = one-line summary card (Xero-style —
+                      guru 2026-09-03): key details + chevron; click expands. */}
+                  {isFieldsCollapsed && (
+                    <Box
+                      onClick={() => setIsFieldsCollapsed(false)}
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 2,
+                        px: 2,
+                        py: 1.25,
+                        borderRadius: 2.5,
+                        cursor: "pointer",
+                        bgcolor: "surfaceTones.low",
+                        "&:hover": { bgcolor: "surfaceTones.high" },
+                      }}
+                    >
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography sx={{ fontWeight: 700, fontSize: "0.875rem" }}>
+                          {getDocumentTitle()} details
+                        </Typography>
+                        <Typography noWrap sx={{ color: "text.secondary", fontSize: "0.8125rem" }}>
+                          {summarizeTabFields(tab)}
+                        </Typography>
+                      </Box>
+                      <ExpandMoreIcon sx={{ color: "text.secondary", flexShrink: 0 }} />
+                    </Box>
+                  )}
                   <Collapse in={!isFieldsCollapsed} timeout="auto" unmountOnExit>
                   {/* Quotations: drop the RE (documentInfo.subject) row — replaced
                       by the Contact row per guru (2026-07-08). documentInfo.contact
@@ -5060,19 +5124,15 @@ export default function TabbedDocumentCreator({
                   </Tabs>
                 </Box>
 
-                {/* ITEMS DETAILS TAB — flexes to the remaining viewport height
-                    (no hard-coded calc offset), so any screen-size change is
-                    absorbed by the table's internal scroll, not the page. */}
+                {/* ITEMS DETAILS TAB — the table grows with its rows and the
+                    whole page scrolls, Xero-style (guru 2026-09-03). No inner
+                    table scrollbar. */}
                 <TabPanel value={itemsTabValue} index={0} grow>
                   <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 120 }}>
-                    {/* Scrollable table area — TableContainer itself scrolls so
-                        stickyHeader on the Table actually pins the column
-                        headers to the top of the scroll box on scroll. */}
-                    <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+                    <Box sx={{ display: "flex", flexDirection: "column" }}>
                       <TableContainer
                         sx={{
-                          flex: 1,
-                          overflow: "auto",
+                          overflow: "visible",
                           // Xero-style bordered grid container
                           border: `1px solid ${TABLE_GRID_COLOR}`,
                           borderRadius: 1,
@@ -5103,7 +5163,6 @@ export default function TabbedDocumentCreator({
                               borderRight: "none",
                             },
                           }}
-                          stickyHeader
                         >
                         <TableHead
                           sx={{
@@ -5114,8 +5173,7 @@ export default function TabbedDocumentCreator({
                               letterSpacing: 0,
                               textTransform: "none",
                               color: "text.primary",
-                              // Solid bg so scrolled rows don't bleed through
-                              // when stickyHeader pins the row to the top.
+                              // Solid header fill (Xero-style banded head row).
                               backgroundColor: "surfaceTones.low",
                             },
                           }}

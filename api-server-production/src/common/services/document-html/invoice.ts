@@ -45,8 +45,10 @@ export function renderInvoiceBody(data: any, organization: any): string {
   // ── company header (centred) ────────────────────────────────────────────
   const coReg = company.coRegNo ? ` Co. Reg No: ${escapeHtml(company.coRegNo)}` : '';
   const fax = company.fax ? ` Fax: ${escapeHtml(company.fax)}` : '';
+  const logo = data?.logo || organization?.logo || company?.logo || null;
   const header = `
   <div style="text-align:center;margin-bottom:16px;">
+    ${logo ? `<img src="${escapeHtml(logo)}" alt="" style="max-height:64px;max-width:240px;object-fit:contain;margin-bottom:6px;" />` : ''}
     <p style="font-size:18px;font-weight:700;margin-bottom:2.4px;letter-spacing:0.5px;">${escapeHtml(company.name || organization?.name || '')}</p>
     <p style="font-size:13px;margin-bottom:1.6px;">GST Reg No: ${escapeHtml(company.gstRegNo || organization?.registrationNumber || '')}${coReg}</p>
     <p style="font-size:13px;margin-bottom:1.6px;">${escapeHtml(company.address || organization?.address || '')}</p>

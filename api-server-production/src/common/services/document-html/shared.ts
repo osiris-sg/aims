@@ -183,6 +183,13 @@ export function pageShell(body: string): string {
     print-color-adjust: exact;
   }
   p { margin: 0; }
+  /* On SCREEN (editor preview iframes) nothing else supplies the page
+     margins, so the content hugged the edges — pad the body to the same
+     20mm/15mm geometry the PDF gets. Print/PDF keep their own margins
+     (Puppeteer PORTED_PDF_MARGIN / browser @page), so this is screen-only. */
+  @media screen {
+    body { padding: 20mm 15mm; }
+  }
   table { width: 100%; border-collapse: collapse; table-layout: auto; }
   td, th { border: none; padding: 6px 8px; font-size: 13px; vertical-align: top; }
   thead th { border-bottom: 2px solid #000; font-weight: 600; font-size: 13px; }
