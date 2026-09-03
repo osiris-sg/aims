@@ -49,6 +49,7 @@ type MilestoneDto = {
   invoiceId?: string | null;
 };
 
+const ROUND2 = (n: number) => Math.round(n * 100) / 100;
 const num = (v: any) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -645,6 +646,117 @@ export class ProjectCostingService {
       weeks: buildWeeks(items).map((w) => ({ index: w.index, days: w.days.map((d) => ({ iso: d.iso, dow: d.dow, holiday: d.holiday, work: d.work, notes: d.notes })) })),
       html: renderScheduleHtml({ projectSite: h.projectSite, contractNo: h.contractNo, manager: h.manager, contact: h.contact, orgName: h.orgName, logo: h.logo, items }).toString(),
     };
+  }
+
+  // ── designer dashboard (CIEL 09-01) ────────────────────────────────────
+  /**
+   * Per-designer stats for the ID dashboard. A caller whose ONLY org role is
+   * Designer gets just their own row (+ their open leads); everyone else sees
+   * every designer plus an "unassigned" bucket.
+   * Revenue = contract value (signed quotation + confirmed VOs) of projects
+   * STARTED this year; target from OrganizationMemberProfile.yearlySalesTarget;
+   * earnings = commissionPct × projected profit.
+   */
+  async idDashboard(organizationId: string, callerUserId?: string) {
+    const year = new Date().getFullYear();
+    let scope: 'self' | 'all' = 'all';
+    if (callerUserId) {
+      const roles = await this.prisma.userRole.findMany({
+        where: { userId: callerUserId, organizationId, isActive: true },
+        select: { role: { select: { name: true } } },
+      });
+      const names = roles.map((r) => r.role.name);
+      if (names.length > 0 && names.every((n) => n === 'Designer')) scope = 'self';
+    }
+
+    const projWhere: any = { organizationId };
+    if (scope === 'self') projWhere.designerUserId = callerUserId;
+    const projects = await this.prisma.project.findMany({
+      where: projWhere,
+      select: {
+        id: true, name: true, stage: true, status: true, designer: true, designerUserId: true,
+        commissionPct: true, startDate: true, createdAt: true,
+        documents: { where: { type: { in: QUOTATION_TYPES }, status: 'confirmed' }, select: { config: true }, orderBy: { createdAt: 'desc' }, take: 1 },
+        milestones: { select: { kind: true, amount: true, paidAmount: true } },
+        costs: { where: { status: { in: ['approved', 'pending'] } }, select: { amount: true } },
+      },
+    });
+
+    const leadWhere: any = { organizationId };
+    if (scope === 'self') leadWhere.assignedToUserId = callerUserId;
+    const leads = await this.prisma.lead.findMany({
+      where: leadWhere,
+      select: { id: true, name: true, status: true, assignedToUserId: true, assignedToName: true, source: true, phone: true, firstContactDeadline: true, receivedAt: true, projectId: true },
+      orderBy: { receivedAt: 'desc' },
+    });
+
+    const profiles = await this.prisma.organizationMemberProfile.findMany({
+      where: { organizationId },
+      select: { userId: true, yearlySalesTarget: true, commissionPct: true },
+    });
+    const profByUser = new Map(profiles.map((x) => [x.userId, x]));
+
+    type Row = {
+      userId: string | null; name: string; ongoing: number; done: number;
+      revenueYtd: number; target: number | null; projectedProfit: number; earnings: number;
+      leads: { open: number; converted: number; dead: number };
+    };
+    const rows = new Map<string, Row>();
+    const rowFor = (userId: string | null, name: string): Row => {
+      const key = userId || name || 'unassigned';
+      let r = rows.get(key);
+      if (!r) {
+        r = { userId, name: name || 'Unassigned', ongoing: 0, done: 0, revenueYtd: 0, target: userId ? (profByUser.get(userId)?.yearlySalesTarget ?? null) : null, projectedProfit: 0, earnings: 0, leads: { open: 0, converted: 0, dead: 0 } };
+        rows.set(key, r);
+      }
+      return r;
+    };
+
+    for (const pj of projects) {
+      const r = rowFor(pj.designerUserId, pj.designer || 'Unassigned');
+      const completed = pj.stage === 'completed' || pj.status === 'completed';
+      if (completed) r.done += 1;
+      else r.ongoing += 1;
+      const cfg: any = pj.documents[0]?.config || null;
+      const quoteTotal = num(cfg?.documentInfo?.grandTotal);
+      const voTotal = pj.milestones.filter((m) => m.kind === 'vo').reduce((x, m) => x + num(m.amount), 0);
+      const contract = quoteTotal + voTotal;
+      const started = pj.startDate || pj.createdAt;
+      if (started && new Date(started).getFullYear() === year) r.revenueYtd += contract;
+      const cost = pj.costs.reduce((x, c) => x + num(c.amount), 0);
+      const projected = contract - cost;
+      r.projectedProfit += projected;
+      const pct = pj.commissionPct ?? (pj.designerUserId ? profByUser.get(pj.designerUserId)?.commissionPct : null) ?? DEFAULT_COMMISSION_PCT;
+      r.earnings += Math.round(projected * pct) / 100;
+    }
+    for (const l of leads) {
+      const r = rowFor(l.assignedToUserId, l.assignedToName || 'Unassigned');
+      if (l.status === 'converted') r.leads.converted += 1;
+      else if (l.status === 'dead') r.leads.dead += 1;
+      else r.leads.open += 1;
+    }
+
+    const designers = [...rows.values()].sort((a, b) => b.revenueYtd - a.revenueYtd).map((r) => ({
+      ...r,
+      revenueYtd: ROUND2(r.revenueYtd),
+      projectedProfit: ROUND2(r.projectedProfit),
+      earnings: ROUND2(r.earnings),
+    }));
+    const totals = {
+      ongoing: designers.reduce((x, r) => x + r.ongoing, 0),
+      done: designers.reduce((x, r) => x + r.done, 0),
+      revenueYtd: ROUND2(designers.reduce((x, r) => x + r.revenueYtd, 0)),
+      target: designers.some((r) => r.target != null) ? ROUND2(designers.reduce((x, r) => x + (r.target || 0), 0)) : null,
+      projectedProfit: ROUND2(designers.reduce((x, r) => x + r.projectedProfit, 0)),
+      earnings: ROUND2(designers.reduce((x, r) => x + r.earnings, 0)),
+    };
+    // Open leads list (the actionable ones) — for the "my leads" table.
+    const myLeads = leads
+      .filter((l) => l.status === 'unqualified' || l.status === 'engaging')
+      .slice(0, 12)
+      .map((l) => ({ id: l.id, name: l.name, status: l.status, source: l.source, phone: l.phone, assignedToName: l.assignedToName, firstContactDeadline: l.firstContactDeadline, receivedAt: l.receivedAt }));
+
+    return { scope, year, designers, totals, myLeads };
   }
 
   // ── Lead → Project → Quotation (CIEL 09-01) ───────────────────────

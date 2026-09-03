@@ -35,6 +35,8 @@ type Quote = {
   terms?: { paymentTerms?: string[]; clauses?: string[] };
   /** Set by the public /sign flow: { name, image (PNG data URL), signedAt, ip }. */
   clientSignature?: { name?: string; image?: string; signedAt?: string; ip?: string | null } | null;
+  /** Designer counter-signature (office side, after the client signs). */
+  designerSignature?: { name?: string; image?: string; signedAt?: string } | null;
 };
 
 const CSS = `
@@ -226,12 +228,21 @@ export function renderIdQuotationBody(data: any, organization: any): string {
     : `<div class="line">Agreed &amp; accepted by client</div>
        ${escapeHtml(h.clientName || '')}<br/>Date: ______________________`;
 
+  const ds: any = data?.designerSignature || quote?.designerSignature || null;
+  const dsImg = ds?.image && /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(ds.image) ? ds.image : null;
+  const preparedBlock = ds
+    ? `${dsImg ? `<img src="${dsImg}" alt="signature" style="max-height:56px;max-width:220px;display:block;margin-bottom:2px;" />` : ''}
+       <div class="line">Prepared by</div>
+       <b>${escapeHtml(ds.name || h.designer || '')}</b>${h.designerPhone ? `<br/>${escapeHtml(h.designerPhone)}` : ''}<br/>
+       ${escapeHtml(org.name || '')}<br/>Date: ${ds.signedAt ? escapeHtml(formatDate(ds.signedAt)) : ''}`
+    : `<div class="line">Prepared by</div>
+      <b>${escapeHtml(h.designer || '')}</b>${h.designerPhone ? `<br/>${escapeHtml(h.designerPhone)}` : ''}<br/>
+      ${escapeHtml(org.name || '')}<br/>Director`;
+
   const sign = `
   <div class="sign">
     <div class="blk">
-      <div class="line">Prepared by</div>
-      <b>${escapeHtml(h.designer || '')}</b>${h.designerPhone ? `<br/>${escapeHtml(h.designerPhone)}` : ''}<br/>
-      ${escapeHtml(org.name || '')}<br/>Director
+      ${preparedBlock}
     </div>
     <div class="blk">
       ${clientBlock}

@@ -798,6 +798,8 @@ model OrganizationMemberProfile {
   userId         String // Clerk user id
   whatsappNumber String? // digits only, e.g. 6591234567
   commissionPct  Float? // default share of project profit for this designer
+  yearlySalesTarget Float? // manager-set sales target (contract value signed per year)
+  signatureImage String? // saved signature (PNG data URL) for one-tap counter-signing
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

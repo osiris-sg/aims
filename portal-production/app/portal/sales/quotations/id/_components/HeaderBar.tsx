@@ -32,6 +32,8 @@ interface Props {
   onSendForSignature: () => void;
   canUndo: boolean;
   onUndo: () => void;
+  designerSigned?: boolean;
+  onDesignerSign?: () => void;
   signedBy?: { name: string | null; signedAt: string } | null;
   project?: { id: string; name: string } | null;
   onOpenProject?: () => void;
@@ -46,7 +48,7 @@ const SAVE_LABEL: Record<SaveState, { text: string; icon: React.ReactNode; color
   conflict: { text: "Updated elsewhere — reload", icon: <ErrorOutlineIcon fontSize="small" />, color: "error.main" },
 };
 
-export default function HeaderBar({ number, clientName, status, saveState, internalView, onInternalView, readOnly, onBack, onPreview, onConfirm, onSaveNow, onToggleRail, onSendForSignature, canUndo, onUndo, signedBy, project, onOpenProject }: Props) {
+export default function HeaderBar({ number, clientName, status, saveState, internalView, onInternalView, readOnly, onBack, onPreview, onConfirm, onSaveNow, onToggleRail, onSendForSignature, canUndo, onUndo, designerSigned, onDesignerSign, signedBy, project, onOpenProject }: Props) {
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down("md"));
   const save = SAVE_LABEL[saveState];
@@ -137,7 +139,17 @@ export default function HeaderBar({ number, clientName, status, saveState, inter
           </Tooltip>
         </>
       ) : (
-        <Chip size="small" color="primary" variant="outlined" label="Confirmed · read-only" />
+        <>
+          {onDesignerSign && (
+            <Tooltip title="Add your own signature to the signed document (Prepared by block)">
+              <Button size="small" variant="contained" startIcon={<DrawIcon />} onClick={onDesignerSign} data-tour="idq-designer-sign">
+                Sign as designer
+              </Button>
+            </Tooltip>
+          )}
+          {designerSigned && <Chip size="small" color="success" variant="outlined" icon={<DrawIcon />} label="Countersigned" />}
+          <Chip size="small" color="primary" variant="outlined" label="Confirmed · read-only" />
+        </>
       )}
     </Box>
   );

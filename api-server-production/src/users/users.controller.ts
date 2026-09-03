@@ -53,10 +53,24 @@ export class UsersController {
     return this.usersService.createUser(createUserDto);
   }
 
+  @Get('me/profile')
+  @ApiOperation({ summary: "The caller's own org-scoped profile (saved signature, target)" })
+  getOwnProfile(@Req() req: any, @UserOrganization() organization: { id: string; name: string }) {
+    return this.usersService.getOwnProfile(req.user?.id, organization.id);
+  }
+
+  // Saving one's own signature needs no users:update — it only writes the
+  // caller's row (designers counter-sign quotations with it).
+  @Patch('me/signature')
+  @ApiOperation({ summary: "Save the caller's own signature image" })
+  saveOwnSignature(@Req() req: any, @Body() body: { signatureImage: string | null }, @UserOrganization() organization: { id: string; name: string }) {
+    return this.usersService.upsertMemberProfile(req.user?.id, organization.id, { signatureImage: body?.signatureImage ?? null });
+  }
+
   @Patch(':userId/profile')
   @Permissions('users:update')
-  @ApiOperation({ summary: 'Update the org-scoped member profile (WhatsApp number, default commission %)' })
-  updateProfile(@Param('userId') userId: string, @Body() body: { whatsappNumber?: string | null; commissionPct?: number | null }, @UserOrganization() organization: { id: string; name: string }) {
+  @ApiOperation({ summary: 'Update the org-scoped member profile (WhatsApp number, default commission %, yearly sales target)' })
+  updateProfile(@Param('userId') userId: string, @Body() body: { whatsappNumber?: string | null; commissionPct?: number | null; yearlySalesTarget?: number | null }, @UserOrganization() organization: { id: string; name: string }) {
     return this.usersService.upsertMemberProfile(userId, organization.id, body || {});
   }
 

@@ -25,6 +25,7 @@ import SummaryPanel from "../_components/SummaryPanel";
 import TermsDialog from "../_components/TermsDialog";
 import PreviewDialog from "../_components/PreviewDialog";
 import SignLinkDialog from "../_components/SignLinkDialog";
+import DesignerSignDialog from "../_components/DesignerSignDialog";
 
 const RAIL_W = 264;
 const INTERNAL_KEY = "aims-idq-internal-view";
@@ -52,6 +53,7 @@ export default function IdQuotationEditorPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [customer, setCustomer] = useState<any | null>(null);
   const [signOpen, setSignOpen] = useState(false);
+  const [designerSignOpen, setDesignerSignOpen] = useState(false);
   const [signedBy, setSignedBy] = useState<{ name: string | null; signedAt: string } | null>(null);
   const [project, setProject] = useState<{ id: string; name: string } | null>(null);
 
@@ -68,6 +70,7 @@ export default function IdQuotationEditorPage() {
   quoteRef.current = quote;
 
   const readOnly = doc?.status === "confirmed";
+  const designerSigned = !!(doc?.config?.designerSignature);
 
   // ── load ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -508,6 +511,8 @@ export default function IdQuotationEditorPage() {
         }}
         canUndo={undoLen > 0}
         onUndo={undo}
+        designerSigned={designerSigned}
+        onDesignerSign={signedBy && !designerSigned ? () => setDesignerSignOpen(true) : undefined}
         signedBy={signedBy}
         project={project}
         onOpenProject={() => project && router.push(`/portal/projects/${project.id}`)}
@@ -614,6 +619,23 @@ export default function IdQuotationEditorPage() {
         onCustom={() => {
           if (palette) addItemToArea(palette.sectionId, palette.areaId, emptyItemSafe());
           setPalette(null);
+        }}
+      />
+
+      <DesignerSignDialog
+        open={designerSignOpen}
+        docId={doc.id}
+        defaultName={quote.header.designer || ""}
+        onClose={() => setDesignerSignOpen(false)}
+        onSigned={async () => {
+          try {
+            const fresh = await api.getDocument(doc.id);
+            setDoc(fresh);
+            versionRef.current = fresh.version ?? versionRef.current;
+            setPreviewRev((r) => r + 1);
+          } catch {
+            /* display refresh only */
+          }
         }}
       />
 

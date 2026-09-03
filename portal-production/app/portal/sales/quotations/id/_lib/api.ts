@@ -107,6 +107,10 @@ export function useIdQuoteApi() {
       signLinkStatus: (id: string) =>
         request<{ active: { url: string; expiresAt: string | null; createdAt: string } | null; signed: { signedAt: string; signerName: string | null } | null }>(`/documents/${id}/sign-link`),
       revokeSignLink: (id: string) => request(`/documents/${id}/sign-link/revoke`, { method: "POST" }),
+      // Designer counter-signature + own saved signature (CIEL 09-01)
+      designerSign: (id: string, body: { signatureImage: string; name?: string; saveToProfile?: boolean }) =>
+        request(`/documents/${id}/designer-signature`, { method: "POST", body: JSON.stringify(body) }),
+      getOwnProfile: () => request<{ whatsappNumber: string | null; commissionPct: number | null; yearlySalesTarget: number | null; signatureImage: string | null }>(`/users/me/profile`),
       getProject: (id: string) => request<any>(`/projects/${id}`),
       ensureProject: (id: string) => request<{ projectId: string; name: string; created: boolean }>(`/documents/${id}/ensure-project`, { method: "POST" }),
       deleteDocument: (id: string) => request(`/documents/delete/${id}`, { method: "DELETE" }),

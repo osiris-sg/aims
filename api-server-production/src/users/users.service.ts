@@ -89,6 +89,7 @@ export class UsersService {
             name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || clerkUser.username || `User ${userId}`,
             whatsappNumber: profile?.whatsappNumber ?? null,
             commissionPct: profile?.commissionPct ?? null,
+            yearlySalesTarget: profile?.yearlySalesTarget ?? null,
             roles: roles.map((ur) => ({
               id: ur.role.id,
               name: ur.role.name,
@@ -107,6 +108,7 @@ export class UsersService {
             name: `User ${userId}`,
             whatsappNumber: profile?.whatsappNumber ?? null,
             commissionPct: profile?.commissionPct ?? null,
+            yearlySalesTarget: profile?.yearlySalesTarget ?? null,
             roles: roles.map((ur) => ({
               id: ur.role.id,
               name: ur.role.name,
@@ -132,21 +134,37 @@ export class UsersService {
    * messages against, and a designer's default commission share. Upsert —
    * only provided fields change.
    */
-  async upsertMemberProfile(userId: string, organizationId: string, dto: { whatsappNumber?: string | null; commissionPct?: number | null }) {
+  async upsertMemberProfile(userId: string, organizationId: string, dto: { whatsappNumber?: string | null; commissionPct?: number | null; yearlySalesTarget?: number | null; signatureImage?: string | null }) {
     const whatsappNumber = dto.whatsappNumber !== undefined ? (dto.whatsappNumber ? dto.whatsappNumber.replace(/\D/g, '') : null) : undefined;
+    if (dto.signatureImage && !/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(dto.signatureImage)) {
+      throw new BadRequestException('signatureImage must be a PNG/JPEG data URL');
+    }
     return this.prisma.organizationMemberProfile.upsert({
       where: { organizationId_userId: { organizationId, userId } },
       update: {
         whatsappNumber,
         commissionPct: dto.commissionPct !== undefined ? dto.commissionPct : undefined,
+        yearlySalesTarget: dto.yearlySalesTarget !== undefined ? dto.yearlySalesTarget : undefined,
+        signatureImage: dto.signatureImage !== undefined ? dto.signatureImage : undefined,
       },
       create: {
         organizationId,
         userId,
         whatsappNumber: whatsappNumber ?? null,
         commissionPct: dto.commissionPct ?? null,
+        yearlySalesTarget: dto.yearlySalesTarget ?? null,
+        signatureImage: dto.signatureImage ?? null,
       },
     });
+  }
+
+  /** Own org-scoped profile (signature, target) — for the editor's counter-sign dialog. */
+  async getOwnProfile(userId: string, organizationId: string) {
+    const p = await this.prisma.organizationMemberProfile.findUnique({
+      where: { organizationId_userId: { organizationId, userId } },
+      select: { whatsappNumber: true, commissionPct: true, yearlySalesTarget: true, signatureImage: true },
+    });
+    return p || { whatsappNumber: null, commissionPct: null, yearlySalesTarget: null, signatureImage: null };
   }
 
   async getUserRoles(userId: string, organizationId: string) {

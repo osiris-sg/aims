@@ -4,7 +4,7 @@
 // client + site, designer, stage, contract sum, collected/outstanding, margin.
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import MainCard from "@/components/MainCard";
@@ -35,6 +35,11 @@ export default function IdProjectList() {
   // New project (CIEL 09-01): projects start BEFORE the quotation — from an
   // assigned lead, a referral, or the designer's own client.
   const [createOpen, setCreateOpen] = useState(false);
+  // Dashboard's "Create project" deep-links here with ?new=1 → open the dialog.
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    if (searchParams?.get("new") === "1") setCreateOpen(true);
+  }, [searchParams]);
   const [creating, setCreating] = useState(false);
   const [leads, setLeads] = useState<any[]>([]);
   const [designers, setDesigners] = useState<Array<{ id: string; name: string }>>([]);

@@ -50,6 +50,14 @@ export class IdProjectsListController {
     return this.service.list(orgId(req), { page: Number(page) || 1, limit: Number(limit) || 20, search, stage, designer, callerUserId: req.user?.id });
   }
 
+  // Designer dashboard (CIEL 09-01): own stats for pure Designers, all
+  // designers for management.
+  @Get('dashboard')
+  @Permissions('projects:read')
+  dashboard(@Req() req: RequestWithOrganization) {
+    return this.service.idDashboard(orgId(req), req.user?.id);
+  }
+
   // Lead → Project → Quotation (CIEL 09-01): create a project from an
   // assigned lead, a referral, or the designer's own client — before any
   // quotation exists.

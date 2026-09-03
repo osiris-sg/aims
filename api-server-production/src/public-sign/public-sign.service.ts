@@ -138,6 +138,49 @@ export class PublicSignService {
     return r;
   }
 
+  /**
+   * Designer counter-signature (CIEL 09-01): after the client signs, the
+   * designer stamps their own signature onto the confirmed quotation. Stored
+   * on config + quote (like clientSignature) and rendered in the "Prepared
+   * by" block. Optionally saves the image to the caller's member profile for
+   * one-tap reuse.
+   */
+  async addDesignerSignature(
+    documentId: string,
+    organizationId: string,
+    body: { signatureImage: string; name?: string; saveToProfile?: boolean },
+    userId?: string,
+  ) {
+    const image = body.signatureImage || '';
+    if (!/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(image) || image.length > MAX_SIGNATURE_BYTES) {
+      throw new BadRequestException('Please draw or pick a signature');
+    }
+    const doc = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { id: true, status: true, config: true } });
+    if (!doc) throw new NotFoundException('Document not found');
+    const cfg: any = doc.config || {};
+    if (!cfg.clientSignature && doc.status !== 'confirmed') {
+      throw new BadRequestException('The client signs first — send the quotation for signature');
+    }
+    const designerSignature = {
+      name: (body.name || cfg?.quote?.header?.designer || '').trim() || null,
+      image,
+      signedAt: new Date().toISOString(),
+      userId: userId || null,
+    };
+    await this.prisma.document.update({
+      where: { id: doc.id },
+      data: { config: { ...cfg, designerSignature, quote: { ...(cfg.quote || {}), designerSignature } }, version: { increment: 1 } },
+    });
+    if (body.saveToProfile && userId) {
+      await this.prisma.organizationMemberProfile.upsert({
+        where: { organizationId_userId: { organizationId, userId } },
+        update: { signatureImage: image },
+        create: { organizationId, userId, signatureImage: image },
+      }).catch(() => null);
+    }
+    return { signed: true, signedAt: designerSignature.signedAt };
+  }
+
   async revokeForDocument(documentId: string, organizationId: string) {
     const doc = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { id: true } });
     if (!doc) throw new NotFoundException('Document not found');

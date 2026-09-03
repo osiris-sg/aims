@@ -32,6 +32,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
   // sender matching + the designer's default commission share.
   const [whatsappNumber, setWhatsappNumber] = useState("");
   const [commissionPct, setCommissionPct] = useState("");
+  const [yearlySalesTarget, setYearlySalesTarget] = useState("");
 
   const {
     control,
@@ -97,6 +98,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
       setSelectedRoles(roleIds);
       setWhatsappNumber(user.whatsappNumber || "");
       setCommissionPct(user.commissionPct != null ? String(user.commissionPct) : "");
+      setYearlySalesTarget(user.yearlySalesTarget != null ? String(user.yearlySalesTarget) : "");
     }
   }, [user, open, setValue]);
 
@@ -169,7 +171,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
         const token = await getToken();
         await request(
           { method: "PATCH", path: `/users/${user.id}/profile` },
-          { whatsappNumber: whatsappNumber.trim() || null, commissionPct: commissionPct.trim() === "" ? null : Number(commissionPct) },
+          { whatsappNumber: whatsappNumber.trim() || null, commissionPct: commissionPct.trim() === "" ? null : Number(commissionPct), yearlySalesTarget: yearlySalesTarget.trim() === "" ? null : Number(yearlySalesTarget) },
           token ?? undefined
         );
       } catch (profileErr) {
@@ -339,6 +341,19 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                     onChange={(e) => setCommissionPct(e.target.value)}
                     placeholder="e.g. 50"
                     helperText="Applied to new projects they run"
+                    inputProps={{ inputMode: "decimal" }}
+                  />
+                </Grid>
+
+                <Grid item xs={6}>
+                  <TextField
+                    label="Yearly Sales Target (S$)"
+                    fullWidth
+                    size="small"
+                    value={yearlySalesTarget}
+                    onChange={(e) => setYearlySalesTarget(e.target.value)}
+                    placeholder="e.g. 500000"
+                    helperText="Contract value signed per year — drives the dashboard target bar"
                     inputProps={{ inputMode: "decimal" }}
                   />
                 </Grid>

@@ -50,6 +50,19 @@ export class PublicSignController {
 
   @UseGuards(ClerkAuthGuard)
   @Permissions('documents:update')
+  // Designer counter-signature (CIEL 09-01): after the client signs, the
+  // designer adds their own signature to the confirmed quotation.
+  @Post('documents/:id/designer-signature')
+  designerSignature(
+    @Param('id') id: string,
+    @Body() body: { signatureImage: string; name?: string; saveToProfile?: boolean },
+    @Req() req: any,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.service.addDesignerSignature(id, organizationId, body || ({} as any), req.user?.id);
+  }
+
   @Post('documents/:id/sign-link/revoke')
   revoke(@Param('id') id: string, @Req() req: RequestWithOrganization) {
     return this.service.revokeForDocument(id, orgId(req));

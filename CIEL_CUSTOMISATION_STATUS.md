@@ -194,9 +194,9 @@ Everything is on the `elroy/dev` working tree, **uncommitted**, dev DB only. Sta
 | 9.9 | Lump sum: combine selected lines into one client-facing line, details kept internally | 🟡 Built (2 Sep) | same-area lines only; components stored on the item, chip expands them, Unbundle restores; never printed |
 | 9.10 | Quotation template restyle to CIEL's current format + logo (high priority) | ⬜ Blocked | waiting: sample PDF + transparent/BW logo assets |
 | 9.11 | AIMS branding for CIEL org per new logo colour scheme | ⬜ Blocked | waiting: logo assets |
-| 9.12 | Designer counter-signature after client signs + saved signature on profile | ⬜ Not started | |
-| 9.13 | Designer dashboard: own projects/leads only; done/ongoing counts, revenue vs target, projected profit/earnings | ⬜ Not started | admins keep full view |
-| 9.14 | Manager-set yearly sales target per designer (editable) | ⬜ Not started | feeds 9.13 |
+| 9.12 | Designer counter-signature after client signs + saved signature on profile | 🟡 Built (3 Sep) | "Sign as designer" in editor header; draw or one-tap saved signature (OrganizationMemberProfile.signatureImage); stamps Prepared-by block on print/PDF |
+| 9.13 | Designer dashboard | 🟡 Built (3 Sep) | /id-projects/dashboard + IdDashboard.tsx replaces rental cards for ID orgs; designers self-scoped, mgmt per-designer table; Create project button top right |
+| 9.14 | Manager-set yearly sales target per designer | 🟡 Built (3 Sep) | OrganizationMemberProfile.yearlySalesTarget; Edit User field; dashboard target bars |
 | 9.15 | Projects list scoped to designer-in-charge (Designer role); Management/admin see all | 🟡 Built (2 Sep) | /id-projects filters designerUserId when caller's only org role is Designer |
 | 9.16 | WhatsApp share of sign link "copy issue" / not working | ➡ Moved | → CIEL_WHATSAPP_WORKLIST.md W1 (guru-owned) |
 | 9.17 | Invoice send to a company number failed | ✅ Fixed by guru (2 Sep) | tracked in CIEL_WHATSAPP_WORKLIST.md W2 |
